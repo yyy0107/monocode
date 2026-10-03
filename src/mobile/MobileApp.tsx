@@ -8,10 +8,6 @@ import {
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { StatusBar, Style } from "@capacitor/status-bar";
-import { Streamdown } from "streamdown";
-import { boundedCode } from "../features/files/editor/codeHighlightPlugin";
-import { harden } from "rehype-harden";
-import { defaultRehypePlugins } from "streamdown";
 import {
   ArrowLeft,
   ArrowUp,
@@ -25,41 +21,32 @@ import {
   RefreshCw,
   Settings,
   Square,
-  Terminal,
   X,
 } from "../shared/ui/icons";
-import type { Block, RuntimeMode } from "../features/sessions/model/session";
-import type { AgentModel } from "../features/sessions/model/models";
+import type { RuntimeMode } from "../features/sessions/model/session";
 import type {
   HostProject,
   HostSession,
   HostSessionSummary,
   HostCommand,
-  RemoteProvider,
 } from "../features/connections/model/protocol";
+import { MobileTranscript } from "./MobileTranscript";
 import {
-  buildQuestionReply,
-  questionAnswersComplete,
-  type UserQuestionPrompt,
-  type UserQuestionReply,
-} from "../features/sessions/model/userQuestion";
+  MobileModelControls,
+  configurationForSession,
+  firstConfiguration,
+  type MobileConfiguration,
+} from "./MobileModelControls";
+import type { HostModelCatalog } from "../features/connections/model/protocol";
 import { MobileClient, type PendingCommand } from "./client";
 import { mobileStorage } from "./storage";
+import {
+  applyThemePreference,
+  saveThemePreference,
+} from "../features/settings/model/appearance";
 
 const client = new MobileClient(mobileStorage);
-const markdownPlugins = { code: boundedCode };
-const rehypePlugins = [
-  defaultRehypePlugins.raw,
-  defaultRehypePlugins.sanitize,
-  [
-    harden,
-    {
-      allowedImagePrefixes: [],
-      allowedLinkPrefixes: ["https://", "http://", "mailto:"],
-      imageBlockPolicy: "remove",
-    },
-  ],
-];
+const readHostImage = (path: string) => client.readBinaryFile(path);
 type View = "connection" | "projects" | "sessions" | "chat";
 const modes: Record<RuntimeMode, string> = {
   supervised: "Supervised",
@@ -110,275 +97,6 @@ function Empty({
     </div>
   );
 }
-function Markdown({ block }: { block: Block }) {
-  return (
-    <div className="agent-markdown mobile-markdown">
-      <Streamdown
-        plugins={markdownPlugins}
-        rehypePlugins={
-          rehypePlugins as Parameters<typeof Streamdown>[0]["rehypePlugins"]
-        }
-        isAnimating={!!block.streaming}
-        mode={block.streaming ? "streaming" : "static"}
-        components={{
-          a: ({ children, href }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer">
-              {children}
-            </a>
-          ),
-          img: () => null,
-        }}
-      >
-        {block.text}
-      </Streamdown>
-    </div>
-  );
-}
-
-function Question({
-  prompt,
-  disabled,
-  onAnswer,
-}: {
-  prompt: UserQuestionPrompt;
-  disabled: boolean;
-  onAnswer: (reply: UserQuestionReply) => void;
-}) {
-  const [answers, setAnswers] = useState<Record<string, string[]>>({});
-  const [custom, setCustom] = useState<Record<string, string>>({});
-  return (
-    <section className="mobile-question">
-      <h3>{prompt.title || "Input needed"}</h3>
-      {prompt.questions.map((question) => (
-        <fieldset key={question.id} disabled={disabled}>
-          <legend>{question.prompt}</legend>
-          {question.options.map((option) => (
-            <label className="mobile-option" key={option.id}>
-              <input
-                type={question.multiSelect ? "checkbox" : "radio"}
-                name={question.id}
-                checked={(answers[question.id] ?? []).includes(option.id)}
-                onChange={(event) =>
-                  setAnswers((previous) => ({
-                    ...previous,
-                    [question.id]: question.multiSelect
-                      ? event.target.checked
-                        ? [...(previous[question.id] ?? []), option.id]
-                        : (previous[question.id] ?? []).filter(
-                            (id) => id !== option.id,
-                          )
-                      : [option.id],
-                  }))
-                }
-              />
-              <span>
-                {option.label}
-                {option.description && <small>{option.description}</small>}
-              </span>
-            </label>
-          ))}
-          {question.allowCustom && (
-            <input
-              aria-label={`Custom answer: ${question.header || question.prompt}`}
-              placeholder="Your answer…"
-              value={custom[question.id] ?? ""}
-              onChange={(event) =>
-                setCustom((previous) => ({
-                  ...previous,
-                  [question.id]: event.target.value,
-                }))
-              }
-            />
-          )}
-        </fieldset>
-      ))}
-      <div className="mobile-actions">
-        <button
-          className="mobile-button"
-          disabled={disabled}
-          onClick={() => onAnswer({ kind: "skipped" })}
-        >
-          Skip
-        </button>
-        <button
-          className="mobile-button mobile-primary"
-          disabled={
-            disabled ||
-            !questionAnswersComplete(prompt.questions, answers, custom)
-          }
-          onClick={() =>
-            onAnswer(buildQuestionReply(prompt.questions, answers, custom))
-          }
-        >
-          Submit
-        </button>
-      </div>
-    </section>
-  );
-}
-
-export function MobileTranscript({
-  snapshot,
-  disabled,
-  onCommand,
-}: {
-  snapshot: HostSession;
-  disabled: boolean;
-  onCommand: (command: HostCommand) => void;
-}) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const follow = useRef(true);
-  useEffect(() => {
-    const node = scroller.current;
-    if (node && follow.current) node.scrollTop = node.scrollHeight;
-  }, [snapshot.revision]);
-  const { session, runId } = snapshot;
-  const blocks = session.blocks.filter(
-    (block) => !block.internal && block.role !== "handoff",
-  );
-  return (
-    <div
-      className="mobile-transcript"
-      ref={scroller}
-      onScroll={() => {
-        const node = scroller.current!;
-        follow.current =
-          node.scrollHeight - node.scrollTop - node.clientHeight < 100;
-      }}
-      role="log"
-      aria-label="Conversation"
-      aria-live="polite"
-    >
-      {blocks.length === 0 && (
-        <Empty icon={<MessageSquare size={28} />} title="Start a conversation">
-          Ask your agent to work on this project.
-        </Empty>
-      )}
-      {blocks.map((block) => (
-        <article
-          className={`mobile-block mobile-block-${block.role}`}
-          key={block.id}
-        >
-          {block.role === "user" ? (
-            <div className="mobile-user-message">{block.text}</div>
-          ) : block.role === "tool" && !block.approval ? (
-            <details className="mobile-tool">
-              <summary>
-                <Terminal size={15} />
-                <span>{block.tool?.title || block.text || "Tool"}</span>
-                <small>{block.tool?.status}</small>
-              </summary>
-              <pre>
-                {block.tool?.detail ||
-                  block.tool?.preview?.output ||
-                  block.text}
-              </pre>
-              {block.tool?.preview?.lines && (
-                <pre>
-                  {block.tool.preview.lines
-                    .map(
-                      (line) =>
-                        `${line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "} ${line.text}`,
-                    )
-                    .join("\n")}
-                </pre>
-              )}
-            </details>
-          ) : block.role === "reasoning" ? (
-            <details className="mobile-reasoning">
-              <summary>{block.streaming ? "Thinking…" : "Thoughts"}</summary>
-              <Markdown block={block} />
-            </details>
-          ) : block.role === "approval" || block.approval ? (
-            <section className="mobile-approval">
-              <h3>
-                {block.approval?.decided
-                  ? "Approval resolved"
-                  : "Approval needed"}
-              </h3>
-              <pre>{block.text}</pre>
-              {block.approval?.decided ? (
-                <small>{block.approval.decided}</small>
-              ) : (
-                <div className="mobile-actions">
-                  {(["deny", "allow"] as const).map((decision) => (
-                    <button
-                      key={decision}
-                      className={`mobile-button ${decision === "allow" ? "mobile-primary" : ""}`}
-                      disabled={disabled || !runId || !block.approval}
-                      onClick={() =>
-                        onCommand({
-                          type: "approve",
-                          commandId: crypto.randomUUID(),
-                          sessionId: session.id,
-                          runId: runId!,
-                          requestId: block.approval!.requestId,
-                          decision,
-                        })
-                      }
-                    >
-                      {decision === "allow" ? "Allow" : "Deny"}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </section>
-          ) : block.role === "tasks" ? (
-            <section className="mobile-tasks">
-              {block.taskList?.items.map((task, index) => (
-                <div key={task.id || index}>
-                  <span>
-                    {task.status === "completed"
-                      ? "✓"
-                      : task.status === "in_progress"
-                        ? "◉"
-                        : "○"}
-                  </span>
-                  {task.text}
-                </div>
-              ))}
-            </section>
-          ) : block.role === "image" ? (
-            <p className="mobile-muted">
-              {block.image?.alt || block.image?.name || "Generated image"}
-            </p>
-          ) : (
-            <Markdown block={block} />
-          )}
-        </article>
-      ))}
-      {session.pendingQuestion && (
-        <Question
-          key={`${runId}:${session.pendingQuestion.requestId}`}
-          prompt={session.pendingQuestion}
-          disabled={disabled || !runId}
-          onAnswer={(reply) =>
-            onCommand({
-              type: "answer",
-              commandId: crypto.randomUUID(),
-              sessionId: session.id,
-              runId: runId!,
-              requestId: session.pendingQuestion!.requestId,
-              reply,
-            })
-          }
-        />
-      )}
-      {snapshot.status === "running" && (
-        <div className="mobile-working">
-          <LoaderCircle className="mobile-spin" size={14} />
-          Working…
-        </div>
-      )}
-      {snapshot.status === "interrupted" && (
-        <p className="mobile-muted">
-          The previous turn was interrupted. Send a message to continue.
-        </p>
-      )}
-    </div>
-  );
-}
-
 export function MobileApp() {
   const [view, setView] = useState<View>("connection");
   const [connected, setConnected] = useState(false);
@@ -389,9 +107,13 @@ export function MobileApp() {
   const [sessions, setSessions] = useState<HostSessionSummary[]>([]);
   const [sessionId, setSessionId] = useState<string>();
   const [snapshot, setSnapshot] = useState<HostSession>();
-  const [models, setModels] = useState<AgentModel[]>([]);
-  const [model, setModel] = useState("");
-  const [mode, setMode] = useState<RuntimeMode>("supervised");
+  const [catalog, setCatalog] = useState<HostModelCatalog>();
+  const [configuration, setConfiguration] = useState<MobileConfiguration>({
+    harness: "codex",
+    model: "",
+    modelSettings: {},
+    runtimeMode: "supervised",
+  });
   const [draft, setDraft] = useState("");
   const [folderPath, setFolderPath] = useState("");
   const [addingProject, setAddingProject] = useState(false);
@@ -405,6 +127,7 @@ export function MobileApp() {
     () => localStorage.getItem("monocode-mobile-theme") || "dark",
   );
   const navigation = useRef(0);
+  const projectGeneration = useRef(0);
   const textArea = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -412,8 +135,11 @@ export function MobileApp() {
       theme === "light" ||
       (theme === "system" &&
         window.matchMedia("(prefers-color-scheme: light)").matches);
+    saveThemePreference(
+      theme === "light" || theme === "system" ? theme : "dark",
+    );
     const apply = (isLight: boolean) => {
-      document.documentElement.classList.toggle("theme-light", isLight);
+      applyThemePreference(isLight ? "light" : "dark");
       document
         .querySelector('meta[name="theme-color"]')
         ?.setAttribute("content", isLight ? "#f7f7f7" : "#171717");
@@ -533,6 +259,11 @@ export function MobileApp() {
     try {
       await client.connect(url, token);
       const items = await client.projects();
+      projectGeneration.current += 1;
+      setProject(undefined);
+      setSessionId(undefined);
+      setSnapshot(undefined);
+      setCatalog(undefined);
       setToken("");
       setUrl(client.connection!.endpoint);
       setProjects(items);
@@ -547,9 +278,10 @@ export function MobileApp() {
   };
   const openProject = async (item: HostProject) => {
     const turn = ++navigation.current;
+    const projectTurn = ++projectGeneration.current;
     setProject(item);
     setSessions([]);
-    setModels([]);
+    setCatalog(undefined);
     setSessionId(undefined);
     setSnapshot(undefined);
     setView("sessions");
@@ -560,13 +292,18 @@ export function MobileApp() {
         client.sessions(item.id),
         client.models(item.id),
       ]);
-      if (navigation.current !== turn) return;
-      const available = Object.values(catalog.models).flatMap(
-        (items) => items ?? [],
-      );
+      if (projectGeneration.current !== projectTurn) return;
       setSessions(history);
-      setModels(available);
-      setModel(available[0]?.id ?? "");
+      setCatalog(catalog);
+      const first = firstConfiguration(catalog);
+      setConfiguration(
+        first ?? {
+          harness: "codex",
+          model: "",
+          modelSettings: {},
+          runtimeMode: "supervised",
+        },
+      );
     } catch (problem) {
       if (navigation.current === turn) setError(message(problem));
     } finally {
@@ -584,7 +321,10 @@ export function MobileApp() {
     if (!id) return;
     try {
       const result = await client.session(id);
-      if (navigation.current === turn) setSnapshot(result);
+      if (navigation.current === turn) {
+        setSnapshot(result);
+        setConfiguration(configurationForSession(result));
+      }
     } catch (problem) {
       if (navigation.current === turn) setError(message(problem));
     } finally {
@@ -596,6 +336,7 @@ export function MobileApp() {
       setBusy(true);
       setError("");
       try {
+        const completedCommand = command ?? (await client.pending())?.command;
         const receipt = command
           ? await client.dispatch(command, text)
           : await client.retryPending();
@@ -604,11 +345,23 @@ export function MobileApp() {
         // currently visible one. Navigate to its actual owning project.
         const result = await client.session(receipt.sessionId);
         const owner = projects.find((item) => item.id === result.projectId);
-        if (owner) setProject(owner);
+        if (owner) {
+          const changedProject = owner.id !== project?.id;
+          setProject(owner);
+          if (changedProject) {
+            projectGeneration.current += 1;
+            setCatalog(undefined);
+            setCatalog(await client.models(owner.id));
+          }
+        }
         setSessionId(receipt.sessionId);
         setSnapshot(result);
+        setConfiguration(configurationForSession(result));
         setView("chat");
-        if (!command || command.type === "send" || command.type === "create")
+        if (
+          completedCommand?.type === "send" ||
+          completedCommand?.type === "create"
+        )
           setDraft("");
       } catch (problem) {
         setError(message(problem));
@@ -617,7 +370,7 @@ export function MobileApp() {
         setBusy(false);
       }
     },
-    [projects],
+    [projects, project?.id],
   );
   const send = async () => {
     if (!project || !draft.trim() || busy || pending) return;
@@ -629,7 +382,9 @@ export function MobileApp() {
         text: draft,
       });
     } else {
-      const selected = models.find((item) => item.id === model);
+      const selected = catalog?.models[configuration.harness]?.find(
+        (item) => item.id === configuration.model,
+      );
       if (!selected) {
         setError(
           "No available model. Install and sign in to a provider on this Host.",
@@ -641,13 +396,10 @@ export function MobileApp() {
           type: "create",
           commandId: crypto.randomUUID(),
           projectId: project.id,
-          harness: selected.harness as RemoteProvider,
-          model: selected.id,
-          modelSettings: Object.fromEntries(
-            selected.settings?.map((setting) => [setting.id, setting.value]) ??
-              [],
-          ),
-          runtimeMode: mode,
+          harness: configuration.harness,
+          model: configuration.model,
+          modelSettings: configuration.modelSettings,
+          runtimeMode: configuration.runtimeMode,
         },
         draft,
       );
@@ -852,6 +604,7 @@ export function MobileApp() {
                 disabled={busy}
                 onClick={() => {
                   navigation.current += 1;
+                  projectGeneration.current += 1;
                   setBusy(true);
                   void client
                     .disconnect()
@@ -989,6 +742,7 @@ export function MobileApp() {
             <MobileTranscript
               key={snapshot.session.id}
               snapshot={snapshot}
+              readBinaryFile={readHostImage}
               disabled={busy || !!pending}
               onCommand={(command) => void dispatch(command)}
             />
@@ -1018,40 +772,62 @@ export function MobileApp() {
               void send();
             }}
           >
-            {!sessionId && (
-              <div className="mobile-composer-options">
-                <select
-                  aria-label="Model"
-                  value={model}
-                  onChange={(event) => setModel(event.target.value)}
-                  disabled={busy || !!pending}
-                >
-                  {models.length ? (
-                    models.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))
-                  ) : (
-                    <option value="">No models available</option>
-                  )}
-                </select>
-                <select
-                  aria-label="Permissions"
-                  value={mode}
-                  onChange={(event) =>
-                    setMode(event.target.value as RuntimeMode)
-                  }
-                  disabled={busy || !!pending}
-                >
-                  {Object.entries(modes).map(([key, label]) => (
-                    <option key={key} value={key}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <MobileModelControls
+              catalog={catalog}
+              configuration={
+                snapshot ? configurationForSession(snapshot) : configuration
+              }
+              lockedAgent={!!sessionId}
+              disabled={
+                busy || !!pending || running || (!!sessionId && !snapshot)
+              }
+              onChange={(next) => {
+                if (!sessionId) setConfiguration(next);
+                else
+                  void dispatch({
+                    type: "configure",
+                    commandId: crypto.randomUUID(),
+                    sessionId,
+                    model: next.model,
+                    modelSettings: next.modelSettings,
+                    runtimeMode: next.runtimeMode,
+                  });
+              }}
+            />
+            <div className="mobile-composer-options">
+              <select
+                aria-label="Permissions"
+                value={
+                  snapshot?.session.runtimeMode ?? configuration.runtimeMode
+                }
+                disabled={
+                  busy || !!pending || running || (!!sessionId && !snapshot)
+                }
+                onChange={(event) => {
+                  const runtimeMode = event.target.value as RuntimeMode;
+                  if (!sessionId)
+                    setConfiguration((current) => ({
+                      ...current,
+                      runtimeMode,
+                    }));
+                  else if (snapshot)
+                    void dispatch({
+                      type: "configure",
+                      commandId: crypto.randomUUID(),
+                      sessionId,
+                      model: snapshot.session.model,
+                      modelSettings: snapshot.session.modelSettings,
+                      runtimeMode,
+                    });
+                }}
+              >
+                {Object.entries(modes).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="mobile-composer-input">
               <textarea
                 ref={textArea}
@@ -1091,7 +867,10 @@ export function MobileApp() {
                     !!pending ||
                     !draft.trim() ||
                     (!!sessionId && !snapshot) ||
-                    (!sessionId && !model)
+                    (!sessionId &&
+                      !catalog?.models[configuration.harness]?.some(
+                        (item) => item.id === configuration.model,
+                      ))
                   }
                 >
                   {busy ? (

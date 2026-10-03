@@ -1,5 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { TranscriptPlatformContext } from "./TranscriptPlatform";
 import {
   createContext,
   isValidElement,
@@ -41,7 +41,7 @@ import { remarkWorkspaceFileLinks } from "../../files/model/markdownFileLinks";
 import { isAtxHeadingLine } from "../../files/model/markdownSource";
 import { useColorScheme } from "../../../shared/hooks/useColorScheme";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
-import { copyText } from "../../../platform/tauri/clipboard";
+
 import { openPathWithDefaultApp, revealPath } from "../../../platform/tauri/fs";
 import { INBOX_MEDIA_PREFIXES, isInboxMediaUrl } from "../../inbox/model/inboxMedia";
 import { isNoteImagePath } from "../../notes";
@@ -234,6 +234,7 @@ function MarkdownLink({
   dir,
   ...props
 }: MarkdownLinkProps) {
+  const { openExternal } = useContext(TranscriptPlatformContext);
   const allowRemoteMedia = useContext(RemoteMediaContext);
   const { cwd, onOpenFile, onFileContextMenu } = useContext(FileOpenContext);
   const file = href ? resolveWorkspaceFileReference(href, cwd) : undefined;
@@ -258,7 +259,7 @@ function MarkdownLink({
         }
         event.preventDefault();
         if (href && /^https?:\/\//i.test(href)) {
-          void openUrl(href).catch((error) => {
+          void openExternal(href).catch((error) => {
             console.error("Failed to open web link:", error);
           });
         }
@@ -380,6 +381,7 @@ function MarkdownCode({
 }
 
 function CodeCopyButton({ code }: { code: string }) {
+  const { copyText } = useContext(TranscriptPlatformContext);
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | null>(null);
 
@@ -465,12 +467,14 @@ function MarkdownImage({
   node: _node,
   ...props
 }: MarkdownImageProps) {
+  const { localFiles } = useContext(TranscriptPlatformContext);
   const allowRemoteMedia = useContext(RemoteMediaContext);
   const url = typeof src === "string" ? src.trim() : "";
   if (url.startsWith("data:image/")) {
     return <img {...props} src={url} alt={alt ?? ""} />;
   }
   if (isNoteImagePath(url)) {
+    if (!localFiles) return null;
     return <NoteAssetImage {...props} asset={url} alt={alt} />;
   }
   if (!allowRemoteMedia || !url || !isInboxMediaUrl(url)) return null;
@@ -520,6 +524,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   /** Show a newline inside a block as a line break, as a document does (#591). */
   hardBreaks?: boolean;
 }) {
+  const { copyText, localFiles } = useContext(TranscriptPlatformContext);
   const [fileMenu, setFileMenu] = useState<FileLinkMenu | null>(null);
   const [fileActionError, setFileActionError] = useState<string | null>(null);
   const onFileContextMenu = useCallback(
@@ -531,8 +536,12 @@ export const AgentMarkdown = memo(function AgentMarkdown({
     [],
   );
   const fileOpen = useMemo(
-    () => ({ cwd, onOpenFile, onFileContextMenu }),
-    [cwd, onOpenFile, onFileContextMenu],
+    () => ({
+      cwd,
+      onOpenFile,
+      onFileContextMenu: localFiles ? onFileContextMenu : undefined,
+    }),
+    [cwd, onOpenFile, onFileContextMenu, localFiles],
   );
   const remarkPlugins = useMemo<PluggableList>(
     () => [

@@ -20,6 +20,7 @@ import {
   memo,
   startTransition,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -59,7 +60,7 @@ import {
   isSearchTool,
   stubFilePreview,
 } from "../../../integrations/harness/core/preview";
-import { copyMessage } from "../../../platform/tauri/clipboard";
+import { TranscriptPlatformContext } from "./TranscriptPlatform";
 import type { Attachment } from "../model/session";
 import { visibleUserPrompt } from "../../orchestration/model/orchestration";
 import { playCue } from "../../settings/model/sounds";
@@ -1265,6 +1266,7 @@ function CopyTurnButton({
   attachments?: Attachment[];
   label?: string;
 }) {
+  const { copyMessage } = useContext(TranscriptPlatformContext);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [copied, setCopied] = useState(false);

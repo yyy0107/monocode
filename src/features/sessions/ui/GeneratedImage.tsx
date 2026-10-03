@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { readBinaryFile } from "../../../platform/tauri/fs";
+import { useContext, useEffect, useState } from "react";
+import { TranscriptPlatformContext } from "./TranscriptPlatform";
 import { formatFileSize, sniffImageMime } from "../../files/model/filePreview";
 import { ImageLightbox } from "../../../shared/ui/ImageLightbox";
 import type { GeneratedImageMeta } from "../model/session";
@@ -10,6 +10,7 @@ type State =
   | { status: "error" };
 
 export function GeneratedImage({ image }: { image: GeneratedImageMeta }) {
+  const { readBinaryFile } = useContext(TranscriptPlatformContext);
   const [state, setState] = useState<State>({ status: "loading" });
   const [open, setOpen] = useState(false);
 
@@ -36,7 +37,7 @@ export function GeneratedImage({ image }: { image: GeneratedImageMeta }) {
       cancelled = true;
       if (created) URL.revokeObjectURL(created);
     };
-  }, [image.path]);
+  }, [image.path, readBinaryFile]);
 
   if (state.status === "loading") {
     return (

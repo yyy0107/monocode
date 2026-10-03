@@ -15,6 +15,7 @@ import {
   type SessionSyncResponse,
   type SessionSyncChunk,
 } from "../features/connections/model/protocol";
+import { withRemoteAttachmentPreviews } from "../features/connections/model/remoteAttachmentPreviews";
 import type { MobileStorage } from "./storage";
 
 export type Connection = {
@@ -206,6 +207,16 @@ export class MobileClient {
     return this.rpc<HostModelCatalog>("models.list", { projectId });
   }
 
+  async readBinaryFile(path: string): Promise<Uint8Array> {
+    const base64 = await this.rpc<string>("workspace.run", {
+      command: "read_binary_file",
+      args: { path },
+    });
+    return Uint8Array.from(atob(base64), (character) =>
+      character.charCodeAt(0),
+    );
+  }
+
   private async sync(
     sessionId: string,
     revision?: number,
@@ -243,6 +254,12 @@ export class MobileClient {
     } catch {
       result = applySessionSync(undefined, await this.sync(sessionId));
     }
+    result = await withRemoteAttachmentPreviews(
+      this.connection!.environmentId,
+      result,
+      known,
+      (params) => this.rpc("attachments.read", params),
+    );
     this.snapshots.delete(sessionId);
     this.snapshots.set(sessionId, result);
     if (this.snapshots.size > 8)

@@ -330,134 +330,6 @@
   flex: 1;
   min-height: 0;
 }
-.mobile-transcript {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 24px 20px;
-  user-select: text;
-  overscroll-behavior: contain;
-}
-.mobile-block {
-  margin: 0 0 22px;
-  font-size: 14px;
-  line-height: 1.65;
-  overflow-wrap: anywhere;
-}
-.mobile-block-user {
-  display: flex;
-  justify-content: flex-end;
-}
-.mobile-user-message {
-  max-width: 92%;
-  white-space: pre-wrap;
-  padding: 11px 16px;
-  border-radius: 18px 18px 4px 18px;
-  background: var(--color-selection);
-}
-.mobile-markdown {
-  min-width: 0;
-}
-.mobile-markdown pre {
-  font-size: 12px;
-  overflow-x: auto;
-}
-.mobile-markdown a {
-  color: var(--link-color);
-}
-.mobile-markdown table {
-  display: block;
-  overflow-x: auto;
-}
-.mobile-markdown img {
-  display: none;
-}
-.mobile-tool,
-.mobile-reasoning {
-  font-size: 12px;
-  color: color-mix(in srgb, var(--color-content) 50%, transparent);
-}
-.mobile-tool summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
-}
-.mobile-tool summary span {
-  flex: 1;
-}
-.mobile-tool pre,
-.mobile-approval pre {
-  white-space: pre-wrap;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  user-select: text;
-}
-.mobile-reasoning summary {
-  min-height: 36px;
-}
-.mobile-approval,
-.mobile-question {
-  padding: 16px;
-  border: 1px solid var(--color-stroke);
-  border-radius: 12px;
-  background: var(--color-selection-subtle);
-  margin-bottom: 20px;
-}
-.mobile-approval h3,
-.mobile-question h3 {
-  font-size: 13px;
-  font-weight: 500;
-  margin: 0 0 12px;
-}
-.mobile-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 16px;
-}
-.mobile-actions .mobile-button {
-  flex: 1;
-}
-.mobile-question fieldset {
-  border: 0;
-  padding: 0;
-  margin: 0 0 22px;
-}
-.mobile-question legend {
-  padding: 0 0 12px;
-  font-size: 13px;
-}
-.mobile-option {
-  display: flex;
-  align-items: start;
-  gap: 10px;
-  min-height: 44px;
-  padding: 9px 0;
-}
-.mobile-option input {
-  margin-top: 4px;
-  accent-color: var(--color-accent);
-}
-.mobile-option small {
-  display: block;
-  opacity: 0.5;
-  margin-top: 5px;
-}
-.mobile-tasks > div {
-  display: flex;
-  gap: 10px;
-  font-size: 12px;
-  margin: 8px 0;
-}
-.mobile-working {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  opacity: 0.45;
-  margin: 6px 0 18px;
-}
 .mobile-composer {
   flex-shrink: 0;
   margin: 0 12px 10px;
@@ -633,4 +505,97 @@ html.theme-light .mobile-logo {
 .mobile-modal {
   max-height: calc(100dvh - 48px);
   overflow-y: auto;
+}
+
+.mobile-desktop-transcript {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  user-select: text;
+}
+.mobile-desktop-transcript > .agent-transcript {
+  flex: 1;
+  min-height: 0;
+  touch-action: pan-y;
+}
+.mobile-desktop-transcript .markdown-code-shell {
+  max-width: 100%;
+}
+.mobile-desktop-transcript .agent-markdown table {
+  display: block;
+  overflow-x: auto;
+}
+.mobile-desktop-transcript button {
+  min-height: 32px;
+}
+.mobile-jump {
+  position: absolute;
+  right: 18px;
+  bottom: 12px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 50%;
+  background: var(--color-background-base);
+  box-shadow: 0 2px 12px #0002;
+}
+.mobile-shared-question {
+  flex-shrink: 0;
+  border: 0;
+  margin: 0 12px 8px;
+  padding: 0;
+  max-height: 35dvh;
+  overflow-y: auto;
+}
+.mobile-shared-question button {
+  min-height: 36px;
+}
+.mobile-shared-question input {
+  font-size: 16px;
+}
+.mobile-agent-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mobile-agent-models label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.mobile-agent-models label > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  font-size: 10px;
+}
+.mobile-agent-models .mobile-agent-control {
+  flex: 1;
+  min-width: 90px;
+}
+.mobile-agent-models .mobile-model-control {
+  flex: 2;
+  min-width: 150px;
+}
+.mobile-agent-models .mobile-setting-control {
+  flex: 1;
+  min-width: 95px;
+}
+.mobile-app .mobile-agent-models select {
+  font-size: 12px;
+  min-height: 36px;
+  padding: 7px 9px;
+}
+.mobile-agent-hint {
+  flex-basis: 100%;
+  font-size: 10px;
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
 }

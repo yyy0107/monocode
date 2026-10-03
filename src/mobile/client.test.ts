@@ -139,6 +139,65 @@ describe("mobile Host transport", () => {
 });
 
 describe("mobile client synchronization", () => {
+  it("hydrates Host image attachments with the shared desktop preview loader and reuses their bytes", async () => {
+    const value = snapshot();
+    value.session.blocks[0] = {
+      id: "image-prompt",
+      role: "user",
+      text: "Inspect",
+      attachments: [
+        {
+          id: "image",
+          name: "image.png",
+          kind: "image",
+          mimeType: "image/png",
+          size: 3,
+          path: "/host/image.png",
+        },
+      ],
+    };
+    let imageRequests = 0;
+    const client = new MobileClient(
+      memory(),
+      transport((method, params) => {
+        if (method === "attachments.read") {
+          imageRequests++;
+          expect(params).toEqual({
+            sessionId: "session",
+            id: "image",
+            offset: 0,
+          });
+          return { data: "QUJD", size: 3, offset: 3 };
+        }
+        return params.revision === 1
+          ? { kind: "unchanged", revision: 1 }
+          : { kind: "snapshot", value };
+      }),
+    );
+    await client.connect(endpoint, token);
+    expect(
+      (await client.session("session")).session.blocks[0].attachments![0].data,
+    ).toBe("QUJD");
+    await client.session("session");
+    expect(imageRequests).toBe(1);
+  });
+  it("reads image bytes through the Host workspace protocol", async () => {
+    const rpc = vi.fn(
+      transport((method, params) => {
+        expect(method).toBe("workspace.run");
+        expect(params).toEqual({
+          command: "read_binary_file",
+          args: { path: "/project/image.png" },
+        });
+        return "QUJD";
+      }),
+    );
+    const client = new MobileClient(memory(), rpc);
+    await client.connect(endpoint, token);
+    expect(
+      Array.from(await client.readBinaryFile("/project/image.png")),
+    ).toEqual([65, 66, 67]);
+  });
   it("applies streamed deltas without losing existing blocks and preserves unchanged snapshots", async () => {
     let value: any = { kind: "snapshot", value: snapshot() };
     const rpc = vi.fn(transport(() => value));

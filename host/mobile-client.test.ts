@@ -105,6 +105,51 @@ async function setup() {
 }
 
 describe("mobile client against the real MonoCode Host", () => {
+  it("persists selected models and reasoning values, then applies changes to the next turn", async () => {
+    const s = await setup();
+    const created = await s.client.dispatch(
+      {
+        type: "create",
+        commandId: "configured-create",
+        projectId: s.project.id,
+        harness: "codex",
+        model: "codex:test",
+        modelSettings: { reasoningEffort: "high" },
+        runtimeMode: "supervised",
+      },
+      "First turn",
+    );
+    await vi.waitFor(() => expect(s.provider.send).toHaveBeenCalledTimes(1));
+    expect(s.turn().modelSettings).toEqual({ reasoningEffort: "high" });
+    s.finish();
+    await vi.waitFor(() =>
+      expect(s.store.session(created.sessionId).status).toBe("idle"),
+    );
+    await s.client.dispatch({
+      type: "configure",
+      commandId: "configured-model",
+      sessionId: created.sessionId,
+      model: "codex:another",
+      modelSettings: { reasoningEffort: "low" },
+      runtimeMode: "supervised",
+    });
+    const configured = await s.client.session(created.sessionId);
+    expect(configured.session).toMatchObject({
+      model: "codex:another",
+      modelSettings: { reasoningEffort: "low" },
+    });
+    await s.client.dispatch({
+      type: "send",
+      commandId: "configured-followup",
+      sessionId: created.sessionId,
+      text: "Continue",
+    });
+    await vi.waitFor(() => expect(s.provider.send).toHaveBeenCalledTimes(2));
+    expect(s.turn()).toMatchObject({
+      model: "codex:another",
+      modelSettings: { reasoningEffort: "low" },
+    });
+  });
   it("opens projects, creates a conversation, streams text, handles approvals and reloads its history", async () => {
     const s = await setup();
     expect(await s.client.projects()).toEqual([s.project]);

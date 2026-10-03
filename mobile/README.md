@@ -2,10 +2,13 @@
 
 A Capacitor iOS / Android client for an existing MonoCode Host. The app supports
 manual **Host URL + device token** connections, opening projects by host folder
-path, conversation history, model/permission selection for new conversations,
+path, conversation history, Agent/model/reasoning selection for new conversations,
+model/reasoning changes for idle conversations, permission selection,
 streamed messages, tool activity, approvals, questions, cancellation, and
 foreground reconnect. It shares the desktop theme tokens, fonts, icons,
-Streamdown Markdown, and bounded code highlighter. Dark, Light, and System
+the desktop AgentTranscript / AgentMarkdown renderers, question form, and
+bounded code highlighter. Clipboard and external links use native mobile
+services. Dark, Light, and System
 appearance are available in Connections. There is no QR, SSH bootstrap, or
 cloud account setup in the mobile app.
 
@@ -54,6 +57,24 @@ are separate. To share a conversation between phone and desktop, connect the
 desktop to the same Host using Settings → Connections → Connect to an existing
 host by URL (`http://127.0.0.1:3774` on the Host computer). Existing desktop-local
 history is not migrated by this change.
+
+## Agent, models, and reasoning
+
+The composer has separate Agent and Model selectors. Models and settings come
+from the connected Host's catalog, so reasoning levels are shown only when that
+model supports them. Changing models preserves compatible settings and resets
+unsupported values to the new model's defaults. Changing Agents starts with
+that Agent's own model defaults.
+
+New conversations send the chosen Agent, model, reasoning settings, and
+permission mode to the Host. Existing conversations keep their Agent; create a
+new conversation to choose another. While idle, changing their model or
+reasoning dispatches the Host's configure command and applies to subsequent
+turns. Configuration controls are disabled while a turn or command is running.
+
+Message bubbles, Markdown/code/Mermaid, tool activity, folding, approvals, and
+scroll behavior render through the same components as desktop. Mobile adds
+clipboard/link services, touch layout, and a jump-to-latest button.
 
 ## Build
 

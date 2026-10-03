@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createElement, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MobileTranscript } from "./MobileApp";
+import { MobileTranscript } from "./MobileTranscript";
 import type {
   HostCommand,
   HostSession,
@@ -96,7 +96,11 @@ describe("mobile approval interaction", () => {
       runId: "active-run",
       block: { approval: { requestId: 7, decided: "allow" } },
     });
-    expect(node.textContent).toContain("Approval resolved");
-    expect(node.querySelectorAll("button")).toHaveLength(0);
+    expect(node.querySelector(".agent-transcript")).not.toBeNull();
+    expect(
+      [...node.querySelectorAll("button")].some((button) =>
+        ["Allow", "Deny"].includes(button.textContent || ""),
+      ),
+    ).toBe(false);
   });
 });
