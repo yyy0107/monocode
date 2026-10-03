@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   useCallback,
   useEffect,
@@ -131,6 +132,7 @@ export function QuickGitPopupPicker({
   request: QuickGitRequest;
   onFinish: (id: string, choice?: QuickWorkspace) => Promise<void>;
 }) {
+  const { t: uiT } = useTranslation();
   const finished = useRef(false);
   const { choice } = request;
   const cwd = choice.tree?.path ?? choice.cwd ?? "";
@@ -165,15 +167,15 @@ export function QuickGitPopupPicker({
       <div className="flex items-center gap-3 px-3 py-3 text-xs">
         <p role="status" className="flex-1 text-content/60">
           {settled
-            ? "Couldn’t load branches for this project."
-            : "Loading branches…"}
+            ? uiT("Couldn’t load branches for this project.")
+            : uiT("Loading branches…")}
         </p>
         <button
           type="button"
           className="rounded-md px-2 py-1 text-content/70 hover:bg-content/10"
           onClick={() => finish()}
         >
-          Close
+          {uiT("Close")}
         </button>
       </div>
     );

@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useRef, useState } from "react";
 import { useProjectNotificationPreferences } from "../hooks/useProjectNotificationPreferences";
 import {
@@ -21,6 +22,7 @@ type Props = {
 };
 
 export function NotificationMuteControl({ projectIds, onChanged }: Props) {
+  const { t: uiT } = useTranslation();
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<"menu" | "custom" | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -64,23 +66,25 @@ export function NotificationMuteControl({ projectIds, onChanged }: Props) {
           className="rounded-md px-2 py-1.5 text-xs text-content/70 hover:bg-content/5 hover:text-content focus-visible:outline-2 focus-visible:outline-accent"
           onClick={() => change(undefined)}
         >
-          Resume notifications
+          {uiT("Resume notifications")}
         </button>
       ) : null}
       <SecondaryButton
         ref={trigger}
         type="button"
         aria-label={
-          muted.length ? "Change mute duration" : "Mute notifications"
+          muted.length ? uiT("Change mute duration") : uiT("Mute notifications")
         }
         aria-haspopup={open === "custom" ? "dialog" : "menu"}
         aria-expanded={open !== null}
-        title="Mute pauses all project notifications without changing your category choices."
+        title={uiT(
+          "Mute pauses all project notifications without changing your category choices.",
+        )}
         disabled={!projectIds.length}
         onClick={() => setOpen(open ? null : "menu")}
       >
         <BellOff className="size-3.5" aria-hidden="true" />
-        {muted.length ? "Muted" : "Mute"}
+        {muted.length ? uiT("Muted") : uiT("Mute")}
         <ChevronDown className="size-3 text-content/40" aria-hidden="true" />
       </SecondaryButton>
       {error ? (
@@ -92,11 +96,11 @@ export function NotificationMuteControl({ projectIds, onChanged }: Props) {
         <ExplorerMenu
           x={trigger.current.getBoundingClientRect().right - 244}
           y={trigger.current.getBoundingClientRect().bottom + 4}
-          ariaLabel="Mute notifications"
+          ariaLabel={uiT("Mute notifications")}
           width={244}
           header={
             <p className="px-2 py-1.5 text-[11px] text-content/45">
-              Mute all notifications for
+              {uiT("Mute all notifications for")}
             </p>
           }
           items={notificationMuteActions()}
@@ -119,7 +123,7 @@ export function NotificationMuteControl({ projectIds, onChanged }: Props) {
           align="end"
           width={280}
           role="dialog"
-          aria-label="Mute project notifications"
+          aria-label={uiT("Mute project notifications")}
           onDismiss={(reason) => close(reason === "escape")}
           className="overflow-y-auto p-3"
         >

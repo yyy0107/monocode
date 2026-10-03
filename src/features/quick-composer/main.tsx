@@ -16,6 +16,7 @@ import {
 import { QuickGitPopup } from "./ui/QuickGitPopup";
 import { QuickComposer } from "./ui/QuickComposer";
 import "../../styles/index.css";
+import { initUiLanguage } from "../../shared/i18n/languageSync";
 
 /**
  * Only the theme, not the workspace's glass, backgrounds, or scale: the panel
@@ -35,6 +36,7 @@ function applyAppearance() {
     .catch(() => undefined);
 }
 
+initUiLanguage();
 applyAppearance();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

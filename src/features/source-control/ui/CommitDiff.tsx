@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Loader } from "../../../shared/ui/icons";
 import {
@@ -24,6 +25,7 @@ type LoadedDiff = {
 const DIFF_LOAD_CONCURRENCY = 4;
 
 export function CommitDiff({ cwd, sha }: Props) {
+  const { t: uiT } = useTranslation();
   const [files, setFiles] = useState<GitChangedFile[] | null>(null);
   const [diffs, setDiffs] = useState<Map<string, LoadedDiff>>(new Map());
   const [error, setError] = useState<string | null>(null);
@@ -138,7 +140,7 @@ export function CommitDiff({ cwd, sha }: Props) {
   if (!cwd || cwd === "~") {
     return (
       <p className="grid h-full place-items-center text-[13px] text-content/45">
-        No project folder
+        {uiT("No project folder")}
       </p>
     );
   }
@@ -146,7 +148,9 @@ export function CommitDiff({ cwd, sha }: Props) {
     return (
       <div className="grid h-full place-items-center p-6 text-center">
         <AlertCircle className="mx-auto mb-3 size-5 text-red-400" />
-        <p className="text-[13px] text-content">Couldn’t load commit</p>
+        <p className="text-[13px] text-content">
+          {uiT("Couldn’t load commit")}
+        </p>
         <p className="mt-1 text-[12px] text-content/50">{error}</p>
       </div>
     );

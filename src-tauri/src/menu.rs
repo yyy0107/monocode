@@ -1,9 +1,10 @@
 #[cfg(target_os = "macos")]
 use serde::Deserialize;
-#[cfg(target_os = "macos")]
 use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "macos")]
+use std::sync::{LazyLock, Mutex};
 #[cfg(target_os = "macos")]
 use tauri::menu::{
     AboutMetadata, CheckMenuItem, Menu, MenuItem, MenuItemBuilder, MenuItemKind, SubmenuBuilder,
@@ -13,7 +14,7 @@ use tauri::Wry;
 use tauri::{AppHandle, Emitter};
 
 #[cfg(target_os = "macos")]
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct KeybindingOverride {
     disabled: Option<bool>,
     shortcut: Option<String>,
@@ -21,6 +22,44 @@ pub struct KeybindingOverride {
 
 #[cfg(target_os = "macos")]
 static AUTOSAVE_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(target_os = "macos")]
+static MENU_LABELS: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+#[cfg(target_os = "macos")]
+static MENU_OVERRIDES: LazyLock<Mutex<HashMap<String, KeybindingOverride>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[cfg(target_os = "macos")]
+fn native_text(text: &str) -> String {
+    MENU_LABELS
+        .lock()
+        .ok()
+        .and_then(|labels| labels.get(text).cloned())
+        .unwrap_or_else(|| text.to_string())
+}
+
+/// Rebuild the macOS menu with the same shortcuts and autosave state.
+#[tauri::command]
+pub fn menu_set_language(app: AppHandle, labels: HashMap<String, String>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        *MENU_LABELS.lock().map_err(|error| error.to_string())? = labels;
+        let overrides = MENU_OVERRIDES
+            .lock()
+            .map_err(|error| error.to_string())?
+            .clone();
+        return app
+            .set_menu(build(&app, &overrides).map_err(|error| error.to_string())?)
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, labels);
+        Ok(())
+    }
+}
 
 #[cfg(target_os = "macos")]
 fn set_autosave_menu_checked(app: &AppHandle, enabled: bool) {
@@ -81,6 +120,7 @@ pub fn keybindings_set_overrides(
     app: AppHandle,
     overrides: HashMap<String, KeybindingOverride>,
 ) -> Result<(), String> {
+    *MENU_OVERRIDES.lock().map_err(|error| error.to_string())? = overrides.clone();
     let menu = build(&app, &overrides).map_err(|error| error.to_string())?;
     // set_menu hands back the previous menu; this command only needs to know
     // whether it succeeded.
@@ -105,7 +145,7 @@ fn menu_item(
     command: &str,
     overrides: &HashMap<String, KeybindingOverride>,
 ) -> tauri::Result<MenuItem<Wry>> {
-    let builder = MenuItemBuilder::with_id(id, text);
+    let builder = MenuItemBuilder::with_id(id, native_text(text));
     let override_ = overrides.get(command);
     let builder = if override_.and_then(|value| value.disabled).unwrap_or(false) {
         builder
@@ -203,7 +243,7 @@ fn build(
         overrides,
     )?;
     let check_for_updates =
-        MenuItemBuilder::with_id("check_for_updates", "Check for Updates…").build(app)?;
+        MenuItemBuilder::with_id("check_for_updates", native_text("Check for Updates…")).build(app)?;
     let new_window = menu_item(
         app,
         "new_window",
@@ -244,8 +284,8 @@ fn build(
         "App: Search",
         overrides,
     )?;
-    let open_inbox = MenuItemBuilder::with_id("open_inbox", "Inbox").build(app)?;
-    let open_notes = MenuItemBuilder::with_id("open_notes", "Notes").build(app)?;
+    let open_inbox = MenuItemBuilder::with_id("open_inbox", native_text("Inbox")).build(app)?;
+    let open_notes = MenuItemBuilder::with_id("open_notes", native_text("Notes")).build(app)?;
     let new_tab = menu_item(
         app,
         "new_tab",
@@ -409,13 +449,13 @@ fn build(
         overrides,
     )?;
     let sidebar_opacity =
-        MenuItemBuilder::with_id("sidebar_opacity", "Sidebar Appearance…").build(app)?;
+        MenuItemBuilder::with_id("sidebar_opacity", native_text("Sidebar Appearance…")).build(app)?;
     // No accelerators here on purpose: the webview key handler owns
     // CmdOrCtrl + - 0, and a menu accelerator would fire the same command
     // a second time on top of it.
-    let zoom_in = MenuItemBuilder::with_id("zoom_in", "Zoom In").build(app)?;
-    let zoom_out = MenuItemBuilder::with_id("zoom_out", "Zoom Out").build(app)?;
-    let zoom_reset = MenuItemBuilder::with_id("zoom_reset", "Reset Zoom").build(app)?;
+    let zoom_in = MenuItemBuilder::with_id("zoom_in", native_text("Zoom In")).build(app)?;
+    let zoom_out = MenuItemBuilder::with_id("zoom_out", native_text("Zoom Out")).build(app)?;
+    let zoom_reset = MenuItemBuilder::with_id("zoom_reset", native_text("Reset Zoom")).build(app)?;
     let reload = menu_item(
         app,
         "reload",
@@ -444,13 +484,13 @@ fn build(
     let autosave = CheckMenuItem::with_id(
         app,
         "toggle_autosave",
-        "Autosave",
+        native_text("Autosave"),
         true,
         AUTOSAVE_ENABLED.load(Ordering::Relaxed),
         None::<&str>,
     )?;
 
-    let file = SubmenuBuilder::with_id(app, "file", "File")
+    let file = SubmenuBuilder::with_id(app, "file", native_text("File"))
         .item(&new_window)
         .item(&open_project)
         .item(&open_search)
@@ -475,7 +515,7 @@ fn build(
         .item(&forward_tab)
         .build()?;
 
-    let view = SubmenuBuilder::new(app, "View")
+    let view = SubmenuBuilder::new(app, native_text("View"))
         .item(&toggle_sidebar)
         .item(&toggle_session_sidebar)
         .item(&open_inbox)
@@ -496,47 +536,47 @@ fn build(
         .item(&sidebar_opacity)
         .build()?;
 
-    let edit = SubmenuBuilder::new(app, "Edit")
-        .undo()
-        .redo()
+    let edit = SubmenuBuilder::new(app, native_text("Edit"))
+        .undo_with_text(native_text("Undo"))
+        .redo_with_text(native_text("Redo"))
         .separator()
-        .cut()
-        .copy()
-        .paste()
-        .select_all()
+        .cut_with_text(native_text("Cut"))
+        .copy_with_text(native_text("Copy"))
+        .paste_with_text(native_text("Paste"))
+        .select_all_with_text(native_text("Select All"))
         .separator()
         .item(&find)
         .build()?;
 
     #[cfg(target_os = "macos")]
     {
-        let quit = MenuItemBuilder::with_id("quit", "Quit MonoCode")
+        let quit = MenuItemBuilder::with_id("quit", native_text("Quit MonoCode"))
             .accelerator("CmdOrCtrl+Q")
             .build(app)?;
-        let app_menu = SubmenuBuilder::new(app, "MonoCode")
-            .about(Some(AboutMetadata::default()))
+        let app_menu = SubmenuBuilder::new(app, native_text("MonoCode"))
+            .about_with_text(native_text("About MonoCode"), Some(AboutMetadata::default()))
             .separator()
             .item(&open_settings)
             .item(&check_for_updates)
             .separator()
-            .hide()
-            .hide_others()
-            .show_all()
+            .hide_with_text(native_text("Hide MonoCode"))
+            .hide_others_with_text(native_text("Hide Others"))
+            .show_all_with_text(native_text("Show All"))
             .separator()
             .item(&quit)
             .build()?;
         // Tauri registers this submenu via NSApp.setWindowsMenu:, which throws
         // on macOS 12 when the menu is empty and aborts the app at launch.
-        let window_menu = SubmenuBuilder::with_id(app, tauri::menu::WINDOW_SUBMENU_ID, "Window")
-            .minimize()
-            .maximize()
+        let window_menu = SubmenuBuilder::with_id(app, tauri::menu::WINDOW_SUBMENU_ID, native_text("Window"))
+            .minimize_with_text(native_text("Minimize"))
+            .maximize_with_text(native_text("Zoom"))
             .build()?;
-        let website = MenuItemBuilder::with_id("help_website", "MonoCode Website").build(app)?;
-        let github = MenuItemBuilder::with_id("help_github", "View on GitHub").build(app)?;
-        let report_bug = MenuItemBuilder::with_id("help_report_bug", "Report a Bug…").build(app)?;
+        let website = MenuItemBuilder::with_id("help_website", native_text("MonoCode Website")).build(app)?;
+        let github = MenuItemBuilder::with_id("help_github", native_text("View on GitHub")).build(app)?;
+        let report_bug = MenuItemBuilder::with_id("help_report_bug", native_text("Report a Bug…")).build(app)?;
         let request_feature =
-            MenuItemBuilder::with_id("help_request_feature", "Request a Feature…").build(app)?;
-        let help = SubmenuBuilder::with_id(app, tauri::menu::HELP_SUBMENU_ID, "Help")
+            MenuItemBuilder::with_id("help_request_feature", native_text("Request a Feature…")).build(app)?;
+        let help = SubmenuBuilder::with_id(app, tauri::menu::HELP_SUBMENU_ID, native_text("Help"))
             .item(&website)
             .item(&github)
             .separator()

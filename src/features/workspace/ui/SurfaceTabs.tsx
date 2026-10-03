@@ -1,3 +1,5 @@
+import { translate as translateUi } from "../../../shared/i18n/language";
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   GitCompare,
   GripVertical,
@@ -82,12 +84,12 @@ export function surfaceTabMenuItems(
   const close: ExplorerMenuItem = {
     kind: "item",
     id: "close",
-    label: "Close",
+    label: translateUi("Close"),
   };
   const closeOthers: ExplorerMenuItem = {
     kind: "item",
     id: "close-others",
-    label: "Close Others",
+    label: translateUi("Close Others"),
     disabled: !canCloseOthers,
   };
   if (!isFilesystemTab(file) || isChangesTab(file)) {
@@ -95,16 +97,20 @@ export function surfaceTabMenuItems(
   }
 
   return [
-    { kind: "item", id: "open-default", label: "Open in Default App" },
+    {
+      kind: "item",
+      id: "open-default",
+      label: translateUi("Open in Default App"),
+    },
     { kind: "item", id: "reveal", label: REVEAL_LABEL },
     { kind: "sep" },
-    { kind: "item", id: "copy-path", label: "Copy Path" },
+    { kind: "item", id: "copy-path", label: translateUi("Copy Path") },
     {
       kind: "item",
       id: "copy-relative-path",
-      label: "Copy Relative Path",
+      label: translateUi("Copy Relative Path"),
     },
-    { kind: "item", id: "copy-name", label: "Copy File Name" },
+    { kind: "item", id: "copy-name", label: translateUi("Copy File Name") },
     { kind: "sep" },
     close,
     closeOthers,
@@ -137,7 +143,7 @@ export function surfaceTabPresentation(
   if (isSessionChangesTab(file)) {
     return {
       name: "Session Changes",
-      label: "Session Changes",
+      label: translateUi("Session Changes"),
       iconName: "CHANGES",
       tooltip: "Changes captured for this session only",
     };
@@ -204,6 +210,7 @@ export function SurfaceTabs({
   label = "Open files",
   trailing,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const [menu, setMenu] = useState<SurfaceTabMenu | null>(null);
@@ -276,8 +283,8 @@ export function SurfaceTabs({
         {onPaneDragStart ? (
           <div
             role="button"
-            title="Drag to reorder pane"
-            aria-label="Drag to reorder pane"
+            title={uiT("Drag to reorder pane")}
+            aria-label={uiT("Drag to reorder pane")}
             tabIndex={-1}
             className="grid h-7.5 w-5 shrink-0 cursor-grab place-items-center rounded-md text-content/35 hover:bg-content/5 hover:text-content/70 active:cursor-grabbing touch-none"
             onPointerDown={(event) => {
@@ -397,15 +404,15 @@ export function SurfaceTabs({
                 {dirty ? (
                   <span
                     className="size-1.5 shrink-0 rounded-full bg-content/70"
-                    title="Unsaved changes"
-                    aria-label="Unsaved changes"
+                    title={uiT("Unsaved changes")}
+                    aria-label={uiT("Unsaved changes")}
                   />
                 ) : null}
               </button>
               <button
                 type="button"
-                title={`Close ${label}`}
-                aria-label={`Close ${label}`}
+                title={uiT("Close {value0}", { value0: String(label) })}
+                aria-label={uiT("Close {value0}", { value0: String(label) })}
                 data-no-drag
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => {
@@ -452,7 +459,7 @@ export function SurfaceTabs({
           x={menu.x}
           y={menu.y}
           items={surfaceTabMenuItems(menuFile, files.length > 1)}
-          ariaLabel="File tab actions"
+          ariaLabel={uiT("File tab actions")}
           onPick={onMenuPick}
           onClose={() => setMenu(null)}
         />

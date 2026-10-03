@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   AiIdea,
   CircleDashed,
@@ -150,20 +151,21 @@ export function ModeCommandPill({
   name: string;
   onClear: () => void;
 }) {
+  const { t: uiT } = useTranslation();
   const style = MODE_COMMAND_STYLES[name];
   if (!style?.pill) return null;
   const { Icon, pill } = style;
   return (
     <button
       type="button"
-      title={`Turn off ${pill.title}`}
-      aria-label={`Turn off ${pill.title}`}
+      title={uiT("Turn off {value0}", { value0: String(uiT(pill.title)) })}
+      aria-label={uiT("Turn off {value0}", { value0: String(uiT(pill.title)) })}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClear}
       className={`flex h-6.5 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] ${pill.className}`}
     >
       <Icon className="size-3.5" />
-      <span className="composer-mode-shimmer">{pill.label}</span>
+      <span className="composer-mode-shimmer">{uiT(pill.label)}</span>
       <X className="size-3" />
     </button>
   );

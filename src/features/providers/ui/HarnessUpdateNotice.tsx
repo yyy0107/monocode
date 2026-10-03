@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { GlassBackdrop } from "../../../app/shell/GlassBackdrop";
@@ -100,6 +101,7 @@ export function HarnessUpdateNotice({
   topOffset?: number;
   onHeightChange?: (height: number) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const panelRef = useRef<HTMLElement>(null);
   const [updates, setUpdates] = useState<HarnessUpdate[]>([]);
   const [rows, setRows] = useState<Partial<Record<HarnessId, RowState>>>({});
@@ -173,7 +175,7 @@ export function HarnessUpdateNotice({
   return createPortal(
     <section
       ref={panelRef}
-      aria-label="Harness updates"
+      aria-label={uiT("Harness updates")}
       role="status"
       style={{ zIndex: LAYER.toast, top: topOffset }}
       className="fixed right-3 isolate w-[min(340px,calc(100vw-24px))] overflow-hidden rounded-xl border border-content/10 text-content shadow-xl"
@@ -183,8 +185,8 @@ export function HarnessUpdateNotice({
         <div className="flex items-center gap-2 border-b border-stroke px-3 py-2">
           <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">
             {updates.length === 1
-              ? "Harness update available"
-              : "Harness updates available"}
+              ? uiT("Harness update available")
+              : uiT("Harness updates available")}
           </span>
           {pending.length > 1 ? (
             <button
@@ -192,12 +194,12 @@ export function HarnessUpdateNotice({
               className="rounded-md px-2 py-1 text-[11px] font-medium text-content/70 hover:bg-content/10 hover:text-content"
               onClick={() => start(pending)}
             >
-              Update all
+              {uiT("Update all")}
             </button>
           ) : null}
           <button
             type="button"
-            aria-label="Dismiss harness updates"
+            aria-label={uiT("Dismiss harness updates")}
             disabled={busy}
             className="grid size-6 shrink-0 place-items-center rounded-md text-content/40 hover:bg-content/10 hover:text-content disabled:opacity-40 disabled:hover:bg-transparent"
             onClick={dismiss}
@@ -217,8 +219,8 @@ export function HarnessUpdateNotice({
         </div>
         <p className="border-t border-stroke px-3 py-2 text-[11px] text-content/50">
           {anyUpdated
-            ? "Model picker refreshed with the new version’s models."
-            : "New models often need the latest version."}
+            ? uiT("Model picker refreshed with the new version’s models.")
+            : uiT("New models often need the latest version.")}
         </p>
       </div>
     </section>,
@@ -235,6 +237,7 @@ function HarnessUpdateRow({
   state: RowState;
   onUpdate: () => void;
 }) {
+  const { t: uiT } = useTranslation();
   return (
     <article className="px-3 py-2.5">
       <div className="flex items-center gap-2">
@@ -245,7 +248,8 @@ function HarnessUpdateRow({
         {state.status === "updated" ? (
           <span className="flex shrink-0 items-center gap-1 text-[11px] text-emerald-400">
             <Check className="size-3.5" />
-            Updated to {state.version}
+            {uiT("Updated to ")}
+            {state.version}
           </span>
         ) : (
           <>
@@ -261,12 +265,12 @@ function HarnessUpdateRow({
               {state.status === "updating" ? (
                 <>
                   <Loader className="size-3 animate-spin" />
-                  Updating
+                  {uiT("Updating")}
                 </>
               ) : state.status === "failed" ? (
-                "Retry"
+                uiT("Retry")
               ) : (
-                "Update"
+                uiT("Update")
               )}
             </button>
           </>

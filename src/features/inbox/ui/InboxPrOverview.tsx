@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useMemo, useState } from "react";
 import {
   ChevronDown,
@@ -69,11 +70,14 @@ export function InboxDescriptionSummary({
   body: string;
   cwd: string;
 }) {
+  const { t: uiT } = useTranslation();
   const excerpt = useMemo(() => descriptionExcerpt(body), [body]);
   const [expanded, setExpanded] = useState(false);
 
   if (!body.trim()) {
-    return <p className="text-[13px] text-content/45">No description</p>;
+    return (
+      <p className="text-[13px] text-content/45">{uiT("No description")}</p>
+    );
   }
   if (!excerpt.truncated) {
     return <AgentMarkdown text={body} cwd={cwd} allowRemoteMedia />;
@@ -90,7 +94,9 @@ export function InboxDescriptionSummary({
           {excerpt.text}
         </p>
       ) : (
-        <p className="text-[13px] text-content/45">Description is media only</p>
+        <p className="text-[13px] text-content/45">
+          {uiT("Description is media only")}
+        </p>
       )}
       <button
         type="button"
@@ -104,10 +110,11 @@ export function InboxDescriptionSummary({
           }`}
           strokeWidth={1.75}
         />
-        {expanded ? "Show less" : "Show full description"}
+        {expanded ? uiT("Show less") : uiT("Show full description")}
         {!expanded && excerpt.images > 0 ? (
           <span className="text-content/35">
-            · {excerpt.images} {excerpt.images === 1 ? "image" : "images"}
+            · {excerpt.images}{" "}
+            {excerpt.images === 1 ? uiT("image") : uiT("images")}
           </span>
         ) : null}
       </button>
@@ -126,6 +133,7 @@ export function InboxPrChangesGlance({
   error: string | null;
   onOpenFile: (path?: string) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const files = diff?.files ?? [];
   const maxChurn = Math.max(
     1,
@@ -136,11 +144,11 @@ export function InboxPrChangesGlance({
   return (
     <section data-inbox-pr-glance className="flex flex-col gap-2">
       <div className="flex items-center gap-2 text-[12px] text-content/50">
-        <h2 className="text-content/70">Changed files</h2>
+        <h2 className="text-content/70">{uiT("Changed files")}</h2>
         {diff ? (
           <>
             <span className="tabular-nums">
-              {files.length} {files.length === 1 ? "file" : "files"}
+              {files.length} {files.length === 1 ? uiT("file") : uiT("files")}
             </span>
             <span className="flex items-center gap-1.5 text-[11px] font-semibold tabular-nums">
               <span className="text-emerald-400">
@@ -165,8 +173,8 @@ export function InboxPrChangesGlance({
             className="ml-auto inline-flex items-center gap-0.5 hover:text-content"
           >
             {files.length > shown.length
-              ? `View all ${files.length}`
-              : "View diff"}
+              ? uiT("View all {value0}", { value0: String(files.length) })
+              : uiT("View diff")}
             <ChevronRight className="size-3.5" strokeWidth={1.75} />
           </button>
         ) : null}
@@ -174,7 +182,7 @@ export function InboxPrChangesGlance({
       {error && !diff ? (
         <p className="text-[12px] text-content/45">{error}</p>
       ) : diff && files.length === 0 ? (
-        <p className="text-[12px] text-content/45">No file changes</p>
+        <p className="text-[12px] text-content/45">{uiT("No file changes")}</p>
       ) : shown.length > 0 ? (
         <ul className="flex flex-col overflow-hidden rounded-lg border border-stroke">
           {shown.map((file) => {

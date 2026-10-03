@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useState } from "react";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { formatLiveElapsed, type LiveAgent } from "../model/liveAgents";
@@ -11,7 +12,12 @@ import {
   resolveTabGroupLabel,
   resolveTabGroupMascot,
 } from "../../workspace/model/tabGroups";
-import { Check, ChevronDown, ChevronUp, CircleAlert } from "../../../shared/ui/icons";
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  CircleAlert,
+} from "../../../shared/ui/icons";
 import { HarnessIcon } from "./HarnessIcon";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
 import { TerminalSpinner } from "./TerminalSpinner";
@@ -40,6 +46,7 @@ export function LiveAgentsPreview({
   groupCustomColors: groupCustomColorsProp,
   groupMascots: groupMascotsProp,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const [loadedGroupLabels] = useState(loadTabGroupLabels);
   const [loadedGroupColors] = useState(loadTabGroupColors);
   const [loadedGroupCustomColors] = useState(loadTabGroupCustomColors);
@@ -69,12 +76,12 @@ export function LiveAgentsPreview({
 
   return (
     <section
-      aria-label="Working agents"
+      aria-label={uiT("Working agents")}
       className={`shrink-0 px-2 ${bottomSpacing ? "pb-2" : ""}`}
       data-live-agents-preview="full"
     >
       <span className="sr-only" aria-live="polite" aria-atomic="true">
-        {agents.length} working agents
+        {agents.length} {uiT("working agents")}
       </span>
       <div className="overflow-hidden rounded-lg bg-content/5">
         <div className="flex items-center gap-2 px-3.5 py-1.5">
@@ -83,7 +90,7 @@ export function LiveAgentsPreview({
             className="size-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)] motion-safe:animate-pulse"
           />
           <span className="min-w-0 flex-1 truncate text-xs text-content/50">
-            Working
+            {uiT("Working")}
           </span>
           <span className="text-[11px] tabular-nums text-content/40">
             {agents.length}
@@ -121,7 +128,9 @@ export function LiveAgentsPreview({
             ) : (
               <ChevronDown className="size-3" strokeWidth={1.75} />
             )}
-            {expanded ? "Show less" : `${extra} more`}
+            {expanded
+              ? uiT("Show less")
+              : uiT("{value0} more", { value0: String(extra) })}
           </button>
         ) : null}
       </div>

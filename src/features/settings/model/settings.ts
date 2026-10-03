@@ -14,6 +14,7 @@ import {
   shortcutTokens,
 } from "../../quick-composer/model/quickComposerShortcut";
 import { readFlag, writeFlag } from "./storageFlags";
+import { translate } from "../../../shared/i18n/language";
 
 const SECTION_KEY = "monocode.settingsSection";
 
@@ -103,8 +104,10 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     id: "mcp",
     group: "agents",
     label: "MCP",
-    description: "Find MCP servers across providers and manage their connections.",
-    keywords: "tools servers connections oauth authenticate login claude codex cursor opencode",
+    description:
+      "Find MCP servers across providers and manage their connections.",
+    keywords:
+      "tools servers connections oauth authenticate login claude codex cursor opencode",
   },
   {
     id: "skills",
@@ -146,7 +149,14 @@ export function settingsSectionsByGroup(): {
 }[] {
   return SETTINGS_GROUPS.map((group) => ({
     ...group,
-    sections: SETTINGS_SECTIONS.filter((section) => section.group === group.id),
+    label: translate(group.label),
+    sections: SETTINGS_SECTIONS.filter(
+      (section) => section.group === group.id,
+    ).map((section) => ({
+      ...section,
+      label: translate(section.label),
+      description: translate(section.description),
+    })),
   })).filter((group) => group.sections.length > 0);
 }
 
@@ -162,7 +172,18 @@ export type SettingsEntry = {
 };
 
 export const SETTINGS_INDEX: SettingsEntry[] = [
-  { id: "remote-machines", section: "connections", label: "Your machines", keywords: "ssh remote connect host server environment" },
+  {
+    id: "ui-language",
+    section: "general",
+    label: "Interface language",
+    keywords: "language locale english chinese 中文 简体中文 语言 界面",
+  },
+  {
+    id: "remote-machines",
+    section: "connections",
+    label: "Your machines",
+    keywords: "ssh remote connect host server environment",
+  },
   {
     id: "mcp-servers",
     section: "mcp",
@@ -362,7 +383,8 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     id: "agent-clis",
     section: "providers",
     label: "Agent CLIs",
-    keywords: "codex opencode cursor grok pi omp fx hermes antigravity binary path",
+    keywords:
+      "codex opencode cursor grok pi omp fx hermes antigravity binary path",
   },
   {
     id: "provider-accounts",
@@ -464,7 +486,15 @@ export function searchSettings(
   const scored: { score: number; result: SettingsSearchResult }[] = [];
 
   for (const entry of SETTINGS_INDEX) {
-    const score = matchScore(needle, entry.label, entry.keywords);
+    const scores = [
+      matchScore(needle, entry.label, entry.keywords),
+      matchScore(
+        needle,
+        translate(entry.label, undefined, "zh-CN"),
+        entry.keywords,
+      ),
+    ].filter((score): score is number => score !== null);
+    const score = scores.length ? Math.min(...scores) : null;
     if (score == null) continue;
     scored.push({
       score,
@@ -472,25 +502,33 @@ export function searchSettings(
         section: entry.section,
         sectionLabel: settingsSectionLabel(entry.section),
         settingId: entry.id,
-        label: entry.label,
+        label: translate(entry.label),
       },
     });
   }
 
   for (const section of SETTINGS_SECTIONS) {
-    const score = matchScore(
-      needle,
-      section.label,
-      `${section.description} ${section.keywords ?? ""}`,
-    );
+    const scores = [
+      matchScore(
+        needle,
+        section.label,
+        `${section.description} ${section.keywords ?? ""}`,
+      ),
+      matchScore(
+        needle,
+        translate(section.label, undefined, "zh-CN"),
+        `${translate(section.description, undefined, "zh-CN")} ${section.keywords ?? ""}`,
+      ),
+    ].filter((score): score is number => score !== null);
+    const score = scores.length ? Math.min(...scores) : null;
     if (score == null) continue;
     scored.push({
       score: score + 0.5,
       result: {
         section: section.id,
-        sectionLabel: section.label,
+        sectionLabel: translate(section.label),
         settingId: null,
-        label: section.label,
+        label: translate(section.label),
       },
     });
   }
@@ -513,14 +551,14 @@ export function isSettingsSectionId(
 }
 
 export function settingsSectionLabel(id: SettingsSectionId): string {
-  return (
-    SETTINGS_SECTIONS.find((section) => section.id === id)?.label ?? "General"
+  return translate(
+    SETTINGS_SECTIONS.find((section) => section.id === id)?.label ?? "General",
   );
 }
 
 export function settingsSectionDescription(id: SettingsSectionId): string {
-  return (
-    SETTINGS_SECTIONS.find((section) => section.id === id)?.description ?? ""
+  return translate(
+    SETTINGS_SECTIONS.find((section) => section.id === id)?.description ?? "",
   );
 }
 
@@ -1131,9 +1169,7 @@ function defaultShortcutsFor(command: string): string[] {
     return value ? [value] : [];
   };
   if (row.keys.includes("…")) {
-    return [1, 2, 3, 4, 5, 6, 7, 8].flatMap((digit) =>
-      chords(`Digit${digit}`),
-    );
+    return [1, 2, 3, 4, 5, 6, 7, 8].flatMap((digit) => chords(`Digit${digit}`));
   }
   if (/^[A-Za-z]$/.test(rest)) return chords(`Key${rest.toUpperCase()}`);
   if (/^[0-9]$/.test(rest)) return chords(`Digit${rest}`);
@@ -1153,9 +1189,7 @@ function shortcutOwners(): Map<string, string> {
         : defaultShortcutsFor(row.command);
     for (const chord of chords) owners.set(chord, row.command);
   }
-  for (const [command, override] of Object.entries(
-    loadKeybindingOverrides(),
-  )) {
+  for (const [command, override] of Object.entries(loadKeybindingOverrides())) {
     if (override.shortcut) owners.set(override.shortcut, command);
   }
   return owners;
@@ -1306,9 +1340,7 @@ export function keybindingShortcutTokens(
 ): string | null {
   const override = loadKeybindingOverrides()[command];
   if (override?.disabled) return null;
-  return override?.shortcut
-    ? shortcutTokens(override.shortcut)
-    : fallback;
+  return override?.shortcut ? shortcutTokens(override.shortcut) : fallback;
 }
 
 export function subscribeKeybindings(onStoreChange: () => void) {
@@ -1356,7 +1388,11 @@ export function filterKeybindings(
   return rows.filter(
     (row) =>
       row.command.toLowerCase().includes(needle) ||
+      translate(row.command, undefined, "zh-CN")
+        .toLowerCase()
+        .includes(needle) ||
       row.keys.toLowerCase().includes(needle) ||
-      row.when.toLowerCase().includes(needle),
+      row.when.toLowerCase().includes(needle) ||
+      translate(row.when, undefined, "zh-CN").toLowerCase().includes(needle),
   );
 }

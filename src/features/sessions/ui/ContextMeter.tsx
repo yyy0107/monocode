@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useRef, useState } from "react";
 import {
   contextRatio,
@@ -34,6 +35,7 @@ export function ContextMeter({
   onCompact?: () => void;
   compactDisabled?: boolean;
 }) {
+  const { t: uiT } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -53,8 +55,11 @@ export function ContextMeter({
       {onCompact ? (
         <button
           type="button"
-          title="Context usage"
-          aria-label={`${headline}, ${detail}. Open context actions`}
+          title={uiT("Context usage")}
+          aria-label={uiT("{value0}, {value1}. Open context actions", {
+            value0: String(headline),
+            value1: String(detail),
+          })}
           aria-expanded={actionsOpen}
           onClick={() => setOpen((value) => !value)}
           className="-m-1 grid rounded-sm p-1 outline-none focus-visible:ring-1 focus-visible:ring-accent"
@@ -80,8 +85,8 @@ export function ContextMeter({
               disabled={compactDisabled}
               title={
                 compactDisabled
-                  ? "Wait for the current operation to finish"
-                  : "Compact this conversation's context"
+                  ? uiT("Wait for the current operation to finish")
+                  : uiT("Compact this conversation's context")
               }
               onClick={() => {
                 setOpen(false);
@@ -89,7 +94,7 @@ export function ContextMeter({
               }}
               className="mt-1.5 w-full rounded-md bg-content/10 px-2 py-1 text-[11px] text-content hover:bg-content/15 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Compact now
+              {uiT("Compact now")}
             </button>
           ) : null}
         </Popover>

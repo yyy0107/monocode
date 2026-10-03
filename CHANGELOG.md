@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Settings → General → Language switches the interface between English and
+  Simplified Chinese immediately, remembers the preference, and synchronizes
+  open windows. Settings and keybinding searches match Chinese labels, while
+  user content and stable command IDs retain their original values.
+
 ## [0.7.0] - 2026-10-02
 
 ### Added

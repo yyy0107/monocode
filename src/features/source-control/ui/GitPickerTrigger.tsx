@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useContext } from "react";
 import { NativePopupHost } from "../../../shared/ui/NativePopupHost";
 import type { ComponentPropsWithoutRef } from "react";
@@ -21,6 +22,7 @@ export function GitPickerTrigger({
   dimWhenDisabled = true,
   ...props
 }: Props) {
+  const { t: uiT } = useTranslation();
   const host = useContext(NativePopupHost);
   if (host) return null;
   const Icon = worktree ? FolderTree : GitBranch;
@@ -44,7 +46,7 @@ export function GitPickerTrigger({
       </span>
       {worktree && (
         <span className="shrink-0 rounded bg-content/8 px-1 text-[10px] text-content/45">
-          Worktree
+          {uiT("Worktree")}
         </span>
       )}
     </button>

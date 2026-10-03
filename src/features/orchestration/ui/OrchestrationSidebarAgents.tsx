@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useContext, useEffect, useState, useSyncExternalStore } from "react";
 import { findModel } from "../../sessions/model/models";
 import { orchestrator } from "../model/orchestration";
@@ -11,7 +12,12 @@ import {
   OrchestrationActions,
   OrchestrationWorkers,
 } from "./OrchestrationActions";
-import { Check, ChevronDown, ChevronRight, CircleAlert } from "../../../shared/ui/icons";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+} from "../../../shared/ui/icons";
 import { TerminalSpinner } from "../../sessions/ui/TerminalSpinner";
 
 export function OrchestrationSidebarAgents({
@@ -21,6 +27,7 @@ export function OrchestrationSidebarAgents({
   leadId: string;
   summary: OrchestrationSummary;
 }) {
+  const { t: uiT } = useTranslation();
   const actions = useContext(OrchestrationActions);
   const workers = useContext(OrchestrationWorkers);
   const runs = useSyncExternalStore(
@@ -85,10 +92,10 @@ export function OrchestrationSidebarAgents({
       <div className="mb-0.5 px-0.5 flex items-center justify-between text-[11px] text-content/45">
         <span>
           {summary.tasks.length}{" "}
-          {summary.tasks.length === 1 ? "agent" : "agents"}
+          {summary.tasks.length === 1 ? uiT("agent") : uiT("agents")}
         </span>
         <span className="tabular-nums">
-          {done}/{summary.tasks.length} done
+          {done}/{summary.tasks.length} {uiT("done")}
         </span>
       </div>
       {/*
@@ -100,7 +107,7 @@ export function OrchestrationSidebarAgents({
         a second scroll region here made rows clip mid-line.
       */}
       <div
-        aria-label="Orchestrated agents"
+        aria-label={uiT("Orchestrated agents")}
         className="-mx-2 flex touch-pan-y flex-col gap-px"
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
@@ -127,7 +134,9 @@ export function OrchestrationSidebarAgents({
               <button
                 type="button"
                 title={`${task.title} · ${HARNESS_TITLE[task.harness]} · ${model} · ${label}`}
-                aria-label={`Agent details: ${task.title}`}
+                aria-label={uiT("Agent details: {value0}", {
+                  value0: String(task.title),
+                })}
                 aria-expanded={open}
                 onClick={() => toggle(task.sessionId, open)}
                 // Named, because the whole session card is already a `group`.
@@ -203,7 +212,7 @@ export function OrchestrationSidebarAgents({
                     {workers.openDetails && (
                       <button
                         type="button"
-                        title="Open this agent beside the orchestrator"
+                        title={uiT("Open this agent beside the orchestrator")}
                         className={solidAction}
                         onClick={() =>
                           workers.openDetails?.({
@@ -214,7 +223,7 @@ export function OrchestrationSidebarAgents({
                           })
                         }
                       >
-                        See details
+                        {uiT("See details")}
                       </button>
                     )}
                     {live && ["queued", "running"].includes(live.status) && (
@@ -228,7 +237,7 @@ export function OrchestrationSidebarAgents({
                           )
                         }
                       >
-                        Cancel task
+                        {uiT("Cancel task")}
                       </button>
                     )}
                   </div>
@@ -249,15 +258,19 @@ export function OrchestrationSidebarAgents({
         <div className="mt-1.5 space-y-1.5 border-t border-stroke pt-1.5">
           <p className="px-0.5 text-[11px] leading-relaxed text-content/45">
             {stopping
-              ? "Stopping interrupted work before this run can resume."
+              ? uiT("Stopping interrupted work before this run can resume.")
               : leadBusy
-                ? "Waiting for the lead's interrupted turn to finish before this run can resume."
-                : "Resume continues interrupted workers from their retained checkouts and starts queued work. Policy-blocked tasks stay stopped for review."}
+                ? uiT(
+                    "Waiting for the lead's interrupted turn to finish before this run can resume.",
+                  )
+                : uiT(
+                    "Resume continues interrupted workers from their retained checkouts and starts queued work. Policy-blocked tasks stay stopped for review.",
+                  )}
           </p>
           {resumeBlocker && (
             <p className="px-0.5 text-[11px] leading-relaxed text-amber-400">
-              {resumeBlocker.title || "Another conversation"} is still running
-              in this project.
+              {resumeBlocker.title || uiT("Another conversation")}{" "}
+              {uiT("is still running in this project.")}
             </p>
           )}
           <div className="-mr-1.5 flex items-center justify-end gap-1">
@@ -268,7 +281,7 @@ export function OrchestrationSidebarAgents({
                 disabled={pending}
                 onClick={() => actions.open(resumeBlocker.id)}
               >
-                Open blocker
+                {uiT("Open blocker")}
               </button>
             )}
             <button
@@ -277,12 +290,16 @@ export function OrchestrationSidebarAgents({
               disabled={pending || stopping || leadBusy || !!resumeBlocker}
               title={
                 stopping
-                  ? "Wait for interrupted agents to stop"
+                  ? uiT("Wait for interrupted agents to stop")
                   : leadBusy
-                    ? "Wait for the lead's interrupted turn to finish"
+                    ? uiT("Wait for the lead's interrupted turn to finish")
                     : resumeBlocker
-                      ? `Stop ${resumeBlocker.title || "the other conversation"} before resuming`
-                      : "Continue interrupted and queued work"
+                      ? uiT("Stop {value0} before resuming", {
+                          value0: String(
+                            resumeBlocker.title || "the other conversation",
+                          ),
+                        })
+                      : uiT("Continue interrupted and queued work")
               }
               onClick={() =>
                 void perform(() =>
@@ -294,7 +311,7 @@ export function OrchestrationSidebarAgents({
                 )
               }
             >
-              Resume
+              {uiT("Resume")}
             </button>
           </div>
         </div>

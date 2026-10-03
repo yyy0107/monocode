@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useProjectWorktrees } from "../hooks/useProjectWorktrees";
 import { useWorktreeFocus, type WorktreeFocus } from "../model/worktreeFocus";
@@ -27,6 +28,7 @@ export function SidebarWorktreeSwitcher({
   /** Open tabs per worktree path key; hidden worktrees can still hold some. */
   tabStats?: ReadonlyMap<string, { tabs: number; busy: boolean }>;
 }) {
+  const { t: uiT } = useTranslation();
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const focus = useWorktreeFocus(cwd);
@@ -109,14 +111,14 @@ export function SidebarWorktreeSwitcher({
         ref={anchor}
         type="button"
         data-tauri-drag-region="false"
-        aria-label="Switch working copy"
+        aria-label={uiT("Switch working copy")}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-busy={pending}
         title={
           focus
             ? `${focus.branch ?? "detached"}\n${prettyCwd(focus.path)}`
-            : (main?.branch ?? "Project folder")
+            : (main?.branch ?? uiT("Project folder"))
         }
         onClick={() => {
           if (!open) void refresh();
@@ -127,7 +129,7 @@ export function SidebarWorktreeSwitcher({
         <span className="min-w-0 truncate">{title}</span>
         {pending ? (
           <Loader
-            aria-label="Switching working copy"
+            aria-label={uiT("Switching working copy")}
             className="size-3.5 shrink-0 animate-spin text-content/45"
           />
         ) : (
@@ -143,7 +145,7 @@ export function SidebarWorktreeSwitcher({
           maxHeight={360}
           onDismiss={() => setOpen(false)}
           role="listbox"
-          aria-label="Working copies"
+          aria-label={uiT("Working copies")}
           className="overflow-y-auto p-1"
         >
           {row(
@@ -158,7 +160,7 @@ export function SidebarWorktreeSwitcher({
           {!data && !error ? (
             <div className="flex items-center gap-2 p-2 text-[12px] text-content/50">
               <Loader className="size-3.5 animate-spin" />
-              Loading working copies…
+              {uiT("Loading working copies…")}
             </div>
           ) : null}
           {worktrees.map((tree) =>

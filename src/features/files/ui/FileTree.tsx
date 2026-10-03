@@ -1,3 +1,5 @@
+import { translate as translateUi } from "../../../shared/i18n/language";
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   ChevronDown,
   ChevronRight,
@@ -177,56 +179,60 @@ function explorerItems(
     !!clip?.isDir &&
     (pasteParent === clip.path || pasteParent.startsWith(`${clip.path}/`));
   return [
-    { kind: "item", id: "new-file", label: "New File" },
-    { kind: "item", id: "new-folder", label: "New Folder" },
+    { kind: "item", id: "new-file", label: translateUi("New File") },
+    { kind: "item", id: "new-folder", label: translateUi("New Folder") },
     { kind: "sep" },
     {
       kind: "item",
       id: "cut",
-      label: "Cut",
+      label: translateUi("Cut"),
       shortcut: `${MOD}X`,
       disabled: target.isRoot,
     },
     {
       kind: "item",
       id: "copy",
-      label: "Copy",
+      label: translateUi("Copy"),
       shortcut: `${MOD}C`,
       disabled: target.isRoot,
     },
     {
       kind: "item",
       id: "paste",
-      label: "Paste",
+      label: translateUi("Paste"),
       shortcut: `${MOD}V`,
       disabled: pasteBlocked,
     },
     {
       kind: "item",
       id: "duplicate",
-      label: "Duplicate",
+      label: translateUi("Duplicate"),
       disabled: target.isRoot,
     },
     { kind: "sep" },
     {
       kind: "item",
       id: "copy-path",
-      label: "Copy Path",
+      label: translateUi("Copy Path"),
       shortcut: `${MOD}${SHIFT}C`,
     },
-    { kind: "item", id: "copy-relative-path", label: "Copy Relative Path" },
+    {
+      kind: "item",
+      id: "copy-relative-path",
+      label: translateUi("Copy Relative Path"),
+    },
     { kind: "sep" },
     {
       kind: "item",
       id: "rename",
-      label: "Rename",
+      label: translateUi("Rename"),
       shortcut: "F2",
       disabled: target.isRoot,
     },
     {
       kind: "item",
       id: "delete",
-      label: "Delete",
+      label: translateUi("Delete"),
       shortcut: "⌫",
       disabled: target.isRoot,
       danger: true,
@@ -237,7 +243,7 @@ function explorerItems(
           {
             kind: "item" as const,
             id: "open-terminal",
-            label: "Open in Terminal",
+            label: translateUi("Open in Terminal"),
           },
         ]
       : []),
@@ -257,6 +263,7 @@ export const FileTree = memo(function FileTree({
   onSearch,
   gitStatuses,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const [expanded, setExpanded] = useState(() => loadExpanded(cwd));
   const [selectedPath, setSelectedPath] = useState(() => loadSelected(cwd));
   const [children, setChildren] = useState<FsEntry[] | null>(() =>
@@ -890,14 +897,20 @@ export const FileTree = memo(function FileTree({
           className="flex h-9 shrink-0 items-center gap-px overflow-visible border-b border-stroke px-2"
           onContextMenu={(e) => e.stopPropagation()}
         >
-          <HeaderIcon label="New File" onClick={() => startCreate(false)}>
+          <HeaderIcon
+            label={uiT("New File")}
+            onClick={() => startCreate(false)}
+          >
             <FilePlus className="size-3.5" strokeWidth={1.75} />
           </HeaderIcon>
-          <HeaderIcon label="New Folder" onClick={() => startCreate(true)}>
+          <HeaderIcon
+            label={uiT("New Folder")}
+            onClick={() => startCreate(true)}
+          >
             <FolderPlus className="size-3.5" strokeWidth={1.75} />
           </HeaderIcon>
           <HeaderIcon
-            label="Collapse All"
+            label={uiT("Collapse All")}
             onClick={() => {
               setCreating(null);
               setRenaming(null);
@@ -910,7 +923,9 @@ export const FileTree = memo(function FileTree({
           </HeaderIcon>
           {onSearch ? (
             <HeaderIcon
-              label={`Search in files (${MOD}Shift+F)`}
+              label={uiT("Search in files ({value0}Shift+F)", {
+                value0: String(MOD),
+              })}
               onClick={onSearch}
             >
               <Search className="size-3.5" strokeWidth={1.75} />
@@ -962,7 +977,10 @@ export const FileTree = memo(function FileTree({
             </p>
           ) : null}
           {rootOpen ? (
-            <div role="tree" aria-label={`${name} files`}>
+            <div
+              role="tree"
+              aria-label={uiT("{value0} files", { value0: String(name) })}
+            >
               <TreeChildren
                 parent={cwd}
                 depth={0}
@@ -1235,6 +1253,7 @@ export function NameRow({
   onCommit: (raw: string) => Promise<void>;
   onCancel: () => void;
 }) {
+  const { t: uiT } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const finished = useRef(false);
   const [value, setValue] = useState(initial);
@@ -1306,7 +1325,9 @@ export function NameRow({
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
-          aria-label="Type file name. Press Enter to confirm or Escape to cancel."
+          aria-label={uiT(
+            "Type file name. Press Enter to confirm or Escape to cancel.",
+          )}
           onChange={(e) => {
             setValue(e.target.value);
             setSubmitError(null);
@@ -1343,6 +1364,7 @@ function NameIssueView({
   issue: NameIssue | null;
   fallback: string | null;
 }) {
+  const { t: uiT } = useTranslation();
   let body: ReactNode = null;
   if (fallback) {
     body = fallback;
@@ -1357,16 +1379,22 @@ function NameIssueView({
       case "exists":
         body = (
           <>
-            A file or folder <span className="font-semibold">{issue.name}</span>{" "}
-            already exists at this location. Please choose a different name.
+            {uiT("A file or folder ")}
+            <span className="font-semibold">{issue.name}</span>{" "}
+            {uiT(
+              "already exists at this location. Please choose a different name.",
+            )}
           </>
         );
         break;
       case "invalid":
         body = (
           <>
-            The name <span className="font-semibold">{issue.name}</span> is not
-            valid as a file or folder name. Please choose a different name.
+            {uiT("The name ")}
+            <span className="font-semibold">{issue.name}</span>{" "}
+            {uiT(
+              "is not valid as a file or folder name. Please choose a different name.",
+            )}
           </>
         );
         break;

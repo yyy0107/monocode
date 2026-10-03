@@ -21,11 +21,13 @@ import { initializeProviderBinaryPaths } from "./features/providers/model/provid
 // Lets file commands reach a connected machine for `remote://` paths.
 import "./features/connections/model/remoteCommands";
 import "./styles/index.css";
+import { initUiLanguage } from "./shared/i18n/languageSync";
 
 performance.mark("monocode:bootstrap");
 // Let local boot IPC overlap loading/evaluating the workspace UI.
 const appLoaded = import("./app/App");
 
+initUiLanguage();
 initAppearance();
 initSounds();
 // Prime the real home directory before the first render so every `~/` file
