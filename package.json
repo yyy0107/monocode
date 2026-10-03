@@ -25,9 +25,20 @@
     "setup:linux:fedora": "bash scripts/install-linux-deps-fedora.sh",
     "build:linux": "tauri build --bundles deb,appimage",
     "build:fedora": "tauri build --bundles rpm",
-    "build:windows": "set \"RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc\" && tauri build --bundles nsis"
+    "build:windows": "set \"RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc\" && tauri build --bundles nsis",
+    "mobile:dev": "vite --config vite.mobile.config.ts",
+    "mobile:build": "tsc --noEmit && tsc -p tsconfig.mobile-tools.json && vite build --config vite.mobile.config.ts",
+    "mobile:sync": "npm run mobile:build && cap sync",
+    "mobile:android": "npm run mobile:sync && cap open android",
+    "mobile:ios": "npm run mobile:sync && cap open ios"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/keyboard": "^8.0.6",
+    "@capacitor/status-bar": "^8.0.4",
     "@codemirror/lang-cpp": "^6.0.3",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-html": "^6.4.12",
@@ -68,6 +79,7 @@
     "streamdown": "^2.5.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
     "@tailwindcss/vite": "^4",
     "@tauri-apps/cli": "^2",
     "@types/node": "26.5.0",

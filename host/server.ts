@@ -213,7 +213,7 @@ export function createHostServer(
           return;
         }
         const token = request.headers.authorization?.match(
-          /^Bearer ([A-Za-z0-9_-]{43})$/,
+          /^Bearer ([A-Za-z0-9_-]+)$/,
         )?.[1];
         if (!token || !engine.store.authenticated(token)) {
           response.writeHead(401).end(

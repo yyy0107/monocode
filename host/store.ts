@@ -274,9 +274,13 @@ export class HostStore {
     };
   }
 
-  issueDevice(name: string): { id: string; token: string } {
+  issueDevice(
+    name: string,
+    token = randomBytes(32).toString("base64url"),
+  ): { id: string; token: string } {
+    if (!/^[A-Za-z0-9_-]+$/.test(token))
+      throw new Error("Invalid device token");
     const id = randomUUID();
-    const token = randomBytes(32).toString("base64url");
     this.db
       .prepare("INSERT INTO devices VALUES (?, ?, ?)")
       .run(id, name, this.hash(token));

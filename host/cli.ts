@@ -83,7 +83,8 @@ async function main() {
   connection-info       Print the running host's port (JSON)
   status                Check the running host
   stop                  Stop the host and interrupt its running turns
-  pair --name <device>  Issue a device credential (shown once)
+  pair --name <device> [--token <token>]
+                        Issue a device credential (shown once)
   devices               List paired devices
   revoke <device-id>    Revoke a device credential
 Options: --data-dir <directory> --port <port> (default 3774)
@@ -183,7 +184,10 @@ Connect another computer using an SSH forward to the loopback port.`);
   }
   const store = new HostStore(join(directory, "host.db"));
   if (command === "pair") {
-    const device = store.issueDevice(option("name", "Desktop"));
+    const device = store.issueDevice(
+      option("name", "Desktop"),
+      option("token", "") || undefined,
+    );
     console.log(
       JSON.stringify(
         { ...device, environmentId: store.environmentId },

@@ -53,3 +53,17 @@ lerna-debug.log*
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Mobile build outputs
+dist-mobile/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/app/build/
+mobile/android/build/
+mobile/android/app/src/main/assets/public/
+mobile/android/app/src/main/assets/capacitor*.json
+mobile/ios/App/App/public/
+mobile/ios/App/App/capacitor.config.json
+mobile/ios/App/Pods/
+mobile/ios/App/build/
+mobile/ios/App/DerivedData/

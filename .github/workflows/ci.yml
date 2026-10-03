@@ -174,3 +174,25 @@ jobs:
             echo "monocode cannot load on EL 10" >&2
             exit 1
           fi
+
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+      - run: npx vitest run src/mobile
+      - run: npm run mobile:sync
+      - run: ./mobile/android/gradlew -p mobile/android :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monocode-mobile-debug
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk

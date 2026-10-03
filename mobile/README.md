@@ -1,0 +1,145 @@
+# MonoCode Mobile
+
+A Capacitor iOS / Android client for an existing MonoCode Host. The app supports
+manual **Host URL + device token** connections, opening projects by host folder
+path, conversation history, model/permission selection for new conversations,
+streamed messages, tool activity, approvals, questions, cancellation, and
+foreground reconnect. It shares the desktop theme tokens, fonts, icons,
+Streamdown Markdown, and bounded code highlighter. Dark, Light, and System
+appearance are available in Connections. There is no QR, SSH bootstrap, or
+cloud account setup in the mobile app.
+
+## Connect to a Host
+
+Run the matching MonoCode Host release on your computer. Follow
+[remote-access.md](../docs/remote-access.md) to install providers, run the Host,
+and issue a separate device credential for your phone:
+
+```sh
+npm ci
+npm run host:build
+node build/host/monocode-host.mjs start
+node build/host/monocode-host.mjs pair --name "My phone" --token 123
+```
+
+The command above registers `123` as this phone's device token. Omit `--token`
+to generate a random token instead. The Host validates the registered device
+credential, and revoking that device also invalidates `123`.
+
+The app accepts both HTTP and HTTPS Host URLs, including LAN IP addresses and
+hostnames. For example, enter `http://192.168.1.10:3774` and the device token
+when that address provides a reachable Host endpoint. Supply only the scheme,
+host, and optional port, without `/rpc`, a query, or URL credentials.
+
+The Host itself listens on `127.0.0.1:3774`, so a reverse proxy or tunnel must
+make it reachable from your phone. That endpoint can use HTTP or HTTPS. For
+example, with Tailscale installed and connected on both devices:
+
+```sh
+tailscale serve --bg http://127.0.0.1:3774
+```
+
+You can enter the generated `https://...ts.net` base URL as well. The app sends
+RPC through Capacitor's native HTTP implementation. Android cleartext traffic
+and iOS ATS HTTP access are enabled for user-supplied Host URLs. A phone's
+`127.0.0.1` refers to the phone, not your computer.
+
+The host computer must remain awake and online. Closing the phone app does not
+stop a Host-owned agent. The app pauses polling in the background and fetches
+revision updates or a complete snapshot when foregrounded. Background push
+notifications are outside this first version.
+
+**Shared conversations:** desktop-local conversations and Host conversations
+are separate. To share a conversation between phone and desktop, connect the
+desktop to the same Host using Settings → Connections → Connect to an existing
+host by URL (`http://127.0.0.1:3774` on the Host computer). Existing desktop-local
+history is not migrated by this change.
+
+## Build
+
+From the repository root, use Node.js 22 or newer (required by Capacitor 8):
+
+```sh
+npm ci
+npm run mobile:sync
+```
+
+`mobile:build` builds the independent mobile entry into `dist-mobile/index.html`.
+`mobile:sync` copies it into both native projects and refreshes native plugins.
+The normal desktop `dev`, `build`, and Tauri entries remain separate.
+
+Android requires JDK 21, Android SDK 36, and the platform's build tools. Open
+`mobile/android` in Android Studio or run:
+
+```sh
+npm run mobile:android
+# Or build an unsigned/debug APK after mobile:sync:
+cd mobile/android
+./gradlew :app:assembleDebug
+```
+
+The debug APK is `mobile/android/app/build/outputs/apk/debug/app-debug.apk`.
+`mobile/android/local.properties` is machine-specific and ignored by Git;
+configure `sdk.dir` or your normal Android SDK environment before using Gradle.
+
+For iOS, use macOS with Xcode and Swift Package Manager:
+
+```sh
+npm run mobile:ios
+```
+
+Select your signing team in Xcode, then run the `App` target on a simulator or
+phone. The iOS project uses `MobileBridgeViewController` from both its storyboard
+and SceneDelegate to register secure storage. The iOS deployment target is 15;
+Android minimum SDK is 24. Store signing and distribution are not configured.
+
+## Browser development
+
+The production Host intentionally rejects browser-origin requests. Development
+uses a **local Vite proxy bound to one configured Host**, rather than changing
+Host CORS or exposing its token in a URL:
+
+```sh
+MONOCODE_MOBILE_HOST_URL=http://127.0.0.1:3774 npm run mobile:dev
+```
+
+Open `http://127.0.0.1:1425/mobile.html` and enter the same configured Host URL and
+device token. The browser preview keeps credentials and pending commands only
+in memory; refresh requires another login. There is no production browser
+transport or public mobile gateway bundled in this change.
+
+On Android with an emulator or connected test device, `adb reverse tcp:3774
+tcp:3774` allows the native app to use `http://127.0.0.1:3774` during development.
+
+## Credentials and retry behavior
+
+On iOS the connection and pending command journal are in device-only Keychain
+items. On Android they use AES-GCM encryption with an Android Keystore key;
+application backup is disabled. Only appearance is stored in WebView
+localStorage. No provider credentials are copied to the phone.
+
+Before sending a command the app saves its original `commandId`. A lost response
+shows a Retry action; retry asks for the same receipt and never creates another
+command id. Creating a conversation and sending its first message is journaled
+in two stages, including across an app restart. Commands are serialized. The
+client pins `environmentId` and will not replay pending work onto another Host.
+A definitive Host command rejection clears the pending request so the user can
+correct it. Disconnect removes the saved connection without stopping tasks or
+revoking the Host device token; use the Host's `revoke DEVICE_ID` command when
+revocation is needed.
+
+## Verify
+
+```sh
+npx vitest run src/mobile
+npx vitest run --config host/vitest.config.ts host/mobile-client.test.ts
+npm run check:web
+npm run mobile:build
+npm run mobile:sync
+```
+
+Mobile tests use fake transports; the Host suite includes a disposable real Host/SQLite database with
+an in-memory fake provider. They cover native RPC envelopes, URL validation,
+revocation, Host identity, streamed deltas, snapshot fallback, chunking,
+first-message retry after a lost response, serialized commands, and tool-block
+approval interactions. They never use paid providers or personal projects.

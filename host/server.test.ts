@@ -116,6 +116,15 @@ async function setup(providers: RemoteProvider[] = ["codex"]) {
 }
 
 describe("remote host API", () => {
+  it("accepts a registered short token and rejects it after revocation", async () => {
+    const s = await setup();
+    expect((await s.call("environment.describe", {}, "123")).status).toBe(401);
+    const phone = s.store.issueDevice("Phone", "123");
+    expect((await s.call("environment.describe", {}, phone.token)).status).toBe(200);
+    s.store.revokeDevice(phone.id);
+    expect((await s.call("environment.describe", {}, phone.token)).status).toBe(401);
+  });
+
   it("rejects a credential revoked while its request body is arriving", async () => {
     const s = await setup();
     const authenticated = vi.spyOn(s.store, "authenticated");

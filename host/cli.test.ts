@@ -47,16 +47,24 @@ it(
       const device = JSON.parse(
         (await run("pair", "--name", "Test laptop")).stdout,
       ) as { id: string; token: string; environmentId: string };
-      const describe = () =>
+      expect(device.token).toHaveLength(43);
+      const phone = JSON.parse(
+        (await run("pair", "--name", "Phone", "--token", "123")).stdout,
+      ) as { id: string; token: string };
+      expect(phone.token).toBe("123");
+      const describe = (token = device.token) =>
         fetch(`http://127.0.0.1:${port}/rpc`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${device.token}` },
+          headers: { Authorization: `Bearer ${token}` },
           body: JSON.stringify({
             version: 1,
             method: "environment.describe",
             params: {},
           }),
         });
+      expect((await describe(phone.token)).status).toBe(200);
+      await run("revoke", phone.id);
+      expect((await describe(phone.token)).status).toBe(401);
       const response = await describe();
       expect(response.status).toBe(200);
       expect(

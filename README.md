@@ -37,6 +37,10 @@ Linux (x86_64): download the `.deb` or AppImage from [GitHub Releases](https://g
 
 Windows (x86_64): download the NSIS installer from [GitHub Releases](https://github.com/hardbeat920/monocode/releases/latest) and run it.
 
+## Mobile client (development)
+
+An iOS and Android client connects to an existing MonoCode Host using its URL and device token. It includes projects, conversations, streamed messages, and approvals with the desktop theme. See [mobile setup and build instructions](mobile/README.md).
+
 ## Some notes
 
 Experimental remote sessions: run agents on an always-on Windows, Linux, or macOS machine and connect from the desktop. See [remote access setup and current limitations](docs/remote-access.md).
