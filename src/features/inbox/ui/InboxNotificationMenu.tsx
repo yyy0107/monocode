@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useState } from "react";
 import {
   inboxHasUnseenItems,
@@ -11,7 +12,10 @@ import {
   updateNotificationPreferences,
 } from "../../notifications/model/notificationPreferences";
 import { useNotificationProjects } from "../../notifications/hooks/useNotificationProjects";
-import { ExplorerMenu, type ExplorerMenuItem } from "../../files/ui/ExplorerMenu";
+import {
+  ExplorerMenu,
+  type ExplorerMenuItem,
+} from "../../files/ui/ExplorerMenu";
 import { NotificationMuteDatePicker } from "../../notifications/ui/NotificationMuteDatePicker";
 import { Popover } from "../../../shared/ui/Popover";
 import {
@@ -33,6 +37,7 @@ export function InboxNotificationMenu({
   onOpenSettings,
   onClose,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const notificationProjects = useNotificationProjects(projectPaths);
   const [saveError, setError] = useState<string | null>(null);
   const [customOpen, setCustomOpen] = useState(false);
@@ -54,28 +59,30 @@ export function InboxNotificationMenu({
     {
       kind: "item",
       id: "read-all",
-      label: "Mark all as read",
+      label: uiT("Mark all as read"),
       disabled: !hasUnread,
     },
     { kind: "sep" },
     {
       kind: "item",
       id: "mute",
-      label: "Mute all projects",
+      label: uiT("Mute all projects"),
       disabled: !allIds.length,
       submenu: notificationMuteActions(),
     },
     {
       kind: "item",
       id: "resume",
-      label: "Resume muted projects",
+      label: uiT("Resume muted projects"),
       disabled: !mutedIds.length,
     },
   ];
   if (onOpenSettings)
-    items.push(
-      { kind: "item", id: "settings", label: "Notification settings…" },
-    );
+    items.push({
+      kind: "item",
+      id: "settings",
+      label: uiT("Notification settings…"),
+    });
 
   if (customOpen)
     return (
@@ -84,12 +91,14 @@ export function InboxNotificationMenu({
         gap={0}
         width={280}
         role="dialog"
-        aria-label="Mute project notifications"
+        aria-label={uiT("Mute project notifications")}
         onDismiss={onClose}
         className="space-y-1 overflow-y-auto p-3"
       >
         <div className="space-y-1">
-          <p className="px-1 text-xs font-medium text-content/85">Mute all projects</p>
+          <p className="px-1 text-xs font-medium text-content/85">
+            {uiT("Mute all projects")}
+          </p>
         </div>
         <NotificationMuteDatePicker
           projectIds={allIds}
@@ -103,17 +112,19 @@ export function InboxNotificationMenu({
     <ExplorerMenu
       x={x}
       y={y}
-      ariaLabel="Inbox actions"
+      ariaLabel={uiT("Inbox actions")}
       width={272}
       items={items}
       onClose={onClose}
       header={
         <div className="space-y-1 px-2 py-1.5">
-          <p className="text-xs font-medium text-content">
-            Inbox
-          </p>
+          <p className="text-xs font-medium text-content">{uiT("Inbox")}</p>
           <p role="status" className="text-xs text-content/50">
-            {`${allIds.length} ${allIds.length === 1 ? "project" : "projects"} · ${mutedIds.length} muted`}
+            {uiT("{value0} {value1} · {value2} muted", {
+              value0: String(allIds.length),
+              value1: String(allIds.length === 1 ? "project" : "projects"),
+              value2: String(mutedIds.length),
+            })}
           </p>
           {saveError ? (
             <p role="alert" className="text-xs text-red-400">

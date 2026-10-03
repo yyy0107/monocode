@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { Check } from "../../../shared/ui/icons";
 import { type ReactNode } from "react";
 import { Popover } from "../../../shared/ui/Popover";
@@ -36,6 +37,7 @@ export function SessionFiltersMenu({
   onChange,
   onClose,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const hiddenHarnesses = new Set(filters.hiddenHarnesses);
 
   const toggleHarness = (harness: HarnessId) => {
@@ -69,38 +71,38 @@ export function SessionFiltersMenu({
       maxHeight={480}
       onDismiss={onClose}
       role="menu"
-      aria-label="Filter sessions"
+      aria-label={uiT("Filter sessions")}
       onContextMenu={(event) => event.preventDefault()}
       className="overflow-y-auto overscroll-none p-1"
     >
       <FilterItem
-        label="Archived"
+        label={uiT("Archived")}
         checked={filters.showArchived}
         onClick={toggleArchived}
       />
 
-      <SectionLabel>Status</SectionLabel>
+      <SectionLabel>{uiT("Status")}</SectionLabel>
       <FilterItem
-        label="Working"
+        label={uiT("Working")}
         checked={filters.status.working}
         onClick={() => toggleStatus("working")}
       />
       <FilterItem
-        label="Needs approval"
+        label={uiT("Needs approval")}
         checked={filters.status.needsApproval}
         onClick={() => toggleStatus("needsApproval")}
       />
       <FilterItem
-        label="Done"
+        label={uiT("Done")}
         checked={filters.status.done}
         onClick={() => toggleStatus("done")}
       />
 
-      <SectionLabel>Time</SectionLabel>
+      <SectionLabel>{uiT("Time")}</SectionLabel>
       {TIME_OPTIONS.map((option) => (
         <FilterItem
           key={option.id}
-          label={option.label}
+          label={uiT(option.label)}
           checked={filters.time === option.id}
           onClick={() => setTime(option.id)}
         />
@@ -108,7 +110,7 @@ export function SessionFiltersMenu({
 
       {harnesses.length > 0 ? (
         <>
-          <SectionLabel>Provider</SectionLabel>
+          <SectionLabel>{uiT("Provider")}</SectionLabel>
           {harnesses.map((harness) => (
             <FilterItem
               key={harness}
@@ -133,7 +135,7 @@ export function SessionFiltersMenu({
             onClick={() => onChange(DEFAULT_SESSION_SIDEBAR_FILTERS)}
             className="flex h-7 w-full items-center rounded-lg px-2 text-left text-[13px] leading-none text-content/70 hover:bg-content/5 hover:text-content"
           >
-            Clear filters
+            {uiT("Clear filters")}
           </button>
         </>
       ) : null}

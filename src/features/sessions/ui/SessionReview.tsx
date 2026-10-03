@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { ChevronDown, ChevronRight, FileDiff } from "../../../shared/ui/icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -9,7 +10,11 @@ import {
 } from "../model/checkpoint";
 import { invalidateProjectFiles } from "../../files/model/fileIndex";
 import { invalidateWatchedFiles } from "../../files/model/fileWatch";
-import { basename, notifyGitChanged, subscribeGitChanged } from "../../../platform/tauri/fs";
+import {
+  basename,
+  notifyGitChanged,
+  subscribeGitChanged,
+} from "../../../platform/tauri/fs";
 import { formatInteger } from "../../../shared/lib/numbers";
 import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
 
@@ -33,6 +38,7 @@ export function SessionReview({
   undoLocked = false,
   onOpenDiff,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const [files, setFiles] = useState<CheckpointFile[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [acting, setActing] = useState<"keep" | "undo" | null>(null);
@@ -135,7 +141,8 @@ export function SessionReview({
           </span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[12px] font-medium text-content/80">
-              Changed {files.length} {files.length === 1 ? "file" : "files"}
+              {uiT("Changed ")}
+              {files.length} {files.length === 1 ? uiT("file") : uiT("files")}
             </div>
             <div className="flex items-center gap-1.5 font-sans text-[11px] font-semibold tabular-nums -mt-0.5">
               <span className="text-emerald-400">
@@ -151,33 +158,37 @@ export function SessionReview({
               type="button"
               title={
                 canUndoAll
-                  ? "Undo all session changes"
+                  ? uiT("Undo all session changes")
                   : undoLocked
-                    ? "Undo is unavailable while another session is running in this project"
-                    : "Undo is unavailable because a file changed outside this session"
+                    ? uiT(
+                        "Undo is unavailable while another session is running in this project",
+                      )
+                    : uiT(
+                        "Undo is unavailable because a file changed outside this session",
+                      )
               }
               disabled={disabled || !canUndoAll}
               onClick={() => run("undo")}
               className="h-7 rounded-md px-2.5 text-[11px] text-content/50 hover:bg-content/8 hover:text-content disabled:opacity-35"
             >
-              Undo
+              {uiT("Undo")}
             </button>
             <button
               type="button"
-              title="Keep all session changes and dismiss this card"
+              title={uiT("Keep all session changes and dismiss this card")}
               disabled={disabled}
               onClick={() => run("keep")}
               className="h-7 rounded-md px-2.5 text-[11px] text-content/50 hover:bg-content/8 hover:text-content disabled:opacity-35"
             >
-              Keep
+              {uiT("Keep")}
             </button>
             <button
               type="button"
-              title="Review changes"
+              title={uiT("Review changes")}
               onClick={() => onOpenDiff(undefined, { sessionId, cwd })}
               className="h-7 rounded-md border border-content/12 bg-content/8 px-2.5 text-[11px] font-medium text-content/75 hover:bg-content/12 hover:text-content"
             >
-              Review
+              {uiT("Review")}
             </button>
           </div>
         </div>
@@ -211,8 +222,11 @@ export function SessionReview({
             )}
             <span>
               {expanded
-                ? "Show fewer files"
-                : `Show ${hiddenFileCount} more ${hiddenFileCount === 1 ? "file" : "files"}`}
+                ? uiT("Show fewer files")
+                : uiT("Show {value0} more {value1}", {
+                    value0: String(hiddenFileCount),
+                    value1: String(hiddenFileCount === 1 ? "file" : "files"),
+                  })}
             </span>
           </button>
         ) : null}
@@ -253,10 +267,11 @@ function FileRow({
 }
 
 function DiffCounts({ file }: { file: CheckpointFile }) {
+  const { t: uiT } = useTranslation();
   if (!file.exact) {
     return (
       <span className="shrink-0 text-[11px] font-medium text-amber-300/80">
-        Mixed changes
+        {uiT("Mixed changes")}
       </span>
     );
   }

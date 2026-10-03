@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   useEffect,
   useId,
@@ -7,7 +8,14 @@ import {
   type ReactNode,
 } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { Copy, Eye, FolderOpen, RefreshCw, Search, X } from "../../../shared/ui/icons";
+import {
+  Copy,
+  Eye,
+  FolderOpen,
+  RefreshCw,
+  Search,
+  X,
+} from "../../../shared/ui/icons";
 import { CreateSkillForm } from "./SkillPicker";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import {
@@ -17,7 +25,11 @@ import {
 import { MarkdownSource } from "../../sessions/ui/AgentMarkdown";
 import { SkillDocumentPreview } from "./SkillDocumentPreview";
 import { copyText } from "../../../platform/tauri/clipboard";
-import { listSkills, readTextFile, type DiscoveredSkill } from "../../../platform/tauri/fs";
+import {
+  listSkills,
+  readTextFile,
+  type DiscoveredSkill,
+} from "../../../platform/tauri/fs";
 import {
   createBlankSkill,
   invalidateSkills,
@@ -34,6 +46,7 @@ export function SkillsPage({
   cwd: string;
   header?: ReactNode;
 }): ReactNode {
+  const { t: uiT } = useTranslation();
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const previewId = useId();
   const previewOpener = useRef<string | null>(null);
@@ -229,8 +242,8 @@ export function SkillsPage({
                     ref={filterInput}
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Filter"
-                    aria-label="Filter skills"
+                    placeholder={uiT("Filter")}
+                    aria-label={uiT("Filter skills")}
                     spellCheck={false}
                     autoComplete="off"
                     className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35"
@@ -238,8 +251,8 @@ export function SkillsPage({
                 </label>
                 <button
                   type="button"
-                  aria-label="Refresh skills"
-                  title="Rescan skill folders"
+                  aria-label={uiT("Refresh skills")}
+                  title={uiT("Rescan skill folders")}
                   disabled={skills === null && !error}
                   onClick={() => {
                     invalidateSkills();
@@ -254,7 +267,9 @@ export function SkillsPage({
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
-                  aria-label={adding ? "Close skill form" : "Add skill"}
+                  aria-label={
+                    adding ? uiT("Close skill form") : uiT("Add skill")
+                  }
                   ref={addSkillButton}
                   disabled={busy}
                   className="rounded-md border border-content/10 px-2.5 py-1 text-[12px] text-content/70 hover:bg-content/10 disabled:opacity-40"
@@ -262,9 +277,9 @@ export function SkillsPage({
                     setAdding((value) => !value);
                     setCreateError(null);
                   }}
-                  title="Create a starter SKILL.md you can edit"
+                  title={uiT("Create a starter SKILL.md you can edit")}
                 >
-                  {adding ? "Close" : "Add skill"}
+                  {adding ? uiT("Close") : uiT("Add skill")}
                 </button>
               </div>
             </div>
@@ -299,14 +314,18 @@ export function SkillsPage({
                 {error}
               </p>
             ) : skills == null ? (
-              <p className="text-[12px] text-content/45">Loading skills…</p>
+              <p className="text-[12px] text-content/45">
+                {uiT("Loading skills…")}
+              </p>
             ) : (
               <div className="overflow-hidden rounded-lg border border-content/10">
                 {filtered.length === 0 ? (
                   <p className="px-3 py-3 text-[12px] text-content/45">
                     {skills.length === 0
-                      ? "No skills yet. Add skill creates a starter SKILL.md."
-                      : "No matching skills"}
+                      ? uiT(
+                          "No skills yet. Add skill creates a starter SKILL.md.",
+                        )
+                      : uiT("No matching skills")}
                   </p>
                 ) : (
                   filtered.map((skill) => {
@@ -322,7 +341,9 @@ export function SkillsPage({
                           <button
                             type="button"
                             className="mr-auto min-w-0 truncate rounded text-left font-sans text-[12px] text-content hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                            title={`Preview ${skill.name}`}
+                            title={uiT("Preview {value0}", {
+                              value0: String(skill.name),
+                            })}
                             ref={registerPreviewButton(`name:${skill.path}`)}
                             aria-controls={previewOpen ? previewId : undefined}
                             aria-expanded={previewSkill?.path === skill.path}
@@ -332,10 +353,10 @@ export function SkillsPage({
                           </button>
                           <span className="shrink-0 rounded-full bg-content/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-content/60">
                             {skill.scope === "user"
-                              ? "Personal"
+                              ? uiT("Personal")
                               : skill.scope === "builtin"
                                 ? "MonoCode"
-                                : "Project"}
+                                : uiT("Project")}
                           </span>
                           <span className="w-20 shrink-0 truncate text-right font-sans text-[11px] text-content/40">
                             {skill.source}
@@ -343,7 +364,10 @@ export function SkillsPage({
                           <button
                             type="button"
                             role="switch"
-                            aria-label={`Include ${skill.name} in MonoCode catalog`}
+                            aria-label={uiT(
+                              "Include {value0} in MonoCode catalog",
+                              { value0: String(skill.name) },
+                            )}
                             aria-checked={!disabled}
                             onClick={() => onToggle(skill.path, disabled)}
                             className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${disabled ? "bg-content/20" : "bg-accent"}`}
@@ -370,8 +394,10 @@ export function SkillsPage({
                           </p>
                           <button
                             type="button"
-                            aria-label={`Preview skill ${skill.name}`}
-                            title="Preview skill"
+                            aria-label={uiT("Preview skill {value0}", {
+                              value0: String(skill.name),
+                            })}
+                            title={uiT("Preview skill")}
                             ref={registerPreviewButton(`icon:${skill.path}`)}
                             aria-controls={previewOpen ? previewId : undefined}
                             aria-expanded={previewSkill?.path === skill.path}
@@ -386,8 +412,10 @@ export function SkillsPage({
                           </button>
                           <button
                             type="button"
-                            aria-label={`Copy path of ${skill.name}`}
-                            title="Copy path"
+                            aria-label={uiT("Copy path of {value0}", {
+                              value0: String(skill.name),
+                            })}
+                            title={uiT("Copy path")}
                             onClick={() => onCopyPath(skill.path)}
                             className="grid size-5 shrink-0 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
                           >
@@ -395,8 +423,11 @@ export function SkillsPage({
                           </button>
                           <button
                             type="button"
-                            aria-label={`Reveal ${skill.name} in file explorer`}
-                            title="Reveal in file manager"
+                            aria-label={uiT(
+                              "Reveal {value0} in file explorer",
+                              { value0: String(skill.name) },
+                            )}
+                            title={uiT("Reveal in file manager")}
                             onClick={() => onReveal(skill.path)}
                             className="grid size-5 shrink-0 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
                           >
@@ -411,19 +442,20 @@ export function SkillsPage({
             )}
 
             <p className="pt-3 text-[12px] text-content/40">
-              Hidden skills stay on disk and are excluded from MonoCode's
-              file-skill catalog. Provider-managed skills and native commands
-              are unaffected. Skills live in{" "}
-              <span className="font-sans">.agents/skills</span> for this project
-              and <span className="font-sans">~/.agents/skills</span> for you
-              personally; harness folders are also picked up.
+              {uiT(
+                "Hidden skills stay on disk and are excluded from MonoCode's file-skill catalog. Provider-managed skills and native commands are unaffected. Skills live in",
+              )}{" "}
+              <span className="font-sans">.agents/skills</span>{" "}
+              {uiT("for this project and ")}
+              <span className="font-sans">~/.agents/skills</span>{" "}
+              {uiT("for you personally; harness folders are also picked up.")}
             </p>
           </div>
         </div>
         {previewSkill ? (
           <aside
             id={previewId}
-            aria-label="Skill preview"
+            aria-label={uiT("Skill preview")}
             className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-stroke @3xl/skills:max-w-[720px] @3xl/skills:border-t-0 @3xl/skills:border-l"
           >
             <header className="flex shrink-0 items-start gap-2 px-4 pt-4 pb-2">
@@ -433,8 +465,8 @@ export function SkillsPage({
               <button
                 ref={closePreview}
                 type="button"
-                aria-label="Close skill preview"
-                title="Close preview (Escape)"
+                aria-label={uiT("Close skill preview")}
+                title={uiT("Close preview (Escape)")}
                 onClick={() => setPreviewSkill(null)}
                 className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
@@ -468,7 +500,7 @@ export function SkillsPage({
                   role="status"
                   className="px-4 py-5 text-[12px] text-content/50"
                 >
-                  Loading skill…
+                  {uiT("Loading skill…")}
                 </p>
               ) : previewMode === "preview" ? (
                 <SkillDocumentPreview text={previewText} />

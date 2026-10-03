@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   ArrowUp,
   Check,
@@ -241,6 +242,7 @@ function AgentTranscriptComponent({
   onScrollerChange,
   managed = false,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const blocks = useMemo(() => {
     if (!harness || !supportsHarnessLogin(harness)) return sourceBlocks;
     const visibleBlocks = sourceBlocks.filter(
@@ -660,7 +662,7 @@ function AgentTranscriptComponent({
               className="rounded-md bg-content/8 px-2.5 py-1.5 font-sans text-[12px] text-content/60 hover:bg-content/12 hover:text-content"
               onClick={loadEarlier}
             >
-              Load earlier messages
+              {uiT("Load earlier messages")}
             </button>
           </div>
         ) : null}
@@ -1002,11 +1004,16 @@ function InitialThinking({
   live: boolean;
   embedded?: boolean;
 }) {
+  const { t: uiT } = useTranslation();
   return (
     <div
       className={`min-w-0 pt-3 pb-1 font-sans text-sm text-content/50 ${embedded ? "" : "px-4"}`}
     >
-      {live ? <Shimmer duration={1.6}>Thinking…</Shimmer> : "Thinking…"}
+      {live ? (
+        <Shimmer duration={1.6}>{uiT("Thinking…")}</Shimmer>
+      ) : (
+        uiT("Thinking…")
+      )}
     </div>
   );
 }
@@ -1161,6 +1168,7 @@ function TurnMetricsBadge({
   metrics?: TurnMetrics;
   elapsedMs: number | null;
 }) {
+  const { t: uiT } = useTranslation();
   const root = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   if (!metrics || !hasTurnMetrics(metrics)) return null;
@@ -1207,8 +1215,8 @@ function TurnMetricsBadge({
       <span
         role="img"
         tabIndex={0}
-        aria-label={`Turn metrics: ${label}`}
-        title="Turn metrics"
+        aria-label={uiT("Turn metrics: {value0}", { value0: String(label) })}
+        title={uiT("Turn metrics")}
         className="grid rounded-md p-1 text-content/40 outline-none hover:bg-content/8 hover:text-content/70 focus-visible:ring-1 focus-visible:ring-accent"
       >
         <ChartBreakoutSquare className="size-3.5" strokeWidth={1.75} />
@@ -1267,6 +1275,7 @@ function CopyTurnButton({
   label?: string;
 }) {
   const { copyMessage } = useContext(TranscriptPlatformContext);
+  const { t: uiT } = useTranslation();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1285,8 +1294,8 @@ function CopyTurnButton({
       <button
         type="button"
         disabled={pending}
-        title={copied ? "Copied" : label}
-        aria-label={copied ? "Copied" : label}
+        title={copied ? uiT("Copied") : label}
+        aria-label={copied ? uiT("Copied") : label}
         className="-ml-1 rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70"
         onClick={(event) => {
           event.stopPropagation();
@@ -1316,7 +1325,8 @@ function CopyTurnButton({
       </button>
       {error && (
         <span role="alert" className="max-w-xs text-xs text-content/70">
-          Copy failed. {error}
+          {uiT("Copy failed. ")}
+          {error}
         </span>
       )}
     </>
@@ -1330,6 +1340,7 @@ function SaveNoteButton({
   text: string;
   onSave: (text: string) => void | Promise<void>;
 }) {
+  const { t: uiT } = useTranslation();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1348,8 +1359,8 @@ function SaveNoteButton({
       <button
         type="button"
         disabled={pending}
-        title={saved ? "Saved to Notes" : "Save as note"}
-        aria-label={saved ? "Saved to Notes" : "Save as note"}
+        title={saved ? uiT("Saved to Notes") : uiT("Save as note")}
+        aria-label={saved ? uiT("Saved to Notes") : uiT("Save as note")}
         className="rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70"
         onClick={async () => {
           setError(null);
@@ -1376,7 +1387,8 @@ function SaveNoteButton({
       </button>
       {error && (
         <span role="alert" className="max-w-xs text-xs text-content/70">
-          Could not save note. {error}
+          {uiT("Could not save note. ")}
+          {error}
         </span>
       )}
     </>
@@ -1608,6 +1620,7 @@ function UserMessageBlock({
   onSendDraft?: (block: Block) => boolean | void;
   onRemoveDraft?: (block: Block) => boolean | void;
 }) {
+  const { t: uiT } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const [singleLine, setSingleLine] = useState(false);
@@ -1755,7 +1768,7 @@ function UserMessageBlock({
               className="mt-1 rounded px-1 py-0.5 text-xs text-content/60 hover:bg-content/8 hover:text-content"
               onClick={toggle}
             >
-              {expanded ? "Show less" : "Show more"}
+              {expanded ? uiT("Show less") : uiT("Show more")}
             </button>
           ) : null}
           {block.ciContext ? (
@@ -1765,10 +1778,12 @@ function UserMessageBlock({
             >
               <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded text-xs text-content/50 transition-colors hover:text-content/80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-content/40 [&::-webkit-details-marker]:hidden">
                 <ChevronRight className="size-3 shrink-0 transition-transform group-open/ci:rotate-90" />
-                <span>CI context</span>
+                <span>{uiT("CI context")}</span>
               </summary>
               <p className="mt-2 text-xs text-content/50">
-                CI instructions and failure details included with this request.
+                {uiT(
+                  "CI instructions and failure details included with this request.",
+                )}
               </p>
               <pre className="mt-2 max-h-72 min-w-0 overflow-auto overscroll-contain rounded-md bg-content/5 p-2.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words text-content/70">
                 {block.ciContext}
@@ -1779,27 +1794,27 @@ function UserMessageBlock({
             <div className="mt-2 flex items-center justify-between gap-4 border-t border-dashed border-content/20 pt-2">
               <span className="flex items-center gap-1.5 text-xs text-content/50">
                 <CircleDashed className="size-3.5" strokeWidth={1.75} />
-                Draft
+                {uiT("Draft")}
               </span>
               <span className="flex items-center gap-1">
                 <button
                   type="button"
-                  title="Remove draft"
-                  aria-label="Remove draft"
+                  title={uiT("Remove draft")}
+                  aria-label={uiT("Remove draft")}
                   onClick={() => onRemoveDraft?.(block)}
                   className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-content/55 hover:bg-content/10 hover:text-content"
                 >
                   <Trash2 className="size-3.5" strokeWidth={1.75} />
-                  Remove
+                  {uiT("Remove")}
                 </button>
                 <button
                   type="button"
-                  title="Send draft"
-                  aria-label="Send draft"
+                  title={uiT("Send draft")}
+                  aria-label={uiT("Send draft")}
                   onClick={() => onSendDraft?.(block)}
                   className="primary-action flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-transform duration-150 active:scale-[0.97]"
                 >
-                  Send
+                  {uiT("Send")}
                   <ArrowUp className="size-3.5" strokeWidth={2.25} />
                 </button>
               </span>
@@ -1825,7 +1840,7 @@ function UserMessageBlock({
               <CopyTurnButton
                 text={text}
                 attachments={block.attachments}
-                label="Copy message"
+                label={uiT("Copy message")}
               />
             ) : null}
             {onEdit ? (
@@ -1938,6 +1953,7 @@ function WorkFoldLine({
   open: boolean;
   onToggle: () => void;
 }) {
+  const { t: uiT } = useTranslation();
   const icon = (
     <span className="relative flex size-3.5 shrink-0 items-center justify-center">
       {open ? (
@@ -1999,7 +2015,7 @@ function WorkFoldLine({
     <button
       type="button"
       aria-expanded={open}
-      aria-label={open ? "Hide the work" : "Show the work"}
+      aria-label={open ? uiT("Hide the work") : uiT("Show the work")}
       aria-live={live ? "polite" : undefined}
       onClick={onToggle}
       className={`group ${row}`}
@@ -2218,6 +2234,7 @@ function ActivityPhaseGroup({
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const [override, setOverride] = useState<boolean | null>(null);
   const waiting = phase.steps.some(needsApproval);
   const open = waiting || (override ?? active);
@@ -2292,7 +2309,9 @@ function ActivityPhaseGroup({
         type="button"
         aria-expanded={open}
         aria-label={
-          open ? `Hide the steps for ${title}` : `Show the steps for ${title}`
+          open
+            ? uiT("Hide the steps for {value0}", { value0: String(title) })
+            : uiT("Show the steps for {value0}", { value0: String(title) })
         }
         onClick={() => setOverride(!open)}
         className="group flex w-full min-w-0 items-center gap-1.5 py-1 text-left"
@@ -2550,6 +2569,7 @@ function SubagentPanel({
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const name = subagentName(block);
   const brief = subagentBrief(block);
   const model = subagentModelName(block);
@@ -2589,7 +2609,10 @@ function SubagentPanel({
       {model || status ? (
         <span className="flex min-w-0 max-w-[55%] shrink-0 items-baseline gap-2 font-sans text-[12px] text-content/40">
           {model ? (
-            <span className="truncate" title={`Model: ${model}`}>
+            <span
+              className="truncate"
+              title={uiT("Model: {value0}", { value0: String(model) })}
+            >
               {model}
             </span>
           ) : null}
@@ -2604,7 +2627,7 @@ function SubagentPanel({
   if (steps.length === 0 && !report) {
     return (
       <div
-        aria-label={`Subagent: ${name}`}
+        aria-label={uiT("Subagent: {value0}", { value0: String(name) })}
         title={brief}
         className="-mx-1.5 flex min-w-0 items-center gap-2 px-1.5 py-1"
       >
@@ -2620,7 +2643,11 @@ function SubagentPanel({
       <button
         type="button"
         aria-expanded={open}
-        aria-label={open ? `Hide ${name}'s work` : `Show ${name}'s work`}
+        aria-label={
+          open
+            ? uiT("Hide {value0}'s work", { value0: String(name) })
+            : uiT("Show {value0}'s work", { value0: String(name) })
+        }
         title={brief}
         onClick={onToggle}
         // An open row keeps the wash it lit up under the cursor, so the panel
@@ -2875,6 +2902,7 @@ function ActivityStatusRow({ block }: { block: Block }) {
  * you a note you wanted to read.
  */
 function ActivityInterjectionRow({ block }: { block: Block }) {
+  const { t: uiT } = useTranslation();
   const [open, setOpen] = useState(false);
   const meta = block.interjection;
   if (!meta) return null;
@@ -2901,7 +2929,7 @@ function ActivityInterjectionRow({ block }: { block: Block }) {
   if (!block.text.trim()) {
     return (
       <div
-        aria-label={`${chrome.label} note`}
+        aria-label={uiT("{value0} note", { value0: String(chrome.label) })}
         className="flex min-w-0 items-center gap-1.5 py-1"
       >
         {label}
@@ -2915,7 +2943,9 @@ function ActivityInterjectionRow({ block }: { block: Block }) {
         type="button"
         aria-expanded={open}
         aria-label={
-          open ? `Hide the ${chrome.label} note` : `${chrome.label}: ${summary}`
+          open
+            ? uiT("Hide the {value0} note", { value0: String(chrome.label) })
+            : `${chrome.label}: ${summary}`
         }
         onClick={() => setOpen((value) => !value)}
         className="group flex min-w-0 items-center gap-1.5 py-1 text-left"
@@ -2949,6 +2979,7 @@ function ActivityThinkingRow({
   bare?: boolean;
   onOpenFile?: (path: string) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const [open, setOpen] = useState(false);
   const text = proseSummary(block.text) || "Thinking";
   // In a group the rail is the bullet, so there is nothing to breathe while
@@ -2973,7 +3004,7 @@ function ActivityThinkingRow({
   if (!expandable) {
     return (
       <div
-        aria-label={`Thinking: ${text}`}
+        aria-label={uiT("Thinking: {value0}", { value0: String(text) })}
         className="flex min-w-0 items-center gap-1.5 py-1"
       >
         {icon}
@@ -2987,7 +3018,11 @@ function ActivityThinkingRow({
       <button
         type="button"
         aria-expanded={open}
-        aria-label={open ? "Hide thinking" : `Show thinking: ${text}`}
+        aria-label={
+          open
+            ? uiT("Hide thinking")
+            : uiT("Show thinking: {value0}", { value0: String(text) })
+        }
         onClick={() => setOpen((value) => !value)}
         className="group flex min-w-0 items-center gap-1.5 py-1 text-left"
       >
@@ -3031,6 +3066,7 @@ function ActivityNoteRow({
   expandable?: boolean;
   onOpenFile?: (path: string) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const [open, setOpen] = useState(false);
   const text = proseSummary(block.text);
   const icon = bare ? null : (
@@ -3040,7 +3076,7 @@ function ActivityNoteRow({
   if (!expandable) {
     return (
       <div
-        aria-label={`Agent said: ${text}`}
+        aria-label={uiT("Agent said: {value0}", { value0: String(text) })}
         className="flex min-w-0 items-center gap-1.5 py-1"
       >
         {icon}
@@ -3056,7 +3092,11 @@ function ActivityNoteRow({
       <button
         type="button"
         aria-expanded={open}
-        aria-label={open ? "Hide the full note" : `Agent said: ${text}`}
+        aria-label={
+          open
+            ? uiT("Hide the full note")
+            : uiT("Agent said: {value0}", { value0: String(text) })
+        }
         onClick={() => setOpen((value) => !value)}
         className="group flex min-w-0 items-center gap-1.5 py-1 text-left"
       >
@@ -3091,6 +3131,7 @@ function ActivityToolRow({
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const [errorOpen, setErrorOpen] = useState(false);
   const appCall = monoCodeToolCall(block);
   if (appCall) {
@@ -3120,7 +3161,9 @@ function ActivityToolRow({
     <div className="flex min-w-0 flex-col">
       {errorDetail ? (
         <div
-          aria-label={`Failed tool call: ${label}`}
+          aria-label={uiT("Failed tool call: {value0}", {
+            value0: String(label),
+          })}
           className="group flex min-w-0 items-center gap-1.5 py-1"
         >
           {bare ? null : <ActivityToolIcon state={state} live={live} />}
@@ -3134,7 +3177,10 @@ function ActivityToolRow({
           <button
             type="button"
             aria-expanded={errorOpen}
-            aria-label={`${errorOpen ? "Hide" : "Show"} error details for ${label}`}
+            aria-label={uiT("{value0} error details for {value1}", {
+              value0: String(errorOpen ? "Hide" : "Show"),
+              value1: String(label),
+            })}
             onClick={() => setErrorOpen((value) => !value)}
             className="-m-1 shrink-0 rounded p-1"
           >
@@ -3146,7 +3192,7 @@ function ActivityToolRow({
         </div>
       ) : (
         <div
-          aria-label={`Tool call: ${label}`}
+          aria-label={uiT("Tool call: {value0}", { value0: String(label) })}
           className="flex min-w-0 items-center gap-1.5 py-1"
         >
           {bare ? null : <ActivityToolIcon state={state} live={live} />}
@@ -3182,6 +3228,7 @@ function MonoCodeCallRow({
   call: MonoCodeToolCall;
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const state = toolCallState(block);
   const output =
     block.tool?.detail?.trim() || block.tool?.preview?.output?.trim();
@@ -3223,7 +3270,10 @@ function MonoCodeCallRow({
         <button
           type="button"
           aria-expanded={errorOpen}
-          aria-label={`${errorOpen ? "Hide" : "Show"} error details for MonoCode: ${call.label}`}
+          aria-label={uiT("{value0} error details for MonoCode: {value1}", {
+            value0: String(errorOpen ? "Hide" : "Show"),
+            value1: String(call.label),
+          })}
           onClick={() => setErrorOpen((value) => !value)}
           className="flex w-full min-w-0 items-center gap-1.5 py-1 text-left"
         >
@@ -3356,6 +3406,7 @@ function ToolCall({
   onOpenDiff?: (path: string) => void;
   embedded?: boolean;
 }) {
+  const { t: uiT } = useTranslation();
   const [open, setOpen] = useState(false);
   const preview = block.tool?.preview;
   const label = toolCallLabel(block, cwd);
@@ -3426,7 +3477,10 @@ function ToolCall({
         <button
           type="button"
           aria-expanded={open}
-          aria-label={`${stateLabel} tool call: ${label}`}
+          aria-label={uiT("{value0} tool call: {value1}", {
+            value0: String(stateLabel),
+            value1: String(label),
+          })}
           onClick={() => setOpen((value) => !value)}
           className="flex w-full min-w-0 items-center gap-2 rounded-lg py-1.5 text-left"
         >
@@ -3445,7 +3499,10 @@ function ToolCall({
         </button>
       ) : (
         <div
-          aria-label={`${stateLabel} tool call: ${label}`}
+          aria-label={uiT("{value0} tool call: {value1}", {
+            value0: String(stateLabel),
+            value1: String(label),
+          })}
           className="flex w-full min-w-0 items-center gap-2"
         >
           <ToolCallIcon state={state} />
@@ -3609,6 +3666,7 @@ function ApprovalControls({
   block: Block;
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const approval = block.approval;
   if (!approval || approval.decided || !onApproval) return null;
   return (
@@ -3618,20 +3676,21 @@ function ApprovalControls({
         className="rounded-md bg-content px-2.5 py-0.5 text-[11px] hover:bg-content/80     text-background-base"
         onClick={() => onApproval(approval.requestId, "allow")}
       >
-        Allow
+        {uiT("Allow")}
       </button>
       <button
         type="button"
         className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/70 hover:bg-content/20"
         onClick={() => onApproval(approval.requestId, "deny")}
       >
-        Deny
+        {uiT("Deny")}
       </button>
     </div>
   );
 }
 
 function HandoffDivider({ block }: { block: Block }) {
+  const { t: uiT } = useTranslation();
   const meta = block.handoff;
   if (!meta) return null;
 
@@ -3646,8 +3705,10 @@ function HandoffDivider({ block }: { block: Block }) {
           role="separator"
           aria-label={
             preparing
-              ? `Preparing a handoff to ${HARNESS_TITLE[meta.to]}`
-              : `Continued with ${label}`
+              ? uiT("Preparing a handoff to {value0}", {
+                  value0: String(HARNESS_TITLE[meta.to]),
+                })
+              : uiT("Continued with {value0}", { value0: String(label) })
           }
           className="flex max-w-[min(100%,20rem)] items-center gap-1.5 px-1.5 font-sans text-[12px] text-content/55"
         >
@@ -3704,6 +3765,7 @@ const INTERJECTION_BODY =
 /** A mid-turn interjection, e.g. OMP advisor notes: a labeled boundary with
  * a collapsible advisory body below it. */
 function InterjectionDivider({ block }: { block: Block }) {
+  const { t: uiT } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const textRef = useRef<HTMLPreElement>(null);
@@ -3734,7 +3796,7 @@ function InterjectionDivider({ block }: { block: Block }) {
         <div className="h-px min-w-4 flex-1 bg-content/12" />
         <div
           role="separator"
-          aria-label={`Interjection: ${label}`}
+          aria-label={uiT("Interjection: {value0}", { value0: String(label) })}
           className="flex items-center gap-2 px-1.5 font-sans text-[12px] text-content/55"
         >
           <span>{label}</span>
@@ -3761,7 +3823,7 @@ function InterjectionDivider({ block }: { block: Block }) {
               onClick={() => setExpanded((value) => !value)}
               className="mt-1 py-1 font-sans text-xs text-content/55 hover:text-content"
             >
-              {expanded ? "Show less" : "Show more"}
+              {expanded ? uiT("Show less") : uiT("Show more")}
             </button>
           ) : null}
         </div>

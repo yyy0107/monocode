@@ -1,3 +1,4 @@
+import { useTranslation } from "../../shared/i18n/useTranslation";
 import {
   formatReleaseDate,
   presentReleaseNotes,
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export function WhatsNewBody({ version }: { version: string }) {
+  const { t: uiT } = useTranslation();
   const notes = presentReleaseNotes(version);
   const title = releaseNotesTitle(version);
 
@@ -25,7 +27,9 @@ export function WhatsNewBody({ version }: { version: string }) {
         />
       ) : (
         <p className="text-[13px] text-content/60">
-          Release notes for this version are not available in this build.
+          {uiT(
+            "Release notes for this version are not available in this build.",
+          )}
         </p>
       )}
     </article>
@@ -33,13 +37,14 @@ export function WhatsNewBody({ version }: { version: string }) {
 }
 
 export function WhatsNewDialog({ version, onClose }: Props) {
+  const { t: uiT } = useTranslation();
   const notes = presentReleaseNotes(version);
   const date = notes?.date ? formatReleaseDate(notes.date) : null;
 
   return (
     <Modal
       onClose={onClose}
-      title="What's new"
+      title={uiT("What's new")}
       description={`MonoCode ${version}${date ? ` · ${date}` : ""}`}
       size="md"
       className="h-[min(72vh,640px)]"

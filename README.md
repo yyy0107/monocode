@@ -43,6 +43,17 @@ An iOS and Android client connects to an existing MonoCode Host using its URL an
 
 ## Some notes
 
+### Interface language
+
+Open **Settings → General → Language** to switch between **English** and
+**简体中文 (Simplified Chinese)**. The change applies immediately across open
+windows and is remembered after restarting. The initial language follows the
+system language, with English as the fallback. Agent messages, code, file paths,
+and project names retain their original content.
+
+中文界面：打开 **设置 → 通用 → 语言**，选择 **简体中文**。切换立即生效，
+无需重启；设置会自动保存，也可随时切回 English。
+
 Experimental remote sessions: run agents on an always-on Windows, Linux, or macOS machine and connect from the desktop. See [remote access setup and current limitations](docs/remote-access.md).
 
 This is very early and you should expect bugs.

@@ -1,3 +1,5 @@
+import { translate as translateUi } from "../../shared/i18n/language";
+import { useTranslation } from "../../shared/i18n/useTranslation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AppWindow,
@@ -93,7 +95,7 @@ function projectMenuExtraItems(
   currentProjectGroupId?: string,
 ): TabGroupMenuExtraItem[] {
   const groupSubmenu: ExplorerMenuItem[] = [
-    { kind: "item", id: "project-group:new", label: "New group…" },
+    { kind: "item", id: "project-group:new", label: translateUi("New group…") },
     ...(projectGroups.length > 0 ? [{ kind: "sep" } as const] : []),
     ...projectGroups.map((group) => ({
       kind: "item" as const,
@@ -105,29 +107,29 @@ function projectMenuExtraItems(
     {
       kind: "item",
       id: "project-group:none",
-      label: "Ungrouped",
+      label: translateUi("Ungrouped"),
       checked: currentProjectGroupId == null,
     },
   ];
   const items: TabGroupMenuExtraItem[] = [
     {
       id: "background",
-      label: "Background image",
+      label: translateUi("Background image"),
       icon: ImagePlus,
     },
     {
       id: "project-group",
-      label: "Move to group",
+      label: translateUi("Move to group"),
       icon: FolderTree,
       submenu: groupSubmenu,
     },
     pinned
-      ? { id: "unpin", label: "Unpin project", icon: PinOff }
-      : { id: "pin", label: "Pin project", icon: Pin },
-    { id: "reveal", label: REVEAL_LABEL, icon: FolderOpen },
+      ? { id: "unpin", label: translateUi("Unpin project"), icon: PinOff }
+      : { id: "pin", label: translateUi("Pin project"), icon: Pin },
+    { id: "reveal", label: translateUi(REVEAL_LABEL), icon: FolderOpen },
     {
       id: "external-editor",
-      label: "Open in editor",
+      label: translateUi("Open in editor"),
       icon: AppWindow,
       disabled: externalEditors === null,
       submenu:
@@ -136,7 +138,7 @@ function projectMenuExtraItems(
               {
                 kind: "item",
                 id: "external-editor:loading",
-                label: "Looking for editors…",
+                label: translateUi("Looking for editors…"),
                 disabled: true,
               },
             ]
@@ -150,14 +152,14 @@ function projectMenuExtraItems(
                 {
                   kind: "item",
                   id: "external-editor:none",
-                  label: "No supported editors found",
+                  label: translateUi("No supported editors found"),
                   disabled: true,
                 },
               ],
     },
     {
       id: "notifications-mute",
-      label: "Mute notifications",
+      label: translateUi("Mute notifications"),
       icon: BellOff,
       sepBefore: true,
       disabled: !notificationReady,
@@ -167,14 +169,24 @@ function projectMenuExtraItems(
   if (canConfigureNotifications) {
     items.push({
       id: "notifications-settings",
-      label: "Notification settings…",
+      label: translateUi("Notification settings…"),
       icon: Settings,
     });
   }
   if (canRemove) {
     items.push(
-      { id: "archive", label: "Archive", icon: Archive, sepBefore: true },
-      { id: "delete", label: "Delete", icon: Trash2, danger: true },
+      {
+        id: "archive",
+        label: translateUi("Archive"),
+        icon: Archive,
+        sepBefore: true,
+      },
+      {
+        id: "delete",
+        label: translateUi("Delete"),
+        icon: Trash2,
+        danger: true,
+      },
     );
   }
   return items;
@@ -200,6 +212,7 @@ export function useProjectMenu({
   onOpenNotificationSettings,
   onOpen,
 }: Options) {
+  const { t: uiT } = useTranslation();
   const [projectMenu, setProjectMenu] = useState<
     (Point & { path: string; projectKey: string }) | null
   >(null);
@@ -430,7 +443,7 @@ export function useProjectMenu({
           menuMuteStatus
             ? {
                 id: "notifications-resume",
-                label: "Resume notifications",
+                label: uiT("Resume notifications"),
                 description: menuMuteStatus,
                 icon: BellOff,
               }
@@ -511,12 +524,12 @@ export function useProjectMenu({
           restoreFocus();
         }}
         showActions={false}
-        ariaLabel="Project group actions"
+        ariaLabel={uiT("Project group actions")}
         extraItems={[
           {
             id: "delete-project-group",
-            label: "Delete group",
-            description: "Projects will become ungrouped",
+            label: uiT("Delete group"),
+            description: uiT("Projects will become ungrouped"),
             icon: Trash2,
             danger: true,
           },
@@ -541,7 +554,7 @@ export function useProjectMenu({
           gap={0}
           width={280}
           role="dialog"
-          aria-label="Mute project notifications"
+          aria-label={uiT("Mute project notifications")}
           onDismiss={closeNotificationMenu}
           className="space-y-1 overflow-y-auto p-3"
         >

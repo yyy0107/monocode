@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { Check, CircleDot, GitPullRequest } from "../../../shared/ui/icons";
 import { type ReactNode } from "react";
 import type { InboxKind } from "../model/githubTasks";
@@ -82,6 +83,7 @@ export function InboxFiltersMenu({
   onJiraProjectsChange,
   onClose,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const hiddenProjects = new Set(filters.hiddenProjects);
   const hiddenLinearProjects = new Set(filters.hiddenLinearProjects);
   const hiddenTeams = new Set(hiddenLinearTeamIds);
@@ -150,51 +152,51 @@ export function InboxFiltersMenu({
       maxHeight={480}
       onDismiss={onClose}
       role="menu"
-      aria-label="Filter inbox"
+      aria-label={uiT("Filter inbox")}
       onContextMenu={(event) => event.preventDefault()}
       className="overflow-y-auto overscroll-none p-1"
     >
       <FilterItem
         label={
           source === "gitlab" || source === "azuredevops"
-            ? "Needs attention"
-            : "Assigned to me"
+            ? uiT("Needs attention")
+            : uiT("Assigned to me")
         }
         checked={filters.assignedToMe}
         onClick={toggleAssigned}
       />
 
-      <SectionLabel>Status</SectionLabel>
+      <SectionLabel>{uiT("Status")}</SectionLabel>
       <FilterItem
-        label="Open"
+        label={uiT("Open")}
         checked={filters.status.open}
         onClick={() => toggleStatus("open")}
       />
       {!tracker ? (
         <FilterItem
-          label="Draft"
+          label={uiT("Draft")}
           checked={filters.status.draft}
           onClick={() => toggleStatus("draft")}
         />
       ) : null}
       <FilterItem
-        label="Closed"
+        label={uiT("Closed")}
         checked={filters.status.closed}
         onClick={() => toggleStatus("closed")}
       />
       {!tracker ? (
         <FilterItem
-          label="Merged"
+          label={uiT("Merged")}
           checked={filters.status.merged}
           onClick={() => toggleStatus("merged")}
         />
       ) : null}
 
-      <SectionLabel>Time</SectionLabel>
+      <SectionLabel>{uiT("Time")}</SectionLabel>
       {TIME_OPTIONS.map((option) => (
         <FilterItem
           key={option.id}
-          label={option.label}
+          label={uiT(option.label)}
           checked={filters.time === option.id}
           onClick={() => setTime(option.id)}
         />
@@ -202,14 +204,14 @@ export function InboxFiltersMenu({
 
       {!tracker ? (
         <>
-          <SectionLabel>Type</SectionLabel>
+          <SectionLabel>{uiT("Type")}</SectionLabel>
           {KIND_OPTIONS.map((option) => (
             <FilterItem
               key={option.id}
               label={
                 source === "gitlab" && option.id === "pr"
-                  ? "Merge requests"
-                  : option.label
+                  ? uiT("Merge requests")
+                  : uiT(option.label)
               }
               checked={!hiddenKinds.has(option.id)}
               icon={option.icon}
@@ -221,7 +223,7 @@ export function InboxFiltersMenu({
 
       {source === "linear" && linearTeams.length > 0 ? (
         <>
-          <SectionLabel>Teams</SectionLabel>
+          <SectionLabel>{uiT("Teams")}</SectionLabel>
           {linearTeams.map((team) => (
             <FilterItem
               key={team.id}
@@ -235,7 +237,7 @@ export function InboxFiltersMenu({
 
       {source === "linear" && linearProjects.length > 0 ? (
         <>
-          <SectionLabel>Projects</SectionLabel>
+          <SectionLabel>{uiT("Projects")}</SectionLabel>
           {linearProjects.map((project) => (
             <FilterItem
               key={project.id}
@@ -249,7 +251,7 @@ export function InboxFiltersMenu({
 
       {source === "jira" && jiraProjects.length > 0 ? (
         <>
-          <SectionLabel>Projects</SectionLabel>
+          <SectionLabel>{uiT("Projects")}</SectionLabel>
           {jiraProjects.map((project) => (
             <FilterItem
               key={project.id}
@@ -268,7 +270,7 @@ export function InboxFiltersMenu({
       ) &&
       projects.length > 0 ? (
         <>
-          <SectionLabel>Projects</SectionLabel>
+          <SectionLabel>{uiT("Projects")}</SectionLabel>
           {projects.map((project) => (
             <FilterItem
               key={project.path}
@@ -308,7 +310,7 @@ export function InboxFiltersMenu({
             }}
             className="flex h-7 w-full items-center rounded-lg px-2 text-left text-[13px] leading-none text-content/70 hover:bg-content/5 hover:text-content"
           >
-            Clear filters
+            {uiT("Clear filters")}
           </button>
         </>
       ) : null}

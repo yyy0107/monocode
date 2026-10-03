@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { LAYER } from "../../../shared/lib/layers";
@@ -21,6 +22,7 @@ export function AddRemoteProjectDialog({
   /** Receives the new project's rail key. */
   onOpen: (key: string) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const { machines, loaded } = useRemoteMachines();
   const [machineId, setMachineId] = useState<string>();
   const machine =
@@ -73,9 +75,11 @@ export function AddRemoteProjectDialog({
       setDirectory(value);
       setPath(value.path);
     } catch (reason) {
-      if (alive.current && version === requestVersion.current) setError(String(reason).replace(/^Error: /, ""));
+      if (alive.current && version === requestVersion.current)
+        setError(String(reason).replace(/^Error: /, ""));
     } finally {
-      if (alive.current && version === requestVersion.current) setLoading(false);
+      if (alive.current && version === requestVersion.current)
+        setLoading(false);
     }
   };
 
@@ -100,9 +104,11 @@ export function AddRemoteProjectDialog({
       if (alive.current && version === requestVersion.current)
         onOpen(rememberRemoteProject(machine.environmentId, project).key);
     } catch (reason) {
-      if (alive.current && version === requestVersion.current) setError(String(reason).replace(/^Error: /, ""));
+      if (alive.current && version === requestVersion.current)
+        setError(String(reason).replace(/^Error: /, ""));
     } finally {
-      if (alive.current && version === requestVersion.current) setOpening(false);
+      if (alive.current && version === requestVersion.current)
+        setOpening(false);
     }
   };
 
@@ -112,7 +118,7 @@ export function AddRemoteProjectDialog({
       <form
         role="dialog"
         aria-modal="true"
-        aria-label="Open folder on a machine"
+        aria-label={uiT("Open folder on a machine")}
         onMouseDown={(event) => event.stopPropagation()}
         onSubmit={(event) => {
           event.preventDefault();
@@ -122,19 +128,20 @@ export function AddRemoteProjectDialog({
       >
         <div className="flex flex-col gap-1">
           <h2 className="text-[13px] font-medium leading-tight text-content">
-            Open folder on a machine
+            {uiT("Open folder on a machine")}
           </h2>
           <p className="text-[12px] leading-snug text-content/55">
-            Sessions in this project run on that machine, using its checkout and
-            its Codex or Claude Code sign-in. They keep running when you close
-            MonoCode here.
+            {uiT(
+              "Sessions in this project run on that machine, using its checkout and its Codex or Claude Code sign-in. They keep running when you close MonoCode here.",
+            )}
           </p>
         </div>
         {!loaded ? null : !machine ? (
           <>
             <p className="text-[12px] leading-snug text-content/55">
-              No machines are connected yet. Add one in Settings, then open a
-              folder on it here.
+              {uiT(
+                "No machines are connected yet. Add one in Settings, then open a folder on it here.",
+              )}
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -142,7 +149,7 @@ export function AddRemoteProjectDialog({
                 onClick={cancel}
                 className="rounded-md px-3 py-1.5 text-[12px] text-content/70 hover:bg-content/8 hover:text-content"
               >
-                Cancel
+                {uiT("Cancel")}
               </button>
               <button
                 type="button"
@@ -152,7 +159,7 @@ export function AddRemoteProjectDialog({
                 }}
                 className="rounded-md bg-selection px-3 py-1.5 text-[12px] font-medium hover:bg-selection-hover"
               >
-                Add a machine
+                {uiT("Add a machine")}
               </button>
             </div>
           </>
@@ -160,7 +167,7 @@ export function AddRemoteProjectDialog({
           <>
             {machines.length > 1 ? (
               <SearchableSelect
-                label="Machine"
+                label={uiT("Machine")}
                 value={machine.id}
                 options={machines.map((entry) => ({
                   value: entry.id,
@@ -172,11 +179,12 @@ export function AddRemoteProjectDialog({
               />
             ) : (
               <p className="text-[12px] text-content/55">
-                On <span className="text-content/80">{machine.name}</span>
+                {uiT("On ")}
+                <span className="text-content/80">{machine.name}</span>
               </p>
             )}
             <input
-              aria-label="Folder path on the machine"
+              aria-label={uiT("Folder path on the machine")}
               className="h-8 shrink-0 rounded-md border border-content/10 bg-content/3 px-2.5 font-mono text-[12px] text-content outline-none focus:border-content/25"
               placeholder="/home/me/code/my-app"
               value={path}
@@ -187,7 +195,7 @@ export function AddRemoteProjectDialog({
               onChange={(event) => setPath(event.target.value)}
             />
             <div
-              aria-label="Folders"
+              aria-label={uiT("Folders")}
               className="min-h-24 flex-1 overflow-y-auto overscroll-contain rounded-md border border-content/10"
             >
               <div className="p-1">
@@ -206,12 +214,12 @@ export function AddRemoteProjectDialog({
                 ))}
                 {directory && !directory.entries.length ? (
                   <p className="px-2 py-1.5 text-[12px] text-content/45">
-                    No subfolders
+                    {uiT("No subfolders")}
                   </p>
                 ) : null}
                 {!directory && loading ? (
                   <p className="px-2 py-1.5 text-[12px] text-content/45">
-                    Loading folders…
+                    {uiT("Loading folders…")}
                   </p>
                 ) : null}
               </div>
@@ -230,14 +238,14 @@ export function AddRemoteProjectDialog({
                 onClick={cancel}
                 className="rounded-md px-3 py-1.5 text-[12px] text-content/70 hover:bg-content/8 hover:text-content"
               >
-                Cancel
+                {uiT("Cancel")}
               </button>
               <button
                 type="submit"
                 disabled={opening || !path.trim()}
                 className="rounded-md bg-selection px-3 py-1.5 text-[12px] font-medium hover:bg-selection-hover disabled:opacity-40"
               >
-                {opening ? "Opening…" : "Open"}
+                {opening ? uiT("Opening…") : uiT("Open")}
               </button>
             </div>
           </>

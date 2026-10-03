@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { LAYER } from "../../../shared/lib/layers";
 
 export function FileActionError({
@@ -7,6 +8,7 @@ export function FileActionError({
   message: string;
   onDismiss: () => void;
 }) {
+  const { t: uiT } = useTranslation();
   return (
     <div
       role="alert"
@@ -16,11 +18,11 @@ export function FileActionError({
       <span className="min-w-0 break-words">{message}</span>
       <button
         type="button"
-        aria-label="Dismiss file action error"
+        aria-label={uiT("Dismiss file action error")}
         className="shrink-0 text-content/60 hover:text-content"
         onClick={onDismiss}
       >
-        Dismiss
+        {uiT("Dismiss")}
       </button>
     </div>
   );

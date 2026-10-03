@@ -1,3 +1,4 @@
+import { useTranslation } from "../i18n/useTranslation";
 import {
   useId,
   useLayoutEffect,
@@ -51,6 +52,7 @@ export function DateTimePicker({
   minDate,
   autoFocus = false,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const today = new Date(Date.now());
   const selected = parseLocalDateTime(`${value.slice(0, 10)}T12:00`) ?? today;
   const minimum = minDate ? parseLocalDateTime(`${minDate}T12:00`) : null;
@@ -162,7 +164,7 @@ export function DateTimePicker({
         <div className="flex gap-0.5">
           <button
             type="button"
-            aria-label="Previous month"
+            aria-label={uiT("Previous month")}
             disabled={previousDisabled}
             onClick={() => navigate(shiftMonth(focusedDate, -1), false)}
             className="grid size-7 place-items-center rounded text-content/55 hover:bg-content/5 hover:text-content focus-visible:outline-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-30"
@@ -171,7 +173,7 @@ export function DateTimePicker({
           </button>
           <button
             type="button"
-            aria-label="Next month"
+            aria-label={uiT("Next month")}
             onClick={() => navigate(shiftMonth(focusedDate, 1), false)}
             className="grid size-7 place-items-center rounded text-content/55 hover:bg-content/5 hover:text-content focus-visible:outline-2 focus-visible:outline-accent"
           >
@@ -213,7 +215,7 @@ export function DateTimePicker({
                     aria-current={
                       dateKey(date) === dateKey(today) ? "date" : undefined
                     }
-                className={`relative size-8 rounded text-xs tabular-nums focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:pointer-events-none disabled:text-content/20 ${dateKey(date) === selectedKey ? "bg-selection-hover font-medium text-content ring-1 ring-inset ring-content/20" : "text-content/70 hover:bg-content/5 hover:text-content"}`}
+                    className={`relative size-8 rounded text-xs tabular-nums focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:pointer-events-none disabled:text-content/20 ${dateKey(date) === selectedKey ? "bg-selection-hover font-medium text-content ring-1 ring-inset ring-content/20" : "text-content/70 hover:bg-content/5 hover:text-content"}`}
                     onClick={() => pick(date)}
                   >
                     {date.getDate()}
@@ -240,10 +242,10 @@ export function DateTimePicker({
               className="size-3 shrink-0 text-content/40"
               aria-hidden="true"
             />
-            Time
+            {uiT("Time")}
           </label>
           <p id={timeHintId} className="mt-0.5 text-[10px] text-content/40">
-            Local time, 24-hour
+            {uiT("Local time, 24-hour")}
           </p>
         </div>
         <div className="w-20 rounded border border-content/10 bg-content/5 focus-within:border-content/40 focus-within:outline-2 focus-within:outline-accent">

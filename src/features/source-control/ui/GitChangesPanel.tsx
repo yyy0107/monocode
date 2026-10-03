@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -124,6 +125,7 @@ export function GitChangesPanel({
   onOpenAllChanges,
   onOpenCommit,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const { index, reload } = useDiffIndex(cwd, enabled);
   const files = index?.files ?? [];
   const paneRef = useRef<HTMLDivElement>(null);
@@ -185,7 +187,9 @@ export function GitChangesPanel({
 
   if (!cwd || cwd === "~") {
     return (
-      <p className="px-3 py-2 text-[12px] text-content/50">No project folder</p>
+      <p className="px-3 py-2 text-[12px] text-content/50">
+        {uiT("No project folder")}
+      </p>
     );
   }
 
@@ -195,7 +199,9 @@ export function GitChangesPanel({
       className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
     >
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-stroke px-3">
-        <span className="text-[12px] font-medium text-content">Changes</span>
+        <span className="text-[12px] font-medium text-content">
+          {uiT("Changes")}
+        </span>
         {status ? (
           <span role="status" className="text-[11px] text-content/50">
             {status}
@@ -223,7 +229,7 @@ export function GitChangesPanel({
             <button
               type="button"
               aria-haspopup="menu"
-              aria-label="Branch actions"
+              aria-label={uiT("Branch actions")}
               aria-expanded={branchMenuOpen}
               disabled={busy !== null}
               onClick={() => setBranchMenuOpen((open) => !open)}
@@ -238,7 +244,7 @@ export function GitChangesPanel({
             {branchMenuOpen ? (
               <div
                 role="menu"
-                aria-label="Branch actions"
+                aria-label={uiT("Branch actions")}
                 className="absolute top-full right-0 z-30 mt-1 min-w-36 rounded-md border border-content/10 bg-background-base py-1 shadow-lg"
               >
                 <button
@@ -248,7 +254,9 @@ export function GitChangesPanel({
                   title={
                     canPull
                       ? undefined
-                      : "This branch needs a remote and upstream before it can pull"
+                      : uiT(
+                          "This branch needs a remote and upstream before it can pull",
+                        )
                   }
                   onClick={() => void pull()}
                   className="flex h-7 w-full items-center gap-2 px-3 text-left text-[12px] text-content hover:bg-content/10 disabled:opacity-40"
@@ -261,7 +269,7 @@ export function GitChangesPanel({
                   ) : (
                     <RefreshCw className="size-3.5" strokeWidth={1.75} />
                   )}
-                  {busy === "pull" ? "Pulling…" : "Pull"}
+                  {busy === "pull" ? uiT("Pulling…") : uiT("Pull")}
                 </button>
               </div>
             ) : null}
@@ -356,6 +364,7 @@ function ChangedFiles({
   onOpenAllChanges: (kind: GitFileDiffKind) => void;
   onMutated: (paths?: string[]) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const menuRef = useRef<HTMLDivElement>(null);
   const messageRef = useRef<HTMLTextAreaElement>(null);
@@ -685,8 +694,10 @@ function ChangedFiles({
             value={message}
             placeholder={
               amend
-                ? `Amend message (${MOD}↩ to amend)`
-                : `Message (${MOD}↩ to commit)`
+                ? uiT("Amend message ({value0}↩ to amend)", {
+                    value0: String(MOD),
+                  })
+                : uiT("Message ({value0}↩ to commit)", { value0: String(MOD) })
             }
             disabled={!canEditMessage}
             onChange={(event) => setMessage(event.target.value)}
@@ -706,13 +717,13 @@ function ChangedFiles({
             type="button"
             title={
               busy === "generate"
-                ? "Cancel commit message generation"
-                : "Generate commit message"
+                ? uiT("Cancel commit message generation")
+                : uiT("Generate commit message")
             }
             aria-label={
               busy === "generate"
-                ? "Cancel commit message generation"
-                : "Generate commit message"
+                ? uiT("Cancel commit message generation")
+                : uiT("Generate commit message")
             }
             disabled={busy !== "generate" && !canGenerate}
             onClick={() =>
@@ -748,13 +759,13 @@ function ChangedFiles({
             }`}
           >
             <Check className="size-3.5" strokeWidth={2} />
-            {amend ? "Amend Commit" : "Commit"}
+            {amend ? uiT("Amend Commit") : uiT("Commit")}
           </button>
 
           <button
             type="button"
-            title="Commit options"
-            aria-label="Commit options"
+            title={uiT("Commit options")}
+            aria-label={uiT("Commit options")}
             aria-expanded={menuOpen}
             disabled={!canOpenMenu}
             onClick={() => setMenuOpen((open) => !open)}
@@ -769,7 +780,7 @@ function ChangedFiles({
           {menuOpen ? (
             <div
               role="menu"
-              aria-label="Commit options"
+              aria-label={uiT("Commit options")}
               className="absolute top-full right-0 z-30 mt-1 min-w-48 rounded-md border border-content/10 bg-background-base py-1 shadow-lg"
             >
               <button
@@ -779,7 +790,7 @@ function ChangedFiles({
                 onClick={() => void commit(true)}
                 className="flex h-7 w-full items-center px-3 text-left text-[12px] text-content hover:bg-content/10 disabled:opacity-40"
               >
-                Commit & Push
+                {uiT("Commit & Push")}
               </button>
               <button
                 type="button"
@@ -788,7 +799,7 @@ function ChangedFiles({
                 onClick={() => void commit(true, true)}
                 className="flex h-7 w-full items-center px-3 text-left text-[12px] text-content hover:bg-content/10 disabled:opacity-40"
               >
-                Commit, Push & Create PR
+                {uiT("Commit, Push & Create PR")}
               </button>
               <div className="my-1 border-t border-content/10" />
               <button
@@ -798,7 +809,7 @@ function ChangedFiles({
                 onClick={() => void toggleAmend()}
                 className="flex h-7 w-full items-center justify-between gap-2 px-3 text-left text-[12px] text-content hover:bg-content/10"
               >
-                Amend Last Commit
+                {uiT("Amend Last Commit")}
                 <span className="grid size-3.5 shrink-0 place-items-center">
                   {amend ? (
                     <Check className="size-3.5" strokeWidth={2} />
@@ -837,14 +848,14 @@ function ChangedFiles({
             {index
               ? index.ahead > 0 || index.behind > 0
                 ? syncStatusLabel(index)
-                : "No uncommitted changes"
-              : "Loading changes…"}
+                : uiT("No uncommitted changes")
+              : uiT("Loading changes…")}
           </p>
         ) : (
           <>
             {staged.length > 0 ? (
               <FileSection
-                title="Staged Changes"
+                title={uiT("Staged Changes")}
                 count={staged.length}
                 open={stagedExpanded}
                 onToggle={() => {
@@ -880,7 +891,7 @@ function ChangedFiles({
             ) : null}
             {unstaged.length > 0 ? (
               <FileSection
-                title="Changes"
+                title={uiT("Changes")}
                 count={unstaged.length}
                 open={changesExpanded}
                 onToggle={() => {
@@ -1017,6 +1028,7 @@ function GitSyncActions({
   onCreatePr: () => void;
   onViewPr: () => void;
 }) {
+  const { t: uiT } = useTranslation();
   if (!hasRemote) return null;
   const ahead = index.ahead;
   const behind = index.behind;
@@ -1065,7 +1077,7 @@ function GitSyncActions({
           ) : (
             <CloudUpload className="size-3.5 shrink-0" strokeWidth={1.75} />
           )}
-          <span className="min-w-0 truncate">Publish Branch</span>
+          <span className="min-w-0 truncate">{uiT("Publish Branch")}</span>
         </button>
       ) : canSync ? (
         <button
@@ -1079,7 +1091,7 @@ function GitSyncActions({
             className={`size-3.5 shrink-0 ${syncing ? "animate-spin" : ""}`}
             strokeWidth={1.75}
           />
-          <span className="min-w-0 truncate">Sync Changes</span>
+          <span className="min-w-0 truncate">{uiT("Sync Changes")}</span>
           {behind > 0 ? (
             <span className="shrink-0 tabular-nums text-content/55">
               ↓{behind}
@@ -1108,7 +1120,7 @@ function GitSyncActions({
           ) : (
             <GitPullRequest className="size-3.5 shrink-0" strokeWidth={1.75} />
           )}
-          Create PR
+          {uiT("Create PR")}
         </button>
       ) : null}
       {showViewPr ? (
@@ -1121,7 +1133,9 @@ function GitSyncActions({
         >
           <ExternalLink className="size-3.5 shrink-0" strokeWidth={1.75} />
           <span className="min-w-0 truncate">
-            {pr?.number ? `View PR #${pr.number}` : "View PR"}
+            {pr?.number
+              ? uiT("View PR #{value0}", { value0: String(pr.number) })
+              : uiT("View PR")}
           </span>
         </button>
       ) : null}
@@ -1148,6 +1162,7 @@ export function FileSection({
   headerActions: { title: string; icon: ReactNode; onClick: () => void }[];
   children: ReactNode;
 }) {
+  const { t: uiT } = useTranslation();
   return (
     <div>
       <div className="flex h-7 items-center gap-1 px-1.5">
@@ -1175,7 +1190,7 @@ export function FileSection({
           </span>
         </button>
         <IconAction
-          title={view === "tree" ? "View as List" : "View as Tree"}
+          title={view === "tree" ? uiT("View as List") : uiT("View as Tree")}
           onClick={onToggleView}
         >
           {view === "tree" ? (
@@ -1442,6 +1457,7 @@ function ChangeRow({
     action: "stage" | "unstage" | "discard",
   ) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const name = basename(file.relative);
   const tree = depth !== undefined;
   const dir = tree ? "" : dirname(file.relative);
@@ -1485,7 +1501,7 @@ function ChangeRow({
         >
           {kind === "unstaged" ? (
             <IconAction
-              title="Discard Changes"
+              title={uiT("Discard Changes")}
               disabled={busy}
               onClick={() => onAction(file, "discard")}
             >
@@ -1494,7 +1510,7 @@ function ChangeRow({
           ) : null}
           {kind === "staged" ? (
             <IconAction
-              title="Unstage Changes"
+              title={uiT("Unstage Changes")}
               disabled={busy}
               onClick={() => onAction(file, "unstage")}
             >
@@ -1502,7 +1518,7 @@ function ChangeRow({
             </IconAction>
           ) : (
             <IconAction
-              title="Stage Changes"
+              title={uiT("Stage Changes")}
               disabled={busy}
               onClick={() => onAction(file, "stage")}
             >

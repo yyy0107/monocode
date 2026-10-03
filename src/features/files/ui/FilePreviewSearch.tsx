@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   useCallback,
   useEffect,
@@ -148,6 +149,7 @@ export function FilePreviewSearch({
   contentVersion: string;
   children: ReactNode;
 }) {
+  const { t: uiT } = useTranslation();
   const rootRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -349,7 +351,7 @@ export function FilePreviewSearch({
       {open ? (
         <div
           role="search"
-          aria-label="Find in preview"
+          aria-label={uiT("Find in preview")}
           className="relative z-30 flex h-[35px] shrink-0 items-center gap-1 border-b border-stroke px-2 py-1 text-content"
           onKeyDown={onKeyDown}
         >
@@ -364,8 +366,8 @@ export function FilePreviewSearch({
               ref={inputRef}
               type="text"
               value={query}
-              aria-label="Find"
-              placeholder="Find"
+              aria-label={uiT("Find")}
+              placeholder={uiT("Find")}
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"
@@ -386,41 +388,46 @@ export function FilePreviewSearch({
           </div>
           <FindToggle
             label="Aa"
-            title={`Match Case (${ALT}C)`}
+            title={uiT("Match Case ({value0}C)", { value0: String(ALT) })}
             pressed={caseSensitive}
             onClick={() => toggle(setCaseSensitive)}
           />
           <FindToggle
             label="ab"
-            title={`Match Whole Word (${ALT}W)`}
+            title={uiT("Match Whole Word ({value0}W)", { value0: String(ALT) })}
             pressed={wholeWord}
             onClick={() => toggle(setWholeWord)}
           />
           <FindToggle
             label=".*"
-            title={`Use Regular Expression (${ALT}R)`}
+            title={uiT("Use Regular Expression ({value0}R)", {
+              value0: String(ALT),
+            })}
             pressed={regexp}
             onClick={() => toggle(setRegexp)}
           />
           <FindButton
-            label="Previous Match"
-            title={`Previous Match (${MOD}${SHIFT}G)`}
+            label={uiT("Previous Match")}
+            title={uiT("Previous Match ({value0}{value1}G)", {
+              value0: String(MOD),
+              value1: String(SHIFT),
+            })}
             disabled={total === 0}
             onClick={() => step(-1)}
           >
             <ChevronUp className="size-3.5" strokeWidth={1.75} />
           </FindButton>
           <FindButton
-            label="Next Match"
-            title={`Next Match (${MOD}G)`}
+            label={uiT("Next Match")}
+            title={uiT("Next Match ({value0}G)", { value0: String(MOD) })}
             disabled={total === 0}
             onClick={() => step(1)}
           >
             <ChevronDown className="size-3.5" strokeWidth={1.75} />
           </FindButton>
           <FindButton
-            label="Close"
-            title="Close (Escape)"
+            label={uiT("Close")}
+            title={uiT("Close (Escape)")}
             onClick={closeSearch}
           >
             <X className="size-3.5" strokeWidth={1.75} />
