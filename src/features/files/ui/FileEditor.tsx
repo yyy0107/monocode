@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { acceptCompletion, completionStatus } from "@codemirror/autocomplete";
 import { indentLess, indentMore } from "@codemirror/commands";
 import {
@@ -133,6 +134,7 @@ export function FileEditor({
   onErrorCountChange,
   onOpenFile,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const [reloadKey, setReloadKey] = useState(0);
@@ -414,7 +416,8 @@ export function FileEditor({
   if (loadState.status === "loading") {
     return (
       <div className="grid h-full place-items-center text-[12px] text-content/45">
-        Opening {basename(path)}…
+        {uiT("Opening ")}
+        {basename(path)}…
       </div>
     );
   }
@@ -425,7 +428,8 @@ export function FileEditor({
         <div className="max-w-md text-center">
           <AlertCircle className="mx-auto mb-3 size-5 text-red-400" />
           <p className="text-[13px] text-content">
-            Couldn’t open {basename(path)}
+            {uiT("Couldn’t open ")}
+            {basename(path)}
           </p>
           <p className="mt-1 text-[12px] leading-5 text-content/50">
             {loadState.message}
@@ -436,7 +440,7 @@ export function FileEditor({
             className="mx-auto mt-4 flex h-7 items-center gap-1.5 rounded-md bg-content/10 px-2.5 text-[12px] text-content hover:bg-content/15"
           >
             <RotateCcw className="size-3" strokeWidth={1.75} />
-            Retry
+            {uiT("Retry")}
           </button>
         </div>
       </div>
@@ -450,8 +454,8 @@ export function FileEditor({
           role="status"
           className="shrink-0 border-b border-stroke px-3 py-1 text-[12px] text-content/60"
         >
-          {gitDiff.kind === "staged" ? "Staged" : "Unstaged"} line-ending
-          changes. Line breaks are normalized in this view.
+          {gitDiff.kind === "staged" ? uiT("Staged") : uiT("Unstaged")}{" "}
+          {uiT("line-ending changes. Line breaks are normalized in this view.")}
         </p>
       )}
       {markdown || svg ? (
@@ -524,15 +528,16 @@ export function FileEditor({
           {relativePath}
         </span>
         {saveState.status === "saving" ? (
-          <span>Saving…</span>
+          <span>{uiT("Saving…")}</span>
         ) : saveState.status === "saved" ? (
-          <span>Saved</span>
+          <span>{uiT("Saved")}</span>
         ) : saveState.status === "error" ? (
           <span
             className="max-w-64 truncate text-red-400"
             title={saveState.message}
           >
-            Save failed: {saveState.message}
+            {uiT("Save failed: ")}
+            {saveState.message}
           </span>
         ) : null}
       </footer>
@@ -757,11 +762,7 @@ export function CodeMirrorEditor({
       if (!loadAutosave()) return;
       autosaveTimer = window.setTimeout(() => {
         autosaveTimer = 0;
-        if (
-          dirtyRef.current &&
-          loadAutosave() &&
-          canAutosaveRef.current()
-        ) {
+        if (dirtyRef.current && loadAutosave() && canAutosaveRef.current()) {
           save(true);
         }
       }, FILE_EDITOR_AUTOSAVE_DELAY_MS);
@@ -1073,18 +1074,19 @@ function DiffChunkNav({
   onPrev: () => void;
   onNext: () => void;
 }) {
+  const { t: uiT } = useTranslation();
   return (
     <header
       className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-stroke px-3 pr-1"
       role="toolbar"
-      aria-label="Jump between changes"
+      aria-label={uiT("Jump between changes")}
     >
       <DiffChunkStat additions={additions} deletions={deletions} />
       <div className="flex items-center gap-0.5">
         <button
           type="button"
-          title="Previous change"
-          aria-label="Previous change"
+          title={uiT("Previous change")}
+          aria-label={uiT("Previous change")}
           disabled={total === 0 || index <= 0}
           onMouseDown={(event) => event.preventDefault()}
           onClick={onPrev}
@@ -1097,8 +1099,8 @@ function DiffChunkNav({
         </span>
         <button
           type="button"
-          title="Next change"
-          aria-label="Next change"
+          title={uiT("Next change")}
+          aria-label={uiT("Next change")}
           disabled={total === 0 || index >= total - 1}
           onMouseDown={(event) => event.preventDefault()}
           onClick={onNext}

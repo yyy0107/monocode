@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { ChevronDown, GripVertical, X } from "../../../shared/ui/icons";
 import {
   memo,
@@ -312,6 +313,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
   onPaneDragStart,
   transcriptPool,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const orchestrationRuns = useSyncExternalStore(
     orchestrator.subscribe,
     orchestrator.snapshot,
@@ -742,8 +744,8 @@ const LocalSessionPane = memo(function LocalSessionPane({
           </span>
           <button
             type="button"
-            title={`Close Pane (${MOD}W)`}
-            aria-label="Close pane"
+            title={uiT("Close Pane ({value0}W)", { value0: String(MOD) })}
+            aria-label={uiT("Close pane")}
             data-no-drag
             className="grid size-5 shrink-0 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content"
             onPointerDown={(e) => e.stopPropagation()}
@@ -792,7 +794,9 @@ const LocalSessionPane = memo(function LocalSessionPane({
           {remoteSessionLoading ? null : isEmpty ? (
             session.inboxAsk ? (
               <div className="scrollbar-none h-full min-h-0 overflow-y-auto">
-                <DiscussionEmpty message="Explore this item with your agent." />
+                <DiscussionEmpty
+                  message={uiT("Explore this item with your agent.")}
+                />
               </div>
             ) : (
               <EmptySession
@@ -941,8 +945,8 @@ const LocalSessionPane = memo(function LocalSessionPane({
                 <div className="pointer-events-none absolute inset-x-0 bottom-2 z-30 flex justify-center">
                   <button
                     type="button"
-                    title="Jump to latest"
-                    aria-label="Jump to latest"
+                    title={uiT("Jump to latest")}
+                    aria-label={uiT("Jump to latest")}
                     data-jump-to-bottom
                     onClick={() => jumpToBottomRef.current?.()}
                     className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content shadow-md hover:bg-content/5 backdrop-blur-md"

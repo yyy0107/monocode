@@ -1,3 +1,4 @@
+import { useTranslation } from "../../shared/i18n/useTranslation";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useSyncExternalStore } from "react";
 import {
@@ -98,6 +99,7 @@ export function resetGithubStarPromptCacheForTest() {
 
 /** A quiet rail CTA that disappears once the active GitHub account has starred us. */
 export function GithubStarPrompt() {
+  const { t: uiT } = useTranslation();
   const snapshot = useSyncExternalStore(
     subscribePrompt,
     getPromptSnapshot,
@@ -121,7 +123,7 @@ export function GithubStarPrompt() {
     <div data-github-star-prompt className="relative mb-1 h-8 w-full">
       <button
         type="button"
-        aria-label="Star MonoCode on GitHub"
+        aria-label={uiT("Star MonoCode on GitHub")}
         aria-busy={busy}
         disabled={busy}
         onClick={() => void starFromPrompt()}
@@ -137,13 +139,13 @@ export function GithubStarPrompt() {
           />
         )}
         <span className="min-w-0 truncate text-xs font-medium leading-tight">
-          {busy ? "Starring…" : "Star on GitHub"}
+          {busy ? uiT("Starring…") : uiT("Star on GitHub")}
         </span>
       </button>
       <button
         type="button"
-        title="Don't show again"
-        aria-label="Dismiss GitHub star prompt"
+        title={uiT("Don't show again")}
+        aria-label={uiT("Dismiss GitHub star prompt")}
         onClick={dismissPrompt}
         className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-orange-400/60 transition-[color,background-color,transform] duration-150 ease-out hover:bg-orange-300/15 hover:text-orange-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/60 active:scale-95"
       >

@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   Check,
   ChevronDown,
@@ -23,7 +24,10 @@ import { useColorScheme } from "../../../shared/hooks/useColorScheme";
 import { formatInteger } from "../../../shared/lib/numbers";
 import type { ColorScheme } from "../../settings/model/appearance";
 import { basename } from "../../../platform/tauri/fs";
-import { highlightDiffFile, type SyntaxToken } from "../../files/editor/syntaxTokens";
+import {
+  highlightDiffFile,
+  type SyntaxToken,
+} from "../../files/editor/syntaxTokens";
 import { DiffCommentComposer } from "./DiffCommentComposer";
 import {
   expandFold,
@@ -95,6 +99,7 @@ export function UnifiedDiffView({
   onDiscardFile,
   onStageHunk,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const colorScheme = useColorScheme();
   const [open, setOpen] = useState<Set<string>>(() =>
@@ -186,7 +191,9 @@ export function UnifiedDiffView({
 
   if (files.length === 0) {
     return (
-      <p className="px-4 py-6 text-[13px] text-content/45">No file changes</p>
+      <p className="px-4 py-6 text-[13px] text-content/45">
+        {uiT("No file changes")}
+      </p>
     );
   }
 
@@ -213,8 +220,8 @@ export function UnifiedDiffView({
         <span className="ml-auto flex items-center gap-0.5">
           <button
             type="button"
-            title="Expand all files"
-            aria-label="Expand all files"
+            title={uiT("Expand all files")}
+            aria-label={uiT("Expand all files")}
             onClick={() => setOpen(new Set(files.map((file) => file.id)))}
             className="grid size-7 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content"
           >
@@ -222,8 +229,8 @@ export function UnifiedDiffView({
           </button>
           <button
             type="button"
-            title="Collapse all files"
-            aria-label="Collapse all files"
+            title={uiT("Collapse all files")}
+            aria-label={uiT("Collapse all files")}
             disabled={open.size === 0}
             onClick={() => setOpen(new Set())}
             className="grid size-7 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-40"
@@ -242,8 +249,9 @@ export function UnifiedDiffView({
       >
         {truncated ? (
           <p className="px-3 py-3 text-[12px] text-content/45">
-            Diff is too large to display in full. File list is shown without
-            patches.
+            {uiT(
+              "Diff is too large to display in full. File list is shown without patches.",
+            )}
           </p>
         ) : null}
         <div
@@ -316,6 +324,7 @@ const FileSection = memo(function FileSection({
   onStageHunk,
   bindRef,
 }: FileSectionProps) {
+  const { t: uiT } = useTranslation();
   const Chevron = expanded ? ChevronDown : ChevronRight;
   const name = basename(file.path);
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -380,9 +389,7 @@ const FileSection = memo(function FileSection({
         className={`${
           fileLayout === "stacked" ? "sticky top-0 z-30 backdrop-blur-xl" : ""
         } flex items-center gap-2 bg-content/2 px-3 py-1.5 ${
-          fileLayout === "stacked" || expanded
-            ? "border-b border-stroke"
-            : ""
+          fileLayout === "stacked" || expanded ? "border-b border-stroke" : ""
         }`}
       >
         <button
@@ -406,7 +413,7 @@ const FileSection = memo(function FileSection({
         </button>
         {file.canDiscard && onDiscardFile ? (
           <IconButton
-            title="Discard file"
+            title={uiT("Discard file")}
             disabled={busy}
             onClick={() => onDiscardFile(file.id)}
           >
@@ -416,8 +423,8 @@ const FileSection = memo(function FileSection({
         {file.canStage && onStageFile ? (
           <button
             type="button"
-            title="Stage file"
-            aria-label="Stage file"
+            title={uiT("Stage file")}
+            aria-label={uiT("Stage file")}
             disabled={busy}
             onClick={() => onStageFile(file.id)}
             className="grid size-4 place-items-center rounded-[3px] bg-content text-background-base hover:opacity-80 disabled:opacity-40"
@@ -509,10 +516,13 @@ function FileBody({
   onReveal: (foldId: string, direction: "up" | "down" | "all") => void;
   onStageHunk?: (id: string, pos: number) => void;
 }) {
-  if (file.binary) return <EmptyBody>Binary file changed</EmptyBody>;
-  if (file.tooLarge) return <EmptyBody>Diff is too large to display</EmptyBody>;
+  const { t: uiT } = useTranslation();
+  if (file.binary) return <EmptyBody>{uiT("Binary file changed")}</EmptyBody>;
+  if (file.tooLarge)
+    return <EmptyBody>{uiT("Diff is too large to display")}</EmptyBody>;
   if (file.emptyMessage) return <EmptyBody>{file.emptyMessage}</EmptyBody>;
-  if (file.blocks.length === 0) return <EmptyBody>No textual diff</EmptyBody>;
+  if (file.blocks.length === 0)
+    return <EmptyBody>{uiT("No textual diff")}</EmptyBody>;
 
   return (
     <VirtualRows
@@ -865,6 +875,7 @@ function FoldBar({
   hidden: number;
   onReveal: (direction: "up" | "down" | "all") => void;
 }) {
+  const { t: uiT } = useTranslation();
   return (
     <div
       className="flex items-center gap-1 bg-content/8 px-2"
@@ -872,8 +883,8 @@ function FoldBar({
     >
       <button
         type="button"
-        title="Expand upward"
-        aria-label="Expand unmodified lines upward"
+        title={uiT("Expand upward")}
+        aria-label={uiT("Expand unmodified lines upward")}
         onClick={() => onReveal("up")}
         className="grid size-5 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
       >
@@ -881,8 +892,8 @@ function FoldBar({
       </button>
       <button
         type="button"
-        title="Expand downward"
-        aria-label="Expand unmodified lines downward"
+        title={uiT("Expand downward")}
+        aria-label={uiT("Expand unmodified lines downward")}
         onClick={() => onReveal("down")}
         className="grid size-5 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
       >
@@ -893,7 +904,8 @@ function FoldBar({
         onClick={() => onReveal("all")}
         className="min-w-0 flex-1 py-1 text-left font-mono text-[11px] text-content/45 hover:text-content/70"
       >
-        {hidden} unmodified {hidden === 1 ? "line" : "lines"}
+        {hidden} {uiT("unmodified ")}
+        {hidden === 1 ? uiT("line") : uiT("lines")}
       </button>
     </div>
   );
@@ -916,6 +928,7 @@ const DiffLineRow = memo(function DiffLineRow({
   onStage?: () => void;
   onComment?: (anchor: DOMRect) => void;
 }) {
+  const { t: uiT } = useTranslation();
   if (line.kind === "hunk") {
     return (
       <div
@@ -981,8 +994,8 @@ const DiffLineRow = memo(function DiffLineRow({
         {onStage ? (
           <button
             type="button"
-            title="Stage hunk"
-            aria-label="Stage hunk"
+            title={uiT("Stage hunk")}
+            aria-label={uiT("Stage hunk")}
             onClick={onStage}
             className={`absolute top-0.5 left-full z-10 ml-0.5 grid size-4 place-items-center rounded-[3px] bg-white text-[11px] font-bold text-black ${
               hovered ? "opacity-100" : "pointer-events-none opacity-0"

@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -28,6 +29,7 @@ export function QuickWorkspaceControls({
   onClose: () => void;
   onError?: (error: string) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const [ready, setReady] = useState(false);
   const [open, setOpen] = useState<QuickGitKind | null>(null);
   const activeKind = useRef<QuickGitKind | null>(null);
@@ -143,13 +145,14 @@ export function QuickWorkspaceControls({
   };
   const disabled = !enabled || !ready || !branches?.current;
   const Icon = value.mode === "worktree" ? FolderTree : Folder;
-  const label = value.mode === "worktree" ? "New worktree" : "Current checkout";
+  const label =
+    value.mode === "worktree" ? uiT("New worktree") : uiT("Current checkout");
   return (
     <div className="flex min-w-0 items-center gap-2">
       <button
         type="button"
         disabled={disabled}
-        aria-label={`Workspace ${label}`}
+        aria-label={uiT("Workspace {value0}", { value0: String(label) })}
         aria-haspopup="dialog"
         aria-expanded={open === "workspace"}
         onMouseDown={(event) => {
@@ -165,13 +168,13 @@ export function QuickWorkspaceControls({
       <GitPickerTrigger
         label={
           value.mode === "worktree"
-            ? `From ${base}`
-            : branches?.current || (settled ? "No repo" : "Loading…")
+            ? uiT("From {value0}", { value0: String(base) })
+            : branches?.current || (settled ? uiT("No repo") : uiT("Loading…"))
         }
         aria-label={
           value.mode === "worktree"
-            ? `Create worktree from ${base}`
-            : "Choose branch"
+            ? uiT("Create worktree from {value0}", { value0: String(base) })
+            : uiT("Choose branch")
         }
         aria-haspopup="dialog"
         aria-expanded={open === "branch" || open === "base"}

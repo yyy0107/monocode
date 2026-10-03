@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { translate } from "../../../shared/i18n/language";
 import { listen } from "@tauri-apps/api/event";
 import type { HarnessId, RuntimeMode } from "../../sessions/model/session";
 
@@ -340,11 +341,18 @@ export function automationScheduleLabel(
 ): string {
   const time = formatClock(automation.time);
   if (automation.scheduleKind === "hourly") {
-    return `Hourly at :${String(automation.minute).padStart(2, "0")}`;
+    return translate("Hourly at :{minute}", {
+      minute: String(automation.minute).padStart(2, "0"),
+    });
   }
-  if (automation.scheduleKind === "daily") return `Daily at ${time}`;
-  if (automation.scheduleKind === "weekdays") return `Weekdays at ${time}`;
-  return `${AUTOMATION_WEEKDAYS[automation.dayOfWeek] ?? "Weekly"} at ${time}`;
+  if (automation.scheduleKind === "daily")
+    return translate("Daily at {time}", { time });
+  if (automation.scheduleKind === "weekdays")
+    return translate("Weekdays at {time}", { time });
+  return translate("{day} at {time}", {
+    day: translate(AUTOMATION_WEEKDAYS[automation.dayOfWeek] ?? "Weekly"),
+    time,
+  });
 }
 
 export function newAutomationDraft(
@@ -510,7 +518,9 @@ export async function claimDueAutomations(
   const due = automations.filter(
     (automation) =>
       automation.enabled &&
-      automationTriggers(automation).some((trigger) => trigger.kind === "time") &&
+      automationTriggers(automation).some(
+        (trigger) => trigger.kind === "time",
+      ) &&
       automation.nextRunAt <= now,
   );
   const claimed: DueAutomationRun[] = [];

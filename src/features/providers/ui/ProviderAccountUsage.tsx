@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   clampUsedPercent,
   formatResetDuration,
@@ -41,7 +42,9 @@ export function AccountStatusLabel({
   return (
     <span
       className={`inline-flex min-w-0 items-center gap-1.5 ${className}`}
-      title={status.detail ? `${status.label} · ${status.detail}` : status.label}
+      title={
+        status.detail ? `${status.label} · ${status.detail}` : status.label
+      }
     >
       <span
         className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[status.tone]}`}
@@ -62,13 +65,14 @@ export function AccountStatusLabel({
 }
 
 export function AccountUsageRefresh({ usage }: { usage: AccountUsage }) {
+  const { t: uiT } = useTranslation();
   return (
     <button
       type="button"
       disabled={usage.refreshing}
       onClick={usage.refresh}
-      aria-label="Refresh usage limits"
-      title="Refresh usage limits"
+      aria-label={uiT("Refresh usage limits")}
+      title={uiT("Refresh usage limits")}
       className="grid size-7 place-items-center rounded-md text-content/40 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.96] disabled:opacity-40"
     >
       <RefreshCw
@@ -143,6 +147,7 @@ export function UsageMeter({
   now: number;
   className?: string;
 }) {
+  const { t: uiT } = useTranslation();
   const showRemaining = useShowRemainingUsage();
   const pct = clampUsedPercent(window.usedPercent);
   const remaining = 100 - pct;
@@ -160,7 +165,9 @@ export function UsageMeter({
       title={
         window.resetsAt == null
           ? undefined
-          : `Resets ${new Date(window.resetsAt).toLocaleString()}`
+          : uiT("Resets {value0}", {
+              value0: String(new Date(window.resetsAt).toLocaleString()),
+            })
       }
     >
       <div className="flex items-baseline justify-between gap-2 text-[10px] leading-3">
@@ -171,16 +178,21 @@ export function UsageMeter({
           className={`shrink-0 tabular-nums ${full ? "font-medium text-red-400" : "text-content/60"}`}
         >
           {showRemaining
-            ? `${formatUsagePercent(remaining)} left`
+            ? uiT("{value0} left", {
+                value0: String(formatUsagePercent(remaining)),
+              })
             : full
-              ? "Full"
+              ? uiT("Full")
               : formatUsagePercent(pct)}
         </span>
       </div>
       <div
         className="mt-1.5 h-1 overflow-hidden rounded-full bg-content/10"
         role="progressbar"
-        aria-label={`${title} limit ${showRemaining ? "remaining" : "used"}`}
+        aria-label={uiT("{value0} limit {value1}", {
+          value0: String(title),
+          value1: String(showRemaining ? "remaining" : "used"),
+        })}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(shown)}

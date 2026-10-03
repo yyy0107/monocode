@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useState, type ReactNode } from "react";
 
 export type MarkdownViewMode = "preview" | "source";
@@ -30,19 +31,20 @@ type ToggleProps = {
 };
 
 export function MarkdownModeToggle({ mode, onChange }: ToggleProps) {
+  const { t: uiT } = useTranslation();
   return (
     <div
       role="tablist"
-      aria-label="Markdown view"
+      aria-label={uiT("Markdown view")}
       className="flex rounded-md border border-content/10 bg-content/10 p-0.5 backdrop-blur-md"
     >
       <ModeTab
-        label="Preview"
+        label={uiT("Preview")}
         selected={mode === "preview"}
         onSelect={() => onChange("preview")}
       />
       <ModeTab
-        label="Source"
+        label={uiT("Source")}
         selected={mode === "source"}
         onSelect={() => onChange("source")}
       />

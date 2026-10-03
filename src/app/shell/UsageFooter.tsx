@@ -1,3 +1,4 @@
+import { useTranslation } from "../../shared/i18n/useTranslation";
 import { RefreshCw, Terminal } from "../../shared/ui/icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
@@ -83,6 +84,7 @@ export function UsageFooter({
   ) => void;
   onManageAccounts?: (provider: ProviderAccountProvider) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const wantClaude = providers.includes("claude");
   const wantCodex = providers.includes("codex");
   const wantOpencode = providers.includes("opencode");
@@ -299,13 +301,14 @@ export function UsageFooter({
   const onTerminalClick = projectTerminalActive
     ? (onShowTerminal ?? onNewTerminal)
     : (onNewTerminal ?? onShowTerminal);
-  const ariaLabel = showUsage || session?.harness === "pi"
-    ? "Provider usage"
-    : showTerminals || showTerminalButton
-      ? "Terminals"
-      : session
-        ? "Session"
-        : undefined;
+  const ariaLabel =
+    showUsage || session?.harness === "pi"
+      ? "Provider usage"
+      : showTerminals || showTerminalButton
+        ? "Terminals"
+        : session
+          ? "Session"
+          : undefined;
 
   return (
     <footer
@@ -313,7 +316,11 @@ export function UsageFooter({
       className="flex h-7 shrink-0 items-center gap-1.5 overflow-x-auto border-t border-stroke px-3 text-[11px] text-content/55"
     >
       {session?.harness === "pi" ? (
-        <PiUsage key={`${session.id}:${session.model}`} model={session.model} now={now} />
+        <PiUsage
+          key={`${session.id}:${session.model}`}
+          model={session.model}
+          now={now}
+        />
       ) : showUsage ? (
         <>
           {wantClaude ? (
@@ -354,8 +361,8 @@ export function UsageFooter({
           <button
             type="button"
             className="grid size-4.5 shrink-0 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content disabled:opacity-50"
-            aria-label="Refresh usage"
-            title="Refresh usage"
+            aria-label={uiT("Refresh usage")}
+            title={uiT("Refresh usage")}
             disabled={refreshing}
             onClick={() => void refresh()}
           >
@@ -391,7 +398,7 @@ export function UsageFooter({
               onClick={onTerminalClick}
             >
               <Terminal className="size-3.5" strokeWidth={1.75} aria-hidden />
-              <span>Terminal</span>
+              <span>{uiT("Terminal")}</span>
             </button>
           ) : null}
         </div>
@@ -411,6 +418,7 @@ function TerminalLiveMark() {
 }
 
 function SessionChip({ session }: { session: UsageFooterSession }) {
+  const { t: uiT } = useTranslation();
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [loginState, setLoginState] = useState<ProviderSignInState>("idle");
@@ -466,17 +474,21 @@ function SessionChip({ session }: { session: UsageFooterSession }) {
         ref={trigger}
         type="button"
         className="-mx-1 inline-flex h-5 min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap rounded px-1 text-content/55 transition-[background-color,color,transform] duration-150 ease-out hover:bg-content/10 hover:text-content focus-visible:outline-2 focus-visible:outline-accent active:scale-[0.97]"
-        aria-label={`${HARNESS_TITLE[session.harness]} sign-in required`}
+        aria-label={uiT("{value0} sign-in required", {
+          value0: String(HARNESS_TITLE[session.harness]),
+        })}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={`${HARNESS_TITLE[session.harness]} sign-in required`}
+        title={uiT("{value0} sign-in required", {
+          value0: String(HARNESS_TITLE[session.harness]),
+        })}
         onClick={() => setOpen((value) => !value)}
       >
         <HarnessIcon harness={session.harness} className="size-3 shrink-0" />
         <span>{HARNESS_LABEL[session.harness]}</span>
         {authRequired ? (
           <span className="text-[10px] text-amber-600 dark:text-amber-300">
-            sign in
+            {uiT("sign in")}
           </span>
         ) : null}
       </button>
@@ -490,7 +502,9 @@ function SessionChip({ session }: { session: UsageFooterSession }) {
           autoFocus
           onDismiss={dismiss}
           role="dialog"
-          aria-label={`${HARNESS_TITLE[session.harness]} sign-in`}
+          aria-label={uiT("{value0} sign-in", {
+            value0: String(HARNESS_TITLE[session.harness]),
+          })}
           tabIndex={-1}
           className="text-content"
         >
@@ -515,6 +529,7 @@ function RunningTerminalChip({
   open: boolean;
   onToggle?: (fileId: string) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const root = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const label = runningTerminalChipLabel(terminals);
@@ -569,7 +584,7 @@ function RunningTerminalChip({
           autoFocus
           onDismiss={() => setMenuOpen(false)}
           role="menu"
-          aria-label="Running terminals"
+          aria-label={uiT("Running terminals")}
           className="min-w-[12rem] p-1"
         >
           {terminals.map((terminal) => (

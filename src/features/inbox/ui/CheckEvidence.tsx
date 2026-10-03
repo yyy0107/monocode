@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useMemo, useState } from "react";
 import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
@@ -20,6 +21,7 @@ export function CheckEvidence({
   repo: string;
   headOid: string;
 }) {
+  const { t: uiT } = useTranslation();
   const [showAll, setShowAll] = useState(false);
   const sources = useMemo<SourceCache>(() => new Map(), [cwd, headOid]);
   return (
@@ -42,7 +44,8 @@ export function CheckEvidence({
           onClick={() => setShowAll(true)}
           className="rounded px-2 py-1 text-[11px] text-content/55 hover:bg-content/5 hover:text-content"
         >
-          Show {annotations.length - 5} more annotations
+          {uiT("Show ")}
+          {annotations.length - 5} {uiT("more annotations")}
         </button>
       ) : null}
     </div>
@@ -62,6 +65,7 @@ function CheckAnnotation({
   headOid: string;
   sources: SourceCache;
 }) {
+  const { t: uiT } = useTranslation();
   const relative = annotation.path.replace(/^\.\//, "");
   const validPath =
     Boolean(relative) &&
@@ -128,8 +132,10 @@ function CheckAnnotation({
           {fileUrl ? (
             <button
               type="button"
-              title="View source at the checked commit"
-              aria-label={`View ${location} on GitHub`}
+              title={uiT("View source at the checked commit")}
+              aria-label={uiT("View {value0} on GitHub", {
+                value0: String(location),
+              })}
               onClick={() => void openUrl(fileUrl)}
               className="-my-1 -mr-1 grid size-6 shrink-0 place-items-center rounded text-content/40 hover:bg-content/5 hover:text-content"
             >
@@ -141,7 +147,7 @@ function CheckAnnotation({
       {excerpt.length ? (
         <div
           className="overflow-x-auto py-2 font-mono text-[11px] leading-5"
-          aria-label={`Source at ${headOid}`}
+          aria-label={uiT("Source at {value0}", { value0: String(headOid) })}
         >
           {excerpt.map((line, index) => (
             <div
@@ -174,7 +180,7 @@ function CheckAnnotation({
           ) : null}
           {canRead && source?.key === sourceKey && !excerpt.length ? (
             <p className="mt-2 text-[10px] text-content/40">
-              Source preview unavailable for this commit.
+              {uiT("Source preview unavailable for this commit.")}
             </p>
           ) : null}
         </div>

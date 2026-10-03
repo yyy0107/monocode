@@ -1,3 +1,4 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   useEffect,
   useRef,
@@ -6,7 +7,11 @@ import {
 } from "react";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
 import { basename } from "../../../platform/tauri/fs";
-import { prettyParent, projectKey, projectName } from "../../../shared/lib/paths";
+import {
+  prettyParent,
+  projectKey,
+  projectName,
+} from "../../../shared/lib/paths";
 import {
   looksLikeProject,
   projectRailItems,
@@ -77,14 +82,17 @@ export function SearchableProjectPicker({
   onProjectContextMenu,
   projectMenuActive = false,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const pickerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const [{ groupLabels, groupColors, groupCustomColors, groupMascots }, setAppearance] =
-    useState(loadAppearance);
+  const [
+    { groupLabels, groupColors, groupCustomColors, groupMascots },
+    setAppearance,
+  ] = useState(loadAppearance);
   useEffect(
     () => subscribeProjectPathsChanged(() => setAppearance(loadAppearance())),
     [],
@@ -166,7 +174,12 @@ export function SearchableProjectPicker({
       if (!project || !row) return;
       event.preventDefault();
       const rect = row.getBoundingClientRect();
-      onProjectContextMenu(project.path, rect.left, rect.bottom, searchRef.current);
+      onProjectContextMenu(
+        project.path,
+        rect.left,
+        rect.bottom,
+        searchRef.current,
+      );
       return;
     }
     if (!(target instanceof HTMLInputElement)) return;
@@ -203,8 +216,11 @@ export function SearchableProjectPicker({
         title={inProject ? cwd : undefined}
         aria-label={
           inProject
-            ? `${action}, current project ${label}`
-            : "Choose project for note"
+            ? uiT("{value0}, current project {value1}", {
+                value0: String(action),
+                value1: String(label),
+              })
+            : uiT("Choose project for note")
         }
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -264,14 +280,14 @@ export function SearchableProjectPicker({
           width={286}
           maxHeight={380}
           role="dialog"
-          aria-label="Project picker"
+          aria-label={uiT("Project picker")}
           onDismiss={projectMenuActive ? undefined : closePicker}
           onKeyDown={onPickerKeyDown}
           className="flex flex-col overflow-hidden"
         >
           <label className="flex h-11 shrink-0 items-center gap-2.5 border-b border-stroke px-3 text-content/45 focus-within:text-content/70">
             <Search className="size-4 shrink-0" strokeWidth={1.75} />
-            <span className="sr-only">Search projects</span>
+            <span className="sr-only">{uiT("Search projects")}</span>
             <input
               ref={searchRef}
               value={query}
@@ -279,7 +295,7 @@ export function SearchableProjectPicker({
                 setQuery(event.target.value);
                 setActive(0);
               }}
-              placeholder="Search projects..."
+              placeholder={uiT("Search projects...")}
               className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none placeholder:text-content/35"
             />
           </label>
@@ -360,7 +376,7 @@ export function SearchableProjectPicker({
               })
             ) : (
               <p className="px-2.5 py-5 text-center text-[12px] text-content/45">
-                No projects found
+                {uiT("No projects found")}
               </p>
             )}
           </div>
@@ -375,7 +391,7 @@ export function SearchableProjectPicker({
                 className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-content/75 hover:bg-content/8 hover:text-content"
               >
                 <Plus className="size-4 shrink-0" strokeWidth={1.75} />
-                <span>New project</span>
+                <span>{uiT("New project")}</span>
               </button>
             </div>
           ) : null}

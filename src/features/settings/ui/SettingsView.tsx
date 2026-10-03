@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { setUiLanguage, type UiLanguage } from "../../../shared/i18n/language";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ConnectionsSettings } from "../../connections/ui/ConnectionsSettings";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -437,6 +439,7 @@ export function SettingsView({
   collapsedProjectRailMode,
   onCollapsedProjectRailModeChange,
 }: Props) {
+  const { t: uiT } = useTranslation();
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const [revealed, setRevealed] = useState<string | null>(anchor);
   const onCloseRef = useRef(onClose);
@@ -485,7 +488,7 @@ export function SettingsView({
   return (
     <div
       role="region"
-      aria-label="Settings"
+      aria-label={uiT("Settings")}
       data-app-settings
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
@@ -495,7 +498,7 @@ export function SettingsView({
       >
         {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
-          <span className="shrink-0 text-content/45">Settings</span>
+          <span className="shrink-0 text-content/45">{uiT("Settings")}</span>
           <span aria-hidden className="shrink-0 text-content/25">
             /
           </span>
@@ -514,7 +517,7 @@ export function SettingsView({
               className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-content/50 hover:bg-content/10 hover:text-content"
             >
               <RotateCcw className="size-3.5" strokeWidth={1.75} />
-              Restore defaults
+              {uiT("Restore defaults")}
             </button>
           ) : null}
           <SettingsSearch onReveal={onReveal} />
@@ -602,12 +605,13 @@ function SettingsSearch({
 }: {
   onReveal: (section: SettingsSectionId, settingId: string | null) => void;
 }) {
+  const { language, t: uiT } = useTranslation();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const listId = useId();
-  const results = useMemo(() => searchSettings(query), [query]);
+  const results = useMemo(() => searchSettings(query), [query, language]);
   const open = query.trim().length > 0;
 
   useEffect(() => setActive(0), [query]);
@@ -646,8 +650,8 @@ function SettingsSearch({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Search settings"
-          aria-label="Search settings"
+          placeholder={uiT("Search settings")}
+          aria-label={uiT("Search settings")}
           aria-expanded={open}
           aria-controls={listId}
           spellCheck={false}
@@ -657,7 +661,7 @@ function SettingsSearch({
         {query ? (
           <button
             type="button"
-            aria-label="Clear settings search"
+            aria-label={uiT("Clear settings search")}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
               setQuery("");
@@ -682,12 +686,12 @@ function SettingsSearch({
           }}
           id={listId}
           role="listbox"
-          aria-label="Settings search results"
+          aria-label={uiT("Settings search results")}
           className="overflow-y-auto overscroll-contain p-1"
         >
           {results.length === 0 ? (
             <p className="px-2 py-1.5 text-[12px] text-content/45">
-              No matching settings
+              {uiT("No matching settings")}
             </p>
           ) : (
             results.map((result, index) => (
@@ -707,7 +711,7 @@ function SettingsSearch({
               >
                 <span className="min-w-0 flex-1 truncate">{result.label}</span>
                 <span className="shrink-0 text-[11px] text-content/40">
-                  {result.settingId ? result.sectionLabel : "Page"}
+                  {result.settingId ? result.sectionLabel : uiT("Page")}
                 </span>
               </button>
             ))
@@ -723,6 +727,7 @@ function GeneralPage({
 }: {
   onOpenWhatsNew: (version: string) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const [soundsEnabled, setSoundsEnabled] = useState(loadSoundsEnabled);
   const [notificationsEnabled, setNotificationsEnabled] = useState(
     loadNotificationsEnabled,
@@ -807,36 +812,43 @@ function GeneralPage({
 
   return (
     <>
+      <LanguageSetting />
       <Group
-        title="Alerts"
-        description="How MonoCode reaches you while you are looking somewhere else."
+        title={uiT("Alerts")}
+        description={uiT(
+          "How MonoCode reaches you while you are looking somewhere else.",
+        )}
       >
         <Row
           id="sounds"
-          label="Sounds"
-          description="Short cues for project activity, finished turns, and available updates. Choose project notification categories in Inbox settings. Switches and Copy on a finished turn also play."
+          label={uiT("Sounds")}
+          description={uiT(
+            "Short cues for project activity, finished turns, and available updates. Choose project notification categories in Inbox settings. Switches and Copy on a finished turn also play.",
+          )}
         >
           <Toggle
-            label="Sounds"
+            label={uiT("Sounds")}
             on={soundsEnabled}
             onChange={onSoundsEnabled}
           />
         </Row>
         <Row
           id="notifications"
-          label="Notifications"
-          description="Notify when a reminder is due, or when an agent finishes or needs input in another session or while MonoCode is in the background. Click the notification to open that session."
+          label={uiT("Notifications")}
+          description={uiT(
+            "Notify when a reminder is due, or when an agent finishes or needs input in another session or while MonoCode is in the background. Click the notification to open that session.",
+          )}
         >
           {notificationsEnabled && notificationPermission === "denied" ? (
             <NotificationsBlocked />
           ) : null}
           {notificationsEnabled && notificationPermission === "unsupported" ? (
             <span className="text-[12px] text-content/45">
-              Not available on this platform
+              {uiT("Not available on this platform")}
             </span>
           ) : null}
           <Toggle
-            label="Notifications"
+            label={uiT("Notifications")}
             on={notificationsEnabled}
             onChange={onNotificationsEnabled}
           />
@@ -844,47 +856,64 @@ function GeneralPage({
       </Group>
 
       <Group
-        title="Workspace"
-        description="How project navigation and workspace tabs behave."
+        title={uiT("Workspace")}
+        description={uiT("How project navigation and workspace tabs behave.")}
       >
         <Row
           id="file-tabs"
-          label="File tabs"
-          description="Open files beside the active chat, or give each file a normal tab in the top bar. Top-bar files can still be combined into split panes."
+          label={uiT("File tabs")}
+          description={uiT(
+            "Open files beside the active chat, or give each file a normal tab in the top bar. Top-bar files can still be combined into split panes.",
+          )}
         >
           <Segmented
-            label="File tabs"
+            label={uiT("File tabs")}
             value={fileTabMode}
             options={[
-              { value: "pane", label: "Beside chat" },
-              { value: "workspace", label: "Top bar" },
+              { value: "pane", label: uiT("Beside chat") },
+              { value: "workspace", label: uiT("Top bar") },
             ]}
             onChange={onFileTabMode}
           />
         </Row>
         <Row
           id="tab-animations"
-          label="Tab animations"
-          description="Animate tabs as they open and close. Turn this off for instant tab changes."
+          label={uiT("Tab animations")}
+          description={uiT(
+            "Animate tabs as they open and close. Turn this off for instant tab changes.",
+          )}
         >
           <Toggle
-            label="Tab animations"
+            label={uiT("Tab animations")}
             on={tabAnimationsEnabled}
             onChange={onTabAnimationsEnabled}
           />
         </Row>
         <Row
           id="notes"
-          label="Notes"
-          description="A global markdown notebook on the project rail. Save a finished turn from the transcript, then mention it later with @note or add it to chat."
+          label={uiT("Notes")}
+          description={uiT(
+            "A global markdown notebook on the project rail. Save a finished turn from the transcript, then mention it later with @note or add it to chat.",
+          )}
         >
-          <Toggle label="Notes" on={notesEnabled} onChange={onNotesEnabled} />
+          <Toggle
+            label={uiT("Notes")}
+            on={notesEnabled}
+            onChange={onNotesEnabled}
+          />
         </Row>
         {IS_MAC && (
           <Row
             id="quick-composer"
-            label="Quick composer"
-            description={`Press ${quickComposerShortcutLabel(loadQuickComposerShortcut())} in any app to float a prompt over it and start a session without switching to MonoCode. Change the shortcut in Keybindings. Return starts it in the background; ⌘Return starts it and brings the session forward.`}
+            label={uiT("Quick composer")}
+            description={uiT(
+              "Press {value0} in any app to float a prompt over it and start a session without switching to MonoCode. Change the shortcut in Keybindings. Return starts it in the background; ⌘Return starts it and brings the session forward.",
+              {
+                value0: String(
+                  quickComposerShortcutLabel(loadQuickComposerShortcut()),
+                ),
+              },
+            )}
           >
             {quickComposerError ? (
               <span className="text-[12px] text-content/45">
@@ -892,7 +921,7 @@ function GeneralPage({
               </span>
             ) : null}
             <Toggle
-              label="Quick composer"
+              label={uiT("Quick composer")}
               on={quickComposerEnabled}
               onChange={onQuickComposerEnabled}
             />
@@ -900,11 +929,13 @@ function GeneralPage({
         )}
         <Row
           id="working-agents"
-          label="Working agents"
-          description="When two or more chats are in flight, a card on the project rail lists them so you can jump across projects. Finished turns stay until you open that session."
+          label={uiT("Working agents")}
+          description={uiT(
+            "When two or more chats are in flight, a card on the project rail lists them so you can jump across projects. Finished turns stay until you open that session.",
+          )}
         >
           <Toggle
-            label="Working agents"
+            label={uiT("Working agents")}
             on={liveAgentsEnabled}
             onChange={onLiveAgentsEnabled}
           />
@@ -912,11 +943,13 @@ function GeneralPage({
         {IS_WIN && (
           <Row
             id="close-to-tray"
-            label="Close to tray"
-            description="Closing a window hides it to the system tray instead of quitting, so running agents keep going. Reopen from the tray icon, and quit for real from its menu. Turn this off to have close end the window."
+            label={uiT("Close to tray")}
+            description={uiT(
+              "Closing a window hides it to the system tray instead of quitting, so running agents keep going. Reopen from the tray icon, and quit for real from its menu. Turn this off to have close end the window.",
+            )}
           >
             <Toggle
-              label="Close to tray"
+              label={uiT("Close to tray")}
               on={closeToTray}
               onChange={onCloseToTray}
             />
@@ -924,14 +957,45 @@ function GeneralPage({
         )}
       </Group>
 
-      <Group title="About">
+      <Group title={uiT("About")}>
         <UpdateRow onOpenWhatsNew={onOpenWhatsNew} />
       </Group>
     </>
   );
 }
 
+function LanguageSetting() {
+  const { language, t } = useTranslation();
+  return (
+    <Group
+      title={t("Language")}
+      description={t(
+        "Choose the language used by MonoCode. Changes apply immediately to all windows.",
+      )}
+    >
+      <Row
+        id="ui-language"
+        label={t("Interface language")}
+        description={t(
+          "Your choice is remembered. Agent messages, code, and project names keep their original content.",
+        )}
+      >
+        <Segmented<UiLanguage>
+          label={t("Interface language")}
+          value={language}
+          options={[
+            { value: "en", label: "English" },
+            { value: "zh-CN", label: "简体中文" },
+          ]}
+          onChange={setUiLanguage}
+        />
+      </Row>
+    </Group>
+  );
+}
+
 function ChatPage() {
+  const { t: uiT } = useTranslation();
   const [transcriptLayout, setTranscriptLayout] =
     useState<TranscriptLayout>(loadTranscriptLayout);
   const [transcriptAnchor, setTranscriptAnchor] =
@@ -1000,31 +1064,35 @@ function ChatPage() {
   return (
     <>
       <Group
-        title="Transcript"
-        description="How a conversation reads as it grows."
+        title={uiT("Transcript")}
+        description={uiT("How a conversation reads as it grows.")}
       >
         <Row
           id="transcript-layout"
-          label="Transcript layout"
-          description="Full width keeps user prompts as a spanning card. Chat aligns them to the right with a max width, like a messaging app."
+          label={uiT("Transcript layout")}
+          description={uiT(
+            "Full width keeps user prompts as a spanning card. Chat aligns them to the right with a max width, like a messaging app.",
+          )}
         >
           <Segmented
-            label="Transcript layout"
+            label={uiT("Transcript layout")}
             value={transcriptLayout}
             options={[
-              { value: "full", label: "Full width" },
-              { value: "chat", label: "Chat" },
+              { value: "full", label: uiT("Full width") },
+              { value: "chat", label: uiT("Chat") },
             ]}
             onChange={onTranscriptLayout}
           />
         </Row>
         <Row
           id="anchor-prompts"
-          label="Anchor prompts to top"
-          description="When you send, the new prompt sits at the top of the transcript and the reply grows into the space below. Turn this off to keep the classic layout, with the latest message resting on the composer."
+          label={uiT("Anchor prompts to top")}
+          description={uiT(
+            "When you send, the new prompt sits at the top of the transcript and the reply grows into the space below. Turn this off to keep the classic layout, with the latest message resting on the composer.",
+          )}
         >
           <Toggle
-            label="Anchor prompts to top"
+            label={uiT("Anchor prompts to top")}
             on={transcriptAnchor}
             onChange={onTranscriptAnchor}
           />
@@ -1032,35 +1100,39 @@ function ChatPage() {
       </Group>
 
       <Group
-        title="Composer"
-        description="What the composer does with what you type."
+        title={uiT("Composer")}
+        description={uiT("What the composer does with what you type.")}
       >
         <Row
           id="follow-up"
-          label="Follow-up behavior"
-          description="Queue follow-ups until the active turn finishes, or steer the active turn immediately."
+          label={uiT("Follow-up behavior")}
+          description={uiT(
+            "Queue follow-ups until the active turn finishes, or steer the active turn immediately.",
+          )}
         >
           <Segmented
-            label="Follow-up behavior"
+            label={uiT("Follow-up behavior")}
             value={followUpBehavior}
             options={[
-              { value: "queue", label: "Queue" },
-              { value: "steer", label: "Steer" },
+              { value: "queue", label: uiT("Queue") },
+              { value: "steer", label: uiT("Steer") },
             ]}
             onChange={onFollowUpBehavior}
           />
         </Row>
         <Row
           id="model-controls"
-          label="Model controls"
-          description="Show model options beside the picker instead of inside the model menu."
+          label={uiT("Model controls")}
+          description={uiT(
+            "Show model options beside the picker instead of inside the model menu.",
+          )}
         >
           <Segmented
-            label="Model controls"
+            label={uiT("Model controls")}
             value={modelControls}
             options={[
-              { value: "menu", label: "Menu" },
-              { value: "beside", label: "Beside" },
+              { value: "menu", label: uiT("Menu") },
+              { value: "beside", label: uiT("Beside") },
             ]}
             onChange={onModelControls}
           />
@@ -1068,16 +1140,20 @@ function ChatPage() {
       </Group>
 
       <Group
-        title="Editor"
-        description="What happens when you save a file in the workspace editor."
+        title={uiT("Editor")}
+        description={uiT(
+          "What happens when you save a file in the workspace editor.",
+        )}
       >
         <Row
           id="format-on-save"
-          label="Format on save"
-          description="Run Prettier on supported files before writing. Off keeps the text you typed, including quote style."
+          label={uiT("Format on save")}
+          description={uiT(
+            "Run Prettier on supported files before writing. Off keeps the text you typed, including quote style.",
+          )}
         >
           <Toggle
-            label="Format on save"
+            label={uiT("Format on save")}
             on={formatOnSave}
             onChange={onFormatOnSave}
           />
@@ -1085,20 +1161,24 @@ function ChatPage() {
       </Group>
 
       <Group
-        title="Code review"
-        description="Where a turn's changes open when you go to read them."
+        title={uiT("Code review")}
+        description={uiT(
+          "Where a turn's changes open when you go to read them.",
+        )}
       >
         <Row
           id="diff-view"
-          label="Diff view"
-          description="Editor keeps working-tree changes in the file. Unified stacks every changed file in one review, with sticky headers and collapsed unchanged lines."
+          label={uiT("Diff view")}
+          description={uiT(
+            "Editor keeps working-tree changes in the file. Unified stacks every changed file in one review, with sticky headers and collapsed unchanged lines.",
+          )}
         >
           <Segmented
-            label="Diff view"
+            label={uiT("Diff view")}
             value={diffViewer}
             options={[
-              { value: "editor", label: "Editor" },
-              { value: "unified", label: "Unified" },
+              { value: "editor", label: uiT("Editor") },
+              { value: "unified", label: uiT("Unified") },
             ]}
             onChange={onDiffViewer}
           />
@@ -1106,27 +1186,33 @@ function ChatPage() {
       </Group>
 
       <Group
-        title="Extras"
-        description="Idle animation, and nothing else. Turn both off for a still workspace."
+        title={uiT("Extras")}
+        description={uiT(
+          "Idle animation, and nothing else. Turn both off for a still workspace.",
+        )}
       >
         <Row
           id="composer-mascot"
-          label="Composer mascot"
-          description="When a turn is running, the project mascot runs along the composer, bonks the scroll-to-latest button the first time, then jumps it, and sometimes grabs a coin."
+          label={uiT("Composer mascot")}
+          description={uiT(
+            "When a turn is running, the project mascot runs along the composer, bonks the scroll-to-latest button the first time, then jumps it, and sometimes grabs a coin.",
+          )}
         >
           <Toggle
-            label="Composer mascot"
+            label={uiT("Composer mascot")}
             on={composerRunner}
             onChange={onComposerRunner}
           />
         </Row>
         <Row
           id="empty-session-games"
-          label="Empty session games"
-          description="Pac-man and snake idle on the empty-session grid. Hover the band to take control of whichever is on screen. Turn this off to keep the pane still."
+          label={uiT("Empty session games")}
+          description={uiT(
+            "Pac-man and snake idle on the empty-session grid. Hover the band to take control of whichever is on screen. Turn this off to keep the pane still.",
+          )}
         >
           <Toggle
-            label="Empty session games"
+            label={uiT("Empty session games")}
             on={gridArcadeEnabled}
             onChange={onGridArcadeEnabled}
           />
@@ -1147,6 +1233,7 @@ function InboxPage({
   notificationProjectPath?: string | null;
   notificationSettingsRequest?: number;
 }) {
+  const { t: uiT } = useTranslation();
   const revealed = useContext(RevealedSetting);
   return (
     <>
@@ -1170,7 +1257,9 @@ function InboxPage({
             GitHub
           </span>
         }
-        description="Pull requests, reviews, and issues, read through the GitHub CLI."
+        description={uiT(
+          "Pull requests, reviews, and issues, read through the GitHub CLI.",
+        )}
       >
         <GithubSettings />
       </Group>
@@ -1183,7 +1272,9 @@ function InboxPage({
             GitLab
           </span>
         }
-        description="Merge requests from GitLab.com or a self-managed instance."
+        description={uiT(
+          "Merge requests from GitLab.com or a self-managed instance.",
+        )}
       >
         <GitlabSettings />
       </Group>
@@ -1199,7 +1290,9 @@ function InboxPage({
             ADO
           </span>
         }
-        description="Pull requests and Boards work items from your ADO organization."
+        description={uiT(
+          "Pull requests and Boards work items from your ADO organization.",
+        )}
       >
         <AzureDevOpsSettings />
       </Group>
@@ -1212,7 +1305,7 @@ function InboxPage({
             Jira
           </span>
         }
-        description="Jira Cloud issues from the projects you pick."
+        description={uiT("Jira Cloud issues from the projects you pick.")}
       >
         <JiraSettings />
       </Group>
@@ -1225,7 +1318,7 @@ function InboxPage({
             Linear
           </span>
         }
-        description="Issues assigned to you, from the teams you pick."
+        description={uiT("Issues assigned to you, from the teams you pick.")}
       >
         <LinearSettings />
       </Group>
@@ -1234,6 +1327,7 @@ function InboxPage({
 }
 
 function GithubSettings() {
+  const { t: uiT } = useTranslation();
   const [status, setStatus] = useState<GithubStatus | null>(null);
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1277,7 +1371,7 @@ function GithubSettings() {
 
   return (
     <>
-      <Row label="Connection" description={description}>
+      <Row label={uiT("Connection")} description={description}>
         <span className="text-[12px] text-content/50">{label}</span>
         {!checking && !status?.installed ? (
           <SecondaryButton
@@ -1285,11 +1379,11 @@ function GithubSettings() {
               void openUrl("https://cli.github.com/").catch(() => {});
             }}
           >
-            Installation guide
+            {uiT("Installation guide")}
           </SecondaryButton>
         ) : null}
         <SecondaryButton onClick={() => void checkStatus()} disabled={checking}>
-          {checking ? "Checking" : "Check again"}
+          {checking ? uiT("Checking") : uiT("Check again")}
         </SecondaryButton>
       </Row>
       {error ? (
@@ -1302,6 +1396,7 @@ function GithubSettings() {
 }
 
 function GitlabSettings() {
+  const { t: uiT } = useTranslation();
   const [url, setUrl] = useState("https://gitlab.com");
   const [token, setToken] = useState("");
   const [connected, setConnected] = useState(false);
@@ -1362,8 +1457,10 @@ function GitlabSettings() {
   return (
     <>
       <Row
-        label="Connection"
-        description="Connect GitLab.com or a self-managed GitLab instance. Use a personal access token with API access; the token is stored locally and Disconnect deletes it."
+        label={uiT("Connection")}
+        description={uiT(
+          "Connect GitLab.com or a self-managed GitLab instance. Use a personal access token with API access; the token is stored locally and Disconnect deletes it.",
+        )}
       >
         {connected ? (
           <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
@@ -1374,7 +1471,7 @@ function GitlabSettings() {
               onClick={() => void onDisconnect()}
               disabled={busy}
             >
-              Disconnect
+              {uiT("Disconnect")}
             </SecondaryButton>
           </div>
         ) : (
@@ -1385,7 +1482,7 @@ function GitlabSettings() {
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder="https://gitlab.com"
-                aria-label="GitLab URL"
+                aria-label={uiT("GitLab URL")}
                 autoComplete="url"
                 spellCheck={false}
                 className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35"
@@ -1400,7 +1497,7 @@ function GitlabSettings() {
                   if (event.key === "Enter") void onSave();
                 }}
                 placeholder="glpat-…"
-                aria-label="GitLab access token"
+                aria-label={uiT("GitLab access token")}
                 autoComplete="off"
                 spellCheck={false}
                 className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35"
@@ -1410,7 +1507,7 @@ function GitlabSettings() {
               onClick={() => void onSave()}
               disabled={busy || !token.trim()}
             >
-              {busy ? "Saving" : "Connect"}
+              {busy ? uiT("Saving") : uiT("Connect")}
             </SecondaryButton>
           </div>
         )}
@@ -1425,6 +1522,7 @@ function GitlabSettings() {
 }
 
 function AzureDevOpsSettings() {
+  const { t: uiT } = useTranslation();
   const [url, setUrl] = useState("https://dev.azure.com/myorg");
   const [token, setToken] = useState("");
   const [connected, setConnected] = useState(false);
@@ -1485,8 +1583,10 @@ function AzureDevOpsSettings() {
   return (
     <>
       <Row
-        label="Connection"
-        description="Connect your ADO organization with a personal access token (Boards + Repos read & write for comments). The token is stored locally and Disconnect deletes it."
+        label={uiT("Connection")}
+        description={uiT(
+          "Connect your ADO organization with a personal access token (Boards + Repos read & write for comments). The token is stored locally and Disconnect deletes it.",
+        )}
       >
         {connected ? (
           <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
@@ -1497,7 +1597,7 @@ function AzureDevOpsSettings() {
               onClick={() => void onDisconnect()}
               disabled={busy}
             >
-              Disconnect
+              {uiT("Disconnect")}
             </SecondaryButton>
           </div>
         ) : (
@@ -1508,7 +1608,7 @@ function AzureDevOpsSettings() {
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder="https://dev.azure.com/myorg"
-                aria-label="Azure DevOps organization URL"
+                aria-label={uiT("Azure DevOps organization URL")}
                 autoComplete="url"
                 spellCheck={false}
                 className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35"
@@ -1523,7 +1623,7 @@ function AzureDevOpsSettings() {
                   if (event.key === "Enter") void onSave();
                 }}
                 placeholder="PAT…"
-                aria-label="Azure DevOps personal access token"
+                aria-label={uiT("Azure DevOps personal access token")}
                 autoComplete="off"
                 spellCheck={false}
                 className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35"
@@ -1533,7 +1633,7 @@ function AzureDevOpsSettings() {
               onClick={() => void onSave()}
               disabled={busy || !token.trim()}
             >
-              {busy ? "Saving" : "Connect"}
+              {busy ? uiT("Saving") : uiT("Connect")}
             </SecondaryButton>
           </div>
         )}
@@ -1548,6 +1648,7 @@ function AzureDevOpsSettings() {
 }
 
 function LinearSettings() {
+  const { t: uiT } = useTranslation();
   const [token, setToken] = useState("");
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1636,12 +1737,14 @@ function LinearSettings() {
   return (
     <>
       <Row
-        label="API key"
-        description="Create a personal API key in Linear → Settings → Security & Access. Disconnect deletes it."
+        label={uiT("API key")}
+        description={uiT(
+          "Create a personal API key in Linear → Settings → Security & Access. Disconnect deletes it.",
+        )}
       >
         {connected ? (
           <SecondaryButton onClick={() => void onDisconnect()} disabled={busy}>
-            Disconnect
+            {uiT("Disconnect")}
           </SecondaryButton>
         ) : (
           <div className="flex max-w-full flex-wrap items-center gap-2">
@@ -1654,7 +1757,7 @@ function LinearSettings() {
                   if (event.key === "Enter") void onSave();
                 }}
                 placeholder="lin_api_…"
-                aria-label="Linear API key"
+                aria-label={uiT("Linear API key")}
                 autoComplete="off"
                 spellCheck={false}
                 className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35"
@@ -1664,7 +1767,7 @@ function LinearSettings() {
               onClick={() => void onSave()}
               disabled={busy || !token.trim()}
             >
-              {busy ? "Saving" : "Connect"}
+              {busy ? uiT("Saving") : uiT("Connect")}
             </SecondaryButton>
           </div>
         )}
@@ -1676,9 +1779,11 @@ function LinearSettings() {
       ) : null}
       {connected && teams.length > 0 ? (
         <div className="border-b border-content/5 px-4 py-3.5 last:border-b-0">
-          <div className="text-[13px] font-medium text-content">Teams</div>
+          <div className="text-[13px] font-medium text-content">
+            {uiT("Teams")}
+          </div>
           <p className="mt-1 text-[12px] leading-relaxed text-content/45">
-            Unchecked teams stay out of the inbox.
+            {uiT("Unchecked teams stay out of the inbox.")}
           </p>
           <div className="-mx-2 mt-2 flex flex-col gap-0.5">
             {teams.map((team) => {
@@ -1714,6 +1819,7 @@ function UpdateRow({
 }: {
   onOpenWhatsNew: (version: string) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const [snapshot, setSnapshot] = useState<UpdaterSnapshot>({
     phase: "idle",
     currentVersion: "…",
@@ -1761,7 +1867,7 @@ function UpdateRow({
       id="update"
       label={
         <span className="flex items-baseline gap-2">
-          Version
+          {uiT("Version")}
           <span className="font-mono text-[12px] text-content/45">
             {snapshot.currentVersion}
           </span>
@@ -1774,7 +1880,7 @@ function UpdateRow({
           onClick={() => onOpenWhatsNew(snapshot.currentVersion)}
           disabled={snapshot.currentVersion === "…"}
         >
-          What's new
+          {uiT("What's new")}
         </SecondaryButton>
         <SecondaryButton onClick={() => void onClick()} disabled={busy}>
           {busy ? (
@@ -1784,7 +1890,7 @@ function UpdateRow({
           ) : (
             <RefreshCw className="size-3.5" strokeWidth={1.75} aria-hidden />
           )}
-          {hasUpdate ? "Download" : "Check for updates"}
+          {hasUpdate ? uiT("Download") : uiT("Check for updates")}
         </SecondaryButton>
       </div>
     </Row>
@@ -2042,35 +2148,40 @@ function useAppearanceSettings(
 }
 
 function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
+  const { t: uiT } = useTranslation();
   const percent = Math.round(appearance.opacity * 100);
   const glassDisabled = useColorScheme() === "light";
 
   return (
     <>
       <Group
-        title="Theme"
-        description="Dark and light share the same tint, so the color settings below apply to both."
+        title={uiT("Theme")}
+        description={uiT(
+          "Dark and light share the same tint, so the color settings below apply to both.",
+        )}
       >
         <Row
           id="theme"
-          label="Theme"
-          description="System follows the OS appearance."
+          label={uiT("Theme")}
+          description={uiT("System follows the OS appearance.")}
         >
           <Segmented
-            label="Theme"
+            label={uiT("Theme")}
             value={appearance.themePreference}
             options={[
-              { value: "system", label: "System" },
-              { value: "dark", label: "Dark" },
-              { value: "light", label: "Light" },
+              { value: "system", label: uiT("System") },
+              { value: "dark", label: uiT("Dark") },
+              { value: "light", label: uiT("Light") },
             ]}
             onChange={appearance.onThemePreference}
           />
         </Row>
         <Row
           id="accent-color"
-          label="Accent color"
-          description="Used for the composer send button and your message bubbles."
+          label={uiT("Accent color")}
+          description={uiT(
+            "Used for the composer send button and your message bubbles.",
+          )}
         >
           <AccentColorPicker
             value={appearance.accentColor}
@@ -2080,16 +2191,18 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
       </Group>
 
       <Group
-        title="Color"
-        description="Hue and saturation tint every surface. Lightness only moves the dark theme."
+        title={uiT("Color")}
+        description={uiT(
+          "Hue and saturation tint every surface. Lightness only moves the dark theme.",
+        )}
       >
         <Row
           id="hue"
-          label="Hue"
-          description="Base hue for accents and tinted surfaces."
+          label={uiT("Hue")}
+          description={uiT("Base hue for accents and tinted surfaces.")}
         >
           <Slider
-            label="Hue"
+            label={uiT("Hue")}
             value={appearance.themeHue}
             display={`${appearance.themeHue}°`}
             min={THEME_HUE_MIN}
@@ -2101,11 +2214,13 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </Row>
         <Row
           id="saturation"
-          label="Saturation"
-          description="How strongly the hue tints the interface. Zero keeps it neutral."
+          label={uiT("Saturation")}
+          description={uiT(
+            "How strongly the hue tints the interface. Zero keeps it neutral.",
+          )}
         >
           <Slider
-            label="Saturation"
+            label={uiT("Saturation")}
             value={appearance.themeSaturation}
             display={`${appearance.themeSaturation}%`}
             min={THEME_SATURATION_MIN}
@@ -2115,15 +2230,19 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </Row>
         <Row
           id="dark-lightness"
-          label="Dark-mode lightness"
+          label={uiT("Dark-mode lightness")}
           description={
             glassDisabled
-              ? "This only affects dark mode. Your dark-mode value is preserved."
-              : "Base brightness of the dark theme. Lower values are darker; zero is true black."
+              ? uiT(
+                  "This only affects dark mode. Your dark-mode value is preserved.",
+                )
+              : uiT(
+                  "Base brightness of the dark theme. Lower values are darker; zero is true black.",
+                )
           }
         >
           <Slider
-            label="Dark-mode lightness"
+            label={uiT("Dark-mode lightness")}
             value={appearance.themeDarkLightness}
             display={`${appearance.themeDarkLightness}%`}
             min={THEME_DARK_LIGHTNESS_MIN}
@@ -2135,20 +2254,26 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
       </Group>
 
       <Group
-        title="Translucency"
+        title={uiT("Translucency")}
         description={
           glassDisabled
-            ? "Light mode always uses an opaque window, so these are off. Your dark-mode values are preserved."
-            : "How much of the desktop shows through MonoCode. Blur costs more to composite the higher it goes."
+            ? uiT(
+                "Light mode always uses an opaque window, so these are off. Your dark-mode values are preserved.",
+              )
+            : uiT(
+                "How much of the desktop shows through MonoCode. Blur costs more to composite the higher it goes.",
+              )
         }
       >
         <Row
           id="sidebar-opacity"
-          label="Sidebar opacity"
-          description="Applies to the project rail and the other glass panes."
+          label={uiT("Sidebar opacity")}
+          description={uiT(
+            "Applies to the project rail and the other glass panes.",
+          )}
         >
           <Slider
-            label="Sidebar opacity"
+            label={uiT("Sidebar opacity")}
             value={percent}
             display={`${percent}%`}
             min={Math.round(SIDEBAR_OPACITY_MIN * 100)}
@@ -2159,11 +2284,11 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </Row>
         <Row
           id="blur"
-          label="Blur radius"
-          description="Background blur behind the window."
+          label={uiT("Blur radius")}
+          description={uiT("Background blur behind the window.")}
         >
           <Slider
-            label="Blur radius"
+            label={uiT("Blur radius")}
             value={appearance.blur}
             display={String(appearance.blur)}
             min={SIDEBAR_BLUR_MIN}
@@ -2174,11 +2299,13 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </Row>
         <Row
           id="main-pane-glass"
-          label="Main pane glass"
-          description="Extend the translucent treatment to the main pane behind sessions and editors."
+          label={uiT("Main pane glass")}
+          description={uiT(
+            "Extend the translucent treatment to the main pane behind sessions and editors.",
+          )}
         >
           <Toggle
-            label="Main pane glass"
+            label={uiT("Main pane glass")}
             on={appearance.bodyGlass}
             onChange={appearance.onBodyGlass}
             disabled={glassDisabled}
@@ -2188,29 +2315,33 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
 
       <ChatBackgroundCard appearance={appearance} />
 
-      <Group title="Layout">
+      <Group title={uiT("Layout")}>
         <Row
           id="collapsed-project-rail"
-          label="Collapsed project rail"
-          description="Keep project navigation available as a compact icon rail, or hide the rail completely."
+          label={uiT("Collapsed project rail")}
+          description={uiT(
+            "Keep project navigation available as a compact icon rail, or hide the rail completely.",
+          )}
         >
           <Segmented
-            label="Collapsed project rail"
+            label={uiT("Collapsed project rail")}
             value={appearance.collapsedProjectRailMode}
             options={[
-              { value: "compact", label: "Icon rail" },
-              { value: "hidden", label: "Hidden" },
+              { value: "compact", label: uiT("Icon rail") },
+              { value: "hidden", label: uiT("Hidden") },
             ]}
             onChange={appearance.onCollapsedProjectRailMode}
           />
         </Row>
         <Row
           id="interface-scale"
-          label="Interface scale"
-          description="Zoom the whole interface. You can also use Ctrl+=, Ctrl+-, and Ctrl+0 (Cmd on macOS)."
+          label={uiT("Interface scale")}
+          description={uiT(
+            "Zoom the whole interface. You can also use Ctrl+=, Ctrl+-, and Ctrl+0 (Cmd on macOS).",
+          )}
         >
           <Select
-            label="Interface scale"
+            label={uiT("Interface scale")}
             value={String(Math.round(appearance.uiScale * 100))}
             options={UI_SCALE_PERCENTS.map((percent) => ({
               value: String(percent),
@@ -2221,11 +2352,13 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </Row>
         <Row
           id="show-excluded-files"
-          label="Show excluded files"
-          description="Show files and folders Git excludes, such as build output and dependencies, in the explorer."
+          label={uiT("Show excluded files")}
+          description={uiT(
+            "Show files and folders Git excludes, such as build output and dependencies, in the explorer.",
+          )}
         >
           <Toggle
-            label="Show excluded files"
+            label={uiT("Show excluded files")}
             on={appearance.showExcludedFiles}
             onChange={appearance.onShowExcludedFiles}
           />
@@ -2240,6 +2373,7 @@ function ChatBackgroundCard({
 }: {
   appearance: AppearanceSettings;
 }) {
+  const { t: uiT } = useTranslation();
   const src = chatBackgroundSrc(appearance.chatBackgroundPath);
   const hasImage = Boolean(appearance.chatBackgroundPath && src);
   const emptyVisibility = Math.round(
@@ -2253,8 +2387,10 @@ function ChatBackgroundCard({
   return (
     <Group
       id="chat-background"
-      title="Chat background"
-      description="An image behind your chat panes. It stays on this device."
+      title={uiT("Chat background")}
+      description={uiT(
+        "An image behind your chat panes. It stays on this device.",
+      )}
     >
       <div className="border-b border-content/5 p-4 last:border-b-0">
         <div className="overflow-hidden rounded-lg border border-content/10">
@@ -2278,7 +2414,8 @@ function ChatBackgroundCard({
                 />
               )}
               <span className="pointer-events-none absolute bottom-2 left-2 text-[11px] text-content/40">
-                Empty chat preview at {emptyVisibility}%
+                {uiT("Empty chat preview at ")}
+                {emptyVisibility}%
               </span>
             </div>
           ) : (
@@ -2293,7 +2430,7 @@ function ChatBackgroundCard({
               ) : (
                 <ImagePlus className="size-5" aria-hidden />
               )}
-              <span className="text-[12px]">Choose an image</span>
+              <span className="text-[12px]">{uiT("Choose an image")}</span>
             </button>
           )}
         </div>
@@ -2306,14 +2443,14 @@ function ChatBackgroundCard({
               {busy ? (
                 <Loader className="size-3.5 animate-spin" aria-hidden />
               ) : null}
-              Change
+              {uiT("Change")}
             </SecondaryButton>
             <SecondaryButton
               onClick={() => void appearance.onClearChatBackground()}
               disabled={busy}
               danger
             >
-              Remove
+              {uiT("Remove")}
             </SecondaryButton>
           </div>
         ) : null}
@@ -2326,44 +2463,44 @@ function ChatBackgroundCard({
       {hasImage ? (
         <>
           <Row
-            label="Background effect"
-            description={
+            label={uiT("Background effect")}
+            description={uiT(
               NEW_THREAD_BACKGROUND_EFFECT_DESCRIPTIONS[
                 appearance.newThreadBackgroundEffect
-              ]
-            }
+              ],
+            )}
           >
             <Segmented
-              label="Background effect"
+              label={uiT("Background effect")}
               value={appearance.newThreadBackgroundEffect}
               options={NEW_THREAD_BACKGROUND_EFFECTS.map((effect) => ({
                 value: effect,
-                label: NEW_THREAD_BACKGROUND_EFFECT_LABELS[effect],
+                label: uiT(NEW_THREAD_BACKGROUND_EFFECT_LABELS[effect]),
               }))}
               onChange={appearance.onNewThreadBackgroundEffect}
               optionIdPrefix="new-thread-background-effect"
             />
           </Row>
           <Row
-            label="Show on"
-            description="Empty sessions only, or every conversation."
+            label={uiT("Show on")}
+            description={uiT("Empty sessions only, or every conversation.")}
           >
             <Segmented
-              label="Show background on"
+              label={uiT("Show background on")}
               value={appearance.chatBackgroundScope}
               options={[
-                { value: "empty", label: "Empty only" },
-                { value: "all", label: "All sessions" },
+                { value: "empty", label: uiT("Empty only") },
+                { value: "all", label: uiT("All sessions") },
               ]}
               onChange={appearance.onChatBackgroundScope}
             />
           </Row>
           <Row
-            label="Empty chat visibility"
-            description="Background strength before a chat has messages."
+            label={uiT("Empty chat visibility")}
+            description={uiT("Background strength before a chat has messages.")}
           >
             <Slider
-              label="Empty chat background visibility"
+              label={uiT("Empty chat background visibility")}
               value={emptyVisibility}
               display={`${emptyVisibility}%`}
               min={Math.round(CHAT_BACKGROUND_OPACITY_MIN * 100)}
@@ -2372,11 +2509,13 @@ function ChatBackgroundCard({
             />
           </Row>
           <Row
-            label="Session visibility"
-            description="Background strength once the conversation has messages."
+            label={uiT("Session visibility")}
+            description={uiT(
+              "Background strength once the conversation has messages.",
+            )}
           >
             <Slider
-              label="Session background visibility"
+              label={uiT("Session background visibility")}
               value={sessionVisibility}
               display={`${sessionVisibility}%`}
               min={Math.round(CHAT_BACKGROUND_OPACITY_MIN * 100)}
@@ -2417,6 +2556,7 @@ function ShortcutEditor({
   onDisable: () => void | Promise<void>;
   onReset: () => void | Promise<void>;
 }) {
+  const { t: uiT } = useTranslation();
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2523,7 +2663,7 @@ function ShortcutEditor({
         <input
           type="text"
           readOnly
-          aria-label={`Change ${name} shortcut`}
+          aria-label={uiT("Change {value0} shortcut", { value0: String(name) })}
           data-shortcut-recorder-active={recording ? "true" : undefined}
           aria-busy={busy || undefined}
           value={
@@ -2543,7 +2683,9 @@ function ShortcutEditor({
         {resetVisible ? (
           <button
             type="button"
-            aria-label={`Reset ${name} shortcut`}
+            aria-label={uiT("Reset {value0} shortcut", {
+              value0: String(name),
+            })}
             disabled={busy}
             onClick={() => void run(onReset)}
             className="rounded-md px-1 py-1 text-content/35 hover:bg-content/10 hover:text-content disabled:opacity-50"
@@ -2557,7 +2699,7 @@ function ShortcutEditor({
           className="pointer-events-none absolute top-1/2 right-full z-40 mr-3 -translate-y-1/2 text-[10px] whitespace-nowrap text-content/50"
           aria-live="polite"
         >
-          Del disables · Esc cancels
+          {uiT("Del disables · Esc cancels")}
         </p>
       ) : null}
       {error ? (
@@ -2630,9 +2772,10 @@ function KeybindingShortcutEditor({
     override: KeybindingOverride,
   ) => void | Promise<void>;
 }) {
+  const { t: uiT } = useTranslation();
   return (
     <ShortcutEditor
-      name={command}
+      name={uiT(command)}
       display={display}
       resetVisible={modified}
       onApply={(shortcut) => onSave(command, { shortcut })}
@@ -2643,6 +2786,7 @@ function KeybindingShortcutEditor({
 }
 
 function KeybindingsPage() {
+  const { t: uiT } = useTranslation();
   const [query, setQuery] = useState("");
   const [overrides, setOverrides] = useState(loadKeybindingOverrides);
   useEffect(
@@ -2661,20 +2805,22 @@ function KeybindingsPage() {
 
   return (
     <Group
-      title="Shortcuts"
-      description="Click a shortcut to record new keys. Press Delete while recording to disable it."
+      title={uiT("Shortcuts")}
+      description={uiT(
+        "Click a shortcut to record new keys. Press Delete while recording to disable it.",
+      )}
       action={
         <div className="flex items-center gap-3">
           <span className="shrink-0 text-[12px] text-content/40 tabular-nums">
-            {rows.length} {rows.length === 1 ? "binding" : "bindings"}
+            {rows.length} {rows.length === 1 ? uiT("binding") : uiT("bindings")}
           </span>
           <label className="flex h-7 w-44 shrink-0 items-center gap-2 rounded-md border border-content/10 px-2 text-content/45 focus-within:border-content/20">
             <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Filter"
-              aria-label="Filter keybindings"
+              placeholder={uiT("Filter")}
+              aria-label={uiT("Filter keybindings")}
               spellCheck={false}
               autoComplete="off"
               className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35"
@@ -2684,13 +2830,13 @@ function KeybindingsPage() {
       }
     >
       <div className="flex items-center border-b border-stroke bg-content/5 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-content/40">
-        <span className="min-w-0 flex-1">Command</span>
-        <span className="w-40 shrink-0">Keybinding</span>
-        <span className="w-28 shrink-0">When</span>
+        <span className="min-w-0 flex-1">{uiT("Command")}</span>
+        <span className="w-40 shrink-0">{uiT("Keybinding")}</span>
+        <span className="w-28 shrink-0">{uiT("When")}</span>
       </div>
       {rows.length === 0 ? (
         <p className="px-4 py-3 text-[12px] text-content/45">
-          No matching bindings
+          {uiT("No matching bindings")}
         </p>
       ) : (
         rows.map((row) => {
@@ -2698,26 +2844,26 @@ function KeybindingsPage() {
           const disabled = override?.disabled === true;
           return (
             <div
-              key={row.command}
+              key={uiT(row.command)}
               className="flex h-11 items-center border-b border-content/5 px-4 text-[12px] last:border-b-0"
             >
               <span
                 className={`min-w-0 flex-1 truncate ${disabled ? "text-content/45" : ""}`}
               >
-                {row.command}
+                {uiT(row.command)}
               </span>
               {row.command === "App: Quick Composer" ? (
                 <QuickComposerShortcutEditor />
               ) : (
                 <KeybindingShortcutEditor
-                  command={row.command}
+                  command={uiT(row.command)}
                   display={disabled ? null : row.keys}
                   modified={Boolean(override)}
                   onSave={save}
                 />
               )}
               <span className="w-28 shrink-0 font-mono text-[11px] text-content/40">
-                {row.when}
+                {uiT(row.when)}
               </span>
             </div>
           );
@@ -2734,7 +2880,10 @@ function binaryInspectionError(
   inspection: HarnessBinaryInspection,
 ): string | null {
   if (inspection.error) return inspection.error;
-  if (provider === "codex" && !/^codex-cli\s+\d+\.\d+\.\d+/.test(inspection.version ?? "")) {
+  if (
+    provider === "codex" &&
+    !/^codex-cli\s+\d+\.\d+\.\d+/.test(inspection.version ?? "")
+  ) {
     return "Codex CLI returned an invalid version.";
   }
   if (provider === "opencode") {
@@ -2752,6 +2901,7 @@ function ProviderBinaryControl({
 }: {
   provider: ConfigurableBinaryProvider;
 }) {
+  const { t: uiT } = useTranslation();
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const editInput = useRef<HTMLInputElement>(null);
@@ -2853,13 +3003,18 @@ function ProviderBinaryControl({
         type="button"
         aria-label={
           restartRequired
-            ? `Show ${title} CLI details, restart required`
-            : `Show ${title} CLI details`
+            ? uiT("Show {value0} CLI details, restart required", {
+                value0: String(title),
+              })
+            : uiT("Show {value0} CLI details", { value0: String(title) })
         }
         aria-expanded={open}
         aria-controls={`${provider}-binary-popover`}
         aria-haspopup="dialog"
-        title={`${title} CLI path${restartRequired ? " — restart required" : ""}`}
+        title={uiT("{value0} CLI path{value1}", {
+          value0: String(title),
+          value1: String(restartRequired ? " — restart required" : ""),
+        })}
         onClick={() => {
           if (!open && !inspection && !working && !error) {
             void inspect(loadProviderBinaryPath(provider));
@@ -2868,7 +3023,9 @@ function ProviderBinaryControl({
           setEditing(false);
         }}
         className={`grid size-6 place-items-center rounded hover:bg-content/10 focus-visible:outline-2 focus-visible:outline-accent ${
-          restartRequired ? "text-amber-300" : "text-content/35 hover:text-content"
+          restartRequired
+            ? "text-amber-300"
+            : "text-content/35 hover:text-content"
         }`}
       >
         <FolderOpen className="size-3.5" strokeWidth={1.75} />
@@ -2877,7 +3034,7 @@ function ProviderBinaryControl({
         <Popover
           id={`${provider}-binary-popover`}
           role="dialog"
-          aria-label={`${title} CLI details`}
+          aria-label={uiT("{value0} CLI details", { value0: String(title) })}
           aria-busy={working}
           tabIndex={-1}
           anchor={root}
@@ -2908,20 +3065,20 @@ function ProviderBinaryControl({
         >
           <div className="flex items-center justify-between gap-3">
             <span className="text-[12px] font-medium text-content">
-              {title} CLI
+              {title} {uiT("CLI")}
             </span>
             <div className="flex items-center gap-1.5">
               <span className="rounded-full bg-content/10 px-1.5 py-0.5 text-[10px] text-content/50">
-                Global path
+                {uiT("Global path")}
               </span>
               <span className="rounded-full bg-content/10 px-1.5 py-0.5 text-[10px] text-content/50">
                 {error
-                  ? "Needs attention"
+                  ? uiT("Needs attention")
                   : restartRequired
-                    ? "Restart required"
+                    ? uiT("Restart required")
                     : overridden
-                      ? "Configured"
-                      : "Auto-detected"}
+                      ? uiT("Configured")
+                      : uiT("Auto-detected")}
               </span>
             </div>
           </div>
@@ -2931,21 +3088,23 @@ function ProviderBinaryControl({
                 htmlFor={`${provider}-binary-path`}
                 className="text-[11px] text-content/50"
               >
-                CLI path
+                {uiT("CLI path")}
               </label>
               <input
                 id={`${provider}-binary-path`}
                 ref={editInput}
                 type="text"
                 value={draft}
-                placeholder={inspection?.path ?? "Auto-detected path"}
+                placeholder={inspection?.path ?? uiT("Auto-detected path")}
                 disabled={working}
                 autoFocus
                 onChange={(event) => setDraft(event.target.value)}
                 className="mt-1.5 h-8 w-full rounded-md border border-content/10 bg-content/[0.04] px-2 font-mono text-[11px] text-content outline-none placeholder:font-sans placeholder:text-content/35 focus:border-accent/45 disabled:opacity-50"
               />
               <p className="mt-1.5 text-[10px] text-content/40">
-                Enter the absolute path to the CLI executable. Changes apply after restarting MonoCode.
+                {uiT(
+                  "Enter the absolute path to the CLI executable. Changes apply after restarting MonoCode.",
+                )}
               </p>
               {error ? (
                 <span
@@ -2964,18 +3123,18 @@ function ProviderBinaryControl({
                     queueMicrotask(() => trigger.current?.focus());
                   }}
                 >
-                  Cancel
+                  {uiT("Cancel")}
                 </SecondaryButton>
                 {overridden ? (
                   <SecondaryButton
                     disabled={working}
                     onClick={() => void useAuto()}
                   >
-                    Use auto-detected path
+                    {uiT("Use auto-detected path")}
                   </SecondaryButton>
                 ) : null}
                 <SecondaryButton type="submit" disabled={working}>
-                  Save path
+                  {uiT("Save path")}
                 </SecondaryButton>
               </div>
             </form>
@@ -2984,68 +3143,84 @@ function ProviderBinaryControl({
               <div className="mt-2 rounded-md border border-content/10 bg-content/[0.03] px-2.5 py-2">
                 <span className="block max-h-12 overflow-y-auto whitespace-pre-wrap break-all font-mono text-[10px] text-content/65">
                   {inspection?.path ??
-                    (error ? "CLI could not be resolved" : "Checking the selected CLI…")}
+                    (error
+                      ? uiT("CLI could not be resolved")
+                      : uiT("Checking the selected CLI…"))}
                 </span>
                 <span className="mt-1 block max-h-10 overflow-y-auto whitespace-pre-wrap break-words text-[10px] text-content/40">
                   {inspection?.version ??
-                    (error ? "Retry to check this CLI" : "Checking version…")}
+                    (error
+                      ? uiT("Retry to check this CLI")
+                      : uiT("Checking version…"))}
                 </span>
               </div>
-               {error ? (
-                 <span
-                   role="alert"
-                   title={error}
-                   className="mt-1.5 block max-h-20 overflow-y-auto whitespace-pre-wrap break-words text-[10px] leading-4 text-red-400"
-                 >
-                   {error}
-                 </span>
-               ) : null}
-               {revealError ? (
-                 <span
-                   role="alert"
-                   className="mt-1.5 block max-h-20 overflow-y-auto whitespace-pre-wrap break-words text-[10px] leading-4 text-red-400"
-                 >
-                   Could not open the CLI location: {revealError}
-                 </span>
-               ) : null}
-               <div className="mt-3 flex justify-end gap-2">
+              {error ? (
+                <span
+                  role="alert"
+                  title={error}
+                  className="mt-1.5 block max-h-20 overflow-y-auto whitespace-pre-wrap break-words text-[10px] leading-4 text-red-400"
+                >
+                  {error}
+                </span>
+              ) : null}
+              {revealError ? (
+                <span
+                  role="alert"
+                  className="mt-1.5 block max-h-20 overflow-y-auto whitespace-pre-wrap break-words text-[10px] leading-4 text-red-400"
+                >
+                  {uiT("Could not open the CLI location: ")}
+                  {revealError}
+                </span>
+              ) : null}
+              <div className="mt-3 flex justify-end gap-2">
                 {error ? (
                   <SecondaryButton
                     disabled={working}
-                    aria-label={`Retry ${title} ${
-                      overridden ? "configured path" : "auto-detect"
-                    }`}
+                    aria-label={uiT("Retry {value0} {value1}", {
+                      value0: String(title),
+                      value1: String(
+                        overridden ? "configured path" : "auto-detect",
+                      ),
+                    })}
                     onClick={() =>
                       void inspect(overridden ? draft.trim() || null : null)
                     }
                   >
                     <RefreshCw className="size-3.5" strokeWidth={1.75} />
-                    {overridden ? "Retry configured path" : "Retry auto-detect"}
+                    {overridden
+                      ? uiT("Retry configured path")
+                      : uiT("Retry auto-detect")}
                   </SecondaryButton>
                 ) : null}
                 <SecondaryButton
-                  aria-label={`Open ${title} CLI location`}
+                  aria-label={uiT("Open {value0} CLI location", {
+                    value0: String(title),
+                  })}
                   disabled={!inspection}
                   onClick={() => {
                     if (inspection) {
                       void revealPath(inspection.path).catch((cause) => {
                         setRevealError(
-                          cause instanceof Error ? cause.message : String(cause),
+                          cause instanceof Error
+                            ? cause.message
+                            : String(cause),
                         );
                       });
                     }
                   }}
                 >
                   <ExternalLink className="size-3.5" strokeWidth={1.75} />
-                  Open location
+                  {uiT("Open location")}
                 </SecondaryButton>
                 <SecondaryButton
-                  aria-label={`Edit ${title} CLI path`}
+                  aria-label={uiT("Edit {value0} CLI path", {
+                    value0: String(title),
+                  })}
                   disabled={working}
                   onClick={() => setEditing(true)}
                 >
                   <Pencil className="size-3.5" strokeWidth={1.75} />
-                  Edit path
+                  {uiT("Edit path")}
                 </SecondaryButton>
               </div>
             </>
@@ -3063,6 +3238,7 @@ function ProvidersPage({
   cwd?: string;
   recents?: RecentProject[];
 }) {
+  const { t: uiT } = useTranslation();
   useSyncExternalStore(subscribeModels, getModelSnapshot, getModelSnapshot);
   useSyncExternalStore(
     subscribeHarnessAvailability,
@@ -3087,7 +3263,7 @@ function ProvidersPage({
     const options: { value: string; label: string; icon?: ReactNode }[] = [
       {
         value: GLOBAL_PROVIDER_SCOPE,
-        label: "Global",
+        label: uiT("Global"),
         icon: (
           <Globe
             className="size-3.5 shrink-0 text-content/60"
@@ -3109,7 +3285,7 @@ function ProvidersPage({
       });
     }
     return options;
-  }, [cwd, recents]);
+  }, [cwd, recents, uiT]);
 
   const project = scope === GLOBAL_PROVIDER_SCOPE ? null : scope;
   const projectSettings = project ? loadProjectProviderSettings(project) : {};
@@ -3181,10 +3357,10 @@ function ProvidersPage({
 
       <Group
         id="agent-clis"
-        title="Agent CLIs"
+        title={uiT("Agent CLIs")}
         action={
           <Select
-            label="Provider defaults scope"
+            label={uiT("Provider defaults scope")}
             value={scope}
             options={scopeOptions}
             onChange={setScope}
@@ -3192,8 +3368,13 @@ function ProvidersPage({
         }
         description={
           project
-            ? `These defaults apply to ${projectName(project)} only. A provider with Show in picker off is also kept out of new conversations started in this project. CLI paths remain global for MonoCode.`
-            : "A provider is listed as installed once its CLI is found on your PATH. Uninstalled CLIs stay listed but are left out of the model picker, as are installed ones with Show in picker off. The model beside a provider is what its new conversations start with; Use by default picks the provider itself. CLI paths are global for MonoCode and apply to every project."
+            ? uiT(
+                "These defaults apply to {value0} only. A provider with Show in picker off is also kept out of new conversations started in this project. CLI paths remain global for MonoCode.",
+                { value0: String(projectName(project)) },
+              )
+            : uiT(
+                "A provider is listed as installed once its CLI is found on your PATH. Uninstalled CLIs stay listed but are left out of the model picker, as are installed ones with Show in picker off. The model beside a provider is what its new conversations start with; Use by default picks the provider itself. CLI paths are global for MonoCode and apply to every project.",
+              )
         }
       >
         {HARNESSES.map((harness) => {
@@ -3237,14 +3418,16 @@ function ProvidersPage({
         })}
       </Group>
 
-      <Group title="Advanced">
+      <Group title={uiT("Advanced")}>
         <Row
           id="claude-hooks"
-          label="Claude Code hooks"
-          description="Run the hooks configured in your settings.json files — PreToolUse command rewrites, blocks, notifications, and the rest — just as the Claude Code CLI would. Turn this off if a hook is misbehaving and you need the session back. Takes effect on the next turn."
+          label={uiT("Claude Code hooks")}
+          description={uiT(
+            "Run the hooks configured in your settings.json files — PreToolUse command rewrites, blocks, notifications, and the rest — just as the Claude Code CLI would. Turn this off if a hook is misbehaving and you need the session back. Takes effect on the next turn.",
+          )}
         >
           <Toggle
-            label="Claude Code hooks"
+            label={uiT("Claude Code hooks")}
             on={claudeHooks}
             onChange={onClaudeHooks}
           />
@@ -3255,28 +3438,33 @@ function ProvidersPage({
 }
 
 function UsageDisplaySettings() {
+  const { t: uiT } = useTranslation();
   const showRemainingUsage = useShowRemainingUsage();
   const maskEmails = useMaskEmails();
   return (
-    <Group title="Usage and privacy">
+    <Group title={uiT("Usage and privacy")}>
       <Row
         id="show-remaining-usage"
-        label="Show remaining usage"
-        description="Fill usage meters with what is left in each limit instead of what has been used."
+        label={uiT("Show remaining usage")}
+        description={uiT(
+          "Fill usage meters with what is left in each limit instead of what has been used.",
+        )}
       >
         <Toggle
-          label="Show remaining usage"
+          label={uiT("Show remaining usage")}
           on={showRemainingUsage}
           onChange={saveShowRemainingUsage}
         />
       </Row>
       <Row
         id="mask-emails"
-        label="Mask account emails"
-        description="Blur account emails in Settings and the usage popover until you click one, so they stay out of screenshots."
+        label={uiT("Mask account emails")}
+        description={uiT(
+          "Blur account emails in Settings and the usage popover until you click one, so they stay out of screenshots.",
+        )}
       >
         <Toggle
-          label="Mask account emails"
+          label={uiT("Mask account emails")}
           on={maskEmails}
           onChange={saveMaskEmails}
         />
@@ -3292,6 +3480,7 @@ type AccountEditor = {
 };
 
 function ProviderAccountsSettings() {
+  const { t: uiT } = useTranslation();
   const [version, setVersion] = useState(0);
   const [editor, setEditor] = useState<AccountEditor | null>(null);
   const [working, setWorking] = useState<string | null>(null);
@@ -3389,8 +3578,10 @@ function ProviderAccountsSettings() {
   return (
     <Group
       id="provider-accounts"
-      title="Accounts"
-      description="Create isolated sign-ins for providers that support account profiles. Account switching stays available from the usage control in the footer."
+      title={uiT("Accounts")}
+      description={uiT(
+        "Create isolated sign-ins for providers that support account profiles. Account switching stays available from the usage control in the footer.",
+      )}
       action={<AccountUsageRefresh usage={usage} />}
     >
       {PROVIDER_ACCOUNT_PROVIDERS.map((provider) => {
@@ -3412,7 +3603,7 @@ function ProviderAccountsSettings() {
                   </div>
                   <div className="mt-0.5 text-[11px] text-content/40">
                     {accounts.length}{" "}
-                    {accounts.length === 1 ? "account" : "accounts"}
+                    {accounts.length === 1 ? uiT("account") : uiT("accounts")}
                   </div>
                 </div>
               </div>
@@ -3423,7 +3614,7 @@ function ProviderAccountsSettings() {
                 className="flex shrink-0 items-center gap-1.5 rounded-md border border-content/10 px-2.5 py-1 text-[12px] text-content/70 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
               >
                 <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
-                Add account
+                {uiT("Add account")}
               </button>
             </div>
             <div className="border-t border-content/5 bg-content/[0.015] pl-10">
@@ -3484,14 +3675,16 @@ function ProviderAccountsSettings() {
                     <div className="flex w-24 shrink-0 items-center justify-end gap-1">
                       {account.isDefault ? (
                         <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-content/30">
-                          Default
+                          {uiT("Default")}
                         </span>
                       ) : null}
                       <button
                         type="button"
                         disabled={Boolean(working)}
-                        aria-label={`Rename ${account.label}`}
-                        title="Rename account"
+                        aria-label={uiT("Rename {value0}", {
+                          value0: String(account.label),
+                        })}
+                        title={uiT("Rename account")}
                         onClick={() => startRename(account)}
                         className="grid size-7 place-items-center rounded-md text-content/40 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.96] disabled:opacity-35"
                       >
@@ -3501,8 +3694,10 @@ function ProviderAccountsSettings() {
                         <button
                           type="button"
                           disabled={Boolean(working)}
-                          aria-label={`Remove ${account.label}`}
-                          title="Remove account"
+                          aria-label={uiT("Remove {value0}", {
+                            value0: String(account.label),
+                          })}
+                          title={uiT("Remove account")}
                           onClick={() => void removeAccount(account)}
                           className="grid size-7 place-items-center rounded-md text-content/35 transition-transform duration-150 hover:bg-red-400/10 hover:text-red-400 active:scale-[0.96] disabled:opacity-35"
                         >
@@ -3559,6 +3754,7 @@ function ProviderAccountEditor({
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const adding = !editor.accountId;
   return (
     <form
@@ -3570,15 +3766,18 @@ function ProviderAccountEditor({
         className="flex items-center pr-1 h-8 min-w-0 flex-1 overflow-hidden rounded-md border border-content/10 bg-content/[0.04] focus-within:border-accent/45"
       >
         <label className="h-full min-w-0 flex-1">
-          <span className="sr-only">Account name</span>
+          <span className="sr-only">{uiT("Account name")}</span>
           <input
             autoFocus
             type="text"
             maxLength={48}
             value={editor.label}
             disabled={working}
-            placeholder="Work or Personal"
-            aria-label={`${adding ? "New" : "Rename"} ${HARNESS_TITLE[editor.provider]} account`}
+            placeholder={uiT("Work or Personal")}
+            aria-label={uiT("{value0} {value1} account", {
+              value0: String(adding ? "New" : "Rename"),
+              value1: String(HARNESS_TITLE[editor.provider]),
+            })}
             onChange={(event) => onLabel(event.target.value)}
             className="h-full w-full bg-transparent px-2.5 text-[12px] text-content outline-none placeholder:text-content/25 disabled:opacity-50"
           />
@@ -3589,7 +3788,7 @@ function ProviderAccountEditor({
           onClick={onCancel}
           className="flex h-6 shrink-0 items-center rounded-[4.5px] bg-content/[0.05] px-2.5 text-[11px] text-content/45 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.97] disabled:opacity-40"
         >
-          Cancel
+          {uiT("Cancel")}
         </button>
         <button
           type="submit"
@@ -3599,9 +3798,9 @@ function ProviderAccountEditor({
           {working ? <Loader className="size-3 animate-spin" /> : null}
           {adding
             ? working
-              ? "Waiting for browser…"
-              : "Sign in and add"
-            : "Save"}
+              ? uiT("Waiting for browser…")
+              : uiT("Sign in and add")
+            : uiT("Save")}
         </button>
       </div>
     </form>
@@ -3656,6 +3855,7 @@ function ProviderRow({
   onModelChange: (harness: HarnessId, model: string) => void;
   onPickerVisible: (visible: boolean) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const models = modelsFor(harness);
   const available = isHarnessAvailable(harness);
   const current =
@@ -3675,20 +3875,25 @@ function ProviderRow({
           <ProviderBinaryControl provider={harness} />
           {isDefault ? (
             <span className="rounded-full bg-content/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-content/60">
-              Default
+              {uiT("Default")}
             </span>
           ) : null}
         </span>
       }
       description={
         available
-          ? `${models.length} ${models.length === 1 ? "model" : "models"} available.`
+          ? uiT("{value0} {value1} available.", {
+              value0: String(models.length),
+              value1: String(models.length === 1 ? "model" : "models"),
+            })
           : harnessUnavailableHint(harness)
       }
     >
       {current ? (
         <Select
-          label={`${HARNESS_TITLE[harness]} model`}
+          label={uiT("{value0} model", {
+            value0: String(HARNESS_TITLE[harness]),
+          })}
           value={current.id}
           onChange={(next) => onModelChange(harness, next)}
           options={models.map((item) => ({
@@ -3701,15 +3906,17 @@ function ProviderRow({
         onClick={() => current && onDefault(harness, current.id)}
         disabled={isDefault || !current}
       >
-        {isDefault ? "Default" : "Use by default"}
+        {isDefault ? uiT("Default") : uiT("Use by default")}
       </SecondaryButton>
       {available ? (
         <div className="flex items-center gap-2">
           <span className="text-[12px] text-content/50">
-            {pickerLocked ? "Hidden globally" : "Show in picker"}
+            {pickerLocked ? uiT("Hidden globally") : uiT("Show in picker")}
           </span>
           <Toggle
-            label={`Show ${HARNESS_TITLE[harness]} in the model picker`}
+            label={uiT("Show {value0} in the model picker", {
+              value0: String(HARNESS_TITLE[harness]),
+            })}
             on={inPicker}
             onChange={onPickerVisible}
             disabled={pickerLocked}
@@ -3754,6 +3961,7 @@ function ArchivePage({
   onRestoreProject?: (path: string) => void;
   onDeleteProject?: (path: string) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const [filters, setFilters] = useState(loadSessionSidebarFilters);
   const [deleting, setDeleting] = useState<ArchivedProject | null>(null);
   const archivedProjects = useArchivedProjects();
@@ -3774,12 +3982,14 @@ function ArchivePage({
   return (
     <>
       <Group
-        title="Archived projects"
-        description="Archive a project from the rail to keep its chats without listing it in the sidebar."
+        title={uiT("Archived projects")}
+        description={uiT(
+          "Archive a project from the rail to keep its chats without listing it in the sidebar.",
+        )}
       >
         {archivedProjects.length === 0 ? (
           <p className="px-4 py-3.5 text-[12px] text-content/45">
-            No archived projects.
+            {uiT("No archived projects.")}
           </p>
         ) : (
           archivedProjects.map((project) => (
@@ -3797,12 +4007,12 @@ function ArchivePage({
               </div>
               {onRestoreProject ? (
                 <SecondaryButton onClick={() => onRestoreProject(project.path)}>
-                  Restore
+                  {uiT("Restore")}
                 </SecondaryButton>
               ) : null}
               {onDeleteProject ? (
                 <SecondaryButton danger onClick={() => setDeleting(project)}>
-                  Delete
+                  {uiT("Delete")}
                 </SecondaryButton>
               ) : null}
             </div>
@@ -3813,28 +4023,30 @@ function ArchivePage({
       <Group
         title={
           looksLikeProject(cwd)
-            ? `Archived in ${projectName(cwd)}`
-            : "Archived conversations"
+            ? uiT("Archived in {value0}", { value0: String(projectName(cwd)) })
+            : uiT("Archived conversations")
         }
       >
         <Row
           id="show-archived"
-          label="Show archived in the sidebar"
-          description="Keep archived conversations listed alongside the active ones."
+          label={uiT("Show archived in the sidebar")}
+          description={uiT(
+            "Keep archived conversations listed alongside the active ones.",
+          )}
         >
           <Toggle
-            label="Show archived in the sidebar"
+            label={uiT("Show archived in the sidebar")}
             on={filters.showArchived}
             onChange={onShowArchived}
           />
         </Row>
         {!looksLikeProject(cwd) ? (
           <p className="px-4 py-3.5 text-[12px] text-content/45">
-            Open a project to see its archived conversations.
+            {uiT("Open a project to see its archived conversations.")}
           </p>
         ) : archived.length === 0 ? (
           <p className="px-4 py-3.5 text-[12px] text-content/45">
-            No archived conversations in this project.
+            {uiT("No archived conversations in this project.")}
           </p>
         ) : (
           archived.map((session) => (
@@ -3859,13 +4071,13 @@ function ArchivePage({
               <SecondaryButton
                 onClick={() => onArchiveSession(session.id, false)}
               >
-                Unarchive
+                {uiT("Unarchive")}
               </SecondaryButton>
               <SecondaryButton
                 danger
                 onClick={() => onDeleteSession(session.id)}
               >
-                Delete
+                {uiT("Delete")}
               </SecondaryButton>
             </div>
           ))
@@ -4162,9 +4374,10 @@ function AccentColorPicker({
 
 /** macOS keeps the decision after the first prompt; only System Settings can flip it. Windows toasts are governed by Settings > Notifications. */
 function NotificationsBlocked() {
+  const { t: uiT } = useTranslation();
   return (
     <span className="flex items-center gap-2 text-[12px] text-content/45">
-      Permission needed
+      {uiT("Permission needed")}
       {IS_MAC || IS_WIN ? (
         <button
           type="button"
@@ -4173,7 +4386,7 @@ function NotificationsBlocked() {
           }}
           className="rounded-md border border-content/10 px-2 py-1 text-content/70 hover:bg-content/10 hover:text-content"
         >
-          Open System Settings
+          {uiT("Open System Settings")}
         </button>
       ) : null}
     </span>

@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { SettingsView } from "./SettingsView";
+import {
+  refreshUiLanguage,
+  UI_LANGUAGE_KEY,
+} from "../../../shared/i18n/language";
 import { rememberNotificationProjects } from "../../notifications/model/notificationProjects";
 import {
   SETTINGS_INDEX,
@@ -19,10 +23,7 @@ import {
   clearCachedRateLimits,
   setCachedRateLimits,
 } from "../../providers/model/rateLimitsCache";
-import {
-  HARNESSES,
-  HARNESS_TITLE,
-} from "../../sessions/model/session";
+import { HARNESSES, HARNESS_TITLE } from "../../sessions/model/session";
 import { saveMaskEmails, saveShowRemainingUsage } from "../model/displayPrefs";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -96,6 +97,7 @@ function renderedSettingIds(): string[] {
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mockLocalStorage();
+  refreshUiLanguage();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -114,6 +116,38 @@ afterEach(async () => {
 });
 
 describe("settings pages", () => {
+  it("switches English and Chinese in place and remembers the selected language", async () => {
+    await render("general");
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search settings"]',
+    )!;
+    const chinese = [
+      ...container.querySelectorAll<HTMLButtonElement>('button[role="radio"]'),
+    ].find((button) => button.textContent === "简体中文")!;
+    expect(chinese).toBeDefined();
+    await act(async () => chinese.click());
+    expect(localStorage.getItem(UI_LANGUAGE_KEY)).toBe("zh-CN");
+    expect(
+      container.querySelector('[role="region"]')?.getAttribute("aria-label"),
+    ).toBe("设置");
+    expect(container.querySelector('input[aria-label="搜索设置"]')).toBe(
+      search,
+    );
+    expect(container.textContent).toContain("界面语言");
+    expect(document.documentElement.lang).toBe("zh-CN");
+    const english = [
+      ...container.querySelectorAll<HTMLButtonElement>('button[role="radio"]'),
+    ].find((button) => button.textContent === "English")!;
+    await act(async () => english.click());
+    expect(localStorage.getItem(UI_LANGUAGE_KEY)).toBe("en");
+    expect(container.querySelector('input[aria-label="Search settings"]')).toBe(
+      search,
+    );
+    expect(
+      container.querySelector('[role="region"]')?.getAttribute("aria-label"),
+    ).toBe("Settings");
+  });
+
   it("keeps account emails blurred until clicked and hides them when settings reopen", async () => {
     saveMaskEmails(true);
     vi.mocked(invoke).mockImplementation(async (command, args) => {
@@ -411,7 +445,9 @@ describe("settings pages", () => {
     const save = async (provider: "Codex" | "OpenCode", path: string) => {
       const id = `${provider.toLowerCase()}-binary-path`;
       if (!document.querySelector(`#${id}`)) {
-        if (!document.querySelector(`[aria-label="Edit ${provider} CLI path"]`)) {
+        if (
+          !document.querySelector(`[aria-label="Edit ${provider} CLI path"]`)
+        ) {
           await act(async () =>
             container
               .querySelector<HTMLButtonElement>(
@@ -473,11 +509,13 @@ describe("settings pages", () => {
       ).codex,
     ).toBe("/opt/codex/bin/codex");
     await act(async () =>
-      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-        (button) => button.textContent === "Cancel",
-      )!.click(),
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent === "Cancel")!
+        .click(),
     );
-    expect(document.querySelector('[aria-label="Retry Codex configured path"]')).not.toBeNull();
+    expect(
+      document.querySelector('[aria-label="Retry Codex configured path"]'),
+    ).not.toBeNull();
 
     failAutoCodex = true;
     await save("Codex", "");
@@ -742,7 +780,9 @@ describe("settings pages", () => {
   it("shows path details for every Agent CLI", async () => {
     await render("providers");
     expect(
-      vi.mocked(invoke).mock.calls.some(([command]) => command === "harness_exec"),
+      vi
+        .mocked(invoke)
+        .mock.calls.some(([command]) => command === "harness_exec"),
     ).toBe(false);
     for (const harness of HARNESSES) {
       expect(
@@ -772,7 +812,8 @@ describe("settings pages", () => {
     vi.mocked(invoke).mockImplementation(async (command) => {
       if (command === "harness_resolve_codex") return { path: "/auto/codex" };
       if (command === "harness_exec") return "codex-cli 0.156.1";
-      if (command === "reveal_path") throw new Error("File manager unavailable");
+      if (command === "reveal_path")
+        throw new Error("File manager unavailable");
       return undefined;
     });
     await render("providers");
