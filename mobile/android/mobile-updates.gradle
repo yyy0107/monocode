@@ -1,0 +1,54 @@
+import groovy.json.JsonSlurper
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
+def mobileRoot = rootProject.projectDir.parentFile
+def updateConfig = new JsonSlurper().parse(new File(mobileRoot, 'update-config.json'))
+def packageConfig = new JsonSlurper().parse(new File(mobileRoot.parentFile, 'package.json'))
+def updateRoot = new File(System.getenv('MONOCODE_MOBILE_UPDATE_DIR') ?: new File(
+    System.getenv('XDG_DATA_HOME') ?: new File(System.getProperty('user.home'), '.local/share').path,
+    'monocode/mobile-updates').path)
+def allocatesBuild = gradle.startParameter.taskNames.any {
+    it.tokenize(':').last() ==~ /(?i)(assemble.*|install.*|package.*|bundle.*|build)/
+}
+def nextCode = 1
+if (allocatesBuild) {
+    updateRoot.mkdirs()
+    new RandomAccessFile(new File(updateRoot, 'version.lock'), 'rw').withCloseable { handle ->
+        def lock = handle.channel.lock()
+        try {
+            def counter = new File(updateRoot, 'version-code')
+            def latest = new File(updateRoot, 'latest.json')
+            def previous = counter.exists() ? counter.text.trim().toInteger() : 1
+            if (latest.exists()) previous = Math.max(previous, new JsonSlurper().parse(latest).versionCode as int)
+            nextCode = Math.addExact(previous, 1)
+            if (nextCode > 2100000000) throw new GradleException('Android versionCode limit reached')
+            def temporary = new File(updateRoot, 'version-code.tmp')
+            temporary.text = nextCode.toString()
+            Files.move(temporary.toPath(), counter.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } finally { lock.release() }
+    }
+}
+
+android {
+    buildFeatures { buildConfig true }
+    defaultConfig {
+        versionCode nextCode
+        versionName packageConfig.version
+        buildConfigField 'String', 'MONOCODE_UPDATE_BASE_URL', '"' + updateConfig.baseUrl + '"'
+    }
+}
+
+android.applicationVariants.all { variant ->
+    // Unsigned release artifacts cannot be installed as app updates.
+    if (variant.signingConfig != null) {
+        variant.packageApplicationProvider.configure {
+            doLast {
+                exec {
+                    commandLine 'node', new File(mobileRoot, 'publish-update.mjs').path,
+                        new File(buildDir, "outputs/apk/${variant.dirName}").path, '--serve'
+                }
+            }
+        }
+    }
+}

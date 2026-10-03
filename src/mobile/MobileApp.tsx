@@ -31,6 +31,7 @@ import type {
   HostCommand,
 } from "../features/connections/model/protocol";
 import { MobileTranscript } from "./MobileTranscript";
+import { MobileAppUpdates, useMobileAppUpdates } from "./MobileAppUpdates";
 import {
   MobileModelControls,
   configurationForSession,
@@ -98,6 +99,7 @@ function Empty({
   );
 }
 export function MobileApp() {
+  const appUpdates = useMobileAppUpdates();
   const [view, setView] = useState<View>("connection");
   const [connected, setConnected] = useState(false);
   const [url, setUrl] = useState("");
@@ -637,6 +639,7 @@ export function MobileApp() {
               <option value="system">System</option>
             </select>
           </div>
+          <MobileAppUpdates state={appUpdates} />
         </main>
       ) : view === "projects" ? (
         <main className="mobile-content">

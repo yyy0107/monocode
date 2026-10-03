@@ -1,0 +1,241 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { App } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
+import { ArrowDownCircle, LoaderCircle, RefreshCw } from "../shared/ui/icons";
+import { useTranslation } from "../shared/i18n/useTranslation";
+import {
+  Updates,
+  checkMobileUpdate,
+  getInstalledBuild,
+  hasMobileUpdate,
+  updateBaseUrl,
+  type InstalledBuild,
+  type MobileUpdate,
+} from "./updates";
+
+export function useMobileAppUpdates() {
+  const [installed, setInstalled] = useState<InstalledBuild>();
+  const [latest, setLatest] = useState<MobileUpdate>();
+  const [checking, setChecking] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const live = useRef(true);
+  const busy = useRef(false);
+  const ios = Capacitor.getPlatform() === "ios";
+  const available = installed && latest && hasMobileUpdate(installed, latest);
+
+  const check = useCallback(async () => {
+    if (busy.current || ios) return;
+    busy.current = true;
+    setChecking(true);
+    setError("");
+    try {
+      const build = await getInstalledBuild();
+      if (live.current) setInstalled(build);
+      const update = await checkMobileUpdate();
+      if (live.current) setLatest(update);
+    } catch (problem) {
+      if (live.current)
+        setError(
+          problem instanceof Error ? problem.message : "Update check failed.",
+        );
+    } finally {
+      busy.current = false;
+      if (live.current) setChecking(false);
+    }
+  }, [ios]);
+
+  useEffect(() => {
+    live.current = true;
+    void check();
+    const foreground = Capacitor.isNativePlatform()
+      ? App.addListener("appStateChange", ({ isActive }) => {
+          if (isActive) void check();
+        })
+      : undefined;
+    return () => {
+      live.current = false;
+      void foreground?.then((handle) => handle.remove());
+    };
+  }, [check]);
+
+  const install = async () => {
+    if (!latest || installing || !available || busy.current) return;
+    setError("");
+    setNotice("");
+    if (Capacitor.getPlatform() !== "android") {
+      window.location.assign(`${updateBaseUrl}${latest.downloadPath}`);
+      return;
+    }
+    setInstalling(true);
+    setProgress(0);
+    busy.current = true;
+    let listener;
+    try {
+      const permission = await Updates.installPermission({ request: true });
+      if (!permission.allowed) {
+        setNotice(
+          "Allow MonoCode to install apps, then return and tap Download and install again.",
+        );
+        return;
+      }
+      listener = await Updates.addListener(
+        "downloadProgress",
+        ({ received, total }) => {
+          if (live.current)
+            setProgress(Math.min(100, Math.round((received / total) * 100)));
+        },
+      );
+      await Updates.downloadAndInstall({
+        url: `${updateBaseUrl}${latest.downloadPath}`,
+        ...latest,
+      });
+      if (live.current)
+        setNotice("Confirm the update in the Android installer.");
+    } catch (problem) {
+      if (live.current)
+        setError(
+          problem instanceof Error
+            ? problem.message
+            : "Update installation failed.",
+        );
+    } finally {
+      await listener?.remove();
+      busy.current = false;
+      if (live.current) setInstalling(false);
+    }
+  };
+
+  return {
+    installed,
+    latest,
+    checking,
+    installing,
+    progress,
+    error,
+    notice,
+    ios,
+    available,
+    check,
+    install,
+  };
+}
+
+export function MobileAppUpdates({
+  state,
+}: {
+  state: ReturnType<typeof useMobileAppUpdates>;
+}) {
+  const { t } = useTranslation();
+  const {
+    installed,
+    latest,
+    checking,
+    installing,
+    progress,
+    error,
+    notice,
+    ios,
+    available,
+    check,
+    install,
+  } = state;
+  return (
+    <section className="mobile-app-updates" aria-label={t("App updates")}>
+      <h2>{t("App updates")}</h2>
+      {ios ? (
+        <p className="mobile-muted">
+          {t("iOS updates require an Apple distribution channel.")}
+        </p>
+      ) : (
+        <>
+          <dl>
+            <div>
+              <dt>{t("Installed version")}</dt>
+              <dd>
+                {installed
+                  ? `${t(installed.version)} (${t("Build {number}", { number: installed.build })})`
+                  : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt>{t("Update source")}</dt>
+              <dd className="mobile-update-source">{updateBaseUrl}</dd>
+            </div>
+            {latest && (
+              <div>
+                <dt>{t("Latest version")}</dt>
+                <dd>
+                  {latest.versionName} (
+                  {t("Build {number}", { number: latest.versionCode })})
+                </dd>
+              </div>
+            )}
+          </dl>
+          {latest && (
+            <p className="mobile-muted" role="status">
+              {t(
+                available
+                  ? "A new version is available."
+                  : "You are up to date.",
+              )}
+            </p>
+          )}
+          <div className="mobile-update-actions">
+            <button
+              className="mobile-button"
+              disabled={checking || installing}
+              onClick={() => void check()}
+            >
+              {checking ? (
+                <LoaderCircle size={16} className="mobile-spin" />
+              ) : (
+                <RefreshCw size={16} />
+              )}
+              {t(checking ? "Checking for updates…" : "Check for updates")}
+            </button>
+            {available && (
+              <button
+                className="mobile-button mobile-primary"
+                disabled={installing || checking}
+                onClick={() => void install()}
+              >
+                <ArrowDownCircle size={16} />
+                {installing
+                  ? t("Downloading… {percent}%", { percent: progress })
+                  : t("Download and install")}
+              </button>
+            )}
+          </div>
+          {installing && (
+            <progress
+              value={progress}
+              max={100}
+              aria-label={t("Update download progress")}
+            />
+          )}
+          {notice && (
+            <p className="mobile-muted" role="status">
+              {t(notice)}
+            </p>
+          )}
+          {error && (
+            <p className="mobile-form-error" role="alert">
+              {t(
+                "Unable to update. Make sure your computer is online and connected to the same network.",
+              )}{" "}
+              {t(error)}
+            </p>
+          )}
+          <p className="mobile-update-hint">
+            {t(
+              "Checks automatically when you open the app. Your computer publishes each new APK build.",
+            )}
+          </p>
+        </>
+      )}
+    </section>
+  );
+}

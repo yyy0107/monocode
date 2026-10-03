@@ -599,3 +599,56 @@ html.theme-light .mobile-logo {
   font-size: 10px;
   color: color-mix(in srgb, var(--color-content) 40%, transparent);
 }
+
+.mobile-app-updates {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-stroke);
+}
+.mobile-app-updates h2 {
+  font-size: 16px;
+  font-weight: 550;
+  margin: 0 0 18px;
+}
+.mobile-app-updates dl {
+  margin: 0;
+  font-size: 12px;
+}
+.mobile-app-updates dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0;
+}
+.mobile-app-updates dt {
+  color: color-mix(in srgb, var(--color-content) 48%, transparent);
+}
+.mobile-app-updates dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.mobile-update-source {
+  font-family: var(--font-mono);
+}
+.mobile-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+.mobile-update-actions .mobile-button {
+  flex: 1;
+  white-space: nowrap;
+}
+.mobile-app-updates progress {
+  width: 100%;
+  margin-top: 14px;
+  accent-color: var(--color-accent);
+}
+.mobile-update-hint {
+  font-size: 11px;
+  line-height: 1.6;
+  margin-top: 16px;
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+}

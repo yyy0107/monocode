@@ -30,7 +30,10 @@
     "mobile:build": "tsc --noEmit && tsc -p tsconfig.mobile-tools.json && vite build --config vite.mobile.config.ts",
     "mobile:sync": "npm run mobile:build && cap sync",
     "mobile:android": "npm run mobile:sync && cap open android",
-    "mobile:ios": "npm run mobile:sync && cap open ios"
+    "mobile:ios": "npm run mobile:sync && cap open ios",
+    "mobile:apk": "npm run mobile:sync && mobile/android/gradlew -p mobile/android :app:assembleDebug",
+    "mobile:updates": "node mobile/update-server.mjs",
+    "test:mobile-updates": "node --test mobile/update-server.test.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",

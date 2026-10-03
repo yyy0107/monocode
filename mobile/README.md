@@ -103,6 +103,46 @@ The debug APK is `mobile/android/app/build/outputs/apk/debug/app-debug.apk`.
 `mobile/android/local.properties` is machine-specific and ignored by Git;
 configure `sdk.dir` or your normal Android SDK environment before using Gradle.
 
+## LAN app updates
+
+The phone's Connections screen includes App updates. It checks at startup and
+when returning to the foreground, including when a Host connection is saved.
+The update source is currently fixed to `http://192.168.0.206:3780` in
+`mobile/update-config.json`, independently of the Host URL and device token.
+HTTP is supported. The computer must be online on the same LAN.
+
+```sh
+npm run mobile:apk
+```
+
+Every signed APK assembled through Gradle (including Android Studio and direct
+`assembleDebug`) receives a new versionCode, even when versionName stays the
+same. Successful assembly publishes the APK and atomically updates
+`latest.json`, then starts the LAN update server if necessary. Unsigned release
+APKs are not published. `mobile:build` alone builds web assets, not an APK.
+Version counters and packages are shared between worktrees in
+`~/.local/share/monocode/mobile-updates` (or under `XDG_DATA_HOME`). For isolated
+builds, override `MONOCODE_MOBILE_UPDATE_DIR`. Versioned APK URLs remain immutable,
+and a slower older build cannot replace the latest version. Keep the Android
+signing key unchanged for compatible updates.
+
+To restart the server after reboot, use `npm run mobile:updates`; another
+successful APK build also starts it. The server exposes only `/latest.json`,
+versioned `/apk/monocode-N.apk` packages, and `/health` on the fixed LAN address.
+Published packages do not require the Host token.
+
+Install the first APK containing this updater once. Subsequent updates use
+**Check for updates → Download and install**. If Android requests permission,
+allow MonoCode to install apps, return, and tap Download and install again.
+Downloads show progress and verify size, SHA-256, package ID, versionCode, and
+signing certificate before opening the system installer. Android still requires
+the user to confirm installation. Connection credentials are kept during an
+in-place update. iOS cannot install these Android packages; its update entry
+explains that an Apple distribution channel is required.
+
+Verify publication and update behavior with `npm run test:mobile-updates` and
+`npx vitest run src/mobile/updates.test.ts`.
+
 For iOS, use macOS with Xcode and Swift Package Manager:
 
 ```sh

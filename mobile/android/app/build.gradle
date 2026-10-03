@@ -43,6 +43,7 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
+apply from: '../mobile-updates.gradle'
 
 try {
     def servicesJSON = file('google-services.json')
