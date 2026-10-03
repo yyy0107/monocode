@@ -16,6 +16,10 @@ import {
   filterKeybindings,
   KEYBINDINGS,
 } from "../../features/settings/model/settings";
+import {
+  HARNESS_LABEL,
+  sessionDisplayTitle,
+} from "../../features/sessions/model/session";
 
 beforeEach(() => {
   localStorage.clear();
@@ -88,6 +92,8 @@ describe("interface language", () => {
       "Unknown 原文",
     );
     expect(translate("Settings", undefined, "en")).toBe("Settings");
+    expect(sessionDisplayTitle(HARNESS_LABEL.codex, "codex")).toBe("新会话");
+    expect(sessionDisplayTitle("Settings", "codex")).toBe("Settings");
   });
 
   it("finds translated settings and commands without changing their stable IDs", () => {

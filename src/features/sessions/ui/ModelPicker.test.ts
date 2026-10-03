@@ -64,6 +64,7 @@ vi.mock("../../../shared/ui/Popover", () => ({
 }));
 
 import { ModelControlPills, ModelPicker } from "./ModelPicker";
+import { setUiLanguage } from "../../../shared/i18n/language";
 import {
   resetHarnessModelOverlays,
   saveRecentModelChoice,
@@ -84,6 +85,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount());
+  setUiLanguage("en");
   resetHarnessModelOverlays();
   container.remove();
   vi.unstubAllGlobals();
@@ -128,6 +130,40 @@ function inputText(input: HTMLInputElement, value: string) {
 }
 
 describe("model picker", () => {
+  it("translates model controls without changing model names or protocol values", () => {
+    setUiLanguage("zh-CN");
+    const onChange = vi.fn();
+    const onSettingsChange = vi.fn();
+    act(() =>
+      root.render(
+        createElement(ModelPicker, {
+          harness: "grok",
+          model: "grok:grok-4.6",
+          values: { effort: "high" },
+          onChange,
+          onSettingsChange,
+        }),
+      ),
+    );
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-haspopup="menu"]',
+    )!;
+    expect(trigger.textContent).toBe("Grok 4.6高");
+    act(() => trigger.click());
+    const effort = [
+      ...container.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.startsWith("推理强度"))!;
+    hover(effort);
+    const extraHigh = [
+      ...container.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent === "极高")!;
+    act(() => extraHigh.click());
+    expect(onSettingsChange).toHaveBeenCalledWith({ effort: "xhigh" });
+    expect(onChange).not.toHaveBeenCalled();
+    act(() => setUiLanguage("en"));
+    expect(trigger.textContent).toBe("Grok 4.6High");
+  });
+
   it("shows the model name and effort in the combined picker", () => {
     const onChange = vi.fn();
     const onSettingsChange = vi.fn();

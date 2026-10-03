@@ -136,7 +136,7 @@ export function WorkspacePicker({
 export function WorkspaceIdentity({ worktree }: { worktree: boolean }) {
   const { t: uiT } = useTranslation();
   const Icon = worktree ? FolderTree : Folder;
-  const label = worktree ? "Worktree" : "Current checkout";
+  const label = worktree ? uiT("Worktree") : uiT("Current checkout");
   return (
     <div
       title={uiT("Workspace: {value0}", { value0: String(label) })}
@@ -256,7 +256,8 @@ function WorkspaceModePicker({
       setPickError(undefined);
     }, HOVER_CLOSE_MS);
   };
-  const label = mode === "worktree" ? "New worktree" : "Current checkout";
+  const label =
+    mode === "worktree" ? uiT("New worktree") : uiT("Current checkout");
   const shortcut = keybindingShortcutLabel(
     "Composer: Toggle Workspace",
     WORKSPACE_MODE_SHORTCUT,

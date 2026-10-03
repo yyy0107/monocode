@@ -64,8 +64,8 @@ export function SidebarWorktreeSwitcher({
     focus &&
     worktrees.find((tree) => pathKey(tree.path) === pathKey(focus.path));
   const title = focus
-    ? (focused?.branch ?? focus.branch ?? "Detached worktree")
-    : "Workspace";
+    ? (focused?.branch ?? focus.branch ?? uiT("Detached worktree"))
+    : uiT("Workspace");
   if (data && worktrees.length === 0 && !focus && !switchError && !pending)
     return (
       <span className="min-w-0 truncate text-sm font-medium leading-tight">

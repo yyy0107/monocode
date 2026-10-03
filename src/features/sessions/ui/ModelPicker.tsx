@@ -1,3 +1,4 @@
+import { translate } from "../../../shared/i18n/language";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   Check,
@@ -201,9 +202,11 @@ function pillSettings(model: AgentModel): ModelSetting[] {
 }
 
 function settingLabel(setting: ModelSetting): string {
-  return setting.id === "effort" || setting.id === "reasoning"
-    ? "Effort"
-    : setting.label;
+  return translate(
+    setting.id === "effort" || setting.id === "reasoning"
+      ? "Effort"
+      : setting.label,
+  );
 }
 
 function settingValue(
@@ -218,8 +221,8 @@ function settingValueLabel(
   values: Record<string, string>,
 ): string {
   const value = settingValue(setting, values);
-  return (
-    setting.options.find((option) => option.value === value)?.label ?? value
+  return translate(
+    setting.options.find((option) => option.value === value)?.label ?? value,
   );
 }
 
@@ -902,7 +905,7 @@ export function ModelPicker({
                   >
                     {tileTone ? <EffortTileShimmer /> : null}
                     <span className="min-w-0 flex-1 truncate">
-                      {option.label}
+                      {uiT(option.label)}
                     </span>
                     {selected ? (
                       <Check
@@ -1073,12 +1076,13 @@ function TogglePill({
   values: Record<string, string>;
   onSettingsChange: (settings: Record<string, string>) => void;
 }) {
+  const { t: uiT } = useTranslation();
   const on = settingValue(setting, values) === "true";
   return (
     <button
       type="button"
-      title={`${setting.label}: ${on ? "On" : "Off"}`}
-      aria-label={`${setting.label}: ${on ? "On" : "Off"}`}
+      title={`${uiT(setting.label)}: ${on ? "On" : "Off"}`}
+      aria-label={`${uiT(setting.label)}: ${on ? "On" : "Off"}`}
       aria-pressed={on}
       data-model-control
       onMouseDown={(event) => event.preventDefault()}
@@ -1090,7 +1094,7 @@ function TogglePill({
       <span
         className={`min-w-0 truncate text-[11px] ${on ? "" : "text-content/50"}`}
       >
-        {setting.label}
+        {uiT(setting.label)}
       </span>
     </button>
   );
@@ -1111,6 +1115,7 @@ function SelectPill({
   harness: HarnessId;
   additionalSettings?: ModelSetting[];
 }) {
+  const { t: uiT } = useTranslation();
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const button = useRef<HTMLButtonElement>(null);
@@ -1249,7 +1254,7 @@ function SelectPill({
                     >
                       {tileTone ? <EffortTileShimmer /> : null}
                       <span className="min-w-0 flex-1 truncate">
-                        {option.label}
+                        {uiT(option.label)}
                       </span>
                       {selected ? (
                         <Check

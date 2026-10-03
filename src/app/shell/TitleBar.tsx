@@ -1,3 +1,4 @@
+import { translate } from "../../shared/i18n/language";
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import {
   CheckCircle,
@@ -116,7 +117,8 @@ type Props = {
 
 function sessionMeta(tab: Tab): string {
   if (tab.more.length === 1) return tab.more[0];
-  if (tab.sessionCount > 1) return `${tab.sessionCount} sessions`;
+  if (tab.sessionCount > 1)
+    return translate("{count} sessions", { count: tab.sessionCount });
   return "";
 }
 
@@ -129,7 +131,7 @@ export function tabCopy(tab: Tab): {
   const conversation = tab.title.trim();
   const file = tab.files[0] ?? "";
   const sessions = sessionMeta(tab);
-  const untitled = "New session";
+  const untitled = translate("New session");
 
   let headline: string;
   const metaParts: string[] = [];
