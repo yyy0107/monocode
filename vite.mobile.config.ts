@@ -66,6 +66,9 @@ function hostProxy(): Plugin {
 }
 
 export default defineConfig({
+  // Desktop and mobile dev servers often run together. Sharing the optimizer
+  // cache invalidates lazy chunks (notably Streamdown's highlighted body).
+  cacheDir: "node_modules/.vite-mobile",
   plugins: [
     react(),
     tailwindcss(),

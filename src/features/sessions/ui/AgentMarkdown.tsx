@@ -3,6 +3,7 @@ import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { TranscriptPlatformContext } from "./TranscriptPlatform";
 import {
+  Component,
   createContext,
   isValidElement,
   memo,
@@ -382,16 +383,42 @@ function MarkdownCode({
         <span className="markdown-code-fallback-label">{fence.language}</span>
       ) : null}
       <CodeCopyButton code={code} />
-      <CodeBlock
-        className={className}
-        code={code}
-        isIncomplete={incomplete}
-        language={highlightLanguageFor(fence.language)}
-        lineNumbers={lineNumbers}
-        startLine={fence.startLine}
-      />
+      <CodeHighlightBoundary code={code}>
+        <CodeBlock
+          className={className}
+          code={code}
+          isIncomplete={incomplete}
+          language={highlightLanguageFor(fence.language)}
+          lineNumbers={lineNumbers}
+          startLine={fence.startLine}
+        />
+      </CodeHighlightBoundary>
     </div>
   );
+}
+
+/** A missing lazy highlight chunk must not tear down the conversation. */
+class CodeHighlightBoundary extends Component<
+  { code: string; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error("[Code highlight] Rendering failed; showing plain text:", error);
+  }
+
+  render() {
+    return this.state.failed ? (
+      <pre className="min-w-0 max-w-full overflow-auto whitespace-pre p-3 font-mono text-[12px] leading-5">
+        <code>{this.props.code}</code>
+      </pre>
+    ) : this.props.children;
+  }
 }
 
 function CodeCopyButton({ code }: { code: string }) {
