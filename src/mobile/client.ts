@@ -14,7 +14,13 @@ import {
   type SessionSync,
   type SessionSyncResponse,
   type SessionSyncChunk,
+  type RemoteAttachment,
 } from "../features/connections/model/protocol";
+import type { Attachment } from "../features/sessions/model/session";
+import {
+  MOBILE_ATTACHMENT_BYTES,
+  MOBILE_ATTACHMENT_LIMIT,
+} from "./attachments";
 import { withRemoteAttachmentPreviews } from "../features/connections/model/remoteAttachmentPreviews";
 import type { MobileStorage } from "./storage";
 
@@ -28,8 +34,12 @@ export type PendingCommand = {
   endpoint: string;
   environmentId: string;
   command: HostCommand;
-  followup?: string;
+  followup?: string | MobileFirstMessage;
 };
+export type MobileFirstMessage = Pick<
+  Extract<HostCommand, { type: "send" }>,
+  "text" | "attachments" | "intent"
+>;
 export type RpcTransport = (
   endpoint: string,
   token: string,
@@ -270,9 +280,64 @@ export class MobileClient {
     const value = await this.storage.get("pending");
     return value ? (JSON.parse(value) as PendingCommand) : undefined;
   }
+  async uploadAttachments(files: Attachment[]): Promise<RemoteAttachment[]> {
+    if (files.length > MOBILE_ATTACHMENT_LIMIT)
+      throw new Error("Attach up to 20 files per message.");
+    if (
+      files.some(
+        (file) =>
+          file.size > MOBILE_ATTACHMENT_BYTES || file.data === undefined,
+      )
+    )
+      throw new Error("Each attachment must be readable and 20 MB or smaller.");
+    const uploaded: RemoteAttachment[] = [];
+    const chunkChars = 4 * Math.floor((512 * 1024) / 3);
+    for (const file of files) {
+      const data = file.data!;
+      let offset = 0;
+      // Empty files still need a file created on the Host.
+      for (
+        let index = 0;
+        index < data.length || (index === 0 && !data.length);
+        index += chunkChars
+      ) {
+        const chunk = data.slice(index, index + chunkChars);
+        const expected =
+          offset +
+          Math.floor(chunk.length / 4) * 3 -
+          (chunk.endsWith("==") ? 2 : chunk.endsWith("=") ? 1 : 0);
+        let response: { offset: number };
+        try {
+          response = await this.rpc("attachments.upload", {
+            id: file.id,
+            offset,
+            size: file.size,
+            data: chunk,
+          });
+        } catch (error) {
+          if (error instanceof HostRequestError) throw error;
+          // The Host's offset protocol makes retrying a lost chunk receipt safe.
+          response = await this.rpc("attachments.upload", {
+            id: file.id,
+            offset,
+            size: file.size,
+            data: chunk,
+          });
+        }
+        if (response.offset !== expected)
+          throw new Error("Attachment upload was interrupted. Please retry.");
+        offset = response.offset;
+      }
+      if (offset !== file.size)
+        throw new Error("Attachment upload was interrupted. Please retry.");
+      const { id, name, mimeType, kind, size } = file;
+      uploaded.push({ id, name, mimeType, kind, size });
+    }
+    return uploaded;
+  }
   async dispatch(
     command: HostCommand,
-    followup?: string,
+    followup?: string | MobileFirstMessage,
   ): Promise<CommandReceipt> {
     if (!this.connection) throw new Error("Connect to a Host first.");
     if (this.dispatching) throw new Error("A request is already being sent.");
@@ -326,10 +391,12 @@ export class MobileClient {
           ...pending,
           followup: undefined,
           command: {
+            ...(typeof pending.followup === "string"
+              ? { text: pending.followup }
+              : pending.followup),
             type: "send",
             commandId: crypto.randomUUID(),
             sessionId: receipt.sessionId,
-            text: pending.followup,
           },
         };
         await this.storage.set("pending", JSON.stringify(pending));

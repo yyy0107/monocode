@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -105,6 +105,42 @@ async function setup() {
 }
 
 describe("mobile client against the real MonoCode Host", () => {
+  it("uploads files and delivers an attachment-only first turn with plan intent exactly once", async () => {
+    const s = await setup();
+    const data = Buffer.alloc(600_001, 42);
+    const attachments = await s.client.uploadAttachments([
+      {
+        id: crypto.randomUUID(),
+        name: "notes.txt",
+        mimeType: "text/plain",
+        kind: "file",
+        size: data.length,
+        data: data.toString("base64"),
+      },
+    ]);
+    s.loseNextReceipt();
+    await expect(
+      s.client.dispatch(
+        {
+          type: "create",
+          commandId: "file-plan-create",
+          projectId: s.project.id,
+          harness: "codex",
+          model: "codex:test",
+          runtimeMode: "supervised",
+        },
+        { text: "", attachments, intent: "plan" },
+      ),
+    ).rejects.toThrow("lost response");
+    const receipt = await s.client.retryPending();
+    await vi.waitFor(() => expect(s.provider.send).toHaveBeenCalledTimes(1));
+    expect(s.turn().intent).toBe("plan");
+    const block = (await s.client.session(receipt.sessionId)).session.blocks[0];
+    expect(block.text).toBe("");
+    expect(block.attachments).toHaveLength(1);
+    expect(readFileSync(block.attachments![0].path!)).toEqual(data);
+    expect(await s.client.sessions(s.project.id)).toHaveLength(1);
+  });
   it("persists selected models and reasoning values, then applies changes to the next turn", async () => {
     const s = await setup();
     const created = await s.client.dispatch(

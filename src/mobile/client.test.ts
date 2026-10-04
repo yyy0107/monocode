@@ -368,6 +368,123 @@ describe("mobile command journal", () => {
       failing.connect("https://another.example", token),
     ).rejects.toThrow("previous Host");
   });
+  it("keeps files and plan intent in the first-message journal across app restoration", async () => {
+    const store = memory();
+    const commands: Record<string, any>[] = [];
+    let fail = true;
+    const rpc = transport((_method, params) => {
+      commands.push(params);
+      if (params.type === "send" && fail) throw new Error("Lost receipt");
+      return { ...receipt, commandId: params.commandId };
+    });
+    const client = new MobileClient(store, rpc);
+    await client.connect(endpoint, token);
+    const files = [
+      {
+        id: "file",
+        name: "notes.txt",
+        mimeType: "text/plain",
+        kind: "file" as const,
+        size: 7,
+      },
+    ];
+    await expect(
+      client.dispatch(
+        {
+          type: "create",
+          commandId: "create-files",
+          projectId: "project",
+          harness: "codex",
+          model: "codex:test",
+          runtimeMode: "supervised",
+        },
+        { text: "", attachments: files, intent: "plan" },
+      ),
+    ).rejects.toThrow("Lost receipt");
+    fail = false;
+    const restored = new MobileClient(store, rpc);
+    await restored.restore();
+    await restored.retryPending();
+    expect(commands.map((command) => command.type)).toEqual([
+      "create",
+      "send",
+      "send",
+    ]);
+    expect(commands[1]).toEqual(commands[2]);
+    expect(commands[2]).toMatchObject({
+      text: "",
+      attachments: files,
+      intent: "plan",
+    });
+  });
+  it("uploads chunked attachments and repeats the same chunk when its receipt is lost", async () => {
+    const chunks: Record<string, any>[] = [];
+    let fail = true;
+    const client = new MobileClient(
+      memory(),
+      transport((method, params) => {
+        expect(method).toBe("attachments.upload");
+        chunks.push({ ...params });
+        if (fail) {
+          fail = false;
+          throw new Error("Lost upload receipt");
+        }
+        return {
+          offset: params.offset + Buffer.from(params.data, "base64").length,
+        };
+      }),
+    );
+    await client.connect(endpoint, token);
+    const data = Buffer.alloc(600_001, 42);
+    const file = {
+      id: "file",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      kind: "file" as const,
+      size: data.length,
+      data: data.toString("base64"),
+    };
+    expect(await client.uploadAttachments([file])).toEqual([
+      {
+        id: "file",
+        name: "notes.txt",
+        mimeType: "text/plain",
+        kind: "file",
+        size: data.length,
+      },
+    ]);
+    expect(chunks).toHaveLength(3);
+    expect(chunks[0]).toEqual(chunks[1]);
+    expect(chunks[2].offset).toBe(Buffer.from(chunks[1].data, "base64").length);
+    expect(
+      Buffer.concat([
+        Buffer.from(chunks[1].data, "base64"),
+        Buffer.from(chunks[2].data, "base64"),
+      ]),
+    ).toEqual(data);
+  });
+  it("creates empty attachment files and rejects a corrupt upload acknowledgement", async () => {
+    const client = new MobileClient(
+      memory(),
+      transport((_method, params) => ({ offset: params.size ? 999 : 0 })),
+    );
+    await client.connect(endpoint, token);
+    const file = {
+      id: "empty",
+      name: "empty.txt",
+      mimeType: "text/plain",
+      kind: "file" as const,
+      size: 0,
+      data: "",
+    };
+    expect(await client.uploadAttachments([file])).toHaveLength(1);
+    await expect(
+      client.uploadAttachments([{ ...file, size: 1, data: "YQ==" }]),
+    ).rejects.toThrow("interrupted");
+    await expect(
+      client.uploadAttachments([{ ...file, size: 21 * 1024 * 1024 }]),
+    ).rejects.toThrow("20 MB");
+  });
   it("clears definitively rejected commands so the user can correct the request", async () => {
     const client = new MobileClient(
       memory(),

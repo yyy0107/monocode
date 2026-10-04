@@ -10,7 +10,6 @@ import { Capacitor } from "@capacitor/core";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import {
   ArrowLeft,
-  ArrowUp,
   ChevronRight,
   Folder,
   FolderPlus,
@@ -20,10 +19,9 @@ import {
   Plus,
   RefreshCw,
   Settings,
-  Square,
   X,
 } from "../shared/ui/icons";
-import type { RuntimeMode } from "../features/sessions/model/session";
+import type { Attachment } from "../features/sessions/model/session";
 import type {
   HostProject,
   HostSession,
@@ -33,13 +31,18 @@ import type {
 import { MobileTranscript } from "./MobileTranscript";
 import { MobileAppUpdates, useMobileAppUpdates } from "./MobileAppUpdates";
 import {
-  MobileModelControls,
   configurationForSession,
   firstConfiguration,
   type MobileConfiguration,
 } from "./MobileModelControls";
 import type { HostModelCatalog } from "../features/connections/model/protocol";
-import { MobileClient, type PendingCommand } from "./client";
+import {
+  MobileClient,
+  type PendingCommand,
+  type MobileFirstMessage,
+} from "./client";
+import { MobileComposer, type MobileComposerPanel } from "./MobileComposer";
+import { readMobileAttachments } from "./attachments";
 import { mobileStorage } from "./storage";
 import {
   applyThemePreference,
@@ -49,12 +52,6 @@ import {
 const client = new MobileClient(mobileStorage);
 const readHostImage = (path: string) => client.readBinaryFile(path);
 type View = "connection" | "projects" | "sessions" | "chat";
-const modes: Record<RuntimeMode, string> = {
-  supervised: "Supervised",
-  "auto-accept-edits": "Auto-accept edits",
-  auto: "Auto",
-  "full-access": "Full access",
-};
 const message = (error: unknown) =>
   error instanceof Error ? error.message : "Unable to reach this Host.";
 function IconButton({
@@ -117,6 +114,10 @@ export function MobileApp() {
     runtimeMode: "supervised",
   });
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [readingAttachments, setReadingAttachments] = useState(false);
+  const [planMode, setPlanMode] = useState(false);
+  const [composerPanel, setComposerPanel] = useState<MobileComposerPanel>(null);
   const [folderPath, setFolderPath] = useState("");
   const [addingProject, setAddingProject] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -130,7 +131,6 @@ export function MobileApp() {
   );
   const navigation = useRef(0);
   const projectGeneration = useRef(0);
-  const textArea = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const light =
@@ -246,14 +246,6 @@ export function MobileApp() {
     };
   }, [connected, foreground, view, project, sessionId]);
 
-  useEffect(() => {
-    const area = textArea.current;
-    if (area) {
-      area.style.height = "auto";
-      area.style.height = `${Math.min(area.scrollHeight, 160)}px`;
-    }
-  }, [draft]);
-
   const connect = async () => {
     setBusy(true);
     setError("");
@@ -266,6 +258,8 @@ export function MobileApp() {
       setSessionId(undefined);
       setSnapshot(undefined);
       setCatalog(undefined);
+      setAttachments([]);
+      setPlanMode(false);
       setToken("");
       setUrl(client.connection!.endpoint);
       setProjects(items);
@@ -278,7 +272,10 @@ export function MobileApp() {
       setBusy(false);
     }
   };
-  const openProject = async (item: HostProject) => {
+  const openProject = async (
+    item: HostProject,
+    nextView: View = "sessions",
+  ) => {
     const turn = ++navigation.current;
     const projectTurn = ++projectGeneration.current;
     setProject(item);
@@ -286,7 +283,8 @@ export function MobileApp() {
     setCatalog(undefined);
     setSessionId(undefined);
     setSnapshot(undefined);
-    setView("sessions");
+    setComposerPanel(null);
+    setView(nextView);
     setLoading(true);
     setError("");
     try {
@@ -317,6 +315,9 @@ export function MobileApp() {
     setSessionId(id);
     setSnapshot(undefined);
     setDraft("");
+    setAttachments([]);
+    setPlanMode(false);
+    setComposerPanel(null);
     setView("chat");
     setLoading(!!id);
     setError("");
@@ -334,7 +335,7 @@ export function MobileApp() {
     }
   };
   const dispatch = useCallback(
-    async (command?: HostCommand, text?: string) => {
+    async (command?: HostCommand, text?: string | MobileFirstMessage) => {
       setBusy(true);
       setError("");
       try {
@@ -363,8 +364,10 @@ export function MobileApp() {
         if (
           completedCommand?.type === "send" ||
           completedCommand?.type === "create"
-        )
+        ) {
           setDraft("");
+          setAttachments([]);
+        }
       } catch (problem) {
         setError(message(problem));
         setPending(await client.pending());
@@ -375,36 +378,75 @@ export function MobileApp() {
     [projects, project?.id],
   );
   const send = async () => {
-    if (!project || !draft.trim() || busy || pending) return;
-    if (sessionId) {
-      await dispatch({
-        type: "send",
-        commandId: crypto.randomUUID(),
-        sessionId,
-        text: draft,
-      });
-    } else {
-      const selected = catalog?.models[configuration.harness]?.find(
+    if (
+      !project ||
+      (!draft.trim() && !attachments.length) ||
+      busy ||
+      pending ||
+      readingAttachments ||
+      snapshot?.status === "running"
+    )
+      return;
+    if (
+      !sessionId &&
+      !catalog?.models[configuration.harness]?.some(
         (item) => item.id === configuration.model,
+      )
+    ) {
+      setError(
+        "No available model. Install and sign in to a provider on this Host.",
       );
-      if (!selected) {
-        setError(
-          "No available model. Install and sign in to a provider on this Host.",
-        );
-        return;
-      }
-      await dispatch(
-        {
-          type: "create",
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const uploaded = await client.uploadAttachments(attachments);
+      const prompt: MobileFirstMessage = {
+        text: draft,
+        ...(uploaded.length ? { attachments: uploaded } : {}),
+        ...(planMode ? { intent: "plan" } : {}),
+      };
+      if (sessionId) {
+        await dispatch({
+          ...prompt,
+          type: "send",
           commandId: crypto.randomUUID(),
-          projectId: project.id,
-          harness: configuration.harness,
-          model: configuration.model,
-          modelSettings: configuration.modelSettings,
-          runtimeMode: configuration.runtimeMode,
-        },
-        draft,
-      );
+          sessionId,
+        });
+      } else {
+        await dispatch(
+          {
+            type: "create",
+            commandId: crypto.randomUUID(),
+            projectId: project.id,
+            harness: configuration.harness,
+            model: configuration.model,
+            modelSettings: configuration.modelSettings,
+            runtimeMode: configuration.runtimeMode,
+          },
+          prompt,
+        );
+      }
+    } catch (problem) {
+      setError(message(problem));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const addFiles = async (files: File[]) => {
+    if (busy || pending || readingAttachments) return;
+    const generation = navigation.current;
+    setReadingAttachments(true);
+    setError("");
+    try {
+      const added = await readMobileAttachments(files, attachments.length);
+      if (generation === navigation.current)
+        setAttachments((current) => [...current, ...added]);
+    } catch (problem) {
+      if (generation === navigation.current) setError(message(problem));
+    } finally {
+      setReadingAttachments(false);
     }
   };
   const addProject = async () => {
@@ -426,12 +468,14 @@ export function MobileApp() {
   const navigate = (next: View) => {
     navigation.current += 1;
     setLoading(false);
+    setComposerPanel(null);
     setView(next);
   };
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     const listener = App.addListener("backButton", () => {
-      if (addingProject) setAddingProject(false);
+      if (composerPanel) setComposerPanel(null);
+      else if (addingProject) setAddingProject(false);
       else if (view === "chat") navigate("sessions");
       else if (view === "sessions" || (view === "connection" && connected))
         navigate("projects");
@@ -440,7 +484,7 @@ export function MobileApp() {
     return () => {
       void listener.then((handle) => handle.remove());
     };
-  }, [view, connected, addingProject]);
+  }, [view, connected, addingProject, composerPanel]);
 
   const running = snapshot?.status === "running";
   const title =
@@ -768,135 +812,80 @@ export function MobileApp() {
                 : `Start a conversation in ${project?.name || "your project"}.`}
             </Empty>
           )}
-          <form
-            className="mobile-composer"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void send();
+          <MobileComposer
+            value={draft}
+            onChange={setDraft}
+            configuration={
+              snapshot ? configurationForSession(snapshot) : configuration
+            }
+            catalog={catalog}
+            lockedAgent={!!sessionId}
+            disabled={
+              busy ||
+              !!pending ||
+              running ||
+              readingAttachments ||
+              loading ||
+              (!!sessionId && !snapshot)
+            }
+            working={busy || readingAttachments}
+            running={running}
+            canSend={
+              !busy &&
+              !pending &&
+              !readingAttachments &&
+              !loading &&
+              !running &&
+              (!!draft.trim() || attachments.length > 0) &&
+              (sessionId
+                ? !!snapshot
+                : !!catalog?.models[configuration.harness]?.some(
+                    (model) => model.id === configuration.model,
+                  ))
+            }
+            canStop={!busy && !pending && !!snapshot?.runId}
+            onSend={() => void send()}
+            onStop={() => {
+              if (sessionId && snapshot?.runId)
+                void dispatch({
+                  type: "cancel",
+                  commandId: crypto.randomUUID(),
+                  sessionId,
+                  runId: snapshot.runId,
+                });
             }}
-          >
-            <MobileModelControls
-              catalog={catalog}
-              configuration={
-                snapshot ? configurationForSession(snapshot) : configuration
-              }
-              lockedAgent={!!sessionId}
-              disabled={
-                busy || !!pending || running || (!!sessionId && !snapshot)
-              }
-              onChange={(next) => {
-                if (!sessionId) setConfiguration(next);
-                else
-                  void dispatch({
-                    type: "configure",
-                    commandId: crypto.randomUUID(),
-                    sessionId,
-                    model: next.model,
-                    modelSettings: next.modelSettings,
-                    runtimeMode: next.runtimeMode,
-                  });
-              }}
-            />
-            <div className="mobile-composer-options">
-              <select
-                aria-label="Permissions"
-                value={
-                  snapshot?.session.runtimeMode ?? configuration.runtimeMode
-                }
-                disabled={
-                  busy || !!pending || running || (!!sessionId && !snapshot)
-                }
-                onChange={(event) => {
-                  const runtimeMode = event.target.value as RuntimeMode;
-                  if (!sessionId)
-                    setConfiguration((current) => ({
-                      ...current,
-                      runtimeMode,
-                    }));
-                  else if (snapshot)
-                    void dispatch({
-                      type: "configure",
-                      commandId: crypto.randomUUID(),
-                      sessionId,
-                      model: snapshot.session.model,
-                      modelSettings: snapshot.session.modelSettings,
-                      runtimeMode,
-                    });
-                }}
-              >
-                {Object.entries(modes).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="mobile-composer-input">
-              <textarea
-                ref={textArea}
-                aria-label="Message"
-                placeholder={
-                  running ? "Agent is working…" : "Message your agent…"
-                }
-                rows={2}
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                disabled={
-                  busy || !!pending || running || (!!sessionId && !snapshot)
-                }
-              />
-              {running ? (
-                <IconButton
-                  label="Stop"
-                  disabled={busy || !!pending || !snapshot.runId}
-                  onClick={() =>
-                    void dispatch({
-                      type: "cancel",
-                      commandId: crypto.randomUUID(),
-                      sessionId: sessionId!,
-                      runId: snapshot.runId!,
-                    })
-                  }
-                >
-                  <Square size={16} />
-                </IconButton>
-              ) : (
-                <button
-                  className="mobile-send"
-                  type="submit"
-                  aria-label="Send message"
-                  disabled={
-                    busy ||
-                    !!pending ||
-                    !draft.trim() ||
-                    (!!sessionId && !snapshot) ||
-                    (!sessionId &&
-                      !catalog?.models[configuration.harness]?.some(
-                        (item) => item.id === configuration.model,
-                      ))
-                  }
-                >
-                  {busy ? (
-                    <LoaderCircle className="mobile-spin" size={19} />
-                  ) : (
-                    <ArrowUp size={21} />
-                  )}
-                </button>
-              )}
-            </div>
-            <div className="mobile-composer-caption">
-              <span>
-                {snapshot
-                  ? `${snapshot.session.harness} · ${snapshot.session.model.split(":").slice(1).join(":") || snapshot.session.model}`
-                  : "Runs on your computer"}
-              </span>
-              <span>{snapshot ? modes[snapshot.session.runtimeMode] : ""}</span>
-            </div>
-          </form>
+            onConfigurationChange={(next) => {
+              if (!sessionId) setConfiguration(next);
+              else
+                void dispatch({
+                  type: "configure",
+                  commandId: crypto.randomUUID(),
+                  sessionId,
+                  model: next.model,
+                  modelSettings: next.modelSettings,
+                  runtimeMode: next.runtimeMode,
+                });
+            }}
+            panel={composerPanel}
+            onPanelChange={setComposerPanel}
+            project={project}
+            projects={projects}
+            hostName={client.connection?.name}
+            onProjectChange={(item) => void openProject(item, "chat")}
+            attachments={attachments}
+            onFiles={(files) => void addFiles(files)}
+            onRemoveAttachment={(id) =>
+              setAttachments((current) =>
+                current.filter((item) => item.id !== id),
+              )
+            }
+            planMode={planMode}
+            onPlanModeChange={setPlanMode}
+          />
         </main>
       )}
 
-      {connected && (
+      {connected && view !== "chat" && (
         <nav className="mobile-navigation" aria-label="Main navigation">
           <button
             className={view === "projects" ? "is-selected" : ""}
@@ -906,9 +895,7 @@ export function MobileApp() {
             <span>Projects</span>
           </button>
           <button
-            className={
-              view === "sessions" || view === "chat" ? "is-selected" : ""
-            }
+            className={view === "sessions" ? "is-selected" : ""}
             disabled={!project}
             onClick={() => navigate("sessions")}
           >

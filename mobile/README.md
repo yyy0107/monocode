@@ -76,6 +76,22 @@ Message bubbles, Markdown/code/Mermaid, tool activity, folding, approvals, and
 scroll behavior render through the same components as desktop. Mobile adds
 clipboard/link services, touch layout, and a jump-to-latest button.
 
+The mobile composer uses a compact rounded card with one toolbar. Tap its model
+summary for reasoning settings, model selection, and Agent selection; tap the
+shield for permission modes. The menus use touch-friendly bottom sheets with
+selected checkmarks, scrolling, focus handling, and Android Back dismissal.
+The project selector above the card starts a new conversation in that project
+while keeping the current message and selected attachments. Chat navigation
+moves to the header so the card sits directly above the keyboard or safe area.
+
+The plus menu offers photos, files, and Plan mode. Files are read on the phone,
+previewed using the shared desktop attachment chips, and uploaded through the
+Host's existing chunk protocol when sending. Limits match the Host: 20 files,
+up to 20 MB each. The first-message journal preserves attachment references
+and plan intent across reconnects; a lost chunk receipt retries the same bytes
+and offset. Enter inserts a newline; Ctrl/Command+Enter sends. Running turns
+show Stop and lock configuration controls.
+
 ## Build
 
 From the repository root, use Node.js 22 or newer (required by Capacitor 8):

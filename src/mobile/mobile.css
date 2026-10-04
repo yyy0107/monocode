@@ -330,71 +330,308 @@
   flex: 1;
   min-height: 0;
 }
-.mobile-composer {
+.mobile-chat > .mobile-empty,
+.mobile-chat > .mobile-loading {
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+/* Keep the message and its controls in one compact card above the keyboard. */
+.mobile-composer-dock {
   flex-shrink: 0;
-  margin: 0 12px 10px;
-  border: 1px solid var(--color-stroke);
-  border-radius: 15px;
-  background: var(--color-selection-subtle);
-  padding: 12px;
+  padding: 8px 12px max(12px, env(safe-area-inset-bottom));
 }
-.mobile-composer-options {
+.mobile-composer-context {
   display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.mobile-composer-options select {
+  align-items: center;
+  gap: 14px;
   min-height: 34px;
-  width: auto;
-  max-width: 60%;
-  flex: 1;
-  padding: 6px 8px;
+  margin: 0 8px 7px;
   font-size: 11px;
-  border: 0;
-  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 52%, transparent);
 }
-.mobile-composer-input {
+.mobile-composer-context button,
+.mobile-composer-host {
   display: flex;
-  gap: 10px;
-  align-items: flex-end;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.mobile-composer-host {
+  flex: 1;
+}
+.mobile-composer-context span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-composer-context button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 8px 0;
+  max-width: 55%;
+  min-height: 36px;
+}
+.mobile-composer-context svg {
+  flex-shrink: 0;
+}
+.mobile-composer {
+  border: 1px solid var(--color-stroke);
+  border-radius: 26px;
+  background: var(--color-selection-subtle);
+  padding: 14px 10px 10px;
+  box-shadow: 0 6px 24px #00000008;
+}
+.mobile-composer:focus-within {
+  border-color: color-mix(in srgb, var(--color-content) 22%, transparent);
 }
 .mobile-composer textarea {
-  flex: 1;
-  min-width: 0;
-  min-height: 50px;
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  max-height: min(168px, 25dvh);
   resize: none;
   background: transparent;
   border: 0;
-  padding: 3px;
+  padding: 4px 9px 10px;
   font-size: 16px;
   line-height: 1.5;
   color: var(--color-content);
   user-select: text;
+  overflow-y: auto;
+  touch-action: pan-y;
 }
-.mobile-send {
+.mobile-composer textarea:focus-visible {
+  outline: none;
+}
+.mobile-composer textarea::placeholder {
+  color: color-mix(in srgb, var(--color-content) 42%, transparent);
+}
+.mobile-composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.mobile-composer-action {
   display: grid;
   place-items: center;
-  width: 39px;
-  height: 39px;
   flex-shrink: 0;
-  background: var(--color-content);
-  color: var(--color-background-base);
+  width: 40px;
+  height: 42px;
+  padding: 0;
   border: 0;
-  border-radius: 11px;
+  border-radius: 50%;
+  color: var(--color-content);
+  background: transparent;
 }
-.mobile-composer-caption {
+.mobile-composer-action:active,
+.mobile-composer-model:active {
+  background: var(--color-selection);
+}
+.mobile-composer-permissions {
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+}
+.mobile-composer-permissions[data-full-access="true"] {
+  color: #b48147;
+}
+.mobile-composer-model {
   display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 10px;
-  color: color-mix(in srgb, var(--color-content) 33%, transparent);
-  margin-top: 9px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  padding: 5px;
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+  color: var(--color-content);
 }
-.mobile-composer-caption span {
+.mobile-composer-model > svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+.mobile-composer-model > span {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 5px;
+}
+.mobile-composer-model strong {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+}
+.mobile-composer-model small {
+  flex-shrink: 0;
+  font-size: 11px;
+  opacity: 0.55;
+  white-space: nowrap;
+}
+.mobile-send {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  background: var(--color-content);
+  color: var(--color-background-base);
+  border: 0;
+  border-radius: 50%;
+  margin-left: 3px;
+}
+.mobile-composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 5px 9px 12px;
+  max-height: min(110px, 15dvh);
+  overflow-y: auto;
+}
+.mobile-composer-attachments button {
+  min-width: 28px;
+  min-height: 28px;
+}
+.mobile-composer-plan {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 9px 8px;
+  font-size: 11px;
+  color: var(--color-accent);
+}
+.mobile-composer-plan button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 6px;
+  margin-left: auto;
+  text-decoration: underline;
+}
+.mobile-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: #0005;
+}
+.mobile-sheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: min(75dvh, 650px);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-background-base);
+  color: var(--color-content);
+  border: 1px solid var(--color-stroke);
+  border-radius: 26px 26px 0 0;
+  padding: 10px 12px max(16px, env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 48px #0002;
+  outline: none;
+}
+.mobile-sheet-handle {
+  width: 34px;
+  height: 4px;
+  border-radius: 3px;
+  margin: 0 auto 8px;
+  background: var(--color-stroke);
+  flex-shrink: 0;
+}
+.mobile-sheet-header {
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.mobile-sheet-header h2 {
+  font-size: 17px;
+  font-weight: 550;
+  flex: 1;
+  margin: 0;
+  padding-left: 10px;
+}
+.mobile-sheet-content {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  padding: 6px;
+}
+.mobile-sheet-group + .mobile-sheet-group {
+  border-top: 1px solid var(--color-stroke);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+.mobile-sheet-group h3 {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.5;
+  margin: 12px 14px 5px;
+}
+.mobile-sheet-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 54px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-size: 15px;
+}
+.mobile-sheet-row[aria-checked="true"] {
+  background: var(--color-selection-subtle);
+}
+.mobile-sheet-row:active {
+  background: var(--color-selection);
+}
+.mobile-sheet-row > svg {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+}
+.mobile-sheet-row > span {
+  flex: 1;
+  min-width: 0;
+}
+.mobile-sheet-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.mobile-sheet-row-text strong {
+  font-weight: 500;
+}
+.mobile-sheet-row-text small {
+  opacity: 0.45;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.mobile-sheet-hint {
+  opacity: 0.5;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 0 14px;
+}
+@media (max-height: 520px) {
+  .mobile-chat > .mobile-empty {
+    visibility: hidden;
+  }
+  .mobile-composer-context {
+    display: none;
+  }
 }
 .mobile-error,
 .mobile-pending {
@@ -558,48 +795,6 @@ html.theme-light .mobile-logo {
 .mobile-shared-question input {
   font-size: 16px;
 }
-.mobile-agent-models {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.mobile-agent-models label {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-}
-.mobile-agent-models label > span {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: color-mix(in srgb, var(--color-content) 50%, transparent);
-  font-size: 10px;
-}
-.mobile-agent-models .mobile-agent-control {
-  flex: 1;
-  min-width: 90px;
-}
-.mobile-agent-models .mobile-model-control {
-  flex: 2;
-  min-width: 150px;
-}
-.mobile-agent-models .mobile-setting-control {
-  flex: 1;
-  min-width: 95px;
-}
-.mobile-app .mobile-agent-models select {
-  font-size: 12px;
-  min-height: 36px;
-  padding: 7px 9px;
-}
-.mobile-agent-hint {
-  flex-basis: 100%;
-  font-size: 10px;
-  color: color-mix(in srgb, var(--color-content) 40%, transparent);
-}
-
 .mobile-app-updates {
   margin-top: 28px;
   padding-top: 24px;

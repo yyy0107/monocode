@@ -68,6 +68,10 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>MonoCode connects to your computer to continue your projects and conversations.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose photos to attach to your messages.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo to attach to your message.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

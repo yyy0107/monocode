@@ -1,13 +1,15 @@
 // @vitest-environment happy-dom
 import { createElement, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MobileModelControls,
   configurationForModel,
   type MobileConfiguration,
 } from "./MobileModelControls";
 import type { HostModelCatalog } from "../features/connections/model/protocol";
+import { setUiLanguage } from "../shared/i18n/language";
+import { HARNESS_TITLE } from "../features/sessions/model/session";
 const catalog: HostModelCatalog = {
   models: {
     codex: [
@@ -72,6 +74,7 @@ const catalog: HostModelCatalog = {
 };
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 let root: Root;
+beforeEach(() => setUiLanguage("en"));
 afterEach(() => {
   act(() => root?.unmount());
   document.body.replaceChildren();
@@ -92,6 +95,7 @@ function render(
           configuration: next,
           lockedAgent,
           disabled: false,
+          onClose: () => {},
           onChange: (value) => {
             changes.push(value);
             refresh(value);
@@ -101,15 +105,35 @@ function render(
     );
   };
   refresh(configuration);
-  const change = (label: string, value: string) => {
-    const select = node.querySelector<HTMLSelectElement>(
-      `[aria-label="${label}"]`,
+  const row = (name: string) =>
+    [...node.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.querySelector("strong")?.textContent === name,
     )!;
-    expect(select).not.toBeNull();
-    act(() => {
-      select.value = value;
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+  const change = (label: string, value: string) => {
+    const back = node.querySelector<HTMLButtonElement>('[aria-label="Back"]');
+    if (back) act(() => back.click());
+    let name: string;
+    if (label === "Agent") {
+      act(() => row("Agent").click());
+      name = HARNESS_TITLE[value as keyof typeof HARNESS_TITLE];
+    } else if (label === "Model") {
+      act(() => row("Model").click());
+      name = Object.values(catalog.models)
+        .flat()
+        .find((model) => model?.id === value)!.name;
+    } else
+      name = { low: "Low", medium: "Medium", high: "High" }[
+        value as "low" | "medium" | "high"
+      ];
+    const option = [
+      ...node.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
+    ].find((button) => button.textContent === name)!;
+    expect(option).toBeDefined();
+    act(() => option.click());
+    const afterBack = node.querySelector<HTMLButtonElement>(
+      '[aria-label="Back"]',
+    );
+    if (afterBack) act(() => afterBack.click());
   };
   return { node, changes, change };
 }
@@ -123,9 +147,13 @@ describe("mobile Agent, model and reasoning controls", () => {
       modelSettings: { effort: "medium" },
     });
     expect(changes.at(-1)!.modelSettings).not.toHaveProperty("reasoningEffort");
-    expect(node.querySelector('[aria-label="Model"]')!.textContent).toBe(
-      "Claude model",
-    );
+    expect(
+      [...node.querySelectorAll("button")]
+        .find(
+          (button) => button.querySelector("strong")?.textContent === "Model",
+        )!
+        .querySelector("small")!.textContent,
+    ).toBe("Claude model");
   });
   it("sends a chosen thinking level and resets unsupported values after a model switch", () => {
     const { change, changes } = render();
@@ -153,10 +181,14 @@ describe("mobile Agent, model and reasoning controls", () => {
   it("locks only the Agent for existing conversations while allowing model and effort changes", () => {
     const { node, change, changes } = render(true);
     expect(
-      node.querySelector<HTMLSelectElement>('[aria-label="Agent"]')!.disabled,
+      [...node.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.querySelector("strong")?.textContent === "Agent",
+      )!.disabled,
     ).toBe(true);
     expect(
-      node.querySelector<HTMLSelectElement>('[aria-label="Model"]')!.disabled,
+      [...node.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.querySelector("strong")?.textContent === "Model",
+      )!.disabled,
     ).toBe(false);
     change("Reasoning effort", "medium");
     expect(changes.at(-1)!.modelSettings.reasoningEffort).toBe("medium");
