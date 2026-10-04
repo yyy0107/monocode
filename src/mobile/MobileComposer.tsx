@@ -72,6 +72,7 @@ export function MobileComposer(props: Props) {
   const { t } = useTranslation();
   const area = useRef<HTMLTextAreaElement>(null);
   const form = useRef<HTMLFormElement>(null);
+  const dock = useRef<HTMLDivElement>(null);
   const pressingAction = useRef(false);
   // "Engaged" survives sheets, system file pickers and short busy states.
   // Only a deliberate move away (an outside tap or focusing another control)
@@ -102,6 +103,22 @@ export function MobileComposer(props: Props) {
         props.configuration.model)) ||
     HARNESS_TITLE[props.configuration.harness];
   const close = () => props.onPanelChange(null);
+  // The dock floats over the transcript; publish its height so content can
+  // scroll past it without hiding the last message.
+  useLayoutEffect(() => {
+    const element = dock.current;
+    const host = element?.parentElement;
+    if (!element || !host) return;
+    const publish = () =>
+      host.style.setProperty("--mobile-dock-height", `${element.offsetHeight}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      host.style.removeProperty("--mobile-dock-height");
+    };
+  }, []);
   useLayoutEffect(() => {
     const element = area.current;
     if (!element) return;
@@ -199,7 +216,7 @@ export function MobileComposer(props: Props) {
   };
   return (
     <>
-      <div className="mobile-composer-dock">
+      <div ref={dock} className="mobile-composer-dock">
         {props.queue ? <div className="mobile-message-queue">{props.queue}</div> : null}
         <form
           ref={form}

@@ -555,6 +555,7 @@
   color: var(--color-content);
 }
 .mobile-chat {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -574,10 +575,39 @@
   padding-bottom: 0;
   overflow: hidden;
 }
-/* The composer shares the floating header's capsule surface. */
+/* The composer shares the floating header's capsule surface and floats over
+   the transcript; content passing beneath it is only lightly softened. */
 .mobile-composer-dock {
-  flex-shrink: 0;
+  position: absolute;
+  bottom: 0;
+  inset-inline: 0;
+  z-index: 10;
   padding: 8px 16px max(12px, var(--mobile-safe-bottom));
+  pointer-events: none;
+}
+.mobile-composer-dock > * {
+  pointer-events: auto;
+}
+.mobile-composer-dock::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  -webkit-mask-image: linear-gradient(transparent, #000 45%);
+  mask-image: linear-gradient(transparent, #000 45%);
+}
+.mobile-desktop-transcript:has(+ .mobile-composer-dock) > .agent-transcript {
+  padding-bottom: var(--mobile-dock-height, 0px);
+  scroll-padding-bottom: var(--mobile-dock-height, 0px);
+}
+.mobile-desktop-transcript:has(+ .mobile-composer-dock) > .mobile-jump {
+  bottom: calc(var(--mobile-dock-height, 0px) + 12px);
+}
+.mobile-chat > :not(.mobile-desktop-transcript):has(+ .mobile-composer-dock) {
+  margin-bottom: var(--mobile-dock-height, 0px);
 }
 .mobile-composer {
   --mobile-capsule-radius: 26px;
