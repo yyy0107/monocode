@@ -109,6 +109,23 @@
 .mobile-header[data-floating="true"] > .mobile-header-title {
   inset-inline: 68px;
 }
+/* Status and session actions share one capsule on the trailing side. */
+.mobile-header[data-floating="true"] > .mobile-header-actions {
+  inset-inline-end: 16px;
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding-inline: 2px;
+}
+.mobile-header-actions > .mobile-icon-button {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+.mobile-header[data-floating="true"]:has(> .mobile-header-actions)
+  > .mobile-header-title {
+  inset-inline-end: 112px;
+}
 /* Notices float under the header so they never push or cover its controls. */
 .mobile-notices {
   position: absolute;
@@ -1018,6 +1035,74 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: 13px;
+}
+.mobile-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 10px 8px;
+}
+.mobile-status-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mobile-status-host {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.mobile-status-host strong {
+  font-size: 15px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-status-summary small,
+.mobile-status-field-value {
+  font-size: 13px;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+.mobile-status .mobile-menu-divider {
+  margin: 0;
+}
+.mobile-status-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mobile-status-field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+}
+.mobile-status-field-label strong {
+  font-size: 14px;
+  font-weight: 550;
+}
+.mobile-status-field-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-status-copy {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin: -4px -6px -4px 0;
+  border: 0;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+}
+.mobile-status-copy:active {
+  background: var(--color-selection);
 }
 .mobile-session-actions .mobile-sheet-row {
   min-height: 36px;

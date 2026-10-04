@@ -53,6 +53,7 @@ import {
 } from "./client";
 import { MobileComposer, type MobileComposerPanel } from "./MobileComposer";
 import { MobileSessionActions } from "./MobileSessionActions";
+import { MobileSessionStatus } from "./MobileSessionStatus";
 import { MobileConnectionSheet } from "./MobileConnectionSheet";
 import { MobileSelect } from "./MobileSelect";
 import { MobileSheet } from "./MobileSheet";
@@ -154,6 +155,7 @@ export function MobileApp() {
   }>>([]);
   const [composerPanel, setComposerPanel] = useState<MobileComposerPanel>(null);
   const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
+  const [sessionStatusOpen, setSessionStatusOpen] = useState(false);
   const [folderPath, setFolderPath] = useState("");
   const [addingProject, setAddingProject] = useState(false);
   const [addingConnection, setAddingConnection] = useState(false);
@@ -182,6 +184,7 @@ export function MobileApp() {
   const connectionTrigger = useRef<HTMLButtonElement>(null);
   const projectTrigger = useRef<HTMLButtonElement>(null);
   const sessionActionsTrigger = useRef<HTMLButtonElement>(null);
+  const sessionStatusTrigger = useRef<HTMLButtonElement>(null);
   const projectGeneration = useRef(0);
 
   useEffect(() => {
@@ -728,6 +731,7 @@ export function MobileApp() {
     if (!Capacitor.isNativePlatform()) return;
     const listener = App.addListener("backButton", () => {
       if (queueOverlayClose.current) queueOverlayClose.current();
+      else if (sessionStatusOpen) setSessionStatusOpen(false);
       else if (sessionActionsOpen) {
         if (!busy) setSessionActionsOpen(false);
       } else if (preferencePanel) setPreferencePanel(null);
@@ -752,6 +756,7 @@ export function MobileApp() {
     composerPanel,
     preferencePanel,
     sessionActionsOpen,
+    sessionStatusOpen,
     busy,
   ]);
 
@@ -838,17 +843,31 @@ export function MobileApp() {
             <Plus size={20} />
           </IconButton>
         ) : view === "chat" ? (
-          <IconButton
-            label="Session actions"
-            onClick={(event) => {
-              sessionActionsTrigger.current = event.currentTarget;
-              setComposerPanel(null);
-              setSessionActionsOpen(true);
-            }}
-            disabled={busy || loading}
-          >
-            <MoreHorizontal size={22} />
-          </IconButton>
+          <div className="mobile-header-actions">
+            {snapshot && (
+              <IconButton
+                label="Status"
+                onClick={(event) => {
+                  sessionStatusTrigger.current = event.currentTarget;
+                  setComposerPanel(null);
+                  setSessionStatusOpen(true);
+                }}
+              >
+                <Computer size={20} />
+              </IconButton>
+            )}
+            <IconButton
+              label="Session actions"
+              onClick={(event) => {
+                sessionActionsTrigger.current = event.currentTarget;
+                setComposerPanel(null);
+                setSessionActionsOpen(true);
+              }}
+              disabled={busy || loading}
+            >
+              <MoreHorizontal size={22} />
+            </IconButton>
+          </div>
         ) : null}
       </header>
 
@@ -1246,6 +1265,15 @@ export function MobileApp() {
           onDelete={deleteCurrentSession}
           onNew={() => void openSession()}
           onClose={() => setSessionActionsOpen(false)}
+        />
+      )}
+      {sessionStatusOpen && view === "chat" && snapshot && (
+        <MobileSessionStatus
+          snapshot={snapshot}
+          hostName={client.connection?.name || "MonoCode"}
+          hostStatus={hostStatus}
+          anchor={sessionStatusTrigger}
+          onClose={() => setSessionStatusOpen(false)}
         />
       )}
       {addingConnection && (

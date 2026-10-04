@@ -2021,5 +2021,13 @@
   "Attach to the existing Cursor persistent session to continue, or stop that session before retrying here.": "请连接已有的 Cursor 持久会话继续，或先停止该持久会话，再在这里重试。",
   "Original provider error": "原始错误详情",
   "This session is still open in another client. Saved history keeps syncing. Continue there, or close that session before retrying here; a finished reply may not release it.": "此会话仍在另一个客户端中打开。已保存的历史会继续同步。请在原客户端继续，或关闭那里的会话后在此重试；回复结束不一定会解除占用。",
-  "Native session access could not be confirmed. Saved history keeps syncing; check other clients before continuing here.": "暂时无法确认原生会话的使用状态。已保存的历史会继续同步；请检查其他客户端后再在这里继续。"
+  "Native session access could not be confirmed. Saved history keeps syncing; check other clients before continuing here.": "暂时无法确认原生会话的使用状态。已保存的历史会继续同步；请检查其他客户端后再在这里继续。",
+  "Idle": "空闲",
+  "Running": "运行中",
+  "Thread": "对话线程",
+  "Session ID": "会话 ID",
+  "Directory": "目录",
+  "Remote session connected": "远程会话已开启",
+  "Remote session unavailable": "远程会话不可用",
+  "{percent}% left ({used} / {window} used)": "剩余 {percent}%（已用 {used} / {window}）"
 }
