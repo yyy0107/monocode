@@ -48,6 +48,10 @@ export type HostSession = {
   revision: number;
   runId?: string;
   status: "idle" | "running" | "interrupted";
+  /** Queue ownership stays on the Host for every connected client. */
+  supportsQueue?: boolean;
+  canSteer?: boolean;
+  queueSteeringId?: string;
   /** Missing from snapshots written before creation time was stored. */
   createdAt?: number;
   updatedAt: number;
@@ -162,6 +166,16 @@ export type HostCommand =
     }
   | { type: "compact"; commandId: string; sessionId: string }
   | {
+      type: "queue";
+      commandId: string;
+      sessionId: string;
+      action: "remove" | "edit" | "hold" | "release" | "resume" | "steer";
+      messageId?: string;
+      text?: string;
+      editor?: string;
+      runId?: string;
+    }
+  | {
       type: "send";
       commandId: string;
       sessionId: string;
@@ -170,6 +184,8 @@ export type HostCommand =
       intent?: "default" | "plan" | "build";
       draftBlockId?: string;
       planBlockId?: string;
+      /** Host FIFO dispatch; callers cannot bypass a paused or edited head. */
+      queuedMessageId?: string;
     }
   | {
       type: "draft";

@@ -8,6 +8,7 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Composer } from "./Composer";
@@ -220,6 +221,7 @@ export type SessionPaneProps = {
 
 type Props = SessionPaneProps & {
   /** The session runtime is on another machine. */
+  messageQueue?: ReactNode;
   remoteSession?: boolean;
   remoteFeatures?: { attachments: boolean; plan: boolean; draft: boolean };
   /** An opened host conversation whose transcript has not arrived yet. */
@@ -247,6 +249,7 @@ export const SessionPane = memo(function SessionPane(props: SessionPaneProps) {
 });
 
 const LocalSessionPane = memo(function LocalSessionPane({
+  messageQueue,
   remoteSession = false,
   remoteFeatures,
   remoteSessionLoading = false,
@@ -551,6 +554,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
     <Composer
       key={session.id}
       disabled={workspaceSwitchingSessionId === session.id}
+      messageQueue={messageQueue}
       remoteSession={remoteSession}
       remoteFeatures={remoteFeatures}
       allowedModelHarnesses={allowedModelHarnesses}

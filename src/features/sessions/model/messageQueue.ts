@@ -1,4 +1,5 @@
 import { isPreparingHandoff } from "./handoff";
+import { REMOTE_PATH_PREFIX } from "../../../shared/lib/remotePaths";
 import type { QueuedMessage, Session } from "./session";
 
 export function queuedHead(session: Session): QueuedMessage | undefined {
@@ -35,6 +36,9 @@ export function dequeueQueuedMessage(
  * editing-the-head all wait.
  */
 export function canDispatchQueuedHead(session: Session): boolean {
+  // A desktop tab observes the Host queue. Only the Host's session (with its
+  // absolute execution path) can dispatch it, even between two sync polls.
+  if (session.cwd.startsWith(REMOTE_PATH_PREFIX)) return false;
   if (session.busy) return false;
   if (session.usageLimit) return false;
   if (session.queueStatus === "paused" || session.queueStatus === "resuming") {

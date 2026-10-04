@@ -1,3 +1,4 @@
+import { MessageQueue } from "./MessageQueue";
 import type { SessionModelSettings } from "../model/models";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
@@ -5,18 +6,12 @@ import {
   AiIdea,
   Check,
   CircleDashed,
-  CornerDownRight,
   CursorMagicSelection,
   FilePlus,
-  ListEnd,
-  Pause,
-  Pencil,
-  Play,
   Plus,
   Share,
   Square,
   StickyNote,
-  Trash2,
   X,
 } from "../../../shared/ui/icons";
 import {
@@ -235,6 +230,7 @@ type Props = {
   hideBranchPicker?: boolean;
   hideTopBar?: boolean;
   /** Keeps local file mentions, skills, and app modes off for host sessions. */
+  messageQueue?: ReactNode;
   remoteSession?: boolean;
   remoteFeatures?: { attachments: boolean; plan: boolean; draft: boolean };
   context?: ContextUsage;
@@ -337,172 +333,6 @@ function ToolButton({
   );
 }
 
-function MessageQueue({
-  messages,
-  status,
-  onDelete,
-  onEdit,
-  onEditingChange,
-  onSteer,
-  onResume,
-}: {
-  messages: QueuedMessage[];
-  status?: MessageQueueStatus;
-  onDelete?: (messageId: string) => void;
-  onEdit?: (messageId: string, text: string) => void;
-  onEditingChange?: (messageId?: string) => void;
-  onSteer?: (messageId: string) => void;
-  onResume?: () => void;
-}) {
-  const { t: uiT } = useTranslation();
-  const [editingId, setEditingId] = useState<string>();
-  const [editDraft, setEditDraft] = useState("");
-  const onEditingChangeRef = useRef(onEditingChange);
-  onEditingChangeRef.current = onEditingChange;
-  const editingIdRef = useRef(editingId);
-  editingIdRef.current = editingId;
-  useEffect(() => {
-    return () => {
-      if (editingIdRef.current) onEditingChangeRef.current?.();
-    };
-  }, []);
-  if (messages.length === 0) return null;
-  const paused = status === "paused";
-
-  const startEdit = (message: QueuedMessage) => {
-    setEditingId(message.id);
-    setEditDraft(message.text);
-    onEditingChange?.(message.id);
-  };
-  const cancelEdit = () => {
-    setEditingId(undefined);
-    setEditDraft("");
-    onEditingChange?.();
-  };
-  const saveEdit = (message: QueuedMessage) => {
-    if (!editDraft.trim() && message.attachments.length === 0) return;
-    onEdit?.(message.id, editDraft);
-    setEditingId(undefined);
-    setEditDraft("");
-  };
-
-  return (
-    <div className="px-2 text-content/55" data-message-queue>
-      <div
-        className="relative z-0 rounded-t-[10px] border border-b-0 border-content/10 bg-content/3 px-2 py-1"
-        data-message-queue-card
-      >
-        {paused ? (
-          <div className="flex h-7 items-center gap-2 border-b border-stroke text-[12px]">
-            <Pause className="size-3.5" />
-            <span className="min-w-0 flex-1 truncate">
-              {uiT("Queue paused because you interrupted")}
-            </span>
-            <button
-              type="button"
-              onClick={onResume}
-              className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content"
-            >
-              <Play className="size-3.5" />
-              {uiT("Resume")}
-            </button>
-          </div>
-        ) : null}
-        {messages.map((message, index) => {
-          const editing = editingId === message.id;
-          const label =
-            message.text.trim() ||
-            `${message.attachments.length} attachment${message.attachments.length === 1 ? "" : "s"}`;
-          return (
-            <div
-              key={message.id}
-              className={`flex min-h-7 items-center gap-2 text-[12px] ${
-                index > 0 ? "border-t border-stroke" : ""
-              }`}
-            >
-              <ListEnd className="size-3.5 shrink-0" />
-              {editing ? (
-                <>
-                  <textarea
-                    autoFocus
-                    aria-label={uiT("Edit queued message")}
-                    value={editDraft}
-                    rows={1}
-                    onChange={(event) => setEditDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (isImeComposition(event.nativeEvent)) return;
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        cancelEdit();
-                      } else if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        saveEdit(message);
-                      }
-                    }}
-                    className="min-h-6 min-w-0 flex-1 resize-none rounded-md border border-content/15 bg-content/5 px-1.5 py-0.5 text-[12px] text-content outline-none focus:border-content/30"
-                  />
-                  <button
-                    type="button"
-                    title={uiT("Save queued message")}
-                    aria-label={uiT("Save queued message")}
-                    disabled={
-                      !editDraft.trim() && message.attachments.length === 0
-                    }
-                    onClick={() => saveEdit(message)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:opacity-30"
-                  >
-                    <Check className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title={uiT("Cancel queued message edit")}
-                    aria-label={uiT("Cancel queued message edit")}
-                    onClick={cancelEdit}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="min-w-0 flex-1 truncate text-content/80">
-                    {label}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onSteer?.(message.id)}
-                    className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content"
-                  >
-                    <CornerDownRight className="size-3.5" />
-                    {uiT("Steer")}
-                  </button>
-                  <button
-                    type="button"
-                    title={uiT("Edit queued message")}
-                    aria-label={uiT("Edit queued message")}
-                    onClick={() => startEdit(message)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content"
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title={uiT("Remove queued message")}
-                    aria-label={uiT("Remove queued message")}
-                    onClick={() => onDelete?.(message.id)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 export function Composer({
   enabled = true,
@@ -528,6 +358,7 @@ export function Composer({
   hideProjectPicker = false,
   hideBranchPicker = false,
   hideTopBar = false,
+  messageQueue,
   remoteSession = false,
   remoteFeatures,
   context,
@@ -1985,15 +1816,19 @@ export function Composer({
           onDismiss={onUsageLimitDismiss}
         />
       ) : null}
-      <MessageQueue
+      {messageQueue ?? <MessageQueue
         messages={queuedMessages}
         status={queueStatus}
+        remote={remote}
+        disabled={disabled}
+        canSteer={!remote || busy}
+        canResume={!remote || !busy}
         onDelete={onDeleteQueuedMessage}
         onEdit={onEditQueuedMessage}
         onEditingChange={onQueuedMessageEditingChange}
         onSteer={onSteerQueuedMessage}
         onResume={onResumeQueue}
-      />
+      />}
       <div className="relative overflow-visible">
         {mcpPickerOpen ? (
           <div className="absolute inset-x-0 bottom-full z-30 mb-1">

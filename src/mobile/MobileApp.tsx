@@ -1,3 +1,5 @@
+import { useHostQueue } from "../features/connections/ui/useHostQueue";
+import { MessageQueue } from "../features/sessions/ui/MessageQueue";
 import {
   useCallback,
   useEffect,
@@ -157,6 +159,8 @@ export function MobileApp() {
     () => localStorage.getItem("monocode-mobile-theme") || "dark",
   );
   const navigation = useRef(0);
+  const queueView = useRef({ view, sessionId });
+  queueView.current = { view, sessionId };
   const connectionTrigger = useRef<HTMLButtonElement>(null);
   const projectTrigger = useRef<HTMLButtonElement>(null);
   const sessionActionsTrigger = useRef<HTMLButtonElement>(null);
@@ -438,6 +442,49 @@ export function MobileApp() {
     },
     [projects, project?.id],
   );
+  const queueRequest = useCallback(
+    async (
+      command: Extract<HostCommand, { type: "queue" }>,
+      transient: boolean,
+    ) => {
+      const generation = navigation.current;
+      if (!transient) {
+        setBusy(true);
+        setError("");
+      }
+      try {
+        const receipt = transient
+          ? await client.rpc<
+              import("../features/connections/model/protocol").CommandReceipt
+            >("commands.dispatch", command)
+          : await client.dispatch(command);
+        const result = await client.session(command.sessionId);
+        if (navigation.current === generation && queueView.current.view === "chat" && queueView.current.sessionId === command.sessionId) {
+          setSnapshot((current) =>
+            current &&
+            current.session.id === result.session.id &&
+            current.revision > result.revision
+              ? current
+              : result,
+          );
+
+        }
+        if (!transient) setPending(undefined);
+        return receipt;
+      } catch (problem) {
+        if (navigation.current === generation && queueView.current.view === "chat" && queueView.current.sessionId === command.sessionId) {
+          setError(message(problem));
+
+        }
+        if (!transient) setPending(await client.pending());
+        throw problem;
+      } finally {
+        if (!transient) setBusy(false);
+      }
+    },
+    [],
+  );
+  const queue = useHostQueue(snapshot, queueRequest);
   const send = async () => {
     if (
       !project ||
@@ -445,7 +492,7 @@ export function MobileApp() {
       busy ||
       pending ||
       readingAttachments ||
-      snapshot?.status === "running"
+      (snapshot?.status === "running" && !snapshot.supportsQueue)
     )
       return;
     if (
@@ -957,6 +1004,13 @@ export function MobileApp() {
             </Empty>
           )}
           <MobileComposer
+            queue={
+              <MessageQueue
+                key={snapshot?.session.id}
+                {...queue}
+                disabled={busy || !!pending || loading}
+              />
+            }
             value={draft}
             onChange={setDraft}
             configuration={
@@ -967,7 +1021,7 @@ export function MobileApp() {
             disabled={
               busy ||
               !!pending ||
-              running ||
+              (running && !snapshot?.supportsQueue) ||
               readingAttachments ||
               loading ||
               (!!sessionId && !snapshot)
@@ -979,7 +1033,7 @@ export function MobileApp() {
               !pending &&
               !readingAttachments &&
               !loading &&
-              !running &&
+              (!running || !!snapshot?.supportsQueue) &&
               (!!draft.trim() || attachments.length > 0) &&
               (sessionId
                 ? !!snapshot

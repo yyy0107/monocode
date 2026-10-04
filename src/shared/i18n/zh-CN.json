@@ -1944,5 +1944,7 @@
   "Authentication failed": "认证失败",
   "Connection timed out": "连接超时",
   "Host identity changed": "主机身份已变更",
-  "Connection failed": "连接失败"
+  "Connection failed": "连接失败",
+  "Queue message": "加入队列",
+  "Queue paused": "队列已暂停"
 }

@@ -295,6 +295,15 @@ function dispatch(command: HostCommand) {
         runtimeMode: command.runtimeMode,
       },
     };
+  } else if (host && command.type === "queue") {
+    const rows = host.session.queuedMessages ?? [];
+    host = { ...host, revision: host.revision + 1, session: { ...host.session,
+      editingQueuedMessageId: command.action === "hold" ? command.messageId : undefined,
+      queuedMessages: command.action === "remove" ? rows.filter(row => row.id !== command.messageId)
+        : command.action === "edit" ? rows.map(row => row.id === command.messageId ? { ...row, text: command.text! } : row) : rows } };
+  } else if (host && command.type === "send" && host.status === "running" && host.supportsQueue) {
+    host = { ...host, revision: host.revision + 1, session: { ...host.session,
+      queuedMessages: [...host.session.queuedMessages ?? [], { id: command.commandId, text: command.text, attachments: [] }], queueStatus: "active" } };
   } else if (host && command.type === "send") {
     host = {
       ...host,
@@ -1073,4 +1082,34 @@ it("ignores a late create response after its tab has switched conversations", as
   expect(remoteSessionFor("shell")).toBe("different-session");
   expect(commands.map((command) => command.type)).toEqual(["create"]);
   expect(container.textContent).not.toContain("Pending first message");
+});
+
+it("shows the Host queue in the desktop composer, queues while busy, and edits and deletes shared rows", async () => {
+  dispatch({ type: "create", commandId: "queue-session", projectId: "project", harness: "codex", model: gpt.id, runtimeMode: "supervised" });
+  host = { ...host!, status: "running", runId: "shared-run", supportsQueue: true, canSteer: true,
+    session: { ...host!.session, busy: true, blocks: [{ id: "old", role: "user", text: "Current work" }],
+      queuedMessages: [{ id: "phone", text: "Queued from phone", attachments: [] }], queueStatus: "active" } };
+  rememberRemoteSession("shell", "host-session");
+  await render();
+  expect(container.querySelector('[data-message-queue]')?.textContent).toContain("Queued from phone");
+  await send("Queued from desktop");
+  expect(host!.session.queuedMessages?.map(row => row.text)).toEqual(["Queued from phone", "Queued from desktop"]);
+  expect(container.querySelector('[data-message-queue]')?.textContent).toContain("Queued from desktop");
+  expect(container.querySelector('[aria-label="Transcript"]')?.textContent).not.toContain("Queued from desktop");
+  await act(async () => byLabel("Edit queued message")!.click()); await settle();
+  const edit = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Edit queued message"]')!;
+  expect(edit.value).toBe("Queued from phone");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(edit, "Edited on desktop");
+    edit.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => byLabel("Save queued message")!.click()); await settle();
+  expect(host!.session.queuedMessages?.[0].text).toBe("Edited on desktop");
+  await act(async () => byLabel("Remove queued message")!.click()); await settle();
+  expect(host!.session.queuedMessages).toHaveLength(1);
+  host = { ...host!, status: "idle", session: { ...host!.session, busy: false } };
+  await act(async () => byLabel("Remove queued message")!.click()); await settle();
+  expect(container.querySelector('[aria-label="Transcript"]')?.getAttribute("data-busy")).toBe("false");
+  expect(container.querySelector('[aria-label="Transcript"]')?.textContent).not.toContain("Queued from desktop");
+  expect(commands.filter(command => command.type === "queue").map(command => command.type === "queue" && command.action)).toEqual(["hold", "edit", "remove", "remove"]);
 });

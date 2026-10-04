@@ -76,6 +76,16 @@ function render(overrides: Record<string, unknown> = {}) {
   return { node, button, click, onSend, onStop, onFiles, onProjectChange };
 }
 describe("compact mobile composer", () => {
+  it("allows drafting and queueing while running, keeps Stop available and locks model settings", () => {
+    const { node, click, onSend, onStop, button } = render({ running: true, canStop: true, lockedAgent: true });
+    expect(node.querySelector("textarea")!.disabled).toBe(false);
+    expect(button("Model and reasoning").disabled).toBe(true);
+    click("Queue message");
+    expect(onSend).toHaveBeenCalledTimes(1);
+    click("Stop");
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps model controls in a sheet and closes it with Escape without losing the draft", () => {
     const { node, button, click } = render();
     expect(node.querySelector("dialog, [role=dialog]")).toBeNull();

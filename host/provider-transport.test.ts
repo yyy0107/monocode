@@ -79,12 +79,22 @@ readline.createInterface({input: process.stdin}).on('line', line => {
   if (request.type === 'extension_ui_response' && pendingPiDialog === request.id) {
     record({piReply: request}); pendingPiDialog = undefined; completePi();
   }
+  if (request.type === 'steer') {
+    record({piSteer: request.message});
+    send({type:'response', id:request.id, command:'steer', success:true, data:{disposition:'queued'}});
+    setTimeout(completePi, 30);
+  }
   if (request.type === 'prompt') {
     if (request.message === '/fixture-handled') {
       send({type:'response', id:request.id, command:'prompt', success:true, data:{disposition:'handled'}});
       return;
     }
     send({type: 'response', id: request.id, command: 'prompt', success: true, data: {disposition:'started'}});
+    if (request.message === 'fixture-steer') {
+      send({type:'agent_start'}); send({type:'agent_end', isTerminal:false});
+      send({type:'message_update', assistantMessageEvent:{type:'text_delta', delta:'Waiting for steer'}});
+      return;
+    }
     if (request.message === 'fixture-editor') {
       pendingPiDialog = 'fixture-editor';
       send({type:'extension_ui_request', id:pendingPiDialog, method:'editor', title:'Edit text', prefill:'  line one\\nline two  '});
@@ -224,6 +234,23 @@ describe("existing providers over headless process I/O", () => {
       }
     },
   );
+
+  it.each(["pi", "omp"] as const)("steers a shared queued message through the production %s adapter", async harness => {
+    const project = await engine.openProject(directory);
+    const { sessionId } = engine.command({ type: "create", commandId: `create-steer-${harness}`, projectId: project.id,
+      harness, model: `${harness}:default`, runtimeMode: "supervised" });
+    engine.command({ type: "send", commandId: `held-${harness}`, sessionId, text: "fixture-steer" });
+    engine.command({ type: "send", commandId: `queued-${harness}`, sessionId, text: `Steer from ${harness}` });
+    await vi.waitFor(() => expect(store.session(sessionId).session.blocks.some(row => row.text === "Waiting for steer")).toBe(true));
+    expect(store.session(sessionId).status).toBe("running");
+    engine.command({ type: "queue", action: "steer", commandId: `steer-${harness}`, sessionId,
+      messageId: `queued-${harness}`, runId: store.session(sessionId).runId });
+    await vi.waitFor(() => expect(store.session(sessionId).status).toBe("idle"));
+    expect(store.session(sessionId).session.queuedMessages).toBeUndefined();
+    expect(store.session(sessionId).session.blocks.filter(row => row.role === "user" && row.text === `Steer from ${harness}`)).toHaveLength(1);
+    const calls = readFileSync(join(directory, "calls.log"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(calls.filter(call => call.piSteer === `Steer from ${harness}`)).toHaveLength(1);
+  });
 
   it("finishes a handled Pi command and accepts the next message", async () => {
     const project = await engine.openProject(directory);

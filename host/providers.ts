@@ -11,6 +11,7 @@ import * as antigravity from "../src/integrations/harness/providers/antigravity/
 import type {
   SendTurnInput,
   CompactContextInput,
+  SteerTurnInput,
   ApprovalDecision,
 } from "../src/integrations/harness/core/types";
 import type { UserQuestionReply } from "../src/features/sessions/model/userQuestion";
@@ -36,6 +37,7 @@ import { respondQuestion as respondPiQuestion } from "../src/integrations/harnes
 export interface HostProvider {
   send(input: SendTurnInput): Promise<void>;
   compact?(input: CompactContextInput): Promise<void>;
+  steer?(input: SteerTurnInput): Promise<void>;
   cancel(id: string): Promise<void>;
   stop(id: string): Promise<void>;
   bind(id: string, providerId: string, cwd: string): void;
@@ -52,6 +54,7 @@ export interface HostProvider {
 export const hostProviders: Record<RemoteProvider, HostProvider> = {
   codex: {
     send: codex.sendCodexTurn,
+    steer: codex.steerCodexTurn,
     compact: codex.compactCodexContext,
     cancel: codex.cancelCodexTurn,
     stop: codex.forgetCodexSession,
@@ -63,6 +66,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
   },
   claude: {
     send: claude.sendClaudeTurn,
+    steer: claude.steerClaudeTurn,
     compact: claude.compactClaudeContext,
     cancel: claude.cancelClaudeTurn,
     stop: claude.forgetClaudeSession,
@@ -74,6 +78,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
   },
   cursor: {
     send: cursor.sendCursorTurn,
+    steer: cursor.steerCursorTurn,
     cancel: cursor.cancelCursorTurn,
     stop: cursor.forgetCursorSession,
     bind: cursor.bindCursorSession,
@@ -93,6 +98,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
   },
   opencode: {
     send: opencode.sendOpenCodeTurn,
+    steer: opencode.steerOpenCodeTurn,
     compact: opencode.compactOpenCodeContext,
     cancel: opencode.cancelOpenCodeTurn,
     stop: opencode.forgetOpenCodeSession,
@@ -103,6 +109,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
   },
   pi: {
     send: pi.sendPiTurn,
+    steer: pi.steerPiTurn,
     compact: pi.compactPiContext,
     cancel: pi.cancelPiTurn,
     stop: pi.forgetPiSession,
@@ -114,6 +121,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
   },
   omp: {
     send: omp.sendOmpTurn,
+    steer: omp.steerOmpTurn,
     compact: omp.compactOmpContext,
     cancel: omp.cancelOmpTurn,
     stop: omp.forgetOmpSession,
@@ -133,6 +141,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
   },
   hermes: {
     send: hermes.sendHermesTurn,
+    steer: hermes.steerHermesTurn,
     cancel: hermes.cancelHermesTurn,
     stop: hermes.forgetHermesSession,
     bind: hermes.bindHermesSession,

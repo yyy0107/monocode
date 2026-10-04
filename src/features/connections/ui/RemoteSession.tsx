@@ -1,3 +1,5 @@
+import { MessageQueue } from "../../sessions/ui/MessageQueue";
+import { useHostQueue } from "./useHostQueue";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SessionPaneProps } from "../../sessions/ui/SessionPane";
@@ -66,6 +68,7 @@ import {
 } from "../model/protocol";
 
 export type RemoteSessionOverrides = Partial<SessionPaneProps> & {
+  messageQueue?: ReactNode;
   remoteSession: boolean;
   remoteFeatures: { attachments: boolean; plan: boolean; draft: boolean };
   remoteSessionLoading: boolean;
@@ -338,7 +341,8 @@ function ConnectedRemoteSession({
   );
   const activeSessionId = hostSession?.id ?? sessionId;
   const hasHostBlock = (commandId: string) =>
-    !!hostSession?.blocks.some((block) => block.id === commandId);
+    !!hostSession?.blocks.some((block) => block.id === commandId || block.id === `queue-send:${commandId}`) ||
+    !!hostSession?.queuedMessages?.some((row) => row.id === commandId);
   const unseenActive =
     !!unseenSend &&
     unseenSend.sessionId === activeSessionId &&
@@ -359,7 +363,8 @@ function ConnectedRemoteSession({
   useEffect(() => {
     if (starting && !starting.failed && hasHostBlock(starting.commandId))
       setStarting(undefined);
-  }, [hostSession, starting]);
+    if (unseenSend && hasHostBlock(unseenSend.commandId)) setUnseenSend(undefined);
+  }, [hostSession, starting, unseenSend]);
   // A draft being removed leaves the transcript at once, as it does locally,
   // and returns if the host turns the removal down.
   const [removingDraft, setRemovingDraft] = useState<string>();
@@ -710,6 +715,13 @@ function ConnectedRemoteSession({
     }
   };
 
+  const queue = useHostQueue(snapshot, async (command, transient) => {
+    if (!transient) return run(command);
+    const receipt = await remoteRequest<CommandReceipt>(machine.id, "commands.dispatch", command);
+    if (alive.current) setRefresh((value) => value + 1);
+    return receipt;
+  });
+
   // A conversation that was only a draft goes with it, as a local one does,
   // and the tab starts over as a new conversation.
   const discardSession = async (id: string) => {
@@ -939,7 +951,7 @@ function ConnectedRemoteSession({
       sending ||
       preparingRef.current ||
       pending ||
-      busy ||
+      (busy && (!snapshot?.supportsQueue || asDraft || !!options?.draftBlockId || !!planBlockId)) ||
       (!text.trim() && !attachments.length)
     )
       return false;
@@ -1291,6 +1303,7 @@ function ConnectedRemoteSession({
 
   const overrides: RemoteSessionOverrides = {
     session,
+    messageQueue: <MessageQueue key={snapshot?.session.id} {...queue} disabled={!online || sending || !!pending} />,
     remoteSession: true,
     remoteFeatures: {
       attachments: !!descriptor?.capabilities.includes("attachments.upload"),
@@ -1359,11 +1372,11 @@ function ConnectedRemoteSession({
       return true;
     },
     onPlaceSessionInFolder: noop,
-    onDeleteQueuedMessage: noop,
-    onEditQueuedMessage: noop,
-    onQueuedMessageEditingChange: noop,
-    onSteerQueuedMessage: noop,
-    onResumeQueue: noop,
+    onDeleteQueuedMessage: (_, id) => queue.onDelete(id),
+    onEditQueuedMessage: (_, id, text) => queue.onEdit(id, text),
+    onQueuedMessageEditingChange: (_, id) => queue.onEditingChange(id),
+    onSteerQueuedMessage: (_, id) => queue.onSteer(id),
+    onResumeQueue: () => queue.onResume(),
     onUsageLimitResume: noop,
     onUsageLimitResumeAtReset: noop,
     onUsageLimitDismiss: noop,

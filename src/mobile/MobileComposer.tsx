@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import {
   ArrowUp,
   AiIdea,
@@ -8,6 +8,7 @@ import {
   Folder,
   ImagePlus,
   LoaderCircle,
+  ListEnd,
   Plus,
   Square,
   X,
@@ -41,6 +42,7 @@ export type MobileComposerPanel =
   "actions" | "permissions" | "model" | "projects" | "plan" | null;
 const planStyle = MODE_COMMAND_STYLES[PLAN_COMMAND.name];
 type Props = {
+  queue?: ReactNode;
   value: string;
   onChange: (text: string) => void;
   configuration: MobileConfiguration;
@@ -109,6 +111,7 @@ export function MobileComposer(props: Props) {
   return (
     <>
       <div className="mobile-composer-dock">
+        {props.queue ? <div className="mobile-message-queue">{props.queue}</div> : null}
         <form
           className="mobile-composer"
           onSubmit={(event) => {
@@ -198,7 +201,7 @@ export function MobileComposer(props: Props) {
               title={t(RUNTIME_MODE_LABEL[props.configuration.runtimeMode])}
               aria-haspopup="dialog"
               aria-expanded={props.panel === "permissions"}
-              disabled={props.disabled}
+              disabled={props.disabled || props.running}
               onClick={(event) => {
                 panelAnchor.current = event.currentTarget;
                 props.onPanelChange("permissions");
@@ -218,7 +221,7 @@ export function MobileComposer(props: Props) {
               type="button"
               className="mobile-composer-model"
               title={modelName}
-              disabled={props.disabled}
+              disabled={props.disabled || props.running}
               aria-label={t("Model and reasoning")}
               aria-haspopup="dialog"
               aria-expanded={props.panel === "model"}
@@ -237,6 +240,11 @@ export function MobileComposer(props: Props) {
               </span>
               <ChevronDown size={12} />
             </button>
+            {props.running && props.canSend ? (
+              <button type="submit" className="mobile-composer-action" aria-label={t("Queue message")}>
+                {props.working ? <LoaderCircle size={20} className="mobile-spin" /> : <ListEnd size={21} />}
+              </button>
+            ) : null}
             {props.running ? (
               <button
                 type="button"
