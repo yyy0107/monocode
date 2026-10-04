@@ -29,6 +29,7 @@ import { sortMobileSessions } from "./sessionList";
 import type { MobileSheetPoint } from "./MobileSheet";
 import {
   canPullDrawerFrom,
+  canPushDrawerFrom,
   clampDrawer,
   drawerIntent,
   settleDrawerOpen,
@@ -96,7 +97,7 @@ export function MobileDrawer({
   const [choosingProject, setChoosingProject] = useState(!project);
   const panel = useRef<HTMLElement>(null);
   const swipe = useRef<Swipe>(undefined);
-  const justDragged = useRef(false);
+  const dragClickUntil = useRef(0);
   const hold = useRef<{
     pointerId: number;
     x: number;
@@ -175,18 +176,17 @@ export function MobileDrawer({
   }, [project]);
 
   // One gesture pipeline: a pull on the conversation opens the drawer, a push
-  // on the open drawer or its backdrop closes it. The drawer follows the finger
+  // anywhere on screen closes it. The drawer follows the finger
   // and settles by distance or flick speed.
   useEffect(() => {
     const begin = (event: PointerEvent) => {
+      // A new touch means the previous drag produced no click to swallow.
+      dragClickUntil.current = 0;
       if (event.pointerType === "mouse" || swipe.current) return;
       const element = panel.current;
       if (!element) return;
       const { open } = latest.current;
-      if (open) {
-        if (!(event.target instanceof Element)) return;
-        if (!event.target.closest(".mobile-drawer-backdrop")) return;
-      } else if (!canPullDrawerFrom(event.target)) return;
+      if (!(open ? canPushDrawerFrom : canPullDrawerFrom)(event.target)) return;
       const width = element.offsetWidth;
       swipe.current = {
         id: event.pointerId,
@@ -216,8 +216,10 @@ export function MobileDrawer({
           return;
         }
         current.dragging = true;
-        // The gesture now belongs to the drawer, not to text selection.
+        // The gesture now belongs to the drawer, not to text selection or a
+        // pending long press on a session row.
         window.getSelection()?.removeAllRanges();
+        cancelHold();
       }
       const elapsed = event.timeStamp - current.last.t;
       if (elapsed > 0)
@@ -230,10 +232,8 @@ export function MobileDrawer({
       if (!current || current.id !== event.pointerId) return;
       swipe.current = undefined;
       if (!current.dragging) return;
-      justDragged.current = true;
-      setTimeout(() => {
-        justDragged.current = false;
-      }, 0);
+      // A drag may start on a button; the click that follows must not land.
+      dragClickUntil.current = Date.now() + 400;
       const translate = clampDrawer(
         current.origin + event.clientX - current.x,
         current.width,
@@ -245,12 +245,31 @@ export function MobileDrawer({
       setDrag(undefined);
       if (open !== latest.current.open) latest.current.onOpenChange(open);
     };
+    const swallowClick = (event: MouseEvent) => {
+      if (Date.now() >= dragClickUntil.current) return;
+      dragClickUntil.current = 0;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    // Once the drawer owns a drag, keep the browser from turning the same
+    // touch into a scroll or navigation, which would cancel the pointer and
+    // snap the drawer back mid-gesture.
+    const holdTouch = (event: TouchEvent) => {
+      if (swipe.current?.dragging && event.cancelable) event.preventDefault();
+    };
     document.addEventListener("pointerdown", begin, true);
+    document.addEventListener("touchmove", holdTouch, {
+      capture: true,
+      passive: false,
+    });
+    document.addEventListener("click", swallowClick, true);
     document.addEventListener("pointermove", move, true);
     document.addEventListener("pointerup", end, true);
     document.addEventListener("pointercancel", end, true);
     return () => {
       document.removeEventListener("pointerdown", begin, true);
+      document.removeEventListener("touchmove", holdTouch, true);
+      document.removeEventListener("click", swallowClick, true);
       document.removeEventListener("pointermove", move, true);
       document.removeEventListener("pointerup", end, true);
       document.removeEventListener("pointercancel", end, true);
@@ -305,9 +324,8 @@ export function MobileDrawer({
       }}
       onClick={(event) => {
         if (
-          justDragged.current ||
-          (suppressClick.current.id === item.id &&
-            Date.now() < suppressClick.current.until)
+          suppressClick.current.id === item.id &&
+          Date.now() < suppressClick.current.until
         ) {
           event.preventDefault();
           return;
@@ -351,8 +369,7 @@ export function MobileDrawer({
       aria-hidden={!open && !dragging}
       style={{ "--mobile-drawer-progress": progress } as CSSProperties}
       onClick={(event) => {
-        if (event.target === event.currentTarget && !justDragged.current)
-          close();
+        if (event.target === event.currentTarget) close();
       }}
     >
       <nav

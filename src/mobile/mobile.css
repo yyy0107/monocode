@@ -2054,6 +2054,8 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   inset: 0;
   z-index: 25;
   background: rgb(0 0 0 / calc(var(--mobile-drawer-progress, 0) * 0.4));
+  /* Horizontal pushes reach JavaScript to close the drawer. */
+  touch-action: pan-y;
   transition:
     background 260ms var(--mobile-drawer-easing),
     visibility 0s;
