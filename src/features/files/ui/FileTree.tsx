@@ -1211,9 +1211,11 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
               )
             ) : null}
           </span>
-          <span className="shrink-0">
-            <FileTypeIcon name={entry.name} isDir={entry.isDir} isOpen={open} />
-          </span>
+          {!entry.isDir ? (
+            <span className="shrink-0">
+              <FileTypeIcon name={entry.name} isDir={false} />
+            </span>
+          ) : null}
           <span
             className={`min-w-0 truncate ${
               entry.ignored ? "italic text-content/50" : (gitColor ?? "")
@@ -1314,9 +1316,11 @@ export function NameRow({
             <ChevronRight className="size-3.5" strokeWidth={1.75} />
           ) : null}
         </span>
-        <span className="shrink-0">
-          <FileTypeIcon name={leaf} isDir={isDir} />
-        </span>
+        {!isDir ? (
+          <span className="shrink-0">
+            <FileTypeIcon name={leaf} isDir={false} />
+          </span>
+        ) : null}
         <input
           ref={inputRef}
           value={value}

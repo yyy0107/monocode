@@ -52,7 +52,7 @@ export function SkillPicker({
       className={
         compact
           ? "overflow-hidden"
-          : "overflow-hidden rounded-lg border border-content/10 bg-content/5 backdrop-blur-xl"
+          : "popover-backdrop overflow-hidden rounded-lg border border-content/10 backdrop-blur-xl"
       }
     >
       {creating ? (
@@ -174,7 +174,7 @@ function SkillList({
           >
             <span className="flex min-w-0 w-full items-baseline gap-2">
               <span className="truncate text-[13px]">/{skill.invocation}</span>
-              <span className="shrink-0 text-[10px] uppercase tracking-wide text-content/40">
+              <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-content/40">
                 {scopeLabel(skill)}
               </span>
             </span>
