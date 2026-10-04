@@ -439,6 +439,13 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+.mobile-app .mobile-chat::-webkit-scrollbar,
+.mobile-app .mobile-chat ::-webkit-scrollbar {
+  height: 0;
 }
 .mobile-chat > .mobile-empty,
 .mobile-chat > .mobile-loading {
@@ -900,12 +907,17 @@ html.theme-light .mobile-logo {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   user-select: text;
 }
 .mobile-desktop-transcript > .agent-transcript {
   flex: 1;
   min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
   touch-action: pan-y;
 }
 .mobile-desktop-transcript .markdown-code-shell {
@@ -914,6 +926,12 @@ html.theme-light .mobile-logo {
 .mobile-desktop-transcript .agent-markdown table {
   display: block;
   overflow-x: auto;
+}
+.mobile-desktop-transcript [data-streamdown="code-block-body"],
+.mobile-desktop-transcript [data-streamdown="table-wrapper"] > div,
+.mobile-desktop-transcript .agent-markdown table,
+.mobile-desktop-transcript .mermaid-block {
+  scrollbar-width: none;
 }
 .mobile-desktop-transcript button {
   min-height: 32px;
