@@ -411,6 +411,8 @@ describe("tools and models", () => {
     ]);
     expect(models[0]?.settings?.[0]?.id).toBe("thinking");
     expect(models[0]?.contextWindow).toBe(200000);
+    expect(models[0]?.provider).toEqual({ id: "anthropic", name: "anthropic" });
+    expect(models[1]?.provider).toEqual({ id: "openai", name: "openai" });
     expect(models[1]?.settings).toBeUndefined();
   });
 
@@ -427,6 +429,7 @@ describe("tools and models", () => {
     };
     const omp = modelsFromRpcData(OMP_FLAVOR, data)[0];
     const pi = modelsFromRpcData(PI_FLAVOR, data)[0];
+    expect(omp?.provider).toEqual({ id: "anthropic", name: "anthropic" });
 
     expect(omp?.settings?.map((setting) => setting.id)).toEqual([
       "thinking",
