@@ -440,6 +440,8 @@
   "Connections": "连接",
   "Context": "上下文",
   "Context usage": "上下文用量",
+  "{used} tokens used (window unavailable)": "已用 {used} token（窗口大小未知）",
+  "Not reported by this agent yet": "此 Agent 尚未上报",
   "Continue": "继续",
   "Continue interrupted and queued work": "继续中断和排队中的工作",
   "Continue last": "继续上次会话",

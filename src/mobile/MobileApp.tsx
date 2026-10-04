@@ -52,6 +52,7 @@ import { MobileSessionActions } from "./MobileSessionActions";
 import { MobileSessionStatus } from "./MobileSessionStatus";
 import { MeterRing } from "../features/sessions/ui/ContextMeter";
 import { contextRatio } from "../features/sessions/model/contextUsage";
+import { mobileContextUsage } from "./contextUsage";
 import { MobileConnectionSheet } from "./MobileConnectionSheet";
 import type { MobileSheetPoint } from "./MobileSheet";
 import { MobileProjectPicker } from "./MobileProjectPicker";
@@ -850,7 +851,9 @@ export function MobileApp() {
     (item) => item.id === sessionActionsTarget,
   );
   const nativeReadOnly = !!snapshot?.session.nativeSession;
-  const contextRing = loading ? null : contextRatio(snapshot?.session.context);
+  const contextRing = loading
+    ? null
+    : contextRatio(mobileContextUsage(snapshot?.session, catalog));
   // Every view uses floating capsule controls; content scrolls beneath them.
   const floatingHeader = true;
   const title =
@@ -1248,6 +1251,7 @@ export function MobileApp() {
       {sessionStatusOpen && view === "chat" && snapshot && (
         <MobileSessionStatus
           snapshot={snapshot}
+          catalog={catalog}
           hostName={client.connection?.name || "MonoCode"}
           hostStatus={hostStatus}
           anchor={sessionStatusTrigger}

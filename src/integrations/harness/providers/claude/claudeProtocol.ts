@@ -1191,3 +1191,17 @@ export function contextFromResult(
   if (!used && !window) return undefined;
   return { used: used > 0 ? used : undefined, window };
 }
+
+/** Current CLI /context summary; rawMaxTokens is the full model window. */
+export function contextFromUsageSnapshot(
+  data: unknown,
+): { used: number; window: number } | undefined {
+  const rec = asRecord(data);
+  const used = rec?.totalTokens;
+  const window = rec?.rawMaxTokens ?? rec?.maxTokens;
+  if (
+    typeof used !== "number" || !Number.isFinite(used) || used < 0 ||
+    typeof window !== "number" || !Number.isFinite(window) || window <= 0
+  ) return undefined;
+  return { used, window };
+}

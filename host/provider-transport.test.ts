@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HostChildBackend } from "./child-backend";
 import { HostStore } from "./store";
+import { applySessionSync } from "../src/features/connections/model/protocol";
 import { HostEngine } from "./engine";
 import { hostProviders } from "./providers";
 import { attachmentPath, readAttachmentChunk } from "./attachments";
@@ -34,6 +35,7 @@ let pendingPiDialog;
 let piThinking = "off";
 const completePi = () => {
   send({type: 'message_update', assistantMessageEvent: {type: 'text_delta', delta: 'Headless Pi completed'}});
+  send({type: 'message_end', message: {role: 'assistant', usage: {input: 20000, output: 1000, cacheRead: 4000, cacheWrite: 0, totalTokens: 25000}}});
   send({type: 'agent_settled'});
 };
 if (!process.argv.includes('app-server')) record({claudeArgs: process.argv.slice(2)});
@@ -52,6 +54,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
     }
     if (request.method === 'session/prompt') {
       send({jsonrpc: '2.0', method: 'session/update', params: {sessionId: 'fixture_acp', update: {sessionUpdate: 'agent_message_chunk', content: {type: 'text', text: 'Headless ACP completed'}}}});
+      send({jsonrpc: '2.0', method: 'session/update', params: {sessionId: 'fixture_acp', update: {sessionUpdate: 'usage_update', used: 25000, size: 100000}}});
       setTimeout(() => send({jsonrpc: '2.0', id: request.id, result: {stopReason: 'end_turn'}}), 30);
     } else {
       send({jsonrpc: '2.0', id: request.id, result: request.method === 'session/new' || request.method === 'session/load' || request.method === 'session/resume' ? {sessionId: 'fixture_acp', configOptions: []} : {}});
@@ -79,6 +82,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
     }
     setTimeout(() => {
       send({method: 'item/agentMessage/delta', params: {threadId: 'fixture-thread', turnId: 'fixture-turn', itemId: 'message', delta: 'Headless Codex completed'}});
+      send({method: 'thread/tokenUsage/updated', params: {threadId: 'fixture-thread', tokenUsage: {last: {totalTokens: 25000}, modelContextWindow: 100000}}});
       send({method: 'turn/completed', params: {threadId: 'fixture-thread', turn: {id: 'fixture-turn', status: 'completed'}}});
     }, 30);
   }
@@ -87,12 +91,17 @@ readline.createInterface({input: process.stdin}).on('line', line => {
     send({type: 'control_response', response: {subtype: 'success', request_id: request.request_id}});
   }
   if (request.type === 'control_request' && request.request.subtype === 'list_models') send({type: 'control_response', response: {subtype: 'success', request_id: request.request_id, response: {models: [{value: 'claude-fixture-model', resolvedModel: 'claude-fixture-model', displayName: 'Fixture Claude'}]}}});
+  if (request.type === 'control_request' && request.request.subtype === 'get_binary_version') send({type: 'control_response', response: {subtype: 'success', request_id: request.request_id, response: {version: '2.1.289'}}});
+  if (request.type === 'control_request' && request.request.subtype === 'get_context_usage') {
+    record({claudeContextDetail: request.request.detail});
+    send({type: 'control_response', response: {subtype: 'success', request_id: request.request_id, response: {totalTokens: 25000, maxTokens: 80000, rawMaxTokens: 100000}}});
+  }
   if (request.type === 'user') setTimeout(() => {
-    send({type: 'assistant', session_id: 'fixture-claude', message: {content: [{type: 'text', text: 'Headless Claude completed'}]}});
+    send({type: 'assistant', session_id: 'fixture-claude', message: {content: [{type: 'text', text: 'Headless Claude completed'}], usage: {input_tokens: 20000, output_tokens: 1000, cache_read_input_tokens: 4000}}});
     send({type: 'result', subtype: 'success', session_id: 'fixture-claude'});
   }, 30);
   if (request.type === 'get_state') send({type: 'response', id: request.id, command: 'get_state', success: true, data: {sessionId: 'fixture_pi', model: {provider: 'openai', id: 'fixture-model', contextWindow: 100000}, thinkingLevel: piThinking}});
-  if (request.type === 'get_session_stats') send({type: 'response', id: request.id, command: 'get_session_stats', success: true, data: {contextWindow: 100000}});
+  if (request.type === 'get_session_stats') send({type: 'response', id: request.id, command: 'get_session_stats', success: true, data: {contextUsage: {tokens: 25000, contextWindow: 100000}}});
   if (request.type === 'get_available_models') send({type: 'response', id: request.id, command: 'get_available_models', success: true, data: {models: [{provider: 'openai', id: 'fixture-model', name: 'Fixture model'}]}});
   if (request.type === 'get_available_thinking_levels') send({type: 'response', id: request.id, command: request.type, success: true, data: {levels: ['off', 'high']}});
   if (request.type === 'set_thinking_level') { piThinking = request.level; send({type: 'response', id: request.id, command: request.type, success: true}); }
@@ -169,6 +178,18 @@ describe("existing providers over headless process I/O", () => {
     store?.close();
     if (directory) rmSync(directory, { recursive: true, force: true });
   });
+
+  function expectPersistedContext(sessionId: string): void {
+    const reopened = new HostStore(join(directory, "host.db"));
+    try {
+      expect(reopened.session(sessionId).session.context).toEqual({ used: 25_000, window: 100_000 });
+      // Protocol serialization is the path consumed by mobile and remote desktop.
+      const sync = JSON.parse(JSON.stringify(reopened.sync(sessionId)));
+      expect(applySessionSync(undefined, sync).session.context).toEqual({ used: 25_000, window: 100_000 });
+    } finally {
+      reopened.close();
+    }
+  }
 
   it("discovers host models in parallel without probe process collisions", async () => {
     const [codexA, codexB, claudeA, claudeB, piA, piB, ompA, ompB] = await Promise.all([
@@ -292,6 +313,8 @@ describe("existing providers over headless process I/O", () => {
         ).toHaveLength(turn + 1);
         expect(state.blocks.at(-1)?.text).toContain("completed");
         expect(state.providerSessionId).toBeTruthy();
+        expect(state.context).toEqual({ used: 25_000, window: 100_000 });
+        expectPersistedContext(sessionId);
       }
     },
   );
@@ -325,6 +348,8 @@ describe("existing providers over headless process I/O", () => {
         ).toHaveLength(turn + 1);
         expect(state.blocks.at(-1)?.text).toContain("Headless Pi completed");
         expect(state.providerSessionId).toBe("fixture_pi");
+        expect(state.context).toEqual({ used: 25_000, window: 100_000 });
+        expectPersistedContext(sessionId);
       }
     },
   );
@@ -414,6 +439,8 @@ describe("existing providers over headless process I/O", () => {
       const state = store.session(sessionId).session;
       expect(state.blocks.at(-1)?.text).toContain("Headless ACP completed");
       expect(state.providerSessionId).toBe("fixture_acp");
+      expect(state.context).toEqual({ used: 25_000, window: 100_000 });
+      expectPersistedContext(sessionId);
     },
   );
 

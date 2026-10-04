@@ -10,6 +10,7 @@ import {
   buildClaudeSpawnArgs,
   buildClaudeUserMessage,
   contextFromResult,
+  contextFromUsageSnapshot,
   contextUsedFromAssistant,
   extractExitPlanModePlan,
   isClaudeInitMessage,
@@ -815,6 +816,16 @@ describe("contextFromResult", () => {
 
   it("has nothing to report for a turn that never called the API", () => {
     expect(contextFromResult({ type: "result", usage: {} })).toBeUndefined();
+  });
+});
+
+describe("contextFromUsageSnapshot", () => {
+  it("uses the native summary level and full model window", () => {
+    expect(contextFromUsageSnapshot({ totalTokens: 44_289, maxTokens: 180_000, rawMaxTokens: 200_000 })).toEqual({ used: 44_289, window: 200_000 });
+    expect(contextFromUsageSnapshot({ totalTokens: 0, maxTokens: 1_000_000 })).toEqual({ used: 0, window: 1_000_000 });
+  });
+  it("rejects missing or invalid native readings", () => {
+    for (const value of [undefined, {}, { totalTokens: -1, rawMaxTokens: 200_000 }, { totalTokens: NaN, rawMaxTokens: 200_000 }, { totalTokens: 40, rawMaxTokens: Infinity }, { totalTokens: "40", rawMaxTokens: 200_000 }, { totalTokens: 40, rawMaxTokens: 0 }]) expect(contextFromUsageSnapshot(value)).toBeUndefined();
   });
 });
 

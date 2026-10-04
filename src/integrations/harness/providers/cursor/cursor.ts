@@ -789,6 +789,16 @@ function handleSessionUpdate(live: Live, params: unknown) {
     update.sessionUpdate ?? update.session_update ?? update.type ?? "",
   );
 
+  if (kind === "usage_update") {
+    const sessionId = stringField(rec ?? update, "sessionId") ?? stringField(rec ?? update, "session_id");
+    if (sessionId && sessionId !== live.acpSessionId) return;
+    const used = numberField(update, "used");
+    const window = numberField(update, "size");
+    if (used !== undefined && used >= 0 && window !== undefined && window > 0)
+      emit({ type: "context", used, window });
+    return;
+  }
+
   if (kind === "agent_message_chunk" || kind === "agent_message") {
     // Whole-message arrays contain distinct content blocks; chunks are exact deltas.
     const text = textFromContent(

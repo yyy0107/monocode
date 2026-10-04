@@ -82,7 +82,7 @@ describe("mobile session status", () => {
     render();
     const text = node.textContent ?? "";
     expect(text).toContain("Session ID");
-    expect(text).not.toContain("Context");
+    expect(text).toContain("ContextNot reported by this agent yet");
     await act(async () => {
       node.querySelector<HTMLButtonElement>('button[aria-label="Copy"]')!.click();
     });

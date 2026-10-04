@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newSession, type RuntimeMode } from "../../../../features/sessions/model/session";
 import { applyHarnessEvent } from "../../core/apply";
+import { modelsFor, setHarnessModels } from "../../../../features/sessions/model/models";
 
 let onStdout: ((line: string) => void) | undefined;
 let onChildExit: ((code: number | null) => void) | undefined;
@@ -169,6 +170,28 @@ it("reports when OpenCode accepts a turn", async () => {
   idle();
   await done;
   expect(onAccepted).toHaveBeenCalledOnce();
+});
+
+it("publishes the parent message's usage and catalog window", async () => {
+  const previousModels = modelsFor("opencode");
+  setHarnessModels("opencode", [{ id: "opencode:openrouter/anthropic/claude-sonnet-4.6", harness: "opencode", name: "Fixture", contextWindow: 200_000 }]);
+  try {
+    const events: HarnessEvent[] = [];
+    const { done } = await startTurn(events);
+    onSseEvent?.({
+      type: "message.updated", properties: { info: {
+        id: "message_context", sessionID: "session_1", role: "assistant",
+        providerID: "openrouter", modelID: "anthropic/claude-sonnet-4.6",
+        tokens: { input: 20_000, output: 1_000, cache: { read: 4_000, write: 0 } },
+      } },
+    });
+    idle();
+    await done;
+    const session = events.reduce(applyHarnessEvent, newSession("opencode", "/repo"));
+    expect(session.context).toEqual({ used: 25_000, window: 200_000 });
+  } finally {
+    setHarnessModels("opencode", previousModels);
+  }
 });
 
 describe("OpenCode subagent trails", () => {

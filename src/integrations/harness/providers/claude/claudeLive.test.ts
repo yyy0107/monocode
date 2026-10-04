@@ -12,8 +12,18 @@ const sent: string[] = [];
 const spawned: string[][] = [];
 let onLine: ((line: string) => void) | undefined;
 let onExit: ((code?: number | null) => void) | undefined;
+let contextSnapshot: Record<string, unknown> | undefined;
+let holdContextRead = false;
+let contextVersion = "2.1.289";
 const writeChild = vi.fn(async (_id: string, line: string) => {
   sent.push(line);
+  const frame = JSON.parse(line);
+  if (frame.request?.subtype === "get_binary_version")
+    onLine?.(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: frame.request_id, response: { version: contextVersion } } }));
+  if (frame.request?.subtype === "get_context_usage" && !holdContextRead)
+    onLine?.(JSON.stringify({ type: "control_response", response: contextSnapshot
+      ? { subtype: "success", request_id: frame.request_id, response: contextSnapshot }
+      : { subtype: "error", request_id: frame.request_id, error: "Unknown control request: get_context_usage" } }));
 });
 
 vi.mock("../../core/child", () => ({
@@ -256,6 +266,9 @@ function backgroundUpdates(events: HarnessEvent[]): string[][] {
 }
 
 beforeEach(() => {
+  contextSnapshot = undefined;
+  holdContextRead = false;
+  contextVersion = "2.1.289";
   sent.length = 0;
   spawned.length = 0;
   onLine = undefined;
@@ -267,6 +280,71 @@ beforeEach(() => {
 afterEach(async () => {
   await stopClaudeSession("s1");
   __claudeTestReset();
+});
+
+describe("claude native context reads", () => {
+  it("does not query versions that cannot guarantee a local summary", async () => {
+    contextVersion = "2.1.256";
+    const { events, turn } = await startTurn("s1");
+    emit({ type: "assistant", message: { usage: { input_tokens: 12_000 } } });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+    expect(parse().some(frame => (frame.request as Record<string, unknown>)?.subtype === "get_context_usage")).toBe(false);
+    expect(events.filter(event => event.type === "context")).toEqual([{ type: "context", used: 12_000 }]);
+  });
+
+  it("reads native context even when the result omits modelUsage", async () => {
+    contextSnapshot = { totalTokens: 44_289, rawMaxTokens: 200_000, maxTokens: 180_000 };
+    const { events, turn } = await startTurn("s1");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+    expect(parse().filter(frame => (frame.request as Record<string, unknown>)?.subtype === "get_context_usage")).toMatchObject([{ request: { subtype: "get_context_usage", detail: "summary" } }]);
+    expect(events).toContainEqual({ type: "context", used: 44_289, window: 200_000 });
+  });
+
+  it("keeps existing usage when an older CLI rejects the query", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({ type: "assistant", message: { usage: { input_tokens: 12_000 } } });
+    emit({ type: "result", subtype: "success", session_id: "sess_1", modelUsage: { model: { contextWindow: 200_000 } } });
+    await turn;
+    const session = events.reduce(applyHarnessEvent, newSession("claude", "/repo"));
+    expect(session.context).toEqual({ used: 12_000, window: 200_000 });
+    expect(events.filter(event => event.type === "session.error")).toEqual([]);
+    const second = sendClaudeTurn({ sessionId: "s1", cwd: "/repo", model: "claude:claude-sonnet-5", modelSettings: {}, runtimeMode: "supervised", text: "Continue", onEvent: event => events.push(event) });
+    await waitFor(() => parse().filter(frame => frame.type === "user").length === 2, "second prompt");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await second;
+    expect(parse().filter(frame => (frame.request as Record<string, unknown>)?.subtype === "get_context_usage")).toHaveLength(1);
+  });
+
+  it("bounds an unanswered query and retains the message reading", async () => {
+    holdContextRead = true;
+    const { events, turn } = await startTurn("s1");
+    vi.useFakeTimers();
+    try {
+      emit({ type: "assistant", message: { usage: { input_tokens: 12_000 } } });
+      emit({ type: "result", subtype: "success", session_id: "sess_1" });
+      await vi.waitFor(() => expect(parse().some(frame => (frame.request as Record<string, unknown>)?.subtype === "get_context_usage")).toBe(true));
+      await vi.advanceTimersByTimeAsync(2_000);
+      await turn;
+      expect(events.filter(event => event.type === "context")).toEqual([{ type: "context", used: 12_000 }]);
+      expect(events.filter(event => event.type === "session.error")).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores native context arriving after cancellation", async () => {
+    holdContextRead = true;
+    const { events, turn } = await startTurn("s1");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await waitFor(() => parse().some(frame => (frame.request as Record<string, unknown>)?.subtype === "get_context_usage"), "context query");
+    const request = parse().find(frame => (frame.request as Record<string, unknown>)?.subtype === "get_context_usage")!;
+    await cancelClaudeTurn("s1");
+    emit({ type: "control_response", response: { subtype: "success", request_id: request.request_id, response: { totalTokens: 99_000, rawMaxTokens: 200_000 } } });
+    await turn;
+    expect(events.filter(event => event.type === "context")).toEqual([]);
+  });
 });
 
 describe("claude streamed tool inputs", () => {

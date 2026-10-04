@@ -1,7 +1,10 @@
 import { useEffect, useState, type RefObject } from "react";
 import { Check, Copy } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
-import type { HostSession } from "../features/connections/model/protocol";
+import type {
+  HostModelCatalog,
+  HostSession,
+} from "../features/connections/model/protocol";
 import {
   contextPercent,
   formatTokens,
@@ -10,6 +13,13 @@ import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { mobileTranscriptPlatform } from "./transcriptPlatform";
 import type { HostConnectionStatus } from "./client";
+import { mobileContextUsage } from "./contextUsage";
+import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
+import { HARNESS_TITLE } from "../features/sessions/model/session";
+import {
+  configurationForSession,
+  configurationLabels,
+} from "./MobileModelControls";
 
 const RUN_STATUS_LABEL: Record<HostSession["status"], string> = {
   idle: "Idle",
@@ -64,12 +74,14 @@ function StatusField({
 /** Read-only overview of where the current conversation runs. */
 export function MobileSessionStatus({
   snapshot,
+  catalog,
   hostName,
   hostStatus,
   anchor,
   onClose,
 }: {
   snapshot: HostSession;
+  catalog?: HostModelCatalog;
   hostName: string;
   hostStatus: HostConnectionStatus;
   anchor: RefObject<HTMLElement | null>;
@@ -78,7 +90,21 @@ export function MobileSessionStatus({
   const { t } = useTranslation();
   const session = snapshot.session;
   const directory = session.worktreeCwd || session.cwd;
-  const percent = contextPercent(session.context);
+  const context = mobileContextUsage(session, catalog);
+  const percent = contextPercent(context);
+  const configuration = configurationForSession(snapshot);
+  const { modelName, effort } = configurationLabels(
+    catalog,
+    configuration,
+    configuration.model,
+  );
+  const agentLabel = [
+    HARNESS_TITLE[configuration.harness],
+    modelName,
+    effort && t(effort),
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <MobileSheet
       title="Status"
@@ -111,17 +137,34 @@ export function MobileSessionStatus({
           copyable
         />
         <StatusField label="Directory" value={directory} copyable />
-        {session.branch && <StatusField label="Branch" value={session.branch} />}
-        {session.context?.window && percent !== null && (
-          <StatusField
-            label="Context"
-            value={t("{percent}% left ({used} / {window} used)", {
-              percent: String(100 - percent),
-              used: formatTokens(session.context.used),
-              window: formatTokens(session.context.window),
-            })}
-          />
+        {session.branch && (
+          <StatusField label="Branch" value={session.branch} />
         )}
+        <div className="mobile-status-field mobile-status-agent">
+          <div className="mobile-status-field-label">
+            <strong>{t("Agent")}</strong>
+          </div>
+          <span className="mobile-status-agent-name" title={agentLabel}>
+            <HarnessIcon harness={configuration.harness} className="size-4" />
+            <span>{agentLabel}</span>
+          </span>
+        </div>
+        <StatusField
+          label="Context"
+          value={
+            context?.window && percent !== null
+              ? t("{percent}% left ({used} / {window} used)", {
+                  percent: String(100 - percent),
+                  used: formatTokens(context.used),
+                  window: formatTokens(context.window),
+                })
+              : context
+                ? t("{used} tokens used (window unavailable)", {
+                    used: formatTokens(context.used),
+                  })
+                : t("Not reported by this agent yet")
+          }
+        />
       </div>
     </MobileSheet>
   );

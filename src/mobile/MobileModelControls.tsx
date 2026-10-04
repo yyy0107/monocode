@@ -58,6 +58,34 @@ export function configurationForSession(
     runtimeMode,
   };
 }
+/** Display names for a configuration's model and reasoning effort. */
+export function configurationLabels(
+  catalog: HostModelCatalog | undefined,
+  configuration: MobileConfiguration,
+  lockedModel?: string,
+): { modelName: string; effort?: string } {
+  const controls = remoteModelControls(
+    catalog,
+    configuration.harness,
+    configuration.model,
+    configuration.modelSettings,
+    lockedModel,
+  );
+  const reasoning = controls.settings.find((setting) =>
+    isEffortSettingId(setting.id),
+  );
+  const effort = reasoning?.options.find(
+    (option) =>
+      option.value ===
+      (configuration.modelSettings[reasoning.id] ?? reasoning.value),
+  )?.label;
+  const modelName =
+    (controls.model?.name ??
+      (configuration.model.split(":").slice(1).join(":") ||
+        configuration.model)) ||
+    HARNESS_TITLE[configuration.harness];
+  return { modelName, effort };
+}
 export function firstConfiguration(
   catalog: HostModelCatalog,
 ): MobileConfiguration | undefined {

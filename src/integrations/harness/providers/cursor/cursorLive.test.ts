@@ -143,6 +143,26 @@ afterEach(async () => {
 });
 
 describe("cursor background subagents", () => {
+  it("forwards ACP context usage without mixing child or malformed readings", async () => {
+    const { events, promptId, turn } = await startTurn("cursor-live");
+    const usage = (update: Record<string, unknown>) => notify("session/update", {
+      sessionId: "cursor_1", update: { sessionUpdate: "usage_update", ...update },
+    });
+    usage({ used: 32_768, size: 131_072 });
+    usage({ used: 12_000, size: 131_072, _meta: { parentToolCallId: "child" } });
+    notify("session/update", { sessionId: "child_session", update: { sessionUpdate: "usage_update", used: 99_000, size: 131_072 } });
+    usage({ used: -1, size: 131_072 });
+    usage({ used: "50", size: 131_072 });
+    usage({ used: 50, size: 0 });
+    usage({ used: 0, size: 131_072 });
+    reply(promptId, { stopReason: "end_turn" });
+    await turn;
+    expect(events.filter(event => event.type === "context")).toEqual([
+      { type: "context", used: 32_768, window: 131_072 },
+      { type: "context", used: 0, window: 131_072 },
+    ]);
+  });
+
   it("forwards native session titles after the prompt ends and excludes child names", async () => {
     const { events, promptId, turn } = await startTurn("native-title");
     reply(promptId, { stopReason: "end_turn" }); await turn;

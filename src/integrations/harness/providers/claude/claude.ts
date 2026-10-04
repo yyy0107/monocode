@@ -24,7 +24,9 @@ import {
   assistantThinkingBlocks,
   assistantToolUses,
   contextFromResult,
+  contextFromUsageSnapshot,
   contextUsedFromAssistant,
+  compareSemver,
   turnMetricsFromResult,
   buildClaudeSpawnArgs,
   buildClaudeUserMessage,
@@ -45,7 +47,9 @@ import {
   parseBackgroundTasks,
   parseControlCancelId,
   parseControlRequest,
+  parseControlResponse,
   parseJsonLine,
+  parseClaudeVersion,
   parseTaskNotification,
   parseTaskProgress,
   parseTaskStarted,
@@ -71,6 +75,7 @@ import {
   type ClaudeAgentTaskNotification,
   type ClaudeCliSettings,
   type ClaudeControlRequest,
+  type ClaudeControlResponse,
 } from "./claudeProtocol";
 import { isAgentToolName } from "../../core/preview";
 import { joinStreamText, snapshotRemainder } from "../../core/streamText";
@@ -171,6 +176,12 @@ type Live = {
   activeTurn: boolean;
   initDone: (() => void) | null;
   initialized: boolean;
+  contextReadSupported: boolean;
+  contextSummaryChecked: boolean;
+  pendingContextRead: {
+    requestId: string;
+    finish: (response: ClaudeControlResponse | null) => void;
+  } | null;
   emittedAssistant: string;
   emittedReasoning: string;
   pendingAssistantBoundary: boolean;
@@ -185,6 +196,8 @@ type Resume = {
 };
 
 const INIT_TIMEOUT_MS = 8_000;
+const CONTEXT_TIMEOUT_MS = 2_000;
+const MINIMUM_CONTEXT_SUMMARY_VERSION = "2.1.257";
 /**
  * How long a finished background task may take to wake Claude before the turn
  * is let go anyway. The follow-up turn normally starts within a second or two.
@@ -327,6 +340,7 @@ export async function cancelClaudeTurn(sessionId: string): Promise<void> {
   }
   live.cancelled = true;
   live.muteUpdates = true;
+  live.pendingContextRead?.finish(null);
   for (const [, pending] of live.approvals) pending.resolve("deny");
   live.approvals.clear();
   for (const [, pending] of live.questions)
@@ -359,6 +373,7 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
   liveByThread.delete(sessionId);
   if (live) {
     live.muteUpdates = true;
+    live.pendingContextRead?.finish(null);
     for (const [, pending] of live.approvals) pending.resolve("deny");
     live.approvals.clear();
     for (const [, pending] of live.questions)
@@ -508,6 +523,9 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     activeTurn: false,
     initDone: null,
     initialized: false,
+    contextReadSupported: true,
+    contextSummaryChecked: false,
+    pendingContextRead: null,
     emittedAssistant: "",
     emittedReasoning: "",
     pendingAssistantBoundary: false,
@@ -526,6 +544,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     (code) => {
       liveByThread.delete(input.sessionId);
       const current = liveRef.current;
+      current?.pendingContextRead?.finish(null);
       if (!current?.muteUpdates) {
         (current?.onEvent ?? input.onEvent)({ type: "session.ended", code });
       }
@@ -607,6 +626,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     await writeJson(input.sessionId, message);
     settlePendingTurn(live);
     await turnPromise;
+    if (!live.manualCompaction) await refreshClaudeContext(input.sessionId, live);
   } catch (error) {
     if (live.cancelled) return;
     live.onEvent({
@@ -630,6 +650,12 @@ function handleLine(sessionId: string, live: Live, line: string): void {
     return;
   }
   if (type === "keep_alive") return;
+
+  const response = parseControlResponse(rec);
+  if (response && response.requestId === live.pendingContextRead?.requestId) {
+    live.pendingContextRead.finish(response);
+    return;
+  }
 
   const cancelId = parseControlCancelId(rec);
   if (cancelId) {
@@ -1750,6 +1776,58 @@ function waitForInit(live: Live, timeoutMs: number): Promise<void> {
       clearTimeout(timer);
       resolve();
     };
+  });
+}
+
+async function refreshClaudeContext(sessionId: string, live: Live): Promise<void> {
+  if (!live.contextReadSupported || live.cancelled || live.muteUpdates) return;
+  if (!live.contextSummaryChecked) {
+    const reply = await requestContextControl(sessionId, live, {
+      subtype: "get_binary_version",
+    });
+    if (live.cancelled || live.muteUpdates || liveByThread.get(sessionId) !== live)
+      return;
+    const version = parseClaudeVersion(stringField(reply?.payload, "version") ?? "");
+    live.contextSummaryChecked = true;
+    live.contextReadSupported =
+      !!reply?.ok && !!version &&
+      compareSemver(version, MINIMUM_CONTEXT_SUMMARY_VERSION) >= 0;
+    // Older implementations could ignore detail and run the full token-count API.
+    if (!live.contextReadSupported) return;
+  }
+  const response = await requestContextControl(sessionId, live, {
+    subtype: "get_context_usage",
+    detail: "summary",
+  });
+  if (live.cancelled || live.muteUpdates || liveByThread.get(sessionId) !== live)
+    return;
+  if (!response?.ok) {
+    // Older CLIs reject this optional method. Avoid repeating a failed probe.
+    live.contextReadSupported = false;
+    return;
+  }
+  const context = contextFromUsageSnapshot(response.payload);
+  if (context) live.onEvent({ type: "context", ...context });
+}
+
+function requestContextControl(
+  sessionId: string,
+  live: Live,
+  request: Record<string, unknown>,
+): Promise<ClaudeControlResponse | null> {
+  const requestId = nextControlId(live);
+  return new Promise<ClaudeControlResponse | null>((resolve) => {
+    const finish = (value: ClaudeControlResponse | null) => {
+      if (live.pendingContextRead?.requestId !== requestId) return;
+      clearTimeout(timer);
+      live.pendingContextRead = null;
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), CONTEXT_TIMEOUT_MS);
+    live.pendingContextRead = { requestId, finish };
+    void writeJson(sessionId, buildControlRequest(requestId, request)).catch(
+      () => finish(null),
+    );
   });
 }
 
