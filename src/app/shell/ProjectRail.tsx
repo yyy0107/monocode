@@ -885,7 +885,8 @@ function ProjectCard({
   const additions = stats?.additions ?? 0;
   const deletions = stats?.deletions ?? 0;
   const hasChanges = files > 0 || additions > 0 || deletions > 0;
-  const remote = remoteProjectFor(item.path);
+  const hostProject = remoteProjectFor(item.path);
+  const remote = hostProject?.local ? undefined : hostProject;
   const { machines } = useRemoteMachines(!!remote);
   const machine = remote
     ? machines.find((entry) => entry.environmentId === remote.environmentId)
