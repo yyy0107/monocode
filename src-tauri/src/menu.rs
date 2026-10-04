@@ -243,7 +243,8 @@ fn build(
         overrides,
     )?;
     let check_for_updates =
-        MenuItemBuilder::with_id("check_for_updates", native_text("Check for Updates…")).build(app)?;
+        MenuItemBuilder::with_id("check_for_updates", native_text("Check for Updates…"))
+            .build(app)?;
     let new_window = menu_item(
         app,
         "new_window",
@@ -449,13 +450,15 @@ fn build(
         overrides,
     )?;
     let sidebar_opacity =
-        MenuItemBuilder::with_id("sidebar_opacity", native_text("Sidebar Appearance…")).build(app)?;
+        MenuItemBuilder::with_id("sidebar_opacity", native_text("Sidebar Appearance…"))
+            .build(app)?;
     // No accelerators here on purpose: the webview key handler owns
     // CmdOrCtrl + - 0, and a menu accelerator would fire the same command
     // a second time on top of it.
     let zoom_in = MenuItemBuilder::with_id("zoom_in", native_text("Zoom In")).build(app)?;
     let zoom_out = MenuItemBuilder::with_id("zoom_out", native_text("Zoom Out")).build(app)?;
-    let zoom_reset = MenuItemBuilder::with_id("zoom_reset", native_text("Reset Zoom")).build(app)?;
+    let zoom_reset =
+        MenuItemBuilder::with_id("zoom_reset", native_text("Reset Zoom")).build(app)?;
     let reload = menu_item(
         app,
         "reload",
@@ -554,7 +557,10 @@ fn build(
             .accelerator("CmdOrCtrl+Q")
             .build(app)?;
         let app_menu = SubmenuBuilder::new(app, native_text("MonoCode"))
-            .about_with_text(native_text("About MonoCode"), Some(AboutMetadata::default()))
+            .about_with_text(
+                native_text("About MonoCode"),
+                Some(AboutMetadata::default()),
+            )
             .separator()
             .item(&open_settings)
             .item(&check_for_updates)
@@ -567,15 +573,20 @@ fn build(
             .build()?;
         // Tauri registers this submenu via NSApp.setWindowsMenu:, which throws
         // on macOS 12 when the menu is empty and aborts the app at launch.
-        let window_menu = SubmenuBuilder::with_id(app, tauri::menu::WINDOW_SUBMENU_ID, native_text("Window"))
-            .minimize_with_text(native_text("Minimize"))
-            .maximize_with_text(native_text("Zoom"))
-            .build()?;
-        let website = MenuItemBuilder::with_id("help_website", native_text("MonoCode Website")).build(app)?;
-        let github = MenuItemBuilder::with_id("help_github", native_text("View on GitHub")).build(app)?;
-        let report_bug = MenuItemBuilder::with_id("help_report_bug", native_text("Report a Bug…")).build(app)?;
+        let window_menu =
+            SubmenuBuilder::with_id(app, tauri::menu::WINDOW_SUBMENU_ID, native_text("Window"))
+                .minimize_with_text(native_text("Minimize"))
+                .maximize_with_text(native_text("Zoom"))
+                .build()?;
+        let website =
+            MenuItemBuilder::with_id("help_website", native_text("MonoCode Website")).build(app)?;
+        let github =
+            MenuItemBuilder::with_id("help_github", native_text("View on GitHub")).build(app)?;
+        let report_bug =
+            MenuItemBuilder::with_id("help_report_bug", native_text("Report a Bug…")).build(app)?;
         let request_feature =
-            MenuItemBuilder::with_id("help_request_feature", native_text("Request a Feature…")).build(app)?;
+            MenuItemBuilder::with_id("help_request_feature", native_text("Request a Feature…"))
+                .build(app)?;
         let help = SubmenuBuilder::with_id(app, tauri::menu::HELP_SUBMENU_ID, native_text("Help"))
             .item(&website)
             .item(&github)
