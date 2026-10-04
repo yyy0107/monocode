@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TitleBar, type Tab } from "./TitleBar";
+import { TitleBar, WindowNavigation, type Tab } from "./TitleBar";
 
 vi.mock("./WindowControls", () => ({ WindowControls: () => null }));
 
@@ -54,6 +54,48 @@ afterEach(() => {
   container.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it("keeps the window controls mounted while the project rail is toggled", () => {
+  const onGoBack = vi.fn();
+  const onGoForward = vi.fn();
+  const onTogglePanel = vi.fn();
+  const renderNavigation = (panelActive: boolean) =>
+    act(() =>
+      root.render(
+        createElement(WindowNavigation, {
+          panelActive,
+          canGoBack: panelActive,
+          canGoForward: true,
+          onGoBack,
+          onGoForward,
+          onTogglePanel,
+        }),
+      ),
+    );
+
+  renderNavigation(true);
+  const navigation = container.querySelector('[data-window-navigation]')!;
+  const toggle = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Toggle Projects"]',
+  )!;
+  const icon = toggle.querySelector("svg");
+  act(() => toggle.click());
+  expect(onTogglePanel).toHaveBeenCalledOnce();
+
+  renderNavigation(false);
+  expect(container.querySelector('[data-window-navigation]')).toBe(navigation);
+  expect(container.querySelector('button[aria-label="Toggle Projects"]')).toBe(toggle);
+  expect(toggle.querySelector("svg")).toBe(icon);
+  expect(toggle.getAttribute("aria-pressed")).not.toBe("true");
+  act(() => {
+    container.querySelector<HTMLButtonElement>('button[aria-label^="Back"]')!.click();
+    container.querySelector<HTMLButtonElement>('button[aria-label^="Forward"]')!.click();
+    toggle.click();
+  });
+  expect(onGoBack).not.toHaveBeenCalled();
+  expect(onGoForward).toHaveBeenCalledOnce();
+  expect(onTogglePanel).toHaveBeenCalledTimes(2);
 });
 
 describe("title tab response status", () => {

@@ -48,6 +48,7 @@ import { GradientBlurBackground } from "./GradientBlurBackground";
 import { McpSettings } from "./McpSettings";
 import { InboxProviderMark } from "../../inbox/ui/InboxProviderMark";
 import { RemoveProjectDialog } from "../../projects/ui/RemoveProjectDialog";
+import { WindowNavigationSpace } from "../../../app/shell/TitleBar";
 import { WindowControls } from "../../../app/shell/WindowControls";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { useColorScheme } from "../../../shared/hooks/useColorScheme";
@@ -497,7 +498,7 @@ export function SettingsView({
         className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
         data-tauri-drag-region="deep"
       >
-        {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
+        {!besideRail ? <WindowNavigationSpace /> : null}
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
           <span className="shrink-0 text-content/45">{uiT("Settings")}</span>
           <span aria-hidden className="shrink-0 text-content/25">

@@ -63,7 +63,7 @@ afterEach(() => {
 });
 
 describe("title tab pane drops", () => {
-  it("joins compact navigation and tabs in one title bar", () => {
+  it("reserves window navigation space before compact title tabs", () => {
     const onGoBack = vi.fn();
     const onGoForward = vi.fn();
     act(() =>
@@ -92,18 +92,11 @@ describe("title tab pane drops", () => {
       "[data-compact-title-nav]",
     )!;
     expect(nav.closest("header")?.className).toContain("body-glass");
-    expect(nav.className).toContain("pl-[70px]");
-    expect(
-      Array.from(nav.querySelectorAll("button"), (button) =>
-        button.getAttribute("aria-label")?.replace(/ \(.+\)$/, ""),
-      ),
-    ).toEqual(["Back", "Forward"]);
+    expect(nav.querySelector("[data-window-navigation-space]")).not.toBeNull();
+    expect(nav.querySelector("button")).toBeNull();
     expect(nav.nextElementSibling?.querySelector("[data-title-tab-strip]")).not
-      .toBeNull;
+      .toBeNull();
     expect(container.textContent).not.toContain("Development");
-
-    act(() => nav.querySelector<HTMLButtonElement>("button")!.click());
-    expect(onGoBack).toHaveBeenCalledOnce();
   });
 
   it("keeps the current tab visible and places the dragged tab on a pane edge", () => {

@@ -523,7 +523,7 @@ export function DevModeLabel() {
   );
 }
 
-/** Flex spacer that keeps the Development badge next to the visit arrows. */
+/** Flex spacer that keeps the Development badge at the end of the header. */
 export function DevModeSlot() {
   return (
     <div className="flex min-w-0 flex-1 items-center justify-end">
@@ -579,35 +579,41 @@ export function TabVisitNav({
   );
 }
 
-/** Back + rail toggle for overlay surfaces when the project rail is closed. */
-export function OverlayNav({
-  onBack,
-  onToggleSidebar,
-}: {
-  onBack?: () => void;
-  onToggleSidebar?: () => void;
-}) {
-  const { t: uiT } = useTranslation();
-  if (!onBack && !onToggleSidebar) return null;
+const WINDOW_NAVIGATION_LEFT = IS_MAC ? 78 : 6;
+const WINDOW_NAVIGATION_WIDTH = 78;
+
+export function WindowNavigation(props: Parameters<typeof TabVisitNav>[0]) {
   return (
-    <div className="flex shrink-0 items-center px-1.5">
-      {onBack ? (
-        <IconButton
-          label={uiT("Back ({value0}[)", { value0: String(MOD) })}
-          onClick={onBack}
-        >
-          <ChevronLeft className="size-3.5" strokeWidth={1.75} />
-        </IconButton>
-      ) : null}
-      {onToggleSidebar ? (
-        <IconButton
-          label={uiT("Toggle Sidebar ({value0}B)", { value0: String(MOD) })}
-          onClick={onToggleSidebar}
-        >
-          <PanelLeft className="size-3.5" strokeWidth={1.75} />
-        </IconButton>
-      ) : null}
-    </div>
+    <nav
+      aria-label="Window navigation"
+      data-window-navigation
+      data-tauri-drag-region="false"
+      className="absolute top-0 z-20 flex h-10 items-center"
+      style={{ left: WINDOW_NAVIGATION_LEFT }}
+    >
+      <TabVisitNav {...props} />
+    </nav>
+  );
+}
+
+/** Reserve the same window coordinates for navigation in every shell layout. */
+export function WindowNavigationSpace({
+  besideCompactRail = false,
+}: {
+  besideCompactRail?: boolean;
+}) {
+  return (
+    <div
+      aria-hidden
+      data-window-navigation-space
+      className="shrink-0"
+      style={{
+        width:
+          WINDOW_NAVIGATION_LEFT +
+          WINDOW_NAVIGATION_WIDTH -
+          (besideCompactRail ? 48 : 0),
+      }}
+    />
   );
 }
 
@@ -618,11 +624,6 @@ function TitleBarComponent({
   projectRailOpen = true,
   sessionSidebarOpen = true,
   compactRail = false,
-  canGoBack = false,
-  canGoForward = false,
-  onGoBack,
-  onGoForward,
-  onToggleSidebar,
   onToggleSessionSidebar,
   onSelect,
   onNew,
@@ -932,36 +933,16 @@ function TitleBarComponent({
       {compactRail ? (
         <div
           data-compact-title-nav
-          className="flex shrink-0 items-center pl-[70px]"
+          className="flex shrink-0 items-center"
         >
-          <TabVisitNav
-            canGoBack={canGoBack}
-            canGoForward={canGoForward}
-            onGoBack={onGoBack}
-            onGoForward={onGoForward}
-          />
+          <WindowNavigationSpace />
         </div>
       ) : null}
-      {/* Both the rail and the sidebar step aside without a project, so the
-          title bar takes over the traffic lights and the rail toggle. */}
-      {projectless && railClosed && !compactRail ? (
-        <>
-          <div className="w-[78px] shrink-0" />
-          <div className="flex shrink-0 items-center px-1.5">
-            <IconButton
-              label={uiT("Toggle Sidebar ({value0}B)", { value0: String(MOD) })}
-              onClick={onToggleSidebar}
-            >
-              <PanelLeft className="size-3.5" strokeWidth={1.75} />
-            </IconButton>
-          </div>
-        </>
+      {railClosed && (projectless || !sessionSidebarOpen) && !compactRail ? (
+        <WindowNavigationSpace />
       ) : null}
       {!sessionSidebarOpen && !projectless && onToggleSessionSidebar ? (
         <div className="flex shrink-0 items-center px-1.5">
-          {IS_MAC && railClosed && !compactRail ? (
-            <div className="w-[70px] shrink-0" />
-          ) : null}
           <IconButton
             label={uiT("Toggle Session Sidebar ({value0}{value1}B)", {
               value0: String(MOD),
