@@ -1824,10 +1824,22 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 .mobile-file-markdown .markdown-code-shell {
   margin-block: 0;
 }
-.mobile-file-image {
-  max-width: 100%;
+.mobile-file-image-frame {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  overflow: hidden;
   border-radius: 10px;
-  align-self: center;
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+}
+.mobile-file-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 60dvh;
+  object-fit: contain;
+  border-radius: 10px;
 }
 .mobile-jump {
   position: absolute;

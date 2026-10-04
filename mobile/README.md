@@ -146,6 +146,14 @@ Message bubbles, Markdown/code/Mermaid, tool activity, folding, approvals, and
 scroll behavior render through the same components as desktop. Mobile adds
 clipboard/link services, touch layout, and a jump-to-latest button.
 
+Tap an image file link or a Read tool's file chip to show the image in the bottom
+file panel. PNG, JPEG, GIF, WebP, AVIF, BMP, ICO and SVG use the phone's image
+decoder; images up to 10 MiB fit within the panel, while unreadable formats show
+an error. Temporary image files outside the project also open through the Host's
+authenticated read-only file preview. Use a matching current Host build: an old
+Host that reports “Path is outside this machine’s projects” must be updated for
+these temporary paths to work.
+
 Desktop and mobile share the same character-by-character reply reveal, including
 Chinese text and complete emoji. Received chunks catch up smoothly; completed
 history opens immediately without replaying the animation. Live mobile chats

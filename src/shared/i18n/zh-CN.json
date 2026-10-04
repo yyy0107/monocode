@@ -2079,6 +2079,7 @@
   "Tap “View file” to see the complete contents.": "点击“查看文件”查看完整内容。",
   "This tool call has no further details.": "此工具调用没有更多详情。",
   "Could not open this file.": "无法打开此文件。",
+  "Could not display this image.": "无法显示此图片。",
   "Binary file ({size}) cannot be previewed.": "二进制文件（{size}）无法预览。",
   "File is too large to preview ({size}).": "文件过大，无法预览（{size}）。"
 }

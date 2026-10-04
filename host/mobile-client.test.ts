@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -107,6 +107,31 @@ async function setup() {
 }
 
 describe("mobile client against the real MonoCode Host", () => {
+  it("reads temporary image files outside registered projects through authenticated mobile RPC", async () => {
+    const s = await setup();
+    const outside = mkdtempSync(join(tmpdir(), "monocode-mobile-image-preview-"));
+    cleanups.push(async () => rmSync(outside, { recursive: true, force: true }));
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7X8AAAAASUVORK5CYII=",
+      "base64",
+    );
+    const path = join(outside, "sheet.png");
+    writeFileSync(path, png);
+    const projects = await s.client.projects();
+    expect(await s.client.readBinaryFile(path)).toEqual(new Uint8Array(png));
+    // Large image responses must keep every byte after base64 decoding.
+    const large = Buffer.alloc(5 * 1024 * 1024, 42);
+    png.copy(large);
+    writeFileSync(path, large);
+    expect(Buffer.from(await s.client.readBinaryFile(path)).equals(large)).toBe(true);
+    expect(await s.client.projects()).toEqual(projects);
+    await expect(s.client.readBinaryFile(outside)).rejects.toThrow("Not a file");
+    await expect(s.client.readBinaryFile("relative.png")).rejects.toThrow("Invalid workspace path");
+    truncateSync(path, 10 * 1024 * 1024 + 1);
+    await expect(s.client.readBinaryFile(path)).rejects.toThrow("too large to preview");
+    s.store.revokeToken(s.device.token);
+    await expect(s.client.readBinaryFile(path)).rejects.toMatchObject({ status: 401 });
+  });
   it.skipIf(process.platform === "win32")("browses directory symlinks through mobile RPC and opens their targets outside registered projects", async () => {
     const s = await setup();
     const target = mkdtempSync(join(tmpdir(), "monocode-mobile-link-target-"));

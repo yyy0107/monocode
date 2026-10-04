@@ -1,37 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
 import { AgentMarkdown } from "../features/sessions/ui/AgentMarkdown";
 import { FileTypeIcon } from "../features/files/ui/FileTypeIcon";
+import { sniffImageMime } from "../features/files/model/filePreview";
 import { displayPath } from "../shared/lib/paths";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { MobileSheet } from "./MobileSheet";
 
 /** Large files stay readable on a phone only up to a point; past it we just say so. */
 export const MAX_PREVIEW_BYTES = 512 * 1024;
+/** Match the Host's binary read limit; images do not use the text preview cap. */
+export const MAX_IMAGE_PREVIEW_BYTES = 10 * 1024 * 1024;
 /** Syntax highlighting gets slow on long files, so they fall back to plain text. */
 const MAX_HIGHLIGHT_BYTES = 96 * 1024;
-
-const IMAGE_TYPES: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  svg: "image/svg+xml",
-  bmp: "image/bmp",
-  ico: "image/x-icon",
-};
 
 type Loaded =
   | { kind: "loading" }
   | { kind: "error"; message: string }
   | { kind: "image"; url: string }
+  | { kind: "image-error" }
   | { kind: "text"; text: string; size: number }
   | { kind: "binary"; size: number }
   | { kind: "large"; size: number };
 
 export type FilePreviewContent = Exclude<
   Loaded,
-  { kind: "loading" } | { kind: "error" } | { kind: "image" }
+  { kind: "loading" } | { kind: "error" } | { kind: "image" } | { kind: "image-error" }
 >;
 
 export function fileExtension(path: string): string {
@@ -99,8 +92,13 @@ export function MobileFileSheet({
     readBinaryFile(path)
       .then((bytes) => {
         if (cancelled) return;
-        const imageType = IMAGE_TYPES[extension];
-        if (imageType && bytes.length <= MAX_PREVIEW_BYTES * 8) {
+        const imageType = sniffImageMime(bytes) ??
+          (extension === "svg" ? "image/svg+xml" : null);
+        if (imageType) {
+          if (bytes.length > MAX_IMAGE_PREVIEW_BYTES) {
+            setLoaded({ kind: "large", size: bytes.length });
+            return;
+          }
           objectUrl = URL.createObjectURL(
             new Blob([bytes as BlobPart], { type: imageType }),
           );
@@ -159,7 +157,23 @@ export function MobileFileSheet({
             {t("Could not open this file.")} {loaded.message}
           </p>
         ) : loaded.kind === "image" ? (
-          <img className="mobile-file-image" src={loaded.url} alt={name} />
+          <div className="mobile-file-image-frame">
+            <img
+              key={loaded.url}
+              className="mobile-file-image"
+              src={loaded.url}
+              alt={name}
+              onError={() => setLoaded((current) =>
+                current.kind === "image" && current.url === loaded.url
+                  ? { kind: "image-error" }
+                  : current,
+              )}
+            />
+          </div>
+        ) : loaded.kind === "image-error" ? (
+          <p className="mobile-form-error mobile-detail-note" role="alert">
+            {t("Could not display this image.")}
+          </p>
         ) : loaded.kind === "binary" ? (
           <p className="mobile-muted mobile-detail-note">
             {t("Binary file ({size}) cannot be previewed.", {
