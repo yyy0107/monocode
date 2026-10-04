@@ -1,3 +1,4 @@
+import "./browserCrypto";
 import { createRoot } from "react-dom/client";
 import { MobileApp } from "./MobileApp";
 import { refreshUiLanguage } from "../shared/i18n/language";
