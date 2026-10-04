@@ -142,7 +142,7 @@ export function resolveAttachments(
  * by the client are never used, and each response stays below the RPC cap. */
 export function readAttachmentChunk(store: HostStore, input: Record<string, unknown>) {
   const session = store.session(String(input.sessionId ?? ""));
-  const attachment = session.session.blocks.flatMap((block) => block.attachments ?? [])
+  const attachment = [...session.session.blocks.flatMap((block) => block.attachments ?? []), ...session.session.queuedMessages?.flatMap((row) => row.attachments) ?? []]
     .find((file) => file.id === input.id);
   if (!attachment || attachment.kind !== "image") throw new Error("Image attachment not found");
   const offset = input.offset;

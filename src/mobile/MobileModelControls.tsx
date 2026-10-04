@@ -1,5 +1,11 @@
-import { useState } from "react";
-import { Check, ChevronRight } from "../shared/ui/icons";
+import { useState, type RefObject } from "react";
+import {
+  Check,
+  ChevronRight,
+  Gauge,
+  SlidersHorizontal,
+  Sparkles,
+} from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { MobileSheet } from "./MobileSheet";
 import {
@@ -10,6 +16,7 @@ import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import {
   isEffortSettingId,
   type AgentModel,
+  type ModelSetting,
 } from "../features/sessions/model/models";
 import {
   remoteModelControls,
@@ -57,6 +64,10 @@ export function firstConfiguration(
   for (const models of Object.values(catalog.models))
     if (models?.[0]) return configurationForModel(models[0]);
 }
+function modelSettingTitle(setting: ModelSetting): string {
+  if (isEffortSettingId(setting.id)) return "Reasoning effort";
+  return setting.id === "serviceTier" ? "Speed" : setting.label;
+}
 export function MobileModelControls({
   catalog,
   configuration,
@@ -64,6 +75,7 @@ export function MobileModelControls({
   disabled,
   onChange,
   onClose,
+  anchor,
 }: {
   catalog?: HostModelCatalog;
   configuration: MobileConfiguration;
@@ -71,11 +83,13 @@ export function MobileModelControls({
   disabled: boolean;
   onChange: (configuration: MobileConfiguration) => void;
   onClose: () => void;
+  anchor?: RefObject<HTMLElement | null>;
 }) {
   const { t } = useTranslation();
-  const [page, setPage] = useState<"settings" | "models" | "agents">(
-    "settings",
-  );
+  const [page, setPage] = useState<
+    "settings" | "models" | "agents" | "setting"
+  >("settings");
+  const [settingId, setSettingId] = useState<string>();
   const models = catalog?.models[configuration.harness] ?? [];
   const controls = remoteModelControls(
     catalog,
@@ -84,6 +98,10 @@ export function MobileModelControls({
     configuration.modelSettings,
     lockedAgent ? configuration.model : undefined,
   );
+  const settings = [...controls.settings].sort(
+    (a, b) => Number(isEffortSettingId(b.id)) - Number(isEffortSettingId(a.id)),
+  );
+  const selectedSetting = settings.find((setting) => setting.id === settingId);
   const providers = REMOTE_PROVIDERS.filter(
     (provider) =>
       catalog?.models[provider] ||
@@ -96,71 +114,46 @@ export function MobileModelControls({
   };
   return (
     <MobileSheet
+      placement={anchor ? "anchor" : "bottom"}
+      anchor={anchor}
+      width={320}
+      align="end"
       title={
         page === "models"
           ? "Model"
           : page === "agents"
             ? "Agent"
-            : "Model and reasoning"
+            : page === "setting" && selectedSetting
+              ? modelSettingTitle(selectedSetting)
+              : "Model and reasoning"
       }
       onClose={onClose}
       onBack={page === "settings" ? undefined : () => setPage("settings")}
     >
       {page === "settings" ? (
-        <>
-          {controls.settings.map((setting) => (
-            <div className="mobile-sheet-group" key={setting.id}>
-              <h3>
-                {t(isEffortSettingId(setting.id) ? "Reasoning" : setting.label)}
-              </h3>
-              <div
-                role="radiogroup"
-                aria-label={t(
-                  isEffortSettingId(setting.id)
-                    ? "Reasoning effort"
-                    : setting.label,
-                )}
-              >
-                {setting.options.map((option) => {
-                  const selected =
-                    (configuration.modelSettings[setting.id] ??
-                      setting.value) === option.value;
-                  return (
-                    <button
-                      type="button"
-                      className="mobile-sheet-row"
-                      role="radio"
-                      aria-checked={selected}
-                      key={option.value}
-                      disabled={disabled}
-                      onClick={() =>
-                        choose({
-                          ...configuration,
-                          modelSettings: {
-                            ...configuration.modelSettings,
-                            [setting.id]: option.value,
-                          },
-                        })
-                      }
-                    >
-                      <span className="mobile-sheet-row-text">
-                        <strong>{t(option.label)}</strong>
-                      </span>
-                      {selected && <Check size={20} />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-          <div className="mobile-sheet-group">
+        <div className="mobile-model-options">
+          <div>
+            <button
+              type="button"
+              className="mobile-sheet-row"
+              disabled={disabled || lockedAgent}
+              onClick={() => setPage("agents")}
+            >
+              <HarnessIcon harness={configuration.harness} />
+              <span className="mobile-sheet-row-text mobile-sheet-row-inline">
+                <strong>{t("Agent")}</strong>
+                <small>{HARNESS_TITLE[configuration.harness]}</small>
+              </span>
+              <ChevronRight size={20} />
+            </button>
             <button
               type="button"
               className="mobile-sheet-row"
               disabled={disabled || !models.length}
               onClick={() => setPage("models")}
             >
-              <span className="mobile-sheet-row-text">
+              <Sparkles size={20} />
+              <span className="mobile-sheet-row-text mobile-sheet-row-inline">
                 <strong>{t("Model")}</strong>
                 <small>
                   {(controls.model?.name ?? configuration.model) ||
@@ -169,33 +162,99 @@ export function MobileModelControls({
               </span>
               <ChevronRight size={20} />
             </button>
-            <button
-              type="button"
-              className="mobile-sheet-row"
-              disabled={disabled || lockedAgent}
-              onClick={() => setPage("agents")}
-            >
-              <HarnessIcon harness={configuration.harness} />
-              <span className="mobile-sheet-row-text">
-                <strong>{t("Agent")}</strong>
-                <small>{HARNESS_TITLE[configuration.harness]}</small>
-              </span>
-              <ChevronRight size={20} />
-            </button>
-            {lockedAgent && (
-              <p className="mobile-sheet-hint">
-                {t("Start a new conversation to choose another agent.")}
-              </p>
+            {!settings.some((setting) => isEffortSettingId(setting.id)) && (
+              <button type="button" className="mobile-sheet-row" disabled>
+                <SlidersHorizontal size={20} />
+                <span className="mobile-sheet-row-text mobile-sheet-row-inline">
+                  <strong>{t("Reasoning effort")}</strong>
+                  <small>{t("Unavailable")}</small>
+                </span>
+                <ChevronRight size={20} />
+              </button>
             )}
+            {settings.map((setting) => {
+              const value =
+                configuration.modelSettings[setting.id] ?? setting.value;
+              const current = setting.options.find(
+                (option) => option.value === value,
+              );
+              return (
+                <button
+                  key={setting.id}
+                  type="button"
+                  className="mobile-sheet-row"
+                  disabled={disabled || !setting.options.length}
+                  onClick={() => {
+                    setSettingId(setting.id);
+                    setPage("setting");
+                  }}
+                >
+                  {setting.id === "serviceTier" ? (
+                    <Gauge size={20} />
+                  ) : (
+                    <SlidersHorizontal size={20} />
+                  )}
+                  <span className="mobile-sheet-row-text mobile-sheet-row-inline">
+                    <strong>{t(modelSettingTitle(setting))}</strong>
+                    <small>{t(current?.label ?? value)}</small>
+                  </span>
+                  <ChevronRight size={20} />
+                </button>
+              );
+            })}
             {catalog?.errors[configuration.harness] && (
               <p className="mobile-form-error" role="alert">
                 {catalog.errors[configuration.harness]}
               </p>
             )}
           </div>
-        </>
+        </div>
+      ) : page === "setting" ? (
+        <div
+          className="mobile-model-options"
+          role="radiogroup"
+          aria-label={t(
+            selectedSetting
+              ? modelSettingTitle(selectedSetting)
+              : "Reasoning effort",
+          )}
+        >
+          {selectedSetting?.options.map((option) => {
+            const selected =
+              (configuration.modelSettings[selectedSetting.id] ??
+                selectedSetting.value) === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className="mobile-sheet-row"
+                role="radio"
+                aria-checked={selected}
+                disabled={disabled}
+                onClick={() =>
+                  choose({
+                    ...configuration,
+                    modelSettings: {
+                      ...configuration.modelSettings,
+                      [selectedSetting.id]: option.value,
+                    },
+                  })
+                }
+              >
+                <span className="mobile-sheet-row-text">
+                  <strong>{t(option.label)}</strong>
+                </span>
+                {selected && <Check size={20} />}
+              </button>
+            );
+          })}
+        </div>
       ) : page === "models" ? (
-        <div role="radiogroup" aria-label={t("Model")}>
+        <div
+          className="mobile-model-options"
+          role="radiogroup"
+          aria-label={t("Model")}
+        >
           {models.map((model) => (
             <button
               type="button"
@@ -226,7 +285,11 @@ export function MobileModelControls({
           ))}
         </div>
       ) : (
-        <div role="radiogroup" aria-label={t("Agent")}>
+        <div
+          className="mobile-model-options"
+          role="radiogroup"
+          aria-label={t("Agent")}
+        >
           {providers.map((provider) => (
             <button
               type="button"

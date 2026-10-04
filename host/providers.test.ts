@@ -29,3 +29,9 @@ it("exposes every local harness through the remote host contract", () => {
     }).providers,
   ).toHaveLength(REMOTE_PROVIDERS.length);
 });
+
+it("advertises steering only for adapters with a working native interface", () => {
+  for (const id of ["codex", "claude", "cursor", "opencode", "pi", "omp", "hermes"] as const)
+    expect(hostProviders[id].steer).toBeTypeOf("function");
+  for (const id of ["grok", "fx", "antigravity"] as const) expect(hostProviders[id].steer).toBeUndefined();
+});

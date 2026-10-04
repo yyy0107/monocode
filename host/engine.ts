@@ -5,8 +5,10 @@ import { basename, isAbsolute } from "node:path";
 import { renameHostWorktreeBranch, resolveHostWorktree } from "./git-worktrees";
 import {
   applyHarnessEvent,
+  appendSteerUser,
   stopStreaming,
 } from "../src/integrations/harness/core/apply";
+import { canDispatchQueuedHead, dequeueQueuedMessage } from "../src/features/sessions/model/messageQueue";
 import { resolveModel } from "../src/features/sessions/model/models";
 import { isVisionImage } from "../src/features/sessions/model/attachments";
 import type {
@@ -124,6 +126,19 @@ export function parseCommand(input: unknown): HostCommand {
       runtimeMode: v.runtimeMode as Session["runtimeMode"],
     };
   }
+  if (v.type === "queue") {
+    if (!["remove", "edit", "hold", "release", "resume", "steer"].includes(String(v.action)))
+      throw new Error("Invalid queue action");
+    const action = v.action as Extract<HostCommand, { type: "queue" }>["action"];
+    if (action === "edit" && (typeof v.text !== "string" || v.text.length > 256_000 || v.text.includes("\0")))
+      throw new Error("Invalid queued message");
+    return { type: "queue", commandId, sessionId, action,
+      ...(action !== "resume" && action !== "release" ? { messageId: text(v.messageId, "queued message ID") } : {}),
+      ...(action === "edit" ? { text: v.text as string } : {}),
+      ...(["edit", "hold", "release"].includes(action) ? { editor: text(v.editor, "queue editor") } : {}),
+      ...(action === "steer" ? { runId: text(v.runId, "run ID") } : {}),
+    };
+  }
   if (v.type === "compact") return { type: "compact", commandId, sessionId };
   if (v.type === "send" || v.type === "draft") {
     const attachments = parseRemoteAttachments(v.attachments);
@@ -133,7 +148,7 @@ export function parseCommand(input: unknown): HostCommand {
       v.text.includes("\0") ||
       (!v.text.trim() &&
         attachments.length === 0 &&
-        !(v.type === "send" && v.draftBlockId !== undefined))
+        !(v.type === "send" && (v.draftBlockId !== undefined || v.queuedMessageId !== undefined)))
     )
       throw new Error("Invalid prompt");
     if (
@@ -159,6 +174,8 @@ export function parseCommand(input: unknown): HostCommand {
       ...(v.type === "send" && v.draftBlockId !== undefined
         ? { draftBlockId: text(v.draftBlockId, "draft block ID") }
         : {}),
+      ...(v.type === "send" && v.queuedMessageId !== undefined
+        ? { queuedMessageId: text(v.queuedMessageId, "queued message ID") } : {}),
       ...(v.type === "send" && v.planBlockId !== undefined
         ? { planBlockId: text(v.planBlockId, "plan block ID") }
         : {}),
@@ -248,7 +265,15 @@ export class HostEngine {
   private switchingProjects = new Set<string>();
   private running = new Map<
     string,
-    { runId: string; done: Promise<void>; cancelled: boolean; persistenceFailed: boolean }
+    {
+      runId: string;
+      done: Promise<void>;
+      controls: Promise<void>;
+      finishing: boolean;
+      failed: boolean;
+      cancelled: boolean;
+      persistenceFailed: boolean;
+    }
   >();
   /** Running sessions, including streamed events not yet written to disk. */
   private live = new Map<
@@ -263,6 +288,10 @@ export class HostEngine {
   >();
   private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private closing = false;
+  private editors = new Map<
+    string,
+    { owner: string; timer: ReturnType<typeof setTimeout> }
+  >();
 
   constructor(
     readonly store: HostStore,
@@ -271,15 +300,38 @@ export class HostEngine {
     // Provider dispatch is not transactional with SQLite. Never replay a send
     // automatically after a crash; its external effects may already exist.
     for (const value of store.sessions()) {
-      if (value.status === "running") {
-        this.save(
-          this.settled(
+      const interrupted = value.status === "running";
+      const recovered = interrupted
+        ? this.settled(
             value,
             "interrupted",
             "Host restarted. This turn was interrupted; inspect its work before continuing.",
             value.updatedAt,
-          ),
-          { type: "interrupted" },
+          )
+        : value;
+      if (
+        interrupted ||
+        !value.supportsQueue ||
+        value.canSteer !== !!this.provider(value.session.harness).steer ||
+        value.session.editingQueuedMessageId ||
+        value.queueSteeringId ||
+        value.session.queuedMessages?.length
+      ) {
+        this.save(
+          {
+            ...recovered,
+            supportsQueue: true,
+            canSteer: !!this.provider(value.session.harness).steer,
+            queueSteeringId: undefined,
+            session: {
+              ...recovered.session,
+              editingQueuedMessageId: undefined,
+              queueStatus: recovered.session.queuedMessages?.length
+                ? "paused"
+                : undefined,
+            },
+          },
+          { type: "queue.recovered" },
         );
       }
       if (value.session.providerSessionId)
@@ -441,6 +493,8 @@ export class HostEngine {
           autoWorktreeBranch: command.autoWorktreeBranch,
           revision: 0,
           status: "idle",
+          supportsQueue: true,
+          canSteer: !!this.provider(command.harness).steer,
           createdAt: now,
           updatedAt: now,
           session: {
@@ -479,6 +533,47 @@ export class HostEngine {
               runtimeMode: command.runtimeMode,
             },
           };
+        } else if (command.type === "queue") {
+          value = this.queueCommand(value, command);
+          effect = (saved) => {
+            if (command.action === "hold")
+              this.holdEditor(command.sessionId, command.editor!);
+            if (command.action === "release" || command.action === "edit")
+              this.clearEditor(command.sessionId);
+            if (command.action === "steer")
+              this.steerQueued(saved, command.messageId!);
+            else this.dispatchQueue(saved.session.id);
+          };
+        } else if (
+          command.type === "send" &&
+          !command.queuedMessageId &&
+          !command.draftBlockId &&
+          !command.planBlockId &&
+          (value.status === "running" || value.session.queuedMessages?.length)
+        ) {
+          const attachments = resolveAttachments(
+            this.store,
+            command.attachments ?? [],
+          );
+          if ((value.session.queuedMessages?.length ?? 0) >= 100)
+            throw new Error("Message queue is full");
+          value = {
+            ...value,
+            session: {
+              ...value.session,
+              queuedMessages: [
+                ...(value.session.queuedMessages ?? []),
+                {
+                  id: command.commandId,
+                  text: command.text,
+                  attachments,
+                  intent: command.intent,
+                },
+              ],
+              queueStatus: value.session.queueStatus ?? (value.session.usageLimit || this.running.get(value.session.id)?.failed ? "paused" : "active"),
+            },
+          };
+          effect = (saved) => this.dispatchQueue(saved.session.id);
         } else if (command.type === "draft") {
           if (
             value.status === "running" ||
@@ -533,6 +628,35 @@ export class HostEngine {
             throw new Error(
               "Context compaction is unavailable for this provider",
             );
+          const queued =
+            command.type === "send" && command.queuedMessageId
+              ? value.session.queuedMessages?.find(
+                  (row) => row.id === command.queuedMessageId,
+                )
+              : undefined;
+          if (command.type === "send" && command.queuedMessageId) {
+            if (
+              !queued ||
+              queued.id !== value.session.queuedMessages?.[0]?.id ||
+              !canDispatchQueuedHead(value.session) ||
+              value.queueSteeringId
+            )
+              throw new Error("Queued message is not ready to send");
+            value = {
+              ...value,
+              session: dequeueQueuedMessage(value.session, queued.id),
+            };
+          }
+          const prompt =
+            command.type === "compact"
+              ? "/compact"
+              : (queued?.text ?? command.text);
+          const intent =
+            command.type === "send"
+              ? queued?.intent === "plan" || queued?.intent === "build"
+                ? queued.intent
+                : command.intent
+              : undefined;
           const draft =
             command.type === "send" && command.draftBlockId
               ? value.session.blocks.find(
@@ -560,7 +684,8 @@ export class HostEngine {
             throw new Error("Plan is not ready to build");
           const attachments =
             command.type === "send"
-              ? (draft?.attachments ??
+              ? (queued?.attachments ??
+                draft?.attachments ??
                 resolveAttachments(this.store, command.attachments ?? []))
               : [];
           const runId = randomUUID();
@@ -588,11 +713,7 @@ export class HostEngine {
               pendingQuestion: undefined,
               title:
                 firstTurn && placeholderTitle
-                  ? titleFromPrompt(
-                      command.text,
-                      value.session.harness,
-                      attachments,
-                    )
+                  ? titleFromPrompt(prompt, value.session.harness, attachments)
                   : value.session.title,
               blocks: [
                 ...value.session.blocks
@@ -610,9 +731,9 @@ export class HostEngine {
                       : block,
                   ),
                 {
-                  id: command.commandId,
+                  id: queued?.id ?? command.commandId,
                   role: "user",
-                  text: command.type === "compact" ? "/compact" : command.text,
+                  text: prompt,
                   ...(attachments.length ? { attachments } : {}),
                   startedAt: Date.now(),
                   turnModel: {
@@ -630,16 +751,12 @@ export class HostEngine {
           effect = (saved) => {
             this.run(
               saved,
-              command.type === "compact" ? null : command.text,
-              command.type === "send" ? command.intent : undefined,
+              command.type === "compact" ? null : prompt,
+              intent,
               attachments,
             );
             if (firstTurn && command.type === "send") {
-              this.generateFirstTurnNames(
-                saved,
-                command.text,
-                placeholderTitle,
-              );
+              this.generateFirstTurnNames(saved, prompt, placeholderTitle);
             }
           };
         } else {
@@ -648,6 +765,15 @@ export class HostEngine {
               "This request belongs to a finished or replaced turn",
             );
           if (command.type === "cancel") {
+            value = {
+              ...value,
+              session: {
+                ...value.session,
+                queueStatus: value.session.queuedMessages?.length
+                  ? "paused"
+                  : undefined,
+              },
+            };
             effect = () => {
               const active = this.running.get(command.sessionId);
               if (active) active.cancelled = true;
@@ -716,6 +842,227 @@ export class HostEngine {
     return receipt;
   }
 
+  private queueCommand(
+    value: HostSession,
+    command: Extract<HostCommand, { type: "queue" }>,
+  ): HostSession {
+    const { session } = value;
+    const row = session.queuedMessages?.find(
+      (entry) => entry.id === command.messageId,
+    );
+    if (command.action !== "resume" && command.action !== "release" && !row)
+      throw new Error("Queued message not found");
+    const editor = this.editors.get(session.id);
+    if (
+      ["hold", "edit", "release"].includes(command.action) &&
+      editor &&
+      editor.owner !== command.editor
+    )
+      throw new Error("This queue is being edited on another device");
+    if (command.action === "edit" && !editor)
+      throw new Error("Queue edit expired. Open the editor again");
+    if (
+      row &&
+      (value.queueSteeringId === row.id ||
+        (session.editingQueuedMessageId === row.id &&
+          command.action === "steer"))
+    )
+      throw new Error("This queued message is already in use");
+    switch (command.action) {
+      case "hold":
+        return {
+          ...value,
+          session: { ...session, editingQueuedMessageId: row!.id },
+        };
+      case "release":
+        return {
+          ...value,
+          session: { ...session, editingQueuedMessageId: undefined },
+        };
+      case "edit": {
+        if (session.editingQueuedMessageId !== row!.id)
+          throw new Error("Queued message is not being edited");
+        if (!command.text!.trim() && !row!.attachments.length)
+          throw new Error("Invalid queued message");
+        return {
+          ...value,
+          session: {
+            ...session,
+            editingQueuedMessageId: undefined,
+            queuedMessages: session.queuedMessages!.map((entry) =>
+              entry.id === row!.id ? { ...entry, text: command.text! } : entry,
+            ),
+          },
+        };
+      }
+      case "remove":
+        if (session.editingQueuedMessageId === row!.id)
+          throw new Error("Finish editing this queued message first");
+        return { ...value, session: dequeueQueuedMessage(session, row!.id) };
+      case "resume":
+        if (
+          value.status === "running" ||
+          session.editingQueuedMessageId ||
+          value.queueSteeringId
+        )
+          throw new Error("Wait for the current turn or queue edit to finish");
+        return {
+          ...value,
+          session: {
+            ...session,
+            usageLimit: undefined,
+            queueStatus: session.queuedMessages?.length ? "active" : undefined,
+          },
+        };
+      case "steer": {
+        const active = this.running.get(session.id);
+        if (
+          !active ||
+          active.finishing ||
+          active.cancelled ||
+          active.runId !== command.runId ||
+          value.status !== "running"
+        )
+          throw new Error(
+            "This request belongs to a finished or replaced turn",
+          );
+        if (!this.provider(session.harness).steer)
+          throw new Error("This provider does not support steering");
+        if (value.queueSteeringId)
+          throw new Error("Another queued message is being steered");
+        return { ...value, queueSteeringId: row!.id };
+      }
+    }
+  }
+
+  private clearEditor(id: string): void {
+    clearTimeout(this.editors.get(id)?.timer);
+    this.editors.delete(id);
+  }
+
+  private holdEditor(id: string, owner: string): void {
+    this.clearEditor(id);
+    const timer = setTimeout(() => {
+      this.clearEditor(id);
+      try {
+        this.flush(id);
+        const value = this.store.session(id);
+        const saved = this.save(
+          {
+            ...value,
+            session: {
+              ...value.session,
+              editingQueuedMessageId: undefined,
+              queueStatus: value.session.queuedMessages?.length
+                ? "paused"
+                : undefined,
+            },
+          },
+          { type: "queue.editExpired" },
+        );
+        const live = this.live.get(id);
+        if (live) live.value = saved;
+      } catch (error) {
+        console.error("Could not expire queue editor:", error);
+      }
+    }, 90_000);
+    timer.unref?.();
+    this.editors.set(id, { owner, timer });
+  }
+
+  private dispatchQueue(id: string): void {
+    if (this.closing || this.running.has(id)) return;
+    const value = this.store.session(id);
+    if (
+      value.status === "running" ||
+      value.queueSteeringId ||
+      !canDispatchQueuedHead(value.session)
+    )
+      return;
+    const row = value.session.queuedMessages![0];
+    try {
+      this.command({
+        type: "send",
+        commandId: `queue-send:${createHash("sha256").update(row.id).digest("hex")}`,
+        sessionId: id,
+        queuedMessageId: row.id,
+        text: row.text,
+        intent:
+          row.intent === "plan" || row.intent === "build"
+            ? row.intent
+            : "default",
+      });
+    } catch (error) {
+      console.error("Could not dispatch queued message:", error);
+      this.save(
+        {
+          ...this.store.session(id),
+          session: { ...this.store.session(id).session, queueStatus: "paused" },
+        },
+        { type: "queue.dispatchFailed" },
+      );
+    }
+  }
+
+  private steerQueued(value: HostSession, messageId: string): void {
+    const { session } = value;
+    const row = session.queuedMessages!.find(
+      (entry) => entry.id === messageId,
+    )!;
+    const active = this.running.get(session.id)!;
+    active.controls = active.controls.then(async () => {
+      try {
+        await this.provider(session.harness).steer!({
+          sessionId: session.id,
+          cwd: session.cwd,
+          model: session.model,
+          modelSettings: session.modelSettings,
+          text: row.text,
+          attachments: this.providerAttachments(row.attachments),
+        });
+        this.flush(session.id);
+        const latest = this.store.session(session.id);
+        const steered = appendSteerUser(dequeueQueuedMessage(latest.session, row.id), row.text, row.attachments);
+        // Keep the queue acceptance ID when it becomes a transcript message.
+        steered.blocks[steered.blocks.length - 1] = { ...steered.blocks[steered.blocks.length - 1], id: row.id };
+        const saved = this.save({ ...latest, queueSteeringId: undefined, session: steered }, { type: "queue.steered", messageId });
+        const live = this.live.get(session.id);
+        if (live) live.value = saved;
+      } catch (error) {
+        // Retain the row for review. Retrying the receipt never injects it twice.
+        this.event(session.id, active.runId, {
+          type: "session.error",
+          message: `Could not steer queued message: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        this.flush(session.id);
+        const latest = this.store.session(session.id);
+        const saved = this.save(
+          {
+            ...latest,
+            queueSteeringId: undefined,
+            session: {
+              ...latest.session,
+              queueStatus: latest.session.queuedMessages?.length
+                ? "paused"
+                : undefined,
+            },
+          },
+          { type: "queue.steerFailed", messageId },
+        );
+        const live = this.live.get(session.id);
+        if (live) live.value = saved;
+      }
+    });
+  }
+
+  private providerAttachments(attachments: Attachment[]): Attachment[] {
+    return attachments.map((file) =>
+      isVisionImage(file.mimeType) && file.path && file.size <= 20 * 1024 * 1024
+        ? { ...file, data: readFileSync(file.path).toString("base64") }
+        : file,
+    );
+  }
+
   private generateFirstTurnNames(
     value: HostSession,
     message: string,
@@ -759,8 +1106,13 @@ export class HostEngine {
           const currentBeforeRename = this.store.session(id);
           if (currentBeforeRename.autoWorktreeBranch !== temporary) return;
           const project = this.store.project(value.projectId);
-          await renameHostWorktreeBranch(project.cwd, cwd, temporary, branch,
-            () => this.store.session(id).autoWorktreeBranch === temporary);
+          await renameHostWorktreeBranch(
+            project.cwd,
+            cwd,
+            temporary,
+            branch,
+            () => this.store.session(id).autoWorktreeBranch === temporary,
+          );
           this.flush(id);
           const current = this.store.session(id);
           const saved = this.save(
@@ -788,7 +1140,15 @@ export class HostEngine {
   ): void {
     const { session, runId } = value;
     const provider = this.provider(session.harness);
-    const active = { runId: runId!, done: Promise.resolve(), cancelled: false, persistenceFailed: false };
+    const active = {
+      runId: runId!,
+      done: Promise.resolve(),
+      controls: Promise.resolve(),
+      finishing: false,
+      failed: false,
+      cancelled: false,
+      persistenceFailed: false,
+    };
     this.running.set(session.id, active);
     this.live.set(session.id, { value, events: [] });
     active.done = Promise.resolve()
@@ -825,6 +1185,8 @@ export class HostEngine {
         } catch (reason) {
           error = reason instanceof Error ? reason.message : String(reason);
         }
+        active.finishing = true;
+        await active.controls;
         // Keep the session running until the old process has stopped. Otherwise
         // a follow-up can race cleanup and have its newly spawned child killed.
         await provider.stop(session.id);
@@ -854,6 +1216,14 @@ export class HostEngine {
         const persisted = this.store.session(session.id).session;
         if (persisted.providerSessionId)
           provider.bind(session.id, persisted.providerSessionId, persisted.cwd);
+        if (
+          !error &&
+          !active.failed &&
+          !active.cancelled &&
+          !active.persistenceFailed &&
+          !this.closing
+        )
+          this.dispatchQueue(session.id);
       })
       .catch((error) => {
         clearTimeout(this.live.get(session.id)?.timer);
@@ -870,19 +1240,50 @@ export class HostEngine {
     const live = this.live.get(id);
     if (!live || live.value.runId !== runId || live.value.status !== "running")
       return;
+    if (event.type === "session.error" || event.type === "usage.limited") {
+      const active = this.running.get(id);
+      if (active) active.failed = true;
+      live.value = {
+        ...live.value,
+        session: {
+          ...live.value.session,
+          queueStatus: live.value.session.queuedMessages?.length
+            ? "paused"
+            : undefined,
+        },
+      };
+    }
     let savedImage: Attachment | undefined;
     if (event.type === "image.generated" && "data" in event) {
       if (live.imageRunId !== runId) { live.imageRunId = runId; live.imageIds = new Set(); }
       if (live.imageIds!.has(event.itemId)) return;
       live.imageIds!.add(event.itemId);
       try {
-        if (event.mimeType && event.mimeType.trim().toLowerCase() !== "image/png") throw new Error("Unsupported generated image type");
-        savedImage = saveGeneratedImageAttachment(this.store, event.data, event.name);
-        event = { type: "image.generated", itemId: event.itemId, path: savedImage.path!,
-          name: savedImage.name, mimeType: savedImage.mimeType, size: savedImage.size,
-          attachment: savedImage, ...(event.alt ? { alt: event.alt } : {}) };
+        if (
+          event.mimeType &&
+          event.mimeType.trim().toLowerCase() !== "image/png"
+        )
+          throw new Error("Unsupported generated image type");
+        savedImage = saveGeneratedImageAttachment(
+          this.store,
+          event.data,
+          event.name,
+        );
+        event = {
+          type: "image.generated",
+          itemId: event.itemId,
+          path: savedImage.path!,
+          name: savedImage.name,
+          mimeType: savedImage.mimeType,
+          size: savedImage.size,
+          attachment: savedImage,
+          ...(event.alt ? { alt: event.alt } : {}),
+        };
       } catch (error) {
-        event = { type: "session.error", message: `Could not save generated image: ${error instanceof Error ? error.message : String(error)}` };
+        event = {
+          type: "session.error",
+          message: `Could not save generated image: ${error instanceof Error ? error.message : String(error)}`,
+        };
       }
     }
     const previousSession = live.value.session;
@@ -894,7 +1295,7 @@ export class HostEngine {
       if (!this.scheduledFlush(id, this.provider(session.harness)) && savedImage) {
         try { unlinkSync(savedImage.path!); } catch { /* Keep persistence failure primary. */ }
         live.value = { ...live.value, session: previousSession };
-        live.events = live.events.filter(value => value !== event);
+        live.events = live.events.filter((value) => value !== event);
       }
     }
     else
@@ -913,6 +1314,10 @@ export class HostEngine {
     const stopped = stopStreaming(value.session, endedAt);
     const session = {
       ...stopped,
+      queueStatus:
+        stopped.queuedMessages?.length && (message || status === "interrupted")
+          ? ("paused" as const)
+          : stopped.queueStatus,
       blocks: stopped.blocks.map((block) =>
         block.role === "plan" && block.plan?.status === "building"
           ? {
@@ -935,11 +1340,13 @@ export class HostEngine {
         text: message,
         streaming: false,
       });
-    return { ...value, status, session };
+    return { ...value, status, queueSteeringId: undefined, session };
   }
 
   async close(): Promise<void> {
     this.closing = true;
+    for (const editor of this.editors.values()) clearTimeout(editor.timer);
+    this.editors.clear();
     for (const timer of this.retryTimers.values()) clearTimeout(timer);
     this.retryTimers.clear();
     await Promise.all(

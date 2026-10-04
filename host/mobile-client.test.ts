@@ -96,6 +96,8 @@ async function setup() {
     client,
     provider,
     device,
+    endpoint,
+    transport,
     turn: () => turn!,
     finish: () => finish(),
     loseNextReceipt: () => {
@@ -105,6 +107,40 @@ async function setup() {
 }
 
 describe("mobile client against the real MonoCode Host", () => {
+  it("syncs one durable queue across separate clients and retries a lost enqueue receipt without duplicates", async () => {
+    const s = await setup();
+    const desktopStorageValues = new Map<StorageKey, string>();
+    const desktop = new MobileClient({
+      get: async key => desktopStorageValues.get(key) ?? null,
+      set: async (key, value) => { desktopStorageValues.set(key, value); },
+      remove: async key => { desktopStorageValues.delete(key); },
+    }, s.transport);
+    await desktop.connect(s.endpoint, s.device.token);
+    const created = await s.client.dispatch({ type: "create", commandId: "shared-create", projectId: s.project.id,
+      harness: "codex", model: "codex:test", runtimeMode: "supervised" }, "first");
+    await vi.waitFor(() => expect(s.provider.send).toHaveBeenCalledTimes(1));
+    await Promise.all([
+      s.client.dispatch({ type: "send", commandId: "phone-row", sessionId: created.sessionId, text: "From phone" }),
+      desktop.dispatch({ type: "send", commandId: "desktop-row", sessionId: created.sessionId, text: "From desktop" }),
+    ]);
+    const phoneSnapshot = await s.client.session(created.sessionId);
+    const desktopSnapshot = await desktop.session(created.sessionId);
+    expect(phoneSnapshot.session.queuedMessages).toEqual(desktopSnapshot.session.queuedMessages);
+    expect(phoneSnapshot.session.queuedMessages?.map(row => row.id).sort()).toEqual(["desktop-row", "phone-row"]);
+    s.loseNextReceipt();
+    await expect(s.client.dispatch({ type: "send", commandId: "lost-enqueue", sessionId: created.sessionId, text: "Lost receipt" })).rejects.toThrow("lost response");
+    await s.client.retryPending();
+    expect((await desktop.session(created.sessionId)).session.queuedMessages).toHaveLength(3);
+    await desktop.dispatch({ type: "queue", action: "remove", commandId: "delete-phone", sessionId: created.sessionId, messageId: "phone-row" });
+    expect((await s.client.session(created.sessionId)).session.queuedMessages?.map(row => row.id)).toEqual(["desktop-row", "lost-enqueue"]);
+    s.finish();
+    await vi.waitFor(() => expect(s.provider.send).toHaveBeenCalledTimes(2));
+    expect(s.turn().text).toBe("From desktop");
+    const synced = await s.client.session(created.sessionId);
+    expect(synced.session.blocks.some(row => row.id === "desktop-row")).toBe(true);
+    expect(synced.session.queuedMessages?.map(row => row.id)).toEqual(["lost-enqueue"]);
+  });
+
   it("uploads files and delivers an attachment-only first turn with plan intent exactly once", async () => {
     const s = await setup();
     const data = Buffer.alloc(600_001, 42);

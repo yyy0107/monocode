@@ -55,7 +55,6 @@ function render(overrides: Record<string, unknown> = {}) {
         { id: "two", name: "workbench", cwd: "/projects/workbench" },
       ],
       project: { id: "one", name: "monocode", cwd: "/projects/monocode" },
-      hostName: "My computer",
       onProjectChange,
       attachments: [],
       onFiles,
@@ -77,6 +76,16 @@ function render(overrides: Record<string, unknown> = {}) {
   return { node, button, click, onSend, onStop, onFiles, onProjectChange };
 }
 describe("compact mobile composer", () => {
+  it("allows drafting and queueing while running, keeps Stop available and locks model settings", () => {
+    const { node, click, onSend, onStop, button } = render({ running: true, canStop: true, lockedAgent: true });
+    expect(node.querySelector("textarea")!.disabled).toBe(false);
+    expect(button("Model and reasoning").disabled).toBe(true);
+    click("Queue message");
+    expect(onSend).toHaveBeenCalledTimes(1);
+    click("Stop");
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps model controls in a sheet and closes it with Escape without losing the draft", () => {
     const { node, button, click } = render();
     expect(node.querySelector("dialog, [role=dialog]")).toBeNull();
@@ -129,15 +138,21 @@ describe("compact mobile composer", () => {
     expect(onSend).toHaveBeenCalledTimes(2);
   });
   it("replaces send with Stop while running and locks all configuration controls", () => {
+    const onPlanModeChange = vi.fn();
     const { node, button, click, onStop } = render({
       running: true,
       disabled: true,
       canStop: true,
+      planMode: true,
+      onPlanModeChange,
     });
     expect(node.querySelector('[aria-label="Send message"]')).toBeNull();
     expect(node.querySelector("textarea")!.disabled).toBe(true);
     expect(button("Model and reasoning").disabled).toBe(true);
     expect(button("Add to message").disabled).toBe(true);
+    expect(button("Plan mode").disabled).toBe(true);
+    click("Plan mode");
+    expect(onPlanModeChange).not.toHaveBeenCalled();
     click("Stop");
     expect(onStop).toHaveBeenCalledOnce();
   });
@@ -148,23 +163,18 @@ describe("compact mobile composer", () => {
       node.querySelector<HTMLButtonElement>('[role="switch"]')!.click(),
     );
     expect(node.querySelector('[role="dialog"]')).toBeNull();
-    expect(node.querySelector(".mobile-composer-plan")?.textContent).toContain(
-      "Plan mode",
-    );
+    expect(node.querySelector(".mobile-composer-plan")).not.toBeNull();
+    click("Plan mode");
+    expect(node.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(node.querySelector(".mobile-composer-plan")).not.toBeNull();
     click("Turn off plan mode");
     expect(node.querySelector(".mobile-composer-plan")).toBeNull();
   });
-  it("selects a project through a sheet without clearing the message", () => {
-    const { node, click, onProjectChange } = render();
-    click("Choose project");
-    act(() =>
-      [...node.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
-        .find((button) => button.textContent?.includes("workbench"))!
-        .click(),
-    );
-    expect(onProjectChange).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "two" }),
-    );
+  it("keeps an existing conversation's project fixed when opening the add menu", () => {
+    const { node, click, onProjectChange } = render({ lockedAgent: true });
+    click("Add to message");
+    expect(node.querySelector('[aria-label="Choose project"]')).toBeNull();
+    expect(onProjectChange).not.toHaveBeenCalled();
     expect(node.querySelector("textarea")!.value).toBe("Keep this draft");
   });
   it("accepts file selections and allows selecting the same file again", () => {

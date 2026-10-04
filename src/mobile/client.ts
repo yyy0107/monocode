@@ -16,7 +16,10 @@ import {
   type SessionSyncChunk,
   type RemoteAttachment,
 } from "../features/connections/model/protocol";
-import type { Attachment } from "../features/sessions/model/session";
+import type {
+  Attachment,
+  LinkedWorkItem,
+} from "../features/sessions/model/session";
 import {
   MOBILE_ATTACHMENT_BYTES,
   MOBILE_ATTACHMENT_LIMIT,
@@ -35,6 +38,12 @@ export type PendingCommand = {
   environmentId: string;
   command: HostCommand;
   followup?: string | MobileFirstMessage;
+};
+export type MobileSessionPatch = {
+  title?: string;
+  pinned?: boolean;
+  archived?: boolean;
+  linkedWorkItem?: LinkedWorkItem | null;
 };
 export type MobileFirstMessage = Pick<
   Extract<HostCommand, { type: "send" }>,
@@ -71,6 +80,12 @@ export class HostRequestError extends Error {
     super(message);
   }
 }
+
+export type HostConnectionStatus = {
+  state: "disconnected" | "connected" | "reconnecting" | "failed";
+  reason?: "authentication" | "timeout" | "identity";
+  detail?: string;
+};
 
 export const nativeTransport: RpcTransport = async (
   endpoint,
@@ -124,6 +139,48 @@ export const nativeTransport: RpcTransport = async (
 
 export class MobileClient {
   connection?: Connection;
+  private connectionStatus: HostConnectionStatus = { state: "disconnected" };
+  private statusListeners = new Set<() => void>();
+  private verificationEpoch = 0;
+  getConnectionStatus = () => this.connectionStatus;
+  subscribeConnectionStatus = (listener: () => void) => {
+    this.statusListeners.add(listener);
+    return () => {
+      this.statusListeners.delete(listener);
+    };
+  };
+  private setConnectionStatus(status: HostConnectionStatus) {
+    const previous = this.connectionStatus;
+    if (
+      previous.state === status.state &&
+      previous.reason === status.reason &&
+      previous.detail === status.detail
+    )
+      return;
+    this.connectionStatus = status;
+    for (const listener of this.statusListeners) listener();
+  }
+  private connectionFailed(
+    error: unknown,
+    reason?: HostConnectionStatus["reason"],
+  ) {
+    const detail =
+      error instanceof Error ? error.message : "Host connection failed.";
+    this.setConnectionStatus({
+      state: "failed",
+      reason:
+        reason ??
+        (error instanceof HostRequestError && [401, 403].includes(error.status)
+          ? "authentication"
+          : error instanceof Error &&
+              /timeout|timed out|aborted/i.test(
+                `${error.name} ${error.message}`,
+              )
+            ? "timeout"
+            : undefined),
+      detail,
+    });
+  }
   private snapshots = new Map<string, HostSession>();
   private dispatching = false;
   constructor(
@@ -136,6 +193,7 @@ export class MobileClient {
     if (!saved) return false;
     const connection = JSON.parse(saved) as Connection;
     this.connection = connection;
+    this.setConnectionStatus({ state: "reconnecting" });
     await this.verify();
     return true;
   }
@@ -144,52 +202,82 @@ export class MobileClient {
     token = token.trim();
     if (!/^[A-Za-z0-9_-]+$/.test(token))
       throw new Error("Enter a valid device token from MonoCode Host.");
-    const descriptor = requireHostDescriptor(
-      await this.requestWith<HostDescriptor>(
-        { endpoint, token },
-        "environment.describe",
-        { supportedProviders: REMOTE_PROVIDERS },
-      ),
-    );
-    const pending = await this.pending();
-    if (
-      pending &&
-      (pending.endpoint !== endpoint ||
-        pending.environmentId !== descriptor.environmentId)
-    )
-      throw new Error(
-        "Reconnect to the previous Host to resolve its pending request first.",
+    if (!this.connection) this.setConnectionStatus({ state: "reconnecting" });
+    try {
+      const descriptor = requireHostDescriptor(
+        await this.requestWith<HostDescriptor>(
+          { endpoint, token },
+          "environment.describe",
+          { supportedProviders: REMOTE_PROVIDERS },
+        ),
       );
-    const connection = {
-      endpoint,
-      token,
-      environmentId: descriptor.environmentId,
-      name: descriptor.name,
-    };
-    await this.storage.set("connection", JSON.stringify(connection));
-    this.connection = connection;
-    this.snapshots.clear();
+      const pending = await this.pending();
+      if (
+        pending &&
+        (pending.endpoint !== endpoint ||
+          pending.environmentId !== descriptor.environmentId)
+      )
+        throw new Error(
+          "Reconnect to the previous Host to resolve its pending request first.",
+        );
+      const connection = {
+        endpoint,
+        token,
+        environmentId: descriptor.environmentId,
+        name: descriptor.name,
+      };
+      await this.storage.set("connection", JSON.stringify(connection));
+      this.connection = connection;
+      this.setConnectionStatus({ state: "connected" });
+      this.snapshots.clear();
+    } catch (error) {
+      if (!this.connection) this.connectionFailed(error);
+      throw error;
+    }
   }
   async verify(): Promise<void> {
     if (!this.connection) throw new Error("Connect to a Host first.");
-    const host = requireHostDescriptor(
-      await this.rpc<HostDescriptor>("environment.describe", {
-        supportedProviders: REMOTE_PROVIDERS,
-      }),
-    );
-    if (host.environmentId !== this.connection.environmentId)
-      throw new Error(
-        "Host identity changed. Connect to this machine again explicitly.",
+    const connection = this.connection;
+    const epoch = ++this.verificationEpoch;
+    let changedIdentity = false;
+    try {
+      const host = requireHostDescriptor(
+        await this.rpc<HostDescriptor>("environment.describe", {
+          supportedProviders: REMOTE_PROVIDERS,
+        }),
       );
-    if (host.name !== this.connection.name) {
-      const connection = { ...this.connection, name: host.name };
-      await this.storage.set("connection", JSON.stringify(connection));
-      this.connection = connection;
+      if (this.connection !== connection || epoch !== this.verificationEpoch)
+        return;
+      if (host.environmentId !== connection.environmentId) {
+        changedIdentity = true;
+        const error = new Error(
+          "Host identity changed. Connect to this machine again explicitly.",
+        );
+        throw error;
+      }
+      if (host.name !== connection.name) {
+        const updated = { ...connection, name: host.name };
+        await this.storage.set("connection", JSON.stringify(updated));
+        if (this.connection !== connection || epoch !== this.verificationEpoch)
+          return;
+        this.connection = updated;
+      }
+      this.setConnectionStatus({ state: "connected" });
+    } catch (error) {
+      if (this.connection === connection && epoch === this.verificationEpoch)
+        this.connectionFailed(error, changedIdentity ? "identity" : undefined);
+      throw error;
     }
+  }
+  async reconnect(): Promise<void> {
+    if (!this.connection) throw new Error("Connect to a Host first.");
+    this.setConnectionStatus({ state: "reconnecting" });
+    await this.verify();
   }
   async disconnect(): Promise<void> {
     await this.storage.remove("connection");
     this.connection = undefined;
+    this.setConnectionStatus({ state: "disconnected" });
     this.snapshots.clear();
   }
   private async requestWith<T>(
@@ -197,12 +285,36 @@ export class MobileClient {
     method: string,
     params: object,
   ): Promise<T> {
-    return (await this.transport(connection.endpoint, connection.token, {
-      version: HOST_PROTOCOL_VERSION,
-      environmentId: connection.environmentId,
-      method,
-      params,
-    })) as T;
+    try {
+      const result = await this.transport(
+        connection.endpoint,
+        connection.token,
+        {
+          version: HOST_PROTOCOL_VERSION,
+          environmentId: connection.environmentId,
+          method,
+          params,
+        },
+      );
+      if (
+        this.connection === connection &&
+        method !== "environment.describe" &&
+        this.connectionStatus.state !== "reconnecting"
+      )
+        this.setConnectionStatus({ state: "connected" });
+      return result as T;
+    } catch (error) {
+      if (
+        this.connection === connection &&
+        method !== "environment.describe" &&
+        this.connectionStatus.state !== "reconnecting"
+      ) {
+        if (error instanceof HostRequestError && error.status === 400) {
+          this.setConnectionStatus({ state: "connected" });
+        } else this.connectionFailed(error);
+      }
+      throw error;
+    }
   }
   rpc<T>(method: string, params: object = {}): Promise<T> {
     if (!this.connection)
@@ -217,6 +329,21 @@ export class MobileClient {
   }
   sessions(projectId: string) {
     return this.rpc<HostSessionSummary[]>("sessions.list", { projectId });
+  }
+  updateSession(
+    projectId: string,
+    sessionId: string,
+    patch: MobileSessionPatch,
+  ) {
+    return this.rpc<HostSessionSummary>("sessions.update", {
+      projectId,
+      sessionId,
+      ...patch,
+    });
+  }
+  async deleteSession(projectId: string, sessionId: string): Promise<void> {
+    await this.rpc("sessions.delete", { projectId, sessionId });
+    this.snapshots.delete(sessionId);
   }
   models(projectId: string) {
     return this.rpc<HostModelCatalog>("models.list", { projectId });

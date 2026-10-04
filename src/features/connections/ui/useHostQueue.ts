@@ -1,0 +1,70 @@
+import { useCallback, useMemo } from "react";
+import type {
+  CommandReceipt,
+  HostCommand,
+  HostSession,
+} from "../model/protocol";
+
+type QueueCommand = Extract<HostCommand, { type: "queue" }>;
+/** One edit lease per view. Queue mutations use the same durable command journal
+ * as sends; renewable edit leases use ordinary, idempotent RPC requests. */
+export function useHostQueue(
+  snapshot: HostSession | undefined,
+  request: (
+    command: QueueCommand,
+    transient: boolean,
+  ) => Promise<CommandReceipt | undefined>,
+) {
+  const id = snapshot?.session.id;
+  const editor = useMemo(() => crypto.randomUUID(), [id]);
+  const execute = useCallback(
+    async (
+      action: QueueCommand["action"],
+      fields: Partial<QueueCommand> = {},
+    ) => {
+      if (!id) throw new Error("Session is not available");
+      const receipt = await request(
+        {
+          type: "queue",
+          commandId: crypto.randomUUID(),
+          sessionId: id,
+          action,
+          editor,
+          ...fields,
+        },
+        action === "hold" || action === "release",
+      );
+      if (!receipt) throw new Error("Host has not confirmed the queue change");
+    },
+    [id, editor, request],
+  );
+  return {
+    messages: snapshot?.session.queuedMessages ?? [],
+    status: snapshot?.session.queueStatus,
+    remote: true,
+    canSteer:
+      !!snapshot?.canSteer &&
+      snapshot.status === "running" &&
+      !snapshot.queueSteeringId,
+    canResume: snapshot?.status !== "running",
+    onDelete: useCallback(
+      (messageId: string) => execute("remove", { messageId }),
+      [execute],
+    ),
+    onEdit: useCallback(
+      (messageId: string, text: string) => execute("edit", { messageId, text }),
+      [execute],
+    ),
+    onEditingChange: useCallback(
+      (messageId?: string) =>
+        execute(messageId ? "hold" : "release", { messageId }),
+      [execute],
+    ),
+    onSteer: useCallback(
+      (messageId: string) =>
+        execute("steer", { messageId, runId: snapshot?.runId }),
+      [execute, snapshot?.runId],
+    ),
+    onResume: useCallback(() => execute("resume"), [execute]),
+  };
+}

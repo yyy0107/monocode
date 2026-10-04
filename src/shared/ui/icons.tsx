@@ -31,6 +31,7 @@ import Clock01Icon from "@hugeicons/core-free-icons/Clock01Icon";
 import ColorPickerIcon from "@hugeicons/core-free-icons/ColorPickerIcon";
 import Comment01Icon from "@hugeicons/core-free-icons/Comment01Icon";
 import CommentAdd01Icon from "@hugeicons/core-free-icons/CommentAdd01Icon";
+import ComputerIcon from "@hugeicons/core-free-icons/ComputerIcon";
 import ComputerTerminal01Icon from "@hugeicons/core-free-icons/ComputerTerminal01Icon";
 import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon";
 import CursorMagicSelection04Icon from "@hugeicons/core-free-icons/CursorMagicSelection04Icon";
@@ -182,6 +183,7 @@ export const CircleX = wrap(CancelCircleIcon, "CircleX");
 export const CloudUpload = wrap(CloudUploadIcon, "CloudUpload");
 export const Clock = wrap(Clock01Icon, "Clock");
 export const Copy = wrap(Copy01Icon, "Copy");
+export const Computer = wrap(ComputerIcon, "Computer");
 export const CursorMagicSelection = wrap(
   CursorMagicSelection04Icon,
   "CursorMagicSelection",

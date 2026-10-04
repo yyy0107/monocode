@@ -139,6 +139,46 @@ describe("mobile Host transport", () => {
 });
 
 describe("mobile client synchronization", () => {
+  it("updates session metadata on its owning project and drops deleted cached snapshots", async () => {
+    const requests: Array<{ method: string; params: Record<string, any> }> = [];
+    const client = new MobileClient(
+      memory(),
+      transport((method, params) => {
+        requests.push({ method, params });
+        if (method === "sessions.sync")
+          return { kind: "snapshot", value: snapshot() };
+        if (method === "sessions.delete") return { deleted: true };
+        return {
+          id: "session",
+          projectId: "project",
+          revision: 2,
+          pinned: true,
+        };
+      }),
+    );
+    await client.connect(endpoint, token);
+    await client.session("session");
+    await client.updateSession("project", "session", {
+      pinned: true,
+      title: "Updated",
+    });
+    expect(requests.at(-1)).toEqual({
+      method: "sessions.update",
+      params: {
+        projectId: "project",
+        sessionId: "session",
+        pinned: true,
+        title: "Updated",
+      },
+    });
+    await client.deleteSession("project", "session");
+    expect(requests.at(-1)).toEqual({
+      method: "sessions.delete",
+      params: { projectId: "project", sessionId: "session" },
+    });
+    await client.session("session");
+    expect(requests.at(-1)!.params.revision).toBeUndefined();
+  });
   it("refreshes the saved hostname from the verified Host descriptor", async () => {
     const store = memory();
     let host = { ...descriptor, name: "Old computer name" };

@@ -1,11 +1,6 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
-import {
-  ChevronDown,
-  Lock,
-  Pencil,
-  Shield,
-  Sparkles,
-} from "../../../shared/ui/icons";
+import { ChevronDown } from "../../../shared/ui/icons";
+import { RuntimeModeIcon } from "./RuntimeModeIcon";
 import {
   useEffect,
   useRef,
@@ -29,13 +24,6 @@ type Props = {
 
 const MENU_WIDTH = 288;
 
-const ICONS: Record<RuntimeMode, typeof Lock> = {
-  supervised: Lock,
-  "auto-accept-edits": Pencil,
-  auto: Sparkles,
-  "full-access": Shield,
-};
-
 export function AccessPicker({
   value,
   onChange,
@@ -50,7 +38,6 @@ export function AccessPicker({
   const root = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const Icon = ICONS[value];
 
   const dismiss = (restore: boolean) => {
     setOpen(false);
@@ -108,7 +95,8 @@ export function AccessPicker({
             : "bg-selection text-content hover:bg-selection-hover"
         }`}
       >
-        <Icon
+        <RuntimeModeIcon
+          mode={value}
           className={`size-3.5 shrink-0 ${value === "full-access" ? "text-amber-400/90" : ""}`}
           strokeWidth={1.75}
         />
@@ -135,7 +123,6 @@ export function AccessPicker({
           className="p-1"
         >
           {RUNTIME_MODES.map((mode, index) => {
-            const ModeIcon = ICONS[mode];
             const selected = mode === value;
             const highlighted = index === active;
             return (
@@ -153,7 +140,8 @@ export function AccessPicker({
                     : "text-content hover:bg-content/5"
                 }`}
               >
-                <ModeIcon
+                <RuntimeModeIcon
+                  mode={mode}
                   className={`mt-0.5 size-3.5 shrink-0 ${mode === "full-access" ? "text-amber-400/90" : "text-content/70"}`}
                   strokeWidth={1.75}
                 />

@@ -21,7 +21,7 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
     <>
       <div
         className={`group relative flex min-w-0 items-center gap-1.5 rounded-md ${
-          image ? "" : "bg-content/10 py-0.5 pl-1 pr-1"
+          image ? "attachment-chip-image" : "bg-content/10 py-0.5 pl-1 pr-1"
         }`}
         title={attachment.path ?? attachment.name}
       >
@@ -44,7 +44,7 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
               src={preview}
               alt=""
               draggable={false}
-              className="size-9 rounded-lg object-cover"
+              className="attachment-chip-thumbnail size-9 rounded-lg object-cover"
             />
           </button>
         ) : (
@@ -72,7 +72,7 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
               event.stopPropagation();
               onRemove();
             }}
-            className={`grid shrink-0 place-items-center rounded-full text-content/70 hover:bg-content/15 hover:text-content ${
+            className={`attachment-chip-remove grid shrink-0 place-items-center rounded-full text-content/70 hover:bg-content/15 hover:text-content ${
               image
                 ? "absolute -right-1 -top-1 size-5 bg-content/20 opacity-100 shadow-sm backdrop-blur-sm"
                 : "size-4 text-content/40"

@@ -1,36 +1,130 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
-import { ArrowLeft, X } from "../shared/ui/icons";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { ArrowLeft } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
+import { placePopover, type PopoverAlign } from "../shared/lib/popover";
 
 export function MobileSheet({
   title,
   onClose,
   onBack,
+  placement = "bottom",
+  anchor,
+  width = 420,
+  align = "start",
+  side = "bottom",
   children,
 }: {
   title: string;
   onClose: () => void;
   onBack?: () => void;
+  placement?: "bottom" | "anchor";
+  anchor?: RefObject<HTMLElement | null>;
+  width?: number;
+  align?: PopoverAlign;
+  side?: "top" | "bottom";
   children: ReactNode;
 }) {
   const { t } = useTranslation();
-  const id = useId();
   const dialog = useRef<HTMLElement>(null);
+  const [position, setPosition] = useState<CSSProperties>();
+  useLayoutEffect(() => {
+    if (placement !== "anchor") return;
+    const element = dialog.current;
+    const trigger = anchor?.current;
+    if (!element || !trigger) return;
+    const viewport = window.visualViewport;
+    const place = () => {
+      const rect = trigger.getBoundingClientRect();
+      const size = element.getBoundingClientRect();
+      const viewportWidth = viewport?.width ?? window.innerWidth;
+      const height = viewport?.height ?? window.innerHeight;
+      const offsetLeft = viewport?.offsetLeft ?? 0;
+      const offsetTop = viewport?.offsetTop ?? 0;
+      const clampY = (value: number) =>
+        Math.max(16, Math.min(height - 16, value - offsetTop));
+      const next = placePopover(
+        {
+          left: rect.left - offsetLeft,
+          right: rect.right - offsetLeft,
+          top: clampY(rect.top),
+          bottom: clampY(rect.bottom),
+          width: rect.width,
+          height: rect.height,
+        },
+        { width: size.width, height: size.height },
+        { width: viewportWidth, height },
+        { width, side, align, gap: 8, padding: 16 },
+      );
+      const style: CSSProperties = {
+        position: "fixed",
+        left: next.left + offsetLeft,
+        top: next.top == null ? undefined : next.top + offsetTop,
+        bottom:
+          next.bottom == null
+            ? undefined
+            : next.bottom + window.innerHeight - offsetTop - height,
+        width: next.width,
+        maxHeight: next.maxHeight,
+      };
+      setPosition((previous) =>
+        previous?.left === style.left &&
+        previous?.top === style.top &&
+        previous?.bottom === style.bottom &&
+        previous?.width === style.width &&
+        previous?.maxHeight === style.maxHeight
+          ? previous
+          : style,
+      );
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(element);
+    observer.observe(trigger);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    viewport?.addEventListener("resize", place);
+    viewport?.addEventListener("scroll", place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+      viewport?.removeEventListener("resize", place);
+      viewport?.removeEventListener("scroll", place);
+    };
+  }, [placement, anchor, width, align, side]);
   useEffect(() => {
-    const trigger = document.activeElement as HTMLElement | null;
+    const trigger =
+      anchor?.current ?? (document.activeElement as HTMLElement | null);
     dialog.current?.focus();
     return () => {
       if (trigger?.isConnected) trigger.focus();
     };
-  }, []);
+  }, [anchor]);
   return (
-    <div className="mobile-sheet-backdrop" onClick={onClose}>
+    <div
+      className="mobile-sheet-backdrop"
+      data-placement={placement}
+      onClick={onClose}
+    >
       <section
         ref={dialog}
         className="mobile-sheet"
+        style={
+          placement === "anchor"
+            ? (position ?? { visibility: "hidden" })
+            : undefined
+        }
         role="dialog"
         aria-modal="true"
-        aria-labelledby={id}
+        aria-label={t(title)}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
@@ -67,29 +161,20 @@ export function MobileSheet({
           }
         }}
       >
-        <div className="mobile-sheet-handle" />
-        <header className="mobile-sheet-header">
+        <div className="mobile-sheet-content">
           {onBack && (
             <button
               type="button"
-              className="mobile-icon-button"
+              className="mobile-sheet-row mobile-sheet-back"
               aria-label={t("Back")}
               onClick={onBack}
             >
               <ArrowLeft size={20} />
+              <span>{t("Back")}</span>
             </button>
           )}
-          <h2 id={id}>{t(title)}</h2>
-          <button
-            type="button"
-            className="mobile-icon-button"
-            aria-label={t("Close")}
-            onClick={onClose}
-          >
-            <X size={20} />
-          </button>
-        </header>
-        <div className="mobile-sheet-content">{children}</div>
+          {children}
+        </div>
       </section>
     </div>
   );

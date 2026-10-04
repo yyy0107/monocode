@@ -430,11 +430,11 @@ export type Session = {
    * running in the background. In-memory only.
    */
   backgroundTasks?: string[];
-  /** Follow-ups waiting for current turn. In-memory only. */
+  /** Follow-ups waiting for the current turn. Local queues are in memory; Host queues are persisted. */
   queuedMessages?: QueuedMessage[];
   /** Paused after user stops current turn; resuming waits for continued turn. */
   queueStatus?: MessageQueueStatus;
-  /** Prevent auto-dispatch while this queued row is being edited. In-memory only. */
+  /** Hold an edited queue row. The Host renews and expires the editing lease. */
   editingQueuedMessageId?: string;
   /** Last turn hit a provider usage limit; cleared by the next send. In-memory only. */
   usageLimit?: UsageLimit;

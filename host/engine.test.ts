@@ -662,14 +662,8 @@ describe("headless session ownership", () => {
       sessionId: id,
       text: "Work",
     });
-    expect(() =>
-      engine.command({
-        type: "send",
-        commandId: "other-send",
-        sessionId: id,
-        text: "More work",
-      }),
-    ).toThrow("already running");
+    engine.command({ type: "send", commandId: "other-send", sessionId: id, text: "More work" });
+    expect(store.session(id).session.queuedMessages?.map(row => row.text)).toEqual(["More work"]);
     await vi.waitFor(() => expect(turns).toHaveLength(1));
     turns[0].input.onEvent({
       type: "approval.requested",
