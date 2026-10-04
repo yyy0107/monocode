@@ -1123,6 +1123,95 @@ html[data-mobile-glass="solid"] :is(
 .mobile-sheet .mobile-form label {
   gap: 6px;
 }
+.mobile-sheet:has(.mobile-project-picker) {
+  max-height: min(85dvh, 700px, calc(100% - var(--mobile-safe-top) - 16px));
+}
+.mobile-sheet:has(.mobile-project-picker) .mobile-sheet-content {
+  display: flex;
+  overflow: hidden;
+}
+.mobile-project-picker {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 8px;
+}
+.mobile-project-picker-body {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mobile-project-picker-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mobile-project-picker-heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.mobile-project-picker-heading p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.mobile-project-picker-navigation,
+.mobile-project-picker-path {
+  display: flex;
+  gap: 8px;
+}
+.mobile-project-picker-navigation .mobile-button {
+  flex: 1;
+  min-width: 0;
+  padding-inline: 10px;
+  font-size: 13px;
+}
+.mobile-project-picker-path input {
+  min-width: 0;
+  flex: 1;
+}
+.mobile-project-picker-path .mobile-button {
+  padding-inline: 14px;
+}
+.mobile-project-picker-folders {
+  min-height: 60px;
+  height: min(36dvh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mobile-project-picker-folders p {
+  padding: 8px 12px;
+  font-size: 14px;
+}
+.mobile-project-picker-folders svg,
+.mobile-project-picker-navigation svg {
+  flex-shrink: 0;
+}
+.mobile-project-picker-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mobile-project-picker-error {
+  flex-shrink: 0;
+  max-height: 100px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mobile-project-picker-open,
+.mobile-project-picker-heading,
+.mobile-project-picker-navigation,
+.mobile-project-picker-path,
+.mobile-project-picker-body > input {
+  flex-shrink: 0;
+}
 .mobile-sheet-group + .mobile-sheet-group {
   border-top: 6px solid var(--mobile-fill);
   margin: 6px -4px 0;

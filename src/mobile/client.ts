@@ -5,6 +5,7 @@ import {
   applySessionSync,
   requireHostDescriptor,
   type HostDescriptor,
+  type HostDirectory,
   type HostProject,
   type HostSession,
   type HostSessionSummary,
@@ -324,6 +325,12 @@ export class MobileClient {
   }
   projects() {
     return this.rpc<HostProject[]>("projects.list");
+  }
+  browseDirectories(path?: string) {
+    return this.rpc<HostDirectory>(
+      "projects.browse",
+      path === undefined ? {} : { path },
+    );
   }
   openProject(cwd: string) {
     return this.rpc<HostProject>("projects.open", { cwd: cwd.trim() });

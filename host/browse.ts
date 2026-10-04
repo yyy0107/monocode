@@ -21,11 +21,29 @@ export async function browseHostDirectories(
   const path = resolve(requested);
   if (!(await stat(path)).isDirectory())
     throw new Error("Path is not a directory");
-  const entries = (await readdir(path, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory())
+  const directories = await Promise.all(
+    (await readdir(path, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .map(async (entry) => {
+        const entryPath = resolve(path, entry.name);
+        if (
+          entry.isSymbolicLink() &&
+          !(await stat(entryPath).then(
+            (target) => target.isDirectory(),
+            () => false,
+          ))
+        )
+          return null;
+        // Keep the link's location so going up returns to the folder it appeared in.
+        return { name: entry.name, path: entryPath };
+      }),
+  );
+  const entries = directories
+    .filter(
+      (entry): entry is HostDirectory["entries"][number] => entry !== null,
+    )
     .sort((a, b) => a.name.localeCompare(b.name))
-    .slice(0, 500)
-    .map((entry) => ({ name: entry.name, path: resolve(path, entry.name) }));
+    .slice(0, 500);
   return {
     path,
     parent: path === parse(path).root ? null : dirname(path),

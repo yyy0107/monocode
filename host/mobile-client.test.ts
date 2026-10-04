@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -107,6 +107,41 @@ async function setup() {
 }
 
 describe("mobile client against the real MonoCode Host", () => {
+  it.skipIf(process.platform === "win32")("browses directory symlinks through mobile RPC and opens their targets outside registered projects", async () => {
+    const s = await setup();
+    const target = mkdtempSync(join(tmpdir(), "monocode-mobile-link-target-"));
+    cleanups.push(async () => rmSync(target, { recursive: true, force: true }));
+    mkdirSync(join(target, "child"));
+    const link = join(s.directory, "linked 项目");
+    symlinkSync(target, link, "dir");
+    expect((await s.client.browseDirectories(s.directory)).entries).toContainEqual({ name: "linked 项目", path: link });
+    expect(await s.client.browseDirectories(link)).toEqual({
+      path: link, parent: s.directory,
+      entries: [{ name: "child", path: join(link, "child") }],
+    });
+    expect((await s.client.openProject(link)).cwd).toBe(target);
+  });
+  it("browses and opens computer folders outside registered projects without creating projects during browsing", async () => {
+    const s = await setup();
+    const outside = mkdtempSync(join(tmpdir(), "monocode-mobile-project-picker-"));
+    cleanups.push(async () => rmSync(outside, { recursive: true, force: true }));
+    const folder = join(outside, "My 项目");
+    mkdirSync(folder);
+    writeFileSync(join(outside, "file.txt"), "not a directory");
+    const before = await s.client.projects();
+    const home = await s.client.browseDirectories();
+    expect(home.path).toBeTruthy();
+    const result = await s.client.browseDirectories(outside);
+    expect(result.entries).toEqual([{ name: "My 项目", path: folder }]);
+    expect(await s.client.projects()).toEqual(before);
+    expect(await s.client.browseDirectories(folder)).toMatchObject({ path: folder, parent: outside, entries: [] });
+    const opened = await s.client.openProject(folder);
+    expect(opened.cwd).toBe(folder);
+    expect((await s.client.projects()).some(project => project.id === opened.id)).toBe(true);
+    expect(await s.client.openProject(folder)).toEqual(opened);
+    await expect(s.client.browseDirectories("relative/path")).rejects.toThrow("absolute");
+    await expect(s.client.browseDirectories(join(outside, "file.txt"))).rejects.toThrow("directory");
+  });
   it("persists dragged queue order, preserves attachments and plan intent, and retries a lost move receipt without dropping newly added rows", async () => {
     const s = await setup();
     const created = await s.client.dispatch({ type: "create", commandId: "move-create", projectId: s.project.id, harness: "codex", model: "codex:test", runtimeMode: "supervised" }, "Running turn");

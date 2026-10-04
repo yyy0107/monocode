@@ -12,6 +12,21 @@ services. Dark, Light, and System
 appearance are available in Connections. There is no QR, SSH bootstrap, or
 cloud account setup in the mobile app.
 
+**Open project** browses folders on the connected computer, starting at its
+user's home directory. Enter a subfolder, use Parent folder or Home folder, or
+filter the names in the current directory, then tap Open project to add and
+select it. Browsing alone does not add a project. The path field also accepts
+a known absolute computer path; Go to folder lists its subfolders, while Open
+project opens it directly. This also works for paths on another Windows drive.
+The browser can reach directories outside existing projects and adds no folder
+allowlist or approval steps; ordinary computer filesystem errors are displayed
+with retry. It uses the same Host folder browser as desktop remote projects.
+Parent folder remains available when a directory read fails or is still loading.
+Directory symlinks are shown under their link names and keep their link paths
+while browsing; file links and broken links are omitted. Folder enumeration runs
+on the Host, so directory-browser fixes require updating the Host as well as the
+mobile app.
+
 ## Connect to a Host
 
 The desktop starts the shared MonoCode Host automatically. For a computer

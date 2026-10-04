@@ -1,4 +1,13 @@
 {
+  "Browse folders on {host}.": "浏览 {host} 上的文件夹。",
+  "Home folder": "用户目录",
+  "Parent folder": "上级目录",
+  "Go to folder": "前往文件夹",
+  "Filter folders": "筛选文件夹",
+  "No matching folders": "没有匹配的文件夹",
+  "Browse a folder to see its subfolders.": "打开文件夹以查看子目录。",
+  "Unable to browse folders.": "无法浏览文件夹。",
+  "Unable to open this project.": "无法打开此项目。",
   "Model and reasoning": "模型与思考强度",
   "Ask {agent} anything": "向 {agent} 提问",
   "Upload photos": "上传照片",

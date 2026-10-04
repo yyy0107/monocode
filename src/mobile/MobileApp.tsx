@@ -53,7 +53,8 @@ import { MobileSessionStatus } from "./MobileSessionStatus";
 import { MeterRing } from "../features/sessions/ui/ContextMeter";
 import { contextRatio } from "../features/sessions/model/contextUsage";
 import { MobileConnectionSheet } from "./MobileConnectionSheet";
-import { MobileSheet, type MobileSheetPoint } from "./MobileSheet";
+import type { MobileSheetPoint } from "./MobileSheet";
+import { MobileProjectPicker } from "./MobileProjectPicker";
 import { MobileDrawer } from "./MobileDrawer";
 import {
   MobileSettings,
@@ -83,6 +84,7 @@ import {
 
 const client = new MobileClient(mobileStorage);
 const readHostImage = (path: string) => client.readBinaryFile(path);
+const browseHostDirectories = (path?: string) => client.browseDirectories(path);
 // The conversation is the home screen; projects and history live in the
 // drawer. Settings doubles as the connection screen before pairing.
 type View = "chat" | "settings";
@@ -182,7 +184,6 @@ export function MobileApp() {
   const [sessionActionsTarget, setSessionActionsTarget] = useState<string>();
   const [sessionActionsPoint, setSessionActionsPoint] = useState<MobileSheetPoint>();
   const [sessionStatusOpen, setSessionStatusOpen] = useState(false);
-  const [folderPath, setFolderPath] = useState("");
   const [addingProject, setAddingProject] = useState(false);
   const [addingConnection, setAddingConnection] = useState(false);
   const [preferencePanel, setPreferencePanel] =
@@ -723,18 +724,16 @@ export function MobileApp() {
       setReadingAttachments(false);
     }
   };
-  const addProject = async () => {
+  const addProject = async (path: string) => {
     setBusy(true);
     setError("");
     try {
-      const added = await client.openProject(folderPath);
+      const added = await client.openProject(path);
       const items = await client.projects();
       setProjects(items);
       setAddingProject(false);
-      setFolderPath("");
+      setDrawerOpen(false);
       await openProject(added);
-    } catch (problem) {
-      setError(message(problem));
     } finally {
       setBusy(false);
     }
@@ -1275,54 +1274,16 @@ export function MobileApp() {
         />
       )}
       {addingProject && (
-        <MobileSheet
-          title="Open project"
-          placement="anchor"
+        <MobileProjectPicker
+          hostName={client.connection?.name || "MonoCode"}
           anchor={projectTrigger}
+          disabled={busy}
+          browseDirectories={browseHostDirectories}
+          onOpen={addProject}
           onClose={() => {
             if (!busy) setAddingProject(false);
           }}
-        >
-          <p className="mobile-muted">
-            {t("Enter a folder path on {host}.", {
-              host: client.connection?.name || "",
-            })}
-          </p>
-          <form
-            className="mobile-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void addProject();
-            }}
-          >
-            <label>
-              {t("Folder path")}
-              <input
-                autoFocus
-                placeholder="/home/me/projects/my-app"
-                value={folderPath}
-                onChange={(event) => setFolderPath(event.target.value)}
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                required
-                disabled={busy}
-              />
-            </label>
-            {error && (
-              <p className="mobile-form-error" role="alert">
-                {error}
-              </p>
-            )}
-            <button
-              type="submit"
-              className="mobile-button mobile-primary"
-              disabled={busy || !folderPath.trim()}
-            >
-              {t(busy ? "Opening…" : "Open project")}
-            </button>
-          </form>
-        </MobileSheet>
+        />
       )}
     </div>
   );
