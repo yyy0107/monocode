@@ -94,6 +94,7 @@ import type { TranscriptLayout } from "../../settings/model/appearance";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
 import { parseUserMessageLink } from "../model/linkPreview";
+import { attachmentPreviewSrc } from "../model/attachments";
 import { UserLinkPreview } from "./UserLinkPreview";
 import {
   activityPhaseTitle,
@@ -391,6 +392,8 @@ function AgentTranscriptComponent({
 
   const syncPinned = useCallback(
     (el: HTMLElement) => {
+      // The jump animation owns the offset until it lands or is interrupted.
+      if (jumpingScrollers.has(el)) return;
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (touchScroll) {
         const previous = scrollGeometry.current;
@@ -435,8 +438,18 @@ function AgentTranscriptComponent({
     setShowJump(false);
     const el = scroller.current;
     syncTranscriptViewport(el);
-    pinToBottom(el);
-  }, [setShowJump]);
+    animateToBottom(el, () => {
+      if (!el) return;
+      distanceFromBottom.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight;
+      scrollGeometry.current = {
+        top: el.scrollTop,
+        height: el.scrollHeight,
+        viewport: el.clientHeight,
+      };
+      syncPinned(el);
+    });
+  }, [setShowJump, syncPinned]);
 
   const setScroller = useCallback(
     (el: HTMLDivElement | null) => {
@@ -1645,7 +1658,12 @@ const TranscriptBlock = memo(function TranscriptBlock({
   }
 
   if (block.role === "image") {
-    return block.image ? <GeneratedImage image={block.image} attachment={block.attachments?.find(file => file.kind === "image")} /> : null;
+    return block.image ? (
+      <GeneratedImage
+        image={block.image}
+        attachment={block.attachments?.find((file) => file.kind === "image")}
+      />
+    ) : null;
   }
 
   if (block.role === "tool") {
@@ -1734,7 +1752,11 @@ const TranscriptBlock = memo(function TranscriptBlock({
     if (harness && issue) {
       return (
         <div className={`${embedded ? "" : "px-4"} py-2`}>
-          <SessionAccessNotice harness={harness} issue={issue} message={block.text} />
+          <SessionAccessNotice
+            harness={harness}
+            issue={issue}
+            message={block.text}
+          />
         </div>
       );
     }
@@ -1805,10 +1827,31 @@ function UserMessageBlock({
     ? `${messageLink.beforeText}${messageLink.afterText}`
     : text;
   const chat = layout === "chat";
+  // Chat bubbles lift sent images above the text, like a messaging app, so a
+  // short caption can still round into a capsule.
+  const mediaAttachments =
+    chat && !block.draft
+      ? (block.attachments ?? []).filter(
+          (file) => file.kind === "image" && attachmentPreviewSrc(file),
+        )
+      : [];
+  const bubbleAttachments = mediaAttachments.length
+    ? (block.attachments ?? []).filter(
+        (file) => !mediaAttachments.includes(file),
+      )
+    : (block.attachments ?? []);
+  const hasBubble = Boolean(
+    text ||
+    bubbleAttachments.length ||
+    card ||
+    note ||
+    block.ciContext ||
+    block.draft,
+  );
   const textOnly =
     Boolean(text) &&
     !block.draft &&
-    !block.attachments?.length &&
+    !bubbleAttachments.length &&
     !card &&
     !note &&
     !block.ciContext;
@@ -1873,7 +1916,17 @@ function UserMessageBlock({
       <div
         className={`user-message-hover-zone min-w-0 overflow-visible ${chat ? "flex w-fit max-w-full flex-col items-end" : "w-full"}`}
       >
+        {mediaAttachments.length ? (
+          <div
+            className={`user-message-media flex max-w-[min(100%,36rem)] flex-wrap justify-end gap-1.5 ${hasBubble ? "mb-1.5" : ""}`}
+          >
+            {mediaAttachments.map((file) => (
+              <AttachmentChip key={file.id} attachment={file} />
+            ))}
+          </div>
+        ) : null}
         <div
+          hidden={!hasBubble}
           data-draft={block.draft ? "true" : undefined}
           data-monocode={monocode ? "true" : undefined}
           className={`user-message-bubble relative min-w-0 px-3 py-2 font-sans text-content transition-[background-color] duration-200 ${
@@ -1887,11 +1940,11 @@ function UserMessageBlock({
           }`}
           style={{ zIndex: stickyIndex }}
         >
-          {block.attachments?.length ? (
+          {bubbleAttachments.length ? (
             <div
               className={`flex flex-wrap gap-1.5 ${text || card || note ? "mb-2" : ""}`}
             >
-              {block.attachments.map((file) => (
+              {bubbleAttachments.map((file) => (
                 <AttachmentChip key={file.id} attachment={file} />
               ))}
             </div>
@@ -4072,8 +4125,54 @@ function isNearBottom(el: HTMLElement): boolean {
 }
 
 function pinToBottom(el: HTMLElement | null) {
-  if (!el) return;
+  // An animated jump retargets every frame; snapping would cut it short.
+  if (!el || jumpingScrollers.has(el)) return;
   el.scrollTop = el.scrollHeight;
+}
+
+const jumpingScrollers = new WeakSet<HTMLElement>();
+const JUMP_INTERRUPTS = ["wheel", "touchstart", "pointerdown", "keydown"];
+
+/**
+ * Glide to the bottom, following content that keeps streaming in. Any reader
+ * input stops the glide where it is.
+ */
+function animateToBottom(el: HTMLElement | null, done: () => void) {
+  if (!el || jumpingScrollers.has(el)) return;
+  const bottom = () => Math.max(0, el.scrollHeight - el.clientHeight);
+  const from = el.scrollTop;
+  const distance = bottom() - from;
+  if (
+    distance <= 1 ||
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+  ) {
+    el.scrollTop = el.scrollHeight;
+    done();
+    return;
+  }
+  const duration = Math.min(560, 260 + distance / 12);
+  const start = performance.now();
+  let frame = 0;
+  const finish = (snap: boolean) => {
+    cancelAnimationFrame(frame);
+    jumpingScrollers.delete(el);
+    for (const type of JUMP_INTERRUPTS) el.removeEventListener(type, interrupt);
+    if (snap) el.scrollTop = el.scrollHeight;
+    done();
+  };
+  const interrupt = () => finish(false);
+  const step = (now: number) => {
+    if (!el.isConnected) return finish(false);
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - (1 - t) ** 3;
+    el.scrollTop = from + (bottom() - from) * eased;
+    if (t < 1) frame = requestAnimationFrame(step);
+    else finish(true);
+  };
+  jumpingScrollers.add(el);
+  for (const type of JUMP_INTERRUPTS)
+    el.addEventListener(type, interrupt, { passive: true });
+  frame = requestAnimationFrame(step);
 }
 
 /** Stretch the live turn within the space below any floating controls. */
@@ -4085,8 +4184,12 @@ function syncTranscriptViewport(el: HTMLElement | null) {
     : 0;
   // pinToBottom uses scrollTop directly, so CSS scroll-padding cannot offset
   // it. Shortening the anchored turn leaves the requested inset above it.
-  const topInset = Number.parseFloat(getComputedStyle(el).scrollPaddingTop) || 0;
-  const next = `${Math.max(0, el.clientHeight - pad - topInset)}px`;
+  // The scroller's own bottom padding (a floating composer) also sits below
+  // the turn when pinned, so it comes out of the turn's height too.
+  const style = getComputedStyle(el);
+  const topInset = Number.parseFloat(style.scrollPaddingTop) || 0;
+  const bottomInset = Number.parseFloat(style.paddingBottom) || 0;
+  const next = `${Math.max(0, el.clientHeight - pad - topInset - bottomInset)}px`;
   if (el.style.getPropertyValue("--transcript-viewport") === next) return;
   el.style.setProperty("--transcript-viewport", next);
 }

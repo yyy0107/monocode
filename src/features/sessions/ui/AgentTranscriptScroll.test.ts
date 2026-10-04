@@ -221,8 +221,25 @@ describe("transcript scrolling", () => {
       top = 500;
       scroller.dispatchEvent(new Event("scroll"));
     });
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    const start = performance.now();
     act(() => ready.mock.calls[0][0]());
-    expect(top).toBe(950);
+    expect(showJump).toHaveBeenLastCalledWith(false);
+    // The jump glides instead of snapping, and streamed growth during the
+    // glide does not cut it short.
+    act(() => frames.shift()?.(start + 100));
+    expect(top).toBeGreaterThan(500);
+    expect(top).toBeLessThan(950);
+    height = 1300;
+    act(() => observer.resize());
+    expect(top).toBeLessThan(950);
+    act(() => frames.shift()?.(start + 1000));
+    expect(top).toBe(1050);
+    expect(frames).toHaveLength(0);
     expect(showJump).toHaveBeenLastCalledWith(false);
   });
   it("lets a wheel up inside the bottom margin leave a streaming reply", () => {

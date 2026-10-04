@@ -1880,7 +1880,7 @@ header[data-tauri-drag-region] button {
 
 .agent-markdown p,
 .agent-markdown li {
-  color: color-mix(in srgb, var(--color-content) 78%, transparent);
+  color: color-mix(in srgb, var(--color-content) 92%, transparent);
 }
 
 /* AgentMarkdown passes dir="auto", so every block sits in its own
@@ -2402,7 +2402,7 @@ header[data-tauri-drag-region] button {
 
 .zen-fold-prose .agent-markdown p,
 .zen-fold-prose .agent-markdown li {
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  color: color-mix(in srgb, var(--color-content) 78%, transparent);
 }
 
 .zen-fold-prose .agent-markdown p strong,
@@ -2411,7 +2411,7 @@ header[data-tauri-drag-region] button {
 .zen-fold-prose .agent-markdown li strong,
 .zen-fold-prose .agent-markdown li em,
 .zen-fold-prose .agent-markdown li [data-streamdown="strong"] {
-  color: color-mix(in srgb, var(--color-content) 80%, transparent) !important;
+  color: color-mix(in srgb, var(--color-content) 92%, transparent) !important;
 }
 
 /* A heading in a work note is a bold line, not a display size. */
@@ -3266,4 +3266,15 @@ html.theme-light .btw-burst {
     var(--color-content) 10%,
     var(--color-background-base)
   );
+}
+
+/* Images sent in chat sit above the text bubble as larger rounded tiles. */
+.user-message-media .attachment-chip-thumbnail {
+  width: 7.5rem;
+  height: 7.5rem;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
+}
+.user-message-media .attachment-chip-image button {
+  border-radius: 1rem;
 }

@@ -791,3 +791,51 @@ describe("worker assignment prompts", () => {
     expect(markup).not.toContain("You are a worker managed by a MonoCode lead");
   });
 });
+
+describe("AgentTranscript chat image messages", () => {
+  it("lifts sent images above the bubble so the caption can round", () => {
+    const markup = render([
+      {
+        id: "user",
+        role: "user",
+        text: "Make this a capsule",
+        attachments: [
+          {
+            id: "image",
+            name: "shot.png",
+            mimeType: "image/png",
+            kind: "image",
+            size: 1,
+            data: "AA==",
+          },
+        ],
+      },
+    ]);
+    const media = markup.indexOf("user-message-media");
+    const bubble = markup.indexOf("user-message-bubble");
+    expect(media).toBeGreaterThan(-1);
+    expect(media).toBeLessThan(bubble);
+    expect(markup.slice(bubble)).not.toContain("attachment-chip-image");
+  });
+
+  it("omits the empty bubble for an image-only message", () => {
+    const markup = render([
+      {
+        id: "user",
+        role: "user",
+        text: "",
+        attachments: [
+          {
+            id: "image",
+            name: "shot.png",
+            mimeType: "image/png",
+            kind: "image",
+            size: 1,
+            data: "AA==",
+          },
+        ],
+      },
+    ]);
+    expect(markup).toMatch(/<div hidden=""[^>]*user-message-bubble/);
+  });
+});

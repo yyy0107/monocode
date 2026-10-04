@@ -1407,6 +1407,106 @@ html.theme-light .mobile-logo {
 .mobile-desktop-transcript button {
   min-height: 32px;
 }
+
+/* Phone reading rhythm: slightly larger body text, tighter blocks, and
+   headings scaled to a narrow column instead of a desktop page. */
+.mobile-desktop-transcript .agent-markdown {
+  font-size: 15px;
+  line-height: 1.65;
+}
+.mobile-desktop-transcript .agent-markdown p,
+.mobile-desktop-transcript .agent-markdown [data-streamdown="unordered-list"],
+.mobile-desktop-transcript .agent-markdown [data-streamdown="ordered-list"] {
+  margin-block: 0.55em;
+}
+.mobile-desktop-transcript .agent-markdown li + li {
+  margin-top: 0.3em;
+}
+.mobile-desktop-transcript .agent-markdown [data-streamdown="heading-1"] {
+  font-size: 18px;
+}
+.mobile-desktop-transcript .agent-markdown [data-streamdown="heading-2"] {
+  font-size: 16.5px;
+}
+.mobile-desktop-transcript .agent-markdown [data-streamdown="heading-3"],
+.mobile-desktop-transcript .agent-markdown [data-streamdown="heading-4"] {
+  font-size: 15px;
+}
+.mobile-desktop-transcript .agent-markdown [data-streamdown^="heading-"] {
+  margin-top: 1.1em;
+  margin-bottom: 0.4em;
+  line-height: 1.35;
+}
+.mobile-desktop-transcript .agent-markdown > :first-child,
+.mobile-desktop-transcript .agent-markdown > div > :first-child {
+  margin-top: 0;
+}
+
+/* Inline code flows with the sentence. The shared inline-flex chip cannot
+   wrap, so on a narrow screen it pushed trailing punctuation onto its own line. */
+.mobile-desktop-transcript .agent-markdown code[dir]:not([data-block]) {
+  display: inline;
+  min-height: 0;
+  padding: 0.12em 0.36em;
+  border-radius: 5px;
+  font-size: 0.84em;
+  line-height: inherit;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.mobile-desktop-transcript .agent-markdown code[dir]:not([data-block]) > span[aria-hidden] {
+  display: inline-block;
+  margin-right: 3px;
+  vertical-align: -2px;
+}
+
+/* User bubbles: message-app proportions. A sent message hugs the right edge,
+   stays well short of the full width, and keeps one tail corner. */
+.mobile-desktop-transcript .user-message-row {
+  padding: 4px 12px 14px 18%;
+}
+.mobile-desktop-transcript .user-message-bubble {
+  max-width: 100%;
+  min-height: 38px;
+  padding: 8px 13px;
+  border-radius: 19px 19px 6px 19px;
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+}
+html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-draft="true"]) {
+  background: color-mix(in srgb, var(--user-accent-color) 22%, transparent);
+}
+.mobile-desktop-transcript .user-message-bubble[data-draft="true"] {
+  background: color-mix(in srgb, var(--color-content) 4%, transparent);
+}
+.mobile-desktop-transcript .user-message-bubble > button {
+  min-height: 0;
+}
+.mobile-desktop-transcript .user-message-media {
+  max-width: 100%;
+}
+.mobile-desktop-transcript .user-message-actions {
+  padding: 3px 4px 0;
+  gap: 2px;
+}
+.mobile-desktop-transcript .user-message-actions button {
+  min-height: 28px;
+}
+.mobile-desktop-transcript .user-message-actions time {
+  font-size: 11px;
+}
+/* The actions row is sized against the bubble; with overflow-wrap: anywhere a
+   short message squeezed the clock into one character per line. */
+.mobile-desktop-transcript .user-message-actions {
+  width: max-content;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.mobile-desktop-transcript .user-message-bubble pre,
+.mobile-desktop-transcript .user-message-with-link {
+  font-size: 15px;
+  line-height: 1.45;
+}
+
 .mobile-jump {
   position: absolute;
   right: 18px;
@@ -1415,10 +1515,7 @@ html.theme-light .mobile-logo {
   place-items: center;
   width: 44px;
   height: 44px;
-  border: 1px solid var(--color-stroke);
   border-radius: 50%;
-  background: var(--color-background-base);
-  box-shadow: 0 2px 12px #0002;
 }
 .mobile-shared-question {
   flex-shrink: 0;
@@ -1452,7 +1549,11 @@ html.theme-light .mobile-logo {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin: 12px 0;
+  padding: 12px 0;
+  font-size: 15px;
+}
+.mobile-app-updates dl > div + div {
+  border-top: 0.5px solid var(--mobile-separator);
 }
 .mobile-app-updates dt {
   color: color-mix(in srgb, var(--color-content) 48%, transparent);
@@ -1469,7 +1570,7 @@ html.theme-light .mobile-logo {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-top: 16px;
+  margin-top: 18px;
 }
 .mobile-update-actions .mobile-button {
   flex: 1;
