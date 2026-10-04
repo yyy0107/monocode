@@ -49,6 +49,7 @@ import {
   toolCallEndFromEvent,
   toolCallStartFromEvent,
   toolExecutionEndFromEvent,
+  toolImagesFromEvent,
   toolExecutionStartFromEvent,
   toolExecutionUpdateFromEvent,
   toolKindFromName,
@@ -56,6 +57,8 @@ import {
   tryParseJsonRecord,
   turnErrorFromEvent,
   type PiExtensionUiRequest,
+  thinkingSetting,
+  type PiThinkingLevel,
 } from "./piProtocol";
 import type {
   ApprovalDecision,
@@ -82,13 +85,24 @@ type InFlightTool = {
   finished?: boolean;
 };
 
+type RawImage = Extract<HarnessEvent, { type: "image.generated"; data: string }>;
+export type PiImageMaterializer = (image: RawImage) => Promise<{
+  event: Extract<HarnessEvent, { type: "image.generated"; path: string }>;
+  discard: () => Promise<void>;
+}>;
+
 type Live = {
   rpc: PiRpc;
+  pendingImages: Promise<void>;
+  imageIds: Set<string>;
+  imageMaterializer?: PiImageMaterializer;
   cwd: string;
   providerSessionId: string;
   contextWindow?: number;
   nativeModel: string;
   thinking: string;
+  thinkingLevels?: PiThinkingLevel[];
+  thinkingLevelsModel?: string;
   fastModeEnabled?: boolean;
   fastModeRequested?: boolean;
   planning: boolean;
@@ -130,6 +144,7 @@ const STATS_TIMEOUT_MS = 4_000;
 const COMPACT_TIMEOUT_MS = 30 * 60_000;
 
 type FlavorState = {
+  nextInteractionId: number;
   liveByThread: Map<string, Live>;
   resumeByThread: Map<string, Resume>;
   cancelledThreads: Set<string>;
@@ -147,6 +162,7 @@ function stateFor(flavor: PiFlavor): FlavorState {
   let state = stateByFlavor.get(flavor.id);
   if (!state) {
     state = {
+      nextInteractionId: 1,
       liveByThread: new Map(),
       resumeByThread: new Map(),
       cancelledThreads: new Set(),
@@ -219,6 +235,7 @@ export function setPiBinaryResolver(
 export async function sendTurn(
   flavor: PiFlavor,
   input: SendTurnInput,
+  imageMaterializer?: PiImageMaterializer,
 ): Promise<void> {
   const { cancelledThreads } = stateFor(flavor);
   let live: Live;
@@ -231,6 +248,7 @@ export async function sendTurn(
   if (cancelledThreads.delete(input.sessionId)) return;
 
   live.onEvent = input.onEvent;
+  live.imageMaterializer = imageMaterializer;
   live.turns = live.turns
     .catch(() => undefined)
     .then(async () => {
@@ -326,7 +344,7 @@ export async function steerTurn(
   if (!live?.activeTurn) throw new Error("No active turn to steer");
   const message = input.text.trim();
   const buildCommand =
-    flavor.id === "omp" && message.startsWith("/")
+    message.startsWith("/")
       ? (input: Parameters<typeof buildPiPrompt>[0]) =>
           buildPiPrompt({ ...input, streaming: true })
       : buildPiSteer;
@@ -335,7 +353,9 @@ export async function steerTurn(
     attachments: input.attachments,
   });
   if (!command.message && !Array.isArray(command.images)) return;
-  await live.rpc.request(command);
+  const response = await live.rpc.request(command, message.startsWith("/") ? COMPACT_TIMEOUT_MS : 15_000);
+  if (flavor.id === "pi" && asRecord(response.data)?.disposition === "handled")
+    await syncPiState(flavor, input.sessionId, live, true);
 }
 
 export function respondApproval(
@@ -497,10 +517,12 @@ async function startLive(
 
   const live: Live = {
     rpc,
+    pendingImages: Promise.resolve(),
+    imageIds: new Set(),
     cwd: input.cwd,
     providerSessionId: resume ?? "",
     nativeModel: native,
-    thinking: input.modelSettings?.thinking ?? "",
+    thinking: flavor.id === "pi" ? "" : input.modelSettings?.thinking ?? "",
     fastModeEnabled: undefined,
     fastModeRequested: undefined,
     planning: input.intent === "plan",
@@ -602,6 +624,8 @@ async function runTurn(
   live.turnError = null;
   live.toolsByIndex.clear();
   live.toolsById.clear();
+  live.imageIds.clear();
+  live.pendingImages = Promise.resolve();
   live.compacting = false;
   live.retrying = false;
   live.settleToken += 1;
@@ -626,19 +650,17 @@ async function runTurn(
           }),
           id: promptId,
         },
-        flavor.id === "omp" ? COMPACT_TIMEOUT_MS : 15_000,
+        flavor.id === "omp" || input.text.trimStart().startsWith("/") ? COMPACT_TIMEOUT_MS : 15_000,
       ),
       turnPromise.then(() => null),
     ]);
     input.onAccepted?.();
+    const disposition = asRecord(response?.data);
     if (
-      flavor.id === "omp" &&
-      asRecord(response?.data)?.agentInvoked === false
+      (flavor.id === "omp" && disposition?.agentInvoked === false) ||
+      (flavor.id === "pi" && disposition?.disposition === "handled")
     ) {
-      finishActiveTurn(live, [
-        { type: "message.completed" },
-        { type: "reasoning.completed" },
-      ]);
+      await settleTurn(live, flavor, input.sessionId, flavor.id === "pi");
     }
     settlePendingTurn(live);
     await turnPromise;
@@ -752,6 +774,11 @@ function handleFrame(
   if (live.muteUpdates) return;
 
   const type = stringField(rec, "type");
+  if (flavor.id === "pi" && type === "thinking_level_changed" && isPiThinkingLevel(rec.level as string)) {
+    live.thinking = rec.level as PiThinkingLevel;
+    publishPiThinking(live);
+    return;
+  }
   if (flavor.id === "omp") {
     // OMP emits persisted custom_message entries on the live RPC stream as a
     // message_start/message_end pair. Render the start once; consume the end
@@ -959,17 +986,45 @@ function handleFrame(
     }
   }
 
+  if (flavor.id === "pi" && execEnd) {
+    const result = toolImagesFromEvent(rec);
+    for (const message of result.errors) live.onEvent({ type: "session.error", message });
+    for (const image of result.images) {
+      if (live.imageIds.has(image.itemId)) continue;
+      live.imageIds.add(image.itemId);
+      const materialize = live.imageMaterializer;
+      if (!materialize) { live.onEvent(image); continue; }
+      const token = live.settleToken;
+      live.pendingImages = live.pendingImages.then(async () => {
+        if (live.cancelled || live.muteUpdates || live.settleToken !== token) return;
+        try {
+          const saved = await materialize(image);
+          if (live.cancelled || live.muteUpdates || live.settleToken !== token) {
+            await saved.discard().catch(() => undefined);
+            return;
+          }
+          live.onEvent(saved.event);
+        } catch (error) {
+          if (!live.cancelled && !live.muteUpdates && live.settleToken === token)
+            live.onEvent({ type: "session.error", message: `Could not save Pi image: ${error instanceof Error ? error.message : String(error)}` });
+        }
+      });
+    }
+  }
+
   if (isAgentSettled(rec)) {
     flushTurnError(flavor, live);
-    void settleTurn(live);
+    void settleTurn(live, flavor, sessionId);
     return;
   }
   const willRetry = agentEndWillRetry(rec);
   // The retry carries the real answer, so the attempt it replaces stays quiet.
   if (willRetry === true) live.turnError = null;
-  if (willRetry === false && !live.compacting && !live.retrying) {
+  // Pi's agent_end is only a low-level attempt; queued/automatic work can
+  // follow. Pi 1.0.1 reports actual idle through agent_settled.
+  if (flavor.id === "omp" && willRetry === false && !live.compacting && !live.retrying) {
     flushTurnError(flavor, live);
-    void settleTurn(live);
+    void settleTurn(live, flavor, sessionId);
   }
 }
 
@@ -983,12 +1038,13 @@ function flushTurnError(flavor: PiFlavor, live: Live): void {
   });
 }
 
-async function settleTurn(live: Live): Promise<void> {
+async function settleTurn(live: Live, flavor: PiFlavor, sessionId: string, forceModelRefresh = false): Promise<void> {
   if (live.settling || live.cancelled || live.muteUpdates) return;
   if (!live.activeTurn && !live.turnDone) return;
   live.settling = true;
   const token = live.settleToken;
   try {
+    await syncPiState(flavor, sessionId, live, forceModelRefresh);
     const stats = await live.rpc.request(
       { type: "get_session_stats" },
       STATS_TIMEOUT_MS,
@@ -1000,6 +1056,7 @@ async function settleTurn(live: Live): Promise<void> {
   } catch {
     // meter stays on the last streamed usage
   }
+  await live.pendingImages;
   if (live.settleToken === token && !live.cancelled) {
     finishActiveTurn(live, [
       { type: "message.completed" },
@@ -1029,84 +1086,68 @@ async function handleExtensionUi(
     return;
   }
 
-  if (
-    flavor.id === "omp" &&
-    (request.method === "select" ||
-      request.method === "input" ||
-      request.method === "editor")
-  ) {
-    const uiId = live.nextApprovalUiId++;
+  if ([...live.questions.values()].some(question => question.id === request.id) ||
+      [...live.approvals.values()].some(approval => approval.request.id === request.id)) return;
+
+  if (request.method === "select" || request.method === "input" || request.method === "editor") {
+    const uiId = flavor.id === "pi" ? stateFor(flavor).nextInteractionId++ : live.nextApprovalUiId++;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const replyPromise = new Promise<UserQuestionReply>((resolve) => {
       live.questions.set(uiId, { id: request.id, resolve });
+      if (request.timeout != null) timer = setTimeout(() => resolve({ kind: "skipped" }), request.timeout);
     });
+    const input = flavor.id === "pi" && (request.method === "input" || request.method === "editor")
+      ? { kind: request.method === "editor" ? "multiline" as const : "text" as const,
+          initialValue: request.prefill ?? "", placeholder: request.placeholder,
+          preserveWhitespace: true, allowEmpty: true, maxLength: 10_000 }
+      : undefined;
     live.onEvent({
-      type: "question.asked",
-      requestId: uiId,
-      title: extensionUiTitle(request),
-      questions: [
-        {
-          id: request.id,
-          prompt: extensionUiTitle(request),
-          multiSelect: false,
-          allowCustom: request.method !== "select",
-          options:
-            request.method === "select"
-              ? request.options.map((label, index) => ({
-                  id: String(index),
-                  label: extensionUiTitle({
-                    id: request.id,
-                    method: "notify",
-                    title: label,
-                  }),
-                }))
-              : [],
-        },
-      ],
+      type: "question.asked", requestId: uiId, title: extensionUiTitle(request),
+      ...(request.timeout != null ? { autoResolveAt: Date.now() + request.timeout } : {}),
+      questions: [{ id: request.id, prompt: extensionUiTitle(request), multiSelect: false,
+        allowCustom: request.method !== "select", ...(input ? { input } : {}),
+        options: request.method === "select" ? request.options.map((label, index) => ({
+          id: String(index), label: extensionUiTitle({ id: request.id, method: "notify", title: label }),
+        })) : [],
+      }],
     });
     const reply = await replyPromise;
+    clearTimeout(timer);
     live.questions.delete(uiId);
+    // A stopped process may have been replaced by a new session using the same UI ids.
+    if (stateFor(flavor).liveByThread.get(sessionId) !== live) return;
     let value: string | undefined;
     if (reply.kind === "answered") {
       if (request.method === "select") {
         const selected = reply.answers[request.id]?.[0];
-        if (selected !== undefined && /^\d+$/.test(selected))
-          value = request.options[Number(selected)];
+        if (selected !== undefined && /^\d+$/.test(selected)) value = request.options[Number(selected)];
       } else {
-        value = reply.custom?.[request.id];
+        const candidate = reply.custom?.[request.id];
+        if (typeof candidate === "string" && candidate.length <= 10_000) value = candidate;
+        else if (typeof candidate === "string") live.onEvent({ type: "session.error", message: "Pi extension answer exceeds 10000 characters" });
       }
     }
-    live.onEvent({
-      type: "question.resolved",
-      requestId: uiId,
-      decision: value === undefined ? "skipped" : "answered",
-    });
-    await writeChild(
-      sessionId,
-      JSON.stringify({
-        type: "extension_ui_response",
-        id: request.id,
-        ...(value === undefined ? { cancelled: true } : { value }),
-      }),
-    ).catch(() => undefined);
+    live.onEvent({ type: "question.resolved", requestId: uiId,
+      decision: value === undefined ? "skipped" : "answered" });
+    await writeChild(sessionId, JSON.stringify({ type: "extension_ui_response", id: request.id,
+      ...(value === undefined ? { cancelled: true } : { value }),
+    })).catch(() => undefined);
     return;
   }
 
-  const uiId = live.nextApprovalUiId++;
-  live.onEvent({
-    type: "approval.requested",
-    requestId: uiId,
-    title: extensionUiTitle(request),
-    kind: "other",
-  });
-  const decision = await new Promise<ApprovalDecision>((resolve) => {
+  const uiId = flavor.id === "pi" ? stateFor(flavor).nextInteractionId++ : live.nextApprovalUiId++;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const decisionPromise = new Promise<ApprovalDecision>((resolve) => {
     live.approvals.set(uiId, { request, resolve });
+    if (request.timeout != null) timer = setTimeout(() => resolve("deny"), request.timeout);
   });
+  live.onEvent({ type: "approval.requested", requestId: uiId, title: extensionUiTitle(request), kind: "other" });
+  const decision = await decisionPromise;
+  clearTimeout(timer);
   live.approvals.delete(uiId);
+  if (stateFor(flavor).liveByThread.get(sessionId) !== live) return;
   live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
-  await writeChild(
-    sessionId,
-    JSON.stringify(extensionUiResponse(request, decision)),
-  ).catch(() => undefined);
+  await writeChild(sessionId, JSON.stringify(extensionUiResponse(request, decision))).catch(() => undefined);
 }
 
 async function applyModel(
@@ -1133,12 +1174,20 @@ async function applyModel(
     live.nativeModel = native;
   }
 
+  if (flavor.id === "pi") await refreshPiThinking(live);
   const thinking = input.modelSettings?.thinking;
   if (isPiThinkingLevel(thinking) && thinking !== live.thinking) {
-    await live.rpc
-      .request({ type: "set_thinking_level", level: thinking })
-      .catch(() => undefined);
+    if (flavor.id === "pi" && live.thinkingLevels?.length && !live.thinkingLevels.includes(thinking)) {
+      publishPiThinking(live);
+      throw new Error(`Thinking level ${thinking} is unavailable for the current Pi model`);
+    }
+    const update = live.rpc.request({ type: "set_thinking_level", level: thinking });
+    if (flavor.id === "pi") {
+      try { await update; }
+      catch (error) { publishPiThinking(live); throw error; }
+    } else await update.catch(() => undefined);
     live.thinking = thinking;
+    if (flavor.id === "pi") publishPiThinking(live);
   }
 
   const fast = input.modelSettings?.fast;
@@ -1186,6 +1235,56 @@ async function applyModel(
   }
 }
 
+async function syncPiState(flavor: PiFlavor, sessionId: string, live: Live, force = false): Promise<void> {
+  if (flavor.id !== "pi" || live.cancelled || live.muteUpdates) return;
+  const token = live.settleToken;
+  try {
+    const response = await live.rpc.request({ type: "get_state" }, STATS_TIMEOUT_MS);
+    if (live.cancelled || live.muteUpdates || live.settleToken !== token || stateFor(flavor).liveByThread.get(sessionId) !== live) return;
+    bindState(flavor, sessionId, live, response.data);
+    if (force) live.thinkingLevelsModel = undefined;
+    await refreshPiThinking(live);
+    if (live.settleToken === token && !live.muteUpdates && parsePiModelRef(live.nativeModel))
+      live.onEvent({ type: "session.configChanged", model: `pi:${live.nativeModel}` });
+  } catch {
+    if (live.settleToken === token && !live.muteUpdates)
+      live.onEvent({ type: "status", text: "Pi session state could not be refreshed" });
+  }
+}
+
+function publishPiThinking(live: Live): void {
+  if (live.muteUpdates || !parsePiModelRef(live.nativeModel)) return;
+  const model = `pi:${live.nativeModel}`;
+  const levels = live.thinkingLevels;
+  const setting = thinkingSetting(true)!;
+  live.onEvent({ type: "session.configChanged",
+    ...(isPiThinkingLevel(live.thinking) ? { modelSettings: { thinking: live.thinking } } : {}),
+    ...(levels && live.thinkingLevelsModel === live.nativeModel ? { modelSettingOptions: { model,
+      settings: levels.length ? [{ ...setting, value: live.thinking || levels[0]!,
+        options: setting.options.filter(option => levels.includes(option.value as PiThinkingLevel)) }] : [],
+    } } : {}),
+  });
+}
+
+async function refreshPiThinking(live: Live): Promise<void> {
+  if (!parsePiModelRef(live.nativeModel) || live.thinkingLevelsModel === live.nativeModel) return;
+  const model = live.nativeModel;
+  let levels: PiThinkingLevel[] = [];
+  try {
+    const response = await live.rpc.request({ type: "get_available_thinking_levels" }, STATS_TIMEOUT_MS);
+    const raw = asRecord(response.data)?.levels;
+    if (!Array.isArray(raw)) throw new Error("Pi did not return thinking levels");
+    levels = [...new Set(raw.filter((level): level is PiThinkingLevel => typeof level === "string" && isPiThinkingLevel(level)))];
+    if (!levels.length) throw new Error("Pi returned no supported thinking levels");
+  } catch {
+    if (!live.muteUpdates) live.onEvent({ type: "status", text: "Pi thinking choices are unavailable; keeping the current provider setting" });
+  }
+  if (live.muteUpdates || live.nativeModel !== model) return;
+  live.thinkingLevels = levels;
+  live.thinkingLevelsModel = model;
+  publishPiThinking(live);
+}
+
 function bindState(
   flavor: PiFlavor,
   sessionId: string,
@@ -1208,6 +1307,8 @@ function bindState(
   if (provider && modelId && (flavor.id === "pi" || !live.nativeModel)) {
     live.nativeModel = piNativeId(provider, modelId);
   }
+  const thinking = asRecord(data)?.thinkingLevel;
+  if (flavor.id === "pi" && typeof thinking === "string" && isPiThinkingLevel(thinking)) live.thinking = thinking;
   const fastModeEnabled = asRecord(data)?.fastModeEnabled;
   if (flavor.id === "omp" && typeof fastModeEnabled === "boolean") {
     live.fastModeEnabled = fastModeEnabled;

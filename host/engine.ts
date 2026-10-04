@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { readFileSync, unlinkSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
 import { renameHostWorktreeBranch, resolveHostWorktree } from "./git-worktrees";
 import {
@@ -31,7 +31,8 @@ import {
 } from "../src/features/connections/model/protocol";
 import type { HostProvider } from "./providers";
 import { HostStore } from "./store";
-import { parseRemoteAttachments, resolveAttachments } from "./attachments";
+import { parseRemoteAttachments, resolveAttachments, saveGeneratedImageAttachment } from "./attachments";
+import type { Attachment } from "../src/features/sessions/model/session";
 
 // Streamed output is written in batches. Anything a user may need to act on
 // (approvals, questions, errors, completion) is written immediately.
@@ -255,6 +256,8 @@ export class HostEngine {
     {
       value: HostSession;
       events: HarnessEvent[];
+      imageRunId?: string;
+      imageIds?: Set<string>;
       timer?: ReturnType<typeof setTimeout>;
     }
   >();
@@ -353,9 +356,10 @@ export class HostEngine {
     live.events = [];
   }
 
-  private scheduledFlush(id: string, provider: HostProvider): void {
+  private scheduledFlush(id: string, provider: HostProvider): boolean {
     try {
       this.flush(id);
+      return true;
     } catch (error) {
       const active = this.running.get(id);
       if (active) active.persistenceFailed = true;
@@ -364,6 +368,7 @@ export class HostEngine {
         error instanceof Error ? error.message : "unknown error",
       );
       void provider.stop(id);
+      return false;
     }
   }
 
@@ -865,12 +870,33 @@ export class HostEngine {
     const live = this.live.get(id);
     if (!live || live.value.runId !== runId || live.value.status !== "running")
       return;
+    let savedImage: Attachment | undefined;
+    if (event.type === "image.generated" && "data" in event) {
+      if (live.imageRunId !== runId) { live.imageRunId = runId; live.imageIds = new Set(); }
+      if (live.imageIds!.has(event.itemId)) return;
+      live.imageIds!.add(event.itemId);
+      try {
+        if (event.mimeType && event.mimeType.trim().toLowerCase() !== "image/png") throw new Error("Unsupported generated image type");
+        savedImage = saveGeneratedImageAttachment(this.store, event.data, event.name);
+        event = { type: "image.generated", itemId: event.itemId, path: savedImage.path!,
+          name: savedImage.name, mimeType: savedImage.mimeType, size: savedImage.size,
+          attachment: savedImage, ...(event.alt ? { alt: event.alt } : {}) };
+      } catch (error) {
+        event = { type: "session.error", message: `Could not save generated image: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    }
+    const previousSession = live.value.session;
     const session = applyHarnessEvent(live.value.session, event);
     if (session === live.value.session) return;
     live.value = { ...live.value, session };
     live.events.push(event);
-    if (!BATCHED.has(event.type))
-      this.scheduledFlush(id, this.provider(session.harness));
+    if (!BATCHED.has(event.type)) {
+      if (!this.scheduledFlush(id, this.provider(session.harness)) && savedImage) {
+        try { unlinkSync(savedImage.path!); } catch { /* Keep persistence failure primary. */ }
+        live.value = { ...live.value, session: previousSession };
+        live.events = live.events.filter(value => value !== event);
+      }
+    }
     else
       live.timer ??= setTimeout(
         () => this.scheduledFlush(id, this.provider(session.harness)),

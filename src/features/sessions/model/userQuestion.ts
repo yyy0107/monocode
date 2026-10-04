@@ -15,6 +15,15 @@ export type UserQuestion = {
   multiSelect: boolean;
   allowCustom: boolean;
   options: UserQuestionOption[];
+  /** Optional native text/editor semantics; absent preserves existing questions. */
+  input?: {
+    kind: "text" | "multiline";
+    initialValue?: string;
+    placeholder?: string;
+    preserveWhitespace?: boolean;
+    allowEmpty?: boolean;
+    maxLength?: number;
+  };
 };
 
 export type UserQuestionPrompt = {
@@ -60,13 +69,18 @@ export function questionIsComplete(
   custom: Record<string, string> = {},
 ): boolean {
   const selected = answers[question.id] ?? [];
+  const raw = custom[question.id];
+  const text = question.input?.preserveWhitespace ? raw : raw?.trim();
+  const hasText = typeof raw === "string" &&
+    (question.input?.allowEmpty === true || !!text) &&
+    (question.input?.maxLength == null || raw.length <= question.input.maxLength);
   if (selected.length === 0) {
-    return question.allowCustom && !!custom[question.id]?.trim();
+    return question.allowCustom && hasText;
   }
   if (!question.multiSelect && selected.length !== 1) return false;
   return selected.every((id) => {
     if (!isCustomSelection(question, id)) return true;
-    return !!custom[question.id]?.trim();
+    return hasText;
   });
 }
 
@@ -96,8 +110,10 @@ export function buildQuestionReply(
   for (const question of answered) {
     const selected = answers[question.id];
     if (selected?.length) nextAnswers[question.id] = selected;
-    const text = custom[question.id]?.trim();
-    if (text) nextCustom[question.id] = text;
+    const raw = custom[question.id];
+    const text = question.input?.preserveWhitespace ? raw : raw?.trim();
+    if (typeof text === "string" && (text || question.input?.allowEmpty))
+      nextCustom[question.id] = text;
   }
   return {
     kind: "answered",

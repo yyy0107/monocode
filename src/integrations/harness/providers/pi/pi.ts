@@ -1,9 +1,12 @@
+import { isTauri } from "@tauri-apps/api/core";
+import { saveGeneratedImage, deleteGeneratedImages } from "../../../../platform/tauri/fs";
 import {
   bindSession,
   cancelTurn,
   compactContext,
   forgetSession,
   respondApproval,
+  respondQuestion,
   rewindLastTurn,
   sendTurn,
   setPiBinaryResolver as setFlavorBinaryResolver,
@@ -11,6 +14,7 @@ import {
   stopSession,
 } from "./piFamily";
 import { PI_FLAVOR } from "./piFlavor";
+import type { UserQuestionReply } from "../../../../features/sessions/model/userQuestion";
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -26,7 +30,13 @@ import type {
  * keep working; TUI-only widgets do not appear in MonoCode.
  */
 export function sendPiTurn(input: SendTurnInput): Promise<void> {
-  return sendTurn(PI_FLAVOR, input);
+  return sendTurn(PI_FLAVOR, input, typeof isTauri === "function" && isTauri() ? async image => {
+    const asset = await saveGeneratedImage({ data: image.data, name: image.name });
+    return { event: { type: "image.generated", itemId: image.itemId,
+      path: asset.path, name: image.name, mimeType: asset.mimeType, size: asset.size },
+      discard: () => deleteGeneratedImages([asset.path]),
+    };
+  } : undefined);
 }
 
 export function compactPiContext(input: CompactContextInput): Promise<void> {
@@ -49,6 +59,10 @@ export function respondPiApproval(
   decision: ApprovalDecision,
 ): void {
   respondApproval(PI_FLAVOR, sessionId, requestId, decision);
+}
+
+export function respondPiQuestion(sessionId: string, requestId: number, reply: UserQuestionReply): void {
+  respondQuestion(PI_FLAVOR, sessionId, requestId, reply);
 }
 
 export function cancelPiTurn(sessionId: string): Promise<void> {

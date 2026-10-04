@@ -244,7 +244,7 @@ async function startLive(
     childId,
     (rec) => {
       const current = liveRef.current;
-      if (current) handleFrame(current, rec);
+      if (current) handleFrame(flavor, current, rec);
     },
     flavor.label,
   );
@@ -317,7 +317,7 @@ async function dropLive(flavor: PiFlavor): Promise<void> {
   await killChild(childId).catch(() => undefined);
 }
 
-function handleFrame(session: LiveText, rec: Record<string, unknown>) {
+function handleFrame(flavor: PiFlavor, session: LiveText, rec: Record<string, unknown>) {
   if (!session.collecting) return;
   const delta = assistantDeltaFromEvent(rec);
   if (delta?.kind === "text") {
@@ -326,7 +326,7 @@ function handleFrame(session: LiveText, rec: Record<string, unknown>) {
   } else if (delta?.kind === "thinking") {
     session.onEvent?.({ type: "reasoning.delta", text: delta.text });
   }
-  if (isAgentSettled(rec) || agentEndWillRetry(rec) === false) {
+  if (isAgentSettled(rec) || (flavor.id === "omp" && agentEndWillRetry(rec) === false)) {
     if (session.turnDone) finishTurn(session);
     else session.turnEndPending = true;
   }

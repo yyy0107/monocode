@@ -24,11 +24,25 @@ import {
   providerSessionIdFromState,
   toolCallStartFromEvent,
   toolExecutionEndFromEvent,
+  toolImagesFromEvent,
   toolExecutionStartFromEvent,
   toolKindFromName,
   toolTitle,
   turnErrorFromEvent,
 } from "./piProtocol";
+
+it("keeps valid final PNG content and reports unsupported images", () => {
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+  const result = toolImagesFromEvent({ type: "tool_execution_end", toolCallId: "paint",
+    result: { content: [{ type: "text", text: "Done" }, { type: "image", data: png, mimeType: "image/png" },
+      { type: "image", data: "broken", mimeType: "image/jpeg" }] } });
+  expect(result.images).toEqual([{ type: "image.generated", itemId: "pi:paint:image:1",
+    data: png, name: "pi-image-1.png", mimeType: "image/png" }]);
+  expect(result.errors).toHaveLength(1);
+  expect(toolImagesFromEvent({ type: "tool_execution_update", partialResult: { content: [{ type: "image", data: png, mimeType: "image/png" }] } }).images).toEqual([]);
+  expect(toolImagesFromEvent({ type: "tool_execution_end", toolCallId: "child", parentToolCallId: "codemode",
+    result: { content: [{ type: "image", data: png, mimeType: "image/png" }] } }).images).toEqual([]);
+});
 import { OMP_FLAVOR, PI_FLAVOR } from "./piFlavor";
 
 describe("buildPiSpawnArgs", () => {

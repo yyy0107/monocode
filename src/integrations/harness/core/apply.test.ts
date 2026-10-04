@@ -16,6 +16,26 @@ import {
 
 let now = 0;
 
+it("keeps a generated image's remote attachment on the image row and deduplicates it", () => {
+  const attachment = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", name: "generated.png",
+    mimeType: "image/png", kind: "image" as const, size: 70, path: "/host/image" };
+  const event = { type: "image.generated" as const, itemId: "image", name: attachment.name,
+    mimeType: attachment.mimeType, size: attachment.size, path: attachment.path, attachment };
+  const state = applyHarnessEvent(newSession("pi", "/repo"), event);
+  expect(state.blocks[0]).toMatchObject({ role: "image", image: { path: "/host/image" }, attachments: [attachment] });
+  expect(applyHarnessEvent(state, event)).toBe(state);
+  expect(sanitizeSessionForPersist(state).blocks[0]?.attachments).toEqual([attachment]);
+});
+
+it("invalidates session model choices when the model changes", () => {
+  const options = { model: "pi:provider/one", settings: [] };
+  const state = applyHarnessEvent(newSession("pi", "/repo"), {
+    type: "session.configChanged", model: options.model, modelSettingOptions: options,
+  });
+  expect(state.modelSettingOptions).toEqual(options);
+  expect(applyHarnessEvent(state, { type: "session.configChanged", model: "pi:provider/two" }).modelSettingOptions).toBeUndefined();
+});
+
 beforeEach(() => {
   now = 0;
   vi.spyOn(Date, "now").mockImplementation(() => now);

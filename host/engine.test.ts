@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SendTurnInput } from "../src/integrations/harness/core/types";
@@ -61,6 +61,47 @@ function setup(harness: "codex" | "claude" = "codex") {
 }
 
 describe("headless session ownership", () => {
+  it("persists generated PNG history, deduplicates events and enforces session ownership", async () => {
+    const { engine, store, turns, id } = setup();
+    engine.command({ type: "send", commandId: "paint", sessionId: id, text: "Paint" });
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    const event = { type: "image.generated" as const, itemId: "paint", name: "saved.png", data: png, mimeType: "image/png" };
+    turns[0].input.onEvent(event); turns[0].input.onEvent(event);
+    expect(store.session(id).session.blocks.filter(block => block.role === "image")).toHaveLength(1);
+    const block = store.session(id).session.blocks.find(block => block.role === "image")!;
+    const file = block.attachments![0];
+    expect(readAttachmentChunk(store, { sessionId: id, id: file.id, offset: 0 }).data).toBe(png);
+    expect(JSON.stringify(store.session(id))).not.toContain(png);
+    const other = engine.command({ type: "create", commandId: "other-image-session", projectId: store.session(id).projectId,
+      harness: "codex", model: "codex:test", runtimeMode: "supervised" });
+    expect(() => readAttachmentChunk(store, { sessionId: other.sessionId, id: file.id, offset: 0 })).toThrow("not found");
+    turns[0].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+    const snapshot = store.sync(id);
+    expect(snapshot.kind).toBe("snapshot");
+    if (snapshot.kind === "snapshot") expect(snapshot.value.session.blocks.find(row => row.role === "image")?.attachments?.[0]?.id).toBe(file.id);
+    turns[0].input.onEvent({ ...event, itemId: "late" });
+    expect(readdirSync(store.attachmentDir)).toHaveLength(1);
+  });
+
+  it("shows image-save errors and removes files when database persistence fails", async () => {
+    const { engine, store, turns, id } = setup();
+    engine.command({ type: "send", commandId: "bad-image", sessionId: id, text: "Paint" });
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    turns[0].input.onEvent({ type: "image.generated", itemId: "bad", name: "bad.png", data: "AAAA" });
+    expect(store.session(id).session.blocks.at(-1)?.notice).toBe("error");
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(store, "save").mockImplementationOnce(() => { throw new Error("disk full"); });
+    try {
+      turns[0].input.onEvent({ type: "image.generated", itemId: "save-fails", name: "saved.png", data: png });
+      expect(readdirSync(store.attachmentDir)).toHaveLength(0);
+      await vi.waitFor(() => expect(store.session(id).status).toBe("interrupted"));
+      expect(store.session(id).session.blocks.some(block => block.role === "image")).toBe(false);
+    } finally { log.mockRestore(); }
+  });
+
   it.each(["send", "compact"] as const)("clears the old draft when a normal %s starts", async (type) => {
     const { engine, store, turns, provider, id } = setup();
     provider.compact = (input) => provider.send({ ...input, text: "/compact" });

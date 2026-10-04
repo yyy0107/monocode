@@ -82,3 +82,24 @@ it("forwards Pi text and reasoning deltas to an isolated prompt", async () => {
     { type: "message.delta", text: "Partial answer" },
   ]);
 });
+
+it("keeps collecting after an intermediate Pi agent_end", async () => {
+  let finished = false;
+  const result = runPiTextPrompt({ cwd: "/repo", model: "anthropic/claude-haiku",
+    prompt: "question", timeoutMs: 1000,
+  }).then(value => { finished = true; return value; });
+  await waitFor(() => mocks.request.mock.calls.some(([request]) => request.type === "prompt"), "prompt");
+  const frame = mocks.frames[0]!;
+  frame({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "First" } });
+  frame({ type: "agent_end", willRetry: false });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(finished).toBe(false);
+    frame({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: " answer" } });
+    frame({ type: "agent_settled" });
+    await expect(result).resolves.toBe("First answer");
+  } finally {
+    frame({ type: "agent_settled" });
+    await result;
+  }
+});
