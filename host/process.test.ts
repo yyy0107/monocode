@@ -62,3 +62,45 @@ it.runIf(process.platform !== "win32")(
     }
   },
 );
+
+it.runIf(process.platform !== "win32")(
+  "recognizes Pi's thin npm bin from its package manifest without executing it",
+  async () => {
+    const directory = mkdtempSync(join(tmpdir(), "monocode-pi-npm-identity-"));
+    const packageDirectory = join(
+      directory,
+      "node_modules/@earendil-works/pi-coding-agent",
+    );
+    const target = join(packageDirectory, "dist/bundle/cli.js");
+    const candidate = join(directory, "pi");
+    const sentinel = join(directory, "executed");
+    mkdirSync(join(packageDirectory, "dist/bundle"), { recursive: true });
+    writeFileSync(
+      join(packageDirectory, "package.json"),
+      JSON.stringify({
+        name: "@earendil-works/pi-coding-agent",
+        bin: { pi: "dist/bundle/cli.js" },
+      }),
+    );
+    writeFileSync(target, `#!/bin/sh\nprintf bad > '${sentinel}'\n`);
+    chmodSync(target, 0o755);
+    symlinkSync(target, candidate);
+    vi.stubEnv("PATH", directory);
+    try {
+      expect(await resolveProvider("pi")).toBe(candidate);
+      expect(existsSync(sentinel)).toBe(false);
+      writeFileSync(
+        join(packageDirectory, "package.json"),
+        JSON.stringify({
+          name: "@earendil-works/pi-coding-agent",
+          bin: { pi: "different-entry.js" },
+        }),
+      );
+      await expect(resolveProvider("pi")).rejects.toThrow("not installed");
+      expect(existsSync(sentinel)).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);

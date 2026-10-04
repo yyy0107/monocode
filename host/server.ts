@@ -118,9 +118,9 @@ async function providerBinaries(providers: RemoteProvider[]): Promise<string> {
     providers.map(async (provider) => {
       try {
         const file = await realpath((await resolveBinary[provider]()).path);
-        return `${file}:${(await stat(file)).mtimeMs}`;
+        return `${provider}:${file}:${(await stat(file)).mtimeMs}`;
       } catch {
-        return "";
+        return `${provider}:missing`;
       }
     }),
   );
@@ -131,7 +131,17 @@ export function createHostServer(
   engine: HostEngine,
   providers: RemoteProvider[],
   lifecycle?: (request: IncomingMessage, response: ServerResponse) => void,
+  discoverProviders?: () => Promise<RemoteProvider[]>,
 ) {
+  let discovering: Promise<RemoteProvider[]> | undefined;
+  const availableProviders = () => {
+    if (!discoverProviders) return Promise.resolve(providers);
+    if (!discovering)
+      discovering = discoverProviders().finally(() => {
+        discovering = undefined;
+      });
+    return discovering;
+  };
   const catalogs = new Map<
     string,
     { binaries: string; probed: number; catalog: Promise<HostModelCatalog> }
@@ -146,7 +156,8 @@ export function createHostServer(
       typeof projectId === "string"
         ? engine.store.project(projectId).cwd
         : homedir();
-    const binaries = await providerBinaries(providers);
+    const available = await availableProviders();
+    const binaries = await providerBinaries(available);
     const cached = catalogs.get(cwd);
     let catalog =
       cached?.binaries === binaries &&
@@ -157,7 +168,7 @@ export function createHostServer(
       catalog = (async () => {
         const result: HostModelCatalog = { models: {}, errors: {} };
         await Promise.all(
-          providers.map(async (provider) => {
+          available.map(async (provider) => {
             try {
               const discovered = await discoverModels[provider](cwd);
               result.models[provider] = discovered;
@@ -256,7 +267,7 @@ export function createHostServer(
               name: hostname(),
               platform: process.platform,
               // Older clients validate this list against Codex and Claude only.
-              providers: providers.filter((provider) =>
+              providers: (await availableProviders()).filter((provider) =>
                 Array.isArray(params.supportedProviders)
                   ? params.supportedProviders.includes(provider)
                   : provider === "codex" || provider === "claude"

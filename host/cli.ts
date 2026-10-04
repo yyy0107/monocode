@@ -232,15 +232,22 @@ Connect another computer using an SSH forward to the loopback port.`);
   try {
     configureChildBackend(backend);
     const release = await acquireHarnessBridge();
-    const available: RemoteProvider[] = [];
-    for (const provider of REMOTE_PROVIDERS) {
-      try {
-        await backend.resolve(provider);
-        available.push(provider);
-      } catch {
-        /* report via descriptor */
-      }
-    }
+    const discoverAvailableProviders = async (): Promise<RemoteProvider[]> => {
+      const detected = await Promise.all(
+        REMOTE_PROVIDERS.map(async (provider) => {
+          try {
+            await backend.resolve(provider);
+            return provider;
+          } catch {
+            return undefined;
+          }
+        }),
+      );
+      return detected.filter(
+        (provider): provider is RemoteProvider => provider !== undefined,
+      );
+    };
+    const available = await discoverAvailableProviders();
     const engine = new HostEngine(store, hostProviders);
     const secret = randomBytes(32).toString("base64url");
     let stopping = false;
@@ -274,7 +281,7 @@ Connect another computer using an SSH forward to the loopback port.`);
           response.writeHead(400).end();
         }
       });
-    });
+    }, discoverAvailableProviders);
     stop = async () => {
       if (stopping) return;
       stopping = true;

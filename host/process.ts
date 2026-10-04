@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { access, readlink, stat } from "node:fs/promises";
+import { access, readFile, readlink, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, extname, join, basename } from "node:path";
@@ -70,15 +70,21 @@ async function matchesProvider(
     return fileContains(candidate, ["cursor-agent"], 64 * 1024);
   }
   if (provider === "pi" && name === "pi")
-    return fileContains(
-      candidate,
-      [
-        "pi-coding-agent",
-        "@earendil-works/pi",
+    return (
+      (await npmBinMatches(candidate, [
+        "@earendil-works/pi-coding-agent",
         "@mariozechner/pi-coding-agent",
-        "pi_coding_agent",
-      ],
-      64 * 1024,
+      ])) ||
+      fileContains(
+        candidate,
+        [
+          "pi-coding-agent",
+          "@earendil-works/pi",
+          "@mariozechner/pi-coding-agent",
+          "pi_coding_agent",
+        ],
+        64 * 1024,
+      )
     );
   if (provider === "fx")
     return fileContains(candidate, [
@@ -88,6 +94,43 @@ async function matchesProvider(
       "fx acp",
     ]);
   return true;
+}
+
+// Pi 1.x's npm executable is a tiny forwarding module without a provider name
+// in its contents. Check the package's declared bin target without executing it.
+async function npmBinMatches(
+  candidate: string,
+  names: string[],
+): Promise<boolean> {
+  const target = await realpath(candidate);
+  let directory = dirname(target);
+  for (let depth = 0; depth < 6; depth++) {
+    try {
+      const manifest = JSON.parse(
+        await readFile(join(directory, "package.json"), "utf8"),
+      );
+      if (names.includes(manifest.name)) {
+        const entries =
+          typeof manifest.bin === "string"
+            ? [manifest.bin]
+            : Object.values(manifest.bin ?? {});
+        for (const entry of entries) {
+          if (
+            typeof entry === "string" &&
+            (await realpath(join(directory, entry))) === target
+          )
+            return true;
+        }
+        return false;
+      }
+    } catch {
+      /* keep checking the bounded package ancestry */
+    }
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return false;
 }
 
 async function fileContains(

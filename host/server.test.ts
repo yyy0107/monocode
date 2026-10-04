@@ -20,11 +20,16 @@ import type { SendTurnInput } from "../src/integrations/harness/core/types";
 import type { RemoteProvider } from "../src/features/connections/model/protocol";
 
 const modelProbe = vi.hoisted(() => vi.fn());
+const piModelProbe = vi.hoisted(() => vi.fn());
 vi.mock("../src/integrations/harness/providers/codex/codexCatalog", () => ({
   discoverCodexModels: modelProbe,
 }));
+vi.mock("../src/integrations/harness/providers/pi/piCatalog", () => ({
+  discoverPiModels: piModelProbe,
+  discoverOmpModels: vi.fn(),
+}));
 // Catalog tests point the host at a stand-in provider CLI.
-const binaries: { codex?: string } = {};
+const binaries: Partial<Record<RemoteProvider, string>> = {};
 configureChildBackend(new HostChildBackend(binaries));
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -32,7 +37,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-async function setup(providers: RemoteProvider[] = ["codex"]) {
+async function setup(providers: RemoteProvider[] = ["codex"], discoverProviders?: () => Promise<RemoteProvider[]>) {
   const directory = mkdtempSync(join(tmpdir(), "monocode-server-test-"));
   const store = new HostStore(join(directory, "host.db"));
   let turn: SendTurnInput | undefined;
@@ -56,7 +61,7 @@ async function setup(providers: RemoteProvider[] = ["codex"]) {
   // Follow production's canonicalization, including Windows 8.3 paths such
   // as RUNNER~1 in the CI runner's temporary directory.
   const project = await engine.openProject(directory);
-  const server = createHostServer(engine, providers);
+  const server = createHostServer(engine, providers, undefined, discoverProviders);
   try {
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -313,6 +318,40 @@ describe("remote host API", () => {
     expect((await s.call("environment.describe", {
       supportedProviders: ["codex", "cursor"],
     })).value.result.providers).toEqual(["codex", "cursor"]);
+  });
+  it("discovers a newly installed Pi and invalidates the model catalog without restarting", async () => {
+    let available: RemoteProvider[] = ["codex"];
+    const s = await setup(["codex"], async () => available);
+    const binary = join(s.directory, "provider-cli");
+    writeFileSync(binary, "");
+    binaries.codex = binary;
+    binaries.pi = binary;
+    cleanups.push(async () => {
+      delete binaries.codex;
+      delete binaries.pi;
+    });
+    modelProbe.mockResolvedValue([
+      { id: "codex:test", name: "Codex", harness: "codex" },
+    ]);
+    piModelProbe.mockResolvedValue([
+      { id: "pi:test", name: "Pi model", harness: "pi" },
+    ]);
+    const list = async () =>
+      (await s.call("models.list", { projectId: s.project.id })).value.result;
+    expect((await list()).models).not.toHaveProperty("pi");
+    available = ["codex", "pi"];
+    expect(
+      (
+        await s.call("environment.describe", {
+          supportedProviders: ["codex", "pi"],
+        })
+      ).value.result.providers,
+    ).toEqual(["codex", "pi"]);
+    expect((await list()).models.pi).toEqual([
+      { id: "pi:test", name: "Pi model", harness: "pi" },
+    ]);
+    available = ["pi"];
+    expect((await list()).models).not.toHaveProperty("codex");
   });
   it("re-probes models after the provider CLI is updated", async () => {
     const s = await setup();
