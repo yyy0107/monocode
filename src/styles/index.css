@@ -81,6 +81,7 @@
   --theme-saturation: 0%;
   --theme-dark-lightness: 9%;
   --sidebar-opacity: 0.85;
+  --popover-opacity: 0.02;
   --chat-background-empty-opacity: 0.24;
   --chat-background-session-opacity: 0.24;
   --selection-subtle-strength: 8%;
@@ -2700,14 +2701,22 @@ header[data-tauri-drag-region] button {
   }
 }
 
-/* Keep the original glass tint in dark mode. Light popovers use an opaque
-   surface so underlying content cannot show through. */
+/* Appearance controls popover background opacity in both color schemes. The
+   main window remains opaque in light mode. */
 .popover-backdrop {
-  background: color-mix(in srgb, var(--color-content) 2%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) calc(var(--popover-opacity) * 100%),
+    transparent
+  );
 }
 
 html.theme-light .popover-backdrop {
-  background: var(--color-background-base);
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) calc(var(--popover-opacity) * 100%),
+    transparent
+  );
 }
 
 /* Animate content only; its sibling glass stays still. Finish at `none` and

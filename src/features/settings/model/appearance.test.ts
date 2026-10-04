@@ -30,6 +30,9 @@ import {
   THEME_PREFERENCE_DEFAULT,
   THEME_DARK_LIGHTNESS_DEFAULT,
   NEW_THREAD_BACKGROUND_EFFECT_DEFAULT,
+  POPOVER_OPACITY_DEFAULT,
+  loadPopoverOpacity,
+  savePopoverOpacity,
 } from "./appearance";
 
 const KEY = "monocode.transcriptLayout";
@@ -42,6 +45,7 @@ const CHAT_BACKGROUND_OPACITY_KEY = "monocode.chatBackgroundOpacity";
 const CHAT_BACKGROUND_SCOPE_KEY = "monocode.chatBackgroundScope";
 const NEW_THREAD_BACKGROUND_EFFECT_KEY = "monocode.newThreadBackgroundEffect";
 const THEME_DARK_LIGHTNESS_KEY = "monocode.themeDarkLightness";
+const POPOVER_OPACITY_KEY = "monocode.popoverOpacity";
 
 function mockLocalStorage() {
   const data = new Map<string, string>();
@@ -285,5 +289,26 @@ describe("dark theme lightness setting", () => {
     expect(loadThemeDarkLightness()).toBe(0);
     saveThemeDarkLightness(100);
     expect(loadThemeDarkLightness()).toBe(30);
+  });
+});
+
+describe("Popover opacity setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(POPOVER_OPACITY_KEY);
+  });
+
+  it("defaults to the existing translucent menu appearance", () => {
+    expect(POPOVER_OPACITY_DEFAULT).toBe(0.02);
+    expect(loadPopoverOpacity()).toBe(POPOVER_OPACITY_DEFAULT);
+  });
+
+  it("persists and clamps the menu opacity", () => {
+    savePopoverOpacity(0.5);
+    expect(loadPopoverOpacity()).toBe(0.5);
+    savePopoverOpacity(-1);
+    expect(loadPopoverOpacity()).toBe(0);
+    savePopoverOpacity(2);
+    expect(loadPopoverOpacity()).toBe(1);
   });
 });

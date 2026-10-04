@@ -59,6 +59,7 @@ import {
   applyChatBackgroundScope,
   applyAccentColor,
   applyBodyGlass,
+  applyPopoverOpacity,
   applySidebarBlur,
   applySidebarOpacity,
   applyThemeDarkLightness,
@@ -74,6 +75,7 @@ import {
   THEME_PREFERENCE_DEFAULT,
   chatBackgroundSrc,
   loadBodyGlass,
+  loadPopoverOpacity,
   loadAccentColor,
   loadChatBackgroundEmptyOpacity,
   loadChatBackgroundPath,
@@ -89,6 +91,7 @@ import {
   loadTranscriptLayout,
   loadTranscriptAnchor,
   saveBodyGlass,
+  savePopoverOpacity,
   saveAccentColor,
   saveChatBackgroundEmptyOpacity,
   saveChatBackgroundPath,
@@ -115,6 +118,9 @@ import {
   SIDEBAR_OPACITY_DEFAULT,
   SIDEBAR_OPACITY_MAX,
   SIDEBAR_OPACITY_MIN,
+  POPOVER_OPACITY_DEFAULT,
+  POPOVER_OPACITY_MAX,
+  POPOVER_OPACITY_MIN,
   THEME_DARK_LIGHTNESS_DEFAULT,
   THEME_DARK_LIGHTNESS_MAX,
   THEME_DARK_LIGHTNESS_MIN,
@@ -1911,6 +1917,7 @@ function useAppearanceSettings(
     useState<ThemePreference>(loadThemePreference);
   const [accentColor, setAccentColor] = useState(loadAccentColor);
   const [opacity, setOpacity] = useState(loadSidebarOpacity);
+  const [popoverOpacity, setPopoverOpacity] = useState(loadPopoverOpacity);
   const [blur, setBlur] = useState(loadSidebarBlur);
   const [themeHue, setThemeHue] = useState(loadThemeHue);
   const [themeSaturation, setThemeSaturation] = useState(loadThemeSaturation);
@@ -1961,6 +1968,12 @@ function useAppearanceSettings(
     const next = applySidebarOpacity(percent / 100);
     saveSidebarOpacity(next);
     setOpacity(next);
+  }, []);
+
+  const onPopoverOpacity = useCallback((percent: number) => {
+    const next = applyPopoverOpacity(percent / 100);
+    savePopoverOpacity(next);
+    setPopoverOpacity(next);
   }, []);
 
   const onBlur = useCallback((radius: number) => {
@@ -2075,6 +2088,7 @@ function useAppearanceSettings(
     onThemePreference(THEME_PREFERENCE_DEFAULT);
     onAccentColor(ACCENT_COLOR_DEFAULT);
     onOpacity(Math.round(SIDEBAR_OPACITY_DEFAULT * 100));
+    onPopoverOpacity(Math.round(POPOVER_OPACITY_DEFAULT * 100));
     onBlur(SIDEBAR_BLUR_DEFAULT);
     onTint(THEME_HUE_DEFAULT, THEME_SATURATION_DEFAULT);
     onDarkLightness(THEME_DARK_LIGHTNESS_DEFAULT);
@@ -2104,6 +2118,7 @@ function useAppearanceSettings(
     onShowExcludedFiles,
     onThemePreference,
     onOpacity,
+    onPopoverOpacity,
     onTint,
     onDarkLightness,
     onUiScale,
@@ -2114,6 +2129,7 @@ function useAppearanceSettings(
     themePreference,
     accentColor,
     opacity,
+    popoverOpacity,
     blur,
     themeHue,
     themeSaturation,
@@ -2132,6 +2148,7 @@ function useAppearanceSettings(
     onThemePreference,
     onAccentColor,
     onOpacity,
+    onPopoverOpacity,
     onBlur,
     onTint,
     onDarkLightness,
@@ -2152,6 +2169,7 @@ function useAppearanceSettings(
 function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
   const { t: uiT } = useTranslation();
   const percent = Math.round(appearance.opacity * 100);
+  const popoverPercent = Math.round(appearance.popoverOpacity * 100);
   const glassDisabled = useColorScheme() === "light";
 
   return (
@@ -2260,7 +2278,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         description={
           glassDisabled
             ? uiT(
-                "Light mode always uses an opaque window, so these are off. Your dark-mode values are preserved.",
+                "Light mode keeps the main window opaque, but Popover opacity still applies to menus and pickers.",
               )
             : uiT(
                 "How much of the desktop shows through MonoCode. Blur costs more to composite the higher it goes.",
@@ -2282,6 +2300,20 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             max={Math.round(SIDEBAR_OPACITY_MAX * 100)}
             onChange={appearance.onOpacity}
             disabled={glassDisabled}
+          />
+        </Row>
+        <Row
+          id="popover-opacity"
+          label={uiT("Popover opacity")}
+          description={uiT("How much background shows through menus, pickers, and other popovers.")}
+        >
+          <Slider
+            label={uiT("Popover opacity")}
+            value={popoverPercent}
+            display={`${popoverPercent}%`}
+            min={Math.round(POPOVER_OPACITY_MIN * 100)}
+            max={Math.round(POPOVER_OPACITY_MAX * 100)}
+            onChange={appearance.onPopoverOpacity}
           />
         </Row>
         <Row
