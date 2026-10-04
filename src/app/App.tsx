@@ -389,6 +389,7 @@ import {
   type AddToChatRequest,
 } from "../features/sessions/model/quoteDraft";
 import { createSessionRemover } from "../features/sessions/model/sessionRemoval";
+import { installNativeSessionSync } from "../features/sessions/data/nativeSessions";
 import { shouldGenerateSessionTitle } from "../features/sessions/model/sessionTitle";
 import {
   DEFAULT_PROVIDER_ACCOUNT_ID,
@@ -1949,6 +1950,42 @@ function Workspace({
       if (!loadedProjectsRef.current.has(key)) setHistoryErrorCwd(key);
     }
   }, []);
+
+  useEffect(
+    () =>
+      installNativeSessionSync({
+        getLive: (id) =>
+          sessionsRef.current.find((session) => session.id === id),
+        lock: (id) => {
+          const session = sessionsRef.current.find((entry) => entry.id === id);
+          if (
+            session?.busy ||
+            session?.pendingSwitch ||
+            session?.queuedMessages?.length ||
+            session?.pendingQuestion ||
+            removingSessionIds.current.has(id) ||
+            switchingWorktrees.current.has(id)
+          )
+            return undefined;
+          removingSessionIds.current.add(id);
+          return () => {
+            removingSessionIds.current.delete(id);
+          };
+        },
+        changed: (session, summary, imported) => {
+          loadedSessionCache.current.delete(session.id);
+          lastPersisted.current.set(session.id, persistFingerprint(session));
+          const next = sessionsRef.current.map((entry) =>
+            entry.id === session.id ? session : entry,
+          );
+          sessionsRef.current = next;
+          setSessions(next);
+          setHistory((current) => mergeProjectHistorySummary(current, summary));
+          if (imported) setRecents(rememberProject(session.cwd));
+        },
+      }),
+    [],
+  );
 
   useEffect(() => {
     void refreshHistory(sidebarCwd);
@@ -3962,6 +3999,7 @@ function Workspace({
           sessionWorkCwd(restored),
           restored.providerAccountId,
           restored.blocks,
+          restored.nativeSession,
         );
       }
       lastPersisted.current.set(restored.id, persistFingerprint(restored));
@@ -8971,6 +9009,7 @@ function Workspace({
             sessionWorkCwd(worker),
             worker.providerAccountId,
             worker.blocks,
+            worker.nativeSession,
           );
         await upsertSession(worker);
         const next = [...sessionsRef.current, worker];

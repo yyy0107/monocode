@@ -36,7 +36,7 @@ vi.mock("./piClient", () => ({
   },
 }));
 
-import { compactPiContext, stopPiSession, sendPiTurn, cancelPiTurn, respondPiQuestion, steerPiTurn } from "./pi";
+import { bindPiSession, compactPiContext, stopPiSession, sendPiTurn, cancelPiTurn, respondPiQuestion, steerPiTurn } from "./pi";
 import type { HarnessEvent } from "../../core/types";
 import { sendTurn as sendFamilyTurn } from "./piFamily";
 import { PI_FLAVOR } from "./piFlavor";
@@ -69,6 +69,37 @@ describe("Pi live session", () => {
         return { data: {} };
       },
     );
+  });
+
+  it("resumes imported files exactly and reloads their latest history between idle operations", async () => {
+    const source = { provider: "pi" as const, providerSessionId: "pi_session", path: "/native/import.jsonl", revision: "1", blockIds: [], createdAt: 1, updatedAt: 2 };
+    bindPiSession("pi-import", "pi_session", "/repo", undefined, source);
+    const input = { sessionId: "pi-import", cwd: "/repo", model: "pi:default", runtimeMode: "supervised" as const, onEvent: vi.fn() };
+    await compactPiContext(input);
+    await compactPiContext(input);
+    expect(mocks.spawnChild).toHaveBeenCalledTimes(2);
+    for (const call of mocks.spawnChild.mock.calls) expect(call[2]).toContain(source.path);
+    await stopPiSession("pi-import");
+  });
+
+  it("keeps ordinary Pi sessions live when native state exposes their session file", async () => {
+    const request = mocks.request.getMockImplementation()!;
+    mocks.request.mockImplementation(async (command: Record<string, unknown>) => {
+      const reply = await request(command);
+      return command.type === "get_state" ? { data: { ...reply.data, sessionFile: "/ordinary/pi.jsonl" } } : reply;
+    });
+    const input = { sessionId: "pi-ordinary-file", cwd: "/repo", model: "pi:default", runtimeMode: "supervised" as const, onEvent: vi.fn() };
+    await compactPiContext(input);
+    await compactPiContext(input);
+    expect(mocks.spawnChild).toHaveBeenCalledOnce();
+    await stopPiSession("pi-ordinary-file");
+  });
+
+  it("fails an imported resume instead of falling back to an empty Pi session", async () => {
+    bindPiSession("pi-import-failed", "expected", "/repo", undefined, { provider: "pi", providerSessionId: "expected", path: "/native/missing.jsonl", revision: "1", blockIds: [], createdAt: 1, updatedAt: 2 });
+    await expect(compactPiContext({ sessionId: "pi-import-failed", cwd: "/repo", model: "pi:default", runtimeMode: "supervised", onEvent: vi.fn() })).rejects.toThrow("did not resume");
+    expect(mocks.spawnChild).toHaveBeenCalledOnce();
+    await stopPiSession("pi-import-failed");
   });
 
   it("publishes the resolved Pi default model for provider usage", async () => {

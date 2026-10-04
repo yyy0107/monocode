@@ -29,6 +29,7 @@ import { saveMaskEmails, saveShowRemainingUsage } from "../model/displayPrefs";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined),
   convertFileSrc: (path: string) => path,
+  isTauri: () => false,
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({

@@ -23,6 +23,7 @@ mod macos;
 mod macos_background;
 mod mcp;
 mod menu;
+mod native_sessions;
 mod notes;
 mod notifications;
 mod pasteboard;
@@ -465,6 +466,10 @@ pub fn run() {
             session_store::session_search,
             session_store::cancel_session_search,
             session_store::session_get,
+            session_store::session_list_native_ids,
+            session_store::session_find_native_id,
+            native_sessions::native_sessions_list,
+            native_sessions::native_session_read,
             session_store::session_delete,
             session_store::session_set_archived,
             session_store::session_set_pinned,

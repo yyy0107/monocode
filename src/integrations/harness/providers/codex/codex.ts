@@ -118,6 +118,7 @@ function trackNotificationQueue(
 }
 
 type Resume = {
+  native: boolean;
   threadId: string;
   cwd: string;
   providerAccountId?: string;
@@ -388,10 +389,12 @@ export function bindCodexSession(
   providerSessionId: string,
   cwd: string,
   providerAccountId?: string,
+  nativeSession?: import("../../../../features/sessions/model/session").NativeSessionLink,
 ): void {
   const providerThreadId = providerSessionId.trim();
   if (!threadId || !providerThreadId || !cwd.trim()) return;
   resumeByThread.set(threadId, {
+    native: !!nativeSession,
     threadId: providerThreadId,
     cwd,
     providerAccountId,
@@ -399,7 +402,16 @@ export function bindCodexSession(
 }
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
-  const existing = liveByThread.get(input.sessionId);
+  let existing = liveByThread.get(input.sessionId);
+  // Native CLIs can append between MonoCode turns. Reopen an idle imported
+  // thread so the next turn loads their latest context from disk.
+  if (
+    existing && resumeByThread.get(input.sessionId)?.native &&
+    !existing.activeTurnId && !existing.turnDone
+  ) {
+    await stopCodexSession(input.sessionId);
+    existing = undefined;
+  }
   const controlsAgents = input.controlsAgents === true;
   if (
     existing &&
@@ -566,7 +578,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
         threadId = opened.thread?.id ?? resume.threadId;
         didResume = true;
       } catch (error) {
-        if (!isRecoverableThreadResumeError(error)) throw error;
+        if (resume.native || !isRecoverableThreadResumeError(error)) throw error;
         threadId = undefined;
       }
     }
@@ -624,6 +636,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     liveRef.current = live;
     liveByThread.set(input.sessionId, live);
     resumeByThread.set(input.sessionId, {
+      native: resume?.native ?? false,
       threadId,
       cwd: input.cwd,
       providerAccountId: input.providerAccountId,

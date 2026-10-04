@@ -380,6 +380,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     keywords: "pacman snake arcade grid fun",
   },
   {
+    id: "native-sessions",
+    section: "providers",
+    label: "Native sessions",
+    keywords: "codex pi import history synchronization sync resume native 导入 同步 会话 历史",
+  },
+  {
     id: "agent-clis",
     section: "providers",
     label: "Agent CLIs",

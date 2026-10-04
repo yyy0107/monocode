@@ -70,6 +70,7 @@ export type SessionSummary = {
 };
 
 type SessionRecord = {
+  nativeSession?: Session["nativeSession"];
   orchestrationLeadId?: string;
   id: string;
   cwd: string;
@@ -93,6 +94,7 @@ type SessionRecord = {
 };
 
 type SessionUpsertPayload = {
+  nativeSession?: Session["nativeSession"];
   id: string;
   cwd: string;
   harness: string;
@@ -133,6 +135,9 @@ function persistableMeta(
   const linkedWorkItem = sanitizeLinkedWorkItem(session.linkedWorkItem);
   return {
     id: session.id,
+    nativeSession: sanitizeNativeSessionLink(
+      session.nativeSession, session.harness, session.providerSessionId,
+    ),
     cwd: normalizeProjectPath(session.cwd),
     harness: session.harness,
     model: session.model,
@@ -156,6 +161,38 @@ function persistableMeta(
     ...(session.automationId && isPersistableId(session.automationId)
       ? { automationId: session.automationId }
       : {}),
+  };
+}
+
+export function sanitizeNativeSessionLink(
+  value: Session["nativeSession"],
+  harness: string,
+  providerSessionId?: string,
+): Session["nativeSession"] {
+  if (
+    !value ||
+    value.provider !== harness ||
+    value.providerSessionId !== providerSessionId ||
+    typeof value.path !== "string" ||
+    !value.path ||
+    value.path.length > 4096 ||
+    value.path.includes("\0") ||
+    typeof value.revision !== "string" ||
+    value.revision.length > 256 ||
+    !Array.isArray(value.blockIds) ||
+    !value.blockIds.every((id) => typeof id === "string") ||
+    !Number.isFinite(value.createdAt) ||
+    !Number.isFinite(value.updatedAt)
+  )
+    return undefined;
+  return {
+    provider: value.provider,
+    providerSessionId: value.providerSessionId,
+    path: value.path,
+    revision: value.revision,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+    blockIds: [...value.blockIds],
   };
 }
 
@@ -1115,6 +1152,9 @@ function recordToSession(record: SessionRecord): Session {
   const linkedWorkItem = sanitizeLinkedWorkItem(record.linkedWorkItem);
   return {
     id: record.id,
+    nativeSession: sanitizeNativeSessionLink(
+      record.nativeSession, record.harness, record.providerSessionId ?? undefined,
+    ),
     cwd: record.cwd,
     harness: asHarness(record.harness),
     model: record.model,

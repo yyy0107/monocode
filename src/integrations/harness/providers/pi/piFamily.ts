@@ -135,6 +135,7 @@ type Live = {
 };
 
 type Resume = {
+  sessionPath?: string;
   sessionId: string;
   cwd: string;
 };
@@ -270,7 +271,11 @@ export async function compactContext(
 ): Promise<void> {
   const state = stateFor(flavor);
   let live = state.liveByThread.get(input.sessionId);
-  if (!live || live.cwd !== input.cwd) {
+  if (
+    !live || live.cwd !== input.cwd ||
+    (state.resumeByThread.get(input.sessionId)?.sessionPath &&
+      !live.activeTurn && !live.compacting && !live.turnDone)
+  ) {
     live = await ensureLive(flavor, input);
   } else {
     live.onEvent = input.onEvent;
@@ -307,7 +312,11 @@ export async function rewindLastTurn(
 ): Promise<{ submitted: boolean }> {
   const state = stateFor(flavor);
   let live = state.liveByThread.get(input.sessionId);
-  if (!live || live.cwd !== input.cwd) {
+  if (
+    !live || live.cwd !== input.cwd ||
+    (state.resumeByThread.get(input.sessionId)?.sessionPath &&
+      !live.activeTurn && !live.compacting && !live.turnDone)
+  ) {
     live = await ensureLive(flavor, input);
   } else {
     live.onEvent = input.onEvent;
@@ -446,10 +455,11 @@ export function bindSession(
   threadId: string,
   providerSessionId: string,
   cwd: string,
+  sessionPath?: string,
 ): void {
   const sessionId = providerSessionId.trim();
   if (!threadId || !sessionId || !cwd.trim()) return;
-  stateFor(flavor).resumeByThread.set(threadId, { sessionId, cwd });
+  stateFor(flavor).resumeByThread.set(threadId, { sessionId, cwd, sessionPath });
 }
 
 async function ensureLive(
@@ -457,7 +467,14 @@ async function ensureLive(
   input: HarnessSessionInput,
 ): Promise<Live> {
   const { liveByThread, resumeByThread } = stateFor(flavor);
-  const existing = liveByThread.get(input.sessionId);
+  let existing = liveByThread.get(input.sessionId);
+  if (
+    existing && resumeByThread.get(input.sessionId)?.sessionPath &&
+    !existing.activeTurn && !existing.compacting && !existing.turnDone
+  ) {
+    await stopSession(flavor, input.sessionId);
+    existing = undefined;
+  }
   const wantPlanning = input.intent === "plan";
   if (
     existing &&
@@ -483,10 +500,11 @@ async function ensureLive(
     return await startLive(
       flavor,
       input,
-      canResume ? resume?.sessionId : undefined,
+      canResume ? (resume?.sessionPath ?? resume?.sessionId) : undefined,
+      canResume && resume?.sessionPath ? resume.sessionId : undefined,
     );
   } catch (error) {
-    if (!canResume) throw error;
+    if (!canResume || resume?.sessionPath) throw error;
     resumeByThread.delete(input.sessionId);
     await stopSession(flavor, input.sessionId);
     return startLive(flavor, input, undefined);
@@ -497,6 +515,7 @@ async function startLive(
   flavor: PiFlavor,
   input: HarnessSessionInput,
   resume: string | undefined,
+  expectedSessionId?: string,
 ): Promise<Live> {
   const state = stateFor(flavor);
   const { liveByThread } = state;
@@ -520,7 +539,7 @@ async function startLive(
     pendingImages: Promise.resolve(),
     imageIds: new Set(),
     cwd: input.cwd,
-    providerSessionId: resume ?? "",
+    providerSessionId: expectedSessionId ?? resume ?? "",
     nativeModel: native,
     thinking: flavor.id === "pi" ? "" : input.modelSettings?.thinking ?? "",
     fastModeEnabled: undefined,
@@ -597,6 +616,8 @@ async function startLive(
       { type: "get_state" },
       INIT_TIMEOUT_MS,
     );
+    if (expectedSessionId && providerSessionIdFromState(stateFrame.data) !== expectedSessionId)
+      throw new Error("Pi did not resume the imported session");
     bindState(flavor, input.sessionId, live, stateFrame.data);
     await applyModel(flavor, live, input);
     if (live.providerSessionId) {
@@ -1296,8 +1317,11 @@ function bindState(
   if (state.contextWindow) live.contextWindow = state.contextWindow;
   if (providerSessionId) {
     live.providerSessionId = providerSessionId;
+    const resume = stateFor(flavor).resumeByThread.get(sessionId);
     stateFor(flavor).resumeByThread.set(sessionId, {
       sessionId: providerSessionId,
+      sessionPath: resume?.sessionPath && resume.sessionId === providerSessionId
+        ? stringField(asRecord(data), "sessionFile") ?? resume.sessionPath : undefined,
       cwd: live.cwd,
     });
   }

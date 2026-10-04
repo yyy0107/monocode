@@ -152,6 +152,30 @@ describe("codex live turn sequence", () => {
     __codexTestReset();
   });
 
+  it("reopens imported native history between idle turns", async () => {
+    bindCodexSession("codex-live", "thr_1", "/repo", undefined, { provider: "codex", providerSessionId: "thr_1", path: "/native/rollout.jsonl", revision: "1", blockIds: [], createdAt: 1, updatedAt: 2 });
+    const first = await startTurn("codex-live", { expectResume: true });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await first.turn;
+    sent.length = 0;
+    const second = await startTurn("codex-live", { expectResume: true });
+    expect(parse().some((message) => message.method === "thread/start")).toBe(false);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await second.turn;
+  });
+
+  it("reports a missing imported Codex thread without creating a new thread", async () => {
+    bindCodexSession("codex-live", "missing", "/repo", undefined, { provider: "codex", providerSessionId: "missing", path: "/native/missing.jsonl", revision: "1", blockIds: [], createdAt: 1, updatedAt: 2 });
+    const turn = sendCodexTurn({ sessionId: "codex-live", cwd: "/repo", model: "codex:gpt-5.4", runtimeMode: "supervised", text: "continue", attachments: [], onEvent: vi.fn() });
+    const rejected = expect(turn).rejects.toThrow("thread not found");
+    await waitFor(() => parse().some((message) => message.method === "initialize"), "initialize");
+    reply(parse().find((message) => message.method === "initialize")!.id as number, {});
+    await waitFor(() => parse().some((message) => message.method === "thread/resume"), "thread/resume");
+    onLine!(JSON.stringify({ id: parse().find((message) => message.method === "thread/resume")!.id, error: { code: -32000, message: "thread not found" } }));
+    await rejected;
+    expect(parse().some((message) => message.method === "thread/start")).toBe(false);
+  });
+
   it("reports when the provider accepts a turn", async () => {
     const onAccepted = vi.fn();
     const { turn } = await startTurn("codex-live", { onAccepted });

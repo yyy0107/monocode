@@ -159,7 +159,10 @@ export function applyHarnessEvent(
         notice: "error",
       });
     case "session.providerBound":
-      return { ...session, providerSessionId: event.providerSessionId };
+      return { ...session, providerSessionId: event.providerSessionId,
+        ...(session.nativeSession && (session.nativeSession.providerSessionId !== event.providerSessionId || session.nativeSession.provider !== session.harness)
+          ? { nativeSession: undefined } : {}),
+      };
     case "turn.started": {
       const index = lastMatchingBlock(
         session.blocks,

@@ -96,6 +96,8 @@ fn init_with(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionUpsert {
+    #[serde(default)]
+    pub native_session: Option<Value>,
     pub id: String,
     pub cwd: String,
     pub harness: String,
@@ -167,6 +169,8 @@ pub struct SessionSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionRecord {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_session: Option<Value>,
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orchestration_lead_id: Option<String>,
@@ -298,6 +302,33 @@ pub fn session_get(
     validate_id(&session_id, "session")?;
     let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
     get_session(&conn, &session_id).map_err(|e| e.to_string())
+}
+
+/// Reuse a provider binding even when MonoCode groups its worktree under a parent project.
+#[tauri::command(async)]
+pub fn session_find_native_id(
+    store: State<'_, SessionStore>,
+    harness: String,
+    provider_session_id: String,
+) -> Result<Option<String>, String> {
+    if harness != "codex" && harness != "pi" {
+        return Err("Unsupported native provider".into());
+    }
+    validate_id(&provider_session_id, "provider session")?;
+    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    conn.query_row("SELECT id FROM sessions WHERE harness = ?1 AND provider_session_id = ?2 AND COALESCE(provider_account_id, 'default') = 'default' ORDER BY updated_at DESC LIMIT 1", params![harness, provider_session_id], |row| row.get(0)).optional().map_err(|e| e.to_string())
+}
+
+/// Sync only explicitly linked imports, including projects outside the recent list.
+#[tauri::command(async)]
+pub fn session_list_native_ids(store: State<'_, SessionStore>) -> Result<Vec<String>, String> {
+    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let mut query = conn.prepare("SELECT id FROM sessions WHERE native_session_json IS NOT NULL AND archived = 0 AND worktree_removed = 0").map_err(|e| e.to_string())?;
+    let rows = query
+        .query_map([], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+    rows.collect::<rusqlite::Result<Vec<String>>>()
+        .map_err(|e| e.to_string())
 }
 
 const MAX_SEARCH_SCAN: usize = 400;
@@ -762,6 +793,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         ("worktree_removed", "INTEGER NOT NULL DEFAULT 0"),
         ("is_draft", "INTEGER NOT NULL DEFAULT 0"),
         ("automation_id", "TEXT"),
+        ("native_session_json", "TEXT"),
     ] {
         ensure_session_column(conn, column, decl)?;
     }
@@ -1142,12 +1174,31 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
     let created_at = existing
         .as_ref()
         .map(|(value, _, _, _, _)| *value)
-        .unwrap_or(now);
+        .unwrap_or_else(|| {
+            session
+                .native_session
+                .as_ref()
+                .and_then(|v| v["createdAt"].as_i64())
+                .filter(|v| *v > 0 && *v <= now)
+                .unwrap_or(now)
+        });
     let updated_at = match &existing {
         Some((_, prev_updated, prev_blocks, _, _)) if json_eq(prev_blocks, &session.blocks) => {
             *prev_updated
         }
-        _ => now,
+        _ => session
+            .native_session
+            .as_ref()
+            .and_then(|v| v["updatedAt"].as_i64())
+            .filter(|v| *v > 0 && *v <= now)
+            .filter(|_| {
+                session.blocks.as_array().is_some_and(|blocks| {
+                    blocks
+                        .iter()
+                        .all(|b| b["id"].as_str().is_some_and(|id| id.starts_with("native-")))
+                })
+            })
+            .unwrap_or(now),
     };
     let archived = existing
         .as_ref()
@@ -1164,8 +1215,8 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            provider_session_id, blocks_json, created_at, updated_at, branch,
            context_used, context_window, worktree_cwd, has_user_message,
            linked_work_item_json, provider_account_id, worktree_removed, is_draft,
-           automation_id
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
+           automation_id, native_session_json
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            harness = excluded.harness,
@@ -1185,7 +1236,8 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            provider_account_id = excluded.provider_account_id,
            worktree_removed = excluded.worktree_removed,
            is_draft = excluded.is_draft,
-           automation_id = excluded.automation_id",
+           automation_id = excluded.automation_id,
+           native_session_json = excluded.native_session_json",
         params![
             session.id,
             session.cwd,
@@ -1208,6 +1260,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
             i64::from(session.worktree_removed),
             i64::from(is_draft),
             automation_id,
+            session.native_session.as_ref().map(Value::to_string),
         ],
     )?;
 
@@ -1841,7 +1894,7 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
                 provider_session_id, blocks_json, created_at, updated_at,
                 context_used, context_window, branch, worktree_cwd,
                 linked_work_item_json, provider_account_id, worktree_removed,
-                automation_id
+                automation_id, native_session_json
          FROM sessions
          WHERE id = ?1 AND inbox_ask IS NULL",
         params![session_id],
@@ -1863,6 +1916,7 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
                 )
             })?;
             Ok(SessionRecord {
+                native_session: optional_json(row.get(19)?),
                 id: row.get(0)?,
                 orchestration_lead_id: worker_parent(conn, session_id)?,
                 cwd: row.get(1)?,
@@ -2044,6 +2098,7 @@ mod tests {
 
     fn sample(id: &str, cwd: &str, title: &str) -> SessionUpsert {
         SessionUpsert {
+            native_session: None,
             id: id.into(),
             cwd: cwd.into(),
             harness: "cursor".into(),
@@ -2375,6 +2430,38 @@ mod tests {
             get_session(&conn, "s1").unwrap().unwrap().linked_work_item,
             None
         );
+    }
+
+    #[test]
+    fn native_source_round_trips_and_preserves_history_timestamps() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        let mut row = sample("native-pi-id", "/tmp/a", "Imported conversation");
+        row.harness = "pi".into();
+        row.provider_session_id = Some("pi-id".into());
+        row.blocks = json!([{ "id": "native-pi-u", "role": "user", "text": "hello" }]);
+        row.native_session = Some(
+            json!({ "provider": "pi", "providerSessionId": "pi-id", "path": "/native/session.jsonl", "revision": "100:1", "blockIds": ["native-pi-u"], "createdAt": 100, "updatedAt": 200 }),
+        );
+        let summary = upsert_session(&conn, &row).unwrap();
+        assert_eq!(summary.created_at, 100);
+        assert_eq!(summary.updated_at, 200);
+        assert_eq!(
+            get_session(&conn, &row.id).unwrap().unwrap().native_session,
+            row.native_session
+        );
+        row.blocks
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "id": "local-u", "role": "user", "text": "next" }));
+        assert!(upsert_session(&conn, &row).unwrap().updated_at > 200);
+        row.native_session = None;
+        upsert_session(&conn, &row).unwrap();
+        assert!(get_session(&conn, &row.id)
+            .unwrap()
+            .unwrap()
+            .native_session
+            .is_none());
     }
 
     #[test]

@@ -81,8 +81,10 @@ export function bindPiSession(
   threadId: string,
   providerSessionId: string,
   cwd: string,
+  _providerAccountId?: string,
+  nativeSession?: import("../../../../features/sessions/model/session").NativeSessionLink,
 ): void {
-  bindSession(PI_FLAVOR, threadId, providerSessionId, cwd);
+  bindSession(PI_FLAVOR, threadId, providerSessionId, cwd, nativeSession?.path);
 }
 
 /** Test seam. */

@@ -1266,3 +1266,10 @@ describe("subagent steps", () => {
     expect(session.blocks[0].agentRun?.steps).toHaveLength(1);
   });
 });
+
+// Native imports stop tracking their original file when a provider forks/starts another conversation.
+it("clears the native source only when the provider binding changes", () => {
+  const session = { ...newSession("pi", "/repo"), providerSessionId: "original", nativeSession: { provider: "pi" as const, providerSessionId: "original", path: "/native/pi.jsonl", revision: "1", blockIds: [], createdAt: 1, updatedAt: 2 } };
+  expect(applyHarnessEvent(session, { type: "session.providerBound", providerSessionId: "original" }).nativeSession).toEqual(session.nativeSession);
+  expect(applyHarnessEvent(session, { type: "session.providerBound", providerSessionId: "fork" }).nativeSession).toBeUndefined();
+});

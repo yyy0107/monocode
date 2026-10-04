@@ -1,6 +1,7 @@
 import type {
   Block,
   HarnessId,
+  NativeSessionLink,
   TaskListMeta,
   TurnIntent,
 } from "../../../features/sessions/model/session";
@@ -82,6 +83,7 @@ export type HarnessAdapter = {
     providerSessionId: string,
     cwd: string,
     providerAccountId?: string,
+    nativeSession?: NativeSessionLink,
   ): void;
   /** Seed provider task state from a restored session's persisted panels. */
   restoreTaskLists?(threadId: string, lists: TaskListMeta[]): void;
@@ -369,9 +371,15 @@ export function bindHarnessSession(
   providerAccountId?: string,
   /** Restored transcript, so the adapter can reseed its task state. */
   blocks?: Block[],
+  nativeSession?: NativeSessionLink,
 ): void {
   const adapter = getHarness(harness);
-  adapter?.bindSession(threadId, providerSessionId, cwd, providerAccountId);
+  const source = nativeSession?.provider === harness &&
+    nativeSession.providerSessionId === providerSessionId ? nativeSession : undefined;
+  if (source) {
+    adapter?.bindSession(threadId, providerSessionId, cwd, providerAccountId, source);
+  }
+  else adapter?.bindSession(threadId, providerSessionId, cwd, providerAccountId);
   if (!blocks || !adapter?.restoreTaskLists) return;
   const lists = blocks.flatMap((block) =>
     block.role === "tasks" && block.taskList ? [block.taskList] : [],

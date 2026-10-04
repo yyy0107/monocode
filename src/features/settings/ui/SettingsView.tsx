@@ -42,6 +42,7 @@ import {
 } from "../../../shared/ui/ColorPickerPopover";
 import { Popover } from "../../../shared/ui/Popover";
 import { SecondaryButton } from "../../../shared/ui/SecondaryButton";
+import { NativeSessionsPanel } from "./NativeSessionsPanel";
 import { JiraSettings } from "./JiraSettings";
 import { GradientBlurBackground } from "./GradientBlurBackground";
 import { McpSettings } from "./McpSettings";
@@ -560,7 +561,7 @@ export function SettingsView({
                 <McpSettings cwd={cwd} recents={recents} />
               ) : null}
               {section === "providers" ? (
-                <ProvidersPage cwd={cwd} recents={recents} />
+                <ProvidersPage cwd={cwd} recents={recents} onOpenSession={onOpenSession} />
               ) : null}
               {section === "worktrees" ? (
                 <WorktreesPage
@@ -3234,7 +3235,9 @@ function ProviderBinaryControl({
 function ProvidersPage({
   cwd,
   recents,
+  onOpenSession,
 }: {
+  onOpenSession?: (id: string) => void;
   cwd?: string;
   recents?: RecentProject[];
 }) {
@@ -3351,6 +3354,7 @@ function ProvidersPage({
 
   return (
     <>
+      <NativeSessionsPanel onOpenSession={onOpenSession} />
       <ProviderAccountsSettings />
 
       <UsageDisplaySettings />
