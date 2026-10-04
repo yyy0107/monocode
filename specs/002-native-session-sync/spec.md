@@ -65,3 +65,18 @@ See quickstart.md for actual versions, commands, outcomes and unverified scenari
   An uncooperative native CLI does not honor MonoCode's advisory lease, so a CLI
   started after the final access check remains a documented external race. An idle
   external process still holding the session must be closed before takeover.
+
+## Session ownership guidance (requested follow-up)
+
+- Show localized, actionable guidance for confirmed Codex, Claude, OMP, fx,
+  Hermes and Cursor ownership errors. Keep the original provider error unchanged
+  in an expandable detail and keep the saved history readable.
+- Distinguish a confirmed external owner from unavailable access, ordinary turn
+  busy states, authentication failures and database transaction contention.
+- Explain that finishing a reply does not necessarily release an open session;
+  offer guidance to continue in the original client or close that session before
+  retrying. Do not introduce force-unlock or process termination controls.
+- Preserve provider bindings when fx/Hermes/Cursor resume reports ownership or
+  unavailable coordination, rather than silently creating a new conversation.
+- Reuse the shared transcript for desktop and mobile, including existing Host
+  history without error tags. No native import support for new providers is added.

@@ -1989,5 +1989,19 @@
   "Agent output exceeded the 64 MiB message limit.": "Agent 输出超过了 64 MiB 的消息大小上限。",
   "Agent diagnostic output exceeded the 8 MiB message limit.": "Agent 诊断输出超过了 8 MiB 的消息大小上限。",
   "Could not connect to shared conversations.": "无法连接共享会话服务。",
-  "Imported native conversations continue on the desktop.": "导入的原生会话请在桌面端继续。"
+  "Imported native conversations continue on the desktop.": "导入的原生会话请在桌面端继续。",
+  "Session is in use elsewhere": "会话正在其他客户端中使用",
+  "Session is temporarily unavailable": "会话暂时无法继续",
+  "Another client is keeping this session open. You can still read the saved conversation here.": "另一个客户端仍保持此会话打开。你可以在这里查看已保存的历史。",
+  "You can still read the saved conversation here. Wait for the current operation to finish and retry. If another client has this session open, continue there or close that session first.": "你仍可在这里查看已保存的历史。请等待当前操作结束后重试；如果其他客户端仍打开此会话，请在原客户端继续，或先关闭那里的会话。",
+  "Continue in the original client, or close its session and retry here.": "请在原客户端继续，或关闭那里的会话后在此重试。",
+  "Stopping a Codex reply or closing its pane may leave the session in use. Wait for other work to finish before restarting the original app.": "停止 Codex 回复或关闭会话面板后，会话仍可能被占用。如需重启原应用，请先等待其他任务结束。",
+  "For a Claude background session, attach to the existing session to continue, or stop that session before retrying here.": "如果是 Claude 后台会话，请连接已有会话继续，或先停止该后台会话，再在这里重试。",
+  "OMP may start a separate conversation when the original is occupied. Close the original session before retrying if you want to continue the same conversation.": "原会话被占用时，OMP 可能另建会话。如果要继续同一个会话，请先关闭原客户端中的会话，再重试。",
+  "Close the session in the original fx client, then retry here.": "请关闭原 fx 客户端中的会话，再在这里重试。",
+  "Close the original Hermes window or terminal. For a gateway session, close that session in its gateway before retrying here.": "请关闭原 Hermes 窗口或终端；如果会话由 gateway 运行，请先在那里关闭该会话，再重试。",
+  "Attach to the existing Cursor persistent session to continue, or stop that session before retrying here.": "请连接已有的 Cursor 持久会话继续，或先停止该持久会话，再在这里重试。",
+  "Original provider error": "原始错误详情",
+  "This session is still open in another client. Saved history keeps syncing. Continue there, or close that session before retrying here; a finished reply may not release it.": "此会话仍在另一个客户端中打开。已保存的历史会继续同步。请在原客户端继续，或关闭那里的会话后在此重试；回复结束不一定会解除占用。",
+  "Native session access could not be confirmed. Saved history keeps syncing; check other clients before continuing here.": "暂时无法确认原生会话的使用状态。已保存的历史会继续同步；请检查其他客户端后再在这里继续。"
 }

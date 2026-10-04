@@ -50,3 +50,15 @@ A successful history update publishes idle only after persistence and binding
 refresh. Unchanged source content still requires owner probes: a native CLI can
 be running with no current disk writes. Probe/read/save failures preserve the
 last good history and keep the imported conversation read-only.
+
+## Ownership error presentation
+
+Provider error messages remain unchanged in saved history and Host responses.
+Localized guidance is derived at display time from the turn's harness and known
+error semantics. Errors with ambiguous owner/lock availability do not claim an
+external owner. The original error is available in a collapsed detail. Legacy
+Host system errors can receive an error notice tag in the UI without rewriting
+their persisted blocks. No event, database or Host protocol fields are added.
+
+Recognized fx/Hermes/Cursor resume access failures must retain the original
+provider binding and fail the submission without starting a new provider session.

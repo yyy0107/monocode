@@ -1,5 +1,7 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { localizeChildExitError } from "../../../integrations/harness/core/childErrors";
+import { providerSessionAccessIssue } from "../../../integrations/harness/providers/sessionAccessErrors";
+import { SessionAccessNotice } from "./SessionAccessNotice";
 import {
   ArrowUp,
   Check,
@@ -284,18 +286,37 @@ function AgentTranscriptComponent({
   );
   const { t: uiT } = useTranslation();
   const blocks = useMemo(() => {
-    if (!harness || !supportsHarnessLogin(harness)) return sourceBlocks;
-    const visibleBlocks = sourceBlocks.filter(
-      (block) =>
-        !(
-          block.role === "system" &&
-          block.notice === "error" &&
-          isHarnessAuthError(block.text)
-        ),
-    );
-    return visibleBlocks.length === sourceBlocks.length
-      ? sourceBlocks
-      : visibleBlocks;
+    let turnHarness = harness;
+    let changed = false;
+    const visibleBlocks: Block[] = [];
+    for (const block of sourceBlocks) {
+      if (block.role === "user")
+        turnHarness = block.turnModel?.harness ?? harness;
+      if (
+        harness &&
+        supportsHarnessLogin(harness) &&
+        block.role === "system" &&
+        block.notice === "error" &&
+        isHarnessAuthError(block.text)
+      ) {
+        changed = true;
+        continue;
+      }
+      // Older Host histories did not tag startup errors; keep ownership notices outside folded work.
+      if (
+        turnHarness &&
+        block.role === "system" &&
+        !block.interjection &&
+        !block.notice &&
+        providerSessionAccessIssue(turnHarness, block.text)
+      ) {
+        visibleBlocks.push({ ...block, notice: "error" });
+        changed = true;
+      } else {
+        visibleBlocks.push(block);
+      }
+    }
+    return changed ? visibleBlocks : sourceBlocks;
   }, [harness, sourceBlocks]);
   const editableUserBlockId = useMemo(
     () => lastUserTurnBlock(blocks)?.id,
@@ -914,6 +935,7 @@ function AgentTranscriptComponent({
               <TranscriptBlock
                 key={item.block.id}
                 block={item.block}
+                harness={turnHarness}
                 layout={transcriptLayout}
                 visible={item.block.role === "user" ? visible : undefined}
                 stickyIndex={firstVisibleTurn + turnIndex + 1}
@@ -1556,6 +1578,7 @@ function EditLastTurnButton({
 
 const TranscriptBlock = memo(function TranscriptBlock({
   block,
+  harness,
   layout,
   visible,
   stickyIndex,
@@ -1578,6 +1601,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   editing = false,
 }: {
   block: Block;
+  harness?: HarnessId;
   layout: TranscriptLayout;
   visible?: boolean;
   stickyIndex: number;
@@ -1702,6 +1726,17 @@ const TranscriptBlock = memo(function TranscriptBlock({
   if (block.role === "system") {
     if (block.interjection) {
       return <InterjectionDivider block={block} />;
+    }
+    const issue =
+      harness && block.notice === "error"
+        ? providerSessionAccessIssue(harness, block.text)
+        : undefined;
+    if (harness && issue) {
+      return (
+        <div className={`${embedded ? "" : "px-4"} py-2`}>
+          <SessionAccessNotice harness={harness} issue={issue} message={block.text} />
+        </div>
+      );
     }
     return (
       <div className={`${embedded ? "" : "px-4"} py-2 text-content/50`}>

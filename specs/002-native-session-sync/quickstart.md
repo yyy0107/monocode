@@ -116,3 +116,43 @@ app-data directory, not arbitrary native CLIs. An external CLI started after the
 final check remains a race requiring native cooperation. A renderer lost during a
 mutation can leave its in-process lease until the app exits; reopening the app
 releases that lease. No existing external CLI is killed or interrupted by probing.
+
+## Session ownership guidance follow-up (2026-10-04)
+
+The shared desktop/mobile transcript now explains recognized session ownership
+errors for Codex, Claude, OMP, fx, Hermes and Cursor. It distinguishes confirmed
+ownership from unavailable coordination, preserves the original diagnostic in
+an expandable detail, and keeps older Host errors visible outside folded work.
+Guidance follows the user turn's provider after a provider switch and changes
+language without rewriting the provider error or persisted history.
+
+Native import banners now refer to other clients, including desktop apps, and
+explain that an answer ending may leave the session occupied. fx/Hermes/Cursor
+resume ownership failures retain their original provider binding instead of
+silently creating a new conversation. Ordinary authentication, turn busy and
+database transaction contention errors are not presented as confirmed owners.
+
+Installed versions observed for the notice audit: Codex desktop binary 0.159.2,
+PATH CLI 0.160.0; Claude Code 2.1.289; Pi 1.0.2; OMP 18.6.0; fx 0.0.12;
+Cursor 2026.10.01-e373342; Hermes v0.21.5+6977.gaf90026. These are version
+observations, not evidence of paid-model execution or all-version compatibility.
+
+| Check | Result |
+| --- | --- |
+| Focused classifier, transcript, native access and provider resume suites | PASS — 67 tests |
+| Host provider transport with real fixture subprocesses | PASS — 24 tests, including occupied fx/Hermes/Cursor bindings |
+| `npm run check:web` | PASS on full rerun — 422 files / 4429 tests passed; 2 files / 13 tests skipped; TypeScript passed |
+| `npm run test:host` | PASS — 26 files / 172 tests passed; 1 file / 5 tests skipped; Host build passed |
+| `npm run build` | PASS — TypeScript + Vite; existing CSS/chunk-size warnings |
+| `git diff --check` | PASS |
+
+The first full web run had one FilePaneNavigation blur-cancellation failure
+(4428 tests passed). That unchanged file passed all nine tests in isolation;
+the subsequent full web run passed all 4429 tests. No file-editor changes were
+made for this follow-up. Existing unrelated working-copy changes were preserved.
+
+Limits: native desktop GUI, native mobile devices and simultaneous paid-model
+sessions were not exercised. Unknown/future provider diagnostics retain their
+original presentation. This follow-up adds no force-unlock, external-process
+termination, new native import providers or provider-stream attachment protocol.
+Rust is unchanged, so check:rust was not rerun for this follow-up.

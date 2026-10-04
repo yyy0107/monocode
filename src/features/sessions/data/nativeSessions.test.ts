@@ -28,6 +28,7 @@ import {
   setNativeAutoSync,
   nativeSessionSnapshot,
   nativeSessionReadOnly,
+  nativeSessionAccessHint,
   pollNativeSessionAccess,
 } from "./nativeSessions";
 const file: NativeSessionFile = {
@@ -172,6 +173,8 @@ describe("native session synchronization", () => {
       "external message",
     );
     expect(nativeSessionReadOnly(stored!)).toBe(true);
+    expect(nativeSessionAccessHint(stored!)).toContain("another client");
+    expect(nativeSessionAccessHint(stored!)).toContain("a finished reply may not release it");
     accessState = "idle";
     source = { ...source, revision: "external-3" };
     let finish!: () => void;

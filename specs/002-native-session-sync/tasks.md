@@ -13,3 +13,6 @@
 - [x] T010 Add runtime access polling, continued read-only history sync and refresh-before-unlock.
 - [x] T011 Block UI/programmatic sends and provider mutation behind a native access recheck/lease.
 - [x] T012 Test external ownership/release, stale UI, draft preservation, lease contention and existing providers; execute required checks and record evidence.
+
+- [x] T013 Add localized provider ownership notices, preserve original diagnostics and native read-only history guidance, and prevent silent replacement on refused resumes.
+- [x] T014 Verify provider/legacy-history/language regressions and real Host transport; run check:web, test:host and build and record remaining limits.

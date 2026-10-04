@@ -67,7 +67,7 @@ export function nativeSessionAccessHint(session: Session): string | undefined {
   const access = nativeSessionAccess(session);
   if (access?.state === "external")
     return translate(
-      "This session is open in another CLI. History keeps syncing; close that CLI to continue here.",
+      "This session is still open in another client. Saved history keeps syncing. Continue there, or close that session before retrying here; a finished reply may not release it.",
     );
   if (access?.reason === "anotherMonocode")
     return translate(
@@ -83,7 +83,7 @@ export function nativeSessionAccessHint(session: Session): string | undefined {
     );
   if (access?.state === "unknown")
     return translate(
-      "Native session ownership is unclear. History keeps syncing; close other CLIs before continuing.",
+      "Native session access could not be confirmed. Saved history keeps syncing; check other clients before continuing here.",
     );
   return translate("Checking native session access…");
 }

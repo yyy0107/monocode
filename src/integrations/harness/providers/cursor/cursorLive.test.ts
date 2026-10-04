@@ -32,6 +32,7 @@ const {
   sendCursorTurn,
   cancelCursorTurn,
   stopCursorSession,
+  bindCursorSession,
   __cursorTestReset,
 } = await import("./cursor");
 import type { HarnessEvent } from "../../core/types";
@@ -150,6 +151,20 @@ describe("cursor background subagents", () => {
     expect(events.filter((event) => event.type === "session.titleUpdated")).toEqual([{ type: "session.titleUpdated", providerSessionId: "cursor_1", title: "Cursor 原生标题" }]);
   });
 
+  it("does not create a new chat when a persistent Cursor session owns the binding", async () => {
+    bindCursorSession("cursor-locked", "original-cursor", "/repo");
+    const message = "Chat original-cursor is already running in persistent session background";
+    const turn = sendCursorTurn({ sessionId: "cursor-locked", cwd: "/repo", model: "cursor:composer-2.5", runtimeMode: "supervised", text: "continue", attachments: [], onEvent: () => undefined });
+    const rejected = expect(turn).rejects.toThrow(message);
+    await waitFor(() => !!outboundRequest("initialize"), "initialize");
+    reply(outboundRequest("initialize")!.id as number, {});
+    await waitFor(() => !!outboundRequest("authenticate"), "authenticate");
+    reply(outboundRequest("authenticate")!.id as number, {});
+    await waitFor(() => !!outboundRequest("session/load"), "load");
+    onLine!(JSON.stringify({ jsonrpc: "2.0", id: outboundRequest("session/load")!.id, error: { code: -32603, message } }));
+    await rejected;
+    expect(outboundRequest("session/new")).toBeUndefined();
+  });
   it("recovers native child steps without parent-attributed ACP events and enriches foreground names", async () => {
     const run = {
       agentId: "child_1",

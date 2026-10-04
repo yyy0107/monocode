@@ -64,3 +64,19 @@ takeover boundary. Other platforms report unknown ownership. An uncooperative
 CLI launched after the final pre-write check can still race: full cross-CLI
 exclusion requires native cooperation. A renderer lost mid-operation can retain
 its in-process lease until the app exits; this deliberately blocks takeover.
+
+## Session ownership guidance
+
+A pure provider-layer classifier distinguishes explicit ownership failures from
+unavailable coordination. The shared transcript renders localized guidance and
+an expandable, unchanged original error. Historical user-turn provider metadata
+selects the matching guidance after a provider switch. Untagged legacy Host
+errors get presentation-only notice tags so they remain outside folded work;
+persisted transcripts and provider/user values do not change.
+
+fx, Hermes and Cursor propagate recognized resume access failures instead of
+falling back to session/new. Unsupported/missing-session behavior stays as before.
+Native import banners refer to other clients, including desktop apps, and explain
+that a completed reply can retain ownership. Validation includes false-positive
+guards, bilingual live rendering, provider resume regressions, real subprocess
+Host transport and the required web/Host/build checks. Rust is unchanged.

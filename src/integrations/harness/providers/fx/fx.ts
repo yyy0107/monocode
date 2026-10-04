@@ -1,6 +1,7 @@
 import { nativeAcpTitleEvent, noteAcpTitleCapabilities, readAcpSessionTitle, readAcpTitleInProcess } from "../../core/nativeTitles";
 import type { NativeTitleInput } from "../../core/titleCoordinator";
 import { nativeModelId } from "../../../../features/sessions/model/models";
+import { providerSessionAccessIssue } from "../sessionAccessErrors";
 import { AcpSubagents } from "../../core/acpSubagents";
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
 import { AcpClient, type AcpHandlers } from "../../core/acp";
@@ -300,7 +301,8 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
         );
         acpSessionId = sessionIdFromResult(setup) ?? resume.acpSessionId;
         didLoad = true;
-      } catch {
+      } catch (error) {
+        if (providerSessionAccessIssue("fx", error)) throw error;
         muteGate.current = true;
         try {
           setup = await acp.request<SessionSetupResult>(
@@ -314,7 +316,8 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
           );
           acpSessionId = sessionIdFromResult(setup) ?? resume.acpSessionId;
           didLoad = true;
-        } catch {
+        } catch (error) {
+          if (providerSessionAccessIssue("fx", error)) throw error;
           setup = undefined;
           acpSessionId = undefined;
           didLoad = false;

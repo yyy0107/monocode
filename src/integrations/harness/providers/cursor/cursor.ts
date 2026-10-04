@@ -1,6 +1,7 @@
 import { nativeAcpTitleEvent, noteAcpTitleCapabilities, readAcpSessionTitle, readAcpTitleInProcess } from "../../core/nativeTitles";
 import type { NativeTitleInput } from "../../core/titleCoordinator";
 import { nativeModelId } from "../../../../features/sessions/model/models";
+import { providerSessionAccessIssue } from "../sessionAccessErrors";
 import { AcpSubagents } from "../../core/acpSubagents";
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
 import { promptBlocks } from "../../../../features/sessions/model/attachments";
@@ -333,7 +334,8 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
         });
         acpSessionId = resume.acpSessionId;
         didLoad = true;
-      } catch {
+      } catch (error) {
+        if (providerSessionAccessIssue("cursor", error)) throw error;
         setup = undefined;
         acpSessionId = undefined;
         didLoad = false;

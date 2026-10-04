@@ -41,6 +41,15 @@ readline.createInterface({input: process.stdin}).on('line', line => {
   const request = JSON.parse(line);
   if (request.jsonrpc === '2.0') {
     if (request.id == null) return;
+    if (['session/load', 'session/resume'].includes(request.method) && request.params?.sessionId?.startsWith('locked-')) {
+      const errors = {
+        'locked-fx': 'Session is busy',
+        'locked-hermes': 'This chat is open in another Hermes window/terminal. Use it there, or start a new chat here.',
+        'locked-cursor': 'Chat fixture is already running in persistent session background',
+      };
+      send({jsonrpc: '2.0', id: request.id, error: {code: -32603, message: errors[request.params.sessionId]}});
+      return;
+    }
     if (request.method === 'session/prompt') {
       send({jsonrpc: '2.0', method: 'session/update', params: {sessionId: 'fixture_acp', update: {sessionUpdate: 'agent_message_chunk', content: {type: 'text', text: 'Headless ACP completed'}}}});
       setTimeout(() => send({jsonrpc: '2.0', id: request.id, result: {stopReason: 'end_turn'}}), 30);
@@ -180,6 +189,24 @@ describe("existing providers over headless process I/O", () => {
     expect(piA[0]).toMatchObject({ id: "pi:openai/fixture-model" });
     expect(ompA).toEqual(ompB);
     expect(ompA[0]).toMatchObject({ id: "omp:openai/fixture-model" });
+  });
+
+  it.each([
+    ["fx", "Session is busy"],
+    ["hermes", "This chat is open in another Hermes window/terminal. Use it there, or start a new chat here."],
+    ["cursor", "Chat fixture is already running in persistent session background"],
+  ] as const)("preserves %s history and binding when its native session is occupied", async (harness, message) => {
+    const project = await engine.openProject(directory);
+    const { sessionId } = engine.command({ type: "create", commandId: `create-locked-${harness}`, projectId: project.id, harness, model: `${harness}:test`, runtimeMode: "supervised" });
+    const previous = store.session(sessionId);
+    store.save({ ...previous, revision: previous.revision + 1, session: { ...previous.session, providerSessionId: `locked-${harness}`, blocks: [{ id: "saved", role: "assistant", text: "Saved history" }] } }, { type: "fixture.bind" });
+    engine.command({ type: "send", commandId: `send-locked-${harness}`, sessionId, text: "Continue" });
+    await vi.waitFor(() => expect(store.session(sessionId).status).toBe("idle"), { timeout: 4_000 });
+    const saved = store.session(sessionId).session;
+    expect(saved.providerSessionId).toBe(`locked-${harness}`);
+    expect(saved.blocks[0].text).toBe("Saved history");
+    expect(saved.blocks.at(-1)?.text).toBe(message);
+    expect(saved.blocks.some(block => block.text === "Headless ACP completed")).toBe(false);
   });
 
   it("receives a large image event and then completes the Codex answer", async () => {

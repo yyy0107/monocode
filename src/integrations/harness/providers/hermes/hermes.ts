@@ -1,6 +1,7 @@
 import { nativeAcpTitleEvent, noteAcpTitleCapabilities, readAcpSessionTitle, readAcpTitleInProcess } from "../../core/nativeTitles";
 import type { NativeTitleInput } from "../../core/titleCoordinator";
 import { nativeModelId } from "../../../../features/sessions/model/models";
+import { providerSessionAccessIssue } from "../sessionAccessErrors";
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
 import { AcpClient, type AcpHandlers } from "../../core/acp";
 import { AcpSubagents } from "../../core/acpSubagents";
@@ -290,7 +291,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
         );
         acpSessionId = hermesSessionId(setup) ?? resume.acpSessionId;
         didLoad = true;
-      } catch {
+      } catch (error) {
+        if (providerSessionAccessIssue("hermes", error)) throw error;
         setup = undefined;
         acpSessionId = undefined;
       } finally {

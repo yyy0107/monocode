@@ -22,7 +22,7 @@ vi.mock("../../core/child", () => ({
   },
 }));
 
-const { sendFxTurn, stopFxSession } = await import("./fx");
+const { sendFxTurn, stopFxSession, bindFxSession } = await import("./fx");
 import type { HarnessEvent } from "../../core/types";
 
 function reply(id: number, result: unknown) {
@@ -51,6 +51,26 @@ const waitFor = async (pred: () => boolean, label: string) => {
 describe("fx live turn sequence", () => {
   beforeEach(() => {
     sent.length = 0;
+  });
+
+  it.each(["session/resume", "session/load"])("preserves a locked fx binding when %s rejects", async (method) => {
+    const sessionId = `fx-locked-${method}`;
+    bindFxSession(sessionId, "original-fx", "/repo");
+    const events: HarnessEvent[] = [];
+    const turn = sendFxTurn({ sessionId, cwd: "/repo", model: "fx:zai/glm-5.2", runtimeMode: "supervised", text: "continue", attachments: [], onEvent: event => events.push(event) });
+    const rejected = expect(turn).rejects.toThrow("Session is busy");
+    await waitFor(() => parse().some(m => m.method === "initialize"), "initialize");
+    reply(parse().find(m => m.method === "initialize").id, {});
+    await waitFor(() => parse().some(m => m.method === "session/resume"), "resume");
+    if (method === "session/load") {
+      onLine!(JSON.stringify({ jsonrpc: "2.0", id: parse().find(m => m.method === "session/resume").id, error: { code: -32601, message: "Method not found" } }));
+      await waitFor(() => parse().some(m => m.method === "session/load"), "load");
+    }
+    onLine!(JSON.stringify({ jsonrpc: "2.0", id: parse().find(m => m.method === method).id, error: { code: -32603, message: "Session is busy" } }));
+    await rejected;
+    expect(parse().some(m => m.method === "session/new")).toBe(false);
+    expect(events.some(event => event.type === "session.providerBound")).toBe(false);
+    await stopFxSession(sessionId);
   });
 
   it("auto-approves a permission request instead of blocking the turn", async () => {

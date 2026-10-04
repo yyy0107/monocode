@@ -82,6 +82,24 @@ describe("Hermes live ACP sequence", () => {
     textFiles.clear();
   });
 
+  it.each([
+    "This chat is open in another Hermes window/terminal. Use it there, or start a new chat here.",
+    "Hermes could not read the active-session registry",
+  ])("keeps a refused Hermes resume bound to its original session: %s", async (message) => {
+    const sessionId = `hermes-locked-${message}`;
+    bindHermesSession(sessionId, "original-hermes", "/repo");
+    const turn = sendHermesTurn({ sessionId, cwd: "/repo", model: "hermes:nous:hermes-4", runtimeMode: "supervised", text: "continue", attachments: [], onEvent: () => undefined });
+    const rejected = expect(turn).rejects.toThrow(message);
+    await initialize();
+    await waitFor(() => parse().some(request => request.method === "session/load"), "load");
+    const load = parse().find(request => request.method === "session/load")!;
+    expect(load.params.sessionId).toBe("original-hermes");
+    onLine!(JSON.stringify({ jsonrpc: "2.0", id: load.id, error: { code: -32603, message } }));
+    await rejected;
+    expect(parse().some(request => request.method === "session/new")).toBe(false);
+    await stopHermesSession(sessionId);
+  });
+
   it("starts Hermes ACP, selects model and mode, and sends attachments", async () => {
     const events: HarnessEvent[] = [];
     const turn = sendHermesTurn({
