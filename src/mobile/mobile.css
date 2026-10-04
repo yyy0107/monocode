@@ -256,19 +256,6 @@
 .mobile-list-row > svg {
   opacity: 0.4;
 }
-.mobile-new-session {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  min-height: 48px;
-  border: 1px solid var(--color-stroke);
-  border-radius: 10px;
-  background: var(--color-selection-subtle);
-  color: var(--color-content);
-  padding: 12px 14px;
-  margin-bottom: 26px;
-}
 .mobile-empty {
   flex: 1;
   display: flex;

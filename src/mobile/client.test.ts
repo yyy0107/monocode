@@ -139,6 +139,19 @@ describe("mobile Host transport", () => {
 });
 
 describe("mobile client synchronization", () => {
+  it("refreshes the saved hostname from the verified Host descriptor", async () => {
+    const store = memory();
+    let host = { ...descriptor, name: "Old computer name" };
+    const client = new MobileClient(store, async () => host);
+    await client.connect(endpoint, token);
+    host = { ...host, name: "wy-ubuntu" };
+    await client.verify();
+    expect(client.connection?.name).toBe("wy-ubuntu");
+    expect(JSON.parse((await store.get("connection"))!).name).toBe("wy-ubuntu");
+    host = { ...host, name: "Different computer", environmentId: "other-host" };
+    await expect(client.verify()).rejects.toThrow("Host identity changed");
+    expect(client.connection?.name).toBe("wy-ubuntu");
+  });
   it("hydrates Host image attachments with the shared desktop preview loader and reuses their bytes", async () => {
     const value = snapshot();
     value.session.blocks[0] = {

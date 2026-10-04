@@ -739,17 +739,6 @@ export function MobileApp() {
         </main>
       ) : view === "sessions" ? (
         <main className="mobile-content">
-          <button
-            className="mobile-new-session"
-            onClick={() => void openSession()}
-          >
-            <Plus size={18} />
-            New conversation
-          </button>
-          <p className="mobile-section-label">
-            Conversations{" "}
-            <span>{sessions.filter((item) => !item.archived).length}</span>
-          </p>
           {loading ? (
             <div className="mobile-loading">
               <LoaderCircle className="mobile-spin" size={20} />
@@ -766,9 +755,6 @@ export function MobileApp() {
                     key={item.id}
                     onClick={() => void openSession(item.id)}
                   >
-                    <span className="mobile-row-icon">
-                      <MessageSquare size={20} />
-                    </span>
                     <span className="mobile-row-text">
                       <strong>{item.title || "Untitled conversation"}</strong>
                       <small>

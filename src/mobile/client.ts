@@ -181,6 +181,11 @@ export class MobileClient {
       throw new Error(
         "Host identity changed. Connect to this machine again explicitly.",
       );
+    if (host.name !== this.connection.name) {
+      const connection = { ...this.connection, name: host.name };
+      await this.storage.set("connection", JSON.stringify(connection));
+      this.connection = connection;
+    }
   }
   async disconnect(): Promise<void> {
     await this.storage.remove("connection");
