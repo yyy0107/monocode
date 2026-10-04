@@ -59,7 +59,7 @@ it("adds only selected server names to outgoing context", () => {
 });
 
 it("makes disabled provider entries unselectable even when health says Connected", () => {
-  for (const provider of ["claude", "codex", "opencode"] as const) {
+  for (const provider of ["claude", "codex", "opencode", "pi"] as const) {
     const [server] = mcpPickerServers(
       [{ ...servers[2], provider, enabled: false }],
       provider,
@@ -69,6 +69,64 @@ it("makes disabled provider entries unselectable even when health says Connected
     expect(server.availability).toBe("unavailable");
     expect(server.detail).toBe("Disabled in provider configuration");
   }
+});
+
+it("offers Pi servers only to Pi sessions", () => {
+  const pi: McpConnection = { ...servers[2], provider: "pi" };
+  expect(mcpPickerServers([pi], "pi", new Map(), "Pi")[0].availability).toBe(
+    "available",
+  );
+  expect(mcpPickerServers([pi], "omp", new Map(), "")[0].availability).toBe(
+    "unavailable",
+  );
+});
+
+it.each([
+  "needs-auth",
+  "failed",
+  "disabled",
+  "checking",
+  "not-loaded",
+  "overridden",
+  "unavailable",
+  "disconnected",
+  "closed",
+] as const)("uses Pi native %s in the picker", (nativeState) => {
+  const [server] = mcpPickerServers(
+    [{ ...servers[2], provider: "pi", nativeState }],
+    "pi",
+    new Map(),
+    "",
+  );
+  expect(server.availability).toBe(
+    nativeState === "needs-auth" ? "authentication" : "unavailable",
+  );
+});
+
+it("keeps connected Pi entries selectable and ignores their health for another provider", () => {
+  const pi: McpConnection = {
+    ...servers[2],
+    provider: "pi",
+    nativeState: "connected",
+  };
+  expect(mcpPickerServers([pi], "pi", new Map(), "")[0].availability).toBe(
+    "available",
+  );
+  expect(mcpPickerServers([pi], "omp", new Map(), "")[0].availability).toBe(
+    "unavailable",
+  );
+});
+
+it("uses Pi's effective enablement after a trusted project enables a disabled global server", () => {
+  const pi: McpConnection = {
+    ...servers[2],
+    provider: "pi",
+    enabled: false,
+    nativeState: "connected",
+  };
+  expect(mcpPickerServers([pi], "pi", new Map(), "")[0].availability).toBe(
+    "available",
+  );
 });
 
 it("keeps MCP references inline and only uses tags still in the draft", () => {

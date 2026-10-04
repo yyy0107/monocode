@@ -195,7 +195,7 @@ export function McpServerPicker({
                   {server.availability === "authentication"
                     ? uiT("Needs authentication")
                     : server.availability === "unavailable"
-                      ? server.detail
+                      ? uiT(server.detail)
                       : uiT("Available")}
                 </span>
               </button>

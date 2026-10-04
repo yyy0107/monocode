@@ -255,12 +255,14 @@ it("shows only configured provider chips until the filter button reveals all", a
   )!;
   expect(chips.textContent).toContain("Codex");
   expect(chips.textContent).not.toContain("Cursor");
+  expect(chips.textContent).not.toContain("Pi");
   await act(async () =>
     container
       .querySelector<HTMLButtonElement>('[aria-label="Show all providers"]')!
       .click(),
   );
   expect(chips.textContent).toContain("Cursor");
+  expect(chips.textContent).toContain("Pi");
   await act(async () =>
     container
       .querySelector<HTMLButtonElement>(
@@ -269,7 +271,149 @@ it("shows only configured provider chips until the filter button reveals all", a
       .click(),
   );
   expect(chips.textContent).not.toContain("Cursor");
+  expect(chips.textContent).not.toContain("Pi");
 });
+
+it.each(["connected", "needs-auth", "failed"])(
+  "shows native Pi %s and offers sign-in only for needs-auth",
+  async (state) => {
+    const discovery = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (command: string, args: unknown) => {
+      if (command === "pi_mcp_list")
+        return {
+          servers: [
+            {
+              name: "pi-docs",
+              scope: "global",
+              source: "/home/.pi/agent/mcp.json",
+              enabled: true,
+              state,
+              toolCount: 3,
+              ...(state === "failed"
+                ? { error: "Native connection error" }
+                : {}),
+            },
+          ],
+          errors: [],
+        };
+      const result = await discovery(command, args);
+      return command === "mcp_discover"
+        ? [
+            ...result,
+            {
+              provider: "pi",
+              name: "pi-docs",
+              scope: "user",
+              configPath: "/home/.pi/agent/mcp.json",
+              transport: "http",
+            },
+          ]
+        : result;
+    });
+    await act(async () =>
+      root.render(createElement(McpSettings, { cwd: "/repo" })),
+    );
+    const chips = container.querySelector(
+      '[aria-label="Filter MCP servers by provider"]',
+    )!;
+    const pi = [...chips.querySelectorAll("button")].find((button) =>
+      button.textContent?.startsWith("Pi"),
+    )!;
+    expect(pi).toBeDefined();
+    await act(async () => pi.click());
+    expect(container.textContent).toContain("pi-docs");
+    expect(container.textContent).not.toContain("sentry");
+    const signIn = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Sign in",
+    );
+    if (state === "needs-auth") {
+      expect(container.textContent).toContain("Needs authentication");
+      expect(signIn).toBeDefined();
+      await act(async () => signIn!.click());
+      expect(invoke).toHaveBeenCalledWith("mcp_provider_login", {
+        cwd: "/repo",
+        provider: "pi",
+        name: "pi-docs",
+      });
+      expect(
+        invoke.mock.calls.filter(([cmd]) => cmd === "pi_mcp_list"),
+      ).toHaveLength(2);
+    } else {
+      expect(signIn).toBeUndefined();
+      expect(container.textContent).toContain(
+        state === "connected" ? "Connected" : "Connection failed",
+      );
+      expect(container.textContent).toContain(
+        state === "connected" ? "3 tools" : "Native connection error",
+      );
+    }
+  },
+);
+
+it.each(["project", "user"])(
+  "adds native Pi configuration at %s scope",
+  async (scope) => {
+    await act(async () =>
+      root.render(createElement(McpSettings, { cwd: "/repo" })),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Add MCP server"]')!
+        .click(),
+    );
+    await act(async () =>
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Provider: Claude Code"]',
+        )!
+        .click(),
+    );
+    const pi = [
+      ...document.body.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    ].find((button) => button.textContent === "Pi")!;
+    expect(pi).toBeDefined();
+    await act(async () => pi.click());
+    expect(
+      document.body.querySelector('[aria-label="Scope: Project"]'),
+    ).not.toBeNull();
+    if (scope === "user") {
+      await act(async () =>
+        document.body
+          .querySelector<HTMLButtonElement>('[aria-label="Scope: Project"]')!
+          .click(),
+      );
+      const user = [
+        ...document.body.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+      ].find((button) => button.textContent === "User")!;
+      await act(async () => user.click());
+    }
+    const config =
+      document.body.querySelector<HTMLTextAreaElement>("textarea")!;
+    const json =
+      '{"mcpServers":{"tools":{"command":"node","args":["tools.js"],"exposure":"deferred","enabled":false}}}';
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!.call(config, json);
+      config.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () =>
+      document.body
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        ),
+    );
+    expect(invoke).toHaveBeenCalledWith("mcp_add", {
+      cwd: "/repo",
+      provider: "pi",
+      scope,
+      name: "",
+      config: json,
+    });
+  },
+);
 
 it("ignores discovery from a previous project after cwd changes", async () => {
   let resolveOld!: (connections: unknown[]) => void;

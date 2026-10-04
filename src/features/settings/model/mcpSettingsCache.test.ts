@@ -111,3 +111,122 @@ it("keeps configured rows when health fails and preserves disabled status", asyn
   expect(getCachedMcpSettings("/repo")?.servers[0].status).toBe("Disabled");
   expect(getCachedMcpSettings("/repo")?.error).toBe("");
 });
+
+const pi = {
+  ...configured[0],
+  provider: "pi" as const,
+  transport: "http",
+  configPath: "/home/.pi/agent/mcp.json",
+  scope: "user" as const,
+};
+const piReport = (state: string) => ({
+  servers: [
+    {
+      name: "docs",
+      scope: "global",
+      source: pi.configPath,
+      enabled: true,
+      state,
+      toolCount: 3,
+    },
+  ],
+  errors: [],
+});
+
+it("shares background Pi health without blocking discovery or another provider's health", async () => {
+  let resolvePi!: (output: unknown) => void;
+  invoke.mockImplementation((command: string) => {
+    if (command === "mcp_discover") return Promise.resolve([pi, ...configured]);
+    if (command === "pi_mcp_list")
+      return new Promise((resolve) => {
+        resolvePi = resolve;
+      });
+    return Promise.resolve("docs: local - Connected");
+  });
+  const snapshot = await loadMcpSettings("/repo");
+  expect(snapshot.servers[0].nativeState).toBe("checking");
+  await loadMcpSettings("/repo");
+  expect(
+    invoke.mock.calls.filter(([cmd]) => cmd === "pi_mcp_list"),
+  ).toHaveLength(1);
+  resolvePi(piReport("connected"));
+  await vi.waitFor(() =>
+    expect(getCachedMcpSettings("/repo")?.servers[0]).toMatchObject({
+      nativeState: "connected",
+      toolCount: 3,
+    }),
+  );
+  expect(getCachedMcpSettings("/repo")?.servers[1].status).toBe("Connected");
+});
+
+it("runs Pi health only for consumers that request it and ignores stale refreshes", async () => {
+  const resolvers: ((output: unknown) => void)[] = [];
+  invoke.mockImplementation((command: string) =>
+    command === "mcp_discover"
+      ? Promise.resolve([pi])
+      : new Promise((resolve) => {
+          resolvers.push(resolve);
+        }),
+  );
+  await loadMcpSettings("/repo", false, {
+    claudeHealth: false,
+    piHealth: false,
+  });
+  expect(invoke).toHaveBeenCalledTimes(1);
+  await loadMcpSettings("/repo", false, {
+    claudeHealth: false,
+    piHealth: true,
+  });
+  await loadMcpSettings("/repo", true, { claudeHealth: false, piHealth: true });
+  resolvers[1](piReport("connected"));
+  await vi.waitFor(() =>
+    expect(getCachedMcpSettings("/repo")?.servers[0].nativeState).toBe(
+      "connected",
+    ),
+  );
+  resolvers[0](piReport("needs-auth"));
+  await Promise.resolve();
+  expect(getCachedMcpSettings("/repo")?.servers[0].nativeState).toBe(
+    "connected",
+  );
+});
+
+it("preserves Pi rows and disabled configuration when its CLI cannot report health", async () => {
+  invoke.mockImplementation((command: string) =>
+    command === "mcp_discover"
+      ? Promise.resolve([pi, { ...pi, name: "disabled", enabled: false }])
+      : Promise.reject(new Error("Pi CLI not found")),
+  );
+  await loadMcpSettings("/repo", false, { claudeHealth: false });
+  await vi.waitFor(() =>
+    expect(getCachedMcpSettings("/repo")?.piError).toContain(
+      "Pi CLI not found",
+    ),
+  );
+  expect(
+    getCachedMcpSettings("/repo")?.servers.map((server) => server.nativeState),
+  ).toEqual(["unavailable", "disabled"]);
+  expect(getCachedMcpSettings("/repo")?.error).toBe("");
+});
+
+it("retains Pi's trust note and configuration diagnostics with useful server states", async () => {
+  invoke.mockImplementation(async (command: string) =>
+    command === "mcp_discover"
+      ? [pi]
+      : {
+          ...piReport("needs-auth"),
+          errors: ["Config error"],
+          note: "Project is not trusted",
+        },
+  );
+  await loadMcpSettings("/repo", false, { claudeHealth: false });
+  await vi.waitFor(() =>
+    expect(getCachedMcpSettings("/repo")?.servers[0].nativeState).toBe(
+      "needs-auth",
+    ),
+  );
+  expect(getCachedMcpSettings("/repo")?.piError).toContain("Config error");
+  expect(getCachedMcpSettings("/repo")?.piError).toContain(
+    "Project is not trusted",
+  );
+});

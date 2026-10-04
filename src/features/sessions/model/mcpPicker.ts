@@ -1,4 +1,5 @@
 import type { HarnessId } from "./session";
+import { piMcpStatus } from "../../../integrations/harness/providers/pi/piMcp";
 import {
   MCP_PROVIDER_LABELS,
   type McpConnection,
@@ -96,15 +97,22 @@ export function mcpPickerServers(
           ? claudeStatus.get(server.name)
           : undefined;
       const matches = server.provider === harness;
-      const disabled = server.enabled === false;
+      const native = server.provider === "pi" ? server.nativeState : undefined;
+      const disabled = native
+        ? native === "disabled"
+        : server.enabled === false;
       const authentication =
         matches &&
-        status != null &&
-        /auth|sign.?in|log.?in|unauthorized/i.test(status);
+        (native === "needs-auth" ||
+          (status != null &&
+            /auth|sign.?in|log.?in|unauthorized/i.test(status)));
       const failed =
         matches &&
-        status != null &&
-        /failed|error|offline|unreachable|disconnected/i.test(status);
+        ((native != null &&
+          native !== "connected" &&
+          native !== "needs-auth") ||
+          (status != null &&
+            /failed|error|offline|unreachable|disconnected/i.test(status)));
       return {
         ...server,
         availability:
@@ -117,9 +125,11 @@ export function mcpPickerServers(
           ? "Different provider"
           : disabled
             ? "Disabled in provider configuration"
-            : failed
-              ? "Connection unavailable"
-              : "Configured for this provider",
+            : native && native !== "connected"
+              ? piMcpStatus(native)
+              : failed
+                ? "Connection unavailable"
+                : "Configured for this provider",
       };
     })
     .sort(

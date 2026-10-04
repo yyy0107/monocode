@@ -1,12 +1,29 @@
 export type McpServer = { name: string; status: string };
 
+export type McpNativeState =
+  | "connected"
+  | "needs-auth"
+  | "failed"
+  | "disabled"
+  | "connecting"
+  | "disconnected"
+  | "closed"
+  | "checking"
+  | "unavailable"
+  | "not-loaded"
+  | "overridden";
+
 export type McpConnection = {
-  provider: "claude" | "claude_desktop" | "codex" | "cursor" | "opencode";
+  provider:
+    "claude" | "claude_desktop" | "codex" | "cursor" | "opencode" | "pi";
   name: string;
   scope: "local" | "project" | "user";
   configPath: string;
   transport: string;
   enabled?: boolean;
+  nativeState?: McpNativeState;
+  toolCount?: number;
+  statusDetail?: string;
 };
 
 export const MCP_PROVIDER_LABELS: Record<McpConnection["provider"], string> = {
@@ -15,6 +32,7 @@ export const MCP_PROVIDER_LABELS: Record<McpConnection["provider"], string> = {
   codex: "Codex",
   cursor: "Cursor",
   opencode: "OpenCode",
+  pi: "Pi",
 };
 
 /** Claude's list output is for humans; keep only names and health text. */

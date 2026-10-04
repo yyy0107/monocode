@@ -107,11 +107,17 @@ pub async fn mcp_add(
             return Err("Project directory does not exist".into());
         }
         match provider.as_str() {
-            "cursor" | "claude_desktop" => {
+            "cursor" | "claude_desktop" | "pi" => {
                 let path = match (provider.as_str(), scope.as_str()) {
                     ("cursor", "user") => Path::new(&home).join(".cursor/mcp.json"),
                     ("cursor", "project") => project.join(".cursor/mcp.json"),
                     ("claude_desktop", "user") => claude_desktop_config(Path::new(&home)),
+                    ("pi", _) => pi_config_path(
+                        Path::new(&home),
+                        &project,
+                        &scope,
+                        pi_agent_dir_override().as_deref(),
+                    )?,
                     _ => return Err("Unsupported scope for this provider".into()),
                 };
                 if provider == "claude_desktop" && server.get("command").is_none() {
@@ -146,6 +152,29 @@ pub async fn mcp_add(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+fn pi_agent_dir_override() -> Option<PathBuf> {
+    std::env::var("PI_CODING_AGENT_DIR")
+        .ok()
+        .filter(|path| !path.is_empty())
+        .map(|path| expand_home(&path))
+}
+
+fn pi_config_path(
+    home: &Path,
+    project: &Path,
+    scope: &str,
+    agent_dir_override: Option<&Path>,
+) -> Result<PathBuf, String> {
+    match scope {
+        "user" => Ok(agent_dir_override
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| home.join(".pi/agent"))
+            .join("mcp.json")),
+        "project" => Ok(project.join(".pi/mcp.json")),
+        _ => Err("Unsupported scope for Pi".into()),
+    }
 }
 
 fn opencode_config_path(
@@ -439,12 +468,14 @@ pub async fn mcp_discover(cwd: String) -> Result<Vec<McpConnection>, String> {
         let codex_home = std::env::var_os("CODEX_HOME").map(PathBuf::from);
         let desktop_config = claude_desktop_config(Path::new(&home));
         let opencode_config = std::env::var_os("OPENCODE_CONFIG").map(PathBuf::from);
+        let pi_agent_dir = pi_agent_dir_override();
         Ok(discover(
             Path::new(&home),
             &project,
             codex_home.as_deref(),
             &desktop_config,
             opencode_config.as_deref(),
+            pi_agent_dir.as_deref(),
         ))
     })
     .await
@@ -457,6 +488,7 @@ fn discover(
     codex_home_override: Option<&Path>,
     desktop_config: &Path,
     opencode_config: Option<&Path>,
+    pi_agent_dir_override: Option<&Path>,
 ) -> Vec<McpConnection> {
     let mut connections = Vec::new();
     let claude = home.join(".claude.json");
@@ -510,6 +542,13 @@ fn discover(
     }
     if let Some(custom) = opencode_config {
         add_json_file(&mut connections, "opencode", "user", custom, "mcp");
+    }
+
+    // Pi reads only the selected working directory, not ancestor MCP files.
+    for scope in ["user", "project"] {
+        let path = pi_config_path(home, project, scope, pi_agent_dir_override)
+            .expect("Known Pi MCP scope");
+        add_json_file(&mut connections, "pi", scope, &path, "mcpServers");
     }
 
     // Project configuration is inherited from parent directories. Stop at the
@@ -735,6 +774,123 @@ fn strip_jsonc(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pi_paths_and_addition_preserve_native_configuration() {
+        let root = std::env::temp_dir().join(format!("monocode-pi-mcp-{}", uuid::Uuid::new_v4()));
+        let home = root.join("home");
+        let project = root.join("project");
+        let custom = root.join("custom-agent");
+        assert_eq!(
+            pi_config_path(&home, &project, "project", Some(&custom)).unwrap(),
+            project.join(".pi/mcp.json")
+        );
+        assert!(pi_config_path(&home, &project, "local", None).is_err());
+        let (name, server) = server_from_json(
+            "pi", "", r#"{"mcpServers":{"docs":{"url":"https://example.com/mcp","enabled":false,"exposure":"deferred","toolExposure":{"search":"direct"},"timeout":15,"oauth":{"clientId":"pi-client"}}}}"#,
+        ).unwrap();
+        for (scope, agent, expected) in [
+            ("user", None, home.join(".pi/agent/mcp.json")),
+            ("user", Some(custom.as_path()), custom.join("mcp.json")),
+            (
+                "project",
+                Some(custom.as_path()),
+                project.join(".pi/mcp.json"),
+            ),
+        ] {
+            let path = pi_config_path(&home, &project, scope, agent).unwrap();
+            assert_eq!(path, expected);
+            let original = serde_json::json!({
+                "autoEnableCodemode": false,
+                "mcpServers": {"existing": {"command":"node", "exposure":"direct"}}
+            });
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, serde_json::to_vec(&original).unwrap()).unwrap();
+            write_json_server(&path, &name, server.clone()).unwrap();
+            let config = read_json(&path).unwrap();
+            assert_eq!(config["mcpServers"][&name], server);
+            assert_eq!(config["autoEnableCodemode"], original["autoEnableCodemode"]);
+            assert_eq!(
+                config["mcpServers"]["existing"],
+                original["mcpServers"]["existing"]
+            );
+            let before = std::fs::read(&path).unwrap();
+            assert!(write_json_server(&path, &name, server.clone()).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn discovers_pi_user_and_current_project_without_inheriting_parent_configs() {
+        let root =
+            std::env::temp_dir().join(format!("monocode-pi-discover-{}", uuid::Uuid::new_v4()));
+        let home = root.join("home");
+        let parent = root.join("repo");
+        let project = parent.join("subproject");
+        let custom = root.join("custom-agent");
+        for (path, config) in [
+            (
+                home.join(".pi/agent/mcp.json"),
+                serde_json::json!({"mcpServers": {
+                    "local-tools": {"command":"node", "env":{"TOKEN":"private-token"}}
+                }}),
+            ),
+            (
+                project.join(".pi/mcp.json"),
+                serde_json::json!({"mcpServers": {
+                    "project-docs": {"url":"https://example.com/mcp", "enabled":false, "headers":{"Authorization":"private-token"}}
+                }}),
+            ),
+            (
+                parent.join(".pi/mcp.json"),
+                serde_json::json!({"mcpServers": {
+                    "parent-only": {"command":"node"}
+                }}),
+            ),
+            (
+                custom.join("mcp.json"),
+                serde_json::json!({"mcpServers": {
+                    "custom-tools": {"command":"node"}
+                }}),
+            ),
+        ] {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, serde_json::to_vec(&config).unwrap()).unwrap();
+        }
+        let desktop = root.join("desktop.json");
+        let found = discover(&home, &project, None, &desktop, None, None);
+        assert_eq!(found.len(), 2);
+        let user = found
+            .iter()
+            .find(|server| server.name == "local-tools")
+            .unwrap();
+        assert_eq!(user.provider, "pi");
+        assert_eq!(user.scope, "user");
+        assert_eq!(user.transport, "stdio");
+        assert!(user.enabled);
+        let local = found
+            .iter()
+            .find(|server| server.name == "project-docs")
+            .unwrap();
+        assert_eq!(local.scope, "project");
+        assert_eq!(local.transport, "http");
+        assert!(!local.enabled);
+        assert_eq!(Path::new(&local.config_path), project.join(".pi/mcp.json"));
+        assert!(!serde_json::to_string(&found)
+            .unwrap()
+            .contains("private-token"));
+        let custom_found = discover(&home, &project, None, &desktop, None, Some(&custom));
+        assert_eq!(custom_found.len(), 2);
+        assert!(custom_found
+            .iter()
+            .any(|server| server.name == "custom-tools"
+                && Path::new(&server.config_path) == custom.join("mcp.json")));
+        assert!(!custom_found
+            .iter()
+            .any(|server| server.name == "local-tools" || server.name == "parent-only"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn parses_single_server_from_standard_json() {
@@ -1085,7 +1241,7 @@ mod tests {
         let codex_config: toml::Value = toml::from_str(&codex_raw).unwrap();
         assert!(codex_config.get("mcp_servers").is_some());
         std::fs::write(home.join(".config/opencode/opencode.jsonc"), "{\"mcp\": {\"servers\": {\"four\": {\"type\": \"remote\", \"url\": \"https://example.com\",},},}}").unwrap();
-        let found = discover(&home, &project, None, &desktop, None);
+        let found = discover(&home, &project, None, &desktop, None, None);
         let names: Vec<_> = found
             .iter()
             .map(|entry| (entry.provider.as_str(), entry.name.as_str()))
@@ -1212,7 +1368,14 @@ mod tests {
             r#"{"mcpServers":{"servers":{"command":"npx"},"docs":{"command":"node"}}}"#,
         )
         .unwrap();
-        let found = discover(&root, &project, None, &root.join("desktop.json"), None);
+        let found = discover(
+            &root,
+            &project,
+            None,
+            &root.join("desktop.json"),
+            None,
+            None,
+        );
         assert_eq!(found.len(), 2);
         assert!(found.iter().all(|server| server.scope == "user"));
         assert!(found.iter().any(|server| server.name == "servers"));

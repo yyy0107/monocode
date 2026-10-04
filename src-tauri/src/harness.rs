@@ -380,7 +380,7 @@ pub fn harness_resolve_claude() -> Result<CursorBinary, String> {
 }
 
 fn resolve_mcp_binary(provider: &str, binary_path: Option<&str>) -> Result<PathBuf, String> {
-    if !matches!(provider, "claude" | "codex" | "cursor" | "opencode") {
+    if !matches!(provider, "claude" | "codex" | "cursor" | "opencode" | "pi") {
         return Err("Unsupported MCP provider".into());
     }
     match binary_path {
@@ -443,6 +443,101 @@ pub async fn claude_mcp_list(host: State<'_, HarnessHost>, cwd: String) -> Resul
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[derive(Deserialize)]
+struct PiMcpNativeList {
+    servers: Vec<PiMcpNativeServer>,
+    errors: Vec<String>,
+    note: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PiMcpNativeServer {
+    name: String,
+    scope: String,
+    source: String,
+    enabled: bool,
+    state: String,
+    tools: Vec<String>,
+    resources: Option<usize>,
+    #[serde(rename = "resourceTemplates")]
+    resource_templates: Option<usize>,
+    #[serde(rename = "override")]
+    override_path: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PiMcpList {
+    servers: Vec<PiMcpServer>,
+    errors: Vec<String>,
+    note: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PiMcpServer {
+    name: String,
+    scope: String,
+    source: String,
+    enabled: bool,
+    state: String,
+    tool_count: usize,
+    resources: Option<usize>,
+    resource_templates: Option<usize>,
+    #[serde(rename = "override")]
+    override_path: Option<String>,
+    error: Option<String>,
+}
+
+fn parse_pi_mcp_list(output: &[u8]) -> Result<PiMcpList, String> {
+    let report: PiMcpNativeList =
+        serde_json::from_slice(output).map_err(|_| "Invalid Pi MCP status response".to_owned())?;
+    Ok(PiMcpList {
+        servers: report
+            .servers
+            .into_iter()
+            .map(|server| PiMcpServer {
+                name: server.name,
+                scope: server.scope,
+                source: server.source,
+                enabled: server.enabled,
+                state: server.state,
+                tool_count: server.tools.len(),
+                resources: server.resources,
+                resource_templates: server.resource_templates,
+                override_path: server.override_path,
+                error: server.error,
+            })
+            .collect(),
+        errors: report.errors,
+        note: report.note,
+    })
+}
+
+fn pi_mcp_list_command(cwd: String, binary_path: Option<&str>) -> Result<PiMcpList, String> {
+    if !expand_home(&cwd).is_dir() {
+        return Err("Project directory does not exist".into());
+    }
+    let binary = resolve_mcp_binary("pi", binary_path)?;
+    let output = exec_output(
+        &binary.to_string_lossy(),
+        &["mcp".into(), "list".into(), "--json".into()],
+        Some(&cwd),
+        Duration::from_secs(60),
+    )?;
+    // Pi exits 1 for needs-auth, failed servers and invalid configuration, while
+    // still returning a useful JSON report. Do not route through mcp_command.
+    parse_pi_mcp_list(&output.stdout)
+}
+
+#[tauri::command]
+pub async fn pi_mcp_list(host: State<'_, HarnessHost>, cwd: String) -> Result<PiMcpList, String> {
+    let binary_path = host.runtime_binary_path("pi");
+    tauri::async_runtime::spawn_blocking(move || pi_mcp_list_command(cwd, binary_path.as_deref()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 fn configured_ws_mcp_servers(cwd: &Path) -> Vec<String> {
@@ -715,7 +810,7 @@ pub async fn mcp_provider_login(
     let binary_path = host.runtime_binary_path(&provider);
     tauri::async_runtime::spawn_blocking(move || {
         let args = match provider.as_str() {
-            "claude" | "codex" | "cursor" => vec!["mcp", "login"],
+            "claude" | "codex" | "cursor" | "pi" => vec!["mcp", "login"],
             "opencode" => vec!["mcp", "auth"],
             _ => return Err("Unsupported MCP provider".into()),
         };
@@ -724,7 +819,7 @@ pub async fn mcp_provider_login(
             binary,
             args.into_iter().map(String::from).chain([name]).collect(),
             cwd,
-            Duration::from_secs(180),
+            Duration::from_secs(if provider == "pi" { 330 } else { 180 }),
         )?;
         Ok(())
     })
@@ -3034,6 +3129,82 @@ mod tests {
     use std::os::unix::process::CommandExt;
 
     #[test]
+    fn pi_mcp_status_keeps_native_failures_and_omits_connection_credentials() {
+        let report = parse_pi_mcp_list(
+            br#"{
+          "servers": [{"name":"docs","scope":"global","source":"/agent/mcp.json",
+            "enabled":true,"state":"needs-auth","tools":["search","read"],
+            "transport":"https://example.com/mcp?token=secret",
+            "headers":{"Authorization":"Bearer secret"},"error":"Sign in required",
+            "override":"/project/.pi/mcp.json","resources":1,"resourceTemplates":0}],
+          "errors":["Invalid project configuration"],"note":"Project not trusted"
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(report.servers[0].state, "needs-auth");
+        assert_eq!(report.servers[0].tool_count, 2);
+        assert_eq!(report.servers[0].resources, Some(1));
+        assert_eq!(report.errors, ["Invalid project configuration"]);
+        assert_eq!(report.note.as_deref(), Some("Project not trusted"));
+        let encoded = serde_json::to_string(&report).unwrap();
+        assert!(!encoded.contains("secret"));
+        assert!(!encoded.contains("transport"));
+        assert!(!encoded.contains("headers"));
+        assert!(encoded.contains("toolCount"));
+        for malformed in [
+            b"not JSON".as_slice(),
+            br#"{"servers":[],"errors":"secret"}"#,
+            br#"{"servers":[{"name":"docs"}],"errors":[]}"#,
+        ] {
+            assert_eq!(
+                parse_pi_mcp_list(malformed).unwrap_err(),
+                "Invalid Pi MCP status response"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pi_mcp_status_uses_configured_binary_and_accepts_exit_one() {
+        use std::os::unix::fs::PermissionsExt;
+        let root =
+            std::env::temp_dir().join(format!("monocode-pi-health-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let binary = root.join("pi-coding-agent");
+        std::fs::write(&binary, "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '1.0.2'; exit 0; fi\nif [ \"$*\" != 'mcp list --json' ]; then exit 2; fi\nprintf '%s' '{\"servers\":[{\"name\":\"docs\",\"scope\":\"global\",\"source\":\"/agent/mcp.json\",\"enabled\":true,\"state\":\"failed\",\"tools\":[],\"error\":\"Connection refused\"}],\"errors\":[]}'\nexit 1\n").unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let host = HarnessHost::new();
+        initialize_runtime_binary_paths(
+            &host.runtime_binary_paths,
+            HashMap::from([("pi".to_owned(), binary.to_string_lossy().into_owned())]),
+        );
+        let report = pi_mcp_list_command(
+            root.to_string_lossy().into_owned(),
+            host.runtime_binary_path("pi").as_deref(),
+        )
+        .unwrap();
+        assert_eq!(report.servers[0].state, "failed");
+        assert_eq!(
+            report.servers[0].error.as_deref(),
+            Some("Connection refused")
+        );
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '1.0.2'; exit 0; fi\nprintf '%s' 'unsupported-command secret'\nexit 1\n",
+        )
+        .unwrap();
+        assert_eq!(
+            pi_mcp_list_command(
+                root.to_string_lossy().into_owned(),
+                Some(&binary.to_string_lossy())
+            )
+            .unwrap_err(),
+            "Invalid Pi MCP status response"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn claude_title_reads_only_bound_metadata_inside_the_account() {
         let root = std::env::temp_dir().join(format!("monocode-title-{}", uuid::Uuid::new_v4()));
         let project = root.join("projects/-project");
@@ -3398,6 +3569,7 @@ mod tests {
             ("codex", "codex"),
             ("cursor", "cursor-agent"),
             ("opencode", "opencode"),
+            ("pi", "pi-coding-agent"),
         ] {
             let binary = root.join(filename);
             std::fs::write(

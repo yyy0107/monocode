@@ -689,6 +689,7 @@ export function Composer({
     if (cached) apply(cached);
     void loadMcpSettings(executionCwd, false, {
       claudeHealth: harness === "claude",
+      piHealth: harness === "pi",
     });
     return stop;
   }, [executionCwd, harness, mcpPickerOpen]);

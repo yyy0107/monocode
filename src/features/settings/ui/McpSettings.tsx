@@ -44,6 +44,7 @@ const PROVIDERS: Provider[] = [
   "codex",
   "cursor",
   "opencode",
+  "pi",
 ];
 const SCOPES: Record<Provider, Scope[]> = {
   claude: ["local", "project", "user"],
@@ -51,6 +52,7 @@ const SCOPES: Record<Provider, Scope[]> = {
   codex: ["user"],
   cursor: ["project", "user"],
   opencode: ["project", "user"],
+  pi: ["project", "user"],
 };
 
 function ProviderIcon({ provider }: { provider: Provider }) {
@@ -344,6 +346,7 @@ function McpConnections({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState(cached?.error ?? "");
   const [claudeError, setClaudeError] = useState(cached?.claudeError ?? "");
+  const [piError, setPiError] = useState(cached?.piError ?? "");
   const [addOpen, setAddOpen] = useState(false);
   const [removeScopes, setRemoveScopes] = useState<Record<string, Scope>>({});
   const refreshGeneration = useRef(0);
@@ -352,6 +355,7 @@ function McpConnections({
     setServers(snapshot.servers);
     setError(snapshot.error);
     setClaudeError(snapshot.claudeError);
+    setPiError(snapshot.piError);
     setLoading(false);
   }, []);
 
@@ -368,6 +372,7 @@ function McpConnections({
         setServers(previous?.servers ?? []);
         setError(previous?.error ?? "");
         setClaudeError(previous?.claudeError ?? "");
+        setPiError(previous?.piError ?? "");
       }
       setLoading(force || !previous);
       const snapshot = await loadMcpSettings(cwd, force);
@@ -543,6 +548,11 @@ function McpConnections({
           {claudeError}
         </p>
       ) : null}
+      {piError && (filter === "all" || filter === "pi") ? (
+        <p className="whitespace-pre-wrap text-xs text-content/55">
+          {uiT("Pi MCP status:")} {piError}
+        </p>
+      ) : null}
       {loading ? (
         <p className="text-sm text-content/55">{uiT("Checking servers…")}</p>
       ) : visible.length === 0 ? (
@@ -565,8 +575,19 @@ function McpConnections({
                 </div>
                 <div className="mt-1 text-[12px] leading-relaxed text-content/45">
                   {MCP_PROVIDER_LABELS[server.provider]} · {server.scope} ·{" "}
-                  {server.transport || "MCP"} · {server.status}
+                  {server.transport || "MCP"} ·{" "}
+                  {server.provider === "pi"
+                    ? uiT(server.status)
+                    : server.status}
+                  {server.toolCount != null ? (
+                    <> · {uiT("{count} tools", { count: server.toolCount })}</>
+                  ) : null}
                 </div>
+                {server.statusDetail ? (
+                  <div className="mt-1 whitespace-pre-wrap text-[11px] text-content/55">
+                    {server.statusDetail}
+                  </div>
+                ) : null}
                 {server.configPath ? (
                   <div
                     className="truncate text-[11px] text-content/35"
@@ -576,9 +597,13 @@ function McpConnections({
                   </div>
                 ) : null}
               </div>
-              {server.provider !== "claude_desktop" &&
-              server.transport &&
-              !["stdio", "local", "ws"].includes(server.transport) ? (
+              {(
+                server.provider === "pi"
+                  ? server.nativeState === "needs-auth"
+                  : server.provider !== "claude_desktop" &&
+                    server.transport &&
+                    !["stdio", "local", "ws"].includes(server.transport)
+              ) ? (
                 <button
                   type="button"
                   disabled={busy !== null}
@@ -640,7 +665,7 @@ function McpConnections({
       )}
       <p className="text-xs text-content/45">
         {uiT(
-          "Claude Code status comes from its CLI. Other providers show configured entries. Sign in opens your browser when supported.",
+          "Claude Code and Pi status comes from their CLIs. Other providers show configured entries. Pi sign-in is available when authentication is required.",
         )}
       </p>
       {addOpen ? (

@@ -11,7 +11,7 @@ vi.mock("@tauri-apps/api/core", async (importOriginal) => {
   return {
     ...original,
     invoke: (command: string, args?: unknown) =>
-      command === "mcp_discover" || command === "claude_mcp_list"
+      command === "mcp_discover" || command === "claude_mcp_list" || command === "pi_mcp_list"
         ? mcpInvoke(command, args)
         : original.invoke(command, args),
   };
@@ -166,7 +166,7 @@ describe("Composer question focus", () => {
     ) => boolean | void,
     onSubmit: (text: string, attachments: Attachment[]) => void = () => {},
     sessionId?: string,
-    harness: "claude" | "codex" = "claude",
+    harness: "claude" | "codex" | "pi" = "claude",
   ) {
     await act(async () =>
       root.render(
@@ -386,6 +386,78 @@ describe("Composer question focus", () => {
     expect(docs.disabled).toBe(true);
     expect(docs.textContent).toContain("Disabled in provider configuration");
     expect(mcpInvoke).toHaveBeenCalledTimes(4);
+  });
+
+  it("loads Pi native health and disables servers that require sign-in or failed", async () => {
+    let state = "connected";
+    mcpInvoke.mockImplementation(async (command: string) =>
+      command === "mcp_discover"
+        ? ["docs", "auth", "failed"].map((name) => ({
+            provider: "pi",
+            name,
+            scope: "user",
+            configPath: "/home/.pi/agent/mcp.json",
+            transport: "http",
+          }))
+        : {
+            servers: ["docs", "auth", "failed"].map((name) => ({
+              name,
+              scope: "global",
+              source: "/home/.pi/agent/mcp.json",
+              enabled: true,
+              state:
+                name === "docs"
+                  ? state
+                  : name === "auth"
+                    ? "needs-auth"
+                    : "failed",
+              toolCount: 3,
+            })),
+            errors: [],
+          },
+    );
+    await renderComposer(
+      undefined,
+      vi.fn(),
+      false,
+      0,
+      "/mcp",
+      undefined,
+      vi.fn(),
+      undefined,
+      "pi",
+    );
+    await act(async () =>
+      container
+        .querySelector("textarea")!
+        .dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        ),
+    );
+    const options = () => [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        '[data-mcp-picker] [role="option"]',
+      ),
+    ];
+    expect(options().map((option) => option.disabled)).toEqual([
+      false,
+      true,
+      true,
+    ]);
+    expect(container.textContent).toContain("Needs authentication");
+    expect(container.textContent).toContain("Connection failed");
+    expect(mcpInvoke.mock.calls.map(([cmd]) => cmd)).toEqual([
+      "mcp_discover",
+      "pi_mcp_list",
+    ]);
+    state = "needs-auth";
+    await act(async () => {
+      await loadMcpSettings("/repo", true, {
+        claudeHealth: false,
+        piHealth: true,
+      });
+    });
+    expect(options().every((option) => option.disabled)).toBe(true);
   });
 
   it("shows four MCP rows at a time and dismisses on outside click or Escape", async () => {
