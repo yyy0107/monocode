@@ -7,7 +7,7 @@ import {
   Sparkles,
 } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
-import { MobileSheet } from "./MobileSheet";
+import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 import {
   HARNESS_TITLE,
   type RuntimeMode,
@@ -108,15 +108,16 @@ export function MobileModelControls({
       catalog?.errors[provider] ||
       provider === configuration.harness,
   );
+  // Return to the overview so several settings can be adjusted in one visit.
   const choose = (next: MobileConfiguration) => {
-    onClose();
     onChange(next);
+    setPage("settings");
   };
   return (
     <MobileSheet
       placement={anchor ? "anchor" : "bottom"}
       anchor={anchor}
-      width={320}
+      width={SHEET_WIDTH.settings}
       align="end"
       title={
         page === "models"

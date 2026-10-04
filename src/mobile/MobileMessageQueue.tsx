@@ -14,7 +14,7 @@ import {
   Play,
   Trash2,
 } from "../shared/ui/icons";
-import { MobileSheet } from "./MobileSheet";
+import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 import { useQueueDrag } from "./useQueueDrag";
 
 type Props = Omit<ComponentProps<typeof MessageQueue>, "renderQueue"> & {
@@ -187,7 +187,7 @@ function MobileQueueView({
           anchor={anchor}
           side="top"
           align="end"
-          width={240}
+          width={SHEET_WIDTH.menu}
           onClose={() => setMenuId(undefined)}
         >
           <button

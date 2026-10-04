@@ -1,11 +1,14 @@
 import "./browserCrypto";
 import { createRoot } from "react-dom/client";
 import { MobileApp } from "./MobileApp";
+import { installLiquidGlass } from "./liquidGlass";
+import { applyGlassSettings, readGlassSettings } from "./glassSettings";
 import { refreshUiLanguage } from "../shared/i18n/language";
 import "../styles/index.css";
 import "./mobile.css";
 
 refreshUiLanguage();
+applyGlassSettings(readGlassSettings());
 
 createRoot(document.getElementById("root")!, {
   onRecoverableError(error) {
@@ -15,3 +18,6 @@ createRoot(document.getElementById("root")!, {
     );
   },
 }).render(<MobileApp />);
+
+// Popovers portal to the body, so watch it rather than the React root.
+installLiquidGlass(document.body);

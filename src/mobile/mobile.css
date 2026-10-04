@@ -14,6 +14,18 @@
   font-size: 14px;
   padding-inline: var(--mobile-safe-left) var(--mobile-safe-right);
   background: var(--color-background-base);
+  /* iOS system styling shared by every page. */
+  --mobile-accent: #0a84ff;
+  --mobile-card: color-mix(in srgb, var(--color-content) 7%, var(--color-background-base));
+  --mobile-fill: color-mix(in srgb, var(--color-content) 9%, transparent);
+  --mobile-separator: color-mix(in srgb, var(--color-content) 14%, transparent);
+  --mobile-selected: color-mix(in srgb, var(--mobile-accent) 16%, transparent);
+  --mobile-card-radius: 22px;
+}
+html.theme-light .mobile-app {
+  --mobile-accent: #007aff;
+  --mobile-card: #fff;
+  --mobile-fill: color-mix(in srgb, var(--color-content) 7%, transparent);
 }
 /* Content scrolls behind the status bar on edge-to-edge screens; this scrim
    keeps system icons readable without reserving an opaque strip. */
@@ -81,17 +93,167 @@
   top: 10px;
   pointer-events: auto;
 }
+/* Every floating surface and popup shares one glass material. Settings →
+   Glass writes the effect (data-mobile-glass on <html>), fill, blur,
+   saturation and shine; liquidGlass.ts adds edge refraction on Chromium.
+   Variables live on :root because shared popovers portal outside the app.
+   Keep the surface list in step with LIQUID_GLASS_SELECTOR. */
+:root {
+  --mobile-glass-fill: 22%;
+  --mobile-glass-panel-fill: 57%;
+  --mobile-glass-blur: 3px;
+  --mobile-glass-panel-blur: 15px;
+  --mobile-glass-saturation: 200%;
+  --mobile-glass-shine: 1;
+  --mobile-glass-brightness: 1.05;
+  --mobile-glass-sheen-alpha: 0.08;
+  --mobile-glass-specular-alpha: 0.16;
+  --mobile-glass-bevel-light-alpha: 0.45;
+  --mobile-glass-bevel-dark-alpha: 0.14;
+  --mobile-glass-edge-glow-alpha: 0.16;
+  --mobile-glass-rim-strong-alpha: 0.85;
+  --mobile-glass-rim-soft-alpha: 0.28;
+  --mobile-glass-edge-shade: rgb(0 0 0 / 0.3);
+  --mobile-glass-shadow: 0 10px 32px #00000047, 0 2px 6px #00000029;
+}
+html.theme-light {
+  --mobile-glass-brightness: 1.08;
+  --mobile-glass-sheen-alpha: 0.32;
+  --mobile-glass-specular-alpha: 0.6;
+  --mobile-glass-bevel-light-alpha: 1;
+  --mobile-glass-bevel-dark-alpha: 0.6;
+  --mobile-glass-edge-glow-alpha: 0.5;
+  --mobile-glass-rim-strong-alpha: 1;
+  --mobile-glass-rim-soft-alpha: 0.6;
+  --mobile-glass-edge-shade: rgb(0 0 0 / 0.08);
+  --mobile-glass-shadow: 0 10px 32px #00000024, 0 2px 6px #00000014;
+}
 .mobile-header[data-floating="true"] > *,
 .mobile-composer,
-.mobile-navigation {
+.mobile-jump,
+.mobile-queue-pill,
+.mobile-glass-preview-chip,
+.mobile-drawer,
+.mobile-sheet,
+html .popover-backdrop.popover-backdrop {
+  --mobile-glass-white: 255 255 255;
   border: 1px solid var(--color-stroke);
+  background-color: color-mix(
+    in srgb,
+    var(--color-background-base) var(--mobile-glass-surface-fill, var(--mobile-glass-fill)),
+    transparent
+  );
+  background-image:
+    radial-gradient(
+      60% 55% at 22% 0%,
+      rgb(var(--mobile-glass-white) / calc(var(--mobile-glass-specular-alpha) * var(--mobile-glass-shine))),
+      transparent 70%
+    ),
+    radial-gradient(
+      120% 70% at 0% 0%,
+      rgb(var(--mobile-glass-white) / calc(var(--mobile-glass-sheen-alpha) * var(--mobile-glass-shine))),
+      transparent 55%
+    ),
+    radial-gradient(
+      90% 60% at 100% 100%,
+      rgb(var(--mobile-glass-white) / calc(var(--mobile-glass-sheen-alpha) * var(--mobile-glass-shine))),
+      transparent 60%
+    );
+  -webkit-backdrop-filter: blur(var(--mobile-glass-surface-blur, var(--mobile-glass-blur)))
+    saturate(var(--mobile-glass-saturation))
+    brightness(var(--mobile-glass-brightness));
+  backdrop-filter: var(--mobile-glass-refraction, )
+    blur(var(--mobile-glass-surface-blur, var(--mobile-glass-blur)))
+    saturate(var(--mobile-glass-saturation))
+    brightness(var(--mobile-glass-brightness));
+  box-shadow:
+    inset 1.5px 1.5px 1px -0.5px
+      rgb(var(--mobile-glass-white) / calc(var(--mobile-glass-bevel-light-alpha) * var(--mobile-glass-shine))),
+    inset -1.5px -1.5px 1px -0.5px
+      rgb(var(--mobile-glass-white) / calc(var(--mobile-glass-bevel-dark-alpha) * var(--mobile-glass-shine))),
+    inset 0 0 20px
+      rgb(var(--mobile-glass-white) / calc(var(--mobile-glass-edge-glow-alpha) * var(--mobile-glass-shine))),
+    inset 0 -14px 20px -16px var(--mobile-glass-edge-shade),
+    var(--mobile-glass-shadow);
+}
+/* Panels hold rows of text, so they close part of the remaining fill and
+   blur harder than the floating controls. */
+.mobile-drawer,
+.mobile-sheet,
+html .popover-backdrop.popover-backdrop {
+  --mobile-glass-surface-fill: var(--mobile-glass-panel-fill);
+  --mobile-glass-surface-blur: var(--mobile-glass-panel-blur);
+}
+/* Shared popovers already draw their frame border. */
+html .popover-backdrop.popover-backdrop {
+  border-color: transparent;
+}
+.mobile-header[data-floating="true"] > *,
+.mobile-composer {
   border-radius: var(--mobile-capsule-radius, 999px);
-  background: var(--color-selection-subtle);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+}
+/* Specular rim: a gradient ring over the border, brightest where light
+   enters and exits the glass. */
+.mobile-header[data-floating="true"] > *::before,
+.mobile-composer::before,
+.mobile-jump::before,
+.mobile-queue-pill::before,
+.mobile-glass-preview-chip::before,
+.mobile-drawer::before,
+.mobile-sheet::before,
+html .popover-backdrop.popover-backdrop::before {
+  --mobile-glass-white: 255 255 255;
+  content: "";
+  position: absolute;
+  inset: -1px;
+  padding: 1.5px;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    rgb(var(--mobile-glass-white) / calc(var(--mobile-glass-rim-strong-alpha) * var(--mobile-glass-shine))),
+    rgb(var(--mobile-glass-white) / calc(var(--mobile-glass-rim-soft-alpha) * var(--mobile-glass-shine))) 20%,
+    transparent 42%,
+    transparent 60%,
+    rgb(var(--mobile-glass-white) / calc(var(--mobile-glass-rim-soft-alpha) * var(--mobile-glass-shine))) 82%,
+    rgb(var(--mobile-glass-white) / calc(var(--mobile-glass-rim-strong-alpha) * var(--mobile-glass-shine)))
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+/* Solid restores opaque surfaces without paying for backdrop filters. */
+html[data-mobile-glass="solid"] :is(
+    .mobile-header[data-floating="true"] > *,
+    .mobile-composer,
+    .mobile-jump,
+    .mobile-queue-pill,
+    .mobile-glass-preview-chip,
+    .mobile-drawer,
+    .mobile-sheet,
+    .popover-backdrop
+  ) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-mobile-glass="solid"] :is(
+    .mobile-header[data-floating="true"] > *,
+    .mobile-composer,
+    .mobile-jump,
+    .mobile-queue-pill,
+    .mobile-glass-preview-chip,
+    .mobile-drawer,
+    .mobile-sheet,
+    .popover-backdrop
+  )::before {
+  display: none;
 }
 .mobile-header[data-floating="true"] > .mobile-icon-button {
+  width: 48px;
   height: 48px;
+  border-radius: 50%;
 }
 .mobile-header[data-floating="true"] > .mobile-icon-button:first-child,
 .mobile-header[data-floating="true"] > .mobile-header-logo {
@@ -107,7 +269,7 @@
   inset-inline-end: 16px;
 }
 .mobile-header[data-floating="true"] > .mobile-header-title {
-  inset-inline: 68px;
+  inset-inline: 72px;
 }
 /* Status and session actions share one capsule on the trailing side. */
 .mobile-header[data-floating="true"] > .mobile-header-actions {
@@ -115,16 +277,16 @@
   display: flex;
   align-items: center;
   height: 48px;
-  padding-inline: 2px;
+  padding-inline: 4px;
 }
 .mobile-header-actions > .mobile-icon-button {
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
 }
 .mobile-header[data-floating="true"]:has(> .mobile-header-actions)
   > .mobile-header-title {
-  inset-inline-end: 112px;
+  inset-inline-end: 116px;
 }
 /* Notices float under the header so they never push or cover its controls. */
 .mobile-notices {
@@ -264,25 +426,6 @@
     calc(24px + var(--mobile-safe-bottom));
   scroll-padding-top: calc(var(--mobile-header-height) + var(--mobile-safe-top));
 }
-.mobile-app:has(> .mobile-navigation) {
-  --mobile-navigation-height: 66px;
-  --mobile-navigation-bottom: max(12px, var(--mobile-safe-bottom));
-}
-.mobile-app:has(> .mobile-navigation) > .mobile-content {
-  padding-bottom: calc(
-    var(--mobile-navigation-height) + var(--mobile-navigation-bottom) + 16px
-  );
-  scroll-padding-bottom: calc(
-    var(--mobile-navigation-height) + var(--mobile-navigation-bottom) + 16px
-  );
-}
-.mobile-app[data-view="sessions"] > .mobile-content {
-  padding-inline: 10px;
-  scrollbar-width: none;
-}
-.mobile-app[data-view="sessions"] > .mobile-content::-webkit-scrollbar {
-  display: none;
-}
 .mobile-content h1 {
   margin: 0 0 10px;
   font-size: 22px;
@@ -302,20 +445,21 @@
 .mobile-form label {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  padding-inline: 4px;
   font-size: 13px;
-  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
-.mobile-app input:not([type="radio"]):not([type="checkbox"]),
+.mobile-app input:not([type="radio"]):not([type="checkbox"]):not([type="range"]),
 .mobile-app select,
 .mobile-select-trigger {
   min-height: 46px;
   width: 100%;
-  padding: 10px 13px;
+  padding: 10px 14px;
   color: var(--color-content);
-  background: var(--color-selection-subtle);
-  border: 1px solid var(--color-stroke);
-  border-radius: 9px;
+  background: var(--mobile-fill);
+  border: 0;
+  border-radius: 12px;
   font-size: 16px;
 }
 .mobile-app input::placeholder,
@@ -327,30 +471,21 @@
   justify-content: center;
   align-items: center;
   gap: 8px;
-  min-height: 44px;
-  padding: 10px 16px;
-  color: var(--color-content);
-  background: var(--color-selection);
-  border: 1px solid transparent;
-  border-radius: 9px;
-  font-weight: 500;
+  min-height: 46px;
+  padding: 10px 20px;
+  color: var(--mobile-accent);
+  background: var(--mobile-fill);
+  border: 0;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.mobile-button:active {
+  opacity: 0.7;
 }
 .mobile-primary {
-  background: var(--color-content);
-  color: var(--color-background-base);
-}
-.mobile-appearance {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  border-top: 1px solid var(--color-stroke);
-  padding-top: 24px;
-  margin-top: 38px;
-}
-.mobile-appearance .mobile-select-trigger {
-  width: 130px;
-  font-size: 14px;
+  background: var(--mobile-accent);
+  color: #fff;
 }
 .mobile-select-trigger {
   display: inline-flex;
@@ -368,36 +503,8 @@
 .mobile-select-trigger > svg {
   flex-shrink: 0;
 }
-.mobile-language {
-  border-top: 0;
-  padding-top: 0;
-  margin-top: 16px;
-}
-.mobile-add-connection {
-  width: 100%;
-}
 .mobile-connection-form {
   margin: 20px 0 6px;
-}
-.mobile-current-host {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 18px 0;
-  margin-top: 20px;
-}
-.mobile-current-host > div {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  gap: 5px;
-}
-.mobile-current-host strong {
-  font-weight: 500;
-}
-.mobile-current-host small {
-  color: color-mix(in srgb, var(--color-content) 40%, transparent);
-  overflow-wrap: anywhere;
 }
 .mobile-connection-dot,
 .mobile-attention-dot {
@@ -423,19 +530,12 @@
   background: #53ba87;
   flex-shrink: 0;
 }
-.mobile-notification-settings {
-  margin-top: 22px;
-}
-.mobile-notification-settings .mobile-muted {
-  margin-top: 8px;
-  font-size: 12px;
-}
 .mobile-section-label {
   display: flex;
   justify-content: space-between;
-  margin: 0 4px 14px;
-  color: color-mix(in srgb, var(--color-content) 45%, transparent);
-  font-size: 12px;
+  margin: 0 12px 8px;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  font-size: 13px;
 }
 .mobile-list {
   display: flex;
@@ -451,7 +551,7 @@
   padding: 12px 10px;
   width: 100%;
   border: 0;
-  border-radius: 10px;
+  border-radius: 16px;
   background: transparent;
   color: var(--color-content);
 }
@@ -526,52 +626,25 @@
   margin-bottom: 20px;
 }
 .mobile-empty h2 {
-  margin: 0 0 10px;
-  font-size: 19px;
+  margin: 0 0 8px;
+  font-size: 22px;
   letter-spacing: -0.4px;
-  font-weight: 500;
+  font-weight: 700;
 }
 .mobile-empty p {
   max-width: 320px;
-  color: color-mix(in srgb, var(--color-content) 40%, transparent);
-  line-height: 1.7;
-  font-size: 13px;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  line-height: 1.5;
+  font-size: 15px;
 }
 .mobile-empty p .mobile-button {
   display: flex;
   margin: 22px auto 0;
 }
-.mobile-navigation {
-  position: absolute;
-  inset-inline: calc(16px + var(--mobile-safe-left))
-    calc(16px + var(--mobile-safe-right));
-  bottom: var(--mobile-navigation-bottom);
-  z-index: 20;
-  display: flex;
-  gap: 4px;
-  height: var(--mobile-navigation-height);
-  padding: 6px;
-}
-.mobile-navigation button {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 52px;
-  padding: 7px 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: color-mix(in srgb, var(--color-content) 40%, transparent);
-  font-size: 10px;
-}
-.mobile-navigation button.is-selected {
-  background: var(--color-selection-subtle);
-  color: var(--color-content);
-}
 .mobile-chat {
+  /* Horizontal pulls reach JavaScript to open the drawer; nested code
+     blocks and tables still scroll sideways on their own. */
+  touch-action: pan-y;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -608,7 +681,7 @@
 .mobile-composer-dock::before {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: var(--mobile-dock-queue-height, 0px) 0 0;
   z-index: -1;
   pointer-events: none;
   -webkit-backdrop-filter: blur(2px);
@@ -627,17 +700,21 @@
   margin-bottom: var(--mobile-dock-height, 0px);
 }
 .mobile-composer {
+  /* One size for every composer control keeps both states aligned. */
+  --mobile-composer-control: 40px;
+  --mobile-composer-inset: 6px;
   --mobile-capsule-radius: 26px;
   --mobile-composer-easing: cubic-bezier(0.22, 1, 0.36, 1);
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-height: 56px;
+  min-height: calc(var(--mobile-composer-control) + var(--mobile-composer-inset) * 2 + 2px);
   width: 100%;
   max-width: 100%;
   margin-inline: auto;
-  padding: 10px 18px 54px;
+  padding: 10px 12px
+    calc(var(--mobile-composer-control) + var(--mobile-composer-inset) * 2);
   transition:
     width 240ms var(--mobile-composer-easing),
     max-width 240ms var(--mobile-composer-easing),
@@ -647,19 +724,14 @@
   display: none;
 }
 .mobile-composer[data-collapsed="true"] {
-  width: calc(100% - 32px);
-  max-width: 360px;
-  padding: 6px 52px;
+  padding: var(--mobile-composer-inset)
+    calc(var(--mobile-composer-control) + var(--mobile-composer-inset) + 4px);
 }
 .mobile-composer[data-collapsed="true"] textarea {
-  padding: 2px 4px;
+  padding: 2px 6px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-.mobile-composer[data-collapsed="true"] .mobile-composer-toolbar {
-  inset-inline: 6px;
-  bottom: 6px;
 }
 .mobile-composer[data-collapsed="true"] .mobile-send {
   margin-left: 0;
@@ -695,8 +767,8 @@
 }
 .mobile-composer-toolbar {
   position: absolute;
-  inset-inline: 18px;
-  bottom: 12px;
+  inset-inline: var(--mobile-composer-inset);
+  bottom: var(--mobile-composer-inset);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -740,8 +812,8 @@
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 40px;
-  height: 42px;
+  width: var(--mobile-composer-control);
+  height: var(--mobile-composer-control);
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -768,11 +840,11 @@
   width: max-content;
   max-width: 240px;
   min-width: 0;
-  height: 42px;
-  padding: 5px;
+  height: var(--mobile-composer-control);
+  padding: 0 8px;
   background: transparent;
   border: 0;
-  border-radius: 12px;
+  border-radius: 999px;
   color: var(--color-content);
 }
 .mobile-composer-model > svg {
@@ -808,8 +880,8 @@
 .mobile-send {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: var(--mobile-composer-control);
+  height: var(--mobile-composer-control);
   flex-shrink: 0;
   background: var(--color-content);
   color: var(--color-background-base);
@@ -920,15 +992,58 @@
   width: 100%;
   max-width: 520px;
   max-height: min(75dvh, 650px);
+  position: relative;
   display: flex;
   flex-direction: column;
-  background: var(--color-background-base);
   color: var(--color-content);
-  border: 1px solid var(--color-stroke);
   border-radius: 26px 26px 0 0;
   padding: 8px 8px max(12px, var(--mobile-safe-bottom));
-  box-shadow: 0 -8px 48px #0002;
+  --mobile-glass-shadow: 0 -8px 48px #0003;
   outline: none;
+}
+/* Bottom sheets rise in and can be pulled down by the grip (or by content
+   that is scrolled to its top); see sheetDrag.ts. */
+.mobile-sheet-backdrop[data-placement="bottom"] {
+  animation: mobile-sheet-fade 220ms ease-out;
+}
+.mobile-sheet-backdrop[data-placement="bottom"] .mobile-sheet {
+  animation: mobile-sheet-rise 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+.mobile-sheet-grip {
+  position: relative;
+  flex-shrink: 0;
+  height: 20px;
+  margin: -4px -8px 0;
+  cursor: grab;
+  touch-action: none;
+}
+.mobile-sheet-grip::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 36px;
+  height: 5px;
+  margin-left: -18px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-content) 22%, transparent);
+}
+@keyframes mobile-sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes mobile-sheet-fade {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-sheet-backdrop[data-placement="bottom"],
+  .mobile-sheet-backdrop[data-placement="bottom"] .mobile-sheet {
+    animation: none;
+  }
 }
 .mobile-sheet-backdrop[data-placement="anchor"] {
   display: block;
@@ -954,32 +1069,35 @@
   gap: 6px;
 }
 .mobile-sheet-group + .mobile-sheet-group {
-  border-top: 1px solid var(--color-stroke);
-  margin-top: 6px;
-  padding-top: 6px;
+  border-top: 6px solid var(--mobile-fill);
+  margin: 6px -4px 0;
+  padding: 6px 4px 0;
 }
 .mobile-sheet-group h3 {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 400;
-  opacity: 0.5;
-  margin: 8px 10px 3px;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  margin: 8px 12px 4px;
 }
 .mobile-sheet-row {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 8px 10px;
+  gap: 12px;
+  min-height: 46px;
+  padding: 8px 12px;
   border: 0;
-  border-radius: 13px;
+  border-radius: 16px;
   background: transparent;
   color: inherit;
   text-align: left;
-  font-size: 15px;
+  font-size: 16px;
 }
 .mobile-sheet-row[aria-checked="true"] {
-  background: var(--color-selection-subtle);
+  background: var(--mobile-selected);
+}
+.mobile-sheet-row[aria-checked="true"] > svg:last-child:not(:first-child) {
+  color: var(--mobile-accent);
 }
 .mobile-model-options .mobile-sheet-row {
   min-height: 36px;
@@ -1019,9 +1137,9 @@
   font-weight: 500;
 }
 .mobile-sheet-row-text small {
-  opacity: 0.45;
-  font-size: 12px;
-  line-height: 1.45;
+  opacity: 0.5;
+  font-size: 13px;
+  line-height: 1.4;
 }
 .mobile-sheet-row-inline {
   flex-direction: row;
@@ -1108,6 +1226,10 @@
   min-height: 36px;
   padding: 6px 14px;
 }
+.mobile-sidebar-session-actions .mobile-sheet-row {
+  min-height: 44px;
+  padding-block: 10px;
+}
 .mobile-menu-divider {
   border-top: 1px solid var(--color-stroke);
   margin: 6px 0;
@@ -1127,9 +1249,9 @@
 }
 .mobile-sheet-hint {
   opacity: 0.5;
-  font-size: 12px;
-  line-height: 1.5;
-  padding: 0 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  padding: 0 12px;
 }
 @media (max-height: 520px) {
   .mobile-chat > .mobile-empty {
@@ -1406,7 +1528,7 @@ html.theme-light .mobile-logo {
 
 /* Queued messages use compact bubbles; touch actions live in an anchored menu. */
 .mobile-queue {
-  margin: 0 8px 12px;
+  margin: 0 8px 8px;
 }
 .mobile-queue-pills {
   display: flex;
@@ -1422,15 +1544,14 @@ html.theme-light .mobile-logo {
   gap: 8px;
   min-height: 44px;
   max-width: min(100%, 320px);
+  position: relative;
   padding: 8px 12px;
-  border: 1px solid var(--color-stroke);
   border-radius: 999px;
-  background: var(--color-background-base);
   color: var(--color-content);
-  box-shadow: 0 2px 8px #00000008;
+  --mobile-glass-shadow: 0 2px 10px #0000001f;
 }
 .mobile-queue-pill:active {
-  background: var(--color-selection-subtle);
+  background-color: var(--color-selection-subtle);
 }
 .mobile-queue-pill[data-sortable="true"] {
   touch-action: none;

@@ -2036,5 +2036,13 @@
   "Directory": "目录",
   "Remote session connected": "远程会话已开启",
   "Remote session unavailable": "远程会话不可用",
-  "{percent}% left ({used} / {window} used)": "剩余 {percent}%（已用 {used} / {window}）"
+  "{percent}% left ({used} / {window} used)": "剩余 {percent}%（已用 {used} / {window}）",
+  "Glass": "玻璃效果",
+  "Effect": "效果",
+  "Liquid glass": "液态玻璃",
+  "Frosted glass": "磨砂玻璃",
+  "Solid": "不透明",
+  "Intensity": "强度",
+  "Transparency": "透明度",
+  "Edge refraction is available on Android.": "边缘折射仅在 Android 上可用。"
 }

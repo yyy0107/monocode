@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { Check, ChevronDown } from "../shared/ui/icons";
-import { MobileSheet } from "./MobileSheet";
+import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 
 export function MobileSelect<T extends string>({
   id,
@@ -48,7 +48,7 @@ export function MobileSelect<T extends string>({
           title={label}
           placement="anchor"
           anchor={trigger}
-          width={220}
+          width={SHEET_WIDTH.menu}
           align="end"
           onClose={() => onOpenChange(false)}
         >

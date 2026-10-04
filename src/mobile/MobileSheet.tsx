@@ -10,6 +10,7 @@ import {
 import { ArrowLeft } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { placePopover, type PopoverAlign } from "../shared/lib/popover";
+import { useSheetDrag } from "./sheetDrag";
 
 // Reads the resolved system-bar insets so popovers stay clear of the status
 // bar, gesture area and display cutouts on edge-to-edge screens.
@@ -32,13 +33,25 @@ function safeInsets(element: HTMLElement) {
   return insets;
 }
 
+// Shared popover widths keep panels proportionate to what they hold:
+// plain action menus, model settings, lists with a second line, and forms.
+export const SHEET_WIDTH = {
+  menu: 220,
+  settings: 280,
+  list: 300,
+  form: 320,
+} as const;
+
+export type MobileSheetPoint = { x: number; y: number };
+
 export function MobileSheet({
   title,
   onClose,
   onBack,
   placement = "bottom",
   anchor,
-  width = 420,
+  anchorPoint,
+  width = SHEET_WIDTH.form,
   align = "start",
   side = "bottom",
   children,
@@ -48,6 +61,7 @@ export function MobileSheet({
   onBack?: () => void;
   placement?: "bottom" | "anchor";
   anchor?: RefObject<HTMLElement | null>;
+  anchorPoint?: MobileSheetPoint;
   width?: number;
   align?: PopoverAlign;
   side?: "top" | "bottom";
@@ -56,15 +70,25 @@ export function MobileSheet({
   const { t } = useTranslation();
   const dialog = useRef<HTMLElement>(null);
   const [position, setPosition] = useState<CSSProperties>();
+  useSheetDrag(dialog, placement === "bottom", onClose);
   useLayoutEffect(() => {
     if (placement !== "anchor") return;
     const element = dialog.current;
     const trigger = anchor?.current;
-    if (!element || !trigger) return;
+    if (!element || (!trigger && !anchorPoint)) return;
     const viewport = window.visualViewport;
     let insets = safeInsets(element);
     const place = () => {
-      const rect = trigger.getBoundingClientRect();
+      const rect = anchorPoint
+        ? {
+            left: anchorPoint.x,
+            right: anchorPoint.x,
+            top: anchorPoint.y,
+            bottom: anchorPoint.y,
+            width: 0,
+            height: 0,
+          }
+        : trigger!.getBoundingClientRect();
       const size = element.getBoundingClientRect();
       // Place inside the safe region, then translate back to the viewport.
       const viewportWidth =
@@ -86,7 +110,7 @@ export function MobileSheet({
         },
         { width: size.width, height: size.height },
         { width: viewportWidth, height },
-        { width, side, align, gap: 8, padding: 16 },
+        { width, side, align, gap: anchorPoint ? 0 : 8, padding: 16 },
       );
       const style: CSSProperties = {
         position: "fixed",
@@ -116,7 +140,7 @@ export function MobileSheet({
     place();
     const observer = new ResizeObserver(place);
     observer.observe(element);
-    observer.observe(trigger);
+    if (trigger) observer.observe(trigger);
     window.addEventListener("resize", resize);
     window.addEventListener("scroll", place, true);
     viewport?.addEventListener("resize", place);
@@ -128,7 +152,7 @@ export function MobileSheet({
       viewport?.removeEventListener("resize", place);
       viewport?.removeEventListener("scroll", place);
     };
-  }, [placement, anchor, width, align, side]);
+  }, [placement, anchor, anchorPoint, width, align, side]);
   useEffect(() => {
     const trigger =
       anchor?.current ?? (document.activeElement as HTMLElement | null);
@@ -190,6 +214,9 @@ export function MobileSheet({
           }
         }}
       >
+        {placement === "bottom" && (
+          <div className="mobile-sheet-grip" aria-hidden="true" />
+        )}
         <div className="mobile-sheet-content">
           {onBack && (
             <button

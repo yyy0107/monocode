@@ -6,7 +6,7 @@ import {
   contextPercent,
   formatTokens,
 } from "../features/sessions/model/contextUsage";
-import { MobileSheet } from "./MobileSheet";
+import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { mobileTranscriptPlatform } from "./transcriptPlatform";
 import type { HostConnectionStatus } from "./client";
@@ -84,7 +84,7 @@ export function MobileSessionStatus({
       title="Status"
       placement="anchor"
       anchor={anchor}
-      width={300}
+      width={SHEET_WIDTH.list}
       align="end"
       onClose={onClose}
     >

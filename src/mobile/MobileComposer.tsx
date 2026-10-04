@@ -36,10 +36,15 @@ import {
   MobileModelControls,
   type MobileConfiguration,
 } from "./MobileModelControls";
-import { MobileSheet } from "./MobileSheet";
+import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 
 export type MobileComposerPanel =
-  "actions" | "permissions" | "model" | "projects" | "plan" | null;
+  | "actions"
+  | "permissions"
+  | "model"
+  | "projects"
+  | "plan"
+  | null;
 const planStyle = MODE_COMMAND_STYLES[PLAN_COMMAND.name];
 type Props = {
   queue?: ReactNode;
@@ -109,8 +114,19 @@ export function MobileComposer(props: Props) {
     const element = dock.current;
     const host = element?.parentElement;
     if (!element || !host) return;
-    const publish = () =>
+    // Queued pills float on their own glass, so the dock blur starts at the
+    // composer rather than behind the queue. Measure the composer's own top:
+    // the queue's height omits its collapsed margin and the dock padding,
+    // which left a blurred strip showing in the gap.
+    const publish = () => {
       host.style.setProperty("--mobile-dock-height", `${element.offsetHeight}px`);
+      const queue = element.querySelector<HTMLElement>(":scope > .mobile-message-queue");
+      const composer = element.querySelector<HTMLElement>(":scope > .mobile-composer");
+      element.style.setProperty(
+        "--mobile-dock-queue-height",
+        `${queue && composer ? composer.offsetTop : 0}px`,
+      );
+    };
     publish();
     const observer = new ResizeObserver(publish);
     observer.observe(element);
@@ -183,7 +199,10 @@ export function MobileComposer(props: Props) {
     const outside = (target: EventTarget | null) =>
       target instanceof Element &&
       !form.current?.parentElement?.contains(target) &&
-      !target.closest(".mobile-sheet-backdrop");
+      !target.closest(".mobile-sheet-backdrop") &&
+      // Jumping to the latest message should not reflow the dock under the
+      // finger before the click lands.
+      !target.closest(".mobile-jump");
     const down = (event: PointerEvent) => {
       start = outside(event.target)
         ? { id: event.pointerId, x: event.clientX, y: event.clientY }
@@ -320,7 +339,7 @@ export function MobileComposer(props: Props) {
                 props.onPanelChange("actions");
               }}
             >
-              <Plus size={24} />
+              <Plus size={22} />
             </button>
             <div
               className="mobile-composer-controls"
@@ -365,7 +384,7 @@ export function MobileComposer(props: Props) {
               >
                 <RuntimeModeIcon
                   mode={props.configuration.runtimeMode}
-                  size={22}
+                  size={20}
                   className={
                     props.configuration.runtimeMode === "full-access"
                       ? "text-amber-400/90"
@@ -398,7 +417,7 @@ export function MobileComposer(props: Props) {
               </button>
               {props.running && props.canSend ? (
                 <button type="submit" className="mobile-composer-action" aria-label={t("Queue message")}>
-                  {props.working ? <LoaderCircle size={20} className="mobile-spin" /> : <ListEnd size={21} />}
+                  {props.working ? <LoaderCircle size={20} className="mobile-spin" /> : <ListEnd size={20} />}
                 </button>
               ) : null}
             </div>
@@ -410,7 +429,7 @@ export function MobileComposer(props: Props) {
                 aria-label={t("Stop")}
                 onClick={props.onStop}
               >
-                <Square size={18} />
+                <Square size={14} fill="currentColor" />
               </button>
             ) : (
               <button
@@ -422,7 +441,7 @@ export function MobileComposer(props: Props) {
                 {props.working ? (
                   <LoaderCircle size={20} className="mobile-spin" />
                 ) : (
-                  <ArrowUp size={23} />
+                  <ArrowUp size={20} />
                 )}
               </button>
             )}
@@ -462,7 +481,7 @@ export function MobileComposer(props: Props) {
           title="Plan mode"
           placement="anchor"
           anchor={panelAnchor}
-          width={180}
+          width={SHEET_WIDTH.menu}
           side="top"
           onClose={close}
         >
@@ -486,7 +505,7 @@ export function MobileComposer(props: Props) {
           title="Permissions"
           placement="anchor"
           anchor={panelAnchor}
-          width={340}
+          width={SHEET_WIDTH.list}
           onClose={close}
         >
           <div role="radiogroup" aria-label={t("Permissions")}>
@@ -532,7 +551,7 @@ export function MobileComposer(props: Props) {
           title="Add to message"
           placement="anchor"
           anchor={panelAnchor}
-          width={280}
+          width={SHEET_WIDTH.menu}
           onClose={close}
         >
           <button
@@ -581,7 +600,7 @@ export function MobileComposer(props: Props) {
           title="Choose project"
           placement="anchor"
           anchor={panelAnchor}
-          width={340}
+          width={SHEET_WIDTH.list}
           side="top"
           onClose={close}
         >
