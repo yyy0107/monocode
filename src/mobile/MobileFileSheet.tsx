@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AgentMarkdown } from "../features/sessions/ui/AgentMarkdown";
 import { FileTypeIcon } from "../features/files/ui/FileTypeIcon";
 import { sniffImageMime } from "../features/files/model/filePreview";
@@ -12,6 +12,8 @@ export const MAX_PREVIEW_BYTES = 512 * 1024;
 export const MAX_IMAGE_PREVIEW_BYTES = 10 * 1024 * 1024;
 /** Syntax highlighting gets slow on long files, so they fall back to plain text. */
 const MAX_HIGHLIGHT_BYTES = 96 * 1024;
+/** Plain text renders this many lines at a time, more as the reader scrolls. */
+export const LINE_CHUNK = 300;
 
 type Loaded =
   | { kind: "loading" }
@@ -122,9 +124,12 @@ export function MobileFileSheet({
 
   const source = useMemo(() => {
     if (loaded.kind !== "text") return undefined;
+    // Rendered markdown and highlighting are all-at-once; long files fall
+    // back to the lazily rendered plain view.
+    if (loaded.size > MAX_HIGHLIGHT_BYTES) return undefined;
     if (extension === "md" || extension === "markdown") return loaded.text;
     // A cited line needs the numbered plain view to scroll to it.
-    if (line || loaded.size > MAX_HIGHLIGHT_BYTES) return undefined;
+    if (line) return undefined;
     return fencedSource(loaded.text, extension);
   }, [loaded, extension, line]);
 
@@ -194,20 +199,68 @@ export function MobileFileSheet({
             onOpenFile={onOpenFile}
           />
         ) : (
-          <pre className="mobile-detail-pre mobile-file-plain">
-            {loaded.text.split("\n").map((text, index) => (
-              <span
-                key={index}
-                data-line={index + 1}
-                data-current={index + 1 === line ? "true" : undefined}
-              >
-                {text}
-                {"\n"}
-              </span>
-            ))}
-          </pre>
+          <LazyLines text={loaded.text} line={line} />
         )}
       </div>
     </MobileSheet>
+  );
+}
+
+/** Numbered plain text that renders in chunks so huge files stay responsive. */
+function LazyLines({ text, line }: { text: string; line?: number }) {
+  const { t } = useTranslation();
+  const lines = useMemo(() => text.split("\n"), [text]);
+  // Start with enough lines to reach a cited line plus some context below it.
+  const initial = Math.max(LINE_CHUNK, (line ?? 0) + LINE_CHUNK / 2);
+  const [count, setCount] = useState(initial);
+  const more = useRef<HTMLButtonElement>(null);
+  useEffect(() => setCount(initial), [text, initial]);
+  const remaining = lines.length - count;
+
+  useEffect(() => {
+    const target = more.current;
+    if (!target || remaining <= 0 || typeof IntersectionObserver !== "function")
+      return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting))
+          setCount((value) => value + LINE_CHUNK);
+      },
+      {
+        root: target.closest(".mobile-sheet-content"),
+        rootMargin: "0px 0px 600px 0px",
+      },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [remaining]);
+
+  return (
+    <>
+      <pre className="mobile-detail-pre mobile-file-plain">
+        {lines.slice(0, count).map((text, index) => (
+          <span
+            key={index}
+            data-line={index + 1}
+            data-current={index + 1 === line ? "true" : undefined}
+          >
+            {text}
+            {"\n"}
+          </span>
+        ))}
+      </pre>
+      {remaining > 0 ? (
+        <button
+          ref={more}
+          type="button"
+          className="mobile-button mobile-detail-action"
+          onClick={() => setCount((value) => value + LINE_CHUNK)}
+        >
+          {t("Show {count} more lines", {
+            count: Math.min(LINE_CHUNK, remaining),
+          })}
+        </button>
+      ) : null}
+    </>
   );
 }

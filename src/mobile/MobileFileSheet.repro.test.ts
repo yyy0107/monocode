@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newSession } from "../features/sessions/model/session";
 import type { HostSession } from "../features/connections/model/protocol";
-import { MobileFileSheet } from "./MobileFileSheet";
+import { LINE_CHUNK, MobileFileSheet } from "./MobileFileSheet";
 import { MobileTranscript } from "./MobileTranscript";
 
 vi.mock("@capacitor/core", () => ({
@@ -167,6 +167,38 @@ describe("mobile file preview and tool navigation", () => {
     expect(app.querySelector('[data-current="true"]')?.textContent).toBe(
       "second\n",
     );
+    expect(uncaught).not.toHaveBeenCalled();
+  });
+
+  it("renders long plain files in chunks and keeps cited lines reachable", async () => {
+    const total = LINE_CHUNK * 4;
+    const text = Array.from({ length: total }, (_, i) => `line ${i + 1}`).join(
+      "\n",
+    );
+    const cited = LINE_CHUNK * 2 + 10;
+    await renderFile(
+      "/repo/big.log",
+      async () => new TextEncoder().encode(text),
+      cited,
+    );
+    const rendered = () => app.querySelectorAll("[data-line]").length;
+    expect(rendered()).toBe(cited + LINE_CHUNK / 2);
+    expect(
+      app.querySelector('[data-current="true"]')?.getAttribute("data-line"),
+    ).toBe(String(cited));
+    const more = () =>
+      [...app.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("more lines"),
+      );
+    await act(async () => more()!.click());
+    expect(rendered()).toBe(cited + LINE_CHUNK * 1.5);
+    await act(async () => more()!.click());
+    expect(rendered()).toBe(total);
+    expect(
+      [...app.querySelectorAll("button")].some((button) =>
+        button.textContent?.includes("more lines"),
+      ),
+    ).toBe(false);
     expect(uncaught).not.toHaveBeenCalled();
   });
 });

@@ -2081,5 +2081,6 @@
   "Could not open this file.": "无法打开此文件。",
   "Could not display this image.": "无法显示此图片。",
   "Binary file ({size}) cannot be previewed.": "二进制文件（{size}）无法预览。",
-  "File is too large to preview ({size}).": "文件过大，无法预览（{size}）。"
+  "File is too large to preview ({size}).": "文件过大，无法预览（{size}）。",
+  "Show {count} more lines": "再显示 {count} 行"
 }
