@@ -90,7 +90,7 @@ export async function runUpdateFlow(
       onProgress?.(idle);
       if (manual) {
         await message(
-          "Automatic updates aren't configured for this build.\n\nDownload releases at https://github.com/hardbeat920/monocode/releases/latest",
+          "Automatic updates aren't configured for this build.\n\nDownload releases at https://github.com/yyy0107/ohmymonocode/releases/latest",
           { title: "MonoCode" },
         );
       }
