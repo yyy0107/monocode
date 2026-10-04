@@ -11,6 +11,27 @@ import { ArrowLeft } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { placePopover, type PopoverAlign } from "../shared/lib/popover";
 
+// Reads the resolved system-bar insets so popovers stay clear of the status
+// bar, gesture area and display cutouts on edge-to-edge screens.
+function safeInsets(element: HTMLElement) {
+  const host = element.closest<HTMLElement>(".mobile-app");
+  if (!host) return { top: 0, right: 0, bottom: 0, left: 0 };
+  const probe = document.createElement("div");
+  probe.style.cssText =
+    "position:absolute;visibility:hidden;pointer-events:none;" +
+    "padding:var(--mobile-safe-top) var(--mobile-safe-right) var(--mobile-safe-bottom) var(--mobile-safe-left)";
+  host.appendChild(probe);
+  const style = getComputedStyle(probe);
+  const insets = {
+    top: parseFloat(style.paddingTop) || 0,
+    right: parseFloat(style.paddingRight) || 0,
+    bottom: parseFloat(style.paddingBottom) || 0,
+    left: parseFloat(style.paddingLeft) || 0,
+  };
+  probe.remove();
+  return insets;
+}
+
 export function MobileSheet({
   title,
   onClose,
@@ -41,13 +62,17 @@ export function MobileSheet({
     const trigger = anchor?.current;
     if (!element || !trigger) return;
     const viewport = window.visualViewport;
+    let insets = safeInsets(element);
     const place = () => {
       const rect = trigger.getBoundingClientRect();
       const size = element.getBoundingClientRect();
-      const viewportWidth = viewport?.width ?? window.innerWidth;
-      const height = viewport?.height ?? window.innerHeight;
-      const offsetLeft = viewport?.offsetLeft ?? 0;
-      const offsetTop = viewport?.offsetTop ?? 0;
+      // Place inside the safe region, then translate back to the viewport.
+      const viewportWidth =
+        (viewport?.width ?? window.innerWidth) - insets.left - insets.right;
+      const height =
+        (viewport?.height ?? window.innerHeight) - insets.top - insets.bottom;
+      const offsetLeft = (viewport?.offsetLeft ?? 0) + insets.left;
+      const offsetTop = (viewport?.offsetTop ?? 0) + insets.top;
       const clampY = (value: number) =>
         Math.max(16, Math.min(height - 16, value - offsetTop));
       const next = placePopover(
@@ -84,17 +109,21 @@ export function MobileSheet({
           : style,
       );
     };
+    const resize = () => {
+      insets = safeInsets(element);
+      place();
+    };
     place();
     const observer = new ResizeObserver(place);
     observer.observe(element);
     observer.observe(trigger);
-    window.addEventListener("resize", place);
+    window.addEventListener("resize", resize);
     window.addEventListener("scroll", place, true);
     viewport?.addEventListener("resize", place);
     viewport?.addEventListener("scroll", place);
     return () => {
       observer.disconnect();
-      window.removeEventListener("resize", place);
+      window.removeEventListener("resize", resize);
       window.removeEventListener("scroll", place, true);
       viewport?.removeEventListener("resize", place);
       viewport?.removeEventListener("scroll", place);

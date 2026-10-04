@@ -550,3 +550,14 @@ describe("mobile command journal", () => {
     expect(await client.pending()).toBeUndefined();
   });
 });
+
+it("reuses Host-accepted queued attachments when returning images and files to the composer", async () => {
+  const client = new MobileClient(memory(), transport(() => { throw new Error("Should not upload accepted attachments"); }));
+  await client.connect(endpoint, token);
+  const files = [
+    { id: "image", name: "photo.png", mimeType: "image/png", kind: "image" as const, size: 3, data: "YWJj" },
+    { id: "file", name: "notes.txt", mimeType: "text/plain", kind: "file" as const, size: 5, path: "/host/file" },
+  ];
+  expect(await client.uploadAttachments(files, files)).toEqual(files.map(({ id, name, mimeType, kind, size }) => ({ id, name, mimeType, kind, size })));
+  await expect(client.uploadAttachments([{ ...files[1], size: 6 }], files)).rejects.toThrow("must be readable");
+});

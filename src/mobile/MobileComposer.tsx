@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUp,
   AiIdea,
@@ -71,6 +71,13 @@ type Props = {
 export function MobileComposer(props: Props) {
   const { t } = useTranslation();
   const area = useRef<HTMLTextAreaElement>(null);
+  const form = useRef<HTMLFormElement>(null);
+  const pressingAction = useRef(false);
+  // "Engaged" survives sheets, system file pickers and short busy states.
+  // Only a deliberate move away (an outside tap or focusing another control)
+  // collapses the composer again.
+  const [engaged, setEngaged] = useState(false);
+  const expanded = engaged || props.panel !== null;
   const photos = useRef<HTMLInputElement>(null);
   const files = useRef<HTMLInputElement>(null);
   const panelAnchor = useRef<HTMLButtonElement>(null);
@@ -95,15 +102,97 @@ export function MobileComposer(props: Props) {
         props.configuration.model)) ||
     HARNESS_TITLE[props.configuration.harness];
   const close = () => props.onPanelChange(null);
+  useLayoutEffect(() => {
+    const element = area.current;
+    if (!element) return;
+    const finishAt = performance.now() + 240;
+    element.style.transitionDuration = "240ms, 240ms";
+    const resize = () => {
+      if (!expanded) {
+        element.style.height = "28px";
+        element.scrollTop = 0;
+        element.scrollLeft = 0;
+        return;
+      }
+      // An offscreen copy measures wrapping without resetting the live field
+      // mid-animation or moving its caret.
+      const measure = element.cloneNode() as HTMLTextAreaElement;
+      measure.value = element.value;
+      measure.removeAttribute("id");
+      measure.setAttribute("aria-hidden", "true");
+      measure.inert = true;
+      measure.tabIndex = -1;
+      Object.assign(measure.style, {
+        position: "absolute",
+        visibility: "hidden",
+        pointerEvents: "none",
+        transition: "none",
+        width: `${element.getBoundingClientRect().width}px`,
+        height: "0px",
+        minHeight: "0px",
+        maxHeight: "none",
+      });
+      element.after(measure);
+      const nextHeight = `${Math.max(44, Math.min(measure.scrollHeight, 168))}px`;
+      measure.remove();
+      if (element.style.height === nextHeight) return;
+      // Width changes can alter line wrapping. Keep those corrections within
+      // the same transition instead of extending it with every resize frame.
+      element.style.transitionDuration = `${Math.max(0, finishAt - performance.now())}ms, 240ms`;
+      element.style.height = nextHeight;
+    };
+    resize();
+    if (!expanded) return;
+    let width = element.getBoundingClientRect().width;
+    const observer = new ResizeObserver(() => {
+      const nextWidth = element.getBoundingClientRect().width;
+      if (Math.abs(nextWidth - width) < 0.5) return;
+      width = nextWidth;
+      resize();
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [props.value, expanded]);
   useEffect(() => {
-    if (area.current) {
-      area.current.style.height = "0px";
-      area.current.style.height = `${Math.min(area.current.scrollHeight, 168)}px`;
-    }
-  }, [props.value]);
-  useEffect(() => {
+    // Applying a setting, switching project or reading attachments briefly
+    // disables the composer. Close any open sheet but keep the expanded layout.
     if (props.disabled) props.onPanelChange(null);
   }, [props.disabled, props.onPanelChange]);
+  useEffect(() => {
+    if (!engaged || props.panel !== null) return;
+    // Collapse on a tap outside the composer, not on a scroll gesture: touch
+    // scrolling cancels the pointer or moves it past the tap threshold.
+    let start: { id: number; x: number; y: number } | undefined;
+    const outside = (target: EventTarget | null) =>
+      target instanceof Element &&
+      !form.current?.parentElement?.contains(target) &&
+      !target.closest(".mobile-sheet-backdrop");
+    const down = (event: PointerEvent) => {
+      start = outside(event.target)
+        ? { id: event.pointerId, x: event.clientX, y: event.clientY }
+        : undefined;
+    };
+    const up = (event: PointerEvent) => {
+      if (!start || start.id !== event.pointerId) return;
+      const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+      start = undefined;
+      if (moved > 10) return;
+      setEngaged(false);
+      if (form.current?.contains(document.activeElement))
+        (document.activeElement as HTMLElement).blur();
+    };
+    const cancel = () => {
+      start = undefined;
+    };
+    document.addEventListener("pointerdown", down, true);
+    document.addEventListener("pointerup", up, true);
+    document.addEventListener("pointercancel", cancel, true);
+    return () => {
+      document.removeEventListener("pointerdown", down, true);
+      document.removeEventListener("pointerup", up, true);
+      document.removeEventListener("pointercancel", cancel, true);
+    };
+  }, [engaged, props.panel]);
   const selectFiles = (input: HTMLInputElement) => {
     if (input.files?.length) props.onFiles(Array.from(input.files));
     input.value = "";
@@ -113,25 +202,69 @@ export function MobileComposer(props: Props) {
       <div className="mobile-composer-dock">
         {props.queue ? <div className="mobile-message-queue">{props.queue}</div> : null}
         <form
+          ref={form}
           className="mobile-composer"
+          data-collapsed={!expanded}
+          onPointerDownCapture={(event) => {
+            pressingAction.current = !!(event.target as Element).closest("button");
+          }}
+          onPointerUpCapture={() => {
+            // Touch browsers can focus a button between pointerup and click.
+            setTimeout(() => {
+              pressingAction.current = false;
+            }, 0);
+          }}
+          onPointerCancelCapture={() => {
+            pressingAction.current = false;
+          }}
+          onFocus={() => {
+            if (!pressingAction.current) setEngaged(true);
+          }}
+          onBlur={(event) => {
+            // No related target means focus left for the system (file picker,
+            // backgrounding) or the field was disabled; that is not leaving.
+            // Focus moving into a sheet opened from the composer is not either.
+            const next = event.relatedTarget;
+            if (
+              next instanceof Element &&
+              !event.currentTarget.contains(next) &&
+              !next.closest(".mobile-sheet-backdrop")
+            )
+              setEngaged(false);
+          }}
+          onClick={(event) => {
+            pressingAction.current = false;
+            if (props.disabled) return;
+            if (event.target === event.currentTarget) area.current?.focus();
+            else setEngaged(true);
+          }}
           onSubmit={(event) => {
             event.preventDefault();
             if (props.canSend) props.onSend();
           }}
         >
           {props.attachments.length > 0 && (
-            <div className="mobile-composer-attachments">
-              {props.attachments.map((attachment) => (
-                <AttachmentChip
-                  key={attachment.id}
-                  attachment={attachment}
-                  onRemove={
-                    props.disabled
-                      ? undefined
-                      : () => props.onRemoveAttachment(attachment.id)
-                  }
-                />
-              ))}
+            <div
+              className="mobile-composer-attachment-region"
+              hidden={!expanded}
+              inert={!expanded}
+              aria-hidden={!expanded}
+            >
+              <div className="mobile-composer-attachment-clip">
+                <div className="mobile-composer-attachments">
+                  {props.attachments.map((attachment) => (
+                    <AttachmentChip
+                      key={attachment.id}
+                      attachment={attachment}
+                      onRemove={
+                        props.disabled
+                          ? undefined
+                          : () => props.onRemoveAttachment(attachment.id)
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
           )}
           <textarea
@@ -160,7 +293,7 @@ export function MobileComposer(props: Props) {
           <div className="mobile-composer-toolbar">
             <button
               type="button"
-              className="mobile-composer-action"
+              className="mobile-composer-action mobile-composer-add"
               aria-label={t("Add to message")}
               aria-haspopup="dialog"
               aria-expanded={props.panel === "actions"}
@@ -172,79 +305,86 @@ export function MobileComposer(props: Props) {
             >
               <Plus size={24} />
             </button>
-            {props.planMode && (
+            <div
+              className="mobile-composer-controls"
+              hidden={!expanded}
+              inert={!expanded}
+              aria-hidden={!expanded}
+            >
+              {props.planMode && (
+                <button
+                  type="button"
+                  className={`mobile-composer-plan ${planStyle.pill?.className ?? planStyle.className}`}
+                  disabled={props.disabled}
+                  aria-label={t("Plan mode")}
+                  title={t("Plan mode")}
+                  aria-haspopup="dialog"
+                  aria-expanded={props.panel === "plan"}
+                  onClick={(event) => {
+                    panelAnchor.current = event.currentTarget;
+                    props.onPanelChange("plan");
+                  }}
+                >
+                  <planStyle.Icon size={18} aria-hidden="true" />
+                </button>
+              )}
               <button
                 type="button"
-                className={`mobile-composer-plan ${planStyle.pill?.className ?? planStyle.className}`}
-                disabled={props.disabled}
-                aria-label={t("Plan mode")}
-                title={t("Plan mode")}
+                className="mobile-composer-action mobile-composer-permissions"
+                data-full-access={
+                  props.configuration.runtimeMode === "full-access"
+                }
+                aria-label={t("Permissions: {mode}", {
+                  mode: t(RUNTIME_MODE_LABEL[props.configuration.runtimeMode]),
+                })}
+                title={t(RUNTIME_MODE_LABEL[props.configuration.runtimeMode])}
                 aria-haspopup="dialog"
-                aria-expanded={props.panel === "plan"}
+                aria-expanded={props.panel === "permissions"}
+                disabled={props.disabled || props.running}
                 onClick={(event) => {
                   panelAnchor.current = event.currentTarget;
-                  props.onPanelChange("plan");
+                  props.onPanelChange("permissions");
                 }}
               >
-                <planStyle.Icon size={18} aria-hidden="true" />
+                <RuntimeModeIcon
+                  mode={props.configuration.runtimeMode}
+                  size={22}
+                  className={
+                    props.configuration.runtimeMode === "full-access"
+                      ? "text-amber-400/90"
+                      : undefined
+                  }
+                />
               </button>
-            )}
-            <button
-              type="button"
-              className="mobile-composer-action mobile-composer-permissions"
-              data-full-access={
-                props.configuration.runtimeMode === "full-access"
-              }
-              aria-label={t("Permissions: {mode}", {
-                mode: t(RUNTIME_MODE_LABEL[props.configuration.runtimeMode]),
-              })}
-              title={t(RUNTIME_MODE_LABEL[props.configuration.runtimeMode])}
-              aria-haspopup="dialog"
-              aria-expanded={props.panel === "permissions"}
-              disabled={props.disabled || props.running}
-              onClick={(event) => {
-                panelAnchor.current = event.currentTarget;
-                props.onPanelChange("permissions");
-              }}
-            >
-              <RuntimeModeIcon
-                mode={props.configuration.runtimeMode}
-                size={22}
-                className={
-                  props.configuration.runtimeMode === "full-access"
-                    ? "text-amber-400/90"
-                    : undefined
-                }
-              />
-            </button>
-            <button
-              type="button"
-              className="mobile-composer-model"
-              title={modelName}
-              disabled={props.disabled || props.running}
-              aria-label={t("Model and reasoning")}
-              aria-haspopup="dialog"
-              aria-expanded={props.panel === "model"}
-              onClick={(event) => {
-                panelAnchor.current = event.currentTarget;
-                props.onPanelChange("model");
-              }}
-            >
-              <HarnessIcon
-                harness={props.configuration.harness}
-                className="mobile-composer-agent-icon size-3.5"
-              />
-              <span className="mobile-composer-model-label">
-                <strong>{modelName}</strong>
-                {effort && <small>{t(effort)}</small>}
-              </span>
-              <ChevronDown size={12} />
-            </button>
-            {props.running && props.canSend ? (
-              <button type="submit" className="mobile-composer-action" aria-label={t("Queue message")}>
-                {props.working ? <LoaderCircle size={20} className="mobile-spin" /> : <ListEnd size={21} />}
+              <button
+                type="button"
+                className="mobile-composer-model"
+                title={modelName}
+                disabled={props.disabled || props.running}
+                aria-label={t("Model and reasoning")}
+                aria-haspopup="dialog"
+                aria-expanded={props.panel === "model"}
+                onClick={(event) => {
+                  panelAnchor.current = event.currentTarget;
+                  props.onPanelChange("model");
+                }}
+              >
+                <HarnessIcon
+                  harness={props.configuration.harness}
+                  className="mobile-composer-agent-icon size-3.5"
+                />
+                <span className="mobile-composer-model-label">
+                  <strong>{modelName}</strong>
+                  {effort && <small>{t(effort)}</small>}
+                </span>
+                <ChevronDown size={12} />
               </button>
-            ) : null}
+              {props.running && props.canSend ? (
+                <button type="submit" className="mobile-composer-action" aria-label={t("Queue message")}>
+                  {props.working ? <LoaderCircle size={20} className="mobile-spin" /> : <ListEnd size={21} />}
+                </button>
+              ) : null}
+            </div>
             {props.running ? (
               <button
                 type="button"

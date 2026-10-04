@@ -1,13 +1,34 @@
 /* The mobile shell uses the exact theme tokens, typography, Markdown and icons
    from the desktop stylesheet. Only navigation and touch layout are different. */
 .mobile-app {
+  --mobile-safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --mobile-safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --mobile-safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --mobile-safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --mobile-header-height: 68px;
+  position: relative;
   height: 100dvh;
   display: flex;
   flex-direction: column;
   font-family: var(--font-sans);
   font-size: 14px;
-  padding-top: env(safe-area-inset-top);
+  padding-inline: var(--mobile-safe-left) var(--mobile-safe-right);
   background: var(--color-background-base);
+}
+/* Content scrolls behind the status bar on edge-to-edge screens; this scrim
+   keeps system icons readable without reserving an opaque strip. */
+.mobile-app::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline: 0;
+  height: calc(var(--mobile-safe-top) * 1.5);
+  z-index: 15;
+  pointer-events: none;
+  background: linear-gradient(
+    var(--color-background-base) 66%,
+    color-mix(in srgb, var(--color-background-base) 0%, transparent)
+  );
 }
 .mobile-app * {
   box-sizing: border-box;
@@ -42,6 +63,73 @@
   border-bottom: 1px solid var(--color-stroke);
   flex-shrink: 0;
 }
+/* Controls float independently, leaving content visible between them. */
+.mobile-header[data-floating="true"] {
+  position: absolute;
+  top: var(--mobile-safe-top);
+  inset-inline: var(--mobile-safe-left) var(--mobile-safe-right);
+  height: var(--mobile-header-height);
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  z-index: 20;
+  pointer-events: none;
+}
+.mobile-header[data-floating="true"] > * {
+  position: absolute;
+  top: 10px;
+  pointer-events: auto;
+}
+.mobile-header[data-floating="true"] > *,
+.mobile-composer,
+.mobile-navigation {
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--mobile-capsule-radius, 999px);
+  background: var(--color-selection-subtle);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.mobile-header[data-floating="true"] > .mobile-icon-button {
+  height: 48px;
+}
+.mobile-header[data-floating="true"] > .mobile-icon-button:first-child,
+.mobile-header[data-floating="true"] > .mobile-header-logo {
+  inset-inline-start: 16px;
+}
+.mobile-header[data-floating="true"] > .mobile-header-logo {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+}
+.mobile-header[data-floating="true"] > .mobile-icon-button:last-child {
+  inset-inline-end: 16px;
+}
+.mobile-header[data-floating="true"] > .mobile-header-title {
+  inset-inline: 68px;
+}
+/* Notices float under the header so they never push or cover its controls. */
+.mobile-notices {
+  position: absolute;
+  top: calc(var(--mobile-safe-top) + var(--mobile-header-height));
+  inset-inline: calc(16px + var(--mobile-safe-left))
+    calc(16px + var(--mobile-safe-right));
+  z-index: 19;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+.mobile-notices:empty {
+  display: none;
+}
+.mobile-notices > * {
+  pointer-events: auto;
+  border: 1px solid var(--color-stroke);
+  border-radius: 16px;
+  box-shadow: 0 4px 16px #0002;
+}
 .mobile-logo {
   width: 29px;
   height: 29px;
@@ -74,15 +162,15 @@
   gap: 0;
   padding: 6px 16px;
   text-align: center;
-  border: 1px solid var(--color-stroke);
-  border-radius: 999px;
-  background: var(--color-selection-subtle);
 }
 .mobile-header-title[data-capsule="true"] strong {
   line-height: 20px;
 }
 .mobile-header-title[data-capsule="true"] span {
   line-height: 14px;
+}
+.mobile-header-title[data-capsule="true"] .mobile-header-host {
+  justify-content: center;
 }
 .mobile-header-context {
   display: flex;
@@ -155,16 +243,28 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 24px 18px;
+  padding: calc(var(--mobile-header-height) + var(--mobile-safe-top) + 20px) 18px
+    calc(24px + var(--mobile-safe-bottom));
+  scroll-padding-top: calc(var(--mobile-header-height) + var(--mobile-safe-top));
+}
+.mobile-app:has(> .mobile-navigation) {
+  --mobile-navigation-height: 66px;
+  --mobile-navigation-bottom: max(12px, var(--mobile-safe-bottom));
+}
+.mobile-app:has(> .mobile-navigation) > .mobile-content {
+  padding-bottom: calc(
+    var(--mobile-navigation-height) + var(--mobile-navigation-bottom) + 16px
+  );
+  scroll-padding-bottom: calc(
+    var(--mobile-navigation-height) + var(--mobile-navigation-bottom) + 16px
+  );
 }
 .mobile-app[data-view="sessions"] > .mobile-content {
+  padding-inline: 10px;
   scrollbar-width: none;
 }
 .mobile-app[data-view="sessions"] > .mobile-content::-webkit-scrollbar {
   display: none;
-}
-.mobile-connections {
-  padding-top: 38px;
 }
 .mobile-content h1 {
   margin: 0 0 10px;
@@ -362,7 +462,7 @@
 }
 .mobile-session-row {
   min-height: 44px;
-  padding: 8px 10px;
+  padding: 8px 6px;
 }
 .mobile-session-row .mobile-row-text {
   flex-direction: row;
@@ -410,10 +510,15 @@
   margin: 22px auto 0;
 }
 .mobile-navigation {
+  position: absolute;
+  inset-inline: calc(16px + var(--mobile-safe-left))
+    calc(16px + var(--mobile-safe-right));
+  bottom: var(--mobile-navigation-bottom);
+  z-index: 20;
   display: flex;
-  flex-shrink: 0;
-  border-top: 1px solid var(--color-stroke);
-  padding: 6px 10px max(7px, env(safe-area-inset-bottom));
+  gap: 4px;
+  height: var(--mobile-navigation-height);
+  padding: 6px;
 }
 .mobile-navigation button {
   display: flex;
@@ -425,7 +530,7 @@
   min-height: 52px;
   padding: 7px 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: 999px;
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 40%, transparent);
   font-size: 10px;
@@ -454,36 +559,71 @@
   padding-bottom: 0;
   overflow: hidden;
 }
-/* Keep the message and its controls in one compact card above the keyboard. */
+/* The composer shares the floating header's capsule surface. */
 .mobile-composer-dock {
   flex-shrink: 0;
-  padding: 8px 12px max(12px, env(safe-area-inset-bottom));
+  padding: 8px 16px max(12px, var(--mobile-safe-bottom));
 }
 .mobile-composer {
-  border: 1px solid var(--color-stroke);
-  border-radius: 26px;
-  background: var(--color-selection-subtle);
-  padding: 14px 10px 10px;
-  box-shadow: 0 6px 24px #00000008;
+  --mobile-capsule-radius: 26px;
+  --mobile-composer-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 56px;
+  width: 100%;
+  max-width: 100%;
+  margin-inline: auto;
+  padding: 10px 18px 54px;
+  transition:
+    width 240ms var(--mobile-composer-easing),
+    max-width 240ms var(--mobile-composer-easing),
+    padding 240ms var(--mobile-composer-easing);
+}
+.mobile-composer [hidden] {
+  display: none;
+}
+.mobile-composer[data-collapsed="true"] {
+  width: calc(100% - 32px);
+  max-width: 360px;
+  padding: 6px 52px;
+}
+.mobile-composer[data-collapsed="true"] textarea {
+  padding: 2px 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mobile-composer[data-collapsed="true"] .mobile-composer-toolbar {
+  inset-inline: 6px;
+  bottom: 6px;
+}
+.mobile-composer[data-collapsed="true"] .mobile-send {
+  margin-left: 0;
 }
 .mobile-composer:focus-within {
   border-color: color-mix(in srgb, var(--color-content) 22%, transparent);
 }
 .mobile-composer textarea {
   display: block;
+  flex-shrink: 0;
   width: 100%;
-  min-height: 60px;
+  min-height: 28px;
   max-height: min(168px, 25dvh);
   resize: none;
   background: transparent;
   border: 0;
-  padding: 4px 9px 10px;
+  padding: 4px 9px 6px;
   font-size: 16px;
   line-height: 1.5;
   color: var(--color-content);
   user-select: text;
   overflow-y: auto;
   touch-action: pan-y;
+  transition:
+    height 240ms var(--mobile-composer-easing),
+    padding 240ms var(--mobile-composer-easing);
 }
 .mobile-composer textarea:focus-visible {
   outline: none;
@@ -492,9 +632,47 @@
   color: color-mix(in srgb, var(--color-content) 42%, transparent);
 }
 .mobile-composer-toolbar {
+  position: absolute;
+  inset-inline: 18px;
+  bottom: 12px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 4px;
+  pointer-events: none;
+  transition:
+    inset-inline-start 240ms var(--mobile-composer-easing),
+    inset-inline-end 240ms var(--mobile-composer-easing),
+    bottom 240ms var(--mobile-composer-easing);
+}
+.mobile-composer-toolbar > button,
+.mobile-composer-controls {
+  pointer-events: auto;
+}
+.mobile-composer-controls,
+.mobile-composer-controls[data-collapsed="true"] {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  transition:
+    opacity 160ms ease 60ms,
+    transform 200ms var(--mobile-composer-easing) 60ms,
+    visibility 0s;
+}
+.mobile-composer-controls[data-collapsed="true"] {
+  opacity: 0;
+  transform: translateY(4px);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 100ms ease,
+    transform 160ms var(--mobile-composer-easing),
+    visibility 0s 160ms;
 }
 .mobile-composer-action {
   display: grid;
@@ -576,6 +754,44 @@
   border: 0;
   border-radius: 50%;
   margin-left: 3px;
+  transition: margin-left 240ms var(--mobile-composer-easing);
+}
+.mobile-composer-attachment-region,
+.mobile-composer-attachment-region[data-collapsed="true"] {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    grid-template-rows 240ms var(--mobile-composer-easing),
+    opacity 160ms ease 60ms,
+    visibility 0s;
+}
+.mobile-composer-attachment-region[data-collapsed="true"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    grid-template-rows 240ms var(--mobile-composer-easing),
+    opacity 100ms ease,
+    visibility 0s 160ms;
+}
+.mobile-composer-attachment-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-composer,
+  .mobile-composer textarea,
+  .mobile-composer-toolbar,
+  .mobile-composer-controls,
+  .mobile-composer-controls[data-collapsed="true"],
+  .mobile-composer-attachment-region,
+  .mobile-composer-attachment-region[data-collapsed="true"],
+  .mobile-send {
+    transition: none;
+  }
 }
 .mobile-composer-attachments {
   display: flex;
@@ -648,7 +864,7 @@
   color: var(--color-content);
   border: 1px solid var(--color-stroke);
   border-radius: 26px 26px 0 0;
-  padding: 8px 8px max(12px, env(safe-area-inset-bottom));
+  padding: 8px 8px max(12px, var(--mobile-safe-bottom));
   box-shadow: 0 -8px 48px #0002;
   outline: none;
 }
@@ -841,8 +1057,9 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 24px;
-  z-index: 10;
+  padding: max(24px, var(--mobile-safe-top)) max(24px, var(--mobile-safe-right))
+    max(24px, var(--mobile-safe-bottom)) max(24px, var(--mobile-safe-left));
+  z-index: 35;
 }
 .mobile-modal {
   width: 100%;
@@ -897,7 +1114,7 @@ html.theme-light .mobile-logo {
   filter: brightness(0);
 }
 .mobile-modal {
-  max-height: calc(100dvh - 48px);
+  max-height: 100%;
   overflow-y: auto;
 }
 
@@ -919,6 +1136,8 @@ html.theme-light .mobile-logo {
   overflow-x: hidden;
   overflow-wrap: anywhere;
   touch-action: pan-y;
+  padding-top: calc(var(--mobile-header-height) + var(--mobile-safe-top));
+  scroll-padding-top: calc(var(--mobile-header-height) + var(--mobile-safe-top));
 }
 .mobile-desktop-transcript .markdown-code-shell {
   max-width: 100%;
@@ -1015,13 +1234,13 @@ html.theme-light .mobile-logo {
   margin-top: 16px;
   color: color-mix(in srgb, var(--color-content) 40%, transparent);
 }
-
-/* The same queue card is used by both clients, above the composer. */
-.mobile-message-queue [data-message-queue] { padding: 0 8px; }
-.mobile-message-queue [data-message-queue-card] { max-height: 160px; overflow-y: auto; }
-.mobile-message-queue button:disabled { opacity: .35; }
-.mobile-message-queue [data-message-queue-card] > div { min-height: 34px; }
-.mobile-message-queue textarea { font-size: 14px; }
+ .mobile-native-readonly {
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.65;
+}
 
 /* Uploaded images stay compact inside user messages; full images open in the lightbox. */
 .user-message-bubble .mobile-host-image {
@@ -1055,10 +1274,86 @@ html.theme-light .mobile-logo {
   overflow: hidden;
 }
 
-.mobile-native-readonly {
-  margin: 0;
-  padding: 8px 14px;
+/* Queued messages use compact bubbles; touch actions live in an anchored menu. */
+.mobile-queue {
+  margin: 0 8px 12px;
+}
+.mobile-queue-pills {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  max-height: min(160px, 20dvh);
+  overflow-y: auto;
+}
+.mobile-queue-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  max-width: min(100%, 320px);
+  padding: 8px 12px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 999px;
+  background: var(--color-background-base);
+  color: var(--color-content);
+  box-shadow: 0 2px 8px #00000008;
+}
+.mobile-queue-pill:active {
+  background: var(--color-selection-subtle);
+}
+.mobile-queue-pill[data-sortable="true"] {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.mobile-queue-pill[data-dragging="true"] {
+  opacity: 0.35;
+  border-color: var(--color-accent);
+}
+.mobile-queue-drag-preview {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  box-shadow: 0 8px 24px #0003;
+  transform: scale(1.03);
+}
+.mobile-queue-pill svg {
+  flex-shrink: 0;
+}
+.mobile-queue-pill span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+.mobile-queue-paused {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
   font-size: 12px;
-  line-height: 1.5;
-  opacity: 0.65;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+}
+.mobile-queue-paused button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-content);
+}
+.mobile-queue-remove,
+.mobile-queue-error {
+  color: #c13c3c;
+}
+.mobile-queue-error {
+  margin: 6px 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }

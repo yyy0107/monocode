@@ -4076,14 +4076,17 @@ function pinToBottom(el: HTMLElement | null) {
   el.scrollTop = el.scrollHeight;
 }
 
-/** Keep the live turn's min-height in lockstep with the visible transcript. */
+/** Stretch the live turn within the space below any floating controls. */
 function syncTranscriptViewport(el: HTMLElement | null) {
   if (!el || el.clientHeight <= 0) return;
   const inner = el.firstElementChild as HTMLElement | null;
   const pad = inner
     ? Number.parseFloat(getComputedStyle(inner).paddingBottom) || 0
     : 0;
-  const next = `${Math.max(0, el.clientHeight - pad)}px`;
+  // pinToBottom uses scrollTop directly, so CSS scroll-padding cannot offset
+  // it. Shortening the anchored turn leaves the requested inset above it.
+  const topInset = Number.parseFloat(getComputedStyle(el).scrollPaddingTop) || 0;
+  const next = `${Math.max(0, el.clientHeight - pad - topInset)}px`;
   if (el.style.getPropertyValue("--transcript-viewport") === next) return;
   el.style.setProperty("--transcript-viewport", next);
 }

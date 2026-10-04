@@ -107,6 +107,33 @@ async function setup() {
 }
 
 describe("mobile client against the real MonoCode Host", () => {
+  it("persists dragged queue order, preserves attachments and plan intent, and retries a lost move receipt without dropping newly added rows", async () => {
+    const s = await setup();
+    const created = await s.client.dispatch({ type: "create", commandId: "move-create", projectId: s.project.id, harness: "codex", model: "codex:test", runtimeMode: "supervised" }, "Running turn");
+    await vi.waitFor(() => expect(s.provider.send).toHaveBeenCalledTimes(1));
+    const attachments = await s.client.uploadAttachments([{ id: crypto.randomUUID(), name: "photo.png", mimeType: "image/png", kind: "image", size: 3, data: "YWJj" }]);
+    for (const id of ["a", "b", "c"]) await s.client.dispatch({ type: "send", commandId: id, sessionId: created.sessionId, text: id, ...(id === "b" ? { attachments, intent: "plan" as const } : {}) });
+    const original = (await s.client.session(created.sessionId)).session.queuedMessages!.find(row => row.id === "b");
+    await s.client.dispatch({ type: "queue", action: "move", commandId: "move-c", sessionId: created.sessionId, messageId: "c", beforeId: "a" });
+    expect(s.store.session(created.sessionId).session.queuedMessages?.map(row => row.id)).toEqual(["c", "a", "b"]);
+    s.loseNextReceipt();
+    await expect(s.client.dispatch({ type: "queue", action: "move", commandId: "move-b", sessionId: created.sessionId, messageId: "b", beforeId: "c" })).rejects.toThrow("lost response");
+    s.engine.command({ type: "send", commandId: "new-row", sessionId: created.sessionId, text: "Added concurrently" });
+    await s.client.retryPending();
+    const ordered = (await s.client.session(created.sessionId)).session.queuedMessages!;
+    expect(ordered.map(row => row.id)).toEqual(["b", "c", "a", "new-row"]);
+    expect(ordered[0]).toEqual(original);
+    await expect(s.client.dispatch({ type: "queue", action: "move", commandId: "stale-target", sessionId: created.sessionId, messageId: "a", beforeId: "missing" })).rejects.toThrow("destination not found");
+    await s.client.rpc("commands.dispatch", { type: "queue", action: "hold", commandId: "hold-a", sessionId: created.sessionId, messageId: "a", editor: "editor" });
+    await expect(s.client.dispatch({ type: "queue", action: "move", commandId: "held-move", sessionId: created.sessionId, messageId: "c" })).rejects.toThrow("queue operation");
+    await s.client.rpc("commands.dispatch", { type: "queue", action: "release", commandId: "release-a", sessionId: created.sessionId, editor: "editor" });
+    expect(s.store.session(created.sessionId).session.queuedMessages?.map(row => row.id)).toEqual(["b", "c", "a", "new-row"]);
+    s.finish();
+    await vi.waitFor(() => expect(s.provider.send).toHaveBeenCalledTimes(2));
+    expect(s.turn().text).toBe("b");
+    expect(s.turn().intent).toBe("plan");
+    expect(s.turn().attachments).toEqual([expect.objectContaining({ id: attachments[0].id, name: "photo.png" })]);
+  });
   it("shares a desktop-created conversation and follow-ups bidirectionally with a separate phone credential", async () => {
     const s = await setup();
     const desktopDevice = s.store.issueDevice("Desktop");
@@ -168,7 +195,6 @@ describe("mobile client against the real MonoCode Host", () => {
     expect(synced.session.blocks.some(row => row.id === "desktop-row")).toBe(true);
     expect(synced.session.queuedMessages?.map(row => row.id)).toEqual(["lost-enqueue"]);
   });
-
   it("uploads files and delivers an attachment-only first turn with plan intent exactly once", async () => {
     const s = await setup();
     const data = Buffer.alloc(600_001, 42);

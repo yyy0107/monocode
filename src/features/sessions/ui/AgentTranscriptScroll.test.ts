@@ -123,6 +123,31 @@ describe("subagent scrolling", () => {
 });
 
 describe("transcript scrolling", () => {
+  it("reserves the floating header inset when stretching the latest turn, including keyboard resizing", () => {
+    act(() => root.render(createElement(AgentTranscript, {
+      blocks: [{ id: "new-prompt", role: "user", text: "Next question" }],
+      busy: true,
+    })));
+    const scroller = container.querySelector<HTMLDivElement>(".agent-transcript")!;
+    const inner = scroller.firstElementChild as HTMLElement;
+    scroller.style.scrollPaddingTop = "116px";
+    inner.style.paddingBottom = "32px";
+    let viewport = 600;
+    Object.defineProperties(scroller, {
+      clientHeight: { get: () => viewport },
+      scrollHeight: { get: () => 1000 },
+    });
+    const observer = observers.find((item) => item.targets.includes(scroller))!;
+    act(() => observer.resize());
+    expect(scroller.style.getPropertyValue("--transcript-viewport")).toBe("452px");
+    viewport = 300;
+    act(() => observer.resize());
+    expect(scroller.style.getPropertyValue("--transcript-viewport")).toBe("152px");
+    // Ordinary panes without a floating header retain their full anchoring area.
+    scroller.style.scrollPaddingTop = "0px";
+    act(() => observer.resize());
+    expect(scroller.style.getPropertyValue("--transcript-viewport")).toBe("268px");
+  });
   it("follows streamed layout growth on mobile, pauses for a touch up, and resumes at the bottom", () => {
     const showJump = vi.fn();
     const ready = vi.fn();

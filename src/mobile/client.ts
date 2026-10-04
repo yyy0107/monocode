@@ -416,19 +416,37 @@ export class MobileClient {
     const value = await this.storage.get("pending");
     return value ? (JSON.parse(value) as PendingCommand) : undefined;
   }
-  async uploadAttachments(files: Attachment[]): Promise<RemoteAttachment[]> {
+  async uploadAttachments(
+    files: Attachment[],
+    accepted: Attachment[] = [],
+  ): Promise<RemoteAttachment[]> {
+    const reusable = (file: Attachment) =>
+      accepted.some(
+        (known) =>
+          known.id === file.id &&
+          known.name === file.name &&
+          known.size === file.size &&
+          known.kind === file.kind &&
+          known.mimeType === file.mimeType,
+      );
     if (files.length > MOBILE_ATTACHMENT_LIMIT)
       throw new Error("Attach up to 20 files per message.");
     if (
       files.some(
         (file) =>
-          file.size > MOBILE_ATTACHMENT_BYTES || file.data === undefined,
+          file.size > MOBILE_ATTACHMENT_BYTES ||
+          (file.data === undefined && !reusable(file)),
       )
     )
       throw new Error("Each attachment must be readable and 20 MB or smaller.");
     const uploaded: RemoteAttachment[] = [];
     const chunkChars = 4 * Math.floor((512 * 1024) / 3);
     for (const file of files) {
+      if (reusable(file)) {
+        const { id, name, mimeType, kind, size } = file;
+        uploaded.push({ id, name, mimeType, kind, size });
+        continue;
+      }
       const data = file.data!;
       let offset = 0;
       // Empty files still need a file created on the Host.

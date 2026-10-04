@@ -183,8 +183,10 @@ export type HostCommand =
       type: "queue";
       commandId: string;
       sessionId: string;
-      action: "remove" | "edit" | "hold" | "release" | "resume" | "steer";
+      action: "remove" | "edit" | "hold" | "release" | "resume" | "steer" | "move";
       messageId?: string;
+      /** Move before this remaining queue row; omitted means the end. */
+      beforeId?: string;
       text?: string;
       editor?: string;
       runId?: string;

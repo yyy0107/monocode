@@ -1,5 +1,5 @@
 import { useHostQueue } from "../features/connections/ui/useHostQueue";
-import { MessageQueue } from "../features/sessions/ui/MessageQueue";
+import { MobileMessageQueue } from "./MobileMessageQueue";
 import {
   useCallback,
   useEffect,
@@ -27,7 +27,9 @@ import {
 import {
   sessionDisplayTitle,
   type Attachment,
+  type QueuedMessage,
 } from "../features/sessions/model/session";
+import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import type {
   HostProject,
   HostSession,
@@ -54,11 +56,13 @@ import { MobileConnectionSheet } from "./MobileConnectionSheet";
 import { MobileSelect } from "./MobileSelect";
 import { MobileSheet } from "./MobileSheet";
 import { formatMobileRelativeTime } from "./relativeTime";
+import { sortMobileSessions } from "./sessionList";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { useHostConnectionStatus } from "./useHostConnectionStatus";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { setUiLanguage, translate } from "../shared/i18n/language";
 import { readMobileAttachments } from "./attachments";
+import { takeBackQueuedMessage } from "./queuedDraft";
 import { mobileStorage } from "./storage";
 import {
   applyThemePreference,
@@ -139,6 +143,13 @@ export function MobileApp() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [readingAttachments, setReadingAttachments] = useState(false);
   const [planMode, setPlanMode] = useState(false);
+  const acceptedQueueAttachments = useRef<Attachment[]>([]);
+  const parkedDrafts = useRef<Array<{
+    text: string;
+    attachments: Attachment[];
+    planMode: boolean;
+    accepted: Attachment[];
+  }>>([]);
   const [composerPanel, setComposerPanel] = useState<MobileComposerPanel>(null);
   const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
   const [folderPath, setFolderPath] = useState("");
@@ -160,6 +171,11 @@ export function MobileApp() {
   );
   const navigation = useRef(0);
   const queueView = useRef({ view, sessionId });
+  const queueOverlayClose = useRef<(() => void) | undefined>(undefined);
+  const onQueueOverlayChange = useCallback((close?: () => void) => {
+    queueOverlayClose.current = close;
+    if (close) setComposerPanel(null);
+  }, []);
   queueView.current = { view, sessionId };
   const connectionTrigger = useRef<HTMLButtonElement>(null);
   const projectTrigger = useRef<HTMLButtonElement>(null);
@@ -309,6 +325,8 @@ export function MobileApp() {
       setSnapshot(undefined);
       setCatalog(undefined);
       setAttachments([]);
+      acceptedQueueAttachments.current = [];
+      parkedDrafts.current = [];
       setPlanMode(false);
       setToken("");
       setUrl(client.connection!.endpoint);
@@ -370,6 +388,8 @@ export function MobileApp() {
     setAnimateFrom(undefined);
     setDraft("");
     setAttachments([]);
+    acceptedQueueAttachments.current = [];
+    parkedDrafts.current = [];
     setPlanMode(false);
     setComposerPanel(null);
     setSessionActionsOpen(false);
@@ -430,8 +450,11 @@ export function MobileApp() {
           completedCommand?.type === "send" ||
           completedCommand?.type === "create"
         ) {
-          setDraft("");
-          setAttachments([]);
+          const previousDraft = parkedDrafts.current.pop();
+          setDraft(previousDraft?.text ?? "");
+          setAttachments(previousDraft?.attachments ?? []);
+          acceptedQueueAttachments.current = previousDraft?.accepted ?? [];
+          if (previousDraft) setPlanMode(previousDraft.planMode);
         }
       } catch (problem) {
         setError(message(problem));
@@ -485,6 +508,43 @@ export function MobileApp() {
     [],
   );
   const queue = useHostQueue(snapshot, queueRequest);
+  const restoreQueuedMessage = async (queued: QueuedMessage) => {
+    if (!sessionId) return;
+    const generation = navigation.current;
+    setReadingAttachments(true);
+    try {
+      await takeBackQueuedMessage(queued, {
+        read: (id, offset) =>
+          client.rpc("attachments.read", { sessionId, id, offset }),
+        remove: queue.onDelete,
+        current: () => generation === navigation.current,
+        pendingRemoval: async (id) => {
+          const removal = (await client.pending())?.command;
+          return removal?.type === "queue" &&
+            removal.action === "remove" && removal.messageId === id;
+        },
+        restore: (restored) => {
+          if (generation !== navigation.current) return;
+          if (draft.trim() || attachments.length) {
+            parkedDrafts.current.push({
+              text: draft, attachments, planMode,
+              accepted: acceptedQueueAttachments.current,
+            });
+          }
+          acceptedQueueAttachments.current = queued.attachments;
+          setDraft(queued.text);
+          setAttachments(restored);
+          setPlanMode(queued.intent === "plan");
+          setComposerPanel(null);
+          requestAnimationFrame(() =>
+            document.querySelector<HTMLTextAreaElement>(".mobile-composer textarea")?.focus(),
+          );
+        },
+      });
+    } finally {
+      setReadingAttachments(false);
+    }
+  };
   const send = async () => {
     if (
       !project ||
@@ -492,7 +552,7 @@ export function MobileApp() {
       busy ||
       pending ||
       readingAttachments ||
-      nativeReadOnly ||
+      !!snapshot?.session.nativeSession ||
       (snapshot?.status === "running" && !snapshot.supportsQueue)
     )
       return;
@@ -512,7 +572,7 @@ export function MobileApp() {
     setBusy(true);
     setError("");
     try {
-      const uploaded = await client.uploadAttachments(attachments);
+      const uploaded = await client.uploadAttachments(attachments, acceptedQueueAttachments.current);
       const prompt: MobileFirstMessage = {
         text: draft,
         ...(uploaded.length ? { attachments: uploaded } : {}),
@@ -643,7 +703,8 @@ export function MobileApp() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     const listener = App.addListener("backButton", () => {
-      if (sessionActionsOpen) {
+      if (queueOverlayClose.current) queueOverlayClose.current();
+      else if (sessionActionsOpen) {
         if (!busy) setSessionActionsOpen(false);
       } else if (preferencePanel) setPreferencePanel(null);
       else if (addingConnection) {
@@ -672,6 +733,8 @@ export function MobileApp() {
 
   const running = snapshot?.status === "running";
   const nativeReadOnly = !!snapshot?.session.nativeSession;
+  // Every view uses floating capsule controls; content scrolls beneath them.
+  const floatingHeader = true;
   const title =
     view === "chat"
       ? (snapshot &&
@@ -686,8 +749,8 @@ export function MobileApp() {
           ? t("Projects")
           : t("Connections");
   return (
-    <div className="mobile-app">
-      <header className="mobile-header">
+    <div className="mobile-app" data-view={view}>
+      <header className="mobile-header" data-floating={floatingHeader}>
         {view === "chat" || view === "sessions" ? (
           <IconButton
             label="Back"
@@ -696,9 +759,11 @@ export function MobileApp() {
             <ArrowLeft size={20} />
           </IconButton>
         ) : (
-          <img className="mobile-logo" src="/monocode.png" alt="MonoCode" />
+          <span className="mobile-header-logo">
+            <img className="mobile-logo" src="/monocode.png" alt="MonoCode" />
+          </span>
         )}
-        <div className="mobile-header-title" data-capsule={view === "chat"}>
+        <div className="mobile-header-title" data-capsule={floatingHeader}>
           <strong>{title}</strong>
           {view === "chat" ? (
             <div className="mobile-header-context">
@@ -763,6 +828,7 @@ export function MobileApp() {
         ) : null}
       </header>
 
+      <div className="mobile-notices">
       {(error || pollError || hostStatus.state === "failed") &&
         !addingConnection && (
           <div className="mobile-error" role="alert">
@@ -791,6 +857,7 @@ export function MobileApp() {
           </button>
         </div>
       )}
+      </div>
 
       {view === "connection" ? (
         <main className="mobile-content mobile-connections">
@@ -882,7 +949,8 @@ export function MobileApp() {
       ) : view === "projects" ? (
         <main className="mobile-content">
           <p className="mobile-section-label">
-            {t("Your projects")} <span>{projects.length}</span>
+            {t("Your projects")}{" "}
+            <span className="mobile-count-pill">{projects.length}</span>
           </p>
           {projects.length ? (
             <div className="mobile-list">
@@ -928,42 +996,39 @@ export function MobileApp() {
             </div>
           ) : sessions.some((item) => !item.archived) ? (
             <div className="mobile-list mobile-session-list">
-              {sessions
-                .filter((item) => !item.archived)
-                .sort(
-                  (a, b) =>
-                    Number(!!b.pinned) - Number(!!a.pinned) ||
-                    b.updatedAt - a.updatedAt,
-                )
-                .map((item) => (
-                  <button
-                    className="mobile-list-row mobile-session-row"
-                    key={item.id}
-                    onClick={() => void openSession(item.id)}
-                  >
-                    <span className="mobile-row-text">
-                      <strong>
-                        {sessionDisplayTitle(item.title, item.harness) ||
-                          t("Untitled conversation")}
-                      </strong>
-                      <small>
-                        {item.status === "running" ? (
-                          <LoaderCircle size={16} className="mobile-spin" />
-                        ) : item.needsInput ? (
-                          <span className="mobile-attention-dot" />
-                        ) : null}
-                        <span>
-                          {item.harness} ·{" "}
-                          {formatMobileRelativeTime(
-                            item.updatedAt,
-                            now,
-                            language,
-                          )}
-                        </span>
-                      </small>
-                    </span>
-                  </button>
-                ))}
+              {sortMobileSessions(sessions).map((item) => (
+                <button
+                  className="mobile-list-row mobile-session-row"
+                  key={item.id}
+                  onClick={() => void openSession(item.id)}
+                >
+                  <span className="mobile-row-text">
+                    <HarnessIcon
+                      harness={item.harness}
+                      className="size-3.5 shrink-0 self-center"
+                    />
+                    <strong>
+                      {sessionDisplayTitle(item.title, item.harness) ||
+                        t("Untitled conversation")}
+                    </strong>
+                    <small>
+                      {item.status === "running" ? (
+                        <LoaderCircle size={16} className="mobile-spin" />
+                      ) : item.needsInput ? (
+                        <span className="mobile-attention-dot" />
+                      ) : null}
+                      <span>
+                        {item.harness} ·{" "}
+                        {formatMobileRelativeTime(
+                          item.updatedAt,
+                          now,
+                          language,
+                        )}
+                      </span>
+                    </small>
+                  </span>
+                </button>
+              ))}
             </div>
           ) : (
             <Empty icon={<Chatting size={28} />} title="No conversations yet">
@@ -1010,9 +1075,11 @@ export function MobileApp() {
           </p> : null}
           <MobileComposer
             queue={
-              <MessageQueue
+              <MobileMessageQueue
                 key={snapshot?.session.id}
                 {...queue}
+                onOverlayChange={onQueueOverlayChange}
+                onRestore={restoreQueuedMessage}
                 disabled={!!snapshot?.session.nativeSession || busy || !!pending || loading}
               />
             }
@@ -1024,7 +1091,7 @@ export function MobileApp() {
             catalog={catalog}
             lockedAgent={!!sessionId}
             disabled={
-              !!snapshot?.session.nativeSession ||
+              nativeReadOnly ||
               busy ||
               !!pending ||
               (running && !snapshot?.supportsQueue) ||

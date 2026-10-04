@@ -47,6 +47,11 @@ export function useHostQueue(
       snapshot.status === "running" &&
       !snapshot.queueSteeringId,
     canResume: snapshot?.status !== "running",
+    canReorder: !snapshot?.queueSteeringId && !snapshot?.session.editingQueuedMessageId,
+    onReorder: useCallback(
+      (messageId: string, beforeId?: string) => execute("move", { messageId, beforeId }),
+      [execute],
+    ),
     onDelete: useCallback(
       (messageId: string) => execute("remove", { messageId }),
       [execute],

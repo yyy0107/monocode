@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { isImeComposition } from "../../../shared/lib/keyboard";
 import {
@@ -13,6 +13,22 @@ import {
 } from "../../../shared/ui/icons";
 import type { QueuedMessage, MessageQueueStatus } from "../model/session";
 
+/** Alternate presentations reuse the queue's mutation and error handling. */
+export type MessageQueueView = {
+  messages: QueuedMessage[];
+  paused: boolean;
+  disabled: boolean;
+  working: boolean;
+  error: string;
+  canDelete: boolean;
+  canSteer: boolean;
+  canResume: boolean;
+  runAction: (action: () => void | Promise<void>) => void;
+  deleteMessage: (messageId: string) => void;
+  steerMessage: (messageId: string) => void;
+  resumeQueue: () => void;
+};
+
 export function MessageQueue({
   messages,
   status,
@@ -25,6 +41,7 @@ export function MessageQueue({
   canSteer = true,
   canResume = true,
   remote = false,
+  renderQueue,
 }: {
   messages: QueuedMessage[];
   status?: MessageQueueStatus;
@@ -37,6 +54,7 @@ export function MessageQueue({
   canSteer?: boolean;
   canResume?: boolean;
   remote?: boolean;
+  renderQueue?: (view: MessageQueueView) => ReactNode;
 }) {
   const { t: uiT } = useTranslation();
   const [editingId, setEditingId] = useState<string>();
@@ -107,6 +125,22 @@ export function MessageQueue({
     if (!editDraft.trim() && message.attachments.length === 0) return;
     invoke(() => onEdit?.(message.id, editDraft), clearEdit);
   };
+
+  if (renderQueue)
+    return renderQueue({
+      messages,
+      paused,
+      disabled,
+      working,
+      error,
+      canDelete: !!onDelete,
+      canSteer: canSteer && !!onSteer,
+      canResume: canResume && !!onResume,
+      runAction: invoke,
+      deleteMessage: (id) => invoke(() => onDelete?.(id)),
+      steerMessage: (id) => invoke(() => onSteer?.(id)),
+      resumeQueue: () => invoke(onResume),
+    });
 
   return (
     <div className="px-2 text-content/55" data-message-queue>

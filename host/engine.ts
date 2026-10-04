@@ -129,7 +129,7 @@ export function parseCommand(input: unknown): HostCommand {
     };
   }
   if (v.type === "queue") {
-    if (!["remove", "edit", "hold", "release", "resume", "steer"].includes(String(v.action)))
+    if (!["remove", "edit", "hold", "release", "resume", "steer", "move"].includes(String(v.action)))
       throw new Error("Invalid queue action");
     const action = v.action as Extract<HostCommand, { type: "queue" }>["action"];
     if (action === "edit" && (typeof v.text !== "string" || v.text.length > 256_000 || v.text.includes("\0")))
@@ -139,6 +139,7 @@ export function parseCommand(input: unknown): HostCommand {
       ...(action === "edit" ? { text: v.text as string } : {}),
       ...(["edit", "hold", "release"].includes(action) ? { editor: text(v.editor, "queue editor") } : {}),
       ...(action === "steer" ? { runId: text(v.runId, "run ID") } : {}),
+      ...(action === "move" && v.beforeId !== undefined ? { beforeId: text(v.beforeId, "queued destination ID") } : {}),
     };
   }
   if (v.type === "compact") return { type: "compact", commandId, sessionId };
@@ -916,6 +917,16 @@ export class HostEngine {
     )
       throw new Error("This queued message is already in use");
     switch (command.action) {
+      case "move": {
+        if (value.queueSteeringId || session.editingQueuedMessageId)
+          throw new Error("Wait for the current queue operation to finish");
+        if (command.beforeId === row!.id) return value;
+        const remaining = session.queuedMessages!.filter((message) => message.id !== row!.id);
+        const destination = command.beforeId === undefined ? remaining.length : remaining.findIndex((message) => message.id === command.beforeId);
+        if (destination < 0) throw new Error("Queued destination not found");
+        remaining.splice(destination, 0, row!);
+        return { ...value, session: { ...session, queuedMessages: remaining } };
+      }
       case "hold":
         return {
           ...value,
