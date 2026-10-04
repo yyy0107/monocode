@@ -43,7 +43,7 @@ import { ProjectMascot } from "../../projects/ui/ProjectMascot";
 import { SearchableProjectPicker } from "../../projects/ui/SearchableProjectPicker";
 import { SearchableSelect } from "../../../shared/ui/SearchableSelect";
 import { SkillPromptField } from "../../skills/ui/SkillPromptField";
-import { OverlayNav } from "../../../app/shell/TitleBar";
+import { WindowNavigationSpace } from "../../../app/shell/TitleBar";
 import { WindowControls } from "../../../app/shell/WindowControls";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { useTabGroupLogos } from "../../projects/hooks/useTabGroupLogos";
@@ -153,8 +153,6 @@ export function AutomationsView({
   compactRail = false,
   cwd,
   recents,
-  onClose,
-  onToggleSidebar,
   onLaunch,
   onOpenSession,
 }: Props) {
@@ -170,11 +168,9 @@ export function AutomationsView({
         className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
         data-tauri-drag-region="deep"
       >
-        {IS_MAC && compactRail ? <div className="w-4 shrink-0" /> : null}
-        {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
-        {besideRail ? null : (
-          <OverlayNav onBack={onClose} onToggleSidebar={onToggleSidebar} />
-        )}
+        {compactRail || !besideRail ? (
+          <WindowNavigationSpace besideCompactRail={compactRail} />
+        ) : null}
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
           <Zap
             className="size-3.5 shrink-0 text-content/45"

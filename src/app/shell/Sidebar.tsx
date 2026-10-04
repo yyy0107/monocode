@@ -58,7 +58,7 @@ import {
   type GitFileDiffKind,
   type GitHistoryCommit,
 } from "../../platform/tauri/fs";
-import { IS_MAC, MOD } from "../../platform/tauri/platform";
+import { MOD } from "../../platform/tauri/platform";
 import { copyText } from "../../platform/tauri/clipboard";
 import { resolveModel } from "../../features/sessions/model/models";
 import type { OpenFileFn } from "../../features/search/model/search";
@@ -161,7 +161,7 @@ import { InboxNotificationMenu } from "../../features/inbox/ui/InboxNotification
 import { prefetchGithubWorkItem } from "../../features/inbox/model/githubTasks";
 import { RailAction } from "./RailAction";
 import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
-import { DevModeSlot, IconButton, TabVisitNav } from "./TitleBar";
+import { DevModeSlot, IconButton, WindowNavigationSpace } from "./TitleBar";
 import { ProjectSearch } from "../../features/projects/ui/ProjectSearch";
 import { Popover } from "../../shared/ui/Popover";
 import { SearchableProjectPicker } from "../../features/projects/ui/SearchableProjectPicker";
@@ -1728,17 +1728,8 @@ function SidebarComponent({
               className="flex h-10 shrink-0 select-none items-center border-b border-stroke pr-1.5"
               data-tauri-drag-region="deep"
             >
-              {IS_MAC ? <div className="w-[78px] shrink-0" /> : null}
+              <WindowNavigationSpace besideCompactRail={compactRailVisible} />
               <DevModeSlot />
-              <TabVisitNav
-                canGoBack={canGoBack}
-                canGoForward={canGoForward}
-                onGoBack={onGoBack}
-                onGoForward={onGoForward}
-                onTogglePanel={
-                  compactProjectRail ? undefined : onToggleProjectRail
-                }
-              />
             </div>
           )}
           {onSelectProject && !compactRailVisible ? (
@@ -2533,7 +2524,6 @@ function CompactProjectRail({
   onOpenAutomations,
   automationsActive,
   onOpenSettings,
-  onTogglePanel,
   onLeaveActive,
   titleBarAbove,
 }: {
@@ -2601,11 +2591,6 @@ function CompactProjectRail({
         data-compact-rail-actions
         className="flex w-full shrink-0 flex-col items-center gap-1.5 py-1.5"
       >
-        <CompactRailAction
-          label={uiT("Expand projects")}
-          icon={PanelLeft}
-          onClick={onTogglePanel}
-        />
         {onSelectProject ? (
           <SearchableProjectPickerWithMenu
             cwd={cwd}

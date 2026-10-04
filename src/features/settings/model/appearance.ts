@@ -13,6 +13,7 @@ const THEME_HUE_KEY = "monocode.themeHue";
 const THEME_SATURATION_KEY = "monocode.themeSaturation";
 const THEME_DARK_LIGHTNESS_KEY = "monocode.themeDarkLightness";
 const OPACITY_KEY = "monocode.sidebarOpacity";
+const POPOVER_OPACITY_KEY = "monocode.popoverOpacity";
 const BLUR_KEY = "monocode.sidebarBlur";
 const PROJECT_RAIL_OPEN_KEY = "monocode.projectRailOpen";
 const SESSION_SIDEBAR_OPEN_KEY = "monocode.sessionSidebarOpen";
@@ -126,6 +127,11 @@ export const THEME_DARK_LIGHTNESS_DEFAULT = 9;
 export const SIDEBAR_OPACITY_MIN = 0.15;
 export const SIDEBAR_OPACITY_MAX = 1;
 export const SIDEBAR_OPACITY_DEFAULT = 0.85;
+
+/** Background opacity used to keep menus readable over the native glass backdrop. */
+export const POPOVER_OPACITY_MIN = 0;
+export const POPOVER_OPACITY_MAX = 1;
+export const POPOVER_OPACITY_DEFAULT = 0.02;
 
 export const SIDEBAR_BLUR_MIN = 1;
 export const SIDEBAR_BLUR_MAX = 64;
@@ -306,6 +312,7 @@ export function initAppearance() {
   applyThemePreference(loadThemePreference());
   watchSystemColorScheme();
   applySidebarOpacity(loadSidebarOpacity());
+  applyPopoverOpacity(loadPopoverOpacity());
   applySidebarBlur(loadSidebarBlur());
   applyBodyGlass(loadBodyGlass());
   applyChatBackground(loadChatBackgroundPath());
@@ -465,6 +472,30 @@ export function saveSidebarOpacity(value: number) {
 export function applySidebarOpacity(value: number) {
   const next = clamp(value, SIDEBAR_OPACITY_MIN, SIDEBAR_OPACITY_MAX);
   document.documentElement.style.setProperty("--sidebar-opacity", String(next));
+  return next;
+}
+
+export function loadPopoverOpacity(): number {
+  return clamp(
+    readNumber(POPOVER_OPACITY_KEY) ?? POPOVER_OPACITY_DEFAULT,
+    POPOVER_OPACITY_MIN,
+    POPOVER_OPACITY_MAX,
+  );
+}
+
+export function savePopoverOpacity(value: number) {
+  writeNumber(
+    POPOVER_OPACITY_KEY,
+    clamp(value, POPOVER_OPACITY_MIN, POPOVER_OPACITY_MAX),
+  );
+}
+
+export function applyPopoverOpacity(value: number) {
+  const next = clamp(value, POPOVER_OPACITY_MIN, POPOVER_OPACITY_MAX);
+  document.documentElement.style.setProperty(
+    "--popover-opacity",
+    String(next),
+  );
   return next;
 }
 

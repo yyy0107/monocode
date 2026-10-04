@@ -1398,7 +1398,7 @@ describe("collapsed rail Inbox actions", () => {
     const sidebar = container.querySelector("aside")!;
     expect(container.querySelector("[data-compact-project-rail]")).toBeNull();
     expect(
-      sidebar.querySelector('button[aria-label^="Toggle Projects"]'),
+      sidebar.querySelector('[data-window-navigation-space]'),
     ).not.toBeNull();
     expect(
       sidebar.querySelector('button[aria-label^="Search"]'),
@@ -1463,7 +1463,6 @@ describe("collapsed rail Inbox actions", () => {
         button.getAttribute("aria-label")?.replace(/ \(.+\)$/, ""),
       ),
     ).toEqual([
-      "Expand projects",
       "Switch project, current project project",
       "Sessions",
       "Explorer",
@@ -1523,14 +1522,7 @@ describe("collapsed rail Inbox actions", () => {
     act(() => projectPicker.click());
     expect(projectSearchInput()).not.toBeNull();
 
-    act(() =>
-      rail
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="Expand projects"]',
-        )!
-        .click(),
-    );
-    expect(props.onToggleProjectRail).toHaveBeenCalledOnce();
+    expect(rail.querySelector('button[aria-label="Expand projects"]')).toBeNull();
   });
 
   it("slides the collapsed sidebar open until dismissed from the compact tabs", async () => {

@@ -295,6 +295,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     keywords: "glass translucent transparency vibrancy",
   },
   {
+    id: "popover-opacity",
+    section: "appearance",
+    label: "Popover opacity",
+    keywords: "dropdown menu picker glass translucent transparency vibrancy",
+  },
+  {
     id: "blur",
     section: "appearance",
     label: "Blur radius",

@@ -79,7 +79,7 @@ type RecentMenu = { models: AgentModel[] };
 
 type ModelGroup = {
   id: string;
-  name?: string;
+  name: string;
   models: Array<{ item: AgentModel; index: number }>;
 };
 
@@ -238,23 +238,20 @@ function recentMenuModels(
   return models.slice(0, 6);
 }
 
-function modelGroups(tab: ModelPickerTab, models: AgentModel[]): ModelGroup[] {
-  if (tab !== "opencode") {
-    return [
-      {
-        id: "models",
-        models: models.map((item, index) => ({ item, index })),
-      },
-    ];
-  }
-
+function modelGroups(models: AgentModel[]): ModelGroup[] {
   const groups = new Map<string, ModelGroup>();
   models.forEach((item, index) => {
-    const provider = item.provider ?? { id: "opencode", name: "OpenCode" };
-    let group = groups.get(provider.id);
+    const id = item.provider
+      ? `provider:${item.provider.id}`
+      : `harness:${item.harness}`;
+    let group = groups.get(id);
     if (!group) {
-      group = { id: provider.id, name: provider.name, models: [] };
-      groups.set(provider.id, group);
+      group = {
+        id,
+        name: item.provider?.name ?? HARNESS_TITLE[item.harness],
+        models: [],
+      };
+      groups.set(id, group);
     }
     group.models.push({ item, index });
   });
@@ -386,11 +383,16 @@ export function ModelPicker({
                 item != null && pickerHarnesses.includes(item.harness),
             )
         : source.modelsFor(visibleTab);
-    if (!needle) return pool;
-    return pool.filter((item) =>
-      `${item.name} ${HARNESS_TITLE[item.harness]} ${item.provider?.name ?? ""} ${item.provider?.id ?? ""}`
-        .toLowerCase()
-        .includes(needle),
+    const filtered = needle
+      ? pool.filter((item) =>
+          `${item.name} ${HARNESS_TITLE[item.harness]} ${item.provider?.name ?? ""} ${item.provider?.id ?? ""}`
+            .toLowerCase()
+            .includes(needle),
+        )
+      : pool;
+    // Keyboard navigation and selection must follow the grouped display order.
+    return modelGroups(filtered).flatMap((group) =>
+      group.models.map(({ item }) => item),
     );
   }, [source, catalogVersion, favorites, providerKey, query, visibleTab]);
 
@@ -1315,7 +1317,7 @@ function ModelFlyout({
   const source = useModelSource();
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLButtonElement>(null);
-  const groups = modelGroups(tab, models);
+  const groups = modelGroups(models);
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: "nearest" });
@@ -1459,16 +1461,10 @@ function ModelFlyout({
             </div>
           ) : (
             groups.map((group) => (
-              <div
-                key={group.id}
-                role={group.name ? "group" : undefined}
-                aria-label={group.name}
-              >
-                {group.name ? (
-                  <div className="px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-content/40">
-                    {group.name}
-                  </div>
-                ) : null}
+              <div key={group.id} role="group" aria-label={group.name}>
+                <div className="px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-content/40">
+                  {group.name}
+                </div>
                 {group.models.map(({ item, index }) => {
                   const selected = item.id === currentId;
                   const highlighted = index === active;

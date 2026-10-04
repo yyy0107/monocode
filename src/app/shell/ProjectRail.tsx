@@ -28,8 +28,11 @@ import {
   PROJECT_RAIL_WIDTH_MIN,
   saveProjectRailWidth,
 } from "../../features/settings/model/appearance";
-import { basename, type GitDiffStats } from "../../platform/tauri/fs";
-import { IS_MAC, MOD } from "../../platform/tauri/platform";
+import {
+  basename,
+  type GitDiffStats,
+} from "../../platform/tauri/fs";
+import { MOD } from "../../platform/tauri/platform";
 import { formatInteger } from "../../shared/lib/numbers";
 import { pathKey, projectKey, projectName } from "../../shared/lib/paths";
 import {
@@ -68,7 +71,7 @@ import { LiveAgentsPreview } from "../../features/sessions/ui/LiveAgentsPreview"
 import { ProjectLogoIcon } from "../../features/projects/ui/ProjectLogoIcon";
 import { ProjectMascot } from "../../features/projects/ui/ProjectMascot";
 import { RailAction, RailSearch } from "./RailAction";
-import { DevModeSlot, TabVisitNav } from "./TitleBar";
+import { DevModeSlot, WindowNavigationSpace } from "./TitleBar";
 import { SidebarUpdateFooter } from "./SidebarUpdate";
 import type { InstalledUpdate } from "../model/updateNotice";
 import { SettingsNav } from "./SettingsRail";
@@ -131,10 +134,6 @@ export function ProjectRail({
   recents,
   inboxUnseen = false,
   busyPaths,
-  canGoBack = false,
-  canGoForward = false,
-  onGoBack,
-  onGoForward,
   onSearch,
   searchActive = false,
   onOpenInbox,
@@ -144,7 +143,6 @@ export function ProjectRail({
   notesActive = false,
   onOpenAutomations,
   automationsActive = false,
-  onTogglePanel,
   onSelectProject,
   onOpenProject,
   onRemoveProject,
@@ -342,16 +340,8 @@ export function ProjectRail({
         className="flex h-10 shrink-0 select-none items-center pr-1.5"
         data-tauri-drag-region="deep"
       >
-        {IS_MAC ? <div className="w-[78px] shrink-0" /> : null}
+        <WindowNavigationSpace />
         <DevModeSlot />
-        <TabVisitNav
-          canGoBack={canGoBack}
-          canGoForward={canGoForward}
-          onGoBack={onGoBack}
-          onGoForward={onGoForward}
-          onTogglePanel={settingsOpen ? undefined : onTogglePanel}
-          panelActive
-        />
       </div>
 
       {settingsOpen ? (

@@ -745,6 +745,7 @@ export function modelsFromRpcData(
       harness: flavor.id,
       name,
       nativeId,
+      provider: { id: provider, name: provider },
       ...(settings.length > 0 ? { settings } : {}),
       ...(contextWindow && contextWindow > 0 ? { contextWindow } : {}),
     });

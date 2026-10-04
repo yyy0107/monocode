@@ -25,7 +25,7 @@ export type AgentModel = {
   harness: HarnessId;
   name: string;
   nativeId?: string;
-  /** Upstream provider inside a multi-provider harness such as OpenCode. */
+  /** Upstream provider inside a multi-provider harness such as Pi or OpenCode. */
   provider?: {
     id: string;
     name: string;

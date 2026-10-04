@@ -75,7 +75,7 @@ import { ApprovalToasts } from "../features/sessions/ui/ApprovalToasts";
 import { HarnessUpdateNotice } from "../features/providers/ui/HarnessUpdateNotice";
 import { WhatsNewDialog } from "./shell/WhatsNewDialog";
 import { ProviderSignInDialog } from "../features/sessions/ui/ProviderSignInDialog";
-import { TitleBar, type Tab as TitleTab } from "./shell/TitleBar";
+import { WindowNavigation, TitleBar, type Tab as TitleTab } from "./shell/TitleBar";
 import { MenuBar } from "./shell/MenuBar";
 import { FilePicker } from "../features/files/ui/FilePicker";
 import {
@@ -10727,7 +10727,11 @@ function Workspace({
     automationsViewOpen;
   const compactProjectRail = collapsedProjectRailMode === "compact";
   const compactRailActive = compactProjectRail && !projectRailOpen;
-  const compactTitleBar = IS_MAC && compactRailActive && !chromeSurfaceOpen;
+  const titleBarAbove =
+    !chromeSurfaceOpen &&
+    (compactRailActive ||
+      (!projectRailOpen &&
+        (!sessionSidebarOpen || !looksLikeProject(sidebarCwd))));
   const workspaceTitleBar = (
     <TitleBar
       tabs={titleTabs}
@@ -10735,7 +10739,7 @@ function Workspace({
       cwd={sidebarCwd}
       projectRailOpen={projectRailOpen}
       sessionSidebarOpen={sessionSidebarOpen}
-      compactRail={compactTitleBar}
+      compactRail={compactRailActive && titleBarAbove}
       canGoBack={tabVisitNav.canBack}
       canGoForward={tabVisitNav.canForward}
       onGoBack={onRailBack}
@@ -10765,11 +10769,19 @@ function Workspace({
     <OrchestrationActions.Provider value={orchestrationActions}>
       <OrchestrationWorkers.Provider value={orchestrationWorkers}>
         <div
-          className={`flex h-full flex-col text-content ${
+          className={`relative flex h-full flex-col text-content ${
             HAS_NATIVE_GLASS ? "bg-background-base/40" : "bg-background-base"
           }`}
         >
-          {compactTitleBar ? workspaceTitleBar : null}
+          <WindowNavigation
+            canGoBack={chromeSurfaceOpen || tabVisitNav.canBack}
+            canGoForward={tabVisitNav.canForward}
+            onGoBack={onRailBack}
+            onGoForward={onRailForward}
+            onTogglePanel={onToggleProjectRail}
+            panelActive={projectRailOpen}
+          />
+          {titleBarAbove ? workspaceTitleBar : null}
           <div className="flex min-h-0 min-w-0 flex-1">
             <Sidebar
               cwd={sidebarCwd}
@@ -10868,7 +10880,7 @@ function Workspace({
               notesEnabled={notesEnabled}
               projectRailOpen={projectRailOpen}
               compactProjectRail={compactProjectRail}
-              titleBarAbove={compactTitleBar}
+              titleBarAbove={titleBarAbove}
               onToggleProjectRail={onToggleProjectRail}
               unseenFinishedIds={unseenFinishedIds}
               inboxUnseen={inboxUnseen}
@@ -10944,7 +10956,7 @@ function Workspace({
                     }}
                   />
                 ) : null}
-                {compactTitleBar ? null : workspaceTitleBar}
+                {titleBarAbove ? null : workspaceTitleBar}
 
                 <main className="relative flex min-h-0 min-w-0 flex-1">
                   <div

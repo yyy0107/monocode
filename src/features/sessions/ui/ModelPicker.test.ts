@@ -65,6 +65,11 @@ vi.mock("../../../shared/ui/Popover", () => ({
 
 import { ModelControlPills, ModelPicker } from "./ModelPicker";
 import { setUiLanguage } from "../../../shared/i18n/language";
+import { modelsFromRpcData } from "../../../integrations/harness/providers/pi/piProtocol";
+import {
+  PI_FLAVOR,
+  OMP_FLAVOR,
+} from "../../../integrations/harness/providers/pi/piFlavor";
 import {
   resetHarnessModelOverlays,
   saveRecentModelChoice,
@@ -374,6 +379,66 @@ describe("model picker", () => {
     expect(container.querySelectorAll('[role="option"]')).toHaveLength(2);
   });
 
+  it.each([PI_FLAVOR, OMP_FLAVOR])(
+    "groups $id models and navigates in provider order",
+    (flavor) => {
+      const models = modelsFromRpcData(flavor, {
+        models: [
+          { id: "v4", name: "Alpha DeepSeek", provider: "deepseek" },
+          { id: "gpt", name: "Beta GPT", provider: "openai" },
+          { id: "v4-flash", name: "Gamma DeepSeek", provider: "deepseek" },
+        ],
+      });
+      setHarnessModels(flavor.id, models);
+      const onChange = vi.fn();
+      act(() =>
+        root.render(
+          createElement(ModelPicker, {
+            harness: flavor.id,
+            model: models[0].id,
+            values: {},
+            hideSettings: true,
+            onChange,
+            onSettingsChange: vi.fn(),
+          }),
+        ),
+      );
+      act(() =>
+        container
+          .querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!
+          .click(),
+      );
+
+      expect(
+        [...container.querySelectorAll('[role="group"]')].map((group) =>
+          group.getAttribute("aria-label"),
+        ),
+      ).toEqual(["deepseek", "openai"]);
+      expect(
+        [...container.querySelectorAll('[role="option"]')].map(
+          (option) => option.textContent,
+        ),
+      ).toEqual(["Alpha DeepSeek", "Gamma DeepSeek", "Beta GPT"]);
+
+      const search = container.querySelector<HTMLInputElement>(
+        'input[aria-label="Search models"]',
+      )!;
+      inputText(search, "openai");
+      expect(container.querySelectorAll('[role="group"]')).toHaveLength(1);
+      expect(container.querySelector('[role="option"]')?.textContent).toBe(
+        "Beta GPT",
+      );
+
+      inputText(search, "");
+      keyDown(search, "ArrowDown");
+      keyDown(search, "Enter");
+      expect(onChange).toHaveBeenCalledWith(
+        flavor.id,
+        `${flavor.id}:deepseek/v4-flash`,
+      );
+    },
+  );
+
   it("names the source of same-name favorites from different providers", () => {
     setHarnessModels("cursor", [
       {
@@ -440,6 +505,11 @@ describe("model picker", () => {
       "Muse Spark 1.3, Cursor",
       "Muse Spark 1.3, OpenCode Go",
     ]);
+    expect(
+      [...container.querySelectorAll('[role="group"]')].map((group) =>
+        group.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Cursor", "OpenCode Go"]);
   });
 
   it("can move effort into a dedicated composer control", () => {
