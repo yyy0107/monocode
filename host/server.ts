@@ -301,6 +301,7 @@ export function createHostServer(
                 "sessions.draft",
                 "sessions.plan",
                 "sessions.queue",
+                "sessions.activity",
               ],
             };
             break;
@@ -315,6 +316,12 @@ export function createHostServer(
             break;
           case "models.list":
             result = await models(params.projectId);
+            break;
+          case "sessions.activity":
+            result = {
+              environmentId: engine.store.environmentId,
+              sessions: engine.store.summaries(),
+            };
             break;
           case "sessions.list": {
             const projectId = String(params.projectId ?? "");

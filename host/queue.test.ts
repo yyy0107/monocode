@@ -151,8 +151,13 @@ describe("Host owns the shared message queue", () => {
         "desktop",
       ]);
       await vi.waitFor(() => expect(s.turns).toHaveLength(1));
+      const firstRun = s.store.session(s.id).runId;
       s.turns[0].finish();
       await vi.waitFor(() => expect(s.turns).toHaveLength(2));
+      expect(s.store.summaries(s.store.session(s.id).projectId)[0]).toMatchObject({
+        status: "running",
+        lastCompletedRunId: firstRun,
+      });
       expect(s.turns[1].input.text).toBe("phone");
       expect(
         s.store.session(s.id).session.queuedMessages?.map((row) => row.id),
@@ -268,7 +273,11 @@ describe("Host owns the shared message queue", () => {
         expect(s.store.session(s.id).session.queuedMessages).toBeUndefined(),
       );
       expect(s.provider.steer).toHaveBeenCalledTimes(1);
-        expect(s.store.session(s.id).session.blocks.find(row => row.id === "steer-me")?.text).toBe("steer-me");
+      expect(s.store.session(s.id).session.blocks.find(row => row.id === "steer-me")?.text).toBe("steer-me");
+      const steered = s.store.session(s.id).session.blocks.find(row => row.id === "steer-me")!;
+      expect(steered.sentAt).toBeGreaterThan(0);
+      expect(steered.startedAt).toBeUndefined();
+      expect(s.store.summaries(s.store.session(s.id).projectId)[0].lastUserMessageAt).toBe(steered.sentAt);
       expect(
         s.store
           .session(s.id)

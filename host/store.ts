@@ -10,7 +10,8 @@ import type {
   RemoteProvider,
   SessionSync,
 } from "../src/features/connections/model/protocol";
-import type { LinkedWorkItem } from "../src/features/sessions/model/session";
+import type { Block, LinkedWorkItem } from "../src/features/sessions/model/session";
+import { pendingSessionInputKey as pendingInputKey } from "../src/features/sessions/model/sessionActivity";
 import { sessionNeedsInput } from "../src/features/sessions/model/session";
 
 const CACHED_SESSIONS = 32;
@@ -111,10 +112,11 @@ export class HostStore {
     return value;
   }
 
-  summaries(projectId: string): HostSessionSummary[] {
-    return this.db
-      .prepare("SELECT id, summary FROM sessions WHERE project_id=?")
-      .all(projectId)
+  summaries(projectId?: string): HostSessionSummary[] {
+    const rows = projectId
+      ? this.db.prepare("SELECT id, summary FROM sessions WHERE project_id=?").all(projectId)
+      : this.db.prepare("SELECT id, summary FROM sessions").all();
+    return rows
       .map((row) => {
         const cached = row.summary
           ? (JSON.parse(String(row.summary)) as HostSessionSummary)
@@ -122,7 +124,10 @@ export class HostStore {
         if (
           cached?.model &&
           cached.needsInput !== undefined &&
-          cached.providerSessionId !== undefined
+          cached.providerSessionId !== undefined &&
+          cached.lastUserMessageAt !== undefined &&
+          cached.lastReplyRevision !== undefined &&
+          cached.pendingInputKey !== undefined
         )
           return cached;
         const fresh = summary(this.session(String(row.id)));
@@ -170,13 +175,23 @@ export class HostStore {
   /** Returns the saved value, stamped with per-block change revisions. */
   save(input: HostSession, event: unknown): HostSession {
     const previous = this.find(input.session.id);
+    const revisions = blockRevisions(previous, input);
+    const before = new Map(previous?.session.blocks.map((block) => [block.id, block]));
+    const receivedReply = input.session.blocks.some((block) =>
+      isReplyBlock(block) && revisions[block.id] === input.revision &&
+      replyContentChanged(before.get(block.id), block),
+    ) || (!!pendingInputKey(input.session, input.runId) && pendingInputKey(previous?.session, previous?.runId) !== pendingInputKey(input.session, input.runId))
+      || input.lastCompletedRunId !== previous?.lastCompletedRunId;
     const value = {
       ...input,
       // Older snapshots have no creation time. Preserve their last recorded
       // timestamp when they are first written by this version of the host.
       createdAt:
         input.createdAt ?? previous?.createdAt ?? previous?.updatedAt ?? input.updatedAt,
-      blockRevisions: blockRevisions(previous, input),
+      lastReplyRevision: receivedReply
+        ? input.revision
+        : (input.lastReplyRevision ?? previous?.lastReplyRevision ?? replyRevision(previous)),
+      blockRevisions: revisions,
     };
     this.db
       .prepare(
@@ -322,12 +337,19 @@ export class HostStore {
 }
 
 export function summary(value: HostSession): HostSessionSummary {
+  const lastUserMessage = value.session.blocks.findLast(
+    (block) => block.role === "user" && !block.draft && !block.internal,
+  );
+  const sentAt = lastUserMessage?.sentAt ?? lastUserMessage?.startedAt;
   return {
     projectId: value.projectId,
     revision: value.revision,
     runId: value.runId,
     status: value.status,
     updatedAt: value.updatedAt,
+    lastReplyRevision: replyRevision(value),
+    lastCompletedRunId: value.lastCompletedRunId ?? null,
+    pendingInputKey: pendingInputKey(value.session, value.runId),
     id: value.session.id,
     cwd: value.session.cwd,
     title: value.session.title,
@@ -337,6 +359,10 @@ export function summary(value: HostSession): HostSessionSummary {
     runtimeMode: value.session.runtimeMode,
     providerSessionId: value.session.providerSessionId ?? null,
     createdAt: value.createdAt ?? value.updatedAt,
+    lastUserMessageAt:
+      sentAt !== undefined && Number.isFinite(sentAt) && sentAt > 0
+        ? sentAt
+        : null,
     archived: value.archived,
     pinned: value.pinned,
     linkedWorkItem: value.session.linkedWorkItem,
@@ -344,6 +370,28 @@ export function summary(value: HostSession): HostSessionSummary {
     draft: value.session.blocks.some((block) => block.role === "user" && block.draft),
     nativeSession: value.session.nativeSession,
   };
+}
+
+function isReplyBlock(block: Block): boolean {
+  return !block.internal && (
+    (block.role === "assistant" && !!block.text.trim()) ||
+    block.role === "image" || block.role === "plan" ||
+    !!block.notice || !!(block.approval && !block.approval.decided)
+  );
+}
+
+function replyContentChanged(before: Block | undefined, next: Block): boolean {
+  return !before || before.role !== next.role || before.text !== next.text ||
+    JSON.stringify([before.image, before.attachments, before.approval?.requestId]) !==
+      JSON.stringify([next.image, next.attachments, next.approval?.requestId]);
+}
+
+function replyRevision(value?: HostSession): number | null {
+  if (!value) return null;
+  if (value.lastReplyRevision != null) return value.lastReplyRevision;
+  return value.session.blocks.reduce<number | null>((latest, block) => isReplyBlock(block)
+    ? Math.max(latest ?? 0, value.blockRevisions?.[block.id] ?? value.revision)
+    : latest, null);
 }
 
 /** Unchanged blocks keep their previous stamp. Identity is the fast path;

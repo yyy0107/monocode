@@ -121,6 +121,28 @@ async function setup(providers: RemoteProvider[] = ["codex"], discoverProviders?
 }
 
 describe("remote host API", () => {
+  it("returns lightweight reply activity across projects, with credential and Host identity checks", async () => {
+    const s = await setup();
+    const other = s.store.addProject("/activity-other-project", "Other");
+    for (const project of [s.project, other])
+      s.engine.command({ type: "create", commandId: `activity:${project.id}`, projectId: project.id,
+        harness: "codex", model: "codex:test", runtimeMode: "supervised" });
+    const listed = await s.call("sessions.activity");
+    expect(listed.status).toBe(200);
+    expect(listed.value.result.environmentId).toBe(s.store.environmentId);
+    expect(new Set(listed.value.result.sessions.map((row: { projectId: string }) => row.projectId)))
+      .toEqual(new Set([s.project.id, other.id]));
+    for (const row of listed.value.result.sessions) {
+      expect(row).toMatchObject({ lastReplyRevision: null, lastCompletedRunId: null, pendingInputKey: null });
+      expect(row).not.toHaveProperty("session");
+      expect(row).not.toHaveProperty("blocks");
+    }
+    expect((await s.call("sessions.activity", {}, s.first.token, { environmentId: "other-host" })).status).toBe(400);
+    expect((await s.call("sessions.activity", {}, s.first.token, { version: 0 })).status).toBe(400);
+    s.store.revokeDevice(s.first.id);
+    expect((await s.call("sessions.activity")).status).toBe(401);
+  });
+
   it("accepts a registered short token and rejects it after revocation", async () => {
     const s = await setup();
     expect((await s.call("environment.describe", {}, "123")).status).toBe(401);

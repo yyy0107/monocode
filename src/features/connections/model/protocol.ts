@@ -55,6 +55,10 @@ export type HostSession = {
   /** Missing from snapshots written before creation time was stored. */
   createdAt?: number;
   updatedAt: number;
+  /** Revision of the latest received reply/input/completed turn, not metadata. */
+  lastReplyRevision?: number | null;
+  /** Durable completion identity survives an immediately dispatched queued turn. */
+  lastCompletedRunId?: string | null;
   archived?: boolean;
   pinned?: boolean;
   /** Temporary branch created by the composer for automatic first-turn naming. */
@@ -75,6 +79,9 @@ export type HostSessionSummary = Omit<
   runtimeMode?: RuntimeMode;
   providerSessionId?: string | null;
   createdAt?: number;
+  /** Last submitted user block's timestamp; absent on older Hosts. */
+  lastUserMessageAt?: number | null;
+  pendingInputKey?: string | null;
   linkedWorkItem?: LinkedWorkItem;
   needsInput?: boolean;
   branch?: string;
@@ -82,6 +89,11 @@ export type HostSessionSummary = Omit<
   repo?: string;
   draft?: boolean;
   nativeSession?: Session["nativeSession"];
+};
+
+export type HostSessionActivity = {
+  environmentId: string;
+  sessions: HostSessionSummary[];
 };
 
 export type RemoteAttachment = {

@@ -1071,7 +1071,11 @@ export class HostEngine {
         const latest = this.store.session(session.id);
         const steered = appendSteerUser(dequeueQueuedMessage(latest.session, row.id), row.text, row.attachments);
         // Keep the queue acceptance ID when it becomes a transcript message.
-        steered.blocks[steered.blocks.length - 1] = { ...steered.blocks[steered.blocks.length - 1], id: row.id };
+        steered.blocks[steered.blocks.length - 1] = {
+          ...steered.blocks[steered.blocks.length - 1],
+          id: row.id,
+          sentAt: Date.now(),
+        };
         const saved = this.save({ ...latest, queueSteeringId: undefined, session: steered }, { type: "queue.steered", messageId });
         const live = this.live.get(session.id);
         if (live) live.value = saved;
@@ -1390,7 +1394,13 @@ export class HostEngine {
         text: message,
         streaming: false,
       });
-    return { ...value, status, queueSteeringId: undefined, session };
+    return {
+      ...value,
+      status,
+      lastCompletedRunId: status === "idle" ? value.runId : value.lastCompletedRunId,
+      queueSteeringId: undefined,
+      session,
+    };
   }
 
   async close(): Promise<void> {

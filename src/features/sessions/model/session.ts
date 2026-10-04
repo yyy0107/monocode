@@ -298,6 +298,8 @@ export type Block = {
   streaming?: boolean;
   /** Epoch ms when this user turn started. */
   startedAt?: number;
+  /** Epoch ms when a user message was sent during an existing turn. */
+  sentAt?: number;
   /** How long the agent worked on this user turn, in ms. */
   durationMs?: number;
   /** Stable model label for this turn. Present on newly created user blocks. */

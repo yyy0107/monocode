@@ -8,6 +8,7 @@ import {
   type HostProject,
   type HostSession,
   type HostSessionSummary,
+  type HostSessionActivity,
   type HostModelCatalog,
   type HostCommand,
   type CommandReceipt,
@@ -329,6 +330,9 @@ export class MobileClient {
   }
   sessions(projectId: string) {
     return this.rpc<HostSessionSummary[]>("sessions.list", { projectId });
+  }
+  activity() {
+    return this.rpc<HostSessionActivity>("sessions.activity");
   }
   updateSession(
     projectId: string,
