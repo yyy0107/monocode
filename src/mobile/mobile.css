@@ -1985,8 +1985,10 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   position: relative;
   padding: 8px 12px;
   border-radius: 999px;
+  /* Keep the glass gradients, rim and refraction without a tinted fill or shadow. */
+  background-color: transparent;
+  box-shadow: none;
   color: var(--color-content);
-  --mobile-glass-shadow: 0 2px 10px #0000001f;
 }
 .mobile-queue-pill:active {
   background-color: var(--color-selection-subtle);
@@ -2005,7 +2007,6 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   position: fixed;
   z-index: 40;
   pointer-events: none;
-  box-shadow: 0 8px 24px #0003;
   transform: scale(1.03);
 }
 .mobile-queue-pill svg {

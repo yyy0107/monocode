@@ -1,10 +1,13 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MobileMessageQueue } from "./MobileMessageQueue";
+import { LIQUID_GLASS_SELECTOR } from "./liquidGlass";
 import { setUiLanguage } from "../shared/i18n/language";
 import type { QueuedMessage } from "../features/sessions/model/session";
+const mobileCss = readFileSync("src/mobile/mobile.css", "utf8");
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 let root: Root, node: HTMLDivElement;
 const message: QueuedMessage = {
@@ -124,6 +127,47 @@ async function click(label: string) {
       .click(),
   );
 }
+it.each(["liquid", "frosted", "solid"])(
+  "removes the queue fill and shadows while preserving the border and glass in %s mode",
+  (effect) => {
+    const html = document.documentElement;
+    const previousEffect = html.getAttribute("data-mobile-glass");
+    const previousClass = html.className;
+    const style = document.createElement("style");
+    style.textContent = mobileCss;
+    document.body.append(style);
+    node.className = "mobile-app";
+    node.style.setProperty("--color-stroke", "#566370");
+    render();
+    const pill = node.querySelector<HTMLElement>(".mobile-queue-pill")!;
+    const preview = document.createElement("div");
+    preview.className = "mobile-queue-pill mobile-queue-drag-preview";
+    node.append(preview);
+    try {
+      html.setAttribute("data-mobile-glass", effect);
+      for (const theme of ["theme-dark", "theme-light"]) {
+        html.className = theme;
+        for (const item of [pill, preview]) {
+          const computed = getComputedStyle(item);
+          expect(computed.backgroundColor).toBe("transparent");
+          expect(computed.borderTopWidth).toBe("1px");
+          expect(computed.borderTopStyle).toBe("solid");
+          expect(computed.borderTopColor).toBe("#566370");
+          expect(computed.boxShadow).toBe("none");
+          if (effect !== "solid") {
+            expect(computed.getPropertyValue("backdrop-filter")).toContain("blur(");
+          }
+          expect(item.matches(LIQUID_GLASS_SELECTOR)).toBe(true);
+        }
+      }
+    } finally {
+      html.className = previousClass;
+      if (previousEffect === null) html.removeAttribute("data-mobile-glass");
+      else html.setAttribute("data-mobile-glass", previousEffect);
+      style.remove();
+    }
+  },
+);
 it("shows one compact message bubble and keeps touch actions in the menu", async () => {
   render();
   expect(node.querySelectorAll("button")).toHaveLength(1);
