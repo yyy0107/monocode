@@ -7,13 +7,13 @@ import { newEditorPane, newFileTab } from "../../workspace/model/layout";
 import { invalidateWatchedFiles } from "../model/fileWatch";
 import { FilePane } from "./FilePane";
 
-const disk = vi.hoisted(() => ({ content: "" }));
+const disk = vi.hoisted(() => ({ content: "", relative: "review.txt" }));
 const invoke = vi.hoisted(() =>
   vi.fn(async (command: string) => {
     if (command === "read_text_file") return disk.content;
     if (command === "git_diff_files")
       return {
-        files: [{ relative: "review.txt", staged: false, unstaged: true }],
+        files: [{ relative: disk.relative, staged: false, unstaged: true }],
       };
     if (command === "git_file_diff")
       return {
@@ -59,7 +59,8 @@ describe("file pane source navigation", () => {
     vi.unstubAllGlobals();
   });
 
-  async function render(path: string, line: number, review = false) {
+  async function render(path: string, line?: number, review = false) {
+    disk.relative = path.slice("/repo/".length);
     const pane = newEditorPane(newFileTab(path, "/repo", review));
     paneProps = {
       pane,
@@ -77,7 +78,7 @@ describe("file pane source navigation", () => {
       onOpenFile: () => {},
       onUpdatePlan: () => {},
       onBuildPlan: () => {},
-      editorNavigation: { path, line, column: 2, token: 1 },
+      editorNavigation: line == null ? undefined : { path, line, column: 2, token: 1 },
     };
     await act(async () => root.render(createElement(FilePane, paneProps)));
     await vi.waitFor(async () => {
@@ -125,6 +126,42 @@ describe("file pane source navigation", () => {
     await act(async () => preview.click());
     expect(preview.getAttribute("aria-selected")).toBe("true");
   });
+
+  it.each(["md", "svg"])(
+    "opens %s reviews in source and remembers normal/review modes independently",
+    async (extension) => {
+      const path = `/repo/independent-modes.${extension}`;
+      const selectedMode = () => container.querySelector(
+        '[aria-label="Markdown view"] [role="tab"][aria-selected="true"]',
+      )?.textContent;
+      const selectMode = async (label: string) => {
+        const tab = [...container.querySelectorAll<HTMLButtonElement>(
+          '[aria-label="Markdown view"] [role="tab"]',
+        )].find((item) => item.textContent === label)!;
+        await act(async () => tab.click());
+      };
+
+      await render(path);
+      expect(selectedMode()).toBe("Preview");
+
+      await render(path, undefined, true);
+      expect(selectedMode()).toBe("Source");
+      await act(async () => vi.waitFor(() => {
+        expect(container.textContent).toContain("+1");
+        expect(container.textContent).toContain("-1");
+      }));
+      await selectMode("Preview");
+
+      await render(path);
+      expect(selectedMode()).toBe("Preview");
+      await selectMode("Source");
+
+      await render(path, undefined, true);
+      expect(selectedMode()).toBe("Preview");
+      await render(path);
+      expect(selectedMode()).toBe("Source");
+    },
+  );
 
   it("clamps a stale source location to the last line instead of waiting forever", async () => {
     const view = await render("/repo/short.txt", 999);
