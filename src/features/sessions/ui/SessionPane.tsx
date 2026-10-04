@@ -10,6 +10,12 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import {
+  nativeSessionAccessHint,
+  nativeSessionReadOnly,
+  nativeSessionSnapshot,
+  subscribeNativeSessions,
+} from "../data/nativeSessions";
 import { Composer } from "./Composer";
 import type { Worktree } from "../../source-control/model/worktrees";
 import {
@@ -314,6 +320,12 @@ const LocalSessionPane = memo(function LocalSessionPane({
   transcriptPool,
 }: Props) {
   const { t: uiT } = useTranslation();
+  useSyncExternalStore(
+    subscribeNativeSessions,
+    nativeSessionSnapshot,
+    nativeSessionSnapshot,
+  );
+  const nativeReadOnly = nativeSessionReadOnly(session);
   const orchestrationRuns = useSyncExternalStore(
     orchestrator.subscribe,
     orchestrator.snapshot,
@@ -550,7 +562,11 @@ const LocalSessionPane = memo(function LocalSessionPane({
   const composer = (
     <Composer
       key={session.id}
-      disabled={workspaceSwitchingSessionId === session.id}
+      disabled={
+        workspaceSwitchingSessionId === session.id ||
+        (nativeReadOnly && !session.busy)
+      }
+      readOnlyReason={nativeSessionAccessHint(session)}
       remoteSession={remoteSession}
       remoteFeatures={remoteFeatures}
       allowedModelHarnesses={allowedModelHarnesses}
@@ -680,6 +696,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
       onUsageLimitDismiss={() => onUsageLimitDismiss(session.id)}
       onOpenFile={onOpenFile}
       busy={!!session.busy}
+      allowBusySubmit={!nativeReadOnly}
       editLastTurnSupported={editLastTurnSupported}
       lastTurnRecall={turnRecall}
       onRecallLastTurnReady={(recall) => {

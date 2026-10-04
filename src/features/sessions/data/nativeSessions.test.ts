@@ -27,6 +27,8 @@ import {
   syncNativeSessions,
   setNativeAutoSync,
   nativeSessionSnapshot,
+  nativeSessionReadOnly,
+  pollNativeSessionAccess,
 } from "./nativeSessions";
 const file: NativeSessionFile = {
   provider: "pi",
@@ -86,6 +88,16 @@ beforeEach(() => {
       return (await mocks.list())?.[0]?.id ?? null;
     if (command === "native_sessions_list")
       return { sessions: [file], warnings: [] };
+    if (command === "native_session_probe")
+      return {
+        file,
+        access: {
+          state: "idle",
+          reason: "available",
+          checkedAt: Date.now(),
+          path: file.path,
+        },
+      };
     if (command === "native_session_read") return content;
     if (command === "session_list_native_ids") return stored ? [stored.id] : [];
     throw new Error(command);
@@ -123,6 +135,93 @@ describe("native session synchronization", () => {
     expect(await importNativeSession(file)).toBe(id);
     expect(mocks.save).toHaveBeenCalledOnce();
   });
+  it("keeps externally owned history current and only unlocks after refreshed history is saved", async () => {
+    await importNativeSession(file);
+    const imported = stored!;
+    const rpc = mocks.invoke.getMockImplementation()!;
+    let accessState = "external";
+    let source = { ...file, revision: "external-2" };
+    mocks.invoke.mockImplementation(
+      async (command: string, ...args: unknown[]) => {
+        if (command === "native_session_probe")
+          return {
+            file: source,
+            access: {
+              state: accessState,
+              reason: "externalProcess",
+              checkedAt: Date.now(),
+              path: file.path,
+            },
+          };
+        if (command === "native_session_read")
+          return (
+            content +
+            JSON.stringify({
+              type: "message",
+              id: "external",
+              parentId: "a",
+              message: { role: "user", content: "external message" },
+            }) +
+            "\n"
+          );
+        return rpc(command, ...args);
+      },
+    );
+    await pollNativeSessionAccess();
+    expect(stored?.blocks.map((block) => block.text)).toContain(
+      "external message",
+    );
+    expect(nativeSessionReadOnly(stored!)).toBe(true);
+    accessState = "idle";
+    source = { ...source, revision: "external-3" };
+    let finish!: () => void;
+    mocks.save.mockImplementationOnce(async (session) => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      stored = session;
+      return { ...session, createdAt: 1, updatedAt: 2 };
+    });
+    const refresh = pollNativeSessionAccess();
+    for (let index = 0; index < 20 && !finish; index++) await Promise.resolve();
+    expect(finish).toBeTypeOf("function");
+    expect(nativeSessionReadOnly(imported)).toBe(true);
+    finish();
+    await refresh;
+    expect(nativeSessionReadOnly(stored!)).toBe(false);
+    expect(stored?.nativeSession?.revision).toBe("external-3");
+  });
+
+  it("fails closed on ownership probe errors and initially blocks unchecked imports", async () => {
+    const unchecked = {
+      ...newSession("pi", "/repo"),
+      id: "unchecked",
+      nativeSession: {
+        provider: "pi" as const,
+        providerSessionId: "pi-id",
+        path: file.path,
+        revision: "1",
+        createdAt: 1,
+        updatedAt: 2,
+        blockIds: [],
+      },
+    };
+    expect(nativeSessionReadOnly(unchecked)).toBe(true);
+    await importNativeSession(file);
+    const original = stored!;
+    const rpc = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(
+      async (command: string, ...args: unknown[]) => {
+        if (command === "native_session_probe")
+          throw new Error("access denied");
+        return rpc(command, ...args);
+      },
+    );
+    await pollNativeSessionAccess();
+    expect(stored?.blocks).toEqual(original.blocks);
+    expect(nativeSessionReadOnly(original)).toBe(true);
+  });
+
   it("pins legacy Codex imports to their original default credential home", () => {
     const original = {
       ...newSession("codex", "/repo"),
@@ -189,6 +288,16 @@ describe("native session synchronization", () => {
       if (command === "session_list_native_ids") return [stored!.id];
       if (command === "native_sessions_list")
         return { sessions: [newFile], warnings: [] };
+      if (command === "native_session_probe")
+        return {
+          file: newFile,
+          access: {
+            state: "idle",
+            reason: "available",
+            checkedAt: Date.now(),
+            path: file.path,
+          },
+        };
       return (
         content +
         JSON.stringify({
@@ -211,6 +320,17 @@ describe("native session synchronization", () => {
     setNativeAutoSync(false);
     mocks.invoke.mockClear();
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(mocks.invoke).not.toHaveBeenCalled();
+    expect(
+      mocks.invoke.mock.calls.some(
+        ([command]) =>
+          command === "native_sessions_list" ||
+          command === "native_session_read",
+      ),
+    ).toBe(false);
+    expect(
+      mocks.invoke.mock.calls.some(
+        ([command]) => command === "native_session_probe",
+      ),
+    ).toBe(true);
   });
 });

@@ -389,7 +389,10 @@ import {
   type AddToChatRequest,
 } from "../features/sessions/model/quoteDraft";
 import { createSessionRemover } from "../features/sessions/model/sessionRemoval";
-import { installNativeSessionSync } from "../features/sessions/data/nativeSessions";
+import {
+  nativeSessionReadOnly,
+  installNativeSessionSync,
+} from "../features/sessions/data/nativeSessions";
 import { shouldGenerateSessionTitle } from "../features/sessions/model/sessionTitle";
 import {
   DEFAULT_PROVIDER_ACCOUNT_ID,
@@ -6098,7 +6101,10 @@ function Workspace({
       const remote = sessionsRef.current.find((session) => session.id === sessionId);
       if (remote && remoteProjectFor(remote.cwd))
         return !!remoteSessionActions(sessionId)?.submit(text, attachments, options);
-      if (editedResends.isActive(sessionId)) return false;
+      if (
+        editedResends.isActive(sessionId) ||
+        (remote && nativeSessionReadOnly(remote))
+      ) return false;
       // Output already received belongs before the submitted user message.
       // Flush before reading the session too, since pending errors can settle it.
       flushHarnessEvents();
@@ -6380,6 +6386,7 @@ function Workspace({
             });
             await steerHarnessTurn({
               harness: current.harness,
+              nativeSession: current.nativeSession,
               sessionId,
               cwd: initialWorkCwd,
               model: current.model,
@@ -6982,6 +6989,7 @@ function Workspace({
             try {
               await rewindHarnessLastTurn({
                 harness: current.harness,
+                nativeSession: current.nativeSession,
                 sessionId,
                 cwd: workCwd,
                 model: current.model,
@@ -7030,6 +7038,7 @@ function Workspace({
           const sendTurn = (text: string, turnAttachments = prepared) =>
             sendHarnessTurn({
               harness: current.harness,
+              nativeSession: current.nativeSession,
               sessionId,
               cwd: workCwd,
               model: current.model,
@@ -8637,7 +8646,10 @@ function Workspace({
       );
       if (current && remoteProjectFor(current.cwd))
         return remoteSessionActions(sessionId)?.compact() ?? false;
-      if (!current || current.busy || current.worktreeRemoved) return false;
+      if (
+        !current || current.busy || current.worktreeRemoved ||
+        nativeSessionReadOnly(current)
+      ) return false;
       if (!canCompactHarnessContext(current.harness)) {
         const unsupported = sessionsRef.current.map((session) =>
           session.id === sessionId
@@ -8672,6 +8684,7 @@ function Workspace({
         try {
           await compactHarnessContext({
             harness: current.harness,
+            nativeSession: current.nativeSession,
             sessionId,
             cwd: workCwd,
             model: current.model,

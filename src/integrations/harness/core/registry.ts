@@ -10,6 +10,7 @@ import type { GeneratedSessionTitle } from "../../../features/sessions/model/ses
 import type { PrContent } from "../../../features/source-control/model/gitText";
 import { hasLiveCatalog } from "../../../features/sessions/model/models";
 import type { UserQuestionReply } from "../../../features/sessions/model/userQuestion";
+import { assertNativeSessionAccess, withNativeSessionAccess } from "./nativeAccess";
 import type { NativeCommandProvider } from "./nativeCommands";
 import type {
   ApprovalDecision,
@@ -228,7 +229,7 @@ export function sendHarnessTurn(input: SendTurnInput & { harness: HarnessId }) {
       });
     activeTurnSessions.add(input.sessionId);
     try {
-      await adapter.sendTurn(input);
+      await withNativeSessionAccess(input, () => adapter.sendTurn(input));
     } finally {
       activeTurnSessions.delete(input.sessionId);
       if (controlled)
@@ -256,7 +257,7 @@ export function compactHarnessContext(
     }
     cancelIdlePark(input.sessionId);
     try {
-      await adapter.compactContext(input);
+      await withNativeSessionAccess(input, () => adapter.compactContext!(input));
     } finally {
       scheduleIdlePark(input.harness, input.sessionId);
     }
@@ -286,7 +287,7 @@ export function rewindHarnessLastTurn(
     }
     cancelIdlePark(input.sessionId);
     try {
-      return await adapter.rewindLastTurn(input);
+      return await withNativeSessionAccess(input, () => adapter.rewindLastTurn!(input));
     } finally {
       scheduleIdlePark(input.harness, input.sessionId);
     }
@@ -302,6 +303,7 @@ export function steerHarnessTurn(
       throw new Error(`${input.harness} is not connected yet`);
     }
     cancelIdlePark(input.sessionId);
+    await assertNativeSessionAccess(input);
     await adapter.steerTurn(input);
   });
 }

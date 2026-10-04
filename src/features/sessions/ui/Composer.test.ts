@@ -137,6 +137,23 @@ describe("Composer question focus", () => {
     ],
   };
 
+  it("keeps a typed draft while external native ownership disables sending, then resumes after unlock", async () => {
+    const submit = vi.fn();
+    const props = { focused: true, harness: "codex" as const, model: "codex:gpt-5.4", runtimeMode: "supervised" as const, executionCwd: "/repo", initialDraft: "continue after the external task", hideProjectPicker: true, hideBranchPicker: true, onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(), onRuntimeModeChange: vi.fn(), onSubmit: submit };
+    await act(async () => root.render(createElement(Composer, { ...props, disabled: true, readOnlyReason: "External session is open" })));
+    const input = container.querySelector("textarea")!;
+    expect(input.value).toBe(props.initialDraft);
+    expect(input.disabled).toBe(true);
+    expect(container.querySelector('[data-native-readonly="true"]')).not.toBeNull();
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(submit).not.toHaveBeenCalled();
+    await act(async () => root.render(createElement(Composer, { ...props, disabled: false })));
+    expect(input.value).toBe(props.initialDraft);
+    expect(input.disabled).toBe(false);
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(submit).toHaveBeenCalledWith(props.initialDraft, [], expect.any(Object));
+  });
+
   async function renderComposer(
     currentQuestion: UserQuestionPrompt | undefined,
     onQuestionReply: (requestId: number, reply: unknown) => void,

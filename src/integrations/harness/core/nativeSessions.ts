@@ -68,3 +68,12 @@ export function nativeText(content: unknown): string {
     })
     .join("\n");
 }
+
+export type NativeSessionAccess = {
+  state: "idle" | "external" | "unknown" | "checking";
+  reason: string;
+  checkedAt: number;
+  path: string;
+};
+
+export type NativeSessionProbe = { file: NativeSessionFile; access: NativeSessionAccess };

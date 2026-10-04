@@ -33,3 +33,34 @@ Validation: parser, service, settings UI, persistence, native resume and Pi/OMP
 regressions; actual isolated CLI resume/read smoke; check:web, test:host, build,
 and check:rust. Real paid-model sessions and native desktop GUI are recorded
 separately from automated and protocol evidence.
+
+## External native ownership follow-up
+
+The native access layer observes same-user Linux /proc argv, cwd and native
+transcript file descriptors. It recognizes ordinary Codex/Pi CLI names and Pi
+package launchers. Exact session arguments/file ownership block takeover;
+ambiguous provider processes in the source cwd remain read-only. MonoCode's own
+managed subprocess trees are excluded so ordinary live turns and warm children
+remain usable. Renamed/opaque third-party launchers are not verified.
+
+An application-owned, source-path-derived flock lease serializes native mutations
+across MonoCode instances sharing the same app-data directory. It lives for the
+provider operation and releases on completion/failure; a native CLI does not
+cooperate with this lease. The UI probe is advisory, and send/compact/rewind repeat
+access checks before touching the provider. Steering rechecks ownership inside
+the already active lease. The app also blocks programmatic submissions before
+clearing the composer when its cached access is unavailable.
+
+Access polling runs every five seconds independently of optional 30-second history
+sync. A held/ambiguous external conversation continues refreshing its saved
+history. A release transition persists the latest snapshot before enabling input.
+Probes are coalesced, unknown/errors fail closed, and access status stays in runtime
+state rather than persisted history. The localized banner explains read-only access;
+existing drafts and the ability to stop a MonoCode-owned turn are preserved.
+
+An external CLI left open remains read-only even after its visible answer finishes.
+Pi's append-only history does not prove agent_settled, so owner exit is the reliable
+takeover boundary. Other platforms report unknown ownership. An uncooperative
+CLI launched after the final pre-write check can still race: full cross-CLI
+exclusion requires native cooperation. A renderer lost mid-operation can retain
+its in-process lease until the app exits; this deliberately blocks takeover.

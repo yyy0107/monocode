@@ -11,12 +11,12 @@ const MAX_FILES: usize = 5000;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeSessionFile {
-    provider: String,
-    provider_session_id: String,
-    cwd: String,
-    path: String,
-    revision: String,
-    modified_at: u64,
+    pub(crate) provider: String,
+    pub(crate) provider_session_id: String,
+    pub(crate) cwd: String,
+    pub(crate) path: String,
+    pub(crate) revision: String,
+    pub(crate) modified_at: u64,
 }
 
 #[derive(Default, Serialize)]
@@ -230,4 +230,75 @@ mod tests {
         assert!(read(Path::new(&file.path), &file.revision).is_err());
         fs::remove_dir_all(dir).unwrap();
     }
+}
+
+/// Validate the configured source and return current metadata without changing history.
+pub(crate) fn source_file(
+    path: &str,
+    provider_session_id: &str,
+) -> Result<NativeSessionFile, String> {
+    let path = PathBuf::from(path)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let provider = roots()?
+        .into_iter()
+        .find_map(|(provider, root)| {
+            root.canonicalize()
+                .ok()
+                .filter(|root| path.starts_with(root))
+                .map(|_| provider)
+        })
+        .ok_or("Not a native session in a configured source directory")?;
+    if path.extension().and_then(|v| v.to_str()) != Some("jsonl") {
+        return Err("Not a native session file".into());
+    }
+    let (id, cwd) = header(&path, provider)?;
+    if id != provider_session_id {
+        return Err("Native session identity changed".into());
+    }
+    let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
+    if meta.len() > MAX_BYTES {
+        return Err("Native session exceeds 64 MiB".into());
+    }
+    Ok(NativeSessionFile {
+        provider: provider.into(),
+        provider_session_id: id,
+        cwd,
+        path: path.to_string_lossy().replace('\\', "/"),
+        revision: revision(&meta)?,
+        modified_at: meta
+            .modified()
+            .map_err(|e| e.to_string())?
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis() as u64,
+    })
+}
+
+#[derive(Serialize)]
+pub struct NativeSessionProbe {
+    file: NativeSessionFile,
+    access: crate::native_access::NativeAccess,
+}
+
+#[tauri::command(async)]
+pub fn native_session_probe(
+    app: tauri::AppHandle,
+    host: tauri::State<'_, crate::harness::HarnessHost>,
+    leases: tauri::State<'_, crate::native_access::NativeLeases>,
+    session_id: String,
+    path: String,
+    provider_session_id: String,
+    own_operation_active: Option<bool>,
+) -> Result<NativeSessionProbe, String> {
+    let file = source_file(&path, &provider_session_id)?;
+    let access = crate::native_access::probe_source(
+        &app,
+        &host,
+        &leases,
+        &file,
+        &session_id,
+        own_operation_active.unwrap_or(false),
+    );
+    Ok(NativeSessionProbe { file, access })
 }

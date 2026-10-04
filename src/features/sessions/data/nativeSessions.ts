@@ -6,6 +6,8 @@ import {
 } from "../../../integrations/harness/core/registry";
 import type {
   NativeSessionFile,
+  NativeSessionAccess,
+  NativeSessionProbe,
   NativeTranscript,
 } from "../../../integrations/harness/core/nativeSessions";
 import { parseCodexSession } from "../../../integrations/harness/providers/codex/codexSessionImport";
@@ -20,12 +22,18 @@ import { getSession, upsertSession, type SessionSummary } from "./sessionStore";
 
 export type NativeSessionState = {
   files: NativeSessionFile[];
+  access: Record<string, NativeSessionAccess>;
   warnings: string[];
   busy: boolean;
   error?: string;
   lastSynced?: number;
 };
-let state: NativeSessionState = { files: [], warnings: [], busy: false };
+let state: NativeSessionState = {
+  files: [],
+  warnings: [],
+  busy: false,
+  access: {},
+};
 const listeners = new Set<() => void>();
 export const nativeSessionSnapshot = () => state;
 export const subscribeNativeSessions = (listener: () => void) => {
@@ -38,6 +46,50 @@ function publish(patch: Partial<NativeSessionState>) {
   state = { ...state, ...patch };
   for (const listener of listeners) listener();
 }
+export function nativeSessionAccess(
+  session: Session,
+): NativeSessionAccess | undefined {
+  const access = state.access[session.id];
+  return access?.path === session.nativeSession?.path ? access : undefined;
+}
+export function nativeSessionReadOnly(session: Session): boolean {
+  if (!session.nativeSession) return false;
+  const access = nativeSessionAccess(session);
+  return (
+    !access ||
+    access.state !== "idle" ||
+    (!session.busy && Date.now() - access.checkedAt > 15_000)
+  );
+}
+export function nativeSessionAccessHint(session: Session): string | undefined {
+  if (!nativeSessionReadOnly(session)) return undefined;
+  const access = nativeSessionAccess(session);
+  if (access?.state === "external")
+    return translate(
+      "This session is open in another CLI. History keeps syncing; close that CLI to continue here.",
+    );
+  if (access?.reason === "anotherMonocode")
+    return translate(
+      "Another MonoCode window is using this session. It will become available when that operation finishes.",
+    );
+  if (access?.reason === "historyPending")
+    return translate(
+      "Refresh the native history before continuing this session.",
+    );
+  if (access?.reason === "unsupportedPlatform")
+    return translate(
+      "Native session ownership cannot be verified on this platform. Imported history is read-only.",
+    );
+  if (access?.state === "unknown")
+    return translate(
+      "Native session ownership is unclear. History keeps syncing; close other CLIs before continuing.",
+    );
+  return translate("Checking native session access…");
+}
+function publishAccess(id: string, access: NativeSessionAccess) {
+  publish({ access: { ...state.access, [id]: access } });
+}
+
 const AUTO_KEY = "monocode.nativeSessionAutoSync";
 const AUTO_EVENT = "monocode:native-session-auto-sync";
 let autoFallback = true;
@@ -193,9 +245,10 @@ export function discoverNativeSessions(): Promise<NativeSessionFile[]> {
 }
 
 async function update(
-  file: NativeSessionFile,
+  listedFile: NativeSessionFile,
   id: string,
   imported: boolean,
+  syncHistory = true,
 ): Promise<string | null> {
   const owner = runtime;
   if (!owner)
@@ -210,12 +263,43 @@ async function update(
   }
   try {
     const current = owner.getLive(id) ?? (await getSession(id));
+    let probe: NativeSessionProbe;
+    try {
+      probe = await invoke<NativeSessionProbe>("native_session_probe", {
+        sessionId: id,
+        path: listedFile.path,
+        providerSessionId: listedFile.providerSessionId,
+      });
+    } catch (error) {
+      publishAccess(id, {
+        state: "unknown",
+        reason: "unavailable",
+        checkedAt: Date.now(),
+        path: listedFile.path,
+      });
+      throw error;
+    }
+    const file = probe.file;
+    const access = probe.access;
+    // Never expose idle before the visible history has caught up to the same snapshot.
+    if (access.state !== "idle") publishAccess(id, access);
+    if (!syncHistory && current?.nativeSession?.revision !== file.revision) {
+      if (access.state === "idle")
+        publishAccess(id, {
+          ...access,
+          state: "checking",
+          reason: "historyPending",
+        });
+      return current?.id ?? null;
+    }
     if (!current && !imported) return null; // Deleted imports are never recreated by the timer.
     if (
       current?.nativeSession?.revision === file.revision &&
       current.nativeSession.path === file.path
-    )
+    ) {
+      publishAccess(id, access);
       return current.id;
+    }
     const content = await invoke<string>("native_session_read", {
       path: file.path,
       revision: file.revision,
@@ -248,7 +332,16 @@ async function update(
       next.nativeSession,
     );
     owner.changed(next, summary, imported);
+    publishAccess(id, access);
     return next.id;
+  } catch (error) {
+    publishAccess(id, {
+      state: "unknown",
+      reason: "unavailable",
+      checkedAt: Date.now(),
+      path: listedFile.path,
+    });
+    throw error;
   } finally {
     release();
   }
@@ -301,7 +394,7 @@ export function syncNativeSessions(discoverWhenEmpty = true): Promise<void> {
           );
           continue;
         }
-        if (current.nativeSession.revision === file.revision) continue;
+
         try {
           await update(file, id, false);
         } catch (error) {
@@ -324,6 +417,76 @@ export function syncNativeSessions(discoverWhenEmpty = true): Promise<void> {
   });
 }
 
+let accessPoll: Promise<void> | undefined;
+export function pollNativeSessionAccess(): Promise<void> {
+  if (accessPoll) return accessPoll;
+  const run = serialized(async () => {
+    const owner = runtime;
+    if (!owner) return;
+    const ids = await invoke<string[]>("session_list_native_ids");
+    for (const id of ids) {
+      const current = owner.getLive(id) ?? (await getSession(id));
+      if (!current?.nativeSession || runtime !== owner) continue;
+      const source = current.nativeSession;
+      try {
+        if (current.busy) {
+          const probe = await invoke<NativeSessionProbe>(
+            "native_session_probe",
+            {
+              sessionId: id,
+              ownOperationActive: true,
+              path: source.path,
+              providerSessionId: source.providerSessionId,
+            },
+          );
+          // A blocked -> idle transition must wait for the active MonoCode turn to settle.
+          if (
+            probe.access.state !== "idle" ||
+            nativeSessionAccess(current)?.state === "idle"
+          )
+            publishAccess(id, probe.access);
+          continue;
+        }
+        const previous = nativeSessionAccess(current);
+        const probe = await invoke<NativeSessionProbe>("native_session_probe", {
+          sessionId: id,
+          path: source.path,
+          providerSessionId: source.providerSessionId,
+        });
+        const transitioning =
+          previous?.state === "external" || previous?.state === "unknown";
+        await update(
+          probe.file,
+          id,
+          false,
+          probe.access.state !== "idle" || transitioning,
+        );
+      } catch {
+        publishAccess(id, {
+          state: "unknown",
+          reason: "unavailable",
+          checkedAt: Date.now(),
+          path: source.path,
+        });
+      }
+    }
+  }).catch(() => {
+    if (runtime)
+      for (const [id, access] of Object.entries(state.access))
+        publishAccess(id, {
+          ...access,
+          state: "unknown",
+          reason: "unavailable",
+          checkedAt: Date.now(),
+        });
+  });
+  accessPoll = run;
+  void run.then(() => {
+    if (accessPoll === run) accessPoll = undefined;
+  });
+  return run;
+}
+
 /** Install once in the desktop app; sync only imports already selected by the user. */
 export function installNativeSessionSync(owner: Runtime): () => void {
   runtime = owner;
@@ -331,11 +494,19 @@ export function installNativeSessionSync(owner: Runtime): () => void {
     if (nativeAutoSyncEnabled() && !state.busy) void syncNativeSessions(false);
   };
   const timer = window.setInterval(run, 30_000);
+  const accessRun = () => {
+    void pollNativeSessionAccess();
+  };
+  const accessTimer = window.setInterval(accessRun, 5_000);
+  window.addEventListener("focus", accessRun);
+  accessRun();
   window.addEventListener("focus", run);
   window.addEventListener(AUTO_EVENT, run);
   run();
   return () => {
     window.clearInterval(timer);
+    window.clearInterval(accessTimer);
+    window.removeEventListener("focus", accessRun);
     window.removeEventListener("focus", run);
     window.removeEventListener(AUTO_EVENT, run);
     if (runtime === owner) runtime = undefined;

@@ -28,3 +28,25 @@ are visible on disk. It preserves user turn panels for matching ordered user
 messages, the MonoCode title/runtime mode and other session metadata. A partially
 written local answer or a divergent local turn defers sync with a visible error.
 Only a successful persistence operation advances the stored revision.
+
+## Access protection
+
+`native_session_probe({sessionId, path, providerSessionId, ownOperationActive?})`
+validates source identity and returns `{file, access}`. Access contains state
+(`idle`, `external`, `unknown`), reason, checkedAt and canonical source path.
+The UI also uses `checking` while a probe or current-history refresh is pending.
+An active MonoCode operation can probe inside its existing lease; an idle view
+must not bypass a held lease merely because it has the same session ID.
+
+`native_session_acquire({sessionId, path, providerSessionId})` acquires the
+application's advisory file lease and rechecks external ownership, returning an
+opaque operation token only when available.
+`native_session_release({sessionId, token})` releases only a matching token, so
+stale cleanup cannot release a newer operation. Leases release when their owning
+process exits. Core provider inputs accept an optional nativeSession link and
+leave ordinary providers unchanged. Native access is local desktop only.
+
+A successful history update publishes idle only after persistence and binding
+refresh. Unchanged source content still requires owner probes: a native CLI can
+be running with no current disk writes. Probe/read/save failures preserve the
+last good history and keep the imported conversation read-only.

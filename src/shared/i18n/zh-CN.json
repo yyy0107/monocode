@@ -1933,5 +1933,16 @@
   "Local messages are not in the native session yet; synchronization deferred": "本地消息尚未写入原生会话，同步已延后",
   "Native session synchronization is unavailable": "原生会话同步不可用",
   "Wait for the current session operation to finish": "请等待当前会话操作完成",
-  "Native session file is unavailable": "原生会话文件不可用"
+  "Native session file is unavailable": "原生会话文件不可用",
+  "This session is open in another CLI. History keeps syncing; close that CLI to continue here.": "此会话仍在另一个 CLI 中打开。历史会持续同步，关闭该 CLI 后可在此继续。",
+  "Another MonoCode window is using this session. It will become available when that operation finishes.": "另一个 MonoCode 窗口正在使用此会话，操作结束后即可继续。",
+  "Refresh the native history before continuing this session.": "请先刷新原生历史，再继续此会话。",
+  "Native session ownership cannot be verified on this platform. Imported history is read-only.": "当前平台无法验证原生会话的使用状态，导入的历史保持只读。",
+  "Native session ownership is unclear. History keeps syncing; close other CLIs before continuing.": "原生会话的使用状态不明确。历史会持续同步，请关闭其他 CLI 后再继续。",
+  "Checking native session access…": "正在检查原生会话的使用状态…",
+  "Native session ownership cannot be verified on this platform": "当前平台无法验证原生会话的使用状态",
+  "Native session ownership could not be verified": "无法验证原生会话的使用状态",
+  "Native session is open in another CLI or its ownership is unknown": "原生会话仍在另一个 CLI 中打开，或其使用状态不明确",
+  "Native session is in use by another MonoCode instance": "另一个 MonoCode 实例正在使用此原生会话",
+  "Native session operation is already running": "原生会话操作正在运行"
 }

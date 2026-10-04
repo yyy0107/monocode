@@ -2,6 +2,7 @@ import type {
   AgentStepKind,
   Attachment,
   InterjectionMeta,
+  NativeSessionLink,
   RuntimeMode,
   TaskListItem,
   ToolPreview,
@@ -160,6 +161,8 @@ export type HarnessEvent =
 export type ApprovalDecision = "allow" | "deny";
 
 export type HarnessSessionInput = {
+  /** Local imported source: recheck external ownership before native writes. */
+  nativeSession?: NativeSessionLink;
   sessionId: string;
   cwd: string;
   model: string;
@@ -188,6 +191,7 @@ export type SendTurnInput = HarnessSessionInput & {
 export type CompactContextInput = HarnessSessionInput;
 
 export type SteerTurnInput = {
+  nativeSession?: NativeSessionLink;
   sessionId: string;
   cwd: string;
   model: string;

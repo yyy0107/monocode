@@ -23,6 +23,7 @@ mod macos;
 mod macos_background;
 mod mcp;
 mod menu;
+mod native_access;
 mod native_sessions;
 mod notes;
 mod notifications;
@@ -226,6 +227,7 @@ pub fn run() {
                 .build(),
         )
         .manage(harness::HarnessHost::new())
+        .manage(native_access::NativeLeases::default())
         .manage(pty::PtyHost::new())
         .manage(remote::RemoteConnections::default())
         .manage(window_transfer::WindowTransferState::new())
@@ -470,6 +472,9 @@ pub fn run() {
             session_store::session_find_native_id,
             native_sessions::native_sessions_list,
             native_sessions::native_session_read,
+            native_sessions::native_session_probe,
+            native_access::native_session_acquire,
+            native_access::native_session_release,
             session_store::session_delete,
             session_store::session_set_archived,
             session_store::session_set_pinned,

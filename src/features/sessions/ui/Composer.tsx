@@ -220,6 +220,7 @@ type Props = {
   placeholder?: string;
   inputAriaLabel?: string;
   disabled?: boolean;
+  readOnlyReason?: string;
   allowedModelHarnesses?: readonly HarnessId[];
   harness: HarnessId;
   model: string;
@@ -514,6 +515,7 @@ export function Composer({
   placeholder,
   inputAriaLabel,
   disabled = false,
+  readOnlyReason,
   harness,
   model,
   allowedModelHarnesses,
@@ -1965,10 +1967,16 @@ export function Composer({
   return (
     <div
       data-composer
+      data-native-readonly={readOnlyReason ? "true" : undefined}
       className={`relative shrink-0 ${shell || compact ? "" : "p-1.5 pt-0"}`}
       onMouseDown={disabled ? undefined : onFocus}
       onKeyDownCapture={disabled ? undefined : onComposerKeyDown}
     >
+      {readOnlyReason ? (
+        <p role="status" className="mb-2 rounded-md border border-border bg-content/3 px-3 py-2 text-xs text-muted">
+          {readOnlyReason}
+        </p>
+      ) : null}
       {question && onQuestionReply ? (
         <QuestionForm
           prompt={question}
@@ -2245,7 +2253,7 @@ export function Composer({
                 <ContextMeter
                   usage={context}
                   onCompact={
-                    compactSupported && !worktreeRemoved
+                    compactSupported && !worktreeRemoved && !disabled
                       ? onCompactContext
                       : undefined
                   }

@@ -43,10 +43,10 @@ previous history. Missing imported source sessions fail resume explicitly.
 
 | Check | Final result |
 | --- | --- |
-| `npm run check:web` | PASS — 407 test files, 4291 tests; 13 skipped; TypeScript check passed |
+| `npm run check:web` | PASS — 408 test files, 4298 tests; 13 skipped; TypeScript check passed |
 | `npm run test:host` | PASS — 20 test files, 107 tests; 5 skipped; Host build passed |
 | `npm run build` | PASS — TypeScript + Vite production build (existing CSS/chunk-size warnings) |
-| `npm run check:rust` | PASS — formatter, workspace Clippy with warnings denied, 503 tests; 1 ignored |
+| `npm run check:rust` | PASS — formatter, workspace Clippy with warnings denied, 507 tests; 1 ignored |
 | `node scripts/native-session-smoke.mjs` | PASS — actual Codex 0.160.0 native-ID resume/read and Pi 1.0.2 exact-file resume/read |
 | `git diff --check` | PASS |
 
@@ -77,9 +77,42 @@ required workspace formatting gate; no menu behavior changed.
 
 ## Limits
 
-Actual paid-model turns, native desktop GUI interaction, other operating systems,
-and simultaneous model runs by MonoCode and an external CLI were not exercised.
+Actual paid-model turns, native desktop GUI interaction and other operating
+systems were not exercised. Controlled external processes and real Linux file
+leases were exercised; simultaneous paid-model runs in two CLIs were not.
 The CLI smoke establishes resume/history protocol evidence, not paid-model or GUI
 compatibility. Remote Host import, archived Codex session discovery, arbitrary
 credential-home selection, Pi v2 migration, imported image rendering and native tree
 editing are outside this feature. Existing remote/provider suites remain passing.
+
+## Running-session protection follow-up (2026-10-04)
+
+The current Linux build treats imported history as read-only while a recognized
+external CLI owns the native file, or ownership is ambiguous. The composer shows
+a localized explanation and retains its draft. History still refreshes. Close the
+external CLI to release ownership; the app saves the latest source snapshot before
+restoring Send. A CLI left open but apparently idle is still treated conservatively
+because the history file cannot prove retries/follow-ups have settled.
+
+Access checks run every five seconds even if optional history synchronization is
+disabled. Normal history still uses the 30-second setting; access release and
+externally held history require synchronization for takeover. Another MonoCode
+window's active lease also blocks writes. Send, compact, rewind and steering get
+a backend ownership recheck; the UI status alone cannot authorize a mutation.
+
+The follow-up required checks all passed: check:web (4298 tests plus TypeScript),
+test:host (107 tests plus Host build), build, and check:rust (formatter, strict
+Clippy and 507 tests). Existing skipped/ignored cases remain as listed above.
+Codex 0.160.0 and Pi 1.0.2 isolated resume/history smoke was rerun and passed.
+Additional regressions exercise external owner detection/release, ambiguous TUI
+processes, explicit other sessions, managed wrapper descendants, real advisory
+lease contention/drop, access failure, stale UI, refresh-before-unlock, unchanged
+file revisions during a live owner, steering checks and draft preservation.
+
+Limits: initial ownership observation is Linux and same-user standard CLI/Pi
+launcher patterns. Other platforms fail closed; renamed/opaque launchers are
+unverified. The lease serializes cooperating MonoCode instances sharing an
+app-data directory, not arbitrary native CLIs. An external CLI started after the
+final check remains a race requiring native cooperation. A renderer lost during a
+mutation can leave its in-process lease until the app exits; reopening the app
+releases that lease. No existing external CLI is killed or interrupted by probing.

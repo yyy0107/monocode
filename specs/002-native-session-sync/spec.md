@@ -44,10 +44,24 @@ selected imports, and continue their original native sessions in MonoCode.
   displays a visible placeholder. Rendering imported image pixels is deferred.
 - This feature is local desktop functionality. Remote Host/native import, arbitrary
   Codex credential-home selection, archived native history, provider format
-  migration, native tree editing, background CLI concurrency locking and
-  two-way file editing are outside this scope. Continuing through the native
+  migration, native tree editing, two-way file editing are outside this scope. Continuing through the native
   provider naturally writes subsequent MonoCode turns to that same native file.
 
 ## Acceptance evidence
 
 See quickstart.md for actual versions, commands, outcomes and unverified scenarios.
+
+## Running native session protection (requested follow-up)
+
+- Imported sessions held by external Codex/Pi processes remain read-only while
+  history continues synchronizing. Ambiguous ownership/probe failure stays read-only.
+- Recheck native access immediately before provider sends, compaction or rewind.
+  Use an OS advisory lease to serialize imported writes across MonoCode instances.
+- Poll access separately from the optional history-sync preference. Release the
+  UI guard only after the source snapshot is current and its process owner exited.
+- Keep user drafts and normal MonoCode/other-provider behavior. Existing imported
+  sessions start with unknown access until checked; access status is not persisted.
+- Initial runtime support is Linux /proc. Other platforms report unknown access.
+  An uncooperative native CLI does not honor MonoCode's advisory lease, so a CLI
+  started after the final access check remains a documented external race. An idle
+  external process still holding the session must be closed before takeover.

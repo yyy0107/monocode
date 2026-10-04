@@ -131,6 +131,14 @@ impl HarnessHost {
             .filter(|path| !path.is_empty())
     }
 
+    pub(crate) fn managed_pids(&self) -> std::collections::HashSet<u32> {
+        self.lock_inner()
+            .children
+            .values()
+            .map(|child| child.pid)
+            .collect()
+    }
+
     pub(crate) fn has_working_dir(&self, path: &Path) -> bool {
         self.lock_inner()
             .children
@@ -1866,7 +1874,7 @@ fn read_harness_parents(pids: &[u32]) -> HashMap<u32, u32> {
 }
 
 #[cfg(target_os = "linux")]
-fn proc_ppid(dir: &Path) -> Option<u32> {
+pub(crate) fn proc_ppid(dir: &Path) -> Option<u32> {
     parse_proc_ppid(&std::fs::read_to_string(dir.join("stat")).ok()?)
 }
 
