@@ -2,12 +2,14 @@ import "./browserCrypto";
 import { createRoot } from "react-dom/client";
 import { MobileApp } from "./MobileApp";
 import { installLiquidGlass } from "./liquidGlass";
+import { installKeyboardMotion } from "./keyboardMotion";
 import { applyGlassSettings, readGlassSettings } from "./glassSettings";
 import { refreshUiLanguage } from "../shared/i18n/language";
 import "../styles/index.css";
 import "./mobile.css";
 
 refreshUiLanguage();
+installKeyboardMotion();
 applyGlassSettings(readGlassSettings());
 
 createRoot(document.getElementById("root")!, {

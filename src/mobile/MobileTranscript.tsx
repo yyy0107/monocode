@@ -78,6 +78,7 @@ export function MobileTranscript({
       >
         <AgentTranscript
           touchScroll
+          promptMotion="mobile"
           animateFrom={animateFrom}
           blocks={session.blocks}
           busy={snapshot.status === "running"}

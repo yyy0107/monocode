@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileComposer, type MobileComposerPanel } from "./MobileComposer";
 import { setUiLanguage } from "../shared/i18n/language";
 import { readMobileAttachments } from "./attachments";
+import { KEYBOARD_EVENT, installKeyboardMotion } from "./keyboardMotion";
 
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 let root: Root | undefined;
@@ -84,6 +85,81 @@ function render(overrides: Record<string, unknown> = {}) {
   };
   return { node, button, click, rerender, onSend, onStop, onFiles, onProjectChange };
 }
+function keyboard(height: number, duration = 285) {
+  act(() =>
+    window.dispatchEvent(
+      new CustomEvent(KEYBOARD_EVENT, {
+        detail: { height, viewport: 800, duration, easing: "linear(0, 1)" },
+      }),
+    ),
+  );
+}
+describe("mobile composer with the Android keyboard", () => {
+  it("changes shape when the keyboard starts moving, on the keyboard's timing", () => {
+    vi.useFakeTimers();
+    const uninstall = installKeyboardMotion();
+    try {
+      keyboard(0, 0);
+      const { node } = render();
+      const form = node.querySelector("form")!;
+      const area = node.querySelector("textarea")!;
+      act(() => area.focus());
+      expect(form.dataset.collapsed).toBe("true");
+      keyboard(300);
+      expect(form.dataset.collapsed).toBe("false");
+      expect(form.style.getPropertyValue("--mobile-composer-duration")).toBe("285ms");
+      // The keyboard's curve may overshoot; the capsule keeps its own.
+      expect(form.style.getPropertyValue("--mobile-composer-easing")).toBe("");
+      expect(document.documentElement.style.getPropertyValue("--mobile-keyboard-height")).toBe(
+        "300px",
+      );
+
+      const outside = document.createElement("button");
+      document.body.append(outside);
+      act(() => outside.focus());
+      expect(form.dataset.collapsed).toBe("false");
+      keyboard(0, 240);
+      expect(form.dataset.collapsed).toBe("true");
+      expect(form.style.getPropertyValue("--mobile-composer-duration")).toBe("240ms");
+    } finally {
+      uninstall();
+      vi.useRealTimers();
+    }
+  });
+  it("keeps the borrowed keyboard duration within the capsule's range", () => {
+    vi.useFakeTimers();
+    const uninstall = installKeyboardMotion();
+    try {
+      keyboard(0, 0);
+      const { node } = render();
+      const form = node.querySelector("form")!;
+      act(() => node.querySelector("textarea")!.focus());
+      keyboard(300, 900);
+      expect(form.dataset.collapsed).toBe("false");
+      expect(form.style.getPropertyValue("--mobile-composer-duration")).toBe("420ms");
+    } finally {
+      uninstall();
+      vi.useRealTimers();
+    }
+  });
+  it("expands on its own when no keyboard appears", () => {
+    vi.useFakeTimers();
+    const uninstall = installKeyboardMotion();
+    try {
+      keyboard(0, 0);
+      const { node } = render();
+      const form = node.querySelector("form")!;
+      act(() => node.querySelector("textarea")!.focus());
+      expect(form.dataset.collapsed).toBe("true");
+      act(() => vi.advanceTimersByTime(400));
+      expect(form.dataset.collapsed).toBe("false");
+      expect(form.style.getPropertyValue("--mobile-composer-duration")).toBe("");
+    } finally {
+      uninstall();
+      vi.useRealTimers();
+    }
+  });
+});
 describe("compact mobile composer", () => {
   it("keeps the send target still during a pointer press, then expands after sending", () => {
     const { node, button, onSend } = render();
@@ -164,6 +240,115 @@ describe("compact mobile composer", () => {
     expect(form.dataset.collapsed).toBe("false");
     rerender({ disabled: false });
     expect(form.dataset.collapsed).toBe("false");
+  });
+
+  it("keeps controls and attachments mounted through collapse and settles the single-line preview at the end", () => {
+    const { node } = render({
+      value: "First line\nSecond line",
+      attachments: [{ id: "one", name: "notes.txt", mimeType: "text/plain", kind: "file", size: 4 }],
+    });
+    const form = node.querySelector("form")!;
+    const area = node.querySelector("textarea")!;
+    const regions = [...node.querySelectorAll<HTMLElement>(".mobile-composer-controls, .mobile-composer-attachment-region")];
+    act(() => area.focus());
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    act(() => outside.focus());
+    expect(area.dataset.compact).toBe("false");
+    for (const region of regions) {
+      expect(region.hidden).toBe(false);
+      expect(region.dataset.collapsed).toBe("true");
+      expect(region.getAttribute("aria-hidden")).toBe("true");
+      expect(region.inert).toBe(true);
+    }
+    const settle = () => {
+      // happy-dom exposes TransitionEvent as Event and drops propertyName.
+      const event = new Event("transitionend", { bubbles: true });
+      Object.defineProperty(event, "propertyName", { value: "padding-bottom" });
+      act(() => form.dispatchEvent(event));
+    };
+    settle();
+    expect(area.dataset.compact).toBe("true");
+    act(() => area.focus());
+    // A late completion from the previous collapse must not compact the field.
+    settle();
+    expect(area.dataset.compact).toBe("false");
+    expect(area.value).toBe("First line\nSecond line");
+  });
+
+  it("measures the final expanded width once and only remeasures when the dock width changes", () => {
+    const observers: { callback: () => void; observe: ReturnType<typeof vi.fn> }[] = [];
+    const resize = vi.spyOn(globalThis, "ResizeObserver").mockImplementation(function (callback) {
+      const observer = { callback: () => callback([], {} as ResizeObserver), observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+      observers.push(observer);
+      return observer;
+    });
+    const measuredWidths: string[] = [];
+    vi.spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLTextAreaElement) {
+      measuredWidths.push(this.style.width);
+      return this.style.width === "336px" ? 80 : 120;
+    });
+    const { node } = render();
+    const form = node.querySelector("form")!;
+    const area = node.querySelector("textarea")!;
+    const dock = node.querySelector<HTMLElement>(".mobile-composer-dock")!;
+    dock.style.padding = "8px 16px";
+    form.style.border = "1px solid";
+    const width = vi.spyOn(dock, "clientWidth", "get").mockReturnValue(394);
+    const formWidth = vi.spyOn(form, "clientWidth", "get").mockReturnValue(328);
+    act(() => area.focus());
+    const dockObservers = observers.filter((item) => item.observe.mock.calls.some(([target]) => target === dock));
+    expect(dockObservers).toHaveLength(2);
+    const notifyResize = () => act(() => dockObservers.forEach((item) => item.callback()));
+    expect(measuredWidths).toEqual(["336px"]);
+    expect(area.style.height).toBe("80px");
+    formWidth.mockReturnValue(344);
+    notifyResize();
+    formWidth.mockReturnValue(360);
+    notifyResize();
+    expect(measuredWidths).toEqual(["336px"]);
+    width.mockReturnValue(334);
+    notifyResize();
+    expect(measuredWidths).toEqual(["336px", "276px"]);
+    expect(area.style.height).toBe("120px");
+    expect(node.querySelectorAll("textarea")).toHaveLength(1);
+    resize.mockRestore();
+  });
+
+  it("settles immediately when reduced motion is requested", () => {
+    vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
+    const { node } = render();
+    const area = node.querySelector("textarea")!;
+    act(() => area.focus());
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    act(() => outside.focus());
+    expect(area.dataset.compact).toBe("true");
+    expect(area.style.height).toBe("28px");
+  });
+
+  it("lets sent attachments exit smoothly and cancels their removal if new files arrive", () => {
+    vi.useFakeTimers();
+    try {
+      const attachment = { id: "one", name: "notes.txt", mimeType: "text/plain", kind: "file", size: 4 };
+      const { node, rerender } = render({ attachments: [attachment] });
+      act(() => node.querySelector("textarea")!.focus());
+      rerender({ value: "", attachments: [] });
+      const region = node.querySelector<HTMLElement>(".mobile-composer-attachment-region")!;
+      expect(region.dataset.collapsed).toBe("true");
+      expect(region.inert).toBe(true);
+      expect(region.textContent).toContain("notes.txt");
+      act(() => vi.advanceTimersByTime(140));
+      rerender({ attachments: [{ ...attachment, id: "two", name: "new.txt" }] });
+      act(() => vi.advanceTimersByTime(280));
+      expect(region.dataset.collapsed).toBe("false");
+      expect(region.textContent).toContain("new.txt");
+      rerender({ attachments: [] });
+      act(() => vi.advanceTimersByTime(280));
+      expect(node.querySelector(".mobile-composer-attachment-region")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stays expanded when focus leaves for the system, such as a file picker", () => {

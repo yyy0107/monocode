@@ -1,5 +1,11 @@
 /* The mobile shell uses the exact theme tokens, typography, Markdown and icons
    from the desktop stylesheet. Only navigation and touch layout are different. */
+/* The page frame never scrolls; clipping keeps the WebView's reveal of a
+   focused field from scrolling it anyway. */
+body,
+#root {
+  overflow: clip;
+}
 .mobile-app {
   --mobile-safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
   --mobile-safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
@@ -652,11 +658,22 @@ html[data-mobile-glass="solid"] :is(
   min-height: 0;
   min-width: 0;
   max-width: 100%;
-  overflow-x: hidden;
+  /* Clip rather than hide: a hidden axis turns the chat into a scroll
+     container, which the WebView scrolls to reveal a focused composer and
+     lifts the whole conversation with it. */
+  overflow-x: clip;
+}
+/* Phones have no hovering pointer, so scrollbars are never useful; hide
+   both axes everywhere in the conversation. */
+.mobile-app .mobile-chat,
+.mobile-app .mobile-chat * {
+  scrollbar-width: none;
 }
 .mobile-app .mobile-chat::-webkit-scrollbar,
 .mobile-app .mobile-chat ::-webkit-scrollbar {
+  width: 0;
   height: 0;
+  display: none;
 }
 .mobile-chat > .mobile-empty,
 .mobile-chat > .mobile-loading {
@@ -665,15 +682,41 @@ html[data-mobile-glass="solid"] :is(
   padding-bottom: 0;
   overflow: hidden;
 }
+/* Android keyboard motion (keyboardMotion.ts). The WebView resizes once the
+   keyboard has risen and as soon as it starts lowering; until the layout
+   catches up, bottom-anchored surfaces are offset by the keyboard's animated
+   height minus the part the layout already accounts for. The animated value
+   is a non-inherited property so each frame restyles only these surfaces. */
+@property --mobile-keyboard {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+.mobile-composer-dock,
+.mobile-desktop-transcript,
+.mobile-sheet-backdrop,
+.mobile-modal-backdrop {
+  --mobile-keyboard: var(--mobile-keyboard-height, 0px);
+  --mobile-keyboard-offset: max(
+    0px,
+    var(--mobile-keyboard) - (var(--mobile-viewport-full, 100dvh) - 100dvh)
+  );
+}
 /* The composer shares the floating header's capsule surface and floats over
    the transcript; content passing beneath it is only lightly softened. */
 .mobile-composer-dock {
   position: absolute;
-  bottom: 0;
   inset-inline: 0;
   z-index: 10;
+  bottom: var(--mobile-keyboard-offset);
   padding: 8px 16px max(12px, var(--mobile-safe-bottom));
   pointer-events: none;
+  /* The keyboard removes the bottom safe area; ease it on the keyboard's own
+     curve so the dock does not jump while it rises. */
+  transition:
+    padding-bottom var(--mobile-keyboard-duration, 420ms)
+      var(--mobile-keyboard-easing, cubic-bezier(0.25, 0.8, 0.25, 1)),
+    --mobile-keyboard var(--mobile-keyboard-duration, 0ms) var(--mobile-keyboard-easing, linear);
 }
 .mobile-composer-dock > * {
   pointer-events: auto;
@@ -703,8 +746,13 @@ html[data-mobile-glass="solid"] :is(
   /* One size for every composer control keeps both states aligned. */
   --mobile-composer-control: 40px;
   --mobile-composer-inset: 6px;
+  --mobile-composer-expanded-inset: 12px;
+  /* Expansion decelerates into place on the iOS sheet curve (as used by
+     Vaul), which never passes its target; collapse starts gently so leaving
+     the field does not snap the capsule shut. */
+  --mobile-composer-duration: 420ms;
   --mobile-capsule-radius: 26px;
-  --mobile-composer-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  --mobile-composer-easing: cubic-bezier(0.32, 0.72, 0, 1);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -713,23 +761,29 @@ html[data-mobile-glass="solid"] :is(
   width: 100%;
   max-width: 100%;
   margin-inline: auto;
-  padding: 10px 12px
+  padding: 10px var(--mobile-composer-expanded-inset)
     calc(var(--mobile-composer-control) + var(--mobile-composer-inset) * 2);
   transition:
-    width 240ms var(--mobile-composer-easing),
-    max-width 240ms var(--mobile-composer-easing),
-    padding 240ms var(--mobile-composer-easing);
+    width var(--mobile-composer-duration) var(--mobile-composer-easing),
+    padding var(--mobile-composer-duration) var(--mobile-composer-easing);
 }
 .mobile-composer [hidden] {
   display: none;
 }
 .mobile-composer[data-collapsed="true"] {
-  padding: var(--mobile-composer-inset)
+  --mobile-composer-duration: 300ms;
+  --mobile-composer-easing: cubic-bezier(0.4, 0, 0.2, 1);
+  width: calc(100% - 32px);
+  /* Vertical padding centres the 28px field on the controls and makes the
+     content exactly min-height, so the height never clamps mid-transition. */
+  padding: calc((var(--mobile-composer-control) - 28px) / 2 + var(--mobile-composer-inset))
     calc(var(--mobile-composer-control) + var(--mobile-composer-inset) + 4px);
 }
 .mobile-composer[data-collapsed="true"] textarea {
   padding: 2px 6px;
   overflow: hidden;
+}
+.mobile-composer textarea[data-compact="true"] {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -756,8 +810,12 @@ html[data-mobile-glass="solid"] :is(
   overflow-y: auto;
   touch-action: pan-y;
   transition:
-    height 240ms var(--mobile-composer-easing),
-    padding 240ms var(--mobile-composer-easing);
+    height var(--mobile-composer-duration) var(--mobile-composer-easing),
+    padding var(--mobile-composer-duration) var(--mobile-composer-easing);
+}
+.mobile-composer textarea.mobile-composer-measure {
+  padding: 4px 9px 6px;
+  white-space: pre-wrap;
 }
 .mobile-composer textarea:focus-visible {
   outline: none;
@@ -774,17 +832,12 @@ html[data-mobile-glass="solid"] :is(
   justify-content: space-between;
   gap: 4px;
   pointer-events: none;
-  transition:
-    inset-inline-start 240ms var(--mobile-composer-easing),
-    inset-inline-end 240ms var(--mobile-composer-easing),
-    bottom 240ms var(--mobile-composer-easing);
 }
 .mobile-composer-toolbar > button,
 .mobile-composer-controls {
   pointer-events: auto;
 }
-.mobile-composer-controls,
-.mobile-composer-controls[data-collapsed="true"] {
+.mobile-composer-controls {
   display: flex;
   flex: 1;
   align-items: center;
@@ -794,8 +847,8 @@ html[data-mobile-glass="solid"] :is(
   transform: translateY(0);
   visibility: visible;
   transition:
-    opacity 160ms ease 60ms,
-    transform 200ms var(--mobile-composer-easing) 60ms,
+    opacity 220ms ease 60ms,
+    transform var(--mobile-composer-duration) var(--mobile-composer-easing),
     visibility 0s;
 }
 .mobile-composer-controls[data-collapsed="true"] {
@@ -888,16 +941,15 @@ html[data-mobile-glass="solid"] :is(
   border: 0;
   border-radius: 50%;
   margin-left: 3px;
-  transition: margin-left 240ms var(--mobile-composer-easing);
+  transition: margin-left var(--mobile-composer-duration) var(--mobile-composer-easing);
 }
-.mobile-composer-attachment-region,
-.mobile-composer-attachment-region[data-collapsed="true"] {
+.mobile-composer-attachment-region {
   display: grid;
   grid-template-rows: 1fr;
   opacity: 1;
   visibility: visible;
   transition:
-    grid-template-rows 240ms var(--mobile-composer-easing),
+    grid-template-rows var(--mobile-composer-duration) var(--mobile-composer-easing),
     opacity 160ms ease 60ms,
     visibility 0s;
 }
@@ -907,7 +959,7 @@ html[data-mobile-glass="solid"] :is(
   visibility: hidden;
   pointer-events: none;
   transition:
-    grid-template-rows 240ms var(--mobile-composer-easing),
+    grid-template-rows var(--mobile-composer-duration) var(--mobile-composer-easing),
     opacity 100ms ease,
     visibility 0s 160ms;
 }
@@ -916,6 +968,7 @@ html[data-mobile-glass="solid"] :is(
   overflow: hidden;
 }
 @media (prefers-reduced-motion: reduce) {
+  .mobile-composer-dock,
   .mobile-composer,
   .mobile-composer textarea,
   .mobile-composer-toolbar,
@@ -982,6 +1035,8 @@ html[data-mobile-glass="solid"] :is(
 .mobile-sheet-backdrop {
   position: fixed;
   inset: 0;
+  bottom: var(--mobile-keyboard-offset);
+  transition: --mobile-keyboard var(--mobile-keyboard-duration, 0ms) var(--mobile-keyboard-easing, linear);
   z-index: 30;
   display: flex;
   align-items: flex-end;
@@ -1305,6 +1360,8 @@ html[data-mobile-glass="solid"] :is(
 .mobile-modal-backdrop {
   position: fixed;
   inset: 0;
+  bottom: var(--mobile-keyboard-offset);
+  transition: --mobile-keyboard var(--mobile-keyboard-duration, 0ms) var(--mobile-keyboard-easing, linear);
   background: #0008;
   display: flex;
   justify-content: center;
@@ -1372,6 +1429,10 @@ html.theme-light .mobile-logo {
 
 .mobile-desktop-transcript {
   position: relative;
+  /* A pinned transcript rides the keyboard as far as its scroll offset will
+     move once the layout resizes. */
+  top: calc(var(--mobile-keyboard-offset) * var(--mobile-keyboard-follow, 0) * -1);
+  transition: --mobile-keyboard var(--mobile-keyboard-duration, 0ms) var(--mobile-keyboard-easing, linear);
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -1464,6 +1525,10 @@ html.theme-light .mobile-logo {
    stays well short of the full width, and keeps one tail corner. */
 .mobile-desktop-transcript .user-message-row {
   padding: 4px 12px 14px 18%;
+}
+.mobile-desktop-transcript .transcript-turn[data-prompt-rise="revealing"]
+  > :not(:has([data-prompt-anchor])) {
+  animation-duration: 200ms;
 }
 .mobile-desktop-transcript .user-message-bubble {
   max-width: 100%;

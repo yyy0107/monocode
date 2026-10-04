@@ -26,17 +26,27 @@ import {
   RUNTIME_MODE_HINT,
   type Attachment,
 } from "../features/sessions/model/session";
-import { isEffortSettingId } from "../features/sessions/model/models";
-import { remoteModelControls } from "../features/connections/model/remoteModels";
 import type {
   HostModelCatalog,
   HostProject,
 } from "../features/connections/model/protocol";
 import {
   MobileModelControls,
+  configurationLabels,
   type MobileConfiguration,
 } from "./MobileModelControls";
 import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
+import {
+  keyboardHeight,
+  keyboardTracked,
+  onKeyboardMotion,
+  type KeyboardMotion,
+} from "./keyboardMotion";
+
+/** How long a focus change waits for the keyboard before animating alone. */
+export const KEYBOARD_WAIT_MS = { open: 400, close: 250 };
+/** Range of keyboard durations the capsule borrows. */
+export const KEYBOARD_DURATION_MS = { min: 240, max: 420 };
 
 export type MobileComposerPanel =
   | "actions"
@@ -83,30 +93,57 @@ export function MobileComposer(props: Props) {
   // Only a deliberate move away (an outside tap or focusing another control)
   // collapses the composer again.
   const [engaged, setEngaged] = useState(false);
-  const expanded = engaged || props.panel !== null;
+  // The capsule changes shape with the keyboard: when engaging opens or
+  // closes the Android keyboard, the change waits for the keyboard's motion
+  // to begin and borrows its duration. The curve stays the composer's own:
+  // keyboard curves start abruptly or overshoot on some devices, which threw
+  // the growing capsule upward before it settled back.
+  const [shown, setShown] = useState(false);
+  const expanded = shown || props.panel !== null;
+  const [renderedAttachments, setRenderedAttachments] = useState(props.attachments);
+  const showAttachments = expanded && props.attachments.length > 0;
   const photos = useRef<HTMLInputElement>(null);
   const files = useRef<HTMLInputElement>(null);
   const panelAnchor = useRef<HTMLButtonElement>(null);
-  const controls = remoteModelControls(
+  const { modelName, effort } = configurationLabels(
     props.catalog,
-    props.configuration.harness,
-    props.configuration.model,
-    props.configuration.modelSettings,
+    props.configuration,
     props.lockedAgent ? props.configuration.model : undefined,
   );
-  const reasoning = controls.settings.find((setting) =>
-    isEffortSettingId(setting.id),
-  );
-  const effort = reasoning?.options.find(
-    (option) =>
-      option.value ===
-      (props.configuration.modelSettings[reasoning.id] ?? reasoning.value),
-  )?.label;
-  const modelName =
-    (controls.model?.name ??
-      (props.configuration.model.split(":").slice(1).join(":") ||
-        props.configuration.model)) ||
-    HARNESS_TITLE[props.configuration.harness];
+  useEffect(() => {
+    if (engaged === shown) return;
+    const element = form.current;
+    const follow = (motion?: KeyboardMotion) => {
+      if (element) {
+        if (motion?.duration) {
+          const duration = Math.min(
+            KEYBOARD_DURATION_MS.max,
+            Math.max(KEYBOARD_DURATION_MS.min, motion.duration),
+          );
+          element.style.setProperty("--mobile-composer-duration", `${duration}ms`);
+        } else {
+          element.style.removeProperty("--mobile-composer-duration");
+        }
+      }
+      setShown(engaged);
+    };
+    const keyboardOpen = keyboardHeight() > 0;
+    if (!keyboardTracked() || engaged === keyboardOpen) {
+      follow();
+      return;
+    }
+    const stop = onKeyboardMotion((motion) => {
+      if ((motion.height > 0) === engaged) follow(motion);
+    });
+    const timer = setTimeout(
+      follow,
+      engaged ? KEYBOARD_WAIT_MS.open : KEYBOARD_WAIT_MS.close,
+    );
+    return () => {
+      stop();
+      clearTimeout(timer);
+    };
+  }, [engaged, shown]);
   const close = () => props.onPanelChange(null);
   // The dock floats over the transcript; publish its height so content can
   // scroll past it without hiding the last message.
@@ -119,13 +156,17 @@ export function MobileComposer(props: Props) {
     // the queue's height omits its collapsed margin and the dock padding,
     // which left a blurred strip showing in the gap.
     const publish = () => {
-      host.style.setProperty("--mobile-dock-height", `${element.offsetHeight}px`);
+      const height = `${element.offsetHeight}px`;
       const queue = element.querySelector<HTMLElement>(":scope > .mobile-message-queue");
       const composer = element.querySelector<HTMLElement>(":scope > .mobile-composer");
-      element.style.setProperty(
-        "--mobile-dock-queue-height",
-        `${queue && composer ? composer.offsetTop : 0}px`,
-      );
+      const queueHeight = `${queue && composer ? composer.offsetTop : 0}px`;
+      // Complete layout reads before publishing anything to the transcript.
+      if (host.style.getPropertyValue("--mobile-dock-height") !== height)
+        host.style.setProperty("--mobile-dock-height", height);
+      if (
+        element.style.getPropertyValue("--mobile-dock-queue-height") !== queueHeight
+      )
+        element.style.setProperty("--mobile-dock-queue-height", queueHeight);
     };
     publish();
     const observer = new ResizeObserver(publish);
@@ -136,17 +177,43 @@ export function MobileComposer(props: Props) {
     };
   }, []);
   useLayoutEffect(() => {
+    if (
+      props.attachments.length ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setRenderedAttachments(props.attachments);
+      return;
+    }
+    if (!renderedAttachments.length) return;
+    // Sending clears the attachment data immediately. Keep the old chips only
+    // for the exit transition so the dock does not lose their height in a snap.
+    const duration =
+      parseFloat(
+        getComputedStyle(form.current!).getPropertyValue("--mobile-composer-duration"),
+      ) || 280;
+    const timer = setTimeout(() => setRenderedAttachments([]), duration);
+    return () => clearTimeout(timer);
+  }, [props.attachments, renderedAttachments.length]);
+  useLayoutEffect(() => {
     const element = area.current;
-    if (!element) return;
-    const finishAt = performance.now() + 240;
-    element.style.transitionDuration = "240ms, 240ms";
+    const container = form.current;
+    const widthSource = dock.current;
+    if (!element || !container || !widthSource) return;
     const resize = () => {
       if (!expanded) {
         element.style.height = "28px";
+        // Keep wrapping until the field finishes shrinking, so multiline
+        // drafts do not jump into a single line at the start of the motion.
+        if (
+          !element.dataset.compact ||
+          window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+        )
+          element.dataset.compact = "true";
         element.scrollTop = 0;
         element.scrollLeft = 0;
         return;
       }
+      element.dataset.compact = "false";
       // An offscreen copy measures wrapping without resetting the live field
       // mid-animation or moving its caret.
       const measure = element.cloneNode() as HTMLTextAreaElement;
@@ -155,12 +222,27 @@ export function MobileComposer(props: Props) {
       measure.setAttribute("aria-hidden", "true");
       measure.inert = true;
       measure.tabIndex = -1;
+      measure.className = "mobile-composer-measure";
+      const inset =
+        parseFloat(
+          getComputedStyle(container).getPropertyValue("--mobile-composer-expanded-inset"),
+        ) || 12;
+      const dockStyle = getComputedStyle(widthSource);
+      const formStyle = getComputedStyle(container);
+      const expandedWidth =
+        widthSource.clientWidth -
+        (parseFloat(dockStyle.paddingLeft) || 0) -
+        (parseFloat(dockStyle.paddingRight) || 0) -
+        (parseFloat(formStyle.borderLeftWidth) || 0) -
+        (parseFloat(formStyle.borderRightWidth) || 0);
       Object.assign(measure.style, {
         position: "absolute",
         visibility: "hidden",
         pointerEvents: "none",
         transition: "none",
-        width: `${element.getBoundingClientRect().width}px`,
+        // Measure the destination width once; animated padding must not
+        // repeatedly retarget the height and restart the easing curve.
+        width: `${Math.max(0, expandedWidth - inset * 2)}px`,
         height: "0px",
         minHeight: "0px",
         maxHeight: "none",
@@ -169,21 +251,20 @@ export function MobileComposer(props: Props) {
       const nextHeight = `${Math.max(44, Math.min(measure.scrollHeight, 168))}px`;
       measure.remove();
       if (element.style.height === nextHeight) return;
-      // Width changes can alter line wrapping. Keep those corrections within
-      // the same transition instead of extending it with every resize frame.
-      element.style.transitionDuration = `${Math.max(0, finishAt - performance.now())}ms, 240ms`;
       element.style.height = nextHeight;
     };
     resize();
     if (!expanded) return;
-    let width = element.getBoundingClientRect().width;
+    // The form itself changes width during expansion. Observe the fixed dock
+    // so that motion does not restart textarea height measurement each frame.
+    let width = widthSource.clientWidth;
     const observer = new ResizeObserver(() => {
-      const nextWidth = element.getBoundingClientRect().width;
+      const nextWidth = widthSource.clientWidth;
       if (Math.abs(nextWidth - width) < 0.5) return;
       width = nextWidth;
       resize();
     });
-    observer.observe(element);
+    observer.observe(widthSource);
     return () => observer.disconnect();
   }, [props.value, expanded]);
   useEffect(() => {
@@ -241,6 +322,15 @@ export function MobileComposer(props: Props) {
           ref={form}
           className="mobile-composer"
           data-collapsed={!expanded}
+          onTransitionEnd={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              event.propertyName === "padding-bottom" &&
+              !expanded &&
+              area.current
+            )
+              area.current.dataset.compact = "true";
+          }}
           onPointerDownCapture={(event) => {
             pressingAction.current = !!(event.target as Element).closest("button");
           }}
@@ -279,16 +369,16 @@ export function MobileComposer(props: Props) {
             if (props.canSend) props.onSend();
           }}
         >
-          {props.attachments.length > 0 && (
+          {renderedAttachments.length > 0 && (
             <div
               className="mobile-composer-attachment-region"
-              hidden={!expanded}
-              inert={!expanded}
-              aria-hidden={!expanded}
+              data-collapsed={!showAttachments}
+              inert={!showAttachments}
+              aria-hidden={!showAttachments}
             >
               <div className="mobile-composer-attachment-clip">
                 <div className="mobile-composer-attachments">
-                  {props.attachments.map((attachment) => (
+                  {renderedAttachments.map((attachment) => (
                     <AttachmentChip
                       key={attachment.id}
                       attachment={attachment}
@@ -343,7 +433,7 @@ export function MobileComposer(props: Props) {
             </button>
             <div
               className="mobile-composer-controls"
-              hidden={!expanded}
+              data-collapsed={!expanded}
               inert={!expanded}
               aria-hidden={!expanded}
             >

@@ -146,6 +146,7 @@ interface Surface {
   displacement: SVGFEDisplacementMapElement;
   resize: ResizeObserver;
   key: string;
+  settleTimer?: ReturnType<typeof setTimeout>;
 }
 
 /** Keeps a refraction filter on every glass surface under `root`. */
@@ -170,8 +171,10 @@ export function installLiquidGlass(root: HTMLElement): () => void {
   const surfaces = new Map<HTMLElement, Surface>();
   let nextId = 0;
 
-  const update = (element: HTMLElement, surface: Surface) => {
+  const update = (element: HTMLElement, surface: Surface, settled = false) => {
     if (refraction <= 0) {
+      clearTimeout(surface.settleTimer);
+      surface.settleTimer = undefined;
       element.style.removeProperty(REFRACTION_VARIABLE);
       return;
     }
@@ -183,14 +186,37 @@ export function installLiquidGlass(root: HTMLElement): () => void {
     const key = `${width}x${height}x${radius}`;
     const bezel = bezelWidth(width, height);
     if (key !== surface.key) {
-      const map = cachedDisplacementMap(width, height, radius, bezel);
-      if (!map) return;
-      surface.key = key;
       for (const node of [surface.filter, surface.image]) {
         node.setAttribute("width", String(width));
         node.setAttribute("height", String(height));
       }
-      surface.image.setAttribute("href", map);
+      if (surface.key && element.matches(".mobile-composer") && !settled) {
+        // Stretch the existing lens during composer motion. Rasterizing and
+        // encoding a full displacement map on every resize stalls the thread
+        // that also drives input, layout and transcript scrolling.
+        clearTimeout(surface.settleTimer);
+        const settle = () => {
+          // A keyboard resize can freeze the page for longer than the settle
+          // delay; wait for the composer's own transitions to finish so the
+          // encode does not land in the middle of the motion.
+          if (
+            element
+              .getAnimations?.({ subtree: true })
+              .some((animation) => animation.playState === "running")
+          ) {
+            surface.settleTimer = setTimeout(settle, 80);
+            return;
+          }
+          surface.settleTimer = undefined;
+          update(element, surface, true);
+        };
+        surface.settleTimer = setTimeout(settle, 80);
+      } else {
+        const map = cachedDisplacementMap(width, height, radius, bezel);
+        if (!map) return;
+        surface.key = key;
+        surface.image.setAttribute("href", map);
+      }
     }
     surface.displacement.setAttribute("scale", String(bezel * 2 * refraction));
     element.style.setProperty(
@@ -232,6 +258,7 @@ export function installLiquidGlass(root: HTMLElement): () => void {
   };
 
   const detach = (element: HTMLElement, surface: Surface) => {
+    clearTimeout(surface.settleTimer);
     surface.resize.disconnect();
     surface.filter.remove();
     element.style.removeProperty(REFRACTION_VARIABLE);

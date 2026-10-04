@@ -214,6 +214,8 @@ type Props = {
   touchScroll?: boolean;
   /** A just-submitted turn whose first response may already have arrived. */
   animateFrom?: string;
+  /** A shorter, bottom-origin prompt entrance for the phone composer. */
+  promptMotion?: "mobile";
 };
 
 function AgentTranscriptComponent({
@@ -252,6 +254,7 @@ function AgentTranscriptComponent({
   managed = false,
   touchScroll = true,
   animateFrom,
+  promptMotion,
 }: Props) {
   const platform = useContext(TranscriptPlatformContext);
   const lengths = useMemo(
@@ -346,7 +349,9 @@ function AgentTranscriptComponent({
   // Stretch the last turn after a send while this tab stays open. Closing
   // the tab is a new visit: the remount uses the true transcript height so
   // the latest reply sits near the composer instead of a hole of empty space.
-  const [anchorTurn, setAnchorTurn] = useState(!!busy);
+  const [anchorTurn, setAnchorTurn] = useState(
+    !!busy || (promptMotion === "mobile" && !!animateFrom),
+  );
   // Parking detaches the scroller, which drops its scroll offset.
   const restoreScroll = useRef(false);
   const wasParked = useRef(parked);
@@ -565,8 +570,13 @@ function AgentTranscriptComponent({
     introducedPromptMount.current = true;
     const { chat, anchor, visible } = introducePrompt.current;
     if (!lastUserId || !chat || !anchor || !visible) return;
-    if (mounting && !(busy && userTurnCount(blocks, managed) === 1)) return;
-    return riseIntoAnchor(scroller.current, lastUserId);
+    if (
+      mounting &&
+      !(promptMotion === "mobile" && animateFrom === lastUserId) &&
+      !(busy && userTurnCount(blocks, managed) === 1)
+    )
+      return;
+    return riseIntoAnchor(scroller.current, lastUserId, promptMotion);
     // Only a new prompt starts the motion; later renders must not replay it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastUserId]);
@@ -4173,41 +4183,69 @@ const PROMPT_FADE_MS = 480;
 const PROMPT_RISE_FROM = 0.3;
 
 /** Fades the prompt in while sliding it from the upper viewport to its row. */
-function riseIntoAnchor(scroller: HTMLElement | null, blockId: string) {
+function riseIntoAnchor(
+  scroller: HTMLElement | null,
+  blockId: string,
+  motion?: "mobile",
+) {
   const row = scroller?.querySelector<HTMLElement>(
     `[data-prompt-anchor="${CSS.escape(blockId)}"]`,
   );
   if (!scroller || !row || typeof row.animate !== "function") return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-  const view = scroller.getBoundingClientRect();
-  const dy =
-    view.top + view.height * PROMPT_RISE_FROM - row.getBoundingClientRect().top;
-  if (dy <= 1) return;
-  const animation = row.animate(
-    [{ transform: `translateY(${dy}px)` }, { transform: "translateY(0)" }],
-    { duration: PROMPT_RISE_MS, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
-  );
-  // The fade gets its own gentler curve; on the rise's sharp ease-out it
-  // would be over before the eye catches it.
-  const fade = row.animate([{ opacity: 0 }, { opacity: 1 }], {
-    duration: PROMPT_FADE_MS,
-    easing: "ease-out",
-  });
-  // The rest of the turn waits until the prompt lands, then fades in.
   const turn = row.closest<HTMLElement>(".transcript-turn");
+  const mobile = motion === "mobile";
+  const revealDuration = mobile ? 200 : PROMPT_REVEAL_MS;
+  let animation: Animation | undefined;
+  let fade: Animation | undefined;
+  let frame = 0;
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
-  turn?.setAttribute("data-prompt-rise", "rising");
-  animation.onfinish = () => {
-    turn?.setAttribute("data-prompt-rise", "revealing");
-    revealTimer = setTimeout(
-      () => turn?.removeAttribute("data-prompt-rise"),
-      PROMPT_REVEAL_MS,
+  const start = () => {
+    row.style.removeProperty("visibility");
+    const view = scroller.getBoundingClientRect();
+    const bounds = row.getBoundingClientRect();
+    const dock = parseFloat(getComputedStyle(scroller).paddingBottom) || 0;
+    const origin = mobile
+      ? view.bottom - dock - Math.min(bounds.height, view.height * 0.4) - 8
+      : view.top + view.height * PROMPT_RISE_FROM;
+    const dy = Math.max(0, origin - bounds.top);
+    if (dy <= 1) {
+      turn?.removeAttribute("data-prompt-rise");
+      return;
+    }
+    animation = row.animate(
+      [{ transform: `translateY(${dy}px)` }, { transform: "translateY(0)" }],
+      {
+        duration: mobile ? 420 : PROMPT_RISE_MS,
+        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+      },
     );
+    // Separate fade timing makes a phone message readable early in its rise.
+    fade = row.animate([{ opacity: 0 }, { opacity: 1 }], {
+      duration: mobile ? 200 : PROMPT_FADE_MS,
+      easing: "ease-out",
+    });
+    turn?.setAttribute("data-prompt-rise", "rising");
+    animation.onfinish = () => {
+      turn?.setAttribute("data-prompt-rise", "revealing");
+      revealTimer = setTimeout(
+        () => turn?.removeAttribute("data-prompt-rise"),
+        revealDuration,
+      );
+    };
   };
+  if (mobile) {
+    // Let the sibling dock publish its cleared draft height before measuring.
+    row.style.visibility = "hidden";
+    turn?.setAttribute("data-prompt-rise", "rising");
+    frame = requestAnimationFrame(start);
+  } else start();
   return () => {
-    animation.cancel();
-    fade.cancel();
+    cancelAnimationFrame(frame);
+    animation?.cancel();
+    fade?.cancel();
     clearTimeout(revealTimer);
+    row.style.removeProperty("visibility");
     turn?.removeAttribute("data-prompt-rise");
   };
 }

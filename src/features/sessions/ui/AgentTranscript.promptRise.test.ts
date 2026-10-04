@@ -27,10 +27,10 @@ const second: Block[] = [
   { id: "u2", role: "user", text: "Next" },
 ];
 
-function render(blocks: Block[], busy = true) {
+function render(blocks: Block[], busy = true, options: { promptMotion?: "mobile"; animateFrom?: string } = {}) {
   act(() =>
     root.render(
-      createElement(AgentTranscript, { blocks, busy, visible: true }),
+      createElement(AgentTranscript, { blocks, busy, visible: true, ...options }),
     ),
   );
 }
@@ -51,8 +51,8 @@ beforeEach(() => {
     function (this: HTMLElement) {
       return (
         this.dataset.promptAnchor
-          ? { top: 0, height: 60 }
-          : { top: 0, height: 800 }
+          ? { top: 0, bottom: 60, height: 60 }
+          : { top: 0, bottom: 800, height: 800 }
       ) as DOMRect;
     },
   );
@@ -119,6 +119,11 @@ describe("prompt rise in the chat layout", () => {
     expect(animate).not.toHaveBeenCalled();
   });
 
+  it("preserves the default mount behavior when an explicit submission marker is supplied", () => {
+    render(second, true, { animateFrom: "u2" });
+    expect(animate).not.toHaveBeenCalled();
+  });
+
   it("stays still in the full-width layout", () => {
     appearance.layout = "full";
     render(first);
@@ -133,5 +138,55 @@ describe("prompt rise in the chat layout", () => {
     render(second);
 
     expect(animate).not.toHaveBeenCalled();
+  });
+
+  it("starts mobile sends above the dock after layout, including a reply completed before sync", () => {
+    vi.useFakeTimers();
+    try {
+      render(second, false, { promptMotion: "mobile", animateFrom: "u2" });
+      const row = container.querySelector<HTMLElement>('[data-prompt-anchor="u2"]')!;
+      const scroller = container.querySelector<HTMLElement>(".agent-transcript")!;
+      scroller.style.paddingBottom = "128px";
+      expect(row.style.visibility).toBe("hidden");
+      expect(animate).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(20));
+      expect(row.style.visibility).toBe("");
+      expect(risenPrompts()).toEqual(["u2"]);
+      expect(animate.mock.calls[0][0][0]).toEqual({ transform: "translateY(604px)" });
+      expect(animate.mock.calls[0][1]).toMatchObject({ duration: 420 });
+      expect(animate.mock.calls[1][1]).toMatchObject({ duration: 200 });
+      const turn = row.closest<HTMLElement>(".transcript-turn")!;
+      act(() => animate.mock.results[0].value.onfinish());
+      expect(turn.dataset.promptRise).toBe("revealing");
+      act(() => vi.advanceTimersByTime(200));
+      expect(turn.dataset.promptRise).toBeUndefined();
+      render(second, false, { promptMotion: "mobile", animateFrom: "u2" });
+      expect(animate).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels a pending mobile entrance when the transcript unmounts", () => {
+    vi.useFakeTimers();
+    try {
+      render(first, true, { promptMotion: "mobile" });
+      const row = container.querySelector<HTMLElement>('[data-prompt-anchor="u1"]')!;
+      act(() => root.unmount());
+      act(() => vi.advanceTimersByTime(20));
+      expect(animate).not.toHaveBeenCalled();
+      expect(row.style.visibility).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps mobile history and reduced-motion sends still", () => {
+    render(second, false, { promptMotion: "mobile" });
+    expect(animate).not.toHaveBeenCalled();
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    render([...second, { id: "u3", role: "user", text: "Again" }], true, { promptMotion: "mobile" });
+    expect(animate).not.toHaveBeenCalled();
+    expect(container.querySelector<HTMLElement>('[data-prompt-anchor="u3"]')!.style.visibility).toBe("");
   });
 });
