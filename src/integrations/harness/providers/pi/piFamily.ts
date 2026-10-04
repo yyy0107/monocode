@@ -824,6 +824,8 @@ function handleFrame(
         bindState(flavor, sessionId, live, { sessionId: providerSessionId });
         live.onEvent({ type: "session.providerBound", providerSessionId });
       }
+      const title = stringField(rec, "sessionName") ?? stringField(rec, "name") ?? stringField(rec, "title");
+      if (title && live.providerSessionId) live.onEvent({ type: "session.titleUpdated", providerSessionId: live.providerSessionId, title });
       return;
     }
     if (type === "config_update") {
@@ -1415,4 +1417,13 @@ function finishActiveTurn(live: Live, extraEvents: HarnessEvent[] = []): void {
 function settlePendingTurn(live: Live): void {
   if (!live.turnEndPending || !live.turnDone) return;
   finishActiveTurn(live);
+}
+
+export async function readFamilySessionTitle(flavor: PiFlavor, input: import("../../core/titleCoordinator").NativeTitleInput): Promise<string | null> {
+  const live = stateFor(flavor).liveByThread.get(input.sessionId);
+  if (!live || live.cwd !== input.cwd) return null;
+  const frame = await live.rpc.request({ type: "get_state" }, 5_000);
+  if (providerSessionIdFromState(frame.data) !== input.providerSessionId) return null;
+  const data = asRecord(frame.data);
+  return typeof data?.sessionName === "string" ? data.sessionName : null;
 }

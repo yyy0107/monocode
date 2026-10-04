@@ -1,3 +1,5 @@
+import { nativeAcpTitleEvent, noteAcpTitleCapabilities, readAcpSessionTitle, readAcpTitleInProcess } from "../../core/nativeTitles";
+import type { NativeTitleInput } from "../../core/titleCoordinator";
 import { nativeModelId } from "../../../../features/sessions/model/models";
 import { AcpSubagents } from "../../core/acpSubagents";
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
@@ -318,6 +320,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       throw grokAuthError(error);
     }
 
+    noteAcpTitleCapabilities(acp, init);
     const methodId = grokAuthMethodId(init);
     if (methodId) {
       await acp
@@ -488,6 +491,16 @@ function ignoreUnsupportedControl(method: string, error: unknown): void {
 }
 
 function handleNotification(live: Live, method: string, params: unknown) {
+  if (method === "session/update") {
+    const outer = asRecord(params);
+    const update = asRecord(outer?.update) ?? outer;
+    if ((update?.sessionUpdate ?? update?.type) === "session_summary_generated" && (!outer?.sessionId || outer.sessionId === live.acpSessionId)) {
+      live.onEvent({ type: "session.titleRefreshRequested", providerSessionId: live.acpSessionId });
+      return;
+    }
+    const titleEvent = nativeAcpTitleEvent(params, live.acpSessionId);
+    if (titleEvent) { live.onEvent(titleEvent); return; }
+  }
   const updateParams =
     method === "session/update"
       ? params
@@ -633,4 +646,14 @@ async function handleAskQuestion(live: Live, id: number, params: unknown) {
   await live.acp
     .respond(id, askQuestionResponse(reply, questions))
     .catch(() => undefined);
+}
+
+export async function readGrokSessionTitle(input: NativeTitleInput): Promise<string | null> {
+  const live = liveByThread.get(input.sessionId);
+  if (!live) {
+    const binary = await resolveGrokBinary();
+    return readAcpTitleInProcess(input, "grok", { path: binary.path, args: ["--no-auto-update", "agent", "--no-leader", "stdio"] }).catch(() => null);
+  }
+  if (live.acpSessionId !== input.providerSessionId || live.cwd !== input.cwd) return null;
+  return readAcpSessionTitle(live.acp, input.providerSessionId, input.cwd).catch(() => null);
 }

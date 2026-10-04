@@ -816,6 +816,88 @@ pub fn harness_resolve_antigravity() -> Result<AntigravityBinary, String> {
 }
 
 /// Bind an ephemeral loopback port for `opencode serve`.
+#[tauri::command(async)]
+pub fn harness_read_claude_title(
+    app: AppHandle,
+    cwd: String,
+    provider_session_id: String,
+    provider_account_id: Option<String>,
+) -> Result<Option<String>, String> {
+    let root = match provider_account_id.as_deref().filter(|id| *id != "default") {
+        Some(id) => provider_account_path(&app, "claude", id)?,
+        None => std::env::var_os("CLAUDE_CONFIG_DIR")
+            .map(PathBuf::from)
+            .or_else(|| dirs_home().map(|home| PathBuf::from(home).join(".claude")))
+            .ok_or("Claude config directory is unavailable")?,
+    };
+    read_claude_title_from(&root, &cwd, &provider_session_id)
+}
+
+fn read_claude_title_from(
+    root: &std::path::Path,
+    cwd: &str,
+    id: &str,
+) -> Result<Option<String>, String> {
+    if id.is_empty()
+        || id.len() > 128
+        || !id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+    {
+        return Ok(None);
+    }
+    let Ok(projects) = root.join("projects").canonicalize() else {
+        return Ok(None);
+    };
+    let project: String = cwd
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let Ok(path) = projects
+        .join(project)
+        .join(format!("{id}.jsonl"))
+        .canonicalize()
+    else {
+        return Ok(None);
+    };
+    if !path.starts_with(&projects) {
+        return Ok(None);
+    }
+    let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+    if !metadata.is_file() || metadata.len() > 64 * 1024 * 1024 {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let mut generated = None;
+    let mut manual = None;
+    for line in content.lines() {
+        let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if row["sessionId"].as_str() != Some(id) {
+            continue;
+        }
+        let (target, key) = match row["type"].as_str() {
+            Some("ai-title") => (&mut generated, "aiTitle"),
+            Some("custom-title") => (&mut manual, "customTitle"),
+            _ => continue,
+        };
+        if key == "customTitle" && row[key].as_str().is_some_and(|s| s.trim().is_empty()) {
+            manual = None;
+            continue;
+        }
+        if let Some(title) = row[key]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.len() <= 16_384 && !s.contains('\0'))
+        {
+            *target = Some(title.to_owned());
+        }
+    }
+    Ok(manual.or(generated))
+}
+
+/// Bind an ephemeral loopback port for `opencode serve`.
 #[tauri::command]
 pub fn harness_free_port() -> Result<u16, String> {
     TcpListener::bind("127.0.0.1:0")
@@ -2950,6 +3032,32 @@ fn command_basename(command: &str) -> &str {
 mod tests {
     use super::*;
     use std::os::unix::process::CommandExt;
+
+    #[test]
+    fn claude_title_reads_only_bound_metadata_inside_the_account() {
+        let root = std::env::temp_dir().join(format!("monocode-title-{}", uuid::Uuid::new_v4()));
+        let project = root.join("projects/-project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("native.jsonl"), "{\"type\":\"ai-title\",\"sessionId\":\"native\",\"aiTitle\":\"Native name\"}\n{unfinished").unwrap();
+        assert_eq!(
+            read_claude_title_from(&root, "/project", "native")
+                .unwrap()
+                .as_deref(),
+            Some("Native name")
+        );
+        assert_eq!(
+            read_claude_title_from(&root, "/project", "../native").unwrap(),
+            None
+        );
+        let outside = root.join("outside.jsonl");
+        std::fs::write(&outside, "{}").unwrap();
+        std::os::unix::fs::symlink(&outside, project.join("escape.jsonl")).unwrap();
+        assert_eq!(
+            read_claude_title_from(&root, "/project", "escape").unwrap(),
+            None
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn spawn_group(script: &str) -> std::process::Child {
         Command::new("sh")

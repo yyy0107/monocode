@@ -11,6 +11,7 @@ import { readAttachmentChunk, writeAttachmentChunk } from "./attachments";
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  vi.useRealTimers();
 });
 
 function setup(harness: "codex" | "claude" = "codex") {
@@ -61,6 +62,58 @@ function setup(harness: "codex" | "claude" = "codex") {
 }
 
 describe("headless session ownership", () => {
+  it("refreshes event-automation titles once and protects subsequent manual names", async () => {
+    const { engine, store, provider, turns, id } = setup();
+    provider.generateTitle = vi.fn(async () => ({ title: "New automation goal", workItem: null }));
+    engine.command({ type: "send", commandId: "initial-title", sessionId: id, text: "First goal" });
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    turns[0].input.onEvent({ type: "session.providerBound", providerSessionId: "native" });
+    turns[0].input.onEvent({ type: "session.titleUpdated", providerSessionId: "native", title: "Initial native goal" });
+    turns[0].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+    engine.command({ type: "send", commandId: "automation-title", sessionId: id, text: "New event goal", refreshTitle: true });
+    await vi.waitFor(() => expect(turns).toHaveLength(2));
+    await vi.waitFor(() => expect(store.session(id).session.title).toBe("codex · New automation goal"));
+    turns[1].input.onEvent({ type: "session.titleUpdated", providerSessionId: "native", title: "Old native goal" });
+    expect(store.session(id).session.title).toBe("codex · New automation goal");
+    turns[1].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+    engine.updateSession(id, { title: "My title" });
+    engine.command({ type: "send", commandId: "manual-title", sessionId: id, text: "Another event", refreshTitle: true });
+    await vi.waitFor(() => expect(turns).toHaveLength(3));
+    turns[2].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+    expect(provider.generateTitle).toHaveBeenCalledTimes(1);
+    expect(store.session(id).session.title).toBe("My title");
+  });
+  it("persists late native title metadata after settlement without changing transcript stamps", async () => {
+    const { engine, store, provider, turns, id } = setup();
+    provider.readSessionTitle = vi.fn(async () => null);
+    provider.generateTitle = vi.fn(async () => ({ title: "Extra request", workItem: null }));
+    engine.command({ type: "send", commandId: "native-title", sessionId: id, text: "Title this conversation" });
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    turns[0].input.onEvent({ type: "session.providerBound", providerSessionId: "native" });
+    turns[0].input.onEvent({ type: "message.delta", text: "Answer" });
+    turns[0].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+    const before = store.session(id);
+    turns[0].input.onEvent({ type: "session.titleUpdated", providerSessionId: "other", title: "Wrong session" });
+    turns[0].input.onEvent({ type: "session.titleUpdated", providerSessionId: "native", title: "原生标题" });
+    expect(store.session(id).session.title).toBe("codex · 原生标题");
+    expect(store.session(id).blockRevisions).toEqual(before.blockRevisions);
+    expect(store.session(id).updatedAt).toBe(before.updatedAt);
+    expect(store.session(id).status).toBe("idle");
+    expect(store.summaries(before.projectId)[0].titleState?.source).toBe("native");
+    expect(provider.generateTitle).not.toHaveBeenCalled();
+    provider.readSessionTitle = vi.fn(async () => "Updated native title");
+    turns[0].input.onEvent({ type: "session.titleRefreshRequested", providerSessionId: "native" });
+    await vi.waitFor(() => expect(store.session(id).session.title).toBe("codex · Updated native title"));
+    engine.updateSession(id, { title: "User title" });
+    turns[0].input.onEvent({ type: "session.titleUpdated", providerSessionId: "native", title: "Later native" });
+    expect(store.session(id).session.title).toBe("User title");
+    expect(store.summaries(before.projectId)[0].titleState?.source).toBe("manual");
+  });
+
   it("binds an imported provider identity on first use after the Host is already running", async () => {
     const { store, engine, id, provider, turns } = setup();
     const current = store.session(id);
@@ -283,6 +336,7 @@ describe("headless session ownership", () => {
   });
 
   it("keeps a manually renamed title when first-turn generation finishes later", async () => {
+    vi.useFakeTimers();
     const { engine, store, provider, turns, id } = setup();
     let finishTitle: (title: {
       title: string;
@@ -301,13 +355,15 @@ describe("headless session ownership", () => {
       text: "Fix remote project titles",
     });
     await vi.waitFor(() => expect(turns).toHaveLength(1));
+    turns[0].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(provider.generateTitle).toHaveBeenCalledTimes(1);
     engine.updateSession(id, { title: "codex · My own title" });
     finishTitle({ title: "Generated title", workItem: null });
     await vi.waitFor(() =>
       expect(provider.generateTitle).toHaveBeenCalledTimes(1),
     );
-    turns[0].finish();
-    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
     expect(store.session(id).session.title).toBe("codex · My own title");
   });
 

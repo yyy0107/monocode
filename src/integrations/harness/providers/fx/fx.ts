@@ -1,3 +1,5 @@
+import { nativeAcpTitleEvent, noteAcpTitleCapabilities, readAcpSessionTitle, readAcpTitleInProcess } from "../../core/nativeTitles";
+import type { NativeTitleInput } from "../../core/titleCoordinator";
 import { nativeModelId } from "../../../../features/sessions/model/models";
 import { AcpSubagents } from "../../core/acpSubagents";
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
@@ -271,7 +273,7 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
 
   try {
     try {
-      await acp.request(
+      const titleInit = await acp.request(
         "initialize",
         {
           protocolVersion: 1,
@@ -280,6 +282,7 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
         },
         INIT_TIMEOUT_MS,
       );
+      noteAcpTitleCapabilities(acp, titleInit);
     } catch (error) {
       throw fxStartupError(error);
     }
@@ -478,6 +481,10 @@ function ignoreUnsupportedControl(method: string, error: unknown): void {
 }
 
 function handleNotification(live: Live, method: string, params: unknown) {
+  if (method === "session/update") {
+    const titleEvent = nativeAcpTitleEvent(params, live.acpSessionId);
+    if (titleEvent) { live.onEvent(titleEvent); return; }
+  }
   if (method !== "session/update") return;
   for (const event of live.subagents.route(params, eventsFromAcpUpdate(params))) {
     live.onEvent(event);
@@ -528,4 +535,14 @@ async function handlePermission(live: Live, id: number, params: unknown) {
   await live.acp.respond(id, {
     outcome: { outcome: "selected", optionId },
   });
+}
+
+export async function readFxSessionTitle(input: NativeTitleInput): Promise<string | null> {
+  const live = liveByThread.get(input.sessionId);
+  if (!live) {
+    const binary = await resolveFxBinary();
+    return readAcpTitleInProcess(input, "fx", { path: binary.path, args: ["acp"] }).catch(() => null);
+  }
+  if (live.acpSessionId !== input.providerSessionId || live.cwd !== input.cwd) return null;
+  return readAcpSessionTitle(live.acp, input.providerSessionId, input.cwd).catch(() => null);
 }

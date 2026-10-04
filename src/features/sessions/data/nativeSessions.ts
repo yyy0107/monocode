@@ -268,7 +268,7 @@ async function update(
     if (current?.nativeSession && !current.busy && shared?.ownsSession(id)) {
       const canonical = await shared.get(id);
       if (!canonical) return null;
-      current = { ...current, title: canonical.title, linkedWorkItem: canonical.linkedWorkItem };
+      current = { ...current, title: canonical.title, titleState: canonical.titleState, linkedWorkItem: canonical.linkedWorkItem };
     }
     let probe: NativeSessionProbe;
     try {

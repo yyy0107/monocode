@@ -33,6 +33,7 @@ vi.mock("../../../../platform/tauri/fs", () => ({
 }));
 
 const {
+  readCodexSessionTitle,
   compactCodexContext,
   bindCodexSession,
   cancelCodexTurn,
@@ -139,6 +140,20 @@ async function startTurn(
 }
 
 describe("codex live turn sequence", () => {
+  it("reads native names without another turn and forwards late name notifications", async () => {
+    const { events, turn } = await startTurn("native-title");
+    const reading = readCodexSessionTitle({ sessionId: "native-title", providerSessionId: "thr_1", cwd: "/repo" });
+    await waitFor(() => parse().some((m) => m.method === "thread/read"), "thread/read");
+    reply(parse().find((m) => m.method === "thread/read")!.id as number, { thread: { name: "Native title" } });
+    expect(await reading).toBe("Native title");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    notify("thread/name/updated", { threadId: "other", threadName: "Wrong title" });
+    notify("thread/name/updated", { threadId: "thr_1", threadName: "Late native title" });
+    expect(events.filter((event) => event.type === "session.titleUpdated")).toEqual([{ type: "session.titleUpdated", providerSessionId: "thr_1", title: "Late native title" }]);
+    expect(parse().filter((m) => m.method === "turn/start")).toHaveLength(1);
+  });
+
   beforeEach(() => {
     sent.length = 0;
     onLine = undefined;

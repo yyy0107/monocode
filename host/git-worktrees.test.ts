@@ -15,9 +15,11 @@ import {
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  vi.useRealTimers();
 });
 
 it.each([false, true])("applies generated worktree names only to retained sessions (deleted: %s)", async (deleted) => {
+  vi.useFakeTimers();
   const cwd = mkdtempSync(join(tmpdir(), "monocode-host-names-"));
   const git = (...args: string[]) => execFileSync("git", args, { cwd });
   git("init", "-q");
@@ -90,6 +92,8 @@ it.each([false, true])("applies generated worktree names only to retained sessio
     } finally { logged.mockRestore(); }
     return;
   }
+  await vi.waitFor(() => expect(store.session(sessionId).status).toBe("idle"));
+  await vi.advanceTimersByTimeAsync(15_000);
   finishBranch("remote-naming");
   await vi.waitFor(() => {
     expect(store.session(sessionId).session).toMatchObject({

@@ -1,4 +1,5 @@
 import { MessageQueue } from "../../sessions/ui/MessageQueue";
+import { titleStateFor } from "../../sessions/model/titlePolicy";
 import { useHostQueue } from "./useHostQueue";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -86,6 +87,7 @@ type Configuration = {
 };
 
 type OptimisticTurn = {
+  refreshTitle?: boolean;
   commandId: string;
   text: string;
   attachments: Attachment[];
@@ -625,6 +627,13 @@ function ConnectedRemoteSession({
         command,
       );
       if (command.type === "create") {
+        if (titleStateFor(shell).source === "manual") {
+          await remoteRequest(machine.id, "sessions.update", {
+            projectId: project.projectId,
+            sessionId: receipt.sessionId,
+            title: shell.title,
+          });
+        }
         const next = pendingRemoteFollowup(
           project.key,
           machine.environmentId,
@@ -832,6 +841,7 @@ function ConnectedRemoteSession({
             turn.intent,
             turn.draftBlockId,
             turn.planBlockId,
+            turn.refreshTitle,
           ),
       turn,
     );
@@ -892,6 +902,7 @@ function ConnectedRemoteSession({
             turn.intent,
             turn.draftBlockId,
             turn.planBlockId,
+            turn.refreshTitle,
           );
       const receipt = await run(
         {
@@ -938,6 +949,7 @@ function ConnectedRemoteSession({
     intent: "default" | "plan" | "build" = "default",
     draftBlockId?: string,
     planBlockId?: string,
+    refreshTitle = false,
   ): Extract<HostCommand, { type: "send" | "compact" }> =>
     text.trim().toLowerCase() === "/compact" &&
     !attachments.length &&
@@ -953,6 +965,7 @@ function ConnectedRemoteSession({
           intent,
           ...(draftBlockId ? { draftBlockId } : {}),
           ...(planBlockId ? { planBlockId } : {}),
+          ...(refreshTitle ? { refreshTitle: true } : {}),
         };
 
   const submit = (
@@ -983,6 +996,7 @@ function ConnectedRemoteSession({
       options?.draftBlockId,
       planBlockId,
     );
+    turn.refreshTitle = options?.refreshTitle;
     preparingRef.current = true;
     setStarting(turn);
     if (!hostSession) {

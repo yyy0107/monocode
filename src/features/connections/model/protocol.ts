@@ -68,6 +68,7 @@ export type HostSessionSummary = Omit<
 > & {
   id: string;
   title: string;
+  titleState?: Session["titleState"];
   harness: RemoteProvider;
   cwd?: string;
   model?: string;
@@ -178,6 +179,7 @@ export type HostCommand =
     }
   | {
       type: "send";
+      refreshTitle?: boolean;
       commandId: string;
       sessionId: string;
       text: string;

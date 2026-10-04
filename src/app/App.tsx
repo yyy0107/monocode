@@ -1,3 +1,7 @@
+import { SessionTitleCoordinator } from "../integrations/harness/core/titleCoordinator";
+import { readHarnessSessionTitle } from "../integrations/harness/core/registry";
+import { manualSessionTitle } from "../features/sessions/model/titlePolicy";
+import { persistManualSessionTitle } from "../features/sessions/data/sessionStore";
 import { acceptQuickLaunch } from "./model/quickLaunchSession";
 import { useWorkspaceNavigation } from "./hooks/useWorkspaceNavigation";
 import { useIdleSessionDetach } from "./hooks/useIdleSessionDetach";
@@ -393,7 +397,6 @@ import {
   nativeSessionReadOnly,
   installNativeSessionSync,
 } from "../features/sessions/data/nativeSessions";
-import { shouldGenerateSessionTitle } from "../features/sessions/model/sessionTitle";
 import {
   DEFAULT_PROVIDER_ACCOUNT_ID,
   providerAccountExists,
@@ -1133,6 +1136,35 @@ function Workspace({
 
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
+  const titleCoordinator = useRef<SessionTitleCoordinator | null>(null);
+  if (!titleCoordinator.current) titleCoordinator.current = new SessionTitleCoordinator({
+    get: (id) => sessionsRef.current.find((session) => session.id === id),
+    update: (id, change) => {
+      const previous = sessionsRef.current;
+      const next = previous.map((session) => session.id === id ? change(session) : session);
+      if (!next.some((session, index) => session !== previous[index])) return;
+      sessionsRef.current = next;
+      setSessions((current) => current.map((session) => session.id === id ? change(session) : session));
+    },
+    read: readHarnessSessionTitle,
+    generate: (session, message) => generateHarnessTitle(session.harness, { sessionId: session.id, cwd: sessionWorkCwd(session), message, providerAccountId: session.providerAccountId }),
+  });
+  useEffect(() => () => titleCoordinator.current?.close(), []);
+  const titleBindings = useRef(new Map<string, string>());
+  useEffect(() => {
+    const present = new Set(sessions.map((session) => session.id));
+    for (const id of titleBindings.current.keys()) if (!present.has(id)) {
+      titleBindings.current.delete(id); titleCoordinator.current!.cancel(id);
+    }
+    for (const session of sessions) {
+      if (!session.providerSessionId || sessionUsesHost(session)) continue;
+      const binding = `${session.harness}:${session.providerAccountId ?? "default"}:${session.providerSessionId}`;
+      if (titleBindings.current.get(session.id) === binding) continue;
+      titleBindings.current.set(session.id, binding);
+      void titleCoordinator.current!.read(session.id);
+    }
+  }, [sessions]);
+
   const linkedSessionUpdatesRef = useRef<
     ReadonlyMap<string, LinkedSessionUpdate>
   >(new Map());
@@ -1385,6 +1417,7 @@ function Workspace({
 
   const stopSessionForRemoval = useCallback(
     async (sessionId: string): Promise<Session | undefined> => {
+      titleCoordinator.current!.cancel(sessionId);
       await orchestrator.stopForSession(sessionId);
       const open = sessionsRef.current.find(
         (session) => session.id === sessionId,
@@ -4444,6 +4477,7 @@ function Workspace({
     async (sessionId: string, displayTitle: string) => {
       const trimmed = displayTitle.trim();
       if (!trimmed) return;
+      titleCoordinator.current!.cancel(sessionId);
       invalidateLoadedSession(sessionId);
 
       const open = sessionsRef.current.find(
@@ -4451,12 +4485,12 @@ function Workspace({
       );
       if (open) {
         const title = formatSessionTitle(open.harness, trimmed);
-        const updated = { ...open, title };
+        const updated = manualSessionTitle(open, title);
         setSessions((prev) =>
           prev.map((session) => (session.id === sessionId ? updated : session)),
         );
         loadedSessionCache.current.delete(sessionId);
-        persistSession(updated);
+        await persistManualSessionTitle(updated, title).catch(() => undefined);
       } else {
         const restored = await getSession(sessionId).catch(() => null);
         if (!restored) {
@@ -4465,8 +4499,9 @@ function Workspace({
         }
         const updated = {
           ...restored,
-          title: formatSessionTitle(restored.harness, trimmed),
+          ...manualSessionTitle(restored, formatSessionTitle(restored.harness, trimmed)),
         };
+        await persistManualSessionTitle(updated, updated.title).catch(() => undefined);
         const saved = await upsertSession(updated).catch(() => null);
         if (saved) {
           rememberLoadedSession(loadedSessionCache.current, updated);
@@ -6493,7 +6528,7 @@ function Workspace({
             tasks: [],
           }
         : undefined;
-      const isFirstTurn = current.blocks.length === 0;
+      const isFirstTurn = current.blocks.every((block) => block.draft || block.internal);
       const placeholderTitle =
         canReplaceSessionTitle(
           current.title,
@@ -6648,60 +6683,14 @@ function Workspace({
       }
 
       const launchTitleGeneration = (workCwd: string) => {
-        if (
-          !live ||
-          !shouldGenerateSessionTitle(
-            isFirstTurn,
-            placeholderTitle,
-            options?.refreshTitle,
-          )
-        ) {
-          return;
-        }
-        const titleMessage =
-          harnessText || attachments.map((file) => file.name).join(", ");
-        void generateHarnessTitle(current.harness, {
-          sessionId,
-          cwd: workCwd,
-          message: titleMessage,
-          providerAccountId,
-        })
-          .then(async (generated) => {
-            if (
-              options?.refreshTitle &&
-              !isFirstTurn &&
-              turnGen.current.get(sessionId) !== gen
-            ) {
-              return;
-            }
-            const linkedWorkItem = await resolveLinkedWorkItem(
-              titleMessage,
-              workCwd,
-              generated?.workItem ?? null,
-            );
-            if (!generated && !linkedWorkItem) return;
-            setSessions((prev) =>
-              prev.map((s) => {
-                if (s.id !== sessionId) return s;
-                let next = s;
-                if (
-                  generated &&
-                  (options?.refreshTitle ||
-                    canReplaceSessionTitle(s.title, s.harness, titleSeed))
-                ) {
-                  next = {
-                    ...next,
-                    title: formatSessionTitle(s.harness, generated.title),
-                  };
-                }
-                if (linkedWorkItem && !next.linkedWorkItem) {
-                  next = { ...next, linkedWorkItem };
-                }
-                return next;
-              }),
-            );
-          })
-          .catch(() => undefined);
+        if (!live) return;
+        const titleMessage = harnessText || attachments.map((file) => file.name).join(", ");
+        if ((isFirstTurn && placeholderTitle) || options?.refreshTitle) titleCoordinator.current!.begin(sessionId, titleMessage, !!options?.refreshTitle);
+        else void titleCoordinator.current!.read(sessionId);
+        void resolveLinkedWorkItem(titleMessage, workCwd, null).then((linkedWorkItem) => {
+          if (!linkedWorkItem) return;
+          setSessions((prev) => prev.map((session) => session.id === sessionId && !session.linkedWorkItem ? { ...session, linkedWorkItem } : session));
+        }).catch(() => undefined);
       };
 
       if (!live) {
@@ -6921,6 +6910,15 @@ function Workspace({
           if (routed) enqueueHarnessEvent(sessionId, routed);
         };
         const routeTurnEvent = (event: HarnessEvent) => {
+          if (event.type === "session.titleUpdated" || event.type === "session.titleRefreshRequested") {
+            flushHarnessEvents();
+            const session = sessionsRef.current.find((s) => s.id === sessionId);
+            if (session?.harness === current.harness && session.providerSessionId === event.providerSessionId && (session.providerAccountId ?? "default") === (providerAccountId ?? "default")) {
+              if (event.type === "session.titleUpdated") titleCoordinator.current!.native(sessionId, event.providerSessionId, event.title);
+              else void titleCoordinator.current!.read(sessionId);
+            }
+            return;
+          }
           if (turnGen.current.get(sessionId) !== gen) return;
           if (editedResend && !editedResend.isAccepted()) {
             pendingEditedEvents.push(event);
@@ -7236,6 +7234,7 @@ function Workspace({
           }
         })
         .finally(() => {
+          titleCoordinator.current!.settled(sessionId, turnGen.current.get(sessionId) !== gen || controlOutcome.status === "cancelled");
           editedResend?.reject();
           if (editedResend) editedResends.finish(sessionId);
           options?.onSettled?.(
@@ -7324,6 +7323,7 @@ function Workspace({
             title: eventRun
               ? HARNESS_LABEL[automation.harness]
               : formatSessionTitle(automation.harness, automation.name),
+            titleState: { source: eventRun ? "placeholder" as const : "manual" as const, epoch: 0, purpose: "initial" as const, fallbackAttempted: false },
             automationId: automation.id,
             ...(linkedWorkItem ? { linkedWorkItem } : {}),
             ...(automation.workspaceMode === "worktree"
@@ -7981,6 +7981,7 @@ function Workspace({
           modelSettings,
         ),
         title: formatSessionTitle(harness, SECOND_OPINION_TITLE),
+        titleState: { source: "manual" as const, epoch: 0, purpose: "initial" as const, fallbackAttempted: false },
       };
       openSessionBeside(sourceId, session, source.cwd);
       onSubmit(session.id, request.prompt, [], request.options);
@@ -8601,6 +8602,7 @@ function Workspace({
           harness,
           display === "New session" ? HANDOFF_TITLE : display,
         ),
+        titleState: { source: "manual" as const, epoch: 0, purpose: "initial" as const, fallbackAttempted: false },
         handoffCard: buildHandoffComposerCard({
           from,
           to: harness,
@@ -8734,6 +8736,7 @@ function Workspace({
 
   const onStop = useCallback(
     (sessionId: string, managed = false) => {
+      titleCoordinator.current!.cancel(sessionId);
       const remote = sessionsRef.current.find((s) => s.id === sessionId);
       if (remote && sessionUsesHost(remote)) {
         remoteSessionActions(sessionId)?.stop();

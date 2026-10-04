@@ -1,3 +1,4 @@
+import { readHermesSessionTitle } from "./hermes";
 import {
   bindHermesSession,
   cancelHermesTurn,
@@ -13,6 +14,7 @@ import { registerHarness, type HarnessAdapter } from "../../core/registry";
 export const hermesAdapter: HarnessAdapter = {
   id: "hermes",
   live: true,
+  readSessionTitle: readHermesSessionTitle,
   sendTurn: sendHermesTurn,
   steerTurn: steerHermesTurn,
   cancelTurn: cancelHermesTurn,

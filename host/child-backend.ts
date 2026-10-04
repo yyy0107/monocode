@@ -24,6 +24,7 @@ import {
   HOST_OUTPUT_LIMIT_ERROR,
   HOST_DIAGNOSTIC_LIMIT_ERROR,
 } from "../src/integrations/harness/core/childErrors";
+import { readClaudeTitleFile } from "./native-title";
 
 const exec = promisify(execFile);
 const ALLOWED_EXEC_ARGS = new Set([
@@ -99,6 +100,8 @@ export class HostChildBackend implements ChildBackend {
       } as T;
     }
     switch (command) {
+      case "harness_read_claude_title":
+        return await readClaudeTitleFile({ cwd: String(args.cwd ?? ""), providerSessionId: String(args.providerSessionId ?? ""), providerAccountId: typeof args.providerAccountId === "string" ? args.providerAccountId : undefined }, this.desktopConfigPath) as T;
       case "harness_exec": {
         const provider = args.binaryProvider;
         if (!isRemoteProvider(provider))

@@ -1,3 +1,5 @@
+import type { NativeTitleInput } from "../src/integrations/harness/core/titleCoordinator";
+import { readFamilySessionTitle } from "../src/integrations/harness/providers/pi/piFamily";
 import * as codex from "../src/integrations/harness/providers/codex/codex";
 import * as claude from "../src/integrations/harness/providers/claude/claude";
 import * as cursor from "../src/integrations/harness/providers/cursor/cursor";
@@ -35,6 +37,7 @@ import {
 import { respondQuestion as respondPiQuestion } from "../src/integrations/harness/providers/pi/piFamily";
 
 export interface HostProvider {
+  readSessionTitle?(input: NativeTitleInput): Promise<string | null>;
   send(input: SendTurnInput): Promise<void>;
   compact?(input: CompactContextInput): Promise<void>;
   steer?(input: SteerTurnInput): Promise<void>;
@@ -47,12 +50,14 @@ export interface HostProvider {
     sessionId: string;
     cwd: string;
     message: string;
+    providerAccountId?: string;
   }): Promise<GeneratedSessionTitle | null>;
   generateBranchName?(cwd: string, message: string): Promise<string | null>;
 }
 
 export const hostProviders: Record<RemoteProvider, HostProvider> = {
   codex: {
+    readSessionTitle: codex.readCodexSessionTitle,
     send: codex.sendCodexTurn,
     steer: codex.steerCodexTurn,
     compact: codex.compactCodexContext,
@@ -65,6 +70,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     generateBranchName: generateCodexBranchName,
   },
   claude: {
+    readSessionTitle: claude.readClaudeSessionTitle,
     send: claude.sendClaudeTurn,
     steer: claude.steerClaudeTurn,
     compact: claude.compactClaudeContext,
@@ -77,6 +83,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     generateBranchName: generateClaudeBranchName,
   },
   cursor: {
+    readSessionTitle: cursor.readCursorSessionTitle,
     send: cursor.sendCursorTurn,
     steer: cursor.steerCursorTurn,
     cancel: cursor.cancelCursorTurn,
@@ -87,6 +94,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     generateTitle: generateCursorSessionTitle,
   },
   grok: {
+    readSessionTitle: grok.readGrokSessionTitle,
     send: grok.sendGrokTurn,
     compact: grok.compactGrokContext,
     cancel: grok.cancelGrokTurn,
@@ -97,6 +105,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     generateTitle: generateGrokSessionTitle,
   },
   opencode: {
+    readSessionTitle: opencode.readOpenCodeSessionTitle,
     send: opencode.sendOpenCodeTurn,
     steer: opencode.steerOpenCodeTurn,
     compact: opencode.compactOpenCodeContext,
@@ -108,6 +117,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     generateTitle: generateOpenCodeSessionTitle,
   },
   pi: {
+    readSessionTitle: (input) => readFamilySessionTitle(PI_FLAVOR, input),
     send: pi.sendPiTurn,
     steer: pi.steerPiTurn,
     compact: pi.compactPiContext,
@@ -120,6 +130,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     generateTitle: generatePiSessionTitle,
   },
   omp: {
+    readSessionTitle: (input) => readFamilySessionTitle(OMP_FLAVOR, input),
     send: omp.sendOmpTurn,
     steer: omp.steerOmpTurn,
     compact: omp.compactOmpContext,
@@ -132,6 +143,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     generateTitle: generateOmpSessionTitle,
   },
   fx: {
+    readSessionTitle: fx.readFxSessionTitle,
     send: fx.sendFxTurn,
     cancel: fx.cancelFxTurn,
     stop: fx.forgetFxSession,
@@ -140,6 +152,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     answer: unsupportedQuestion,
   },
   hermes: {
+    readSessionTitle: hermes.readHermesSessionTitle,
     send: hermes.sendHermesTurn,
     steer: hermes.steerHermesTurn,
     cancel: hermes.cancelHermesTurn,
@@ -149,6 +162,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     answer: unsupportedQuestion,
   },
   antigravity: {
+    readSessionTitle: antigravity.readAntigravitySessionTitle,
     send: antigravity.sendAntigravityTurn,
     cancel: antigravity.cancelAntigravityTurn,
     stop: antigravity.forgetAntigravitySession,

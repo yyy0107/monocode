@@ -1,3 +1,4 @@
+import { readCodexSessionTitle } from "./codex";
 import {
   bindCodexSession,
   cancelCodexTurn,
@@ -32,6 +33,7 @@ import {
 export const codexAdapter: HarnessAdapter = {
   id: "codex",
   live: true,
+  readSessionTitle: readCodexSessionTitle,
   sendTurn: sendCodexTurn,
   compactContext: compactCodexContext,
   rewindLastTurn: rewindCodexLastTurn,

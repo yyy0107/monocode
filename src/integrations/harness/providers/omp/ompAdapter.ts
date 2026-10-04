@@ -1,3 +1,5 @@
+import { readFamilySessionTitle } from "../pi/piFamily";
+import { OMP_FLAVOR } from "../pi/piFlavor";
 import {
   bindOmpSession,
   cancelOmpTurn,
@@ -18,11 +20,12 @@ import {
 } from "../pi/piText";
 import { registerHarness, type HarnessAdapter } from "../../core/registry";
 import { ompCommandProvider, respondQuestion } from "../pi/piFamily";
-import { OMP_FLAVOR } from "../pi/piFlavor";
+
 
 export const ompAdapter: HarnessAdapter = {
   id: "omp",
   live: true,
+  readSessionTitle: (input) => readFamilySessionTitle(OMP_FLAVOR, input),
   commands: ompCommandProvider,
   respondQuestion: (sessionId, requestId, reply) =>
     respondQuestion(OMP_FLAVOR, sessionId, requestId, reply),

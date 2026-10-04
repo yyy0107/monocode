@@ -1,3 +1,4 @@
+import { readCursorSessionTitle } from "./cursor";
 import {
   bindCursorSession,
   cancelCursorTurn,
@@ -25,6 +26,7 @@ import { registerHarness, type HarnessAdapter } from "../../core/registry";
 export const cursorAdapter: HarnessAdapter = {
   id: "cursor",
   live: true,
+  readSessionTitle: readCursorSessionTitle,
   sendTurn: sendCursorTurn,
   steerTurn: steerCursorTurn,
   cancelTurn: cancelCursorTurn,

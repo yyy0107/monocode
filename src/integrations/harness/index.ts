@@ -204,3 +204,5 @@ export type {
   UserQuestionReply,
 } from "../../features/sessions/model/userQuestion";
 export type { HarnessAdapter, TextPromptInput } from "./core/registry";
+
+export { readHarnessSessionTitle } from "./core/registry";

@@ -1,3 +1,4 @@
+import { readOpenCodeSessionTitle } from "./opencode";
 import {
   bindOpenCodeSession,
   cancelOpenCodeTurn,
@@ -27,6 +28,7 @@ import { registerHarness, type HarnessAdapter } from "../../core/registry";
 export const openCodeAdapter: HarnessAdapter = {
   id: "opencode",
   live: true,
+  readSessionTitle: readOpenCodeSessionTitle,
   rewindLastTurn: rewindOpenCodeLastTurn,
   sendTurn: sendOpenCodeTurn,
   compactContext: compactOpenCodeContext,

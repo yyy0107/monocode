@@ -1,3 +1,4 @@
+import { readClaudeSessionTitle } from "./claude";
 import {
   bindClaudeSession,
   cancelClaudeTurn,
@@ -27,6 +28,7 @@ import { registerHarness, type HarnessAdapter } from "../../core/registry";
 export const claudeAdapter: HarnessAdapter = {
   id: "claude",
   live: true,
+  readSessionTitle: readClaudeSessionTitle,
   sendTurn: sendClaudeTurn,
   compactContext: compactClaudeContext,
   steerTurn: steerClaudeTurn,

@@ -1,3 +1,5 @@
+import { nativeAcpTitleEvent, noteAcpTitleCapabilities, readAcpSessionTitle, readAcpTitleInProcess } from "../../core/nativeTitles";
+import type { NativeTitleInput } from "../../core/titleCoordinator";
 import { nativeModelId } from "../../../../features/sessions/model/models";
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
 import { AcpClient, type AcpHandlers } from "../../core/acp";
@@ -261,7 +263,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
 
   try {
     try {
-      await acp.request(
+      const titleInit = await acp.request(
         "initialize",
         {
           protocolVersion: 1,
@@ -270,6 +272,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
         },
         INIT_TIMEOUT_MS,
       );
+      noteAcpTitleCapabilities(acp, titleInit);
     } catch (error) {
       throw hermesStartupError(error);
     }
@@ -406,6 +409,10 @@ async function prompt(live: Live, input: SendTurnInput): Promise<void> {
 }
 
 function handleNotification(live: Live, method: string, params: unknown): void {
+  if (method === "session/update") {
+    const titleEvent = nativeAcpTitleEvent(params, live.acpSessionId);
+    if (titleEvent) { live.onEvent(titleEvent); return; }
+  }
   if (method !== "session/update") return;
   const dispatch = hermesBackgroundDispatch(params);
   if (dispatch) live.background.set(dispatch.delegationId, dispatch);
@@ -620,4 +627,14 @@ async function respondPermission(
 function resolveApprovals(live: Live): void {
   for (const resolve of live.approvals.values()) resolve("deny");
   live.approvals.clear();
+}
+
+export async function readHermesSessionTitle(input: NativeTitleInput): Promise<string | null> {
+  const live = liveByThread.get(input.sessionId);
+  if (!live) {
+    const binary = await resolveHermesBinary();
+    return readAcpTitleInProcess(input, "hermes", { path: binary.path, args: ["acp"] }).catch(() => null);
+  }
+  if (live.acpSessionId !== input.providerSessionId || live.cwd !== input.cwd) return null;
+  return readAcpSessionTitle(live.acp, input.providerSessionId, input.cwd).catch(() => null);
 }

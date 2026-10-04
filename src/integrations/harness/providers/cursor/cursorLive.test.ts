@@ -142,6 +142,14 @@ afterEach(async () => {
 });
 
 describe("cursor background subagents", () => {
+  it("forwards native session titles after the prompt ends and excludes child names", async () => {
+    const { events, promptId, turn } = await startTurn("native-title");
+    reply(promptId, { stopReason: "end_turn" }); await turn;
+    notify("session/update", { sessionId: "child", update: { sessionUpdate: "session_info_update", title: "Child title" } });
+    notify("session/update", { sessionId: "cursor_1", update: { sessionUpdate: "session_info_update", title: "Cursor 原生标题" } });
+    expect(events.filter((event) => event.type === "session.titleUpdated")).toEqual([{ type: "session.titleUpdated", providerSessionId: "cursor_1", title: "Cursor 原生标题" }]);
+  });
+
   it("recovers native child steps without parent-attributed ACP events and enriches foreground names", async () => {
     const run = {
       agentId: "child_1",

@@ -1,4 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { SessionTitleCoordinator } from "../src/integrations/harness/core/titleCoordinator";
+import { titleStateFor } from "../src/features/sessions/model/titlePolicy";
+import { resolveProvider } from "./process";
 import { realpath, stat } from "node:fs/promises";
 import { readFileSync, unlinkSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
@@ -19,7 +22,6 @@ import {
   HARNESS_LABEL,
   RUNTIME_MODES,
   canReplaceSessionTitle,
-  formatSessionTitle,
   titleFromPrompt,
   type Session,
 } from "../src/features/sessions/model/session";
@@ -142,6 +144,7 @@ export function parseCommand(input: unknown): HostCommand {
   if (v.type === "compact") return { type: "compact", commandId, sessionId };
   if (v.type === "send" || v.type === "draft") {
     const attachments = parseRemoteAttachments(v.attachments);
+    if (v.refreshTitle !== undefined && (v.type !== "send" || typeof v.refreshTitle !== "boolean")) throw new Error("Invalid title refresh");
     if (
       typeof v.text !== "string" ||
       v.text.length > 256_000 ||
@@ -168,6 +171,7 @@ export function parseCommand(input: unknown): HostCommand {
       sessionId,
       text: v.text,
       ...(attachments.length ? { attachments } : {}),
+      ...(v.type === "send" && v.refreshTitle === true ? { refreshTitle: true } : {}),
       ...(v.type === "send" && v.intent
         ? { intent: v.intent as "default" | "plan" | "build" }
         : {}),
@@ -289,6 +293,8 @@ export class HostEngine {
   >();
   private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private closing = false;
+  private readonly titles: SessionTitleCoordinator;
+  private parked = new Map<string, { harness: string; timer: ReturnType<typeof setTimeout> }>();
   private editors = new Map<
     string,
     { owner: string; timer: ReturnType<typeof setTimeout> }
@@ -298,6 +304,32 @@ export class HostEngine {
     readonly store: HostStore,
     private readonly providers: Partial<Record<RemoteProvider, HostProvider>>,
   ) {
+    this.titles = new SessionTitleCoordinator({
+      get: (id) => { try { return this.store.session(id).session; } catch { return undefined; } },
+      update: (id, change) => {
+        if (this.closing) return;
+        this.flush(id);
+        let value: HostSession;
+        try { value = this.store.session(id); } catch { return; }
+        const session = change(value.session);
+        if (session === value.session) return;
+        const saved = this.store.transaction(() => this.store.save({ ...value, session, revision: value.revision + 1 }, { type: "session.titleMetadata" }));
+        const live = this.live.get(id); if (live) live.value = saved;
+      },
+      read: (session) => session.providerSessionId ? this.provider(session.harness).readSessionTitle?.({ sessionId: session.id, providerSessionId: session.providerSessionId, cwd: session.cwd, providerAccountId: session.providerAccountId }) ?? Promise.resolve(null) : Promise.resolve(null),
+      generate: async (session, message) => {
+        const input = { sessionId: session.id, cwd: session.cwd, message, providerAccountId: session.providerAccountId };
+        const current = this.provider(session.harness);
+        if (current.generateTitle) return current.generateTitle(input);
+        for (const id of ["claude", "cursor", "codex", "grok", "opencode"] as const) {
+          const candidate = this.providers[id];
+          if (!candidate?.generateTitle) continue;
+          try { await resolveProvider(id); } catch { continue; }
+          return candidate.generateTitle({ ...input, providerAccountId: undefined });
+        }
+        return null;
+      },
+    });
     // Provider dispatch is not transactional with SQLite. Never replay a send
     // automatically after a crash; its external effects may already exist.
     for (const value of store.sessions()) {
@@ -398,6 +430,7 @@ export class HostEngine {
   }
 
   updateSession(id: string, patch: Parameters<HostStore["updateSession"]>[1]) {
+    if (patch.title !== undefined) this.titles.cancel(id);
     this.flush(id);
     const summary = this.store.updateSession(id, patch);
     const live = this.live.get(id);
@@ -513,6 +546,7 @@ export class HostEngine {
             runtimeMode: command.runtimeMode,
             modelSettings: command.modelSettings ?? {},
             title: "New remote session",
+            titleState: { source: "placeholder", epoch: 0, purpose: "initial", fallbackAttempted: false },
             ...(command.autoWorktreeBranch
               ? { branch: command.autoWorktreeBranch, worktreeCwd: cwd }
               : {}),
@@ -721,6 +755,7 @@ export class HostEngine {
               ...value.session,
               busy: true,
               pendingQuestion: undefined,
+              titleState: value.session.titleState ?? (firstTurn && placeholderTitle ? titleStateFor(value.session) : undefined),
               title:
                 firstTurn && placeholderTitle
                   ? titleFromPrompt(prompt, value.session.harness, attachments)
@@ -766,7 +801,9 @@ export class HostEngine {
               attachments,
             );
             if (firstTurn && command.type === "send") {
-              this.generateFirstTurnNames(saved, prompt, placeholderTitle);
+              this.generateFirstTurnNames(saved, prompt, placeholderTitle, command.refreshTitle);
+            } else if (command.type === "send" && command.refreshTitle) {
+              this.titles.begin(saved.session.id, prompt, true);
             }
           };
         } else {
@@ -1077,34 +1114,11 @@ export class HostEngine {
     value: HostSession,
     message: string,
     generateTitle: boolean,
+    refreshTitle = false,
   ): void {
     const provider = this.provider(value.session.harness);
-    const { id, cwd, harness, title } = value.session;
-    if (generateTitle && provider.generateTitle) {
-      void provider
-        .generateTitle({ sessionId: id, cwd, message })
-        .then((generated) => {
-          if (!generated) return;
-          this.flush(id);
-          const current = this.store.session(id);
-          if (current.session.title !== title) return;
-          const saved = this.save(
-            {
-              ...current,
-              session: {
-                ...current.session,
-                title: formatSessionTitle(harness, generated.title),
-              },
-            },
-            { type: "session.generatedTitle" },
-          );
-          const live = this.live.get(id);
-          if (live) live.value = saved;
-        })
-        .catch((error) =>
-          console.debug("[monocode] remote session title", error),
-        );
-    }
+    const { id, cwd } = value.session;
+    if (generateTitle || refreshTitle) this.titles.begin(id, message, refreshTitle);
     const temporary = value.autoWorktreeBranch;
     if (temporary && provider.generateBranchName) {
       void provider
@@ -1149,6 +1163,8 @@ export class HostEngine {
     attachments: Session["blocks"][number]["attachments"] = [],
   ): void {
     const { session, runId } = value;
+    const parked = this.parked.get(session.id);
+    if (parked) { clearTimeout(parked.timer); this.parked.delete(session.id); }
     const provider = this.provider(session.harness);
     if (!this.boundSessions.has(session.id) && session.providerSessionId) {
       this.bindRetainedSession(session);
@@ -1177,7 +1193,7 @@ export class HostEngine {
               providerAccountId: session.providerAccountId,
               runtimeMode: session.runtimeMode,
               intent,
-              onEvent: (event) => this.event(session.id, runId!, event),
+              onEvent: (event) => this.event(session.id, runId!, event, session.harness, session.providerAccountId),
             };
             if (prompt === null) await provider.compact!(input);
             else
@@ -1204,7 +1220,15 @@ export class HostEngine {
         await active.controls;
         // Keep the session running until the old process has stopped. Otherwise
         // a follow-up can race cleanup and have its newly spawned child killed.
-        await provider.stop(session.id);
+        if (active.cancelled || this.closing || active.persistenceFailed || !provider.readSessionTitle) await provider.stop(session.id);
+        else {
+          const timer = setTimeout(() => {
+            this.parked.delete(session.id);
+            if (!this.running.has(session.id)) void provider.stop(session.id).catch(() => undefined);
+          }, 5 * 60_000);
+          timer.unref?.();
+          this.parked.set(session.id, { harness: session.harness, timer });
+        }
         this.flush(session.id);
         this.live.delete(session.id);
         const latest = this.store.session(session.id);
@@ -1226,6 +1250,7 @@ export class HostEngine {
           );
         }
         this.running.delete(session.id);
+        this.titles.settled(session.id, active.cancelled || this.closing || active.persistenceFailed);
         // stop/forget releases callbacks and native resources; bind only retained
         // provider conversation identity for an explicit future follow-up.
         const persisted = this.store.session(session.id).session;
@@ -1251,7 +1276,16 @@ export class HostEngine {
       });
   }
 
-  private event(id: string, runId: string, event: HarnessEvent): void {
+  private event(id: string, runId: string, event: HarnessEvent, expectedHarness?: string, expectedAccount?: string): void {
+    if (event.type === "session.titleUpdated" || event.type === "session.titleRefreshRequested") {
+      if (this.closing) return;
+      let current: HostSession; try { current = this.store.session(id); } catch { return; }
+      if (current.session.providerSessionId === event.providerSessionId && (!expectedHarness || current.session.harness === expectedHarness) && (current.session.providerAccountId ?? "default") === (expectedAccount ?? "default")) {
+        if (event.type === "session.titleUpdated") this.titles.native(id, event.providerSessionId, event.title);
+        else void this.titles.read(id);
+      }
+      return;
+    }
     const live = this.live.get(id);
     if (!live || live.value.runId !== runId || live.value.status !== "running")
       return;
@@ -1306,6 +1340,7 @@ export class HostEngine {
     if (session === live.value.session) return;
     live.value = { ...live.value, session };
     live.events.push(event);
+    if (event.type === "session.providerBound") { this.flush(id); void this.titles.read(id); }
     if (!BATCHED.has(event.type)) {
       if (!this.scheduledFlush(id, this.provider(session.harness)) && savedImage) {
         try { unlinkSync(savedImage.path!); } catch { /* Keep persistence failure primary. */ }
@@ -1360,6 +1395,9 @@ export class HostEngine {
 
   async close(): Promise<void> {
     this.closing = true;
+    this.titles.close();
+    await Promise.all([...this.parked.entries()].map(async ([id, entry]) => { clearTimeout(entry.timer); await this.provider(entry.harness).stop(id); }));
+    this.parked.clear();
     for (const editor of this.editors.values()) clearTimeout(editor.timer);
     this.editors.clear();
     for (const timer of this.retryTimers.values()) clearTimeout(timer);

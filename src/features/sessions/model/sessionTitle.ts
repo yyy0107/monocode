@@ -18,7 +18,7 @@ Before answering, silently reduce the request to:
 Title the subject and outcome. Discard incidental instructions.
 
 Editorial rules:
-- 3-8 words, fewer than 40 characters.
+- Use the language of the user message. At most 50 characters.
 - Use a compact noun phrase or clear action phrase.
 - Capture the umbrella goal when the request lists several symptoms or steps.
 - Name the product change, not the mock, plan, report, branch, or PR used to produce it.
@@ -105,8 +105,7 @@ export function parseGeneratedSessionTitle(
 
   const fallback = sanitizeThreadTitle(raw);
   if (!fallback || /[{}]/.test(fallback)) return null;
-  const words = fallback.split(" ").filter(Boolean).length;
-  if (words < 2 || words > 10) return null;
+  if (!/[\p{L}\p{N}]/u.test(fallback)) return null;
   return { title: fallback, workItem: null };
 }
 

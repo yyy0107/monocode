@@ -96,6 +96,8 @@ fn init_with(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionUpsert {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_state: Option<Value>,
     #[serde(default)]
     pub native_session: Option<Value>,
     pub id: String,
@@ -130,6 +132,8 @@ pub struct SessionUpsert {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_state: Option<Value>,
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orchestration_lead_id: Option<String>,
@@ -169,6 +173,8 @@ pub struct SessionSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_state: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub native_session: Option<Value>,
     pub id: String,
@@ -794,6 +800,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         ("is_draft", "INTEGER NOT NULL DEFAULT 0"),
         ("automation_id", "TEXT"),
         ("native_session_json", "TEXT"),
+        ("title_state_json", "TEXT"),
     ] {
         ensure_session_column(conn, column, decl)?;
     }
@@ -1264,8 +1271,16 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         ],
     )?;
 
+    conn.execute(
+        "UPDATE sessions SET title_state_json = ?2 WHERE id = ?1",
+        params![
+            session.id,
+            session.title_state.as_ref().map(Value::to_string)
+        ],
+    )?;
     remember_worker_from_blocks(conn, &session.id, &session.blocks)?;
     Ok(SessionSummary {
+        title_state: session.title_state.clone(),
         id: session.id.clone(),
         orchestration_lead_id: worker_parent(conn, &session.id)?,
         orchestration: orchestration_summary(conn, &session.id)?,
@@ -1621,7 +1636,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
                 created_at, updated_at, branch, archived, pinned,
                 linked_work_item_json,
                 (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd,
-                worktree_removed, is_draft, automation_id
+                worktree_removed, is_draft, automation_id, title_state_json
          FROM sessions
          WHERE cwd = ?1
            AND has_user_message = 1
@@ -1635,6 +1650,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
         let pinned: i64 = row.get(11)?;
         let linked_work_item = optional_json(row.get(12)?);
         Ok(SessionSummary {
+            title_state: optional_json(row.get(18)?),
             id: row.get(0)?,
             orchestration_lead_id: None,
             orchestration: optional_json(row.get(13)?),
@@ -1672,7 +1688,7 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
                 created_at, updated_at, branch, archived, pinned,
                 linked_work_item_json,
                 (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd,
-                worktree_removed, is_draft, automation_id
+                worktree_removed, is_draft, automation_id, title_state_json
          FROM sessions
          WHERE has_user_message = 1
            AND linked_work_item_json IS NOT NULL
@@ -1684,6 +1700,7 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
         let archived: i64 = row.get(10)?;
         let pinned: i64 = row.get(11)?;
         Ok(SessionSummary {
+            title_state: optional_json(row.get(18)?),
             id: row.get(0)?,
             orchestration_lead_id: None,
             orchestration: optional_json(row.get(13)?),
@@ -1894,7 +1911,7 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
                 provider_session_id, blocks_json, created_at, updated_at,
                 context_used, context_window, branch, worktree_cwd,
                 linked_work_item_json, provider_account_id, worktree_removed,
-                automation_id, native_session_json
+                automation_id, native_session_json, title_state_json
          FROM sessions
          WHERE id = ?1 AND inbox_ask IS NULL",
         params![session_id],
@@ -1916,6 +1933,7 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
                 )
             })?;
             Ok(SessionRecord {
+                title_state: optional_json(row.get(20)?),
                 native_session: optional_json(row.get(19)?),
                 id: row.get(0)?,
                 orchestration_lead_id: worker_parent(conn, session_id)?,
@@ -2098,6 +2116,7 @@ mod tests {
 
     fn sample(id: &str, cwd: &str, title: &str) -> SessionUpsert {
         SessionUpsert {
+            title_state: None,
             native_session: None,
             id: id.into(),
             cwd: cwd.into(),
@@ -2353,6 +2372,37 @@ mod tests {
             )
             .unwrap();
         assert_eq!(branch, 1);
+    }
+
+    #[test]
+    fn title_state_survives_record_and_summary_reads_without_touching_activity() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        let mut input = sample("title-state", "/tmp/a", "Native title");
+        input.title_state = Some(
+            json!({ "source": "native", "epoch": 1, "purpose": "initial", "fallbackAttempted": false }),
+        );
+        let saved = upsert_session(&conn, &input).unwrap();
+        assert_eq!(
+            get_session(&conn, &input.id).unwrap().unwrap().title_state,
+            input.title_state
+        );
+        assert_eq!(
+            list_by_project(&conn, "/tmp/a").unwrap()[0].title_state,
+            input.title_state
+        );
+        input.title = "My name".into();
+        input.title_state = Some(
+            json!({ "source": "manual", "epoch": 2, "purpose": "initial", "fallbackAttempted": false }),
+        );
+        let renamed = upsert_session(&conn, &input).unwrap();
+        assert_eq!(renamed.updated_at, saved.updated_at);
+        assert_eq!(renamed.title_state, input.title_state);
+        migrate(&conn).unwrap();
+        assert_eq!(
+            get_session(&conn, &input.id).unwrap().unwrap().title_state,
+            input.title_state
+        );
     }
 
     #[test]

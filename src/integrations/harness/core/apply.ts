@@ -1,3 +1,4 @@
+import { applyNativeTitle } from "../../../features/sessions/model/titlePolicy";
 import type {
   AgentRunMeta,
   AgentStep,
@@ -56,6 +57,10 @@ export function applyHarnessEvent(
   event: HarnessEvent,
 ): Session {
   switch (event.type) {
+    case "session.titleRefreshRequested":
+      return session;
+    case "session.titleUpdated":
+      return applyNativeTitle(session, event.providerSessionId, event.title);
     case "message.delta":
       return patchStreaming(session, "assistant", event.text, true);
     case "message.completed":

@@ -39,6 +39,11 @@ describe("session title metadata", () => {
     );
   });
 
+  it("accepts a bare Chinese title and asks for the input language", () => {
+    expect(parseGeneratedSessionTitle("修复会话标题同步", "修复会话标题同步")).toEqual({ title: "修复会话标题同步", workItem: null });
+    expect(buildThreadTitlePrompt("修复问题")).toContain("language of the user message");
+  });
+
   it("can refresh a generated title for an event added to an existing session", () => {
     expect(shouldGenerateSessionTitle(false, false, true)).toBe(true);
     expect(shouldGenerateSessionTitle(false, false)).toBe(false);

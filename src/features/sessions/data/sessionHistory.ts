@@ -112,6 +112,7 @@ export function summaryFromSession(
     model: session.model,
     runtimeMode: session.runtimeMode,
     title: session.title,
+    titleState: session.titleState,
     draft: !!sessionDraftBlock(session),
     providerSessionId: session.providerSessionId,
     worktreeCwd: session.worktreeCwd,
@@ -198,6 +199,7 @@ export function historyWithLiveSessions(
         rows[storedIndex] = {
           ...stored,
           title: session.title,
+          titleState: session.titleState,
           draft: draft || undefined,
           ...(automationId ? { automationId } : {}),
           ...(linkedWorkItem ? { linkedWorkItem } : {}),

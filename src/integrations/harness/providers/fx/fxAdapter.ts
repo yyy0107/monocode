@@ -1,3 +1,4 @@
+import { readFxSessionTitle } from "./fx";
 import {
   bindFxSession,
   cancelFxTurn,
@@ -13,6 +14,7 @@ import { registerHarness, type HarnessAdapter } from "../../core/registry";
 export const fxAdapter: HarnessAdapter = {
   id: "fx",
   live: true,
+  readSessionTitle: readFxSessionTitle,
   canSteer: false,
   sendTurn: sendFxTurn,
   steerTurn: steerFxTurn,

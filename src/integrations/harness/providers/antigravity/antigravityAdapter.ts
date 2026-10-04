@@ -1,3 +1,4 @@
+import { readAntigravitySessionTitle } from "./antigravity";
 import {
   bindAntigravitySession,
   cancelAntigravityTurn,
@@ -13,6 +14,7 @@ import { registerHarness, type HarnessAdapter } from "../../core/registry";
 export const antigravityAdapter: HarnessAdapter = {
   id: "antigravity",
   live: true,
+  readSessionTitle: readAntigravitySessionTitle,
   canSteer: false,
   sendTurn: sendAntigravityTurn,
   steerTurn: steerAntigravityTurn,

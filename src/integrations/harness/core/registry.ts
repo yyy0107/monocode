@@ -49,6 +49,7 @@ export type TextPromptInput = {
  * App.tsx dispatches through the registry instead of harness-specific branches.
  */
 export type HarnessAdapter = {
+  readSessionTitle?(input: import("./titleCoordinator").NativeTitleInput): Promise<string | null>;
   id: HarnessId;
   /** True when this adapter can run live turns. */
   live: boolean;
@@ -418,9 +419,20 @@ export async function generateHarnessTitle(
   harness: HarnessId,
   input: TitleInput,
 ): Promise<GeneratedSessionTitle | null> {
-  const adapter = getHarness(harness);
+  let adapter = getHarness(harness);
+  if (!adapter?.generateTitle) {
+    const { pickTextHarness } = await import("./textHarness");
+    adapter = getHarness(pickTextHarness(harness));
+    input = { ...input, providerAccountId: undefined };
+  }
   if (!adapter?.generateTitle) return null;
   return adapter.generateTitle(input);
+}
+
+export async function readHarnessSessionTitle(session: import("../../../features/sessions/model/session").Session): Promise<string | null> {
+  if (!session.providerSessionId) return null;
+  const adapter = getHarness(session.harness);
+  return adapter?.readSessionTitle?.({ sessionId: session.id, providerSessionId: session.providerSessionId, cwd: session.worktreeCwd ?? session.cwd, providerAccountId: session.providerAccountId }) ?? null;
 }
 
 export async function generateHarnessCommitMessage(

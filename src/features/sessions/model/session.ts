@@ -80,6 +80,7 @@ export type EditedResendRejection = {
   providerRewound: boolean;
 };
 export type ComposerTurnOptions = {
+  refreshTitle?: boolean;
   intent?: TurnIntent;
   resendEdited?: boolean;
   /** Restore an edited prompt when the resend rejects asynchronously. */
@@ -404,6 +405,7 @@ export type NativeSessionLink = {
 };
 
 export type Session = {
+  titleState?: import("./titlePolicy").SessionTitleState;
   /** Native transcript tracked by the local import/sync feature. */
   nativeSession?: NativeSessionLink;
   /** Receipt for an acknowledged floating-composer handoff. */
@@ -536,6 +538,7 @@ export function newSession(
     modelSettings: preferredModelSettings(resolved, modelSettings),
     runtimeMode,
     title: HARNESS_LABEL[harness],
+    titleState: { source: "placeholder", epoch: 0, purpose: "initial", fallbackAttempted: false },
     cwd,
     blocks: [],
   };
@@ -619,6 +622,7 @@ export function retargetSessionToProject(
       carriesSeed ? session.modelSettings : undefined,
     ),
     title: HARNESS_LABEL[harness],
+    titleState: { source: "placeholder", epoch: (session.titleState?.epoch ?? 0) + 1, purpose: "initial", fallbackAttempted: false },
     ...(harness === session.harness
       ? {}
       : { providerSessionId: undefined, providerAccountId: undefined }),

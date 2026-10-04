@@ -1,3 +1,4 @@
+import { readGrokSessionTitle } from "./grok";
 import {
   bindGrokSession,
   cancelGrokTurn,
@@ -26,6 +27,7 @@ import { registerHarness, type HarnessAdapter } from "../../core/registry";
 export const grokAdapter: HarnessAdapter = {
   id: "grok",
   live: true,
+  readSessionTitle: readGrokSessionTitle,
   canSteer: false,
   sendTurn: sendGrokTurn,
   compactContext: compactGrokContext,

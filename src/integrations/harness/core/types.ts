@@ -13,6 +13,8 @@ import type { UserQuestion } from "../../../features/sessions/model/userQuestion
 import type { SessionModelSettings } from "../../../features/sessions/model/models";
 
 export type HarnessEvent =
+  | { type: "session.titleUpdated"; providerSessionId: string; title: string }
+  | { type: "session.titleRefreshRequested"; providerSessionId: string }
   | { type: "session.started" }
   | { type: "session.ended"; code?: number | null }
   | { type: "session.error"; message: string }

@@ -14,7 +14,7 @@
 id_rsa*
 id_ed25519*
 .tauri/
-node_modules/
+node_modules
 dist/
 dist-ssr/
 build/

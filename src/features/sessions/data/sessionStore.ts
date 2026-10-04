@@ -1,3 +1,4 @@
+import { manualSessionTitle, sanitizeTitleState } from "../model/titlePolicy";
 import { invoke } from "@tauri-apps/api/core";
 import {
   isWeakToolTitle,
@@ -46,6 +47,7 @@ import { restoreOrchestrationProposal } from "../../orchestration/model/orchestr
 import type { OrchestrationSummary } from "../../orchestration/model/orchestrationSummary";
 
 export type SessionSummary = {
+  titleState?: Session["titleState"];
   orchestrationLeadId?: string;
   orchestration?: OrchestrationSummary;
   id: string;
@@ -71,6 +73,7 @@ export type SessionSummary = {
 };
 
 type SessionRecord = {
+  titleState?: Session["titleState"];
   nativeSession?: Session["nativeSession"];
   orchestrationLeadId?: string;
   id: string;
@@ -95,6 +98,7 @@ type SessionRecord = {
 };
 
 type SessionUpsertPayload = {
+  titleState?: Session["titleState"];
   nativeSession?: Session["nativeSession"];
   id: string;
   cwd: string;
@@ -146,6 +150,7 @@ function persistableMeta(
     modelSettings: session.modelSettings,
     runtimeMode: session.runtimeMode,
     title: session.title,
+    titleState: sanitizeTitleState(session.titleState),
     ...(session.providerSessionId && isPersistableId(session.providerSessionId)
       ? { providerSessionId: session.providerSessionId }
       : {}),
@@ -303,6 +308,32 @@ export async function upsertSession(
     return result;
   });
   return summary ? normalizeSummary(summary) : null;
+}
+
+/** The execution owner persists user renames, including native shared imports. */
+export async function persistManualSessionTitle(session: Session, title: string): Promise<Session> {
+  const updated = session.title === title && sanitizeTitleState(session.titleState)?.source === "manual" ? session : manualSessionTitle(session, title);
+  const shared = sharedSessionBackend();
+  if (shared?.ownsSession(session.id)) {
+    // A blank draft can precede creation of its Host row. RemoteSession carries
+    // its protected name when the row is first created.
+    if (await shared.get(session.id)) await shared.update(session.id, { title });
+    if (session.nativeSession) await upsertSession(updated);
+    return updated;
+  }
+  if (isRemoteProjectPath(session.cwd)) {
+    const { remoteProjectFor } = await import("../../connections/model/remoteProjects");
+    const { remoteMachineFor, remoteRequest, remoteSessionFor } = await import("../../connections/model/connections");
+    const project = remoteProjectFor(session.cwd);
+    const hostId = remoteSessionFor(session.id);
+    if (project && hostId) {
+      const machine = await remoteMachineFor(project.environmentId);
+      if (machine) await remoteRequest(machine.id, "sessions.update", { projectId: project.projectId, sessionId: hostId, title });
+    }
+    return updated;
+  }
+  await upsertSession(updated);
+  return updated;
 }
 
 /**
@@ -1154,6 +1185,7 @@ function normalizeSummary(summary: SessionSummary): SessionSummary {
   const linkedWorkItem = sanitizeLinkedWorkItem(summary.linkedWorkItem);
   return {
     ...summary,
+    titleState: sanitizeTitleState(summary.titleState),
     harness: asHarness(summary.harness),
     runtimeMode: asRuntimeMode(summary.runtimeMode),
     ...(summary.providerSessionId
@@ -1195,6 +1227,7 @@ function recordToSession(record: SessionRecord): Session {
         : {},
     runtimeMode: asRuntimeMode(record.runtimeMode),
     title: record.title,
+    titleState: sanitizeTitleState(record.titleState),
     blocks,
     busy: false,
     orchestrationLeadId:

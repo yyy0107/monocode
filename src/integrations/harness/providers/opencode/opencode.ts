@@ -1,3 +1,4 @@
+import type { NativeTitleInput } from "../../core/titleCoordinator";
 import { modelContextWindow, nativeModelId } from "../../../../features/sessions/model/models";
 import type { RuntimeMode, TurnMetrics } from "../../../../features/sessions/model/session";
 import { taskListFromToolInput } from "../../../../features/sessions/model/taskList";
@@ -626,6 +627,8 @@ async function handleEvent(
     if (id) {
       const parentId = stringField(info, "parentID");
       live.sessionParentById.set(id, parentId);
+      const title = stringField(info, "title");
+      if (id === live.openCodeSessionId && title) live.onEvent({ type: "session.titleUpdated", providerSessionId: id, title });
     }
     return;
   }
@@ -1377,4 +1380,10 @@ export function __openCodeTestReset(): void {
   liveByThread.clear();
   resumeByThread.clear();
   cancelledThreads.clear();
+}
+
+export async function readOpenCodeSessionTitle(input: NativeTitleInput): Promise<string | null> {
+  const live = liveByThread.get(input.sessionId);
+  if (!live || live.openCodeSessionId !== input.providerSessionId || live.cwd !== input.cwd) return null;
+  return (await live.client.getSession(input.providerSessionId)).title ?? null;
 }

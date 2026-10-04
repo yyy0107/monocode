@@ -34,6 +34,10 @@ export function readHarnessTextFile(path: string): Promise<string> {
   });
 }
 
+export function readClaudeNativeTitle(input: { cwd: string; providerSessionId: string; providerAccountId?: string }): Promise<string | null> {
+  return invoke<string | null>("harness_read_claude_title", input);
+}
+
 function invoke<T>(
   command: string,
   args?: Record<string, unknown>,

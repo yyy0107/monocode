@@ -18,7 +18,9 @@ are not prerequisites for local work.
 ## Spec Kit
 
 The active feature is recorded in `.specify/feature.json` and lives in
-`specs/002-native-session-sync/`. Read spec.md, plan.md, contracts and tasks.md together.
+`specs/004-native-session-titles/`. Read spec.md, plan.md, contracts and tasks.md together.
+The completed native session synchronization record remains in
+`specs/002-native-session-sync/`.
 The completed Pi upgrade record remains in `specs/001-pi-1-0-1-upgrade/`.
 Codex skills use `$speckit-constitution`, `$speckit-specify`, `$speckit-plan`,
 `$speckit-tasks`, `$speckit-analyze`, `$speckit-implement` and `$speckit-converge`.

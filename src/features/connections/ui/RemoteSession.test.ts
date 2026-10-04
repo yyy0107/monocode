@@ -236,6 +236,10 @@ beforeEach(() => {
         branches: ["main", "dev", ...(createdBranch ? [createdBranch] : [])],
       };
     }
+    if (method === "sessions.update") {
+      if (host && typeof params.title === "string") host = { ...host, session: { ...host.session, title: params.title } };
+      return { id: params.sessionId, title: params.title };
+    }
     if (method === "sessions.sync") {
       if (syncDelay) await syncDelay;
       return { kind: "snapshot", value: host };

@@ -1,3 +1,4 @@
+import { sanitizeTitleState } from "../src/features/sessions/model/titlePolicy";
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -189,6 +190,7 @@ export function importDesktopSessions(
                   : String(row.worktree_cwd || cwd),
               harness,
               title: String(row.title),
+              titleState: row.title_state_json ? sanitizeTitleState(JSON.parse(String(row.title_state_json))) : undefined,
               model: String(row.model),
               modelSettings: JSON.parse(String(row.model_settings ?? "{}")),
               runtimeMode: row.runtime_mode as Session["runtimeMode"],

@@ -1,3 +1,5 @@
+import { nativeAcpTitleEvent, noteAcpTitleCapabilities, readAcpSessionTitle, readAcpTitleInProcess } from "../../core/nativeTitles";
+import type { NativeTitleInput } from "../../core/titleCoordinator";
 import { nativeModelId } from "../../../../features/sessions/model/models";
 import { AcpSubagents } from "../../core/acpSubagents";
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
@@ -472,7 +474,7 @@ async function startLive(input: SendTurnInput, life: number): Promise<Live> {
     );
     if (retired()) throw new Error("Antigravity session stopped during startup");
     try {
-      await acp.request(
+      const titleInit = await acp.request(
         "initialize",
         {
           protocolVersion: 1,
@@ -481,6 +483,7 @@ async function startLive(input: SendTurnInput, life: number): Promise<Live> {
         },
         INIT_TIMEOUT_MS,
       );
+      noteAcpTitleCapabilities(acp, titleInit);
     } catch (error) {
       throw antigravityError(error);
     }
@@ -730,6 +733,10 @@ async function prompt(live: Live, input: SendTurnInput): Promise<void> {
 }
 
 function handleNotification(live: Live, method: string, params: unknown) {
+  if (method === "session/update") {
+    const titleEvent = nativeAcpTitleEvent(params, live.acpSessionId);
+    if (titleEvent) { live.onEvent(titleEvent); return; }
+  }
   if (method !== "session/update") return;
   const rec = asRecord(params);
   const update = asRecord(rec?.update) ?? rec;
@@ -832,4 +839,14 @@ async function handlePermission(live: Live, id: number, params: unknown) {
       ? { outcome: "selected", optionId }
       : { outcome: "cancelled" },
   });
+}
+
+export async function readAntigravitySessionTitle(input: NativeTitleInput): Promise<string | null> {
+  const live = liveByThread.get(input.sessionId);
+  if (!live) {
+    const binary = await resolveAntigravityBinary();
+    return readAcpTitleInProcess(input, "antigravity", binary, antigravitySpawnCwd(binary.path, input.cwd)).catch(() => null);
+  }
+  if (live.acpSessionId !== input.providerSessionId || live.cwd !== input.cwd) return null;
+  return readAcpSessionTitle(live.acp, input.providerSessionId, input.cwd).catch(() => null);
 }

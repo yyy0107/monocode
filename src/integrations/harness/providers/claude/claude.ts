@@ -1,3 +1,5 @@
+import { readClaudeNativeTitle } from "../../core/child";
+import type { NativeTitleInput } from "../../core/titleCoordinator";
 import { nativeModelId } from "../../../../features/sessions/model/models";
 import { sameProviderAccountId } from "../../../../features/providers/model/providerAccounts";
 import type {
@@ -623,6 +625,10 @@ function handleLine(sessionId: string, live: Live, line: string): void {
   if (!rec) return;
 
   const type = stringField(rec, "type");
+  if (type === "system" && stringField(rec, "subtype") === "session_title_changed" && typeof rec.title === "string" && (!rec.session_id || rec.session_id === live.claudeSessionId)) {
+    live.onEvent({ type: "session.titleUpdated", providerSessionId: live.claudeSessionId, title: rec.title });
+    return;
+  }
   if (type === "keep_alive") return;
 
   const cancelId = parseControlCancelId(rec);
@@ -1818,4 +1824,8 @@ export function __claudeTestReset(): void {
   resumeByThread.clear();
   tasksByThread.clear();
   cancelledThreads.clear();
+}
+
+export async function readClaudeSessionTitle(input: NativeTitleInput): Promise<string | null> {
+  return readClaudeNativeTitle(input).catch(() => null);
 }

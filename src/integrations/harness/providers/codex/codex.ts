@@ -1,3 +1,4 @@
+import type { NativeTitleInput } from "../../core/titleCoordinator";
 import { nativeModelId } from "../../../../features/sessions/model/models";
 import { sameProviderAccountId } from "../../../../features/providers/model/providerAccounts";
 import {
@@ -742,6 +743,11 @@ function handleNotification(
   method: string,
   params: unknown,
 ): void | Promise<void> {
+  if (method === "thread/name/updated") {
+    const title = asRecord(params);
+    if (title?.threadId === live.threadId && typeof title.threadName === "string") live.onEvent({ type: "session.titleUpdated", providerSessionId: live.threadId, title: title.threadName });
+    return;
+  }
   if (live.muteUpdates || live.cancelled) return;
   const rec = asRecord(params);
   if (method === "serverRequest/resolved") {
@@ -1387,4 +1393,25 @@ export function __codexTestReset(): void {
 
 export function __codexTestResumeMap(): Map<string, Resume> {
   return resumeByThread;
+}
+
+export async function readCodexSessionTitle(input: NativeTitleInput): Promise<string | null> {
+  const live = liveByThread.get(input.sessionId);
+  if (!live) {
+    const childId = `monocode-codex-title-read-${crypto.randomUUID()}`;
+    const rpc = new JsonRpcClient(childId, {}, { includeJsonrpc: false, label: "codex-title-read" });
+    watchChild(childId, (line) => rpc.pushLine(line), () => rpc.close());
+    const deadline = Date.now() + 5_000;
+    try {
+      const { path } = await resolveCodexBinary();
+      await spawnChild(childId, path, ["app-server"], input.cwd, { provider: "codex", id: input.providerAccountId ?? "default" }, "codex");
+      await rpc.request("initialize", { clientInfo: { name: "monocode-title-read", version: "1" }, capabilities: { experimentalApi: true } }, Math.max(1, deadline - Date.now()));
+      await rpc.notify("initialized", undefined);
+      const metadata = await rpc.request<{ thread?: { name?: string } }>("thread/read", { threadId: input.providerSessionId, includeTurns: false }, Math.max(1, deadline - Date.now()));
+      return metadata.thread?.name ?? null;
+    } finally { rpc.close(); unwatchChild(childId); await killChild(childId).catch(() => undefined); }
+  }
+  if (live.threadId !== input.providerSessionId || live.cwd !== input.cwd || !sameProviderAccountId(live.providerAccountId, input.providerAccountId)) return null;
+  const result = await live.rpc.request<{ thread?: { name?: string } }>("thread/read", { threadId: input.providerSessionId, includeTurns: false }, 5_000);
+  return result.thread?.name ?? null;
 }

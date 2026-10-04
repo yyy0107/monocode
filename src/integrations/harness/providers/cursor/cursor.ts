@@ -1,3 +1,5 @@
+import { nativeAcpTitleEvent, noteAcpTitleCapabilities, readAcpSessionTitle, readAcpTitleInProcess } from "../../core/nativeTitles";
+import type { NativeTitleInput } from "../../core/titleCoordinator";
 import { nativeModelId } from "../../../../features/sessions/model/models";
 import { AcpSubagents } from "../../core/acpSubagents";
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
@@ -308,11 +310,11 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
   );
 
   try {
-    await acp.request("initialize", {
+    noteAcpTitleCapabilities(acp, await acp.request("initialize", {
       protocolVersion: 1,
       clientCapabilities: CLIENT_CAPABILITIES,
       clientInfo: { name: "monocode", version: "0.1.0" },
-    });
+    }));
     await acp
       .request("authenticate", { methodId: "cursor_login" })
       .catch(() => undefined);
@@ -484,6 +486,10 @@ async function prompt(live: Live, input: SendTurnInput): Promise<void> {
 }
 
 function handleNotification(live: Live, method: string, params: unknown) {
+  if (method === "session/update") {
+    const titleEvent = nativeAcpTitleEvent(params, live.acpSessionId);
+    if (titleEvent) { live.onEvent(titleEvent); return; }
+  }
   if (method === "session/update") {
     handleSessionUpdate(live, params);
     return;
@@ -1639,4 +1645,14 @@ export function __cursorTestReset(): void {
   liveByThread.clear();
   resumeByThread.clear();
   cancelledThreads.clear();
+}
+
+export async function readCursorSessionTitle(input: NativeTitleInput): Promise<string | null> {
+  const live = liveByThread.get(input.sessionId);
+  if (!live) {
+    const binary = await resolveCursorBinary();
+    return readAcpTitleInProcess(input, "cursor", { path: binary.path, args: ["acp"] }).catch(() => null);
+  }
+  if (live.acpSessionId !== input.providerSessionId || live.cwd !== input.cwd) return null;
+  return readAcpSessionTitle(live.acp, input.providerSessionId, input.cwd).catch(() => null);
 }

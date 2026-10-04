@@ -1,3 +1,4 @@
+import { manualSessionTitle } from "../src/features/sessions/model/titlePolicy";
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID, createHash, randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
@@ -212,7 +213,7 @@ export class HostStore {
           pinned: patch.pinned ?? current.pinned,
           session: {
             ...current.session,
-            ...(patch.title === undefined ? {} : { title: patch.title.trim() }),
+            ...(patch.title === undefined ? {} : { title: patch.title.trim(), titleState: manualSessionTitle(current.session, patch.title.trim()).titleState }),
             ...(patch.linkedWorkItem === undefined
               ? {}
               : { linkedWorkItem: patch.linkedWorkItem ?? undefined }),
@@ -330,6 +331,7 @@ export function summary(value: HostSession): HostSessionSummary {
     id: value.session.id,
     cwd: value.session.cwd,
     title: value.session.title,
+    titleState: value.session.titleState,
     harness: value.session.harness as RemoteProvider,
     model: value.session.model,
     runtimeMode: value.session.runtimeMode,
