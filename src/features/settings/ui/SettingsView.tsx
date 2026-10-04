@@ -2278,7 +2278,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         description={
           glassDisabled
             ? uiT(
-                "Light mode keeps the main window opaque, but Popover opacity still applies to menus and pickers.",
+                "Light mode keeps the main window opaque, but Popover opacity still applies to menus, pickers, and dialogs.",
               )
             : uiT(
                 "How much of the desktop shows through MonoCode. Blur costs more to composite the higher it goes.",
@@ -2305,7 +2305,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         <Row
           id="popover-opacity"
           label={uiT("Popover opacity")}
-          description={uiT("How much background shows through menus, pickers, and other popovers.")}
+          description={uiT("How much background shows through menus, pickers, dialogs, and other popovers.")}
         >
           <Slider
             label={uiT("Popover opacity")}

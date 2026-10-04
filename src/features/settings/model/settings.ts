@@ -298,7 +298,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     id: "popover-opacity",
     section: "appearance",
     label: "Popover opacity",
-    keywords: "dropdown menu picker glass translucent transparency vibrancy",
+    keywords: "dropdown menu picker dialog modal popup glass translucent transparency vibrancy",
   },
   {
     id: "blur",

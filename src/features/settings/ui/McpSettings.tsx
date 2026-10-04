@@ -249,7 +249,7 @@ function AddServerModal({
             value={name}
             pattern={provider === "opencode" ? undefined : "[A-Za-z0-9_-]*"}
             onChange={(event) => setName(event.target.value)}
-            className="mt-1 block w-full rounded-md border border-stroke bg-background-base px-2 py-1.5 text-sm text-content"
+            className="mt-1 block w-full rounded-md border border-stroke bg-content/5 px-2 py-1.5 text-sm text-content outline-none placeholder:text-content/35 focus:border-accent/50 focus:ring-2 focus:ring-accent/15"
             placeholder="my-server"
           />
         </label>
@@ -261,7 +261,7 @@ function AddServerModal({
             onChange={(event) => setConfig(event.target.value)}
             rows={7}
             spellCheck={false}
-            className="mt-1 block w-full rounded-md border border-stroke bg-background-base px-2 py-1.5 font-mono text-xs text-content"
+            className="mt-1 block w-full rounded-md border border-stroke bg-content/5 px-2 py-1.5 font-mono text-xs text-content outline-none placeholder:text-content/35 focus:border-accent/50 focus:ring-2 focus:ring-accent/15"
             placeholder={
               '{"mcpServers":{"my-server":{"command":"npx","args":["-y","example-mcp"]}}}'
             }

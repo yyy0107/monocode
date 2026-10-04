@@ -74,7 +74,7 @@ export function CreateWorktreeDialog({
     }
   };
   const field =
-    "h-9 rounded-md border border-content/10 bg-background-base px-2.5 text-[13px] outline-none focus:border-content/25 disabled:opacity-50";
+    "h-9 rounded-md border border-content/10 bg-content/5 px-2.5 text-[13px] outline-none focus:border-content/25 disabled:opacity-50";
   return (
     <Modal
       title={uiT("Create worktree")}
@@ -95,6 +95,7 @@ export function CreateWorktreeDialog({
         <div className="flex flex-col gap-1.5 text-[12px] text-content/70">
           <span>{uiT("Branch")}</span>
           <SearchableSelect
+            variant="transparent"
             label={uiT("Branch type")}
             disabled={busy}
             value={existing ? "existing" : "new"}
@@ -116,6 +117,7 @@ export function CreateWorktreeDialog({
           </span>
           {existing ? (
             <SearchableSelect
+              variant="transparent"
               label={uiT("Existing branch")}
               value={name}
               disabled={busy}
@@ -144,6 +146,7 @@ export function CreateWorktreeDialog({
           <div className="flex flex-col gap-1.5 text-[12px] text-content/70">
             <span>{uiT("Start from")}</span>
             <SearchableSelect
+              variant="transparent"
               label={uiT("Start from")}
               value={base}
               disabled={busy}
