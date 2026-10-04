@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QuestionForm } from "./QuestionForm";
+import { setUiLanguage } from "../../../shared/i18n/language";
 import type {
   UserQuestionPrompt,
   UserQuestionReply,
@@ -20,6 +21,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount());
+  setUiLanguage("en");
   container.remove();
   vi.unstubAllGlobals();
 });
@@ -152,5 +154,117 @@ describe("QuestionForm keyboard navigation", () => {
 
     keyDown(options[1], " ");
     expect(options[1].getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
+describe("QuestionForm steps", () => {
+  function twoQuestions(): UserQuestionPrompt {
+    return {
+      requestId: 9,
+      questions: [
+        {
+          id: "colour",
+          prompt: "Pick a colour",
+          multiSelect: false,
+          allowCustom: false,
+          options: [
+            { id: "red", label: "Red" },
+            { id: "green", label: "Green" },
+          ],
+        },
+        {
+          id: "size",
+          prompt: "Pick a size",
+          multiSelect: false,
+          allowCustom: false,
+          options: [
+            { id: "small", label: "Small" },
+            { id: "large", label: "Large" },
+          ],
+        },
+      ],
+    };
+  }
+
+  function button(label: string): HTMLButtonElement {
+    const match = Array.from(container.querySelectorAll("button")).find(
+      (item) => item.textContent?.trim() === label,
+    );
+    if (!match) throw new Error(`No button labelled ${label}`);
+    return match;
+  }
+
+  it("returns to the previous question with its answer and submits the change", () => {
+    const onReply = vi.fn();
+    act(() =>
+      root.render(
+        createElement(QuestionForm, { prompt: twoQuestions(), onReply }),
+      ),
+    );
+    expect(container.textContent).not.toContain("Back");
+
+    act(() => button("Red").click());
+    act(() => button("Continue").click());
+    expect(container.textContent).toContain("Pick a size");
+
+    act(() => button("Back").click());
+    expect(container.textContent).toContain("Pick a colour");
+    expect(button("Red").getAttribute("aria-pressed")).toBe("true");
+
+    act(() => button("Green").click());
+    act(() => button("Continue").click());
+    act(() => button("Large").click());
+    act(() => button("Continue").click());
+
+    expect(onReply).toHaveBeenCalledWith(9, {
+      kind: "answered",
+      answers: { colour: ["green"], size: ["large"] },
+    });
+  });
+
+  it("localizes Back and preserves multiline native input while revisiting answers", () => {
+    setUiLanguage("zh-CN");
+    const onReply = vi.fn();
+    const value = "  first\nsecond  ";
+    const revised = "  edited\nsecond  ";
+    const prompt = twoQuestions();
+    prompt.questions[0] = {
+      id: "editor",
+      prompt: "Edit text",
+      allowCustom: true,
+      multiSelect: false,
+      options: [],
+      input: {
+        kind: "multiline",
+        initialValue: value,
+        preserveWhitespace: true,
+        allowEmpty: true,
+      },
+    };
+    act(() => root.render(createElement(QuestionForm, { prompt, onReply })));
+    expect(container.querySelector("textarea")!.value).toBe(value);
+
+    act(() => button("继续").click());
+    act(() => button("Large").click());
+    act(() => button("返回").click());
+    const editor = container.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(editor.value).toBe(value);
+
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!.call(editor, revised);
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => button("继续").click());
+    expect(button("Large").getAttribute("aria-pressed")).toBe("true");
+    act(() => button("继续").click());
+
+    expect(onReply).toHaveBeenCalledWith(9, {
+      kind: "answered",
+      answers: { editor: ["__custom__"], size: ["large"] },
+      custom: { editor: revised },
+    });
   });
 });
