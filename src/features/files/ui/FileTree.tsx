@@ -1217,7 +1217,7 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
             </span>
           ) : null}
           <span
-            className={`min-w-0 truncate ${
+            className={`min-w-0 truncate leading-label ${
               entry.ignored ? "italic text-content/50" : (gitColor ?? "")
             }`}
           >
