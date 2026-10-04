@@ -1,8 +1,12 @@
 package com.monocode.mobile;
 
 import android.Manifest;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.os.Build;
+import android.os.IBinder;
 import android.provider.Settings;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
@@ -23,7 +27,13 @@ import org.json.JSONObject;
 public final class MonoCodeNotificationsPlugin extends Plugin {
     private static WeakReference<MonoCodeNotificationsPlugin> instance = new WeakReference<>(null);
     private JSObject pendingOpen;
-    @Override public void load() { instance = new WeakReference<>(this); captureOpen(getActivity().getIntent()); }
+    private ServiceConnection receiverConnection;
+    private PluginCall pendingStart;
+    @Override public void load() {
+        instance = new WeakReference<>(this);
+        MobileActivityTracker.clearMonitoringNotification(getContext());
+        captureOpen(getActivity().getIntent());
+    }
     private JSObject permission() {
         JSObject result = new JSObject();
         String display = "granted";
@@ -44,22 +54,83 @@ public final class MonoCodeNotificationsPlugin extends Plugin {
     @PermissionCallback private void permissionResult(PluginCall call) { call.resolve(permission()); }
     @PluginMethod public void openSettings(PluginCall call) {
         Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName());
+        if (Build.VERSION.SDK_INT >= 26 && NotificationManagerCompat.from(getContext()).areNotificationsEnabled()) {
+            try {
+                JSONObject texts = new JSONObject(MobileActivityTracker.preferences(getContext()).getString("texts", "{}"));
+                MobileActivityTracker.channels(getContext(), texts);
+                intent.setAction(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_CHANNEL_ID, MobileActivityTracker.REPLIES);
+            } catch (Exception ignored) { /* App notification settings remain available. */ }
+        }
         getActivity().startActivity(intent); call.resolve();
     }
     @PluginMethod public void start(PluginCall call) {
-        if (!NotificationManagerCompat.from(getContext()).areNotificationsEnabled()) { call.reject("Notifications are disabled"); return; }
         Intent intent = new Intent(getContext(), MonoCodeNotificationService.class)
             .putExtra("endpoint", call.getString("endpoint")).putExtra("token", call.getString("token"))
+            .putExtra("name", call.getString("name")).putExtra("enabled", call.getBoolean("enabled", true))
             .putExtra("environmentId", call.getString("environmentId")).putExtra("texts", call.getObject("texts", new JSObject()).toString());
-        try {
-            if (!MobileActivityTracker.preferences(getContext()).edit().putString("texts", call.getObject("texts", new JSObject()).toString()).commit())
-                throw new IllegalStateException("Unable to save notification preferences");
-            ContextCompat.startForegroundService(getContext(), intent); call.resolve();
+        getActivity().runOnUiThread(() -> {
+            unbindReceiver();
+            if (!NotificationManagerCompat.from(getContext()).areNotificationsEnabled()) { call.reject("Notifications are disabled"); return; }
+            pendingStart = call;
+            ServiceConnection connection = new ServiceConnection() {
+                @Override public void onServiceConnected(ComponentName name, IBinder binder) {
+                    if (receiverConnection != this) return;
+                    try {
+                        // Promote while bound before requesting started lifetime.
+                        // Cancelling a pending bind then needs no FGS startup,
+                        // avoiding Android's startForeground deadline race.
+                        ((MonoCodeNotificationService.ReceiverBinder) binder).start(intent);
+                        ContextCompat.startForegroundService(getContext(), intent);
+                        pendingStart = null;
+                        // Binding only acknowledges promotion. The started
+                        // service owns reception after the activity is closed.
+                        unbindReceiver();
+                        call.resolve();
+                    } catch (Exception error) { failStart(error); }
+                }
+                @Override public void onServiceDisconnected(ComponentName name) {
+                    if (receiverConnection == this) failStart(new IllegalStateException("Activity receiver disconnected"));
+                }
+                @Override public void onNullBinding(ComponentName name) {
+                    if (receiverConnection == this) failStart(new IllegalStateException("Activity receiver unavailable"));
+                }
+                @Override public void onBindingDied(ComponentName name) {
+                    if (receiverConnection == this) failStart(new IllegalStateException("Activity receiver binding ended"));
+                }
+            };
+            try {
+                receiverConnection = connection;
+                if (!getContext().bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
+                    receiverConnection = null;
+                    throw new IllegalStateException("Unable to bind activity receiver");
+                }
+            } catch (Exception error) { failStart(error); }
+        });
+    }
+    private void failStart(Exception error) {
+        PluginCall call = pendingStart;
+        pendingStart = null;
+        unbindReceiver();
+        MonoCodeNotificationService.stop(getContext());
+        if (call != null) call.reject("Unable to receive background conversation updates", error);
+    }
+    private void unbindReceiver() {
+        if (receiverConnection != null) {
+            getContext().unbindService(receiverConnection);
+            receiverConnection = null;
         }
-        catch (Exception error) { call.reject("Unable to receive background conversation updates", error); }
+        if (pendingStart != null) {
+            pendingStart.reject("Activity receiver stopped before connecting");
+            pendingStart = null;
+        }
     }
     @PluginMethod public void stop(PluginCall call) {
-        getContext().stopService(new Intent(getContext(), MonoCodeNotificationService.class)); call.resolve();
+        getActivity().runOnUiThread(() -> {
+            unbindReceiver();
+            MonoCodeNotificationService.stop(getContext());
+            MobileActivityTracker.clearMonitoringNotification(getContext());
+            call.resolve();
+        });
     }
     @PluginMethod public void state(PluginCall call) {
         String environmentId = call.getString("environmentId");
@@ -111,6 +182,7 @@ public final class MonoCodeNotificationsPlugin extends Plugin {
     @Override protected void handleOnPause() { MobileActivityTracker.foreground = false; }
     @Override protected void handleOnResume() { MobileActivityTracker.foreground = true; }
     @Override protected void handleOnDestroy() {
+        unbindReceiver();
         if (instance.get() == this) {
             instance.clear();
             MobileActivityTracker.foreground = false;

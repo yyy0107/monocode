@@ -90,6 +90,7 @@ describe("Android activity notification bridge", () => {
     await render();
     expect(native.start).toHaveBeenCalledWith({
       ...client.connection,
+      enabled: true,
       texts: { reply: "A new reply is ready." },
     });
     const stops = native.stop.mock.calls.length;
@@ -125,7 +126,7 @@ describe("Android activity notification bridge", () => {
       revision: 20,
     });
   });
-  it("routes matching notification clicks, ignores another Host and stops reception when disabled", async () => {
+  it("routes matching notification clicks and preserves the remote service when reply alerts are disabled", async () => {
     await render();
     await act(async () => {
       native.callbacks.get("open")!({
@@ -145,10 +146,37 @@ describe("Android activity notification bridge", () => {
       projectId: "project",
       sessionId: "one",
     });
+    const stops = native.stop.mock.calls.length;
     await act(async () => latest.setNotificationsEnabled(false));
-    expect(native.stop).toHaveBeenCalled();
+    expect(native.stop).toHaveBeenCalledTimes(stops);
+    expect(native.start).toHaveBeenLastCalledWith({
+      ...client.connection,
+      enabled: false,
+      texts: { reply: "A new reply is ready." },
+    });
     expect(localStorage.getItem("monocode.mobileNotifications")).toBe("0");
     expect(latest.unreadIds.has("one")).toBe(true);
+  });
+  it("starts the remote service when alerts were disabled in a previous app session and stops on disconnect", async () => {
+    localStorage.setItem("monocode.mobileNotifications", "0");
+    await render();
+    expect(native.start).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: false, name: "Computer" }),
+    );
+    const stops = native.stop.mock.calls.length;
+    options = { ...options, connected: false };
+    await render();
+    expect(native.stop).toHaveBeenCalledTimes(stops + 1);
+  });
+  it("does not stop an existing native service while restoring the connection or checking permission", async () => {
+    native.permission = "prompt";
+    options = { ...options, connected: false };
+    await render();
+    expect(native.stop).not.toHaveBeenCalled();
+    options = { ...options, connected: true };
+    await render();
+    expect(native.stop).not.toHaveBeenCalled();
+    expect(native.start).not.toHaveBeenCalled();
   });
   it("keeps unread state when service startup fails and reconciles background changes on resume", async () => {
     native.start.mockRejectedValue(new Error("Service denied"));

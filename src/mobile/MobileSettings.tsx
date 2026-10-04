@@ -321,7 +321,12 @@ export function MobileSettings({
             />
           </label>
         </div>
-        {activity.enabled && activity.permission === "prompt" ? (
+        {activity.canOpenSettings ? (
+          <p className="mobile-settings-note">
+            {t("A Remote notification keeps your Host connection active after you leave the app. Disconnect to stop it.")}
+          </p>
+        ) : null}
+        {(activity.enabled || activity.canOpenSettings) && activity.permission === "prompt" ? (
           <div className="mobile-settings-row">
             <button
               className="mobile-button"
@@ -330,7 +335,7 @@ export function MobileSettings({
               {t("Allow notifications")}
             </button>
           </div>
-        ) : activity.enabled && activity.permission === "denied" ? (
+        ) : (activity.enabled || activity.canOpenSettings) && activity.permission === "denied" ? (
           <div className="mobile-settings-row mobile-settings-note">
             <span className="mobile-muted">
               {t("Notifications are blocked in system settings.")}
@@ -343,6 +348,18 @@ export function MobileSettings({
                 {t("Open settings")}
               </button>
             ) : null}
+          </div>
+        ) : null}
+        {activity.enabled &&
+        activity.permission === "granted" &&
+        activity.canOpenSettings ? (
+          <div className="mobile-settings-row">
+            <button
+              className="mobile-button"
+              onClick={() => void activity.openSettings()}
+            >
+              {t("Notification settings…")}
+            </button>
           </div>
         ) : null}
         {activity.notificationError ? (

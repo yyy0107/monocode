@@ -6,8 +6,10 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
+import android.provider.Settings;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import com.getcapacitor.JSArray;
@@ -20,8 +22,10 @@ import java.util.List;
 
 final class MobileActivityTracker {
     static final String REPLIES = "monocode-replies";
-    static final String MONITORING = "monocode-monitoring";
-    static volatile boolean foreground = true;
+    private static final String LEGACY_MONITORING = "monocode-monitoring";
+    private static final int LEGACY_MONITORING_ID = 9041;
+    // A sticky service may create the process without an activity/WebView.
+    static volatile boolean foreground = false;
     static String visibleEnvironment, visibleSession;
 
     static SharedPreferences preferences(Context context) {
@@ -107,12 +111,21 @@ final class MobileActivityTracker {
         return result(environmentId, state);
     }
     static void channels(Context context, JSONObject texts) {
+        clearMonitoringNotification(context);
         if (Build.VERSION.SDK_INT < 26) return;
         NotificationManager manager = context.getSystemService(NotificationManager.class);
-        manager.createNotificationChannel(new NotificationChannel(REPLIES, texts.optString("channel", "Conversation notifications"), NotificationManager.IMPORTANCE_HIGH));
-        NotificationChannel monitoring = new NotificationChannel(MONITORING, texts.optString("monitoring", "Receiving conversation updates"), NotificationManager.IMPORTANCE_LOW);
-        monitoring.setSound(null, null);
-        manager.createNotificationChannel(monitoring);
+        NotificationChannel replies = new NotificationChannel(REPLIES, texts.optString("channel", "Conversation notifications"), NotificationManager.IMPORTANCE_HIGH);
+        replies.enableVibration(true);
+        replies.setSound(Settings.System.DEFAULT_NOTIFICATION_URI, new AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+        // Existing channels retain the user's choices; Android owns their
+        // importance, sound, vibration and popup settings after creation.
+        manager.createNotificationChannel(replies);
+    }
+    static void clearMonitoringNotification(Context context) {
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        manager.cancel(LEGACY_MONITORING_ID);
+        if (Build.VERSION.SDK_INT >= 26) manager.deleteNotificationChannel(LEGACY_MONITORING);
     }
     static PendingIntent openIntent(Context context, String environmentId, String projectId, String sessionId) {
         Intent intent = new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -125,6 +138,7 @@ final class MobileActivityTracker {
         NotificationCompat.Builder notification = new NotificationCompat.Builder(context, REPLIES)
             .setSmallIcon(R.drawable.ic_stat_monocode).setContentTitle(notice.activity.title.isEmpty() ? "MonoCode" : notice.activity.title)
             .setContentText(body).setCategory(NotificationCompat.CATEGORY_MESSAGE).setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_SOUND | NotificationCompat.DEFAULT_VIBRATE)
             .setAutoCancel(true).setContentIntent(openIntent(context, environmentId, notice.activity.projectId, notice.activity.id));
         try { NotificationManagerCompat.from(context).notify(environmentId + ":" + notice.activity.id, 1, notification.build()); }
         catch (SecurityException ignored) { /* Permission can be revoked after the check. */ }

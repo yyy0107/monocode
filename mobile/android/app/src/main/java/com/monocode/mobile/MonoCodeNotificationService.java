@@ -1,12 +1,21 @@
 package com.monocode.mobile;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
+import android.os.Binder;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.ServiceCompat;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.net.HttpURLConnection;
@@ -16,69 +25,163 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-/** Transfers Host-owned conversation activity while the WebView is suspended. */
+/** A started foreground receiver continues independently of the activity/WebView. */
 public final class MonoCodeNotificationService extends Service {
-    private static final int NOTIFICATION_ID = 9041;
+    static final String REMOTE_CHANNEL = "monocode-remote";
+    static final int REMOTE_ID = 9042;
+    private static final String ACTIVE = "remote-active";
+    private static final String ENDPOINT = "remote-endpoint";
+    private static final String ENVIRONMENT = "remote-environment";
+    private static final String ALERTS = "remote-alerts";
+    private final Handler main = new Handler(Looper.getMainLooper());
     private ScheduledExecutorService executor;
     private volatile Config config;
     private volatile HttpURLConnection request;
     private int failures;
+    private boolean connected;
+
+    final class ReceiverBinder extends Binder {
+        void start(Intent intent) throws Exception { configure(intent, false); }
+    }
     private static final class Config {
-        final String endpoint, token, environmentId;
+        final String endpoint, token, environmentId, name;
         final JSONObject texts;
+        final boolean alerts;
         Config(Intent intent) throws Exception {
             endpoint = intent.getStringExtra("endpoint"); token = intent.getStringExtra("token"); environmentId = intent.getStringExtra("environmentId");
             URI uri = new URI(endpoint);
             if (!("http".equals(uri.getScheme()) || "https".equals(uri.getScheme())) || uri.getHost() == null
                 || uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null
-                || !(uri.getPath().isEmpty() || "/".equals(uri.getPath())) || token == null || !token.matches("[A-Za-z0-9_-]+") || environmentId == null)
+                || !(uri.getPath().isEmpty() || "/".equals(uri.getPath())) || token == null || !token.matches("[A-Za-z0-9_-]+")
+                || environmentId == null || environmentId.isEmpty())
                 throw new IllegalArgumentException("Invalid notification connection");
+            String host = intent.getStringExtra("name");
+            name = host == null || host.isEmpty() ? uri.getHost() : host;
             texts = new JSONObject(intent.getStringExtra("texts"));
+            alerts = intent.getBooleanExtra("enabled", true);
         }
+    }
+    private static void deactivate(Context context) {
+        MobileActivityTracker.preferences(context).edit().remove(ACTIVE).remove(ENDPOINT).remove(ENVIRONMENT).commit();
+    }
+    static void stop(Context context) {
+        // Deactivate first so a concurrent system restart cannot restore a
+        // deliberately disconnected receiver. No credential is stored here.
+        deactivate(context);
+        context.stopService(new Intent(context, MonoCodeNotificationService.class));
+        context.getSystemService(NotificationManager.class).cancel(REMOTE_ID);
+    }
+    static Intent restoreIntent(Context context) throws Exception {
+        SharedPreferences saved = MobileActivityTracker.preferences(context);
+        if (!saved.getBoolean(ACTIVE, false)) return null;
+        String value = MonoCodeCredentialsPlugin.read(context, "connection");
+        if (value == null) return null;
+        JSONObject connection = new JSONObject(value);
+        if (!connection.getString("endpoint").equals(saved.getString(ENDPOINT, null))
+            || !connection.getString("environmentId").equals(saved.getString(ENVIRONMENT, null))) return null;
+        return new Intent(context, MonoCodeNotificationService.class)
+            .putExtra("endpoint", connection.getString("endpoint")).putExtra("token", connection.getString("token"))
+            .putExtra("environmentId", connection.getString("environmentId")).putExtra("name", connection.optString("name"))
+            .putExtra("texts", saved.getString("texts", "{}")).putExtra("enabled", saved.getBoolean(ALERTS, true));
     }
     @Override public void onCreate() {
         super.onCreate();
         executor = Executors.newSingleThreadScheduledExecutor();
+        executor.execute(this::poll);
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         try {
-            if (intent == null || !NotificationManagerCompat.from(this).areNotificationsEnabled()) { stopSelf(); return START_NOT_STICKY; }
-            Config next = new Config(intent);
-            boolean first = config == null;
-            config = next;
-            MobileActivityTracker.channels(this, next.texts);
-            NotificationCompat.Builder notification = new NotificationCompat.Builder(this, MobileActivityTracker.MONITORING)
-                .setSmallIcon(R.drawable.ic_stat_monocode).setContentTitle(next.texts.optString("monitoring", "Receiving conversation updates"))
-                .setContentText(next.texts.optString("monitoringBody", "New replies will notify you while MonoCode is in the background."))
-                .setOngoing(true).setSilent(true).setContentIntent(MobileActivityTracker.openIntent(this, next.environmentId, null, null));
-            if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIFICATION_ID, notification.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING);
-            else startForeground(NOTIFICATION_ID, notification.build());
-            if (first) executor.execute(this::poll);
-        } catch (Exception error) { config = null; stopSelf(); }
-        return START_NOT_STICKY;
+            boolean restoring = intent == null;
+            if (restoring) intent = restoreIntent(this);
+            if (intent == null) { stopReceiving(); return START_NOT_STICKY; }
+            configure(intent, restoring);
+            return START_STICKY;
+        } catch (Exception error) {
+            stopReceiving();
+            return START_NOT_STICKY;
+        }
+    }
+    private void configure(Intent intent, boolean restoring) throws Exception {
+        Config next = new Config(intent);
+        if (!NotificationManagerCompat.from(this).areNotificationsEnabled())
+            throw new IllegalStateException("Notifications are disabled");
+        Config previous = config;
+        boolean sameConnection = previous != null && previous.endpoint.equals(next.endpoint)
+            && previous.environmentId.equals(next.environmentId) && previous.token.equals(next.token);
+        if (!MobileActivityTracker.preferences(this).edit().putBoolean(ACTIVE, true)
+            .putString(ENDPOINT, next.endpoint).putString(ENVIRONMENT, next.environmentId)
+            .putString("texts", next.texts.toString()).putBoolean(ALERTS, next.alerts).commit())
+            throw new IllegalStateException("Unable to save remote connection preferences");
+        config = next;
+        if (!sameConnection) { failures = 0; connected = !restoring; }
+        if (request != null) request.disconnect();
+        remoteChannel(next);
+        ServiceCompat.startForeground(this, REMOTE_ID, notification(next, connected),
+            Build.VERSION.SDK_INT >= 34 ? ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING : 0);
+    }
+    private void remoteChannel(Config current) {
+        MobileActivityTracker.clearMonitoringNotification(this);
+        if (Build.VERSION.SDK_INT < 26) return;
+        NotificationChannel channel = new NotificationChannel(REMOTE_CHANNEL,
+            current.texts.optString("remoteChannel", "Remote connection"), NotificationManager.IMPORTANCE_LOW);
+        channel.setSound(null, null); channel.enableVibration(false); channel.setShowBadge(false);
+        getSystemService(NotificationManager.class).createNotificationChannel(channel);
+    }
+    private Notification notification(Config current, boolean available) {
+        return new NotificationCompat.Builder(this, REMOTE_CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_monocode).setContentTitle(current.texts.optString("remote", "Remote"))
+            .setContentText(current.texts.optString(available ? "connected" : "reconnecting",
+                (available ? "Connected to " : "Reconnecting to ") + current.name))
+            .setContentIntent(MobileActivityTracker.openIntent(this, current.environmentId, null, null))
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE).setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true).setOnlyAlertOnce(true).setSilent(true).setShowWhen(false).build();
+    }
+    private void setConnected(Config current, boolean available) {
+        main.post(() -> {
+            if (config != current || connected == available) return;
+            connected = available;
+            try { NotificationManagerCompat.from(this).notify(REMOTE_ID, notification(current, available)); }
+            catch (SecurityException ignored) { stopReceiving(); }
+        });
+    }
+    private void stopReceiving() {
+        deactivate(this);
+        config = null;
+        if (request != null) request.disconnect();
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
+        stopSelf();
+    }
+    private void stopIfCurrent(Config current) {
+        main.post(() -> { if (config == current) stopReceiving(); });
     }
     private void poll() {
         Config current = config;
-        if (current == null || executor.isShutdown()) return;
-        if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) { stopSelf(); return; }
         try {
+            if (current == null || executor.isShutdown()) return;
+            if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) { stopIfCurrent(current); return; }
+            JSONObject activity = rpc(current);
+            if (config != current) return;
+            if (!current.environmentId.equals(activity.getString("environmentId"))) { stopIfCurrent(current); return; }
+            setConnected(current, true);
             if (!MobileActivityTracker.foreground) {
-                JSONObject activity = rpc(current);
-                if (config != current) return;
-                if (!current.environmentId.equals(activity.getString("environmentId"))) { config = null; stopSelf(); return; }
-                JSONObject result = MobileActivityTracker.observe(this, current.environmentId, activity.getJSONArray("sessions"), true, current.texts);
+                JSONObject result = MobileActivityTracker.observe(this, current.environmentId, activity.getJSONArray("sessions"), current.alerts, current.texts);
                 MonoCodeNotificationsPlugin.publishUnread(result);
             }
             failures = 0;
-        } catch (ConnectionRejectedException error) { config = null; stopSelf(); return; }
-        catch (Exception ignored) { failures = Math.min(failures + 1, 4); }
-        finally {
-            if (config != null && !executor.isShutdown()) executor.schedule(this::poll, failures == 0 ? 5 : Math.min(60, 5L << failures), TimeUnit.SECONDS);
+        } catch (ConnectionRejectedException error) { stopIfCurrent(current); }
+        catch (Exception ignored) {
+            if (config == current && current != null) {
+                failures = Math.min(failures + 1, 4);
+                setConnected(current, false);
+            }
+        } finally {
+            if (!executor.isShutdown()) executor.schedule(this::poll, failures == 0 ? 5 : Math.min(60, 5L << failures), TimeUnit.SECONDS);
         }
     }
     private static final class ConnectionRejectedException extends Exception {}
     private JSONObject rpc(Config current) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URI(current.endpoint + "/rpc").toURL().openConnection();
+        HttpURLConnection connection = (HttpURLConnection) new URI(current.endpoint.replaceAll("/$", "") + "/rpc").toURL().openConnection();
         request = connection;
         try {
             connection.setInstanceFollowRedirects(false);
@@ -106,8 +209,9 @@ public final class MonoCodeNotificationService extends Service {
         config = null;
         if (request != null) request.disconnect();
         if (executor != null) executor.shutdownNow();
-        stopForeground(STOP_FOREGROUND_REMOVE);
+        main.removeCallbacksAndMessages(null);
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
         super.onDestroy();
     }
-    @Override public IBinder onBind(Intent intent) { return null; }
+    @Override public IBinder onBind(Intent intent) { return new ReceiverBinder(); }
 }

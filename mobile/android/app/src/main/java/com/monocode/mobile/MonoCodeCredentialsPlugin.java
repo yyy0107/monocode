@@ -32,7 +32,7 @@ public class MonoCodeCredentialsPlugin extends Plugin {
         }
         return key;
     }
-    private SecretKey secret() throws Exception {
+    private static synchronized SecretKey secret() throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore");
         store.load(null);
         if (store.containsAlias(ALIAS)) return (SecretKey) store.getKey(ALIAS, null);
@@ -43,21 +43,24 @@ public class MonoCodeCredentialsPlugin extends Plugin {
             .setRandomizedEncryptionRequired(true).build());
         return generator.generateKey();
     }
+    static String read(Context context, String key) throws Exception {
+        String stored = context.getSharedPreferences("monocode-credentials", Context.MODE_PRIVATE).getString(key, null);
+        if (stored == null) return null;
+        String[] parts = stored.split(":", 2);
+        if (parts.length != 2) throw new Exception("Invalid stored credential");
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE, secret(), new GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)));
+        cipher.updateAAD(key.getBytes(StandardCharsets.UTF_8));
+        return new String(cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)), StandardCharsets.UTF_8);
+    }
     @PluginMethod
     public synchronized void get(PluginCall call) {
         String key = key(call);
         if (key == null) return;
         try {
             JSObject result = new JSObject();
-            String stored = preferences().getString(key, null);
-            if (stored != null) {
-                String[] parts = stored.split(":", 2);
-                if (parts.length != 2) throw new Exception("Invalid stored credential");
-                Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-                cipher.init(Cipher.DECRYPT_MODE, secret(), new GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)));
-                cipher.updateAAD(key.getBytes(StandardCharsets.UTF_8));
-                result.put("value", new String(cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)), StandardCharsets.UTF_8));
-            }
+            String value = read(getContext(), key);
+            if (value != null) result.put("value", value);
             call.resolve(result);
         } catch (Exception error) { call.reject("Unable to read secure storage", error); }
     }
@@ -81,7 +84,10 @@ public class MonoCodeCredentialsPlugin extends Plugin {
     public synchronized void remove(PluginCall call) {
         String key = key(call);
         if (key == null) return;
-        if (preferences().edit().remove(key).commit()) call.resolve();
+        if (preferences().edit().remove(key).commit()) {
+            if ("connection".equals(key)) MonoCodeNotificationService.stop(getContext());
+            call.resolve();
+        }
         else call.reject("Unable to remove secure storage");
     }
 }

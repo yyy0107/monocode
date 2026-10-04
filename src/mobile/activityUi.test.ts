@@ -10,6 +10,7 @@ const mocked = vi.hoisted(() => ({
   summaries: [] as HostSessionSummary[],
   permission: "granted",
   notify: vi.fn(),
+  openSettings: vi.fn(async () => {}),
   session: vi.fn(),
   status: { state: "connected" as const },
   updateSession: vi.fn(),
@@ -64,6 +65,7 @@ vi.mock("./notifications", () => ({
     observe: async () => ({ environmentId: "host", unreadIds: [] }),
     start: async () => {},
     stop: async () => {},
+    openSettings: mocked.openSettings,
   },
   mobileNotificationPermission: async () => mocked.permission,
   mobileNotificationTexts: () => ({}),
@@ -94,6 +96,7 @@ beforeEach(() => {
   mocked.native = false;
   mocked.nativeUnread = undefined;
   mocked.notify.mockClear();
+  mocked.openSettings.mockClear();
   mocked.summaries = [summary(), summary("two", "other-project")];
   mocked.updateSession.mockReset().mockImplementation(async (_projectId: string, id: string, patch: object) => {
     mocked.summaries = mocked.summaries.map(row => row.id === id ? { ...row, ...patch, revision: row.revision + 1 } : row);
@@ -153,6 +156,20 @@ async function updateReply(id = "one") {
   });
 }
 describe("mobile unread indicators and notification navigation", () => {
+  it("opens native conversation notification settings after permission is already granted", async () => {
+    mocked.native = true;
+    await clickProject();
+    await act(async () => {
+      node.querySelector<HTMLButtonElement>(".mobile-drawer-settings")!.click();
+    });
+    const notificationSettings = [...node.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Notification settings…");
+    expect(notificationSettings).toBeDefined();
+    await act(async () => notificationSettings!.click());
+    expect(mocked.openSettings).toHaveBeenCalledOnce();
+    await act(async () => setUiLanguage("zh-CN"));
+    expect(notificationSettings!.textContent).toBe("通知设置…");
+  });
   const menuButton = (label: string) => [...node.querySelectorAll<HTMLButtonElement>(".mobile-session-actions button")]
     .find(button => button.textContent?.trim() === label)!;
   const holdSession = async (id: string) => {

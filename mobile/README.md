@@ -92,14 +92,36 @@ tapping a reply notification opens its project and conversation. Repeated polls
 do not repeat a banner, including when another queued turn immediately starts.
 Disabling notifications or denying permission preserves unread dots.
 
-Android shows a quiet ongoing “Receiving conversation updates” notification
-while the background receiver runs. It uses the existing Host URL/device token,
-does not require a cloud push provider, and does not persist another credential
-copy. The matching Host must support `sessions.activity`. Host identity changes
-and revoked credentials stop reception; network failures retry with backoff.
-Android force-stop or power/network restrictions can suspend reception until the
-app is opened again. See Android's [notification permission](https://developer.android.com/develop/ui/compose/notifications/notification-permission)
-and [remote messaging service](https://developer.android.com/develop/background-work/services/fgs/service-types#remote-messaging)
+While connected with Android notification permission, a silent ongoing **Remote**
+card shows **Connected to {computer name}** (or **Reconnecting to {computer name}**
+when the network is unavailable). Tap it to return to MonoCode. The native
+foreground receiver continues after Home, Android Back/closing the page, and
+removing the app's recent task. **Disconnect** stops reception and removes the
+card. The **System notifications** switch controls reply/input alerts separately;
+turning it off keeps the Remote card and background connection active.
+
+Old monitoring notifications and their channel are removed. The Remote card uses
+its own low-importance channel without sound or vibration. Completed replies and
+input requests use a high
+importance channel with sound and vibration to request heads-up banners. The
+**Notification settings…** button opens that channel's system settings so you can
+allow floating/pop-up notifications. Existing channel preferences, Do Not Disturb
+and manufacturer settings still control whether a banner appears.
+
+The receiver uses the existing Host URL/device token, requires no cloud push
+provider, and does not persist another credential copy. A system-restarted service
+uses the connection already in encrypted secure storage, checks its pinned Host
+identity and resumes reception. The matching Host must
+support `sessions.activity`. Host identity changes and revoked credentials stop
+reception; network failures retry with backoff and update the Remote card. Revoking
+system notification permission also stops the receiver. Android force-stop, the
+system Active apps Stop button, reboot and manufacturer power/network restrictions
+can stop or suspend reception; reopening the app reconciles missed unread replies.
+Foreground services are subject to Android's system policies, including notification
+dismissal on newer Android versions. There is no boot auto-start or power-policy
+bypass. See Android's [foreground service types](https://developer.android.com/develop/background-work/services/fgs/service-types),
+[user stopping](https://developer.android.com/develop/background-work/services/fgs/handle-user-stopping)
+and [notification channel](https://developer.android.com/develop/ui/compose/notifications/channels)
 documentation.
 
 Browser previews use permission-granted browser notifications while polling is

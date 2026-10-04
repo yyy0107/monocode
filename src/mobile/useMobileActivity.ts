@@ -47,6 +47,7 @@ export function useMobileActivity(
   const [permission, setPermission] =
     useState<MobileNotificationPermission>("prompt");
   const [notificationError, setNotificationError] = useState("");
+  const hadConnection = useRef(false);
   const activity = useRef<MobileActivity | undefined>(undefined);
   const current = useRef({ ...options, environmentId, enabled, permission });
   current.current = { ...options, environmentId, enabled, permission };
@@ -108,7 +109,6 @@ export function useMobileActivity(
       if (
         next === "prompt" &&
         connected &&
-        enabled &&
         nativeActivityNotifications()
       )
         next = await mobileNotificationPermission(true);
@@ -121,12 +121,21 @@ export function useMobileActivity(
 
   useEffect(() => {
     if (!nativeActivityNotifications()) return;
-    if (!connected || !enabled || permission !== "granted") {
+    // Initial restoration and permission checks may run while a native service
+    // from the previous activity is still receiving updates.
+    if (!connected) {
+      if (hadConnection.current) void MobileNotifications.stop().catch(() => {});
+      hadConnection.current = false;
+      return;
+    }
+    hadConnection.current = true;
+    if (permission === "denied" || permission === "unsupported") {
       void MobileNotifications.stop().catch(() => {});
-    } else if (foreground && client.connection) {
+    } else if (permission === "granted" && foreground && client.connection) {
       void MobileNotifications.start({
         ...client.connection,
-        texts: mobileNotificationTexts(),
+        enabled,
+        texts: mobileNotificationTexts(client.connection.name),
       })
         .then(() => setNotificationError(""))
         .catch(() =>
@@ -143,6 +152,7 @@ export function useMobileActivity(
     foreground,
     language,
     client,
+    client.connection,
   ]);
 
   useEffect(() => {

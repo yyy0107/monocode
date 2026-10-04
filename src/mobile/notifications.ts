@@ -19,7 +19,10 @@ export interface MobileNotificationsPlugin {
   checkPermissions(): Promise<{ display: MobileNotificationPermission }>;
   requestPermissions(): Promise<{ display: MobileNotificationPermission }>;
   openSettings(): Promise<void>;
-  start(options: Connection & { texts: Record<string, string> }): Promise<void>;
+  start(options: Connection & {
+    enabled?: boolean;
+    texts: Record<string, string>;
+  }): Promise<void>;
   stop(): Promise<void>;
   observe(options: {
     environmentId: string;
@@ -51,15 +54,15 @@ export const MobileNotifications = registerPlugin<MobileNotificationsPlugin>(
 export const nativeActivityNotifications = () =>
   Capacitor.getPlatform() === "android";
 
-export function mobileNotificationTexts(): Record<string, string> {
+export function mobileNotificationTexts(host = ""): Record<string, string> {
   return {
     channel: translate("Conversation notifications"),
-    monitoring: translate("Receiving conversation updates"),
-    monitoringBody: translate(
-      "New replies will notify you while MonoCode is in the background.",
-    ),
     reply: translate("A new reply is ready."),
     input: translate("This conversation needs your input."),
+    remoteChannel: translate("Remote connection"),
+    remote: translate("Remote"),
+    connected: translate("Connected to {host}", { host }),
+    reconnecting: translate("Reconnecting to {host}", { host }),
   };
 }
 export async function mobileNotificationPermission(
