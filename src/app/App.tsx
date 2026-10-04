@@ -7648,6 +7648,8 @@ function Workspace({
     const timers: number[] = [];
     const scheduled = new Set<string>();
     for (const session of sessions) {
+      // The Host owns these queues, including shared projects with local paths.
+      if (!session.inboxAsk && !session.nativeSession && remoteProjectFor(session.cwd)) continue;
       const queued = session.queuedMessages ?? [];
       if (session.busy || queued.length === 0) continue;
 

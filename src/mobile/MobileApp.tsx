@@ -492,6 +492,7 @@ export function MobileApp() {
       busy ||
       pending ||
       readingAttachments ||
+      !!snapshot?.session.nativeSession ||
       (snapshot?.status === "running" && !snapshot.supportsQueue)
     )
       return;
@@ -1008,7 +1009,7 @@ export function MobileApp() {
               <MessageQueue
                 key={snapshot?.session.id}
                 {...queue}
-                disabled={busy || !!pending || loading}
+                disabled={!!snapshot?.session.nativeSession || busy || !!pending || loading}
               />
             }
             value={draft}
@@ -1019,6 +1020,7 @@ export function MobileApp() {
             catalog={catalog}
             lockedAgent={!!sessionId}
             disabled={
+              !!snapshot?.session.nativeSession ||
               busy ||
               !!pending ||
               (running && !snapshot?.supportsQueue) ||
@@ -1029,6 +1031,7 @@ export function MobileApp() {
             working={busy || readingAttachments}
             running={running}
             canSend={
+              !snapshot?.session.nativeSession &&
               !busy &&
               !pending &&
               !readingAttachments &&
