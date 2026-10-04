@@ -157,6 +157,12 @@
   overflow: auto;
   padding: 24px 18px;
 }
+.mobile-app[data-view="sessions"] > .mobile-content {
+  scrollbar-width: none;
+}
+.mobile-app[data-view="sessions"] > .mobile-content::-webkit-scrollbar {
+  display: none;
+}
 .mobile-connections {
   padding-top: 38px;
 }
