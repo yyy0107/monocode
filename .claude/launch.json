@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "mobile", "runtimeExecutable": "npm", "runtimeArgs": ["run", "mobile:dev"], "port": 1425 }
+  ]
+}
