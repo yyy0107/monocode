@@ -29,6 +29,7 @@ import {
   toCodexApprovalDecision,
   type CodexApprovalKind,
 } from "./codexProtocol";
+import { isTauri } from "@tauri-apps/api/core";
 import { JsonRpcClient, type JsonRpcId } from "../../core/jsonRpc";
 import { deleteGeneratedImages, saveGeneratedImage } from "../../../../platform/tauri/fs";
 import { codexQuestions, codexQuestionResponse } from "./codexQuestions";
@@ -873,6 +874,12 @@ async function materializeGeneratedImage(
   live: Live,
   event: Extract<HarnessEvent, { type: "image.generated"; data: string }>,
 ): Promise<void> {
+  // The headless Host persists the raw bytes itself; only the desktop app can
+  // reach the Tauri image store.
+  if (!(typeof isTauri === "function" && isTauri())) {
+    live.onEvent(event);
+    return;
+  }
   const turnGeneration = live.turnGeneration;
   try {
     const asset = await saveGeneratedImage({

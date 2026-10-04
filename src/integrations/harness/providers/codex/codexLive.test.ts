@@ -14,6 +14,12 @@ const saveGeneratedImage = vi.hoisted(() =>
   })),
 );
 const deleteGeneratedImages = vi.hoisted(() => vi.fn(async () => undefined));
+const isTauri = vi.hoisted(() => vi.fn(() => true));
+
+vi.mock("@tauri-apps/api/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tauri-apps/api/core")>()),
+  isTauri,
+}));
 
 vi.mock("../../core/child", () => ({
   resolveCodexBinary: async () => ({ path: "/fake/codex" }),
@@ -284,6 +290,33 @@ describe("codex live turn sequence", () => {
         },
       },
     ]);
+  });
+
+  it("passes raw image bytes through for the headless Host to persist", async () => {
+    isTauri.mockReturnValueOnce(false);
+    const { events, turn } = await startTurn("codex-live");
+
+    notify("item/completed", {
+      item: {
+        id: "image_1",
+        type: "imageGeneration",
+        result: "aW1hZ2U=",
+        revisedPrompt: "A clean product photo",
+      },
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+
+    expect(saveGeneratedImage).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "image.generated",
+        itemId: "image_1",
+        data: "aW1hZ2U=",
+        name: "generated-image",
+      }),
+    );
+    expect(events.some((event) => event.type === "session.error")).toBe(false);
   });
 
   it("keeps later notifications ordered after delayed image materialization", async () => {
