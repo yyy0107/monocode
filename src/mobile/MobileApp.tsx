@@ -30,6 +30,7 @@ import {
   type QueuedMessage,
 } from "../features/sessions/model/session";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
+import { pendingSessionInputKey } from "../features/sessions/model/sessionActivity";
 import type {
   HostProject,
   HostSession,
@@ -57,6 +58,7 @@ import { MobileSelect } from "./MobileSelect";
 import { MobileSheet } from "./MobileSheet";
 import { formatMobileRelativeTime } from "./relativeTime";
 import { sortMobileSessions } from "./sessionList";
+import { useMobileActivity } from "./useMobileActivity";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { useHostConnectionStatus } from "./useHostConnectionStatus";
 import { useTranslation } from "../shared/i18n/useTranslation";
@@ -409,6 +411,28 @@ export function MobileApp() {
       if (navigation.current === turn) setLoading(false);
     }
   };
+  const activity = useMobileActivity(client, {
+    connected,
+    foreground,
+    visibleSession: view === "chat" && !loading && snapshot && snapshot.session.id === sessionId
+      ? { id: snapshot.session.id, revision: snapshot.revision,
+          lastCompletedRunId: snapshot.lastCompletedRunId, pendingInputKey: pendingSessionInputKey(snapshot.session, snapshot.runId) }
+      : undefined,
+    language,
+    onOpen: async (target) => {
+      const openedAt = navigation.current;
+      try {
+        const items = await client.projects();
+        const owningProject = items.find((item) => item.id === target.projectId);
+        if (!owningProject || client.connection?.environmentId !== target.environmentId || navigation.current !== openedAt) return;
+        setProjects(items);
+        const projectNavigation = navigation.current + 1;
+        await openProject(owningProject);
+        if (navigation.current !== projectNavigation) return;
+        await openSession(target.sessionId);
+      } catch (problem) { setError(message(problem)); }
+    },
+  });
   const dispatch = useCallback(
     async (command?: HostCommand, text?: string | MobileFirstMessage) => {
       setBusy(true);
@@ -944,6 +968,33 @@ export function MobileApp() {
               ]}
             />
           </div>
+          <div className="mobile-notification-settings">
+            <label className="mobile-appearance">
+              <span>{t("System notifications")}</span>
+              <input
+                type="checkbox"
+                checked={activity.enabled}
+                disabled={activity.permission === "unsupported"}
+                onChange={(event) => void activity.setNotificationsEnabled(event.currentTarget.checked)}
+              />
+            </label>
+            <p className="mobile-muted">
+              {activity.permission === "unsupported"
+                ? t("System notifications are unavailable on this platform.")
+                : t("Notify when a new reply is ready or a conversation needs your input.")}
+            </p>
+            {activity.enabled && activity.permission === "prompt" ? (
+              <button className="mobile-button" onClick={() => void activity.requestPermission()}>
+                {t("Allow notifications")}
+              </button>
+            ) : activity.enabled && activity.permission === "denied" ? (
+              <p className="mobile-muted">
+                {t("Notifications are blocked in system settings.")}{" "}
+                {activity.canOpenSettings ? <button className="mobile-button" onClick={() => void activity.openSettings()}>{t("Open settings")}</button> : null}
+              </p>
+            ) : null}
+            {activity.notificationError ? <p className="mobile-error" role="status">{activity.notificationError}</p> : null}
+          </div>
           <MobileAppUpdates state={appUpdates} />
         </main>
       ) : view === "projects" ? (
@@ -1025,6 +1076,9 @@ export function MobileApp() {
                           language,
                         )}
                       </span>
+                      {activity.unreadIds.has(item.id) ? (
+                        <span className="mobile-unread-dot" role="img" aria-label={t("Unread reply")} />
+                      ) : null}
                     </small>
                   </span>
                 </button>

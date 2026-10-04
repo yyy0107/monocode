@@ -398,6 +398,21 @@
 .mobile-attention-dot {
   background: #dcaa57;
 }
+.mobile-unread-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #53ba87;
+  flex-shrink: 0;
+}
+.mobile-notification-settings {
+  margin-top: 22px;
+}
+.mobile-notification-settings .mobile-muted {
+  margin-top: 8px;
+  font-size: 12px;
+}
 .mobile-section-label {
   display: flex;
   justify-content: space-between;

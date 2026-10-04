@@ -2008,5 +2008,18 @@
   "Queued attachments ({count})": "排队附件（{count} 个）",
   "Edit message": "编辑消息",
   "Use as steering": "改为引导",
-  "Cancel message send": "取消消息发送"
+  "Cancel message send": "取消消息发送",
+  "System notifications": "系统通知",
+  "Unread reply": "未读回复",
+  "Conversation notifications": "对话通知",
+  "Receiving conversation updates": "正在接收对话更新",
+  "New replies will notify you while MonoCode is in the background.": "MonoCode 在后台时也会提醒你收到的新回复。",
+  "A new reply is ready.": "收到了一条新回复。",
+  "This conversation needs your input.": "这个对话需要你处理。",
+  "Notify when a new reply is ready or a conversation needs your input.": "收到新回复或对话需要你处理时发送通知。",
+  "System notifications are unavailable on this platform.": "当前平台暂不支持系统通知。",
+  "Allow notifications": "允许通知",
+  "Notifications are blocked in system settings.": "系统设置已关闭通知。",
+  "Unable to receive background conversation updates.": "无法接收后台对话更新。",
+  "Open settings": "打开设置"
 }

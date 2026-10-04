@@ -1,0 +1,135 @@
+package com.monocode.mobile;
+
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.net.Uri;
+import android.os.Build;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
+import com.getcapacitor.JSArray;
+import com.getcapacitor.JSObject;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+import java.util.ArrayList;
+import java.util.List;
+
+final class MobileActivityTracker {
+    static final String REPLIES = "monocode-replies";
+    static final String MONITORING = "monocode-monitoring";
+    static volatile boolean foreground = true;
+    static String visibleEnvironment, visibleSession;
+
+    static SharedPreferences preferences(Context context) {
+        return context.getSharedPreferences("monocode-session-activity", Context.MODE_PRIVATE);
+    }
+    private static SessionActivityState read(Context context, String environmentId) {
+        SessionActivityState state = new SessionActivityState();
+        try {
+            JSONObject stored = new JSONObject(preferences(context).getString("state:" + environmentId, "{}"));
+            state.initialized = stored.optBoolean("initialized");
+            JSONObject entries = stored.optJSONObject("entries");
+            if (entries != null) for (java.util.Iterator<String> it = entries.keys(); it.hasNext();) {
+                String id = it.next();
+                JSONObject row = entries.getJSONObject(id);
+                SessionActivityState.Entry entry = new SessionActivityState.Entry();
+                entry.revision = row.getLong("revision"); entry.read = row.getLong("read"); entry.reply = row.getLong("reply");
+                entry.finished = nullable(row, "finished"); entry.input = nullable(row, "input");
+                state.entries.put(id, entry);
+            }
+        } catch (JSONException ignored) { return new SessionActivityState(); }
+        return state;
+    }
+    private static void write(Context context, String environmentId, SessionActivityState state) throws JSONException {
+        JSONObject entries = new JSONObject();
+        for (java.util.Map.Entry<String, SessionActivityState.Entry> row : state.entries.entrySet()) {
+            SessionActivityState.Entry entry = row.getValue();
+            entries.put(row.getKey(), new JSONObject().put("revision", entry.revision).put("read", entry.read)
+                .put("reply", entry.reply).put("finished", entry.finished == null ? JSONObject.NULL : entry.finished)
+                .put("input", entry.input == null ? JSONObject.NULL : entry.input));
+        }
+        if (!preferences(context).edit().putString("state:" + environmentId,
+            new JSONObject().put("initialized", state.initialized).put("entries", entries).toString()).commit())
+            throw new IllegalStateException("Unable to persist unread conversation state");
+    }
+    static String nullable(JSONObject value, String key) {
+        return value.isNull(key) || !value.has(key) ? null : value.optString(key, null);
+    }
+    static synchronized JSObject state(Context context, String environmentId) {
+        return result(environmentId, read(context, environmentId));
+    }
+    private static JSObject result(String environmentId, SessionActivityState state) {
+        JSObject result = new JSObject();
+        result.put("environmentId", environmentId);
+        result.put("unreadIds", new JSArray(state.unreadIds()));
+        return result;
+    }
+    static synchronized JSObject visible(Context context, String environmentId, String sessionId, Long revision, boolean active) throws JSONException {
+        return visible(context, environmentId, sessionId, revision, active, null, null);
+    }
+    static synchronized JSObject visible(Context context, String environmentId, String sessionId, Long revision, boolean active, String finished, String input) throws JSONException {
+        // Android lifecycle owns foreground status. A queued WebView call may
+        // arrive after onPause and must not acknowledge an unseen background reply.
+        active = active && foreground;
+        visibleEnvironment = environmentId;
+        visibleSession = active ? sessionId : null;
+        SessionActivityState state = read(context, environmentId);
+        if (active && sessionId != null && revision != null) {
+            state.markRead(sessionId, revision, finished, input);
+            cancel(context, environmentId, sessionId);
+            write(context, environmentId, state);
+        }
+        return result(environmentId, state);
+    }
+    static synchronized JSObject observe(Context context, String environmentId, JSONArray sessions, boolean enabled, JSONObject texts) throws JSONException {
+        List<SessionActivityState.Activity> activities = new ArrayList<>();
+        for (int index = 0; index < sessions.length(); index++) {
+            JSONObject row = sessions.getJSONObject(index);
+            SessionActivityState.Activity activity = new SessionActivityState.Activity();
+            activity.id = row.getString("id"); activity.projectId = row.getString("projectId"); activity.title = row.optString("title");
+            activity.revision = row.getLong("revision"); activity.reply = row.optLong("lastReplyRevision", 0);
+            activity.finished = nullable(row, "lastCompletedRunId"); activity.input = nullable(row, "pendingInputKey");
+            activity.archived = row.optBoolean("archived");
+            activities.add(activity);
+        }
+        SessionActivityState state = read(context, environmentId);
+        List<SessionActivityState.Notice> notices = state.observe(activities,
+            foreground && environmentId.equals(visibleEnvironment) ? visibleSession : null);
+        write(context, environmentId, state);
+        if (enabled && NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            channels(context, texts);
+            for (SessionActivityState.Notice notice : notices) show(context, environmentId, notice, texts);
+        }
+        return result(environmentId, state);
+    }
+    static void channels(Context context, JSONObject texts) {
+        if (Build.VERSION.SDK_INT < 26) return;
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        manager.createNotificationChannel(new NotificationChannel(REPLIES, texts.optString("channel", "Conversation notifications"), NotificationManager.IMPORTANCE_HIGH));
+        NotificationChannel monitoring = new NotificationChannel(MONITORING, texts.optString("monitoring", "Receiving conversation updates"), NotificationManager.IMPORTANCE_LOW);
+        monitoring.setSound(null, null);
+        manager.createNotificationChannel(monitoring);
+    }
+    static PendingIntent openIntent(Context context, String environmentId, String projectId, String sessionId) {
+        Intent intent = new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.setData(new Uri.Builder().scheme("monocode-notification").authority("session").appendPath(environmentId).appendPath(sessionId == null ? "" : sessionId).build());
+        if (sessionId != null) intent.putExtra("monocodeEnvironment", environmentId).putExtra("monocodeProject", projectId).putExtra("monocodeSession", sessionId);
+        return PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+    private static void show(Context context, String environmentId, SessionActivityState.Notice notice, JSONObject texts) {
+        String body = texts.optString(notice.input ? "input" : "reply", notice.input ? "This conversation needs your input." : "A new reply is ready.");
+        NotificationCompat.Builder notification = new NotificationCompat.Builder(context, REPLIES)
+            .setSmallIcon(R.drawable.ic_stat_monocode).setContentTitle(notice.activity.title.isEmpty() ? "MonoCode" : notice.activity.title)
+            .setContentText(body).setCategory(NotificationCompat.CATEGORY_MESSAGE).setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true).setContentIntent(openIntent(context, environmentId, notice.activity.projectId, notice.activity.id));
+        try { NotificationManagerCompat.from(context).notify(environmentId + ":" + notice.activity.id, 1, notification.build()); }
+        catch (SecurityException ignored) { /* Permission can be revoked after the check. */ }
+    }
+    static void cancel(Context context, String environmentId, String sessionId) {
+        NotificationManagerCompat.from(context).cancel(environmentId + ":" + sessionId, 1);
+    }
+}

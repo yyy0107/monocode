@@ -85,7 +85,7 @@ async function submit() {
 describe("mobile connection settings", () => {
   it("keeps connection fields in a dialog and cancels without connecting", async () => {
     await render();
-    expect(node.querySelector("input")).toBeNull();
+    expect(node.querySelector('input[type="url"], input[type="password"]')).toBeNull();
     open();
     input('input[type="url"]', "http://computer:3774");
     input('input[type="password"]', "device-token");

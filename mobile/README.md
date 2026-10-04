@@ -49,9 +49,9 @@ and iOS ATS HTTP access are enabled for user-supplied Host URLs. A phone's
 `127.0.0.1` refers to the phone, not your computer.
 
 The host computer must remain awake and online. Closing the phone app does not
-stop a Host-owned agent. The app pauses polling in the background and fetches
-revision updates or a complete snapshot when foregrounded. Background push
-notifications are outside this first version.
+stop a Host-owned agent. Transcript polling pauses in the background and catches
+up when foregrounded. Android can continue receiving conversation notifications
+through the separate activity receiver described below.
 
 **Shared conversations:** ordinary desktop and phone conversations use the
 same Host and history. Desktop connects automatically to the Host on this
@@ -61,6 +61,35 @@ provider bindings and attachments. Repeated startup does not duplicate history
 or restore conversations deleted from the shared Host. Desktop files and
 terminals keep their native project paths. See [shared session behavior and
 verification](../docs/shared-sessions.md).
+
+## Unread replies and notifications
+
+A green dot after a conversation's timestamp means there is an unread reply or
+input request. It survives app restarts and is local to this phone and Host.
+Opening and successfully loading the conversation in the foreground clears it.
+Outgoing messages, renaming, queue edits and tool progress do not create a dot;
+the first connection baselines historical messages without flooding notifications.
+
+On Android, **Connections → System notifications** enables notifications for
+completed replies and new questions/approvals across all projects. Allow the
+system permission when requested. The current visible conversation stays quiet;
+tapping a reply notification opens its project and conversation. Repeated polls
+do not repeat a banner, including when another queued turn immediately starts.
+Disabling notifications or denying permission preserves unread dots.
+
+Android shows a quiet ongoing “Receiving conversation updates” notification
+while the background receiver runs. It uses the existing Host URL/device token,
+does not require a cloud push provider, and does not persist another credential
+copy. The matching Host must support `sessions.activity`. Host identity changes
+and revoked credentials stop reception; network failures retry with backoff.
+Android force-stop or power/network restrictions can suspend reception until the
+app is opened again. See Android's [notification permission](https://developer.android.com/develop/ui/compose/notifications/notification-permission)
+and [remote messaging service](https://developer.android.com/develop/background-work/services/fgs/service-types#remote-messaging)
+documentation.
+
+Browser previews use permission-granted browser notifications while polling is
+active. iOS supports foreground unread indicators; native iOS system/background
+notifications are unavailable in this Android change and the settings say so.
 
 ## Agent, models, and reasoning
 
