@@ -105,6 +105,45 @@ describe("mobile approval interaction", () => {
   });
 });
 
+describe("mobile jump interaction", () => {
+  it("consumes pointer, mouse and click events and keeps composer focus", () => {
+    const { node } = render({ runId: "active-run" });
+    const parent = document.createElement("div");
+    node.replaceWith(parent);
+    parent.append(node);
+    const scroller = node.querySelector<HTMLDivElement>(".agent-transcript")!;
+    let top = 0;
+    Object.defineProperties(scroller, {
+      clientHeight: { value: 400 },
+      scrollHeight: { value: 1000 },
+      scrollTop: {
+        get: () => top,
+        set: (value: number) => { top = Math.max(0, Math.min(value, 600)); },
+      },
+    });
+    scroller.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+    scroller.querySelector<HTMLElement>("[data-transcript-end]")!
+      .getBoundingClientRect = () => ({ top: 1000 - top }) as DOMRect;
+    act(() => scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -10 })));
+    const button = node.querySelector<HTMLButtonElement>(".mobile-jump")!;
+    expect(button).not.toBeNull();
+    const composer = document.createElement("textarea");
+    node.append(composer);
+    composer.focus();
+    const bubbled = vi.fn();
+    for (const type of ["pointerdown", "mousedown", "click"])
+      parent.addEventListener(type, bubbled);
+    for (const type of ["pointerdown", "mousedown", "click"]) {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true });
+      act(() => button.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+    }
+    expect(bubbled).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(composer);
+    expect(node.querySelector(".mobile-jump")).toBeNull();
+  });
+});
+
 describe("mobile character streaming", () => {
   beforeEach(() => {
     vi.useFakeTimers({

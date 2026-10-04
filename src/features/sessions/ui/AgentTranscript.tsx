@@ -328,6 +328,7 @@ function AgentTranscriptComponent({
   );
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const scroller = useRef<HTMLDivElement>(null);
+  const transcriptEnd = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const showJumpRef = useRef(false);
   const distanceFromBottom = useRef(0);
@@ -395,6 +396,17 @@ function AgentTranscriptComponent({
     [onJumpToBottomChange],
   );
 
+  const syncJumpVisibility = useCallback(
+    (el: HTMLElement) => {
+      if (!el.isConnected) return;
+      setShowJump(
+        !stickToBottom.current &&
+          !isTranscriptEndVisible(el, transcriptEnd.current),
+      );
+    },
+    [setShowJump],
+  );
+
   const syncPinned = useCallback(
     (el: HTMLElement) => {
       // The jump animation owns the offset until it lands or is interrupted.
@@ -421,7 +433,7 @@ function AgentTranscriptComponent({
           viewport: el.clientHeight,
         };
         distanceFromBottom.current = distance;
-        setShowJump(!stickToBottom.current);
+        syncJumpVisibility(el);
         return;
       }
       // Scrolling up inside the bottom margin is the reader leaving. Pinning
@@ -431,9 +443,9 @@ function AgentTranscriptComponent({
       const near = isNearBottom(el) && !leaving;
       stickToBottom.current = near;
       distanceFromBottom.current = distance;
-      setShowJump(!near);
+      syncJumpVisibility(el);
     },
-    [setShowJump, touchScroll],
+    [syncJumpVisibility, touchScroll],
   );
 
   const jumpToBottom = useCallback(() => {
@@ -488,7 +500,7 @@ function AgentTranscriptComponent({
       if (e.deltaY) scrollDirection.current = e.deltaY < 0 ? "up" : "down";
       if (e.deltaY < 0) {
         stickToBottom.current = false;
-        setShowJump(true);
+        syncJumpVisibility(scrollerEl);
       }
     };
     let touchY: number | undefined;
@@ -503,7 +515,7 @@ function AgentTranscriptComponent({
           touchReadingUp.current = true;
           scrollDirection.current = "up";
           stickToBottom.current = false;
-          setShowJump(true);
+          syncJumpVisibility(scrollerEl);
         } else if (next < touchY - 3) {
           touchReadingUp.current = false;
           scrollDirection.current = "down";
@@ -521,7 +533,7 @@ function AgentTranscriptComponent({
       if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
         scrollDirection.current = "up";
         stickToBottom.current = false;
-        setShowJump(true);
+        syncJumpVisibility(scrollerEl);
       } else if (["ArrowDown", "PageDown", "End"].includes(event.key))
         scrollDirection.current = "down";
     };
@@ -545,7 +557,7 @@ function AgentTranscriptComponent({
       scrollerEl.removeEventListener("touchcancel", onTouchEnd);
       scrollerEl.removeEventListener("keydown", onKey);
     };
-  }, [scrollerEl, setShowJump, syncPinned, visible, touchScroll]);
+  }, [scrollerEl, syncJumpVisibility, syncPinned, visible, touchScroll]);
 
   useLayoutEffect(() => {
     stickToBottom.current = true;
@@ -615,10 +627,33 @@ function AgentTranscriptComponent({
     const el = scrollerEl;
     const inner = el?.firstElementChild;
     if (!visible || !el || !inner) return;
+    let endObserver: IntersectionObserver | undefined;
+    let endMargin: string | undefined;
+    let observedEnd: HTMLElement | null = null;
     const onResize = () => {
       // A parked transcript's scroller is detached and measures zero.
       if (!el.isConnected) return;
       syncTranscriptViewport(el);
+      // The anchored turn can grow inside its minimum height without resizing
+      // the scroller or its body. Watch its actual content end as well, inset
+      // above floating controls; composer resizing changes these insets.
+      const style = getComputedStyle(el);
+      const topInset = parseFloat(style.scrollPaddingTop) || 0;
+      const bottomInset = parseFloat(style.scrollPaddingBottom) || 0;
+      const margin = `-${topInset}px 0px -${bottomInset}px 0px`;
+      if (
+        (margin !== endMargin || transcriptEnd.current !== observedEnd) &&
+        transcriptEnd.current
+      ) {
+        endObserver?.disconnect();
+        endMargin = margin;
+        observedEnd = transcriptEnd.current;
+        endObserver = new IntersectionObserver(
+          () => syncJumpVisibility(el),
+          { root: el, rootMargin: margin },
+        );
+        endObserver.observe(observedEnd);
+      }
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (stickToBottom.current) {
         pinToBottom(el);
@@ -628,6 +663,7 @@ function AgentTranscriptComponent({
           viewport: el.clientHeight,
         };
         distanceFromBottom.current = 0;
+        syncJumpVisibility(el);
         return;
       }
       distanceFromBottom.current = distance;
@@ -636,14 +672,17 @@ function AgentTranscriptComponent({
         height: el.scrollHeight,
         viewport: el.clientHeight,
       };
-      setShowJump(touchScroll || !isNearBottom(el));
+      syncJumpVisibility(el);
     };
     const observer = new ResizeObserver(onResize);
     observer.observe(inner);
     observer.observe(el);
     onResize();
-    return () => observer.disconnect();
-  }, [scrollerEl, setShowJump, visible, touchScroll]);
+    return () => {
+      observer.disconnect();
+      endObserver?.disconnect();
+    };
+  }, [scrollerEl, syncJumpVisibility, visible, lastUserId]);
 
   useTurnScrollAnchor(scrollerEl, visible, stickToBottom);
 
@@ -1148,6 +1187,9 @@ function AgentTranscriptComponent({
                     onHandoff ? (target) => onHandoff(target, turn) : undefined
                   }
                 />
+              ) : null}
+              {isLastTurn ? (
+                <div ref={transcriptEnd} data-transcript-end aria-hidden="true" />
               ) : null}
             </div>
           );
@@ -4252,6 +4294,22 @@ function riseIntoAnchor(
 
 function isNearBottom(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+}
+
+/** Measure content rather than the anchored turn's blank space or padding. */
+function isTranscriptEndVisible(
+  el: HTMLElement,
+  end: HTMLElement | null,
+): boolean {
+  if (!end) return true;
+  const style = getComputedStyle(el);
+  const top = el.getBoundingClientRect().top + el.clientTop;
+  const endTop = end.getBoundingClientRect().top;
+  return (
+    endTop >= top + (parseFloat(style.scrollPaddingTop) || 0) &&
+    endTop <=
+      top + el.clientHeight - (parseFloat(style.scrollPaddingBottom) || 0)
+  );
 }
 
 function pinToBottom(el: HTMLElement | null) {

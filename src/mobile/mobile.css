@@ -1443,6 +1443,8 @@ html.theme-light .mobile-logo {
   user-select: text;
 }
 .mobile-desktop-transcript > .agent-transcript {
+  /* Keep positioned images and message controls below the floating jump. */
+  isolation: isolate;
   flex: 1;
   min-height: 0;
   min-width: 0;
@@ -1727,6 +1729,9 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 }
 .mobile-jump {
   position: absolute;
+  z-index: 11;
+  pointer-events: auto;
+  touch-action: manipulation;
   right: 18px;
   bottom: 12px;
   display: grid;

@@ -111,9 +111,19 @@ export function MobileTranscript({
             type="button"
             aria-label="Jump to latest message"
             // Keep focus in the composer so tapping does not collapse it first.
-            onPointerDown={(event) => event.preventDefault()}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => jump?.()}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              jump?.();
+            }}
           >
             <ArrowDownCircle size={22} />
           </button>

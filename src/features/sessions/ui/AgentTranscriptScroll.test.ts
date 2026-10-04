@@ -11,9 +11,15 @@ let observers: Array<{
   targets: Element[];
   resize: (entries?: unknown[]) => void;
 }>;
+let endObservers: Array<{
+  targets: Element[];
+  intersect: () => void;
+  margin?: string;
+}>;
 
 beforeEach(() => {
   observers = [];
+  endObservers = [];
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
     "ResizeObserver",
@@ -21,6 +27,23 @@ beforeEach(() => {
       targets: Element[] = [];
       constructor(readonly resize: (entries?: unknown[]) => void) {
         observers.push(this);
+      }
+      observe(target: Element) {
+        this.targets.push(target);
+      }
+      disconnect() {
+        this.targets = [];
+      }
+    },
+  );
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      targets: Element[] = [];
+      margin?: string;
+      constructor(readonly intersect: () => void, options?: IntersectionObserverInit) {
+        this.margin = options?.rootMargin;
+        endObservers.push(this);
       }
       observe(target: Element) {
         this.targets.push(target);
@@ -123,6 +146,80 @@ describe("subagent scrolling", () => {
 });
 
 describe("transcript scrolling", () => {
+  it.each([true, false])(
+    "hides the jump while the content end is above the composer without resuming following (touch=%s)",
+    (touchScroll) => {
+      const showJump = vi.fn();
+      act(() => root.render(createElement(AgentTranscript, {
+        blocks: [
+          { id: "user", role: "user", text: "Explain" },
+          { id: "reply", role: "assistant", text: "Short answer" },
+        ],
+        busy: true,
+        touchScroll,
+        onJumpToBottomChange: showJump,
+      })));
+      const scroller = container.querySelector<HTMLDivElement>(".agent-transcript")!;
+      const end = scroller.querySelector<HTMLElement>("[data-transcript-end]")!;
+      scroller.style.scrollPaddingTop = "80px";
+      scroller.style.scrollPaddingBottom = "100px";
+      let top = 0;
+      let contentEnd = 830;
+      Object.defineProperties(scroller, {
+        scrollHeight: { get: () => 1000 },
+        clientHeight: { get: () => 400 },
+        scrollTop: {
+          get: () => top,
+          set: (value: number) => { top = Math.max(0, Math.min(value, 600)); },
+        },
+      });
+      scroller.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+      end.getBoundingClientRect = () => ({ top: contentEnd - top }) as DOMRect;
+      const observer = observers.find((item) => item.targets.includes(scroller))!;
+      act(() => observer.resize());
+      expect(top).toBe(600);
+
+      // Reading intent changes immediately, but the latest answer is still visible.
+      act(() => {
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -10 }));
+        top = 550;
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      expect(showJump).toHaveBeenLastCalledWith(false);
+      act(() => observer.resize());
+      expect(top).toBe(550);
+
+      // The anchored turn's outer size is unchanged as its reply grows.
+      contentEnd = 860;
+      let endObserver = endObservers.find((item) => item.targets.includes(end))!;
+      expect(endObserver.margin).toBe("-80px 0px -100px 0px");
+      act(() => endObserver.intersect());
+      expect(showJump).toHaveBeenLastCalledWith(true);
+
+      act(() => {
+        top = 558;
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      expect(showJump).toHaveBeenLastCalledWith(true);
+      act(() => {
+        // A fold makes the answer visible again while the reader remains unpinned.
+        contentEnd = 830;
+        endObserver.intersect();
+      });
+      expect(showJump).toHaveBeenLastCalledWith(false);
+
+      // Expanding the dock occludes the end; collapsing it reveals it again.
+      scroller.style.scrollPaddingBottom = "150px";
+      act(() => observer.resize());
+      expect(showJump).toHaveBeenLastCalledWith(true);
+      expect(top).toBe(558);
+      endObserver = endObservers.find((item) => item.targets.includes(end))!;
+      expect(endObserver.margin).toBe("-80px 0px -150px 0px");
+      scroller.style.scrollPaddingBottom = "100px";
+      act(() => observer.resize());
+      expect(showJump).toHaveBeenLastCalledWith(false);
+    },
+  );
   it("reserves the floating header inset when stretching the latest turn, including keyboard resizing", () => {
     act(() => root.render(createElement(AgentTranscript, {
       blocks: [{ id: "new-prompt", role: "user", text: "Next question" }],
@@ -170,6 +267,10 @@ describe("transcript scrolling", () => {
     let height = 1000;
     let viewport = 400;
     let top = 0;
+    // This stream reaches the real end, with no trailing anchored blank space.
+    scroller.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+    scroller.querySelector<HTMLElement>("[data-transcript-end]")!
+      .getBoundingClientRect = () => ({ top: height - top }) as DOMRect;
     Object.defineProperties(scroller, {
       scrollHeight: { get: () => height },
       clientHeight: { get: () => viewport },
