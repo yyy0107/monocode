@@ -32,6 +32,28 @@ export async function discoverPiSkills(cwd: string): Promise<PiSkillCommand[]> {
   );
 }
 
+export async function discoverPiCommands(cwd: string): Promise<NativeCommand[]> {
+  return piCommandsFromRpcData(await discoverCommands(PI_FLAVOR, cwd, "get_commands"));
+}
+
+export function piCommandsFromRpcData(data: unknown): NativeCommand[] {
+  const commands = asRecord(data)?.commands;
+  if (!Array.isArray(commands)) throw new Error("Pi get_commands returned no commands array");
+  const seen = new Set<string>();
+  return commands.flatMap((value): NativeCommand[] => {
+    const row = asRecord(value);
+    const raw = row?.name;
+    const origin = row?.source;
+    if (typeof raw !== "string" || !raw || /[\s/\\]/.test(raw) || seen.has(raw) ||
+      (origin !== "skill" && origin !== "extension" && origin !== "prompt")) return [];
+    const name = origin === "skill" && raw.startsWith("skill:") ? raw.slice(6) : raw;
+    if (!name || (origin === "skill" && !raw.startsWith("skill:"))) return [];
+    seen.add(raw);
+    return [{ name, invocation: origin === "skill" ? raw : nativeCommandInvocation("pi", raw),
+      description: typeof row?.description === "string" ? row.description : "", source: "pi", origin }];
+  });
+}
+
 export async function discoverOmpCommands(
   cwd: string,
 ): Promise<NativeCommand[]> {

@@ -45,10 +45,29 @@ vi.mock("./piClient", () => ({
 
 import {
   discoverPiSkills,
+  piCommandsFromRpcData,
   discoverOmpCommands,
   ompCommandsFromRpcData,
   piSkillsFromRpcData,
 } from "./piSkills";
+
+describe("Pi native command discovery", () => {
+  it("retains extensions, templates and skills with reserved invocations", () => {
+    expect(piCommandsFromRpcData({ commands: [
+      { name: "compact", source: "extension", description: "Custom compact" },
+      { name: "review", source: "prompt" },
+      { name: "skill:design", source: "skill", description: "Design" },
+      { name: "review", source: "prompt" },
+      { name: "bad name", source: "extension" },
+      { name: "skill:", source: "skill" },
+      { name: "internal", source: "unsupported" },
+    ] })).toEqual([
+      { name: "compact", invocation: "pi:compact", description: "Custom compact", source: "pi", origin: "extension" },
+      { name: "review", invocation: "review", description: "", source: "pi", origin: "prompt" },
+      { name: "design", invocation: "skill:design", description: "Design", source: "pi", origin: "skill" },
+    ]);
+  });
+});
 
 type Deferred<T> = {
   promise: Promise<T>;

@@ -1,12 +1,23 @@
 import { afterEach, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HostStore } from "./store";
-import { writeAttachmentChunk } from "./attachments";
+import { writeAttachmentChunk, saveGeneratedImageAttachment } from "./attachments";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
+
+it("saves bounded generated PNGs as ordinary private attachments", () => {
+  const directory = mkdtempSync(join(tmpdir(), "generated-attachment-test-"));
+  const store = new HostStore(join(directory, "host.db"));
+  cleanups.push(() => { store.close(); rmSync(directory, { recursive: true, force: true }); });
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+  const file = saveGeneratedImageAttachment(store, png, "image.png");
+  expect(file).toMatchObject({ kind: "image", mimeType: "image/png", size: Buffer.from(png, "base64").length });
+  expect(readFileSync(file.path!).toString("base64")).toBe(png);
+  expect(() => saveGeneratedImageAttachment(store, "broken", "bad.png")).toThrow();
+});
 
 it("accepts ordered chunks and an identical retry while rejecting changes", () => {
   const directory = mkdtempSync(join(tmpdir(), "remote-upload-test-"));

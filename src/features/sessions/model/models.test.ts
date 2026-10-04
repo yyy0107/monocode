@@ -31,7 +31,20 @@ import {
   showProviderInModelPicker,
   stepModelPickerTab,
   type AgentModel,
+  withSessionModelSettings,
 } from "./models";
+
+it("keeps live thinking choices local to their session/model", () => {
+  const catalog: AgentModel = { id: "pi:provider/model", name: "Model", harness: "pi",
+    settings: [{ id: "thinking", kind: "select", label: "Thinking", value: "medium",
+      options: [{ value: "medium", label: "Medium" }, { value: "high", label: "High" }] }] };
+  const options = { model: catalog.id, settings: [{ ...catalog.settings![0]!,
+    value: "off", options: [{ value: "off", label: "Off" }] }] };
+  expect(withSessionModelSettings(catalog, options).settings?.[0]?.options).toEqual([{ value: "off", label: "Off" }]);
+  expect(catalog.settings?.[0]?.options).toHaveLength(2);
+  expect(withSessionModelSettings(catalog, options, "pi:provider/another")).toBe(catalog);
+  expect(withSessionModelSettings(catalog)).toBe(catalog);
+});
 import {
   setProjectDefaultProvider,
   setProjectProviderHidden,

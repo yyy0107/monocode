@@ -68,6 +68,24 @@ function keyDown(target: Element, key: string) {
   });
 }
 
+it("shows an extension editor's multiline prefill and submits it verbatim", () => {
+  const onReply = vi.fn();
+  const value = "  first\nsecond  ";
+  act(() => root.render(createElement(QuestionForm, {
+    prompt: { requestId: 8, questions: [{ id: "editor", prompt: "Edit text",
+      allowCustom: true, multiSelect: false, options: [],
+      input: { kind: "multiline", initialValue: value, placeholder: "Enter text",
+        preserveWhitespace: true, allowEmpty: true, maxLength: 10_000 },
+    }] }, onReply,
+  })));
+  const editor = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  expect(editor).not.toBeNull();
+  expect(editor.value).toBe(value);
+  expect(editor.placeholder).toBe("Enter text");
+  act(() => container.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+  expect(onReply).toHaveBeenCalledWith(8, { kind: "answered", answers: {}, custom: { editor: value } });
+});
+
 describe("QuestionForm keyboard navigation", () => {
   it("moves the highlighted option with arrow keys and selects it with Enter", () => {
     const onReply = vi.fn();

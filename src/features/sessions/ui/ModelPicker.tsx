@@ -34,6 +34,8 @@ import {
   type AgentModel,
   type ModelPickerTab,
   type ModelSetting,
+  type SessionModelSettings,
+  withSessionModelSettings,
 } from "../model/models";
 import {
   isProviderHidden,
@@ -59,6 +61,7 @@ type Props = {
   harness: HarnessId;
   model: string;
   values: Record<string, string>;
+  modelSettingOptions?: SessionModelSettings;
   /** Project whose disabled providers are hidden from the picker. */
   project?: string;
   /** Hide option rows from the menu when they render as pills beside the picker. */
@@ -265,6 +268,7 @@ export function ModelPicker({
   harness,
   model,
   values,
+  modelSettingOptions,
   project,
   hideSettings = false,
   allowedHarnesses,
@@ -318,7 +322,9 @@ export function ModelPicker({
   openRef.current = open;
   recentOpenRef.current = recentMenu != null;
 
-  const current = source.resolve(harness, model);
+  const resolved = source.resolve(harness, model);
+  const current = useMemo(() => withSessionModelSettings(resolved, modelSettingOptions, model),
+    [resolved, modelSettingOptions, model]);
   currentRef.current = current;
   const settings = useMemo(() => {
     void catalogVersion;
@@ -1013,11 +1019,12 @@ export function ModelControlPills({
   harness,
   model,
   values,
+  modelSettingOptions,
   onSettingsChange,
   onClose,
 }: Pick<
   Props,
-  "harness" | "model" | "values" | "onSettingsChange" | "onClose"
+  "harness" | "model" | "values" | "modelSettingOptions" | "onSettingsChange" | "onClose"
 >) {
   const catalogVersion = useSyncExternalStore(
     subscribeModels,
@@ -1025,7 +1032,9 @@ export function ModelControlPills({
     getModelSnapshot,
   );
   void catalogVersion;
-  const current = useModelSource().resolve(harness, model);
+  const resolved = useModelSource().resolve(harness, model);
+  const current = useMemo(() => withSessionModelSettings(resolved, modelSettingOptions, model),
+    [resolved, modelSettingOptions, model]);
   const pills = pillSettings(current);
   const effort = pills.find(
     (setting) => setting.kind === "select" && isEffortSetting(setting),

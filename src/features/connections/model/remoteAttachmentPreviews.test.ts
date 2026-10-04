@@ -67,3 +67,13 @@ it("keeps the transcript available when an image is missing", async () => {
     await withRemoteAttachmentPreviews("machine", value, undefined, read),
   ).toBe(value);
 });
+
+it("downloads a persisted generated-image attachment without using its Host path", async () => {
+  const value = snapshot();
+  value.session.blocks[0].role = "image";
+  value.session.blocks[0].image = { path: "/host/private/asset", name: "generated.png", mimeType: "image/png", size: 5 };
+  const read = vi.fn(async () => ({ offset: 5, size: 5, data: btoa("image") }));
+  const result = await withRemoteAttachmentPreviews("generated-machine", value, undefined, read);
+  expect(result.session.blocks[0].attachments?.[0]?.data).toBe(btoa("image"));
+  expect(read).toHaveBeenCalledWith({ sessionId: "session", id: "image", offset: 0 });
+});

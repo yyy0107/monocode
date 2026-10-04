@@ -1,3 +1,4 @@
+import type { SessionModelSettings } from "../model/models";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   ArrowUp,
@@ -223,6 +224,7 @@ type Props = {
   harness: HarnessId;
   model: string;
   modelSettings?: Record<string, string>;
+  modelSettingOptions?: SessionModelSettings;
   runtimeMode: RuntimeMode;
   cwd?: string;
   executionCwd: string;
@@ -516,6 +518,7 @@ export function Composer({
   model,
   allowedModelHarnesses,
   modelSettings = {},
+  modelSettingOptions,
   runtimeMode,
   cwd = "~",
   executionCwd,
@@ -2610,6 +2613,7 @@ export function Composer({
                   harness={harness}
                   model={model}
                   values={modelSettings}
+                  modelSettingOptions={modelSettingOptions}
                   allowedHarnesses={allowedModelHarnesses}
                   project={cwd}
                   hideSettings={controlsBeside}
@@ -2625,6 +2629,7 @@ export function Composer({
                     harness={harness}
                     model={model}
                     values={modelSettings}
+                    modelSettingOptions={modelSettingOptions}
                     onSettingsChange={(settings) =>
                       onModelSettingsChange?.(settings)
                     }

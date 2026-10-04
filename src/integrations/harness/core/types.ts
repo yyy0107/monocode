@@ -9,6 +9,7 @@ import type {
   TurnMetrics,
 } from "../../../features/sessions/model/session";
 import type { UserQuestion } from "../../../features/sessions/model/userQuestion";
+import type { SessionModelSettings } from "../../../features/sessions/model/models";
 
 export type HarnessEvent =
   | { type: "session.started" }
@@ -20,6 +21,7 @@ export type HarnessEvent =
       type: "session.configChanged";
       model?: string;
       modelSettings?: Record<string, string>;
+      modelSettingOptions?: SessionModelSettings;
     }
   | { type: "status"; text: string }
   /** The provider refused the turn until its usage window resets (epoch ms). */
@@ -37,6 +39,7 @@ export type HarnessEvent =
       itemId: string;
       data: string;
       name: string;
+      mimeType?: string;
       alt?: string;
     }
   | {
@@ -47,6 +50,8 @@ export type HarnessEvent =
       mimeType: string;
       size: number;
       alt?: string;
+      /** Session-owned attachment reference for scoped remote image reads. */
+      attachment?: Attachment;
     }
   | { type: "reasoning.delta"; text: string }
   | { type: "reasoning.completed" }

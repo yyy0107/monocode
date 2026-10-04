@@ -64,6 +64,20 @@ vi.mock("../../../shared/ui/Popover", () => ({
 }));
 
 import { ModelControlPills, ModelPicker } from "./ModelPicker";
+
+it("uses session-specific thinking choices in the toolbar menu", () => {
+  const model = "pi:provider/live";
+  const setting = { id: "thinking", kind: "select" as const, label: "Thinking", value: "off",
+    options: [{ value: "off", label: "Off" }, { value: "high", label: "High" }] };
+  setHarnessModels("pi", [{ id: model, name: "Live", harness: "pi", settings: [setting] }]);
+  act(() => root.render(createElement(ModelControlPills, {
+    harness: "pi", model, values: { thinking: "off" }, onSettingsChange: vi.fn(),
+    modelSettingOptions: { model, settings: [{ ...setting, options: [setting.options[0]] }] },
+  })));
+  const trigger = container.querySelector<HTMLButtonElement>("[data-model-control]")!;
+  act(() => trigger.click());
+  expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(1);
+});
 import { setUiLanguage } from "../../../shared/i18n/language";
 import {
   resetHarnessModelOverlays,

@@ -13,6 +13,7 @@ import {
   preferredModelId,
   preferredModelSettings,
   resolveModel,
+  type SessionModelSettings,
 } from "./models";
 import { loadProjectProviderSettings } from "./projectProviders";
 
@@ -403,6 +404,8 @@ export type Session = {
   harness: HarnessId;
   model: string;
   modelSettings: Record<string, string>;
+  /** Live runtime capabilities, refreshed on resume/model change. */
+  modelSettingOptions?: SessionModelSettings;
   runtimeMode: RuntimeMode;
   title: string;
   /** Project / working directory for this session. */

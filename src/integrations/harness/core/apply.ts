@@ -176,6 +176,9 @@ export function applyHarnessEvent(
       return {
         ...session,
         ...(event.model ? { model: event.model } : {}),
+        ...(event.modelSettingOptions
+          ? { modelSettingOptions: event.modelSettingOptions }
+          : event.model && event.model !== session.model ? { modelSettingOptions: undefined } : {}),
         ...(event.modelSettings
           ? {
               modelSettings: {
@@ -711,10 +714,13 @@ function appendImage(
   session: Session,
   event: Extract<HarnessEvent, { type: "image.generated"; path: string }>,
 ): Session {
+  if (event.attachment && session.blocks.some(block => block.role === "image" &&
+    block.attachments?.some(file => file.id === event.attachment!.id))) return session;
   return appendBlock(session, {
     id: crypto.randomUUID(),
     role: "image",
     text: "",
+    ...(event.attachment ? { attachments: [event.attachment] } : {}),
     image: {
       path: event.path,
       name: event.name,

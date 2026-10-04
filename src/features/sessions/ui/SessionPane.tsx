@@ -562,6 +562,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
       harness={session.harness}
       model={session.model}
       modelSettings={session.modelSettings}
+      modelSettingOptions={session.modelSettingOptions}
       runtimeMode={session.runtimeMode}
       cwd={session.cwd}
       executionCwd={workCwd}
