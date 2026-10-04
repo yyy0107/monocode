@@ -45,7 +45,8 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
   useEffect(() => {
     setStep(0);
     setAnswers({});
-    setCustom({});
+    setCustom(Object.fromEntries(prompt.questions.flatMap(question =>
+      question.input ? [[question.id, question.input.initialValue ?? ""]] : [])));
   }, [prompt.requestId]);
 
   const questions = prompt.questions;
@@ -283,12 +284,26 @@ function QuestionFields({
         </p>
       ) : null}
       {options.length === 0 && question.allowCustom ? (
+        question.input?.kind === "multiline" ? (
+          <textarea
+            value={custom}
+            onChange={(event) => onCustom(event.target.value)}
+            placeholder={question.input.placeholder ?? uiT("Type your answer")}
+            maxLength={question.input.maxLength}
+            rows={5}
+            aria-label={question.prompt}
+            className="mt-1.5 w-full resize-y rounded-md border border-content/15 bg-transparent px-2 py-1 text-[12px] text-content outline-none placeholder:text-content/35 focus:border-content/30"
+          />
+        ) : (
         <input
           value={custom}
           onChange={(event) => onCustom(event.target.value)}
-          placeholder={uiT("Type your answer")}
+          placeholder={question.input?.placeholder ?? uiT("Type your answer")}
+          maxLength={question.input?.maxLength}
+          aria-label={question.prompt}
           className="mt-1.5 w-full rounded-md border border-content/15 bg-transparent px-2 py-1 text-[12px] text-content outline-none placeholder:text-content/35 focus:border-content/30"
         />
+        )
       ) : (
         <div
           className="mt-1.5 flex max-h-52 flex-col gap-1 overflow-y-auto"
@@ -367,6 +382,11 @@ function QuestionFields({
           })}
         </div>
       )}
+      {question.input?.maxLength != null && custom.length > question.input.maxLength ? (
+        <p role="alert" className="mt-1 text-[11px] text-content/60">
+          {uiT("Answer exceeds the limit of {max} characters", { max: question.input.maxLength })}
+        </p>
+      ) : null}
     </fieldset>
   );
 }

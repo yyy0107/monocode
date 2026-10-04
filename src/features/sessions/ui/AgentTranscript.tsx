@@ -1619,7 +1619,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   }
 
   if (block.role === "image") {
-    return block.image ? <GeneratedImage image={block.image} /> : null;
+    return block.image ? <GeneratedImage image={block.image} attachment={block.attachments?.find(file => file.kind === "image")} /> : null;
   }
 
   if (block.role === "tool") {

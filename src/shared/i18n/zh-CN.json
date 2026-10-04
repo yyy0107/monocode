@@ -1904,5 +1904,6 @@
   "· switch to": "· 切换到",
   "” will be permanently deleted.": "”将被永久删除。",
   "↩ to add": "↩ 添加",
-  "简体中文": "简体中文"
+  "简体中文": "简体中文",
+  "Answer exceeds the limit of {max} characters": "回答超过 {max} 个字符的限制"
 }

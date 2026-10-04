@@ -8,6 +8,27 @@ import {
   questionsFromUnknown,
   selectedAnswerLabels,
 } from "./userQuestion";
+import type { UserQuestion } from "./userQuestion";
+
+describe("exact extension text answers", () => {
+  const question: UserQuestion = {
+    id: "editor", prompt: "Edit", multiSelect: false, allowCustom: true, options: [],
+    input: { kind: "multiline", preserveWhitespace: true, allowEmpty: true },
+  };
+  it.each(["", "  ", "  first\nsecond  "])("preserves submitted editor text %j", value => {
+    expect(buildQuestionReply([question], {}, { editor: value })).toEqual({
+      kind: "answered", answers: {}, custom: { editor: value },
+    });
+  });
+  it("distinguishes an untouched skipped question from an empty submission", () => {
+    expect(buildQuestionReply([question], {}, {})).toEqual({ kind: "skipped" });
+    expect(questionIsComplete(question, {}, {})).toBe(false);
+  });
+  it("keeps text limits explicit", () => {
+    expect(questionIsComplete({ ...question, input: { ...question.input!, maxLength: 10_000 } },
+      {}, { editor: "x".repeat(10_001) })).toBe(false);
+  });
+});
 
 describe("questionsFromUnknown", () => {
   it("parses Claude-style AskUserQuestion input", () => {

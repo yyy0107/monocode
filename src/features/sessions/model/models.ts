@@ -20,6 +20,17 @@ export type ModelSetting = {
   description?: string;
 };
 
+/** Live choices belong to one session and one model, never the global catalog. */
+export type SessionModelSettings = { model: string; settings: ModelSetting[] };
+
+export function withSessionModelSettings(
+  model: AgentModel,
+  session?: SessionModelSettings,
+  selectedModel = model.id,
+): AgentModel {
+  return session?.model === selectedModel ? { ...model, settings: session.settings } : model;
+}
+
 export type AgentModel = {
   id: string;
   harness: HarnessId;

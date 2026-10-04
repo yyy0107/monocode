@@ -205,7 +205,7 @@ describe("OMP command lifecycle over the real RPC multiplexer", () => {
         expect(row?.tool?.status).toBe("completed");
         expect(row?.tool?.detail).toBe("Found auth");
       } finally {
-        frame(sessionId, { type: "agent_end" });
+        frame(sessionId, { type: flavor === "pi" ? "agent_settled" : "agent_end" });
         await turn;
       }
     },
@@ -265,7 +265,7 @@ describe("OMP command lifecycle over the real RPC multiplexer", () => {
           }),
         );
       } finally {
-        frame(sessionId, { type: "agent_end" });
+        frame(sessionId, { type: flavor === "pi" ? "agent_settled" : "agent_end" });
         await turn;
       }
     },
@@ -319,7 +319,7 @@ describe("OMP command lifecycle over the real RPC multiplexer", () => {
           `${ATTACHMENT_ONLY_PROMPT}\n\nAttached file (read from disk): "/tmp/report.pdf"`,
         );
       } finally {
-        frame(sessionId, { type: "agent_end" });
+        frame(sessionId, { type: flavor === "pi" ? "agent_settled" : "agent_end" });
         await turn;
       }
     },
@@ -705,7 +705,7 @@ describe("OMP command lifecycle over the real RPC multiplexer", () => {
       },
     });
     expect(events.some((event) => event.type === "interjection")).toBe(false);
-    frame("pi-test", { type: "agent_end" });
+    frame("pi-test", { type: "agent_settled" });
     await turn;
   });
 });

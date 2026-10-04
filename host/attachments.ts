@@ -5,7 +5,10 @@ import {
   readSync,
   writeSync,
   statSync,
+  unlinkSync,
 } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { decodeGeneratedPng } from "../src/integrations/harness/core/generatedImage";
 import { join } from "node:path";
 import type { Attachment } from "../src/features/sessions/model/session";
 import type { RemoteAttachment } from "../src/features/connections/model/protocol";
@@ -15,6 +18,29 @@ export const MAX_REMOTE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_CHUNK_BYTES = 512 * 1024;
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function saveGeneratedImageAttachment(store: HostStore, data: string, name: string): Attachment {
+  const bytes = decodeGeneratedPng(data);
+  const id = randomUUID();
+  const path = attachmentPath(store, id);
+  mkdirSync(store.attachmentDir, { recursive: true, mode: 0o700 });
+  const fd = openSync(path, "wx", 0o600);
+  let saved = false;
+  try {
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = writeSync(fd, bytes, offset, bytes.length - offset);
+      if (!count) throw new Error("Generated image write was incomplete");
+      offset += count;
+    }
+    saved = true;
+  } finally {
+    closeSync(fd);
+    if (!saved) { try { unlinkSync(path); } catch { /* Preserve the write error. */ } }
+  }
+  return { id, path, name: name.trim().slice(0, 255) || "generated.png",
+    kind: "image", mimeType: "image/png", size: bytes.length };
+}
 
 export function attachmentPath(store: HostStore, id: string): string {
   if (!UUID.test(id)) throw new Error("Invalid attachment ID");

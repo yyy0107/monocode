@@ -3,14 +3,14 @@ import { useContext, useEffect, useState } from "react";
 import { TranscriptPlatformContext } from "./TranscriptPlatform";
 import { formatFileSize, sniffImageMime } from "../../files/model/filePreview";
 import { ImageLightbox } from "../../../shared/ui/ImageLightbox";
-import type { GeneratedImageMeta } from "../model/session";
+import type { GeneratedImageMeta, Attachment } from "../model/session";
 
 type State =
   | { status: "loading" }
   | { status: "ready"; url: string; size: number }
   | { status: "error" };
 
-export function GeneratedImage({ image }: { image: GeneratedImageMeta }) {
+export function GeneratedImage({ image, attachment }: { image: GeneratedImageMeta; attachment?: Attachment }) {
   const { readBinaryFile } = useContext(TranscriptPlatformContext);
   const { t: uiT } = useTranslation();
   const [state, setState] = useState<State>({ status: "loading" });
@@ -20,6 +20,11 @@ export function GeneratedImage({ image }: { image: GeneratedImageMeta }) {
     let cancelled = false;
     let created: string | null = null;
     setState({ status: "loading" });
+    if (attachment) {
+      const url = attachment.previewUrl || (attachment.data ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined);
+      setState(url ? { status: "ready", url, size: attachment.size } : { status: "error" });
+      return;
+    }
     void readBinaryFile(image.path).then(
       (bytes) => {
         if (cancelled) return;
@@ -39,7 +44,7 @@ export function GeneratedImage({ image }: { image: GeneratedImageMeta }) {
       cancelled = true;
       if (created) URL.revokeObjectURL(created);
     };
-  }, [image.path, readBinaryFile]);
+  }, [image.path, readBinaryFile, attachment?.id, attachment?.data, attachment?.previewUrl, attachment?.mimeType, attachment?.size]);
 
   if (state.status === "loading") {
     return (
@@ -71,6 +76,7 @@ export function GeneratedImage({ image }: { image: GeneratedImageMeta }) {
       >
         <img
           src={state.url}
+          onError={() => setState({ status: "error" })}
           alt={alt}
           draggable={false}
           className="max-h-[min(70vh,640px)] max-w-full object-contain"

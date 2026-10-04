@@ -8,6 +8,8 @@ import { isTaskListToolName } from "../../../../features/sessions/model/taskList
 import type { PiFlavor } from "./piFlavor";
 import { extractToolPreview, titleFromToolInput } from "../../core/preview";
 import { streamTextDelta } from "../../core/streamText";
+import { decodeGeneratedPng } from "../../core/generatedImage";
+import type { HarnessEvent } from "../../core/types";
 
 /** Images Pi RPC accepts on `prompt` / `steer`. */
 export const SUPPORTED_PI_IMAGE_MIME_TYPES = new Set([
@@ -40,7 +42,7 @@ export type PiImage = {
   mimeType: string;
 };
 
-export type PiExtensionUiRequest =
+export type PiExtensionUiRequest = (
   | {
       id: string;
       method: "select";
@@ -57,13 +59,15 @@ export type PiExtensionUiRequest =
       id: string;
       method: "input" | "editor";
       title: string;
+      placeholder?: string;
+      prefill?: string;
     }
   | {
       id: string;
       method:
         "notify" | "setStatus" | "setWidget" | "setTitle" | "set_editor_text";
       title?: string;
-    };
+    }) & { timeout?: number };
 
 export type PiRpcResponse = {
   id?: string;
@@ -271,6 +275,8 @@ export function parseExtensionUiRequest(
   const id = stringField(rec, "id");
   const method = stringField(rec, "method");
   if (!id || !method) return null;
+  const timing = typeof rec.timeout === "number" && Number.isFinite(rec.timeout) && rec.timeout >= 0
+    ? { timeout: Math.min(rec.timeout, 2_147_483_647) } : {};
   if (method === "select") {
     const options = Array.isArray(rec.options)
       ? rec.options.filter((item): item is string => typeof item === "string")
@@ -280,6 +286,7 @@ export function parseExtensionUiRequest(
       method,
       title: stringField(rec, "title") ?? "Choose an option",
       options,
+      ...timing,
     };
   }
   if (method === "confirm") {
@@ -288,10 +295,14 @@ export function parseExtensionUiRequest(
       method,
       title: stringField(rec, "title") ?? "Confirm",
       message: stringField(rec, "message") ?? "",
+      ...timing,
     };
   }
   if (method === "input" || method === "editor") {
-    return { id, method, title: stringField(rec, "title") ?? method };
+    return { id, method, title: stringField(rec, "title") ?? method, ...timing,
+      ...(typeof rec.placeholder === "string" ? { placeholder: rec.placeholder } : {}),
+      ...(typeof rec.prefill === "string" ? { prefill: rec.prefill } : {}),
+    };
   }
   if (
     method === "notify" ||
@@ -554,6 +565,33 @@ export function toolExecutionEndFromEvent(rec: Record<string, unknown>): {
     detail: textFromContent(result?.content) || undefined,
     isError: rec.isError === true,
   };
+}
+
+export function toolImagesFromEvent(rec: Record<string, unknown>): {
+  images: Array<Extract<HarnessEvent, { type: "image.generated"; data: string }>>;
+  errors: string[];
+} {
+  const images: Array<Extract<HarnessEvent, { type: "image.generated"; data: string }>> = [];
+  const errors: string[] = [];
+  // A codemode child result is private to its parent. Only display images the
+  // outer tool actually forwards, avoiding duplicate or deliberately omitted output.
+  if (rec.type !== "tool_execution_end" || stringField(rec, "parentToolCallId")) return { images, errors };
+  const callId = stringField(rec, "toolCallId");
+  const content = asRecord(rec.result)?.content;
+  if (!callId || !Array.isArray(content)) return { images, errors };
+  content.forEach((value, index) => {
+    const block = asRecord(value);
+    if (block?.type !== "image") return;
+    try {
+      if (typeof block.mimeType !== "string" || block.mimeType.trim().toLowerCase() !== "image/png")
+        throw new Error(`Unsupported Pi tool image type: ${String(block.mimeType)}`);
+      if (typeof block.data !== "string") throw new Error("Pi tool image contains no image data");
+      decodeGeneratedPng(block.data);
+      images.push({ type: "image.generated", itemId: `pi:${callId}:image:${index}`,
+        data: block.data, name: `pi-image-${images.length + 1}.png`, mimeType: "image/png" });
+    } catch (error) { errors.push(error instanceof Error ? error.message : "Invalid Pi tool image"); }
+  });
+  return { images, errors };
 }
 
 /**

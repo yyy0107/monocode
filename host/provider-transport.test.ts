@@ -12,6 +12,7 @@ import { HostChildBackend } from "./child-backend";
 import { HostStore } from "./store";
 import { HostEngine } from "./engine";
 import { hostProviders } from "./providers";
+import { readAttachmentChunk } from "./attachments";
 import { discoverCodexModels } from "../src/integrations/harness/providers/codex/codexCatalog";
 import { discoverClaudeModels } from "../src/integrations/harness/providers/claude/claudeCatalog";
 import { discoverPiModels, discoverOmpModels } from "../src/integrations/harness/providers/pi/piCatalog";
@@ -28,6 +29,12 @@ const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
 // Records what each turn actually received, so tests can prove that settings
 // applied between turns reach the provider.
 const record = value => require('node:fs').appendFileSync(require('node:path').join(__dirname, 'calls.log'), JSON.stringify(value) + '\\n');
+let pendingPiDialog;
+let piThinking = "off";
+const completePi = () => {
+  send({type: 'message_update', assistantMessageEvent: {type: 'text_delta', delta: 'Headless Pi completed'}});
+  send({type: 'agent_settled'});
+};
 if (!process.argv.includes('app-server')) record({claudeArgs: process.argv.slice(2)});
 readline.createInterface({input: process.stdin}).on('line', line => {
   const request = JSON.parse(line);
@@ -62,14 +69,34 @@ readline.createInterface({input: process.stdin}).on('line', line => {
     send({type: 'assistant', session_id: 'fixture-claude', message: {content: [{type: 'text', text: 'Headless Claude completed'}]}});
     send({type: 'result', subtype: 'success', session_id: 'fixture-claude'});
   }, 30);
-  if (request.type === 'get_state') send({type: 'response', id: request.id, command: 'get_state', success: true, data: {sessionId: 'fixture_pi', model: {provider: 'openai', id: 'fixture-model', contextWindow: 100000}}});
+  if (request.type === 'get_state') send({type: 'response', id: request.id, command: 'get_state', success: true, data: {sessionId: 'fixture_pi', model: {provider: 'openai', id: 'fixture-model', contextWindow: 100000}, thinkingLevel: piThinking}});
   if (request.type === 'get_session_stats') send({type: 'response', id: request.id, command: 'get_session_stats', success: true, data: {contextWindow: 100000}});
   if (request.type === 'get_available_models') send({type: 'response', id: request.id, command: 'get_available_models', success: true, data: {models: [{provider: 'openai', id: 'fixture-model', name: 'Fixture model'}]}});
+  if (request.type === 'get_available_thinking_levels') send({type: 'response', id: request.id, command: request.type, success: true, data: {levels: ['off', 'high']}});
+  if (request.type === 'set_thinking_level') { piThinking = request.level; send({type: 'response', id: request.id, command: request.type, success: true}); }
+  if (request.type === 'get_commands') send({type: 'response', id: request.id, command: request.type, success: true, data: {commands: [{name:'fixture-handled', source:'extension'}, {name:'fixture-template', source:'prompt'}, {name:'skill:fixture', source:'skill'}]}});
+  if (request.type === 'abort') { pendingPiDialog = undefined; send({type:'response', id:request.id, command:request.type, success:true}); }
+  if (request.type === 'extension_ui_response' && pendingPiDialog === request.id) {
+    record({piReply: request}); pendingPiDialog = undefined; completePi();
+  }
   if (request.type === 'prompt') {
-    send({type: 'response', id: request.id, command: 'prompt', success: true, data: {}});
+    if (request.message === '/fixture-handled') {
+      send({type:'response', id:request.id, command:'prompt', success:true, data:{disposition:'handled'}});
+      return;
+    }
+    send({type: 'response', id: request.id, command: 'prompt', success: true, data: {disposition:'started'}});
+    if (request.message === 'fixture-editor') {
+      pendingPiDialog = 'fixture-editor';
+      send({type:'extension_ui_request', id:pendingPiDialog, method:'editor', title:'Edit text', prefill:'  line one\\nline two  '});
+      return;
+    }
     setTimeout(() => {
-      send({type: 'message_update', assistantMessageEvent: {type: 'text_delta', delta: 'Headless Pi completed'}});
-      send({type: 'agent_settled'});
+      if (request.message === 'fixture-png') {
+        const result = {content:[{type:'text', text:'Fixture PNG'}, {type:'image', mimeType:'image/png', data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='}]};
+        send({type:'tool_execution_start', toolCallId:'fixture-image', toolName:'codemode', args:{}});
+        send({type:'tool_execution_end', toolCallId:'fixture-image', toolName:'codemode', result, isError:false});
+      }
+      completePi();
     }, 30);
   }
 });
@@ -197,6 +224,49 @@ describe("existing providers over headless process I/O", () => {
       }
     },
   );
+
+  it("finishes a handled Pi command and accepts the next message", async () => {
+    const project = await engine.openProject(directory);
+    const { sessionId } = engine.command({ type: "create", commandId: "create-pi-handled",
+      projectId: project.id, harness: "pi", model: "pi:default", runtimeMode: "supervised" });
+    engine.command({ type: "send", commandId: "pi-handled-send", sessionId, text: "/fixture-handled" });
+    await vi.waitFor(() => expect(store.session(sessionId).status).toBe("idle"));
+    expect(store.session(sessionId).session.blocks.some(block => block.notice === "error")).toBe(false);
+    engine.command({ type: "send", commandId: "pi-after-handled", sessionId, text: "hello" });
+    await vi.waitFor(() => expect(store.session(sessionId).session.blocks.some(block =>
+      block.role === "assistant" && block.text.includes("Headless Pi completed"))).toBe(true));
+  });
+
+  it("round trips exact Pi editor replies over the Host transport", async () => {
+    const project = await engine.openProject(directory);
+    const { sessionId } = engine.command({ type: "create", commandId: "create-pi-editor",
+      projectId: project.id, harness: "pi", model: "pi:default", runtimeMode: "supervised" });
+    engine.command({ type: "send", commandId: "pi-editor-send", sessionId, text: "fixture-editor" });
+    await vi.waitFor(() => expect(store.session(sessionId).session.pendingQuestion).toBeTruthy());
+    const current = store.session(sessionId);
+    const question = current.session.pendingQuestion!;
+    expect(question.questions[0]?.input).toMatchObject({ kind: "multiline", initialValue: "  line one\nline two  " });
+    const value = "  edited\ntext  ";
+    engine.command({ type: "answer", commandId: "pi-editor-answer", sessionId,
+      runId: current.runId, requestId: question.requestId,
+      reply: { kind: "answered", answers: {}, custom: { "fixture-editor": value } } });
+    await vi.waitFor(() => expect(store.session(sessionId).status).toBe("idle"));
+    const calls = readFileSync(join(directory, "calls.log"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(calls.some(call => call.piReply?.value === value)).toBe(true);
+  });
+
+  it("preserves Pi PNG output for a reconnecting desktop client", async () => {
+    const project = await engine.openProject(directory);
+    const { sessionId } = engine.command({ type: "create", commandId: "create-pi-png",
+      projectId: project.id, harness: "pi", model: "pi:default", runtimeMode: "supervised" });
+    engine.command({ type: "send", commandId: "pi-png-send", sessionId, text: "fixture-png" });
+    await vi.waitFor(() => expect(store.session(sessionId).status).toBe("idle"));
+    const image = store.session(sessionId).session.blocks.find(block => block.role === "image");
+    expect(image?.attachments?.[0]).toMatchObject({ kind: "image", mimeType: "image/png" });
+    const file = image!.attachments![0];
+    expect(readAttachmentChunk(store, { sessionId, id: file.id, offset: 0 }).data).toContain("iVBOR");
+    expect(store.sync(sessionId).kind).toBe("snapshot");
+  });
 
   it.each(["cursor", "grok", "fx", "hermes", "antigravity"] as const)(
     "completes a %s turn over the headless ACP transport",

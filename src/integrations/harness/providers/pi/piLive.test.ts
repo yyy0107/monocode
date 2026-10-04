@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   resolveBinary: vi.fn(),
   spawnChild: vi.fn(),
   killChild: vi.fn(),
+  writeChild: vi.fn(),
   frames: [] as Array<(record: Record<string, unknown>) => void>,
 }));
 
@@ -16,7 +17,7 @@ vi.mock("../../core/child", () => ({
   spawnChild: mocks.spawnChild,
   unwatchChild: vi.fn(),
   watchChild: vi.fn(),
-  writeChild: vi.fn(),
+  writeChild: mocks.writeChild,
 }));
 
 vi.mock("./piClient", () => ({
@@ -31,11 +32,14 @@ vi.mock("./piClient", () => ({
     request = mocks.request;
     close = mocks.close;
     pushLine = vi.fn();
+    cancelRequest = vi.fn();
   },
 }));
 
-import { compactPiContext, stopPiSession } from "./pi";
+import { compactPiContext, stopPiSession, sendPiTurn, cancelPiTurn, respondPiQuestion, steerPiTurn } from "./pi";
 import type { HarnessEvent } from "../../core/types";
+import { sendTurn as sendFamilyTurn } from "./piFamily";
+import { PI_FLAVOR } from "./piFlavor";
 
 describe("Pi live session", () => {
   beforeEach(() => {
@@ -44,6 +48,7 @@ describe("Pi live session", () => {
     mocks.resolveBinary.mockReset();
     mocks.spawnChild.mockReset();
     mocks.killChild.mockReset();
+    mocks.writeChild.mockReset().mockResolvedValue(undefined);
     mocks.frames.length = 0;
     mocks.resolveBinary.mockResolvedValue({ path: "/fake/pi" });
     mocks.spawnChild.mockResolvedValue(undefined);
@@ -162,5 +167,206 @@ describe("Pi live session", () => {
       { type: "status", text: "Plugin ready" },
     ]);
     await stopPiSession("pi-ansi");
+  });
+
+  it("finishes a handled command without waiting for a nonexistent run", async () => {
+    const original = mocks.request.getMockImplementation()!;
+    mocks.request.mockImplementation(async (command) => command.type === "prompt"
+      ? { data: { disposition: "handled" } }
+      : original(command));
+    const events: HarnessEvent[] = [];
+    let finished = false;
+    const turn = sendPiTurn({ sessionId: "pi-handled", cwd: "/repo", model: "pi:default",
+      runtimeMode: "supervised", text: "/noop", onEvent: event => events.push(event),
+    }).then(() => { finished = true; });
+    try {
+      await vi.waitFor(() => expect(finished).toBe(true), { timeout: 250 });
+      expect(events.filter(event => event.type === "message.completed")).toHaveLength(1);
+    } finally {
+      await cancelPiTurn("pi-handled");
+      await turn;
+      await stopPiSession("pi-handled");
+    }
+  });
+
+  it("waits beyond agent_end for automatic continuation and agent_settled", async () => {
+    const events: HarnessEvent[] = [];
+    let finished = false;
+    const turn = sendPiTurn({ sessionId: "pi-settled", cwd: "/repo", model: "pi:default",
+      runtimeMode: "supervised", text: "hello", onEvent: event => events.push(event),
+    }).then(() => { finished = true; });
+    await vi.waitFor(() => expect(mocks.request).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "prompt" }), 15_000));
+    const frame = mocks.frames[0]!;
+    try {
+      frame({ type: "agent_end", willRetry: false });
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(finished).toBe(false);
+      frame({ type: "auto_retry_start", attempt: 1, maxAttempts: 3 });
+      frame({ type: "auto_retry_end", success: true });
+      frame({ type: "agent_settled" });
+      await turn;
+      expect(events.filter(event => event.type === "message.completed")).toHaveLength(1);
+    } finally {
+      await cancelPiTurn("pi-settled");
+      await turn;
+      await stopPiSession("pi-settled");
+    }
+  });
+
+  it("returns a chosen Pi option without changing its original value", async () => {
+    const events: HarnessEvent[] = [];
+    await compactPiContext({ sessionId: "pi-select", cwd: "/repo", model: "pi:default",
+      runtimeMode: "supervised", onEvent: event => events.push(event) });
+    const option = "\u001b[32mSecond\u001b[0m";
+    try {
+      mocks.frames[0]!({ type: "extension_ui_request", id: "select", method: "select",
+        title: "Choose", options: ["First", option] });
+      const question = events.find(event => event.type === "question.asked");
+      expect(question?.type).toBe("question.asked");
+      if (question?.type !== "question.asked") throw new Error("Missing Pi question");
+      expect(question.questions[0]?.options[1]?.label).toBe("Second");
+      respondPiQuestion("pi-select", question.requestId,
+        { kind: "answered", answers: { select: ["1"] } });
+      await vi.waitFor(() => expect(mocks.writeChild).toHaveBeenCalledWith("pi-select",
+        JSON.stringify({ type: "extension_ui_response", id: "select", value: option })));
+    } finally { await stopPiSession("pi-select"); }
+  });
+
+  it.each(["", "  first\nsecond  "])("returns exact editor text %j", async value => {
+    const events: HarnessEvent[] = [];
+    await compactPiContext({ sessionId: "pi-editor", cwd: "/repo", model: "pi:default",
+      runtimeMode: "supervised", onEvent: event => events.push(event) });
+    try {
+      mocks.frames[0]!({ type: "extension_ui_request", id: "editor", method: "editor",
+        title: "Edit", prefill: "  prefill\n  ", placeholder: "Hint" });
+      const question = events.find(event => event.type === "question.asked");
+      expect(question?.type).toBe("question.asked");
+      if (question?.type !== "question.asked") throw new Error("Missing Pi editor");
+      expect(question.questions[0]?.input).toMatchObject({ kind: "multiline",
+        initialValue: "  prefill\n  ", placeholder: "Hint", preserveWhitespace: true });
+      respondPiQuestion("pi-editor", question.requestId,
+        { kind: "answered", answers: {}, custom: { editor: value } });
+      await vi.waitFor(() => expect(mocks.writeChild).toHaveBeenCalledWith("pi-editor",
+        JSON.stringify({ type: "extension_ui_response", id: "editor", value })));
+    } finally { await stopPiSession("pi-editor"); }
+  });
+
+  it("expires a Pi interaction once and ignores a late user reply", async () => {
+    const events: HarnessEvent[] = [];
+    await compactPiContext({ sessionId: "pi-expire", cwd: "/repo", model: "pi:default",
+      runtimeMode: "supervised", onEvent: event => events.push(event) });
+    try {
+      mocks.frames[0]!({ type: "extension_ui_request", id: "expires", method: "input",
+        title: "Input", timeout: 10 });
+      await vi.waitFor(() => expect(events.some(event => event.type === "question.resolved")).toBe(true),
+        { timeout: 250 });
+      const question = events.find(event => event.type === "question.asked");
+      if (question?.type !== "question.asked") throw new Error("Missing timed question");
+      expect(question.autoResolveAt).toBeTypeOf("number");
+      respondPiQuestion("pi-expire", question.requestId,
+        { kind: "answered", answers: {}, custom: { expires: "late" } });
+      expect(mocks.writeChild).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(mocks.writeChild.mock.calls[0]![1])).toMatchObject({ id: "expires", cancelled: true });
+    } finally { await stopPiSession("pi-expire"); }
+  });
+
+  it("publishes active-model thinking choices and native changes", async () => {
+    mocks.request.mockImplementation(async command => {
+      if (command.type === "get_state") return { data: { sessionId: "pi-levels",
+        model: { provider: "anthropic", id: "claude", contextWindow: 200_000 }, thinkingLevel: "off" } };
+      if (command.type === "get_available_thinking_levels") return { data: { levels: ["off", "high"] } };
+      return { data: {} };
+    });
+    const events: HarnessEvent[] = [];
+    try {
+      await compactPiContext({ sessionId: "pi-levels", cwd: "/repo", model: "pi:default",
+        runtimeMode: "supervised", onEvent: event => events.push(event) });
+      expect(events).toContainEqual(expect.objectContaining({ type: "session.configChanged",
+        modelSettingOptions: { model: "pi:anthropic/claude", settings: [expect.objectContaining({
+          id: "thinking", options: [{ value: "off", label: "Off" }, { value: "high", label: "High" }],
+        })] } }));
+      mocks.frames[0]!({ type: "thinking_level_changed", level: "high" });
+      expect(events).toContainEqual(expect.objectContaining({ type: "session.configChanged",
+        modelSettings: { thinking: "high" } }));
+    } finally { await stopPiSession("pi-levels"); }
+  });
+
+  it("does not claim a rejected thinking setting was applied", async () => {
+    mocks.request.mockImplementation(async command => {
+      if (command.type === "get_state") return { data: { sessionId: "pi-rejected",
+        model: { provider: "anthropic", id: "claude" }, thinkingLevel: "off" } };
+      if (command.type === "get_available_thinking_levels") return { data: { levels: ["off", "high"] } };
+      if (command.type === "set_thinking_level") throw new Error("Thinking change rejected");
+      return { data: {} };
+    });
+    const events: HarnessEvent[] = [];
+    await expect(compactPiContext({ sessionId: "pi-rejected", cwd: "/repo", model: "pi:default",
+      runtimeMode: "supervised", modelSettings: { thinking: "high" }, onEvent: event => events.push(event),
+    })).rejects.toThrow("Thinking change rejected");
+    expect(events.some(event => event.type === "session.configChanged" && event.modelSettings?.thinking === "high")).toBe(false);
+    await stopPiSession("pi-rejected");
+  });
+
+  it("does not let a reply to a stopped process answer its replacement", async () => {
+    const events: HarnessEvent[] = [];
+    const open = () => compactPiContext({ sessionId: "pi-replace", cwd: "/repo", model: "pi:default",
+      runtimeMode: "supervised", onEvent: event => events.push(event) });
+    await open();
+    mocks.frames[0]!({ type: "extension_ui_request", id: "old", method: "input", title: "Old" });
+    const old = events.find(event => event.type === "question.asked");
+    if (old?.type !== "question.asked") throw new Error("Missing old question");
+    await stopPiSession("pi-replace");
+    await open();
+    mocks.frames[1]!({ type: "extension_ui_request", id: "new", method: "input", title: "New" });
+    const next = events.filter(event => event.type === "question.asked").at(-1);
+    if (next?.type !== "question.asked") throw new Error("Missing replacement question");
+    try {
+      respondPiQuestion("pi-replace", old.requestId, { kind: "answered", answers: {}, custom: { old: "stale" } });
+      await new Promise(resolve => setTimeout(resolve, 10));
+      expect(events.some(event => event.type === "question.resolved" && event.requestId === next.requestId)).toBe(false);
+      respondPiQuestion("pi-replace", next.requestId, { kind: "answered", answers: {}, custom: { new: "fresh" } });
+      await vi.waitFor(() => expect(mocks.writeChild).toHaveBeenCalledWith("pi-replace",
+        JSON.stringify({ type: "extension_ui_response", id: "new", value: "fresh" })));
+    } finally { await stopPiSession("pi-replace"); }
+  });
+
+  it("routes a busy Pi slash command through prompt without ending the running turn", async () => {
+    const events: HarnessEvent[] = [];
+    let finished = false;
+    const turn = sendPiTurn({ sessionId: "pi-command-steer", cwd: "/repo", model: "pi:default",
+      text: "hello", runtimeMode: "supervised", onEvent: event => events.push(event) }).then(() => { finished = true; });
+    await vi.waitFor(() => expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({ type: "prompt" }), 15_000));
+    try {
+      await steerPiTurn({ sessionId: "pi-command-steer", cwd: "/repo", model: "pi:default", text: "/audit @raw" });
+      expect(mocks.request).toHaveBeenCalledWith({ type: "prompt", message: "/audit @raw", streamingBehavior: "steer" }, 30 * 60_000);
+      expect(finished).toBe(false);
+    } finally { mocks.frames[0]!({ type: "agent_settled" }); await turn; await stopPiSession("pi-command-steer"); }
+  });
+
+  it.each([false, true])("waits for image saving and discards late cancelled output (cancel=%s)", async cancel => {
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    const events: HarnessEvent[] = [];
+    const discard = vi.fn(async () => {});
+    let save!: (value: { event: Extract<HarnessEvent, { type: "image.generated"; path: string }>; discard: () => Promise<void> }) => void;
+    const materialize = vi.fn(() => new Promise<{ event: Extract<HarnessEvent, { type: "image.generated"; path: string }>; discard: () => Promise<void> }>(resolve => { save = resolve; }));
+    let finished = false;
+    const turn = sendFamilyTurn(PI_FLAVOR, { sessionId: "pi-image", cwd: "/repo", model: "pi:default",
+      runtimeMode: "supervised", text: "paint", onEvent: event => events.push(event) }, materialize)
+      .then(() => { finished = true; });
+    await vi.waitFor(() => expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({ type: "prompt" }), 15_000));
+    const frame = mocks.frames[0]!;
+    const result = { type: "tool_execution_end", toolCallId: "paint",
+      result: { content: [{ type: "image", mimeType: "image/png", data: png }] } };
+    frame(result); frame(result); frame({ type: "agent_settled" });
+    await vi.waitFor(() => expect(materialize).toHaveBeenCalledTimes(1));
+    expect(finished).toBe(false);
+    if (cancel) await cancelPiTurn("pi-image");
+    save({ event: { type: "image.generated", itemId: "pi:paint:image:0", name: "saved.png",
+      path: "/saved.png", mimeType: "image/png", size: 70 }, discard });
+    await turn;
+    if (cancel) await vi.waitFor(() => expect(discard).toHaveBeenCalledOnce());
+    expect(events.filter(event => event.type === "image.generated")).toHaveLength(cancel ? 0 : 1);
+    await stopPiSession("pi-image");
   });
 });
