@@ -5,6 +5,7 @@ import {
   writeFile,
   chmod,
   copyFile,
+  cp,
   rm,
 } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
@@ -50,9 +51,13 @@ const ps = (script) =>
     },
   );
 const args = process.argv.slice(2);
+const desktopPlatform = args.includes("--desktop") ? process.env.TAURI_ENV_PLATFORM : undefined;
+const desktopArch = args.includes("--desktop") ? process.env.TAURI_ENV_ARCH : undefined;
+const platform = desktopPlatform === "windows" ? "win32" : desktopPlatform || process.platform;
+const arch = desktopArch === "aarch64" ? "arm64" : desktopArch === "x86_64" ? "x64" : desktopArch || process.arch;
 const target = args.includes("--target")
   ? args[args.indexOf("--target") + 1]
-  : `${process.platform}-${process.arch}`;
+  : `${platform}-${arch}`;
 const targets = args.includes("--all") ? Object.keys(runtimes) : [target];
 const output = resolve("build/host-packages");
 const cache = resolve("build/host-runtime-cache");
@@ -157,6 +162,11 @@ for (const target of targets) {
       throw new Error("Packaged host failed its executable smoke test");
   }
   const filename = `monocode-host-${target}.${extension}`;
+  if (args.includes("--desktop")) {
+    const destination = resolve("build/desktop-host");
+    await rm(destination, { recursive: true, force: true });
+    await cp(folder, destination, { recursive: true });
+  }
   await rm(join(output, filename), { force: true });
   if (windows) {
     if (process.platform === "win32")

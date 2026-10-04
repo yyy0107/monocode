@@ -1054,3 +1054,11 @@ html.theme-light .mobile-logo {
   font-size: 9px;
   overflow: hidden;
 }
+
+.mobile-native-readonly {
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.65;
+}

@@ -10,7 +10,7 @@ import {
   type SessionSyncChunk,
   type SessionSyncResponse,
 } from "./protocol";
-import { remoteProjectFor } from "./remoteProjects";
+import { remoteProjectFor, ensureSharedProject, sharedHostMachineId } from "./remoteProjects";
 import { withRemoteAttachmentPreviews } from "./remoteAttachmentPreviews";
 
 const CHANGE = "monocode:remote-machines";
@@ -78,6 +78,15 @@ export function rememberRemoteSession(shellId: string, sessionId?: string) {
     /* tab selection is best effort */
   }
   window.dispatchEvent(new Event(REMOTE_HISTORY_CHANGE));
+}
+
+export function forgetDeletedRemoteBindings(ids: readonly string[]) {
+  const deleted = new Set(ids);
+  const bindings = JSON.parse(localStorage.getItem(TAB_KEY) ?? "{}");
+  for (const [shellId, hostId] of Object.entries(bindings)) {
+    if (typeof hostId === "string" && deleted.has(hostId)) delete bindings[shellId];
+  }
+  localStorage.setItem(TAB_KEY, JSON.stringify(bindings));
 }
 
 const pendingPrefix = (project: string, environment: string) =>
@@ -150,12 +159,18 @@ export const clearPendingRemoteCommand = (
 ) =>
   localStorage.removeItem(`${pendingPrefix(project, environment)}${commandId}`);
 
-export function remoteRequest<T>(
+export async function remoteRequest<T>(
   machineId: string,
   method: string,
   params: unknown = {},
 ): Promise<T> {
-  return invoke<T>("remote_request", { machineId, method, params });
+  const result = await invoke<T>("remote_request", { machineId, method, params });
+  if (method === "sessions.delete" && machineId === sharedHostMachineId()) {
+    // Explicit deletion clears the migration row's native worktree/reminder
+    // references, without deleting the original attachment recovery files.
+    await invoke("session_delete", { sessionId: (params as { sessionId: string }).sessionId, imagePaths: [] });
+  }
+  return result;
 }
 
 /** Reads one sync, assembling it from bounded pieces when the host chunks it. */
@@ -414,10 +429,11 @@ export function useRemoteProjectSessions(
     let failures = 0;
     const poll = async () => {
       try {
+        const hostProject = remote.local ? await ensureSharedProject(remote.cwd) : remote;
         const next = await remoteRequest<HostSessionSummary[]>(
           machine.id,
           "sessions.list",
-          { projectId: remote.projectId },
+          { projectId: hostProject.projectId },
         );
         if (disposed) return;
         failures = 0;

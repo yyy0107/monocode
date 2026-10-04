@@ -19,6 +19,7 @@ import {
   type Session,
 } from "../model/session";
 import { getSession, upsertSession, type SessionSummary } from "./sessionStore";
+import { sharedSessionBackend } from "./sharedSessionBackend";
 
 export type NativeSessionState = {
   files: NativeSessionFile[];
@@ -262,7 +263,13 @@ async function update(
     return null;
   }
   try {
-    const current = owner.getLive(id) ?? (await getSession(id));
+    let current = owner.getLive(id) ?? (await getSession(id));
+    const shared = sharedSessionBackend();
+    if (current?.nativeSession && !current.busy && shared?.ownsSession(id)) {
+      const canonical = await shared.get(id);
+      if (!canonical) return null;
+      current = { ...current, title: canonical.title, linkedWorkItem: canonical.linkedWorkItem };
+    }
     let probe: NativeSessionProbe;
     try {
       probe = await invoke<NativeSessionProbe>("native_session_probe", {
@@ -297,6 +304,7 @@ async function update(
       current?.nativeSession?.revision === file.revision &&
       current.nativeSession.path === file.path
     ) {
+      if (shared && access.state === "idle" && !current.busy) await shared.mirrorNative(current);
       publishAccess(id, access);
       return current.id;
     }

@@ -13,6 +13,7 @@ import {
   type RemoteProvider,
 } from "../src/features/connections/model/protocol";
 import { HostEngine } from "./engine";
+import { refreshNativeDesktopSession } from "./desktop-import";
 import { writeAttachmentChunk, readAttachmentChunk } from "./attachments";
 import type { LinkedWorkItem } from "../src/features/sessions/model/session";
 import { parseGithubWorkItemUrl } from "../src/features/sessions/model/sessionWorkItem";
@@ -370,6 +371,11 @@ export function createHostServer(
             }
             if (Object.keys(patch).length === 0) throw new Error("No session changes supplied");
             result = engine.updateSession(sessionId, patch);
+            break;
+          }
+          case "sessions.refreshDesktopNative": {
+            if (typeof params.busy !== "boolean") throw new Error("Invalid desktop session status");
+            result = refreshNativeDesktopSession(engine.store, String(params.sessionId ?? ""), params.busy);
             break;
           }
           case "sessions.delete": {

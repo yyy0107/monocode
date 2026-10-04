@@ -17,6 +17,7 @@ mod inbox_media;
 mod jira;
 mod linear;
 mod link_preview;
+mod local_host;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
@@ -261,6 +262,7 @@ pub fn run() {
             menu::dispatch(app, event.id().as_ref());
         })
         .invoke_handler(tauri::generate_handler![
+            local_host::shared_host_prepare,
             remote::remote_machines,
             remote::remote_connect,
             remote::remote_disconnect,

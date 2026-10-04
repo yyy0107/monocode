@@ -1987,5 +1987,7 @@
   "Connected": "已连接",
   "No conversations yet": "暂无对话",
   "Agent output exceeded the 64 MiB message limit.": "Agent 输出超过了 64 MiB 的消息大小上限。",
-  "Agent diagnostic output exceeded the 8 MiB message limit.": "Agent 诊断输出超过了 8 MiB 的消息大小上限。"
+  "Agent diagnostic output exceeded the 8 MiB message limit.": "Agent 诊断输出超过了 8 MiB 的消息大小上限。",
+  "Could not connect to shared conversations.": "无法连接共享会话服务。",
+  "Imported native conversations continue on the desktop.": "导入的原生会话请在桌面端继续。"
 }

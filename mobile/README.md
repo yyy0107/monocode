@@ -14,7 +14,8 @@ cloud account setup in the mobile app.
 
 ## Connect to a Host
 
-Run the matching MonoCode Host release on your computer. Follow
+The desktop starts the shared MonoCode Host automatically. For a computer
+without the desktop running yet, run the matching Host release manually. Follow
 [remote-access.md](../docs/remote-access.md) to install providers, run the Host,
 and issue a separate device credential for your phone:
 
@@ -52,11 +53,14 @@ stop a Host-owned agent. The app pauses polling in the background and fetches
 revision updates or a complete snapshot when foregrounded. Background push
 notifications are outside this first version.
 
-**Shared conversations:** desktop-local conversations and Host conversations
-are separate. To share a conversation between phone and desktop, connect the
-desktop to the same Host using Settings → Connections → Connect to an existing
-host by URL (`http://127.0.0.1:3774` on the Host computer). Existing desktop-local
-history is not migrated by this change.
+**Shared conversations:** ordinary desktop and phone conversations use the
+same Host and history. Desktop connects automatically to the Host on this
+computer; the phone uses its reachable URL and a separate device token.
+Existing desktop history is imported automatically with its conversation IDs,
+provider bindings and attachments. Repeated startup does not duplicate history
+or restore conversations deleted from the shared Host. Desktop files and
+terminals keep their native project paths. See [shared session behavior and
+verification](../docs/shared-sessions.md).
 
 ## Agent, models, and reasoning
 

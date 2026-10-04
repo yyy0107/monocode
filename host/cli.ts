@@ -30,6 +30,7 @@ import {
 import { connectionInfo, installService, uninstallService } from "./service";
 import { version } from "../package.json";
 import { protectWindowsDirectory } from "./windows";
+import { prepareDesktopHost } from "./desktop";
 
 process.umask(0o077);
 // npm-based providers can launch Node subprocesses without a separate Node
@@ -81,6 +82,8 @@ async function main() {
   service install       Install/start the persistent user service
   service uninstall     Stop the host and remove its service; keeps data
   connection-info       Print the running host's port (JSON)
+  desktop --desktop-data-dir <directory>
+                        Start/reuse shared Host and import desktop history
   status                Check the running host
   stop                  Stop the host and interrupt its running turns
   pair --name <device> [--token <token>]
@@ -96,6 +99,13 @@ Connect another computer using an SSH forward to the loopback port.`);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   if (process.platform === "win32") await protectWindowsDirectory(directory);
   else chmodSync(directory, 0o700);
+  if (command === "desktop") {
+    const desktopDirectory = option("desktop-data-dir", "");
+    if (!desktopDirectory) throw new Error("Provide --desktop-data-dir");
+    console.log(JSON.stringify(await prepareDesktopHost(directory, resolve(desktopDirectory),
+      fileURLToPath(import.meta.url), port)));
+    return;
+  }
   if (command === "connection-info") {
     console.log(JSON.stringify(await connectionInfo(directory)));
     return;
@@ -223,7 +233,7 @@ Connect another computer using an SSH forward to the loopback port.`);
     throw new Error("Unknown command; run with --help");
   }
   const releaseOwner = await acquireHostOwner(directory);
-  const backend = new HostChildBackend();
+  const backend = new HostChildBackend({}, join(directory, "desktop-owner.json"));
   let cleanup = () => {
     rmSync(statePath, { force: true });
     store.close();
@@ -275,7 +285,7 @@ Connect another computer using an SSH forward to the loopback port.`);
             response.writeHead(400).end();
             return;
           }
-          response.end("{}");
+          response.end(JSON.stringify({ sharedDesktop: 2 }));
           if (action === "stop") void stop();
         } catch {
           response.writeHead(400).end();

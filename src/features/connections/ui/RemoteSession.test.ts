@@ -9,7 +9,7 @@ import {
 } from "../../sessions/ui/SessionPane";
 import type { Block, Session } from "../../sessions/model/session";
 import type { AgentModel } from "../../sessions/model/models";
-import { rememberRemoteProject } from "../model/remoteProjects";
+import { rememberRemoteProject, configureSharedHost } from "../model/remoteProjects";
 import { preloadRemoteSession } from "./RemoteSession";
 import { rememberRemoteSession, remoteSessionFor } from "../model/connections";
 import "../model/remoteCommands";
@@ -124,6 +124,7 @@ let createdWorktree: string | undefined;
 let deletedSessions: string[];
 
 beforeEach(() => {
+  configureSharedHost(undefined, []);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
   localStorage.setItem("monocode.modelControls", "beside");
@@ -262,6 +263,7 @@ afterEach(() => {
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
   localStorage.clear();
+  configureSharedHost(undefined, []);
 });
 
 /** A minimal host engine: persists commands the way the real one does. */
@@ -408,6 +410,19 @@ async function send(text: string) {
   await act(async () => byLabel("Send")!.click());
   await settle();
 }
+
+it("backs a native project conversation with Host commands and keeps transcript files local", async () => {
+  projectKey = "/home/me/repo";
+  configureSharedHost("env", [{ id: "project", cwd: projectKey, name: "repo" }]);
+  const onOpenFile = vi.fn();
+  await render(shell(), { onOpenFile });
+  await send("Shared local project");
+  expect(commands.map(command => command.type)).toEqual(["create", "send"]);
+  expect(remoteSessionFor("shell")).toBe("host-session");
+  await act(async () => byLabel("Open transcript file")!.click());
+  expect(onOpenFile).toHaveBeenCalledWith("/home/me/repo/src/app.ts");
+  configureSharedHost(undefined, []);
+});
 async function chooseEffort(label: string) {
   await act(async () => byLabel("Reasoning:")!.click());
   const option = [

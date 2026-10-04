@@ -22,6 +22,8 @@ import { initializeProviderBinaryPaths } from "./features/providers/model/provid
 import "./features/connections/model/remoteCommands";
 import "./styles/index.css";
 import { initUiLanguage } from "./shared/i18n/languageSync";
+import { initializeSharedHost } from "./features/connections/model/sharedHost";
+import { useTranslation } from "./shared/i18n/useTranslation";
 
 performance.mark("monocode:bootstrap");
 // Let local boot IPC overlap loading/evaluating the workspace UI.
@@ -89,21 +91,40 @@ void listen("quit_aborted", () => {
   abortQuit();
 });
 
-void Promise.all([
-  homeDirPrimed,
-  providerBinaryPathsPrimed,
-  loadBootWorkspace(),
-  appLoaded,
-]).then(
-  ([
-    ,
-    ,
-    { windowTransfer, resumed, history, historyCwd },
-    { default: App },
-  ]) => {
+const root = ReactDOM.createRoot(
+  document.getElementById("root") as HTMLElement,
+);
+function BootFailure({ error }: { error: unknown }) {
+  const { t } = useTranslation();
+  useLayoutEffect(dismissBootSplash, []);
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-4 p-8 text-content">
+      <p>{t("Could not connect to shared conversations.")}</p>
+      <pre className="max-w-xl whitespace-pre-wrap text-sm text-content/60">
+        {String(error)}
+      </pre>
+      <button onClick={() => void boot()}>{t("Retry")}</button>
+    </div>
+  );
+}
+async function boot() {
+  try {
+    await providerBinaryPathsPrimed;
+    await initializeSharedHost();
+    const [
+      ,
+      ,
+      { windowTransfer, resumed, history, historyCwd },
+      { default: App },
+    ] = await Promise.all([
+      homeDirPrimed,
+      providerBinaryPathsPrimed,
+      loadBootWorkspace(),
+      appLoaded,
+    ]);
     performance.mark("monocode:workspace-ready");
     const installedUpdate = windowTransfer ? null : consumeInstalledUpdate();
-    ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    root.render(
       <React.StrictMode>
         <BootGate>
           <App
@@ -116,5 +137,8 @@ void Promise.all([
         </BootGate>
       </React.StrictMode>,
     );
-  },
-);
+  } catch (error) {
+    root.render(<BootFailure error={error} />);
+  }
+}
+void boot();

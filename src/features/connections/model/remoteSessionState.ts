@@ -17,6 +17,6 @@ export function remoteSessionState(
     cwd: shell.cwd,
     worktreeCwd: host.cwd === project.cwd
       ? undefined
-      : remotePath(project.environmentId, host.cwd),
+      : project.local ? host.cwd : remotePath(project.environmentId, host.cwd),
   };
 }

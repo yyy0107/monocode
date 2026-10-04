@@ -570,7 +570,7 @@ import {
 } from "../features/connections/model/connections";
 import { buildRemotePlan, remoteSessionActions } from "../features/connections/model/remoteSessionActions";
 import { remoteSessionState } from "../features/connections/model/remoteSessionState";
-import { remotePath, remoteProjectFor } from "../features/connections/model/remoteProjects";
+import { remotePath, remoteProjectFor, sessionUsesHost } from "../features/connections/model/remoteProjects";
 import type { HostSession } from "../features/connections/model/protocol";
 import { AddRemoteProjectDialog } from "../features/connections/ui/AddRemoteProjectDialog";
 import type { ConnectableInboxSource } from "../features/inbox/model/inboxFilters";
@@ -1647,7 +1647,7 @@ function Workspace({
       ? active.branch || gitCwdBranches?.current || undefined
       : undefined;
   const remoteFilesProject = remoteProjectFor(sidebarCwd);
-  const filesCwd = remoteFilesProject
+  const filesCwd = remoteFilesProject && !remoteFilesProject.local
     ? isRemoteProjectPath(gitCwd)
       ? gitCwd
       : remotePath(
@@ -3991,6 +3991,7 @@ function Workspace({
       );
       if (appeared) return appeared;
       if (
+        !sessionUsesHost(restored) &&
         !restored.worktreeRemoved &&
         restored.providerSessionId &&
         isLiveHarness(restored.harness)
@@ -6010,7 +6011,7 @@ function Workspace({
       const current = sessionsRef.current.find(
         (session) => session.id === sessionId,
       );
-      if (current && remoteProjectFor(current.cwd))
+      if (current && sessionUsesHost(current))
         return !!remoteSessionActions(sessionId)?.saveDraft(text, attachments);
       if (
         !current ||
@@ -6099,7 +6100,7 @@ function Workspace({
       options?: SubmitOptions,
     ): SubmissionAcceptance => {
       const remote = sessionsRef.current.find((session) => session.id === sessionId);
-      if (remote && remoteProjectFor(remote.cwd))
+      if (remote && sessionUsesHost(remote))
         return !!remoteSessionActions(sessionId)?.submit(text, attachments, options);
       if (
         editedResends.isActive(sessionId) ||
@@ -7577,7 +7578,7 @@ function Workspace({
     (sessionId: string, blockId: string, text: string) => {
       setSessions((prev) =>
         prev.map((session) => {
-          if (remoteProjectFor(session.cwd)) return session;
+          if (sessionUsesHost(session)) return session;
           if (session.id !== sessionId || session.busy) return session;
           return {
             ...session,
@@ -7615,7 +7616,7 @@ function Workspace({
       const session = sessionsRef.current.find(
         (entry) => entry.id === sessionId,
       );
-      if (session && remoteProjectFor(session.cwd)) {
+      if (session && sessionUsesHost(session)) {
         buildRemotePlan(sessionId, blockId, target);
         return;
       }
@@ -8646,7 +8647,7 @@ function Workspace({
       const current = sessionsRef.current.find(
         (session) => session.id === sessionId,
       );
-      if (current && remoteProjectFor(current.cwd))
+      if (current && sessionUsesHost(current))
         return remoteSessionActions(sessionId)?.compact() ?? false;
       if (
         !current || current.busy || current.worktreeRemoved ||
@@ -8734,7 +8735,7 @@ function Workspace({
   const onStop = useCallback(
     (sessionId: string, managed = false) => {
       const remote = sessionsRef.current.find((s) => s.id === sessionId);
-      if (remote && remoteProjectFor(remote.cwd)) {
+      if (remote && sessionUsesHost(remote)) {
         remoteSessionActions(sessionId)?.stop();
         return;
       }
@@ -8827,7 +8828,7 @@ function Workspace({
     (sessionId: string, requestId: number, decision: ApprovalDecision) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
       if (!session || session.worktreeRemoved) return;
-      if (remoteProjectFor(session.cwd)) {
+      if (sessionUsesHost(session)) {
         remoteSessionActions(sessionId)?.approve(requestId, decision);
         return;
       }
@@ -8840,7 +8841,7 @@ function Workspace({
     (sessionId: string, requestId: number, reply: UserQuestionReply) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
       if (!session || session.worktreeRemoved) return;
-      if (remoteProjectFor(session.cwd)) {
+      if (sessionUsesHost(session)) {
         remoteSessionActions(sessionId)?.answer(requestId, reply);
         return;
       }
@@ -8852,7 +8853,7 @@ function Workspace({
   const onQuestionInteraction = useCallback(
     (sessionId: string, requestId: number) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
-      if (session && remoteProjectFor(session.cwd)) return;
+      if (session && sessionUsesHost(session)) return;
       if (session && !session.worktreeRemoved)
         keepHarnessQuestionOpen(session.harness, sessionId, requestId);
     },
@@ -10198,7 +10199,7 @@ function Workspace({
         (session) => session.id === activeWorkspace.focusedId,
       );
       if (!current) return;
-      const remoteProject = isRemoteProjectPath(current.cwd);
+      const remoteProject = isRemoteProjectPath(current.cwd) || !!sessionUsesHost(current);
       const navigationId = remoteProject
         ? remoteSessionFor(current.id)
         : current.id;
@@ -11361,7 +11362,7 @@ function Workspace({
   );
 }
 function conversationTitle(session: Session): string {
-  const hostId = isRemoteProjectPath(session.cwd)
+  const hostId = (isRemoteProjectPath(session.cwd) || sessionUsesHost(session))
     ? remoteSessionFor(session.id)
     : undefined;
   const remote = hostId

@@ -340,6 +340,7 @@ export function summary(value: HostSession): HostSessionSummary {
     linkedWorkItem: value.session.linkedWorkItem,
     needsInput: sessionNeedsInput(value.session),
     draft: value.session.blocks.some((block) => block.role === "user" && block.draft),
+    nativeSession: value.session.nativeSession,
   };
 }
 

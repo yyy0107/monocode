@@ -102,7 +102,7 @@ Supported: persistent remote text conversations with all ten local provider adap
 
 Remote history appears in the Sessions sidebar of each project on a machine. Host snapshots also populate the app's normal session state while the tab is open; they are not written to the local session store. Remote `/compact` uses the provider's context compaction, and `/plan` selects the host provider's plan mode. Queued follow-ups and editing the last message still need host commands. Other local slash commands and skill expansion are not yet available remotely. Worktree deletion, terminals, generated image output, named provider accounts, `/operator`, automations, orchestration, LAN discovery, and account-based tunnels are not implemented yet. Other remote prompts are sent directly to the provider.
 
-The headless host runs the reused TypeScript adapters with a Node process backend. It proves the execution boundary without introducing the planned Rust daemon/worker IPC yet. Node is included in host release archives, separately from the desktop application.
+The headless host runs the reused TypeScript adapters with a Node process backend. It proves the execution boundary without introducing the planned Rust daemon/worker IPC yet. Node is included in both Host release archives and desktop bundles. Local desktop projects now connect to the same background service automatically; see [shared desktop and mobile conversations](shared-sessions.md) for migration and current feature limits. Imported named Codex/Claude accounts use the local desktop's existing account directories; standalone remote Hosts retain their separate account limitations.
 
 ## Verify
 

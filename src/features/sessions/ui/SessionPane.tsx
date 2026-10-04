@@ -101,6 +101,7 @@ import type { SessionFolderTarget } from "../model/sessionFolders";
 import { markLinkedSessionUpdateSeen } from "../../inbox/model/linkedSessionSeen";
 import { RemoteSession } from "../../connections/ui/RemoteSession";
 import { isRemoteProjectPath } from "../../projects/model/recents";
+import { remoteProjectFor, sessionUsesHost } from "../../connections/model/remoteProjects";
 import type { HostSession } from "../../connections/model/protocol";
 
 export type SessionPaneProps = {
@@ -239,7 +240,8 @@ type Props = SessionPaneProps & {
 export const SessionPane = memo(function SessionPane(props: SessionPaneProps) {
   // Sessions in a project on another machine render this same pane, backed by
   // the host instead of this computer's session runtime.
-  if (isRemoteProjectPath(props.session.cwd))
+  const project = remoteProjectFor(props.session.cwd);
+  if (isRemoteProjectPath(props.session.cwd) || sessionUsesHost(props.session))
     return (
       <RemoteSession
         shell={props.session}
@@ -248,7 +250,9 @@ export const SessionPane = memo(function SessionPane(props: SessionPaneProps) {
         onOpenFile={props.onOpenFile}
         onOpenDiff={props.onOpenDiff}
         onOpenPlan={props.onOpenPlan}
-        render={(remote) => <LocalSessionPane {...props} {...remote} />}
+        render={(remote) => <LocalSessionPane {...props} {...remote}
+          {...(project?.local ? { onNewTerminal: props.onNewTerminal,
+            onManageWorktrees: props.onManageWorktrees } : {})} />}
       />
     );
   return <LocalSessionPane {...props} />;

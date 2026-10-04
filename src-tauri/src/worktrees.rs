@@ -464,6 +464,7 @@ pub fn git_worktree_check_remove(
     terminals: State<'_, crate::pty::PtyHost>,
 ) -> Result<(), String> {
     let path = expand_home(&path);
+    let _shared_reservation = crate::local_host::reserve_worktree_removal(&path)?;
     check_removal(
         &expand_home(&cwd),
         &path,
@@ -706,6 +707,7 @@ pub fn git_worktree_remove(
     agents: State<'_, crate::harness::HarnessHost>,
 ) -> Result<WorktreeRemoval, String> {
     let path = expand_home(&path);
+    let _shared_reservation = crate::local_host::reserve_worktree_removal(&path)?;
     let _reservation = crate::worktree_lifecycle::reserve_removal(&path)?;
     if terminals.has_working_dir(&path) || agents.has_working_dir(&path) {
         return Err("Close the terminals and agent processes using this worktree first.".into());
@@ -730,6 +732,7 @@ pub fn git_orchestration_worktree_remove(
 ) -> Result<WorktreeRemoval, String> {
     let root = expand_home(&cwd);
     let path = expand_home(&path);
+    let _shared_reservation = crate::local_host::reserve_worktree_removal(&path)?;
     let _reservation = crate::worktree_lifecycle::reserve_removal(&path)?;
     if terminals.has_working_dir(&path) || agents.has_working_dir(&path) {
         return Err("Close the terminals and agent processes using this worktree first.".into());

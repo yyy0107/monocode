@@ -40,7 +40,7 @@ export interface HostProvider {
   steer?(input: SteerTurnInput): Promise<void>;
   cancel(id: string): Promise<void>;
   stop(id: string): Promise<void>;
-  bind(id: string, providerId: string, cwd: string): void;
+  bind(id: string, providerId: string, cwd: string, providerAccountId?: string): void;
   approve(id: string, request: number, decision: ApprovalDecision): void;
   answer(id: string, request: number, reply: UserQuestionReply): void;
   generateTitle?(input: {

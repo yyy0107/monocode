@@ -3,6 +3,7 @@ import { useHostQueue } from "./useHostQueue";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SessionPaneProps } from "../../sessions/ui/SessionPane";
+import { sharedSessionBackend } from "../../sessions/data/sharedSessionBackend";
 import type {
   Attachment,
   Block,
@@ -44,6 +45,7 @@ import {
   parseRemotePath,
   remotePath,
   remoteProjectFor,
+  ensureSharedProject,
   type RemoteProject,
 } from "../model/remoteProjects";
 import {
@@ -142,16 +144,26 @@ export function RemoteSession({
   render: (overrides: RemoteSessionOverrides) => ReactNode;
 }) {
   const { t: uiT } = useTranslation();
+  const [, refreshProject] = useState(0);
+  const [projectError, setProjectError] = useState("");
   const project = remoteProjectFor(shell.cwd);
+  useEffect(() => {
+    if (!project?.local || project.projectId) return;
+    let alive = true;
+    void ensureSharedProject(shell.cwd).then(() => {
+      if (alive) refreshProject(value => value + 1);
+    }, error => { if (alive) setProjectError(String(error)); });
+    return () => { alive = false; };
+  }, [shell.cwd, project?.local, project?.projectId]);
   const { machines, loaded } = useRemoteMachines(!!project);
   const machine = project
     ? machines.find((entry) => entry.environmentId === project.environmentId)
     : undefined;
-  if (!project || !machine)
+  if (!project || !machine || !project.projectId)
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <p className="text-[13px] text-content/60">
-          {!project
+          {projectError || (!project
             ? uiT(
                 "This project’s machine details are missing. Add the project again from the project rail.",
               )
@@ -159,7 +171,7 @@ export function RemoteSession({
               ? uiT(
                   "The machine for this project isn’t connected on this computer.",
                 )
-              : uiT("Connecting to the machine…")}
+              : uiT("Connecting to the machine…"))}
         </p>
         {project && loaded ? (
           <button
@@ -268,7 +280,7 @@ function ConnectedRemoteSession({
   const [catalogError, setCatalogError] = useState("");
   const [catalogRefresh, setCatalogRefresh] = useState(0);
   const [selectedCwd, setSelectedCwd] = useState(
-    () => remotePendingWorktree(shell.id) ?? project.cwd,
+    () => remotePendingWorktree(shell.id) ?? (project.local ? shell.worktreeCwd : undefined) ?? project.cwd,
   );
   const [draftWorkspaceMode, setDraftWorkspaceMode] =
     useState<WorkspaceMode>("current");
@@ -336,7 +348,7 @@ function ConnectedRemoteSession({
   }, [hostSession?.id, shell.id]);
   const executionCwd = hostSession?.cwd ?? selectedCwd;
   const { branches } = useProjectBranchesState(
-    remotePath(machine.environmentId, executionCwd),
+    project.local ? executionCwd : remotePath(machine.environmentId, executionCwd),
     online,
   );
   const activeSessionId = hostSession?.id ?? sessionId;
@@ -747,6 +759,10 @@ function ConnectedRemoteSession({
   };
 
   const openSession = (id: string) => {
+    if (project.local) {
+      sharedSessionBackend()?.rememberSession(id, project.cwd);
+      sharedSessionBackend()?.rememberSession(shell.id, project.cwd);
+    }
     boundSession.current = id;
     rememberRemoteSession(shell.id, id);
     setSessionId(id);
@@ -1102,11 +1118,11 @@ function ConnectedRemoteSession({
       blocks: [],
     }),
     id: shell.id,
-    cwd: remotePath(machine.environmentId, project.cwd),
+    cwd: project.local ? project.cwd : remotePath(machine.environmentId, project.cwd),
     worktreeCwd:
       executionCwd === project.cwd
         ? undefined
-        : remotePath(machine.environmentId, executionCwd),
+        : project.local ? executionCwd : remotePath(machine.environmentId, executionCwd),
     workspaceMode: hostSession ? undefined : draftWorkspaceMode,
     worktreeBase: hostSession ? undefined : draftWorktreeBase,
     branch: branches?.current ?? hostSession?.branch,
@@ -1193,7 +1209,8 @@ function ConnectedRemoteSession({
             : undefined;
 
   const selectWorktree = async (tree: Worktree) => {
-    const parsed = parseRemotePath(tree.path);
+    const parsed = project.local ? { hostPath: tree.path, environmentId: machine.environmentId }
+      : parseRemotePath(tree.path);
     if (!parsed || parsed.environmentId !== machine.environmentId)
       throw new Error("Choose a worktree on this machine");
     if (sessionId)
@@ -1298,7 +1315,7 @@ function ConnectedRemoteSession({
       /^[A-Za-z]:[\\/]/.test(path)
         ? path
         : `${executionCwd.replace(/[\\/]+$/, "")}/${path.replace(/^\.\//, "")}`;
-    return remotePath(machine.environmentId, absolute);
+    return project.local ? absolute : remotePath(machine.environmentId, absolute);
   };
 
   const overrides: RemoteSessionOverrides = {

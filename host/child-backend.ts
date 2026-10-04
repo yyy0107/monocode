@@ -6,7 +6,7 @@ import {
 import { EventEmitter } from "node:events";
 import { promisify } from "node:util";
 import { join } from "node:path";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import type { ChildBackend } from "../src/integrations/harness/core/child";
@@ -58,6 +58,7 @@ export class HostChildBackend implements ChildBackend {
 
   constructor(
     private readonly binaries: Partial<Record<RemoteProvider, string>> = {},
+    private readonly desktopConfigPath?: string,
   ) {
     this.events.setMaxListeners(0);
   }
@@ -276,11 +277,46 @@ export class HostChildBackend implements ChildBackend {
     if (this.closing) throw new Error("Host is stopping");
     await this.kill(id);
     if (this.closing) throw new Error("Host is stopping");
-    const account = args.account as { id?: string } | undefined;
-    if (account?.id && account.id !== "default")
-      throw new Error(
-        "Named provider accounts are not supported by this host yet",
+    const account = args.account as
+      { id?: string; provider?: string } | undefined;
+    const env: NodeJS.ProcessEnv = { ...process.env, MONOCODE_HOST: "1" };
+    if (account?.id && account.id !== "default") {
+      if (!this.desktopConfigPath)
+        throw new Error("Named provider accounts require a desktop-owned Host");
+      if (
+        !/^[A-Za-z0-9_-]{1,80}$/.test(account.id) ||
+        !["codex", "claude"].includes(account.provider ?? "")
+      )
+        throw new Error("Invalid provider account");
+      const config = JSON.parse(await readFile(this.desktopConfigPath, "utf8"));
+      if (typeof config.desktopDirectory !== "string")
+        throw new Error("Invalid desktop account directory");
+      const profile = join(
+        config.desktopDirectory,
+        "provider-accounts",
+        account.provider!,
+        account.id,
       );
+      await mkdir(profile, { recursive: true, mode: 0o700 });
+      if (account.provider === "codex") {
+        env.CODEX_HOME = profile;
+        for (const key of [
+          "OPENAI_API_KEY",
+          "CODEX_API_KEY",
+          "CODEX_ACCESS_TOKEN",
+        ])
+          delete env[key];
+      } else {
+        env.CLAUDE_CONFIG_DIR = profile;
+        env.CLAUDE_SECURESTORAGE_CONFIG_DIR = profile;
+        for (const key of [
+          "ANTHROPIC_API_KEY",
+          "ANTHROPIC_AUTH_TOKEN",
+          "CLAUDE_CODE_OAUTH_TOKEN",
+        ])
+          delete env[key];
+      }
+    }
     const launch = await providerLaunch(
       String(args.command),
       args.args as string[],
@@ -298,7 +334,7 @@ export class HostChildBackend implements ChildBackend {
         stdio: ["pipe", "pipe", "pipe", "pipe"],
         detached: process.platform !== "win32",
         windowsHide: true,
-        env: { ...process.env, MONOCODE_HOST: "1" },
+        env,
       },
     );
     this.children.set(id, child);

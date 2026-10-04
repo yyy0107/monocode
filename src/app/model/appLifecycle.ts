@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { sessionUsesHost } from "../../features/connections/model/remoteProjects";
 import { ask } from "@tauri-apps/plugin-dialog";
 import {
   bindHarnessSession,
@@ -331,6 +332,7 @@ async function loadResumedWorkspaceOnce(): Promise<ResumedWorkspace | null> {
 export function bindResumedSessions(sessions: Session[]): void {
   for (const session of sessions) {
     if (
+      sessionUsesHost(session) ||
       session.worktreeRemoved ||
       !session.providerSessionId ||
       !isLiveHarness(session.harness)

@@ -8,6 +8,64 @@ import { join, resolve } from "node:path";
 import { HostChildBackend } from "./child-backend";
 import { REMOTE_PROVIDERS } from "../src/features/connections/model/protocol";
 
+it.each(["codex", "claude"])(
+  "uses the existing desktop named %s account without inherited API credentials",
+  async (provider) => {
+    const directory = mkdtempSync(join(tmpdir(), "monocode-shared-account-"));
+    const config = join(directory, "desktop-owner.json");
+    writeFileSync(config, JSON.stringify({ desktopDirectory: directory }));
+    const file = join(directory, "provider.cjs");
+    writeFileSync(
+      file,
+      `console.log(JSON.stringify({ home: process.env.CODEX_HOME,
+    claude: process.env.CLAUDE_CONFIG_DIR, secure: process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR,
+    inherited: ${provider === "codex" ? "!!process.env.OPENAI_API_KEY" : "!!process.env.ANTHROPIC_API_KEY"} }));`,
+    );
+    const backend = new HostChildBackend({}, config);
+    let received: any;
+    const release = await backend.listen<{ line: string }>(
+      "harness-stdout",
+      ({ payload }) => {
+        received = JSON.parse(payload.line);
+      },
+    );
+    vi.stubEnv(
+      provider === "codex" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY",
+      "fixture-only",
+    );
+    try {
+      await backend.invoke("harness_spawn", {
+        sessionId: "account-test",
+        command: file,
+        args: [],
+        cwd: directory,
+        account: { provider, id: "saved" },
+      });
+      await vi.waitFor(() => expect(received).toBeDefined());
+      const profile = join(directory, "provider-accounts", provider, "saved");
+      expect(provider === "codex" ? received.home : received.claude).toBe(
+        profile,
+      );
+      if (provider === "claude") expect(received.secure).toBe(profile);
+      expect(received.inherited).toBe(false);
+      await expect(
+        backend.invoke("harness_spawn", {
+          sessionId: "invalid",
+          command: file,
+          args: [],
+          cwd: directory,
+          account: { provider, id: "../../outside" },
+        }),
+      ).rejects.toThrow("Invalid provider account");
+    } finally {
+      release();
+      await backend.close();
+      vi.unstubAllEnvs();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
+
 it("resolves every provider and runs only allowed catalog commands", async () => {
   const directory = mkdtempSync(join(tmpdir(), "monocode-catalog-test-"));
   const file = join(directory, "provider.cjs");

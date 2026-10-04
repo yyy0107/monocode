@@ -369,6 +369,7 @@ fn supported_remote_method(method: &str) -> bool {
             | "sessions.update"
             | "sessions.delete"
             | "sessions.sync"
+            | "sessions.refreshDesktopNative"
             | "sessions.syncChunk"
             | "commands.dispatch"
             | "attachments.upload"

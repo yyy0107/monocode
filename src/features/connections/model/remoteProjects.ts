@@ -3,6 +3,10 @@ import {
   REMOTE_PROJECT_PREFIX,
 } from "../../projects/model/recents";
 import type { HostProject } from "./protocol";
+import type { Session } from "../../sessions/model/session";
+
+export const sessionUsesHost = (session: Pick<Session, "cwd" | "inboxAsk" | "nativeSession">) =>
+  !session.inboxAsk && !session.nativeSession && !!remoteProjectFor(session.cwd);
 
 /** A rail project whose folder lives on another machine. */
 export type RemoteProject = {
@@ -12,12 +16,53 @@ export type RemoteProject = {
   projectId: string;
   /** The folder's path on the host. */
   cwd: string;
+  /** Host on this computer; files and terminals keep their native paths. */
+  local?: boolean;
 };
 
 const KEY = "monocode.remote-projects.v2";
 export const REMOTE_PROJECTS_CHANGED = "monocode:remote-projects-changed";
 
 const slashed = (path: string) => path.replace(/\\/g, "/");
+let localEnvironment: string | undefined;
+let localMachineId: string | undefined;
+const localProjects = new Map<string, RemoteProject>();
+const openingProjects = new Map<string, Promise<RemoteProject>>();
+export const sharedHostEnvironment = () => localEnvironment;
+export const sharedHostMachineId = () => localMachineId;
+export const sharedProjects = () => [...localProjects.values()];
+const localKey = (cwd: string) => slashed(cwd).replace(/\/+$/, "") || "/";
+export function configureSharedHost(environmentId: string | undefined, projects: HostProject[], machineId?: string) {
+  const changed = localEnvironment !== environmentId;
+  localEnvironment = environmentId;
+  localMachineId = machineId;
+  if (changed || !environmentId) localProjects.clear();
+  if (!environmentId) return;
+  for (const project of projects) localProjects.set(localKey(project.cwd), {
+    key: localKey(project.cwd), cwd: project.cwd, environmentId,
+    projectId: project.id, local: true });
+}
+export async function ensureSharedProject(cwd: string): Promise<RemoteProject> {
+  const key = localKey(cwd);
+  const known = localProjects.get(key);
+  if (known) return known;
+  if (!localEnvironment) throw new Error("Shared conversation service is not connected");
+  const pending = openingProjects.get(key);
+  if (pending) return pending;
+  const environmentId = localEnvironment;
+  const request = (async () => {
+    const { remoteMachineFor, remoteRequest } = await import("./connections");
+    const machine = await remoteMachineFor(environmentId);
+    if (!machine) throw new Error("Shared conversation service is not connected");
+    const project = await remoteRequest<HostProject>(machine.id, "projects.open", { cwd });
+    const value = { key, cwd: project.cwd, environmentId, projectId: project.id, local: true };
+    localProjects.set(key, value);
+    window.dispatchEvent(new Event(REMOTE_PROJECTS_CHANGED));
+    return value;
+  })();
+  openingProjects.set(key, request);
+  try { return await request; } finally { openingProjects.delete(key); }
+}
 
 export function remoteProjectKey(environmentId: string, cwd: string): string {
   return remotePath(environmentId, slashed(cwd).replace(/\/+$/, ""));
@@ -59,7 +104,10 @@ function readAll(): Record<string, RemoteProject> {
 }
 
 export function remoteProjectFor(path: string): RemoteProject | undefined {
-  if (!isRemoteProjectPath(path)) return undefined;
+  if (!isRemoteProjectPath(path)) return localEnvironment && path && path !== "~"
+    ? localProjects.get(localKey(path)) ?? { key: localKey(path), cwd: path,
+      projectId: "", environmentId: localEnvironment, local: true }
+    : undefined;
   const key = slashed(path).replace(/\/+$/, "");
   const projects = readAll();
   return projects[key] ?? Object.values(projects).find(

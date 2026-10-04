@@ -61,6 +61,18 @@ function setup(harness: "codex" | "claude" = "codex") {
 }
 
 describe("headless session ownership", () => {
+  it("binds an imported provider identity on first use after the Host is already running", async () => {
+    const { store, engine, id, provider, turns } = setup();
+    const current = store.session(id);
+    store.save({ ...current, revision: current.revision + 1,
+      session: { ...current.session, providerSessionId: "imported-native", providerAccountId: "saved-account" } },
+      { type: "desktop.import" });
+    engine.command({ type: "send", commandId: "continue-import", sessionId: id, text: "Continue old history" });
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    expect(provider.bind).toHaveBeenCalledWith(id, "imported-native", current.session.cwd, "saved-account");
+    expect(turns[0].input.providerAccountId).toBe("saved-account");
+    turns[0].finish();
+  });
   it("persists generated PNG history, deduplicates events and enforces session ownership", async () => {
     const { engine, store, turns, id } = setup();
     engine.command({ type: "send", commandId: "paint", sessionId: id, text: "Paint" });

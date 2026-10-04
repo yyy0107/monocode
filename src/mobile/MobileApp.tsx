@@ -492,7 +492,7 @@ export function MobileApp() {
       busy ||
       pending ||
       readingAttachments ||
-      !!snapshot?.session.nativeSession ||
+      nativeReadOnly ||
       (snapshot?.status === "running" && !snapshot.supportsQueue)
     )
       return;
@@ -671,6 +671,7 @@ export function MobileApp() {
   ]);
 
   const running = snapshot?.status === "running";
+  const nativeReadOnly = !!snapshot?.session.nativeSession;
   const title =
     view === "chat"
       ? (snapshot &&
@@ -1004,6 +1005,9 @@ export function MobileApp() {
                   })}
             </Empty>
           )}
+          {nativeReadOnly ? <p className="mobile-native-readonly" role="status">
+            {translate("Imported native conversations continue on the desktop.")}
+          </p> : null}
           <MobileComposer
             queue={
               <MessageQueue
@@ -1031,7 +1035,7 @@ export function MobileApp() {
             working={busy || readingAttachments}
             running={running}
             canSend={
-              !snapshot?.session.nativeSession &&
+              !nativeReadOnly &&
               !busy &&
               !pending &&
               !readingAttachments &&

@@ -107,6 +107,34 @@ async function setup() {
 }
 
 describe("mobile client against the real MonoCode Host", () => {
+  it("shares a desktop-created conversation and follow-ups bidirectionally with a separate phone credential", async () => {
+    const s = await setup();
+    const desktopDevice = s.store.issueDevice("Desktop");
+    const desktopValues = new Map<StorageKey, string>();
+    const desktop = new MobileClient({ get: async key => desktopValues.get(key) ?? null,
+      set: async (key, value) => { desktopValues.set(key, value); },
+      remove: async key => { desktopValues.delete(key); } }, s.transport);
+    await desktop.connect(s.endpoint, desktopDevice.token);
+    const first = await desktop.dispatch({ type: "create", commandId: "desktop-create", projectId: s.project.id,
+      harness: "codex", model: "codex:test", runtimeMode: "supervised" }, "Started on desktop");
+    await vi.waitFor(() => expect(s.provider.send).toHaveBeenCalledTimes(1));
+    s.turn().onEvent({ type: "message.delta", text: "Desktop reply" });
+    s.finish();
+    await vi.waitFor(() => expect(s.store.session(first.sessionId).status).toBe("idle"));
+    expect((await s.client.sessions(s.project.id))[0].id).toBe(first.sessionId);
+    expect((await s.client.session(first.sessionId)).session.blocks.map(block => block.text))
+      .toContain("Desktop reply");
+    await s.client.dispatch({ type: "send", commandId: "phone-followup", sessionId: first.sessionId,
+      text: "Continue on phone" });
+    await vi.waitFor(() => expect(s.provider.send).toHaveBeenCalledTimes(2));
+    expect((await desktop.session(first.sessionId)).session.blocks.map(block => block.text))
+      .toContain("Continue on phone");
+    await desktop.dispatch({ type: "send", commandId: "overlapping-send", sessionId: first.sessionId,
+      text: "Concurrent turn" });
+    expect((await s.client.session(first.sessionId)).session.queuedMessages?.[0].text).toBe("Concurrent turn");
+    expect(s.provider.send).toHaveBeenCalledTimes(2);
+    s.finish();
+  });
   it("syncs one durable queue across separate clients and retries a lost enqueue receipt without duplicates", async () => {
     const s = await setup();
     const desktopStorageValues = new Map<StorageKey, string>();

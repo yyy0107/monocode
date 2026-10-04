@@ -80,6 +80,7 @@ export type HostSessionSummary = Omit<
   worktreeCwd?: string;
   repo?: string;
   draft?: boolean;
+  nativeSession?: Session["nativeSession"];
 };
 
 export type RemoteAttachment = {

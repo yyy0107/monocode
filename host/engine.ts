@@ -263,6 +263,7 @@ export function parseCommand(input: unknown): HostCommand {
 
 export class HostEngine {
   private switchingProjects = new Set<string>();
+  private boundSessions = new Set<string>();
   private running = new Map<
     string,
     {
@@ -300,6 +301,9 @@ export class HostEngine {
     // Provider dispatch is not transactional with SQLite. Never replay a send
     // automatically after a crash; its external effects may already exist.
     for (const value of store.sessions()) {
+      // Native imports retain the desktop's external-CLI ownership checks.
+      // Host shares their history, and never creates another provider owner.
+      if (value.session.nativeSession) continue;
       const interrupted = value.status === "running";
       const recovered = interrupted
         ? this.settled(
@@ -334,13 +338,17 @@ export class HostEngine {
           { type: "queue.recovered" },
         );
       }
-      if (value.session.providerSessionId)
-        this.provider(value.session.harness).bind(
-          value.session.id,
-          value.session.providerSessionId,
-          value.session.cwd,
-        );
+      if (value.session.providerSessionId) this.bindRetainedSession(value.session);
     }
+  }
+
+  private bindRetainedSession(session: Session): void {
+    if (!session.providerSessionId) return;
+    const provider = this.provider(session.harness);
+    if (session.providerAccountId) provider.bind(session.id, session.providerSessionId,
+      session.cwd, session.providerAccountId);
+    else provider.bind(session.id, session.providerSessionId, session.cwd);
+    this.boundSessions.add(session.id);
   }
 
   async openProject(path: string) {
@@ -513,6 +521,8 @@ export class HostEngine {
         };
       } else {
         value = this.store.session(command.sessionId);
+        if (value.session.nativeSession)
+          throw new Error("Continue imported native conversations on the desktop, where CLI ownership can be verified.");
         if (
           (command.type === "send" || command.type === "compact") &&
           this.switchingProjects.has(value.projectId)
@@ -1140,6 +1150,9 @@ export class HostEngine {
   ): void {
     const { session, runId } = value;
     const provider = this.provider(session.harness);
+    if (!this.boundSessions.has(session.id) && session.providerSessionId) {
+      this.bindRetainedSession(session);
+    }
     const active = {
       runId: runId!,
       done: Promise.resolve(),
@@ -1161,6 +1174,7 @@ export class HostEngine {
               cwd: session.cwd,
               model: session.model,
               modelSettings: session.modelSettings,
+              providerAccountId: session.providerAccountId,
               runtimeMode: session.runtimeMode,
               intent,
               onEvent: (event) => this.event(session.id, runId!, event),
@@ -1216,7 +1230,7 @@ export class HostEngine {
         // provider conversation identity for an explicit future follow-up.
         const persisted = this.store.session(session.id).session;
         if (persisted.providerSessionId)
-          provider.bind(session.id, persisted.providerSessionId, persisted.cwd);
+          this.bindRetainedSession(persisted);
         if (
           !error &&
           !active.failed &&

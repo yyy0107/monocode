@@ -425,7 +425,7 @@ function SidebarComponent({
   onDismissUpdate,
 }: Props) {
   const { t: uiT } = useTranslation();
-  const remoteProject = isRemoteProjectPath(cwd);
+  const remoteProject = isRemoteProjectPath(cwd) || !!remoteProjectFor(cwd);
   const tab: SidebarTabId = requestedTab;
   const remote = useRemoteProjectSessions(cwd, remoteProject);
   const hostProject = remoteProject ? remoteProjectFor(cwd) : undefined;
@@ -480,7 +480,8 @@ function SidebarComponent({
     }
   };
   const onSelectSession = remoteProject
-    ? (sessionId: string) => onSelectRemoteSession?.(cwd, sessionId)
+    ? (sessionId: string) => remote.sessions.find(row => row.id === sessionId)?.nativeSession
+      ? onSelectLocalSession?.(sessionId) : onSelectRemoteSession?.(cwd, sessionId)
     : onSelectLocalSession;
   const onPrefetchSession = remoteProject ? undefined : onPrefetchLocalSession;
   const onPlaceSessionOnPane = remoteProject
@@ -570,6 +571,7 @@ function SidebarComponent({
             repo: session.repo,
             branch: session.branch,
             worktreeCwd: session.worktreeCwd,
+            nativeSession: session.nativeSession,
           }))
         : sessions,
     [remoteProject, remote.sessions, sessions, cwd],
@@ -582,7 +584,7 @@ function SidebarComponent({
       : undefined) ??
     undefined;
   const gitRoot =
-    remoteProject && hostProject
+    remoteProject && hostProject && !hostProject.local
       ? remotePath(
           hostProject.environmentId,
           remoteExecutionCwd ?? hostProject.cwd,
@@ -1794,7 +1796,7 @@ function SidebarComponent({
                 cwd={gitRoot}
                 rootLabel={explorerRootLabel}
                 onOpenFile={onOpenFile}
-                onOpenTerminal={remoteProject ? undefined : onOpenTerminal}
+                onOpenTerminal={isRemoteProjectPath(cwd) ? undefined : onOpenTerminal}
                 onFileMoved={onFileMoved}
                 onFileDeleted={onFileDeleted}
                 onSearch={onOpenFilesSearch}

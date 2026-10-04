@@ -39,6 +39,7 @@ import type {
 } from "../model/session";
 
 import { HARNESSES, RUNTIME_MODES } from "../model/session";
+import { sharedSessionBackend } from "./sharedSessionBackend";
 
 import { restoreOrchestrationProposal } from "../../orchestration/model/orchestrationPlan";
 
@@ -119,6 +120,7 @@ export function shouldPersistSession(session: Session): boolean {
   return (
     !session.inboxAsk &&
     !isRemoteProjectPath(session.cwd) &&
+    (!sharedSessionBackend()?.ownsProject(session.cwd) || !!session.nativeSession) &&
     session.cwd !== "~" &&
     session.blocks.some((block) => block.role === "user")
   );
@@ -285,7 +287,7 @@ export async function upsertSession(
   }
   const summary = await enqueueSessionWrite(session.id, async () => {
     if (deletedSessionIds.has(session.id)) return null;
-    return invoke<SessionSummary>("session_upsert", {
+    const result = await invoke<SessionSummary>("session_upsert", {
       session: {
         ...payload,
         blocks: payload.blocks.map((block) =>
@@ -296,6 +298,9 @@ export async function upsertSession(
         ),
       },
     });
+    const shared = sharedSessionBackend();
+    if (session.nativeSession && shared?.ownsProject(session.cwd)) await shared.mirrorNative(session);
+    return result;
   });
   return summary ? normalizeSummary(summary) : null;
 }
@@ -328,6 +333,8 @@ export async function listSessionsByProject(
   cwd: string,
 ): Promise<SessionSummary[]> {
   if (!cwd || cwd === "~") return [];
+  const shared = sharedSessionBackend();
+  if (shared?.ownsProject(cwd)) return shared.list(cwd);
   const rows = await invoke<SessionSummary[]>("session_list_by_project", {
     cwd: normalizeProjectPath(cwd),
   });
@@ -345,6 +352,8 @@ export function rebaseProjectSessions(
 }
 
 export async function listLinkedSessions(): Promise<SessionSummary[]> {
+  const shared = sharedSessionBackend();
+  if (shared) return (await shared.list()).filter(row => row.linkedWorkItem);
   const rows = await invoke<SessionSummary[]>("session_list_linked");
   return rows.map(normalizeSummary);
 }
@@ -374,6 +383,11 @@ export async function searchSessions(options: {
 }): Promise<SessionSearchResult> {
   const query = options.query.trim();
   if (!query) return { hits: [], truncated: false };
+  const shared = sharedSessionBackend();
+  if (shared && (!options.cwd || options.cwd === "~" || shared.ownsProject(options.cwd))) {
+    const hits = await shared.search(query, options.cwd === "~" ? undefined : options.cwd, options.includeArchived, options.searchOwner);
+    return { hits: hits.slice(0, 200), truncated: hits.length > 200 };
+  }
   const result = await invoke<SessionSearchResult>("session_search", {
     options: {
       query,
@@ -391,10 +405,17 @@ export async function searchSessions(options: {
 }
 
 export function cancelSessionSearch(searchOwner: string): Promise<void> {
+  const shared = sharedSessionBackend();
+  if (shared) { shared.cancelSearch(searchOwner); return Promise.resolve(); }
   return invoke<void>("cancel_session_search", { searchOwner });
 }
 
 export async function getSession(sessionId: string): Promise<Session | null> {
+  const shared = sharedSessionBackend();
+  if (shared) {
+    const session = await shared.get(sessionId);
+    if (session || shared.ownsSession(sessionId)) return session;
+  }
   const record = await invoke<SessionRecord | null>("session_get", {
     sessionId,
   });
@@ -536,6 +557,8 @@ export async function deleteSession(
   sessionId: string,
   imagePaths: string[] = [],
 ): Promise<void> {
+  const shared = sharedSessionBackend();
+  if (shared?.ownsSession(sessionId)) return shared.delete(sessionId);
   deletedSessionIds.add(sessionId);
   try {
     // A lead with workers still has writes in flight. Finish those before
@@ -563,6 +586,8 @@ export async function deleteSession(
 export async function discardDraftSessionRecord(
   sessionId: string,
 ): Promise<void> {
+  const shared = sharedSessionBackend();
+  if (shared?.ownsSession(sessionId)) return shared.delete(sessionId);
   await enqueueSessionWrite(sessionId, () =>
     invoke<void>("session_delete", { sessionId, imagePaths: [] }),
   );
@@ -572,6 +597,8 @@ export async function setSessionArchived(
   sessionId: string,
   archived: boolean,
 ): Promise<void> {
+  const shared = sharedSessionBackend();
+  if (shared?.ownsSession(sessionId)) return shared.update(sessionId, { archived });
   await enqueueSessionWrite(sessionId, () =>
     invoke<void>("session_set_archived", { sessionId, archived }),
   );
@@ -581,6 +608,8 @@ export async function setSessionPinned(
   sessionId: string,
   pinned: boolean,
 ): Promise<void> {
+  const shared = sharedSessionBackend();
+  if (shared?.ownsSession(sessionId)) return shared.update(sessionId, { pinned });
   await invoke<void>("session_set_pinned", { sessionId, pinned });
 }
 
@@ -589,6 +618,8 @@ export async function setSessionLinkedWorkItem(
   value: LinkedWorkItem | undefined,
 ): Promise<void> {
   const linkedWorkItem = sanitizeLinkedWorkItem(value);
+  const shared = sharedSessionBackend();
+  if (shared?.ownsSession(sessionId)) return shared.update(sessionId, { linkedWorkItem: linkedWorkItem ?? null });
   await enqueueSessionWrite(sessionId, () =>
     invoke<void>("session_set_linked_work_item", {
       sessionId,

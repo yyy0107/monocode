@@ -39,7 +39,7 @@ Windows (x86_64): download the NSIS installer from [GitHub Releases](https://git
 
 ## Mobile client (development)
 
-An iOS and Android client connects to an existing MonoCode Host using its URL and device token. It includes projects, conversations, streamed messages, and approvals with the desktop theme. See [mobile setup and build instructions](mobile/README.md).
+Desktop and mobile share ordinary project conversations through the same MonoCode Host. Desktop starts and connects to the local Host automatically and imports existing history; iOS and Android connect using the Host URL and their device token. See [shared conversations](docs/shared-sessions.md) and [mobile setup and build instructions](mobile/README.md).
 
 ## Some notes
 
@@ -75,7 +75,7 @@ Small, focused pull requests are welcome. Anything large is worth an issue first
 
 Supports macOS, Linux, and Windows.
 
-Need Node.js 20+ and a current stable Rust toolchain. On Linux, ensure standard Tauri prerequisites are installed (e.g. `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libsoup-3.0-dev`, `libjavascriptcoregtk-4.1-dev`). On Windows, the installer bootstraps the [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) runtime when it is missing.
+Need Node.js 24+ and a current stable Rust toolchain. On Linux, ensure standard Tauri prerequisites are installed (e.g. `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libsoup-3.0-dev`, `libjavascriptcoregtk-4.1-dev`). On Windows, the installer bootstraps the [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) runtime when it is missing.
 
 ```bash
 npm install
