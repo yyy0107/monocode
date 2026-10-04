@@ -41,7 +41,7 @@ describe("updater", () => {
       currentVersion: "0.1.23",
     });
     expect(message).toHaveBeenCalledWith(
-      expect.stringContaining("https://github.com/hardbeat920/monocode/releases/latest"),
+      expect.stringContaining("https://github.com/yyy0107/ohmymonocode/releases/latest"),
       { title: "MonoCode" },
     );
   });
