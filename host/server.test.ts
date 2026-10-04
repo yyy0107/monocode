@@ -663,6 +663,17 @@ describe("remote host API", () => {
 
     for (const path of [outside, `${root}/../outside`, `${root}/.git/config`])
       expect((await run("read_text_file", { path })).error).toBeTruthy();
+    // Read-only previews reach files outside the projects; edits do not.
+    writeFileSync(join(outside, "SKILL.md"), "# Skill\n");
+    expect(
+      (await run("read_binary_file", { path: join(outside, "SKILL.md") })).result,
+    ).toBe(Buffer.from("# Skill\n").toString("base64"));
+    expect((await run("read_binary_file", { path: outside })).error).toBe(
+      "Not a file",
+    );
+    expect(
+      (await run("read_binary_file", { path: "relative.md" })).error,
+    ).toBeTruthy();
     expect(
       (await run("write_text_file", { path: join(outside, "x"), content: "x" }))
         .error,

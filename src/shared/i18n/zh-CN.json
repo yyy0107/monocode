@@ -2048,5 +2048,21 @@
   "Solid": "不透明",
   "Intensity": "强度",
   "Transparency": "透明度",
-  "Edge refraction is available on Android.": "边缘折射仅在 Android 上可用。"
+  "Edge refraction is available on Android.": "边缘折射仅在 Android 上可用。",
+  "Show tool details: {value0}": "查看工具详情：{value0}",
+  "Tool details": "工具详情",
+  "File preview": "文件预览",
+  "Failed": "失败",
+  "Input": "输入",
+  "Output": "输出",
+  "Details": "详情",
+  "View file": "查看文件",
+  "Tool returned the first {count} lines; this may not be the complete file.": "本次工具返回前 {count} 行，未必是完整文件。",
+  "Tool returned lines {start}–{end}; this may not be the complete file.": "本次工具返回第 {start}–{end} 行，未必是完整文件。",
+  "Tool returned {count} lines; this may not be the complete file.": "本次工具返回 {count} 行内容，未必是完整文件。",
+  "Tap “View file” to see the complete contents.": "点击“查看文件”查看完整内容。",
+  "This tool call has no further details.": "此工具调用没有更多详情。",
+  "Could not open this file.": "无法打开此文件。",
+  "Binary file ({size}) cannot be previewed.": "二进制文件（{size}）无法预览。",
+  "File is too large to preview ({size}).": "文件过大，无法预览（{size}）。"
 }

@@ -307,10 +307,27 @@ export class WorkspaceCommands {
   }
 
   /** Base64, since host responses are JSON; the client decodes it. */
+  /**
+   * Read-only previews may reach any file on this machine, so a phone can open
+   * files an agent cites outside the projects (skills, configs). Writes and
+   * editor reads keep the project boundary.
+   */
   private async readBinary(input: unknown): Promise<string> {
-    return (await this.file(input, MAX_PREVIEW_FILE, "preview")).toString(
-      "base64",
-    );
+    if (
+      typeof input !== "string" ||
+      !isAbsolute(input) ||
+      input.length > 4096 ||
+      input.includes("\0")
+    )
+      throw new Error("Invalid workspace path");
+    const path = await realpath(resolve(input));
+    const info = await stat(path);
+    if (!info.isFile()) throw new Error("Not a file");
+    if (info.size > MAX_PREVIEW_FILE)
+      throw new Error(
+        `File is too large to preview (maximum ${MAX_PREVIEW_FILE / 1024 / 1024} MB).`,
+      );
+    return (await readFile(path)).toString("base64");
   }
 
   private async preview(

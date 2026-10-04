@@ -1,0 +1,172 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { newSession } from "../features/sessions/model/session";
+import type { HostSession } from "../features/connections/model/protocol";
+import { MobileFileSheet } from "./MobileFileSheet";
+import { MobileTranscript } from "./MobileTranscript";
+
+vi.mock("@capacitor/core", () => ({
+  Capacitor: { isNativePlatform: () => false },
+}));
+
+// A portable regression for the reported tool -> View file flow. No private
+// snapshot, absolute checkout path or scratchpad file is needed to run it.
+describe("mobile file preview and tool navigation", () => {
+  let root: Root;
+  let app: HTMLDivElement;
+  let uncaught: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    app = document.createElement("div");
+    app.className = "mobile-app";
+    document.body.append(app);
+    uncaught = vi.fn();
+    root = createRoot(app, { onUncaughtError: uncaught });
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    app.remove();
+    vi.unstubAllGlobals();
+  });
+
+  async function renderFile(
+    path: string,
+    readBinaryFile: (path: string) => Promise<Uint8Array>,
+    line?: number,
+  ) {
+    await act(async () =>
+      root.render(
+        createElement(MobileFileSheet, {
+          path,
+          line,
+          cwd: "/repo",
+          readBinaryFile,
+          onClose: () => {},
+        }),
+      ),
+    );
+  }
+
+  it("opens highlighted source without unmounting the conversation, then goes back to the tool", async () => {
+    const session = newSession("claude", "/repo");
+    session.blocks = [
+      { id: "user", role: "user", text: "Test tools" },
+      {
+        id: "read",
+        role: "tool",
+        text: "Read package.json",
+        tool: {
+          kind: "read",
+          status: "completed",
+          detail: '1\t{\n2\t  "name": "example"',
+          preview: { kind: "read", path: "/repo/package.json" },
+        },
+      },
+    ];
+    const snapshot: HostSession = {
+      session,
+      projectId: "project",
+      revision: 1,
+      status: "running",
+      updatedAt: 1,
+    };
+    const readBinaryFile = vi.fn(async () =>
+      new TextEncoder().encode('{"name":"example", "last":"complete file"}\n'),
+    );
+    await act(async () =>
+      root.render(
+        createElement(MobileTranscript, {
+          snapshot,
+          disabled: false,
+          onCommand: () => {},
+          readBinaryFile,
+        }),
+      ),
+    );
+    const row = app.querySelector<HTMLElement>("[data-tool-open-row]");
+    expect(row).not.toBeNull();
+    await act(async () => row!.click());
+    expect(app.querySelector(".mobile-tool-sheet h3")?.textContent).toBe(
+      "Output",
+    );
+    expect(app.querySelector(".mobile-tool-sheet pre")?.textContent).toContain(
+      '"name": "example"',
+    );
+    const view = [...app.querySelectorAll("button")].find(
+      (b) => b.textContent === "View file",
+    );
+    expect(view).toBeDefined();
+    await act(async () => view!.click());
+    expect(readBinaryFile).toHaveBeenCalledWith("/repo/package.json");
+    expect(app.querySelector(".mobile-file-sheet")?.textContent).toContain(
+      "complete file",
+    );
+    expect(app.querySelector('[role="log"]')?.textContent).toContain(
+      "Test tools",
+    );
+    const back = app.querySelector<HTMLButtonElement>(
+      'button[aria-label="Back"]',
+    );
+    expect(back).not.toBeNull();
+    await act(async () => back!.click());
+    expect(app.querySelector(".mobile-tool-sheet")).not.toBeNull();
+    expect(app.querySelector(".mobile-file-sheet")).toBeNull();
+    await act(async () =>
+      app
+        .querySelector('[role="dialog"]')!
+        .dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        ),
+    );
+    expect(app.querySelector('[role="dialog"]')).toBeNull();
+    expect(uncaught).not.toHaveBeenCalled();
+  });
+
+  it("loads a new file into the existing sheet instead of showing stale text", async () => {
+    const read = vi.fn(async (path: string) =>
+      new TextEncoder().encode(
+        path.endsWith("first.txt") ? "first file" : "second file",
+      ),
+    );
+    await renderFile("/repo/first.txt", read);
+    expect(app.querySelector(".mobile-file-sheet")?.textContent).toContain(
+      "first file",
+    );
+    await renderFile("/repo/second.txt", read);
+    expect(app.querySelector(".mobile-file-sheet")?.textContent).toContain(
+      "second file",
+    );
+    expect(app.querySelector(".mobile-file-sheet")?.textContent).not.toContain(
+      "first file",
+    );
+    expect(uncaught).not.toHaveBeenCalled();
+  });
+
+  it("shows a read error without crashing", async () => {
+    await renderFile("/repo/missing.txt", async () => {
+      throw new Error("File not found");
+    });
+    expect(app.querySelector('[role="alert"]')?.textContent).toContain(
+      "File not found",
+    );
+    expect(app.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(uncaught).not.toHaveBeenCalled();
+  });
+
+  it("keeps numbered plain text for cited lines", async () => {
+    await renderFile(
+      "/repo/app.ts",
+      async () => new TextEncoder().encode("first\nsecond\nthird"),
+      2,
+    );
+    expect(
+      app.querySelector('[data-current="true"]')?.getAttribute("data-line"),
+    ).toBe("2");
+    expect(app.querySelector('[data-current="true"]')?.textContent).toBe(
+      "second\n",
+    );
+    expect(uncaught).not.toHaveBeenCalled();
+  });
+});

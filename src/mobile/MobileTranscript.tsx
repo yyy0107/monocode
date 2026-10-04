@@ -1,8 +1,11 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { AgentTranscript } from "../features/sessions/ui/AgentTranscript";
 import { QuestionForm } from "../features/sessions/ui/QuestionForm";
 import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
 import { ArrowDownCircle } from "../shared/ui/icons";
+import type { Block } from "../features/sessions/model/session";
+import type { EditorNavigation } from "../features/search/model/search";
 import type {
   HostSession,
   HostCommand,
@@ -11,6 +14,12 @@ import {
   mobileTranscriptPlatform,
   createMobileTranscriptPlatform,
 } from "./transcriptPlatform";
+import { MobileToolSheet } from "./MobileToolSheet";
+import { MobileFileSheet } from "./MobileFileSheet";
+
+type Detail =
+  | { kind: "tool"; block: Block }
+  | { kind: "file"; path: string; line?: number; from?: Block };
 
 /** Host snapshots feed the same message renderer used by desktop sessions. */
 export function MobileTranscript({
@@ -26,12 +35,34 @@ export function MobileTranscript({
   readBinaryFile?: (path: string) => Promise<Uint8Array>;
   animateFrom?: string;
 }) {
+  const [detail, setDetail] = useState<Detail>();
+  // Sheets portal to the app root: as a sibling of the composer dock they
+  // would pick up the dock spacing rules and stop short of the screen bottom.
+  const [sheetHost, setSheetHost] = useState<HTMLElement | null>(null);
+  const findSheetHost = useCallback(
+    (element: HTMLElement | null) =>
+      setSheetHost(element?.closest<HTMLElement>(".mobile-app") ?? null),
+    [],
+  );
   const platform = useMemo(
-    () =>
-      readBinaryFile
+    () => ({
+      ...(readBinaryFile
         ? createMobileTranscriptPlatform(readBinaryFile)
-        : mobileTranscriptPlatform,
+        : mobileTranscriptPlatform),
+      openTool: (block: Block) => setDetail({ kind: "tool", block }),
+    }),
     [readBinaryFile],
+  );
+  // Phones have no editor pane, so file links open a read-only sheet.
+  const openFile = useCallback(
+    (path: string, navigation?: EditorNavigation) =>
+      setDetail((current) => ({
+        kind: "file",
+        path,
+        line: navigation?.line,
+        from: current?.kind === "tool" ? current.block : undefined,
+      })),
+    [],
   );
   const [jump, setJump] = useState<(() => void) | undefined>();
   const [showJump, setShowJump] = useState(false);
@@ -39,6 +70,7 @@ export function MobileTranscript({
   return (
     <TranscriptPlatformContext.Provider value={platform}>
       <div
+        ref={findSheetHost}
         className="mobile-desktop-transcript"
         role="log"
         aria-label="Conversation"
@@ -54,6 +86,8 @@ export function MobileTranscript({
           model={session.model}
           modelSettings={session.modelSettings}
           pendingQuestion={!!session.pendingQuestion}
+          onOpenFile={readBinaryFile ? openFile : undefined}
+          onOpenDiff={readBinaryFile ? openFile : undefined}
           onJumpToBottomChange={setShowJump}
           onJumpToBottomReady={(callback) => setJump(() => callback)}
           onApproval={
@@ -75,6 +109,9 @@ export function MobileTranscript({
             className="mobile-jump"
             type="button"
             aria-label="Jump to latest message"
+            // Keep focus in the composer so tapping does not collapse it first.
+            onPointerDown={(event) => event.preventDefault()}
+            onMouseDown={(event) => event.preventDefault()}
             onClick={() => jump?.()}
           >
             <ArrowDownCircle size={22} />
@@ -103,6 +140,40 @@ export function MobileTranscript({
           />
         </fieldset>
       )}
+      {sheetHost &&
+        createPortal(
+          <>
+            {detail?.kind === "tool" && (
+              <MobileToolSheet
+                // Follow the live block so a running call fills in while open.
+                block={
+                  session.blocks.find(
+                    (block) => block.id === detail.block.id,
+                  ) ?? detail.block
+                }
+                cwd={session.cwd}
+                onOpenFile={readBinaryFile ? openFile : undefined}
+                onClose={() => setDetail(undefined)}
+              />
+            )}
+            {detail?.kind === "file" && readBinaryFile && (
+              <MobileFileSheet
+                path={detail.path}
+                line={detail.line}
+                cwd={session.cwd}
+                readBinaryFile={readBinaryFile}
+                onOpenFile={openFile}
+                onBack={
+                  detail.from
+                    ? () => setDetail({ kind: "tool", block: detail.from! })
+                    : undefined
+                }
+                onClose={() => setDetail(undefined)}
+              />
+            )}
+          </>,
+          sheetHost,
+        )}
     </TranscriptPlatformContext.Provider>
   );
 }

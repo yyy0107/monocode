@@ -1507,6 +1507,159 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   line-height: 1.45;
 }
 
+/* Tool and thinking rows are tap targets that open details. */
+.mobile-desktop-transcript [data-tool-open-row] {
+  min-height: 36px;
+  margin-inline: -6px;
+  padding-inline: 6px;
+  border-radius: 10px;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobile-desktop-transcript [data-tool-open-row]:active {
+  background: var(--color-selection);
+}
+.mobile-desktop-transcript .agent-reasoning {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+  border-left: 2px solid var(--color-stroke);
+  padding-left: 10px;
+}
+.mobile-desktop-transcript .agent-markdown a {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+
+/* Tool and file detail sheets. */
+.mobile-tool-sheet,
+.mobile-file-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 6px 6px 4px;
+}
+.mobile-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.mobile-detail-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mobile-detail-title strong {
+  font-size: 15px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.mobile-detail-title strong.mobile-detail-mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.mobile-detail-title small {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  overflow-wrap: anywhere;
+}
+.mobile-detail-title small[data-state="rejected"] {
+  color: #e36464;
+}
+.mobile-detail-section {
+  min-width: 0;
+}
+.mobile-detail-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.mobile-detail-section h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.mobile-detail-copy {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 9px;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+  background: transparent;
+}
+.mobile-detail-copy:active {
+  background: var(--color-selection);
+}
+.mobile-detail-pre {
+  margin: 0;
+  max-height: 45dvh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--color-selection-subtle);
+  border: 1px solid var(--color-stroke);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  scrollbar-width: none;
+}
+.mobile-detail-note {
+  margin: 4px 2px;
+  font-size: 13px;
+}
+.mobile-read-notice {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--color-selection-subtle);
+  color: color-mix(in srgb, var(--color-content) 75%, transparent);
+  line-height: 1.5;
+}
+.mobile-read-notice > span {
+  display: block;
+}
+.mobile-detail-action {
+  align-self: stretch;
+}
+.mobile-file-sheet .mobile-file-plain {
+  max-height: none;
+  white-space: pre;
+  counter-reset: line;
+}
+.mobile-file-plain > span::before {
+  counter-increment: line;
+  content: counter(line);
+  display: inline-block;
+  width: 3ch;
+  margin-right: 12px;
+  text-align: right;
+  color: color-mix(in srgb, var(--color-content) 30%, transparent);
+}
+.mobile-file-plain > span[data-current="true"] {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+.mobile-file-markdown {
+  font-size: 14px;
+  line-height: 1.6;
+  min-width: 0;
+}
+.mobile-file-markdown .markdown-code-shell {
+  margin-block: 0;
+}
+.mobile-file-image {
+  max-width: 100%;
+  border-radius: 10px;
+  align-self: center;
+}
 .mobile-jump {
   position: absolute;
   right: 18px;

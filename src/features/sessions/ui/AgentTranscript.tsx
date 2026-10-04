@@ -3355,6 +3355,7 @@ function ActivityToolRow({
   onOpenDiff?: (path: string) => void;
 }) {
   const { t: uiT } = useTranslation();
+  const { openTool } = useContext(TranscriptPlatformContext);
   const [errorOpen, setErrorOpen] = useState(false);
   const appCall = monoCodeToolCall(block);
   if (appCall) {
@@ -3365,6 +3366,29 @@ function ActivityToolRow({
   const label = toolCallLabel(block, cwd);
   const state = toolCallState(block);
   const pending = needsApproval(block);
+  if (openTool && !pending) {
+    return (
+      <ToolOpenRow
+        block={block}
+        label={label}
+        className="flex min-w-0 items-center gap-1.5 py-1"
+        onOpen={openTool}
+      >
+        {bare ? null : <ActivityToolIcon state={state} live={live} />}
+        <ToolCallSummary
+          label={label}
+          preview={block.tool?.preview}
+          cwd={cwd}
+          chip={bare}
+          failed={state === "rejected"}
+          status={state}
+          onOpenFile={onOpenFile}
+          onOpenDiff={onOpenDiff}
+        />
+        <ToolCallStatusIcon state={state} />
+      </ToolOpenRow>
+    );
+  }
   const errorDetail =
     !pending && state === "rejected" ? block.tool?.detail?.trim() : undefined;
   const summary = (
@@ -3630,6 +3654,7 @@ function ToolCall({
   embedded?: boolean;
 }) {
   const { t: uiT } = useTranslation();
+  const { openTool } = useContext(TranscriptPlatformContext);
   const [open, setOpen] = useState(false);
   const preview = block.tool?.preview;
   const label = toolCallLabel(block, cwd);
@@ -3659,6 +3684,31 @@ function ToolCall({
     return (
       <div className={frame}>
         <MonoCodeCallRow block={block} call={appCall} onApproval={onApproval} />
+      </div>
+    );
+  }
+
+  if (openTool && !needsApproval(block)) {
+    if (isIncompleteTool(block, label, state)) return null;
+    return (
+      <div className={frame}>
+        <ToolOpenRow
+          block={block}
+          label={label}
+          className="flex w-full min-w-0 items-center gap-2 py-1"
+          onOpen={openTool}
+        >
+          <ToolCallIcon state={state} />
+          <ToolCallSummary
+            label={label}
+            preview={preview}
+            cwd={cwd}
+            failed={state === "rejected"}
+            status={state}
+            onOpenFile={onOpenFile}
+            onOpenDiff={onOpenDiff}
+          />
+        </ToolOpenRow>
       </div>
     );
   }
@@ -3744,6 +3794,48 @@ function ToolCall({
         </pre>
       ) : null}
       <ApprovalControls block={block} onApproval={onApproval} />
+    </div>
+  );
+}
+
+/**
+ * A tool row that opens the client's detail view. File targets inside keep
+ * their own buttons, so this is a role=button wrapper rather than a <button>.
+ */
+function ToolOpenRow({
+  block,
+  label,
+  className,
+  onOpen,
+  children,
+}: {
+  block: Block;
+  label: string;
+  className: string;
+  onOpen: (block: Block) => void;
+  children: ReactNode;
+}) {
+  const { t: uiT } = useTranslation();
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={uiT("Show tool details: {value0}", { value0: label })}
+      data-tool-open-row=""
+      className={`${className} cursor-pointer`}
+      onClick={() => onOpen(block)}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onOpen(block);
+      }}
+    >
+      {children}
+      <ChevronRight
+        className="size-3.5 shrink-0 text-content/30"
+        strokeWidth={1.75}
+      />
     </div>
   );
 }
