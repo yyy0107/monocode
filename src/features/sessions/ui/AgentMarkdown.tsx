@@ -529,6 +529,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   onOpenFile,
   allowRemoteMedia,
   hardBreaks,
+  streamingKey,
 }: {
   text: string;
   streaming?: boolean;
@@ -538,8 +539,11 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   allowRemoteMedia?: boolean;
   /** Show a newline inside a block as a line break, as a document does (#591). */
   hardBreaks?: boolean;
+  streamingKey?: string;
 }) {
-  const { copyText, localFiles } = useContext(TranscriptPlatformContext);
+  const { copyText, localFiles, textReveal } = useContext(
+    TranscriptPlatformContext,
+  );
   const { t: uiT } = useTranslation();
   const [fileMenu, setFileMenu] = useState<FileLinkMenu | null>(null);
   const [fileActionError, setFileActionError] = useState<string | null>(null);
@@ -567,8 +571,11 @@ export const AgentMarkdown = memo(function AgentMarkdown({
     [cwd],
   );
   const remoteMedia = !!allowRemoteMedia;
-  const paced = usePacedText(text, !!streaming);
-  const fading = useWordFading(!!streaming || paced.revealing);
+  const reveal = textReveal?.(streamingKey);
+  const paced = usePacedText(text, !!streaming, reveal);
+  const fading = useWordFading(
+    reveal?.unit !== "character" && (!!streaming || paced.revealing),
+  );
   // Spans stay while words are fading so a word already on screen keeps its
   // element. Dropping one mid-fade would remount it and fade it again. Once
   // the fade is over they come off, or a finished reply would keep a span per

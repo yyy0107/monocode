@@ -123,6 +123,83 @@ describe("subagent scrolling", () => {
 });
 
 describe("transcript scrolling", () => {
+  it("follows streamed layout growth on mobile, pauses for a touch up, and resumes at the bottom", () => {
+    const showJump = vi.fn();
+    const ready = vi.fn();
+    act(() =>
+      root.render(
+        createElement(AgentTranscript, {
+          blocks: [
+            { id: "user", role: "user", text: "Explain" },
+            { id: "reply", role: "assistant", text: "Answer" },
+          ],
+          busy: true,
+          touchScroll: true,
+          onJumpToBottomChange: showJump,
+          onJumpToBottomReady: ready,
+        }),
+      ),
+    );
+    const scroller =
+      container.querySelector<HTMLDivElement>(".agent-transcript")!;
+    let height = 1000;
+    let viewport = 400;
+    let top = 0;
+    Object.defineProperties(scroller, {
+      scrollHeight: { get: () => height },
+      clientHeight: { get: () => viewport },
+      scrollTop: {
+        get: () => top,
+        set: (value: number) => {
+          top = Math.max(0, Math.min(value, height - viewport));
+        },
+      },
+    });
+    const observer = observers.find((item) => item.targets.includes(scroller))!;
+    act(() => observer.resize());
+    expect(top).toBe(600);
+    // A paced Markdown render grows independently of the Host snapshot.
+    height = 1080;
+    act(() => scroller.dispatchEvent(new Event("scroll")));
+    act(() => observer.resize());
+    expect(top).toBe(680);
+    const touch = (type: string, y: number) => {
+      const event = new Event(type);
+      Object.defineProperty(event, "touches", { value: [{ clientY: y }] });
+      scroller.dispatchEvent(event);
+    };
+    act(() => {
+      touch("touchstart", 100);
+      touch("touchmove", 130);
+      top = 676;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    height = 1160;
+    act(() => observer.resize());
+    expect(top).toBe(676);
+    expect(showJump).toHaveBeenLastCalledWith(true);
+    act(() => {
+      touch("touchmove", 80);
+      top = 760;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    height = 1200;
+    act(() => observer.resize());
+    expect(top).toBe(800);
+    // Opening the keyboard changes viewport height, not reading intent.
+    viewport = 250;
+    act(() => scroller.dispatchEvent(new Event("scroll")));
+    act(() => observer.resize());
+    expect(top).toBe(950);
+    act(() => {
+      touch("touchmove", 150);
+      top = 500;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    act(() => ready.mock.calls[0][0]());
+    expect(top).toBe(950);
+    expect(showJump).toHaveBeenLastCalledWith(false);
+  });
   it("lets a wheel up inside the bottom margin leave a streaming reply", () => {
     const blocks = (text: string): Block[] => [
       { id: "user", role: "user", text: "Explain auth" },

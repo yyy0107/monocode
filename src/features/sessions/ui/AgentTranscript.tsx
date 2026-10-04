@@ -19,6 +19,7 @@ import {
 } from "../../../shared/ui/icons";
 import {
   memo,
+  createElement,
   startTransition,
   useCallback,
   useContext,
@@ -205,6 +206,10 @@ type Props = {
   onScrollerChange?: (el: HTMLDivElement | null) => void;
   /** A worker's transcript: show the orchestrator's turns instead of hiding them. */
   managed?: boolean;
+  /** Distinguish touch/reader scrolling from streamed layout growth. */
+  touchScroll?: boolean;
+  /** A just-submitted turn whose first response may already have arrived. */
+  animateFrom?: string;
 };
 
 function AgentTranscriptComponent({
@@ -241,7 +246,41 @@ function AgentTranscriptComponent({
   parked = false,
   onScrollerChange,
   managed = false,
+  touchScroll = true,
+  animateFrom,
 }: Props) {
+  const platform = useContext(TranscriptPlatformContext);
+  const lengths = useMemo(
+    () => new Map(sourceBlocks.map((block) => [block.id, block.text.length])),
+    [sourceBlocks],
+  );
+  const currentLengths = useRef(lengths);
+  currentLengths.current = lengths;
+  const seenLengths = useRef(new Map<string, number>());
+  const seededReveal = useRef(false);
+  if (!seededReveal.current && sourceBlocks.length) {
+    const start = animateFrom
+      ? sourceBlocks.findIndex((block) => block.id === animateFrom)
+      : -1;
+    seenLengths.current = new Map(
+      sourceBlocks.map((block, index) => [
+        block.id,
+        start >= 0 && index > start ? 0 : block.text.length,
+      ]),
+    );
+    seededReveal.current = true;
+  }
+  const revealText = useCallback((blockId?: string) => {
+    if (!blockId) return { unit: "character" as const };
+    const initialLength = seenLengths.current.get(blockId) ?? 0;
+    // A folded/reopened reply has already been presented and must not replay.
+    seenLengths.current.set(blockId, currentLengths.current.get(blockId) ?? 0);
+    return { unit: "character" as const, initialLength };
+  }, []);
+  const renderingPlatform = useMemo(
+    () => ({ ...platform, textReveal: revealText }),
+    [platform, revealText],
+  );
   const { t: uiT } = useTranslation();
   const blocks = useMemo(() => {
     if (!harness || !supportsHarnessLogin(harness)) return sourceBlocks;
@@ -266,6 +305,9 @@ function AgentTranscriptComponent({
   const stickToBottom = useRef(true);
   const showJumpRef = useRef(false);
   const distanceFromBottom = useRef(0);
+  const scrollGeometry = useRef({ top: 0, height: 0, viewport: 0 });
+  const scrollDirection = useRef<"up" | "down" | undefined>(undefined);
+  const touchReadingUp = useRef(false);
   const prependHeight = useRef<number | null>(null);
   const wasVisible = useRef(false);
   const [scrollerEl, setScrollerEl] = useState<HTMLDivElement | null>(null);
@@ -328,6 +370,30 @@ function AgentTranscriptComponent({
   const syncPinned = useCallback(
     (el: HTMLElement) => {
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (touchScroll) {
+        const previous = scrollGeometry.current;
+        const layoutChanged =
+          previous.height !== el.scrollHeight ||
+          previous.viewport !== el.clientHeight;
+        if (!layoutChanged && el.scrollTop < previous.top - 1)
+          stickToBottom.current = false;
+        if (
+          !stickToBottom.current &&
+          !touchReadingUp.current &&
+          isNearBottom(el) &&
+          (scrollDirection.current === "down" ||
+            (!layoutChanged && el.scrollTop > previous.top + 1))
+        )
+          stickToBottom.current = true;
+        scrollGeometry.current = {
+          top: el.scrollTop,
+          height: el.scrollHeight,
+          viewport: el.clientHeight,
+        };
+        distanceFromBottom.current = distance;
+        setShowJump(!stickToBottom.current);
+        return;
+      }
       // Scrolling up inside the bottom margin is the reader leaving. Pinning
       // again here would snap each streamed chunk back down under the wheel.
       const leaving =
@@ -337,11 +403,12 @@ function AgentTranscriptComponent({
       distanceFromBottom.current = distance;
       setShowJump(!near);
     },
-    [setShowJump],
+    [setShowJump, touchScroll],
   );
 
   const jumpToBottom = useCallback(() => {
     stickToBottom.current = true;
+    scrollDirection.current = undefined;
     distanceFromBottom.current = 0;
     setShowJump(false);
     const el = scroller.current;
@@ -377,18 +444,68 @@ function AgentTranscriptComponent({
     syncPinned(scrollerEl);
     const onScroll = () => syncPinned(scrollerEl);
     const onWheel = (e: WheelEvent) => {
+      touchReadingUp.current = false;
+      if (e.deltaY) scrollDirection.current = e.deltaY < 0 ? "up" : "down";
       if (e.deltaY < 0) {
         stickToBottom.current = false;
         setShowJump(true);
       }
     };
+    let touchY: number | undefined;
+    const onTouchStart = (event: TouchEvent) => {
+      touchReadingUp.current = false;
+      touchY = event.touches[0]?.clientY;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      const next = event.touches[0]?.clientY;
+      if (next !== undefined && touchY !== undefined) {
+        if (next > touchY + 3) {
+          touchReadingUp.current = true;
+          scrollDirection.current = "up";
+          stickToBottom.current = false;
+          setShowJump(true);
+        } else if (next < touchY - 3) {
+          touchReadingUp.current = false;
+          scrollDirection.current = "down";
+        }
+      }
+      touchY = next;
+    };
+    const onTouchEnd = () => {
+      touchY = undefined;
+      touchReadingUp.current = false;
+      scrollDirection.current = undefined;
+    };
+    const onKey = (event: KeyboardEvent) => {
+      touchReadingUp.current = false;
+      if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
+        scrollDirection.current = "up";
+        stickToBottom.current = false;
+        setShowJump(true);
+      } else if (["ArrowDown", "PageDown", "End"].includes(event.key))
+        scrollDirection.current = "down";
+    };
     scrollerEl.addEventListener("scroll", onScroll, { passive: true });
     scrollerEl.addEventListener("wheel", onWheel, { passive: true });
+    if (touchScroll) {
+      scrollerEl.addEventListener("touchstart", onTouchStart, {
+        passive: true,
+      });
+      scrollerEl.addEventListener("touchmove", onTouchMove, { passive: true });
+      scrollerEl.addEventListener("touchend", onTouchEnd, { passive: true });
+      scrollerEl.addEventListener("touchcancel", onTouchEnd, { passive: true });
+      scrollerEl.addEventListener("keydown", onKey);
+    }
     return () => {
       scrollerEl.removeEventListener("scroll", onScroll);
       scrollerEl.removeEventListener("wheel", onWheel);
+      scrollerEl.removeEventListener("touchstart", onTouchStart);
+      scrollerEl.removeEventListener("touchmove", onTouchMove);
+      scrollerEl.removeEventListener("touchend", onTouchEnd);
+      scrollerEl.removeEventListener("touchcancel", onTouchEnd);
+      scrollerEl.removeEventListener("keydown", onKey);
     };
-  }, [scrollerEl, setShowJump, syncPinned, visible]);
+  }, [scrollerEl, setShowJump, syncPinned, visible, touchScroll]);
 
   useLayoutEffect(() => {
     stickToBottom.current = true;
@@ -460,18 +577,28 @@ function AgentTranscriptComponent({
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (stickToBottom.current) {
         pinToBottom(el);
+        scrollGeometry.current = {
+          top: el.scrollTop,
+          height: el.scrollHeight,
+          viewport: el.clientHeight,
+        };
         distanceFromBottom.current = 0;
         return;
       }
       distanceFromBottom.current = distance;
-      setShowJump(!isNearBottom(el));
+      scrollGeometry.current = {
+        top: el.scrollTop,
+        height: el.scrollHeight,
+        viewport: el.clientHeight,
+      };
+      setShowJump(touchScroll || !isNearBottom(el));
     };
     const observer = new ResizeObserver(onResize);
     observer.observe(inner);
     observer.observe(el);
     onResize();
     return () => observer.disconnect();
-  }, [scrollerEl, setShowJump, visible]);
+  }, [scrollerEl, setShowJump, visible, touchScroll]);
 
   useTurnScrollAnchor(scrollerEl, visible, stickToBottom);
 
@@ -649,7 +776,9 @@ function AgentTranscriptComponent({
     };
   }, [visible, searchQuery, searchCurrent, visibleTurnCount, openWork]);
 
-  return (
+  return createElement(
+    TranscriptPlatformContext.Provider,
+    { value: renderingPlatform },
     <div
       ref={setScroller}
       className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-[13px] leading-5"
@@ -986,7 +1115,7 @@ function AgentTranscriptComponent({
           onDismiss={dismissSelection}
         />
       ) : null}
-    </div>
+    </div>,
   );
 }
 
@@ -1471,6 +1600,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   onEditLastTurn?: () => void;
   editing?: boolean;
 }) {
+  const { textReveal } = useContext(TranscriptPlatformContext);
   if (block.role === "user") {
     return (
       <UserMessageBlock
@@ -1580,7 +1710,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
     );
   }
 
-  if (!block.text && block.streaming) return null;
+  if (!block.text && block.streaming && !textReveal) return null;
 
   return (
     <div
@@ -1589,6 +1719,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
     >
       <AgentMarkdown
         text={block.text}
+        streamingKey={block.id}
         streaming={block.streaming}
         cwd={cwd}
         onOpenFile={onOpenFile}

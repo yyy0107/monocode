@@ -18,11 +18,13 @@ export function MobileTranscript({
   disabled,
   onCommand,
   readBinaryFile,
+  animateFrom,
 }: {
   snapshot: HostSession;
   disabled: boolean;
   onCommand: (command: HostCommand) => void;
   readBinaryFile?: (path: string) => Promise<Uint8Array>;
+  animateFrom?: string;
 }) {
   const platform = useMemo(
     () =>
@@ -43,6 +45,8 @@ export function MobileTranscript({
         aria-live="polite"
       >
         <AgentTranscript
+          touchScroll
+          animateFrom={animateFrom}
           blocks={session.blocks}
           busy={snapshot.status === "running"}
           cwd={session.cwd}

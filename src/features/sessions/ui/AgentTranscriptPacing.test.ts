@@ -9,7 +9,15 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-  vi.useFakeTimers();
+  vi.useFakeTimers({
+    toFake: [
+      "setTimeout",
+      "clearTimeout",
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "performance",
+    ],
+  });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
     "ResizeObserver",
@@ -76,4 +84,21 @@ it("paces a burst of tool calls so each enters after the one before it", () => {
 
   act(() => vi.advanceTimersByTime(480));
   expect(stages()).toEqual(["settled", "entering", "entering", "entering"]);
+});
+
+it("reveals the desktop's Chinese reply character by character through the shared renderer", () => {
+  const user: Block = { id: "user", role: "user", text: "Reply in Chinese" };
+  const text =
+    "手机端和桌面端现在都会逐字展示中文输出，已经显示的文字不会随着后续消息重新播放。";
+  render([user, { id: "reply", role: "assistant", text: "", streaming: true }]);
+  render([user, { id: "reply", role: "assistant", text, streaming: true }]);
+  expect(container.querySelector(".agent-markdown")?.textContent).toBe("");
+  act(() => vi.advanceTimersByTime(100));
+  const partial = container.querySelector(".agent-markdown")?.textContent ?? "";
+  expect(partial.length).toBeGreaterThan(0);
+  expect(partial.length).toBeLessThan(text.length);
+  expect(text.startsWith(partial)).toBe(true);
+  render([user, { id: "reply", role: "assistant", text, streaming: false }]);
+  act(() => vi.advanceTimersByTime(2000));
+  expect(container.querySelector(".agent-markdown")?.textContent).toBe(text);
 });

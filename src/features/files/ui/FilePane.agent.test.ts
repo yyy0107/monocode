@@ -19,6 +19,15 @@ describe("file pane agent tabs", () => {
   let props: ComponentProps<typeof FilePane>;
 
   beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "requestAnimationFrame",
+        "cancelAnimationFrame",
+        "performance",
+      ],
+    });
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.append(container);
@@ -52,6 +61,7 @@ describe("file pane agent tabs", () => {
     await act(async () => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("shows a worker transcript after its session arrives", async () => {
@@ -90,6 +100,7 @@ describe("file pane agent tabs", () => {
         }),
       ),
     );
+    act(() => vi.advanceTimersByTime(200));
     expect(container.textContent).toContain("Done");
   });
 

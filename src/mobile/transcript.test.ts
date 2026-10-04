@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createElement, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MobileTranscript } from "./MobileTranscript";
@@ -102,5 +102,83 @@ describe("mobile approval interaction", () => {
         ["Allow", "Deny"].includes(button.textContent || ""),
       ),
     ).toBe(false);
+  });
+});
+
+describe("mobile character streaming", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "requestAnimationFrame",
+        "cancelAnimationFrame",
+        "performance",
+      ],
+    });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+  });
+  afterEach(() => {
+    act(() => root?.unmount());
+    root = undefined;
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+  const text = "这段中文将逐字显示，不会等待整句话完成之后再一起出现。";
+  function reply(animate: boolean) {
+    const node = document.createElement("div");
+    document.body.append(node);
+    const snapshot: HostSession = {
+      projectId: "project",
+      revision: 1,
+      status: "idle",
+      updatedAt: 1,
+      session: {
+        id: "fast-session",
+        title: "Test",
+        cwd: "/project",
+        harness: "codex",
+        model: "codex:test",
+        modelSettings: {},
+        runtimeMode: "supervised",
+        blocks: [
+          { id: "user", role: "user", text: "Reply in Chinese" },
+          { id: "reply", role: "assistant", text },
+        ],
+      },
+    };
+    act(() => {
+      root = createRoot(node);
+      root.render(
+        createElement(MobileTranscript, {
+          snapshot,
+          disabled: false,
+          onCommand: () => {},
+          animateFrom: animate ? "user" : undefined,
+        }),
+      );
+    });
+    return node;
+  }
+  it("types a newly submitted reply even when it finished before the first sync", () => {
+    const node = reply(true);
+    expect(node.querySelector(".agent-markdown")?.textContent).toBe("");
+    act(() => vi.advanceTimersByTime(100));
+    const partial = node.querySelector(".agent-markdown")?.textContent ?? "";
+    expect(partial.length).toBeGreaterThan(0);
+    expect(partial.length).toBeLessThan(text.length);
+    expect(text.startsWith(partial)).toBe(true);
+    act(() => vi.advanceTimersByTime(2000));
+    expect(node.querySelector(".agent-markdown")?.textContent).toBe(text);
+  });
+  it("shows saved replies immediately without replaying the typewriter", () => {
+    const node = reply(false);
+    expect(node.querySelector(".agent-markdown")?.textContent).toBe(text);
   });
 });

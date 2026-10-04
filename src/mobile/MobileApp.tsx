@@ -106,6 +106,7 @@ export function MobileApp() {
   const [sessions, setSessions] = useState<HostSessionSummary[]>([]);
   const [sessionId, setSessionId] = useState<string>();
   const [snapshot, setSnapshot] = useState<HostSession>();
+  const [animateFrom, setAnimateFrom] = useState<string>();
   const [catalog, setCatalog] = useState<HostModelCatalog>();
   const [configuration, setConfiguration] = useState<MobileConfiguration>({
     harness: "codex",
@@ -235,7 +236,9 @@ export function MobileApp() {
           failures
             ? Math.min(30_000, 2000 * 2 ** failures)
             : running
-              ? 750
+              ? view === "chat"
+                ? 250
+                : 750
               : 3000,
         );
     };
@@ -244,7 +247,7 @@ export function MobileApp() {
       live = false;
       clearTimeout(timer);
     };
-  }, [connected, foreground, view, project, sessionId]);
+  }, [connected, foreground, view, project, sessionId, snapshot?.status]);
 
   const connect = async () => {
     setBusy(true);
@@ -283,6 +286,7 @@ export function MobileApp() {
     setCatalog(undefined);
     setSessionId(undefined);
     setSnapshot(undefined);
+    setAnimateFrom(undefined);
     setComposerPanel(null);
     setView(nextView);
     setLoading(true);
@@ -314,6 +318,7 @@ export function MobileApp() {
     const turn = ++navigation.current;
     setSessionId(id);
     setSnapshot(undefined);
+    setAnimateFrom(undefined);
     setDraft("");
     setAttachments([]);
     setPlanMode(false);
@@ -347,6 +352,16 @@ export function MobileApp() {
         // A recovered create/send can belong to a different project than the
         // currently visible one. Navigate to its actual owning project.
         const result = await client.session(receipt.sessionId);
+        if (
+          completedCommand?.type === "send" ||
+          completedCommand?.type === "create"
+        ) {
+          setAnimateFrom(
+            [...result.session.blocks]
+              .reverse()
+              .find((block) => block.role === "user")?.id,
+          );
+        }
         const owner = projects.find((item) => item.id === result.projectId);
         if (owner) {
           const changedProject = owner.id !== project?.id;
@@ -789,6 +804,7 @@ export function MobileApp() {
             <MobileTranscript
               key={snapshot.session.id}
               snapshot={snapshot}
+              animateFrom={animateFrom}
               readBinaryFile={readHostImage}
               disabled={busy || !!pending}
               onCommand={(command) => void dispatch(command)}

@@ -3,9 +3,13 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentMarkdown } from "./AgentMarkdown";
-import { revealEnd, WORD_FADE_MS } from "./wordFade";
+import { revealEnd, WORD_FADE_MS, characterBoundaries } from "./wordFade";
+import { TranscriptPlatformContext } from "./TranscriptPlatform";
 
 describe("revealEnd", () => {
+  it("keeps emoji, combining marks, and flags together for character reveal", () => {
+    expect(characterBoundaries("A👩‍💻e\u0301🇨🇳")).toEqual([1, 6, 8, 12]);
+  });
   it("stops at the end of the word the reveal has reached", () => {
     expect(revealEnd("Hello there friend", 0, true)).toBe(5);
     expect(revealEnd("Hello there friend", 6.2, true)).toBe(11);
@@ -54,6 +58,34 @@ describe("paced streaming", () => {
 
   function render(text: string, streaming: boolean) {
     act(() => root.render(createElement(AgentMarkdown, { text, streaming })));
+  }
+  function renderCharacters(
+    text: string,
+    streaming: boolean,
+    initialLength: number,
+  ) {
+    act(() =>
+      root.render(
+        createElement(
+          TranscriptPlatformContext.Provider,
+          {
+            value: {
+              copyText: async () => {},
+              copyMessage: async () => {},
+              openExternal: async () => {},
+              readBinaryFile: async () => new Uint8Array(),
+              localFiles: false,
+              textReveal: () => ({ unit: "character", initialLength }),
+            },
+          },
+          createElement(AgentMarkdown, {
+            text,
+            streaming,
+            streamingKey: "reply",
+          }),
+        ),
+      ),
+    );
   }
 
   function shown() {
@@ -151,5 +183,39 @@ describe("paced streaming", () => {
     expect(container.querySelector("code [data-word-fade]")).toBeNull();
     expect(container.querySelector("a [data-word-fade]")).toBeNull();
     expect(word("now")).toBeDefined();
+  });
+  it("reveals Chinese without spaces character by character even when the first batch already finished", () => {
+    const text =
+      "这是一段没有空格的中文输出。我们会逐字展示收到的消息，而不会整句跳出来。";
+    renderCharacters(text, false, 0);
+    expect(shown()).toBe("");
+    act(() => vi.advanceTimersByTime(100));
+    const early = shown();
+    expect(early.length).toBeGreaterThan(0);
+    expect(early.length).toBeLessThan(text.length);
+    expect(text.startsWith(early)).toBe(true);
+    act(() => vi.advanceTimersByTime(2000));
+    expect(shown()).toBe(text);
+  });
+  it("keeps an existing live reply visible and gradually catches up with later chunks", () => {
+    const existing = "之前已经收到的内容。";
+    const text = existing + "后面又收到了一段中文，继续逐字展示新增内容。";
+    renderCharacters(existing, true, existing.length);
+    expect(shown()).toBe(existing);
+    renderCharacters(text, true, existing.length);
+    expect(shown()).toBe(existing);
+    act(() => vi.advanceTimersByTime(100));
+    expect(shown().startsWith(existing)).toBe(true);
+    expect(shown().length).toBeGreaterThan(existing.length);
+    expect(shown().length).toBeLessThan(text.length);
+    renderCharacters(text, false, existing.length);
+    act(() => vi.advanceTimersByTime(2000));
+    expect(shown()).toBe(text);
+  });
+  it("does not animate completed history when reopening a conversation", () => {
+    renderCharacters(reply, false, reply.length);
+    expect(shown()).toBe(reply);
+    act(() => vi.advanceTimersByTime(100));
+    expect(shown()).toBe(reply);
   });
 });

@@ -76,6 +76,13 @@ Message bubbles, Markdown/code/Mermaid, tool activity, folding, approvals, and
 scroll behavior render through the same components as desktop. Mobile adds
 clipboard/link services, touch layout, and a jump-to-latest button.
 
+Desktop and mobile share the same character-by-character reply reveal, including
+Chinese text and complete emoji. Received chunks catch up smoothly; completed
+history opens immediately without replaying the animation. Live mobile chats
+sync every 250 ms. The transcript follows content and viewport growth until the
+reader scrolls up, then preserves their place; scrolling back to the bottom or
+tapping Jump to latest resumes following.
+
 The mobile composer uses a compact rounded card with one toolbar. Tap its model
 summary for reasoning settings, model selection, and Agent selection; tap the
 shield for permission modes. The menus use touch-friendly bottom sheets with

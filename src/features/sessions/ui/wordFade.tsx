@@ -1,5 +1,5 @@
 import type { Element, ElementContent, Root } from "hast";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 /*
  * Streaming prose, paced. Tokens land in uneven bursts; read straight off the
@@ -27,6 +27,55 @@ const REVEAL_CATCHUP_S = 0.22;
  * caught up to it. Past this the stream has paused on it, so it shows as is.
  */
 const REVEAL_HOLD_MS = 150;
+
+export type TextRevealOptions = {
+  unit: "word" | "character";
+  /** Text already visible when this conversation was opened. */
+  initialLength?: number;
+};
+
+/** UTF-16 boundaries of complete displayed characters, including emoji. */
+export function characterBoundaries(text: string): number[] {
+  const Segmenter = (
+    Intl as unknown as {
+      Segmenter?: new (
+        locale?: string,
+        options?: { granularity: string },
+      ) => {
+        segment: (text: string) => Iterable<{ index: number; segment: string }>;
+      };
+    }
+  ).Segmenter;
+  if (Segmenter)
+    return Array.from(
+      new Segmenter(undefined, { granularity: "grapheme" }).segment(text),
+      (part) => part.index + part.segment.length,
+    );
+  const characters: string[] = [];
+  for (const character of text) {
+    const previous = characters[characters.length - 1];
+    if (
+      previous &&
+      (/^[\p{Mark}\uFE0E\uFE0F\u200D\u{1F3FB}-\u{1F3FF}]$/u.test(character) ||
+        previous.endsWith("\u200D"))
+    )
+      characters[characters.length - 1] += character;
+    else characters.push(character);
+  }
+  let offset = 0;
+  return characters.map((character) => (offset += character.length));
+}
+
+function characterEnd(boundaries: number[], position: number): number {
+  let low = 0;
+  let high = boundaries.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (boundaries[middle] <= position) low = middle + 1;
+    else high = middle;
+  }
+  return low ? boundaries[low - 1] : 0;
+}
 
 /**
  * Where to stop revealing `text` for a reveal that has reached `at`: the end
@@ -61,15 +110,25 @@ function isSpace(code: number): boolean {
 export function usePacedText(
   text: string,
   streaming: boolean,
+  options?: TextRevealOptions,
 ): { text: string; revealing: boolean } {
-  const shown = useRef(text.length);
-  const pacing = useRef(streaming);
+  const unit = options?.unit ?? "word";
+  const initialLength = options?.initialLength ?? text.length;
+  const shown = useRef(Math.min(initialLength, text.length));
+  const pacing = useRef(streaming || initialLength < text.length);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
 
   if (streaming) pacing.current = true;
   if (!pacing.current) shown.current = text.length;
   shown.current = Math.min(shown.current, text.length);
   const behind = shown.current < text.length;
+  const boundaries = useMemo(
+    () =>
+      unit === "character" && (behind || streaming)
+        ? characterBoundaries(text)
+        : [],
+    [unit, text, behind, streaming],
+  );
 
   useEffect(() => {
     if (!pacing.current) return;
@@ -84,9 +143,15 @@ export function usePacedText(
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       const backlog = text.length - position;
-      const speed = Math.max(REVEAL_MIN_CPS, backlog / REVEAL_CATCHUP_S);
+      const speed = Math.max(
+        unit === "character" ? 48 : REVEAL_MIN_CPS,
+        backlog / (unit === "character" ? 0.55 : REVEAL_CATCHUP_S),
+      );
       position = Math.min(text.length, position + speed * dt);
-      const end = revealEnd(text, position, streaming);
+      const end =
+        unit === "character"
+          ? characterEnd(boundaries, position)
+          : revealEnd(text, position, streaming);
       if (end > shown.current) {
         shown.current = end;
         rerender();
@@ -105,7 +170,7 @@ export function usePacedText(
       cancelAnimationFrame(frame);
       window.clearTimeout(hold);
     };
-  }, [text, streaming, behind]);
+  }, [text, streaming, behind, unit, boundaries]);
 
   return {
     text: behind ? text.slice(0, shown.current) : text,
