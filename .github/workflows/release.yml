@@ -187,11 +187,11 @@ jobs:
           if [ "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true ]; then
             gh release upload "$tag" release-assets/* --clobber
             gh release view "$tag" --json assets > release-state.json
-            node --input-type=module <<'NODE'
-            import { readFileSync, readdirSync } from 'node:fs';
-            const uploaded = new Set(JSON.parse(readFileSync('release-state.json')).assets.map(asset => asset.name));
-            for (const name of readdirSync('release-assets')) if (!uploaded.has(name)) throw new Error(`Missing uploaded asset: ${name}`);
-            NODE
+            node --input-type=module -e '
+              import { readFileSync, readdirSync } from "node:fs";
+              const uploaded = new Set(JSON.parse(readFileSync("release-state.json")).assets.map(asset => asset.name));
+              for (const name of readdirSync("release-assets")) if (!uploaded.has(name)) throw new Error(`Missing uploaded asset: ${name}`);
+            '
             gh release edit "$tag" --draft=false --latest
           fi
           gh release view "$tag" --json url,isDraft,assets
