@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   mkdtempSync,
+  mkdirSync,
   readFileSync,
   writeFileSync,
   rmSync,
@@ -12,7 +13,7 @@ import { HostChildBackend } from "./child-backend";
 import { HostStore } from "./store";
 import { HostEngine } from "./engine";
 import { hostProviders } from "./providers";
-import { readAttachmentChunk } from "./attachments";
+import { attachmentPath, readAttachmentChunk } from "./attachments";
 import { discoverCodexModels } from "../src/integrations/harness/providers/codex/codexCatalog";
 import { discoverClaudeModels } from "../src/integrations/harness/providers/claude/claudeCatalog";
 import { discoverPiModels, discoverOmpModels } from "../src/integrations/harness/providers/pi/piCatalog";
@@ -53,8 +54,20 @@ readline.createInterface({input: process.stdin}).on('line', line => {
   if (request.method === 'model/list') send({id: request.id, result: {data: [{model: 'fixture-model', displayName: 'Fixture model', supportedReasoningEfforts: ['low', 'high']}], nextCursor: null}});
   if (request.method === 'thread/start' || request.method === 'thread/resume') send({id: request.id, result: {thread: {id: 'fixture-thread'}}});
   if (request.method === 'turn/start') {
-    record({codexEffort: request.params.effort ?? null});
+    record({codexEffort: request.params.effort ?? null, input: request.params.input});
     send({id: request.id, result: {turn: {id: 'fixture-turn'}}});
+    const prompt = request.params.input.find(item => item.type === 'text')?.text;
+    if (prompt === 'fixture-large-image-event') {
+      send({method: 'item/completed', params: {threadId: 'fixture-thread', turnId: 'fixture-turn', item: {
+        type: 'userMessage', id: 'user-image', content: [{type: 'image', url: 'data:image/png;base64,' + 'a'.repeat(28 * 1024 * 1024)}]
+      }}});
+    }
+    if (prompt === 'fixture-output-overflow' || prompt === 'fixture-diagnostic-overflow') {
+      const stream = prompt === 'fixture-output-overflow' ? process.stdout : process.stderr;
+      stream.write('x'.repeat((prompt === 'fixture-output-overflow' ? 64 : 8) * 1024 * 1024 + 1));
+      stream.write('truncated-tail\\n');
+      return;
+    }
     setTimeout(() => {
       send({method: 'item/agentMessage/delta', params: {threadId: 'fixture-thread', turnId: 'fixture-turn', itemId: 'message', delta: 'Headless Codex completed'}});
       send({method: 'turn/completed', params: {threadId: 'fixture-thread', turn: {id: 'fixture-turn', status: 'completed'}}});
@@ -167,6 +180,60 @@ describe("existing providers over headless process I/O", () => {
     expect(piA[0]).toMatchObject({ id: "pi:openai/fixture-model" });
     expect(ompA).toEqual(ompB);
     expect(ompA[0]).toMatchObject({ id: "omp:openai/fixture-model" });
+  });
+
+  it("receives a large image event and then completes the Codex answer", async () => {
+    const project = await engine.openProject(directory);
+    const { sessionId } = engine.command({ type: "create", commandId: "create-large-image",
+      projectId: project.id, harness: "codex", model: "codex:test", runtimeMode: "supervised" });
+    engine.command({ type: "send", commandId: "large-image", sessionId, text: "fixture-large-image-event" });
+    await vi.waitFor(() => expect(store.session(sessionId).status).toBe("idle"), { timeout: 4_000 });
+    expect(store.session(sessionId).session.blocks.at(-1)).toMatchObject({
+      role: "assistant", text: "Headless Codex completed",
+    });
+    expect(store.session(sessionId).session.blocks.some(block => block.notice === "error")).toBe(false);
+  });
+
+  it("sends multiple large uploaded images as Codex local paths without inline data", async () => {
+    const project = await engine.openProject(directory);
+    const { sessionId } = engine.command({ type: "create", commandId: "create-local-images",
+      projectId: project.id, harness: "codex", model: "codex:test", runtimeMode: "supervised" });
+    const refs = [16, 2, 3].map((size, index) => ({
+      id: `dddddddd-dddd-4ddd-8ddd-ddddddddddd${index}`,
+      name: `image-${index}.png`, mimeType: "image/png", kind: "image" as const,
+      size: size * 1024 * 1024,
+    }));
+    // Only transport is under test: no image decoding or paid model call.
+    mkdirSync(store.attachmentDir, { recursive: true });
+    for (const file of refs) writeFileSync(attachmentPath(store, file.id), Buffer.alloc(file.size));
+    engine.command({ type: "send", commandId: "local-images", sessionId, text: "Look at these", attachments: refs });
+    await vi.waitFor(() => expect(store.session(sessionId).status).toBe("idle"), { timeout: 4_000 });
+    expect(store.session(sessionId).session.blocks.at(-1)?.text).toBe("Headless Codex completed");
+    const call = readFileSync(join(directory, "calls.log"), "utf8").trim().split("\n")
+      .map(line => JSON.parse(line)).find(row => row.input?.some((item: { text?: string }) => item.text === "Look at these"));
+    expect(call.input.filter((item: { type: string }) => item.type !== "text"))
+      .toEqual(refs.map(file => ({ type: "localImage", path: attachmentPath(store, file.id) })));
+    expect(JSON.stringify(store.session(sessionId))).not.toContain("base64");
+  });
+
+  it.each([
+    ["fixture-output-overflow", "Agent output exceeded the 64 MiB message limit."],
+    ["fixture-diagnostic-overflow", "Agent diagnostic output exceeded the 8 MiB message limit."],
+  ])("reports the exact Host limit on %s without parsing truncated output", async (prompt, message) => {
+    const project = await engine.openProject(directory);
+    const { sessionId } = engine.command({ type: "create", commandId: `create-${prompt}`,
+      projectId: project.id, harness: "codex", model: "codex:test", runtimeMode: "supervised" });
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      engine.command({ type: "send", commandId: prompt, sessionId, text: prompt });
+      await vi.waitFor(() => expect(store.session(sessionId).status).toBe("idle"), { timeout: 4_000 });
+      expect(store.session(sessionId).session.blocks.filter(block => block.notice === "error"))
+        .toMatchObject([{ text: message }]);
+      expect(log).not.toHaveBeenCalled();
+      engine.command({ type: "send", commandId: `${prompt}-recover`, sessionId, text: "Continue" });
+      await vi.waitFor(() => expect(store.session(sessionId).status).toBe("idle"), { timeout: 4_000 });
+      expect(store.session(sessionId).session.blocks.at(-1)?.text).toBe("Headless Codex completed");
+    } finally { log.mockRestore(); }
   });
 
   it.each(["codex", "claude"] as const)(

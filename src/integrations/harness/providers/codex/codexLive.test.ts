@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sent: string[] = [];
 let onLine: ((line: string) => void) | undefined;
+let onExit: ((code: number | null, error?: string) => void) | undefined;
 const writeChild = vi.fn(async (_id: string, line: string) => {
   sent.push(line);
 });
@@ -19,8 +20,9 @@ vi.mock("../../core/child", () => ({
   spawnChild: async () => undefined,
   killChild: async () => undefined,
   unwatchChild: () => undefined,
-  watchChild: (_id: string, line: (l: string) => void) => {
+  watchChild: (_id: string, line: (l: string) => void, exit: typeof onExit) => {
     onLine = line;
+    onExit = exit;
   },
   writeChild,
 }));
@@ -140,6 +142,7 @@ describe("codex live turn sequence", () => {
   beforeEach(() => {
     sent.length = 0;
     onLine = undefined;
+    onExit = undefined;
     writeChild.mockClear();
     saveGeneratedImage.mockClear();
     deleteGeneratedImages.mockClear();
@@ -184,6 +187,14 @@ describe("codex live turn sequence", () => {
     expect(onAccepted).toHaveBeenCalledOnce();
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await turn;
+  });
+
+  it("rejects an active turn with the Host's specific exit error", async () => {
+    const { turn } = await startTurn("codex-live");
+    const message = "Agent output exceeded the 64 MiB message limit.";
+    const rejected = expect(turn).rejects.toThrow(message);
+    onExit!(1, message);
+    await rejected;
   });
 
   it("reopens a thread when app access changes its network policy", async () => {

@@ -1,4 +1,5 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { localizeChildExitError } from "../../../integrations/harness/core/childErrors";
 import {
   ArrowUp,
   Check,
@@ -1601,6 +1602,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   editing?: boolean;
 }) {
   const { textReveal } = useContext(TranscriptPlatformContext);
+  const { t: uiT } = useTranslation();
   if (block.role === "user") {
     return (
       <UserMessageBlock
@@ -1704,7 +1706,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
     return (
       <div className={`${embedded ? "" : "px-4"} py-2 text-content/50`}>
         <pre className="min-w-0 whitespace-pre-wrap break-words">
-          {block.text}
+          {localizeChildExitError(block.text, uiT)}
         </pre>
       </div>
     );
@@ -3015,13 +3017,15 @@ function ActivityRow({
 
 /** A status row folded into the trail: one muted line, nothing to open. */
 function ActivityStatusRow({ block }: { block: Block }) {
+  const { t } = useTranslation();
+  const text = localizeChildExitError(block.text, t);
   return (
     <div className="flex min-w-0 items-center gap-1.5 py-1">
       <span
-        title={block.text}
+        title={text}
         className="min-w-0 flex-1 truncate font-sans text-sm text-content/50"
       >
-        {block.text.trim()}
+        {text.trim()}
       </span>
     </div>
   );

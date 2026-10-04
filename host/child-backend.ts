@@ -15,6 +15,15 @@ import {
   type RemoteProvider,
 } from "../src/features/connections/model/protocol";
 import { providerLaunch, resolveProvider } from "./process";
+import {
+  MAX_PROVIDER_OUTPUT_BYTES,
+  MAX_PROVIDER_DIAGNOSTIC_BYTES,
+  ProviderOutputReader,
+} from "./provider-output";
+import {
+  HOST_OUTPUT_LIMIT_ERROR,
+  HOST_DIAGNOSTIC_LIMIT_ERROR,
+} from "../src/integrations/harness/core/childErrors";
 
 const exec = promisify(execFile);
 const ALLOWED_EXEC_ARGS = new Set([
@@ -43,6 +52,7 @@ function loopbackUrl(value: unknown): string {
 export class HostChildBackend implements ChildBackend {
   private events = new EventEmitter();
   private children = new Map<string, ChildProcessWithoutNullStreams>();
+  private outputErrors = new WeakMap<ChildProcessWithoutNullStreams, string>();
   private streams = new Map<string, AbortController>();
   private closing = false;
 
@@ -299,7 +309,9 @@ export class HostChildBackend implements ChildBackend {
     this.lines(child, id, "stderr");
     child.on("close", (code) => {
       if (this.children.get(id) === child) this.children.delete(id);
-      this.emit("harness-exit", { sessionId: id, code, pid: child.pid });
+      const error = this.outputErrors.get(child);
+      this.emit("harness-exit", { sessionId: id, code, pid: child.pid,
+        ...(error ? { error } : {}) });
     });
     await new Promise<void>((resolve, reject) => {
       child.once("spawn", resolve);
@@ -313,28 +325,23 @@ export class HostChildBackend implements ChildBackend {
     id: string,
     stream: "stdout" | "stderr",
   ): void {
-    let buffer = "";
+    const reader = new ProviderOutputReader(
+      stream === "stdout" ? MAX_PROVIDER_OUTPUT_BYTES : MAX_PROVIDER_DIAGNOSTIC_BYTES,
+      (line) => this.emit(`harness-${stream}`, { sessionId: id, line }),
+      () => {
+        this.outputErrors.set(child,
+          stream === "stdout" ? HOST_OUTPUT_LIMIT_ERROR : HOST_DIAGNOSTIC_LIMIT_ERROR);
+        void this.kill(id);
+      },
+    );
     child[stream].setEncoding("utf8");
     child[stream].on("data", (data: string) => {
-      buffer += data;
-      let index: number;
-      while ((index = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, index).replace(/\r$/, "");
-        buffer = buffer.slice(index + 1);
-        if (line.length > 8 * 1024 * 1024) {
-          void this.kill(id);
-          return;
-        }
-        this.emit(`harness-${stream}`, { sessionId: id, line });
-      }
-      if (buffer.length > 8 * 1024 * 1024) {
-        buffer = "";
-        void this.kill(id);
-      }
+      if (this.children.get(id) !== child || this.outputErrors.has(child)) return;
+      reader.push(data);
     });
     child[stream].on("end", () => {
-      if (buffer)
-        this.emit(`harness-${stream}`, { sessionId: id, line: buffer });
+      if (this.children.get(id) !== child || this.outputErrors.has(child)) return;
+      reader.end();
     });
   }
 

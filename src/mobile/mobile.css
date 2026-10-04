@@ -1004,3 +1004,35 @@ html.theme-light .mobile-logo {
 .mobile-message-queue button:disabled { opacity: .35; }
 .mobile-message-queue [data-message-queue-card] > div { min-height: 34px; }
 .mobile-message-queue textarea { font-size: 14px; }
+
+/* Uploaded images stay compact inside user messages; full images open in the lightbox. */
+.user-message-bubble .mobile-host-image {
+  flex: 0 0 96px;
+  width: 96px;
+  height: 96px;
+  margin: 0;
+  gap: 0;
+}
+.user-message-bubble .mobile-host-image-preview {
+  height: 96px;
+  border-radius: 8px;
+  cursor: zoom-in;
+}
+.user-message-bubble .mobile-host-image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.user-message-bubble .mobile-host-image-caption {
+  display: none;
+}
+.user-message-bubble .mobile-host-image-placeholder {
+  box-sizing: border-box;
+  height: 96px;
+  min-height: 96px;
+  padding: 4px;
+  gap: 4px;
+  border-radius: 8px;
+  font-size: 9px;
+  overflow: hidden;
+}

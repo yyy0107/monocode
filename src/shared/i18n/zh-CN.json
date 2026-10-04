@@ -1985,5 +1985,7 @@
   "Paste your device token": "粘贴设备令牌",
   "Conversation unavailable": "对话不可用",
   "Connected": "已连接",
-  "No conversations yet": "暂无对话"
+  "No conversations yet": "暂无对话",
+  "Agent output exceeded the 64 MiB message limit.": "Agent 输出超过了 64 MiB 的消息大小上限。",
+  "Agent diagnostic output exceeded the 8 MiB message limit.": "Agent 诊断输出超过了 8 MiB 的消息大小上限。"
 }

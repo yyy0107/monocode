@@ -173,8 +173,8 @@ describe("headless session ownership", () => {
     turns[0].finish();
   });
 
-  it("passes an uploaded image to the host provider on an attachment-only turn", async () => {
-    const { engine, store, turns, id } = setup("claude");
+  it.each(["codex", "claude"] as const)("passes an uploaded image to %s on an attachment-only turn", async (harness) => {
+    const { engine, store, turns, id } = setup(harness);
     const fileId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
     const image = Buffer.from("image-bytes");
     writeAttachmentChunk(store, {
@@ -201,8 +201,11 @@ describe("headless session ownership", () => {
     await vi.waitFor(() => expect(turns).toHaveLength(1));
     expect(turns[0].input.attachments?.[0]).toMatchObject({
       name: "shot.png",
-      data: image.toString("base64"),
+      path: expect.stringContaining(fileId),
     });
+    expect(turns[0].input.attachments?.[0].data).toBe(
+      harness === "codex" ? undefined : image.toString("base64"),
+    );
     expect(readAttachmentChunk(store, { sessionId: id, id: fileId, offset: 0 })).toEqual({
       offset: image.length, size: image.length, data: image.toString("base64"),
     });

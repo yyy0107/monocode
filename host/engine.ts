@@ -1171,6 +1171,7 @@ export class HostEngine {
                 ...input,
                 text: prompt,
                 attachments: attachments?.map((file) =>
+                  session.harness !== "codex" &&
                   isVisionImage(file.mimeType) &&
                   file.path &&
                   file.size <= 20 * 1024 * 1024

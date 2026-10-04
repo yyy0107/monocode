@@ -207,6 +207,25 @@ describe("child bridge", () => {
     });
   });
 
+  it.each([false, true])("preserves a Host exit error (before spawn returns: %s)", async (early) => {
+    installResolvedListeners();
+    const spawned = deferred<number>();
+    mocks.invoke.mockImplementation(() => spawned.promise);
+    const child = await loadChild();
+    const release = await child.acquireHarnessBridge();
+    const onExit = vi.fn();
+    child.watchChild("probe", vi.fn(), onExit);
+    const spawning = child.spawnChild("probe", "codex", ["app-server"], "/repo");
+    const error = "Agent output exceeded the 64 MiB message limit.";
+    if (!early) { spawned.resolve(42); await spawning; }
+    mocks.handlers.get("harness-exit")?.({
+      payload: { sessionId: "probe", code: 1, pid: 42, error } as never,
+    });
+    if (early) { spawned.resolve(42); await spawning; }
+    expect(onExit).toHaveBeenCalledWith(1, error);
+    release();
+  });
+
   it("never routes a retired generation's stdout or exit to its replacement", async () => {
     installResolvedListeners();
     const child = await loadChild();
