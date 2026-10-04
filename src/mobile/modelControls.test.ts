@@ -121,10 +121,12 @@ function render(
       name = Object.values(catalog.models)
         .flat()
         .find((model) => model?.id === value)!.name;
-    } else
+    } else {
+      act(() => row(label).click());
       name = { low: "Low", medium: "Medium", high: "High" }[
         value as "low" | "medium" | "high"
       ];
+    }
     const option = [
       ...node.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
     ].find((button) => button.textContent === name)!;
@@ -135,9 +137,33 @@ function render(
     );
     if (afterBack) act(() => afterBack.click());
   };
-  return { node, changes, change };
+  return { node, changes, change, row };
 }
 describe("mobile Agent, model and reasoning controls", () => {
+  it("opens separate Agent, model and reasoning dialogs without changing settings on back", () => {
+    const { node, row, changes } = render();
+    expect(
+      [...node.querySelectorAll("strong")].map((item) => item.textContent),
+    ).toEqual(["Agent", "Model", "Reasoning effort"]);
+    expect(node.querySelector('[role="radio"]')).toBeNull();
+    for (const label of ["Agent", "Model", "Reasoning effort"]) {
+      act(() => row(label).click());
+      expect(
+        node.querySelector('[role="dialog"]')!.getAttribute("aria-label"),
+      ).toBe(label);
+      expect(
+        node.querySelector('[role="radiogroup"]')!.getAttribute("aria-label"),
+      ).toBe(label);
+      expect(
+        node.querySelector('[role="radio"][aria-checked="true"]'),
+      ).not.toBeNull();
+      act(() =>
+        node.querySelector<HTMLButtonElement>('[aria-label="Back"]')!.click(),
+      );
+      expect(node.querySelector('[role="radio"]')).toBeNull();
+    }
+    expect(changes).toEqual([]);
+  });
   it("filters models by selected Agent and resets provider-specific settings", () => {
     const { node, change, changes } = render();
     change("Agent", "claude");
@@ -177,6 +203,12 @@ describe("mobile Agent, model and reasoning controls", () => {
     change("Agent", "cursor");
     expect(changes.at(-1)!.modelSettings).toEqual({});
     expect(node.querySelector('[aria-label="Reasoning effort"]')).toBeNull();
+    expect(
+      [...node.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) =>
+          button.querySelector("strong")?.textContent === "Reasoning effort",
+      )!.disabled,
+    ).toBe(true);
   });
   it("locks only the Agent for existing conversations while allowing model and effort changes", () => {
     const { node, change, changes } = render(true);

@@ -1,21 +1,23 @@
 import { useEffect, useRef } from "react";
 import {
   ArrowUp,
-  AppWindow,
+  AiIdea,
   Check,
   ChevronDown,
-  File as FileIcon,
+  FilePlus,
   Folder,
   ImagePlus,
-  ListBullet,
   LoaderCircle,
   Plus,
-  Shield,
   Square,
+  X,
 } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { AttachmentChip } from "../features/sessions/ui/AttachmentChip";
+import { RuntimeModeIcon } from "../features/sessions/ui/RuntimeModeIcon";
+import { MODE_COMMAND_STYLES } from "../features/sessions/ui/modeCommands";
+import { PLAN_COMMAND } from "../features/sessions/model/plan";
 import {
   HARNESS_TITLE,
   RUNTIME_MODES,
@@ -36,7 +38,8 @@ import {
 import { MobileSheet } from "./MobileSheet";
 
 export type MobileComposerPanel =
-  "actions" | "permissions" | "model" | "projects" | null;
+  "actions" | "permissions" | "model" | "projects" | "plan" | null;
+const planStyle = MODE_COMMAND_STYLES[PLAN_COMMAND.name];
 type Props = {
   value: string;
   onChange: (text: string) => void;
@@ -55,7 +58,6 @@ type Props = {
   onPanelChange: (panel: MobileComposerPanel) => void;
   project?: HostProject;
   projects: HostProject[];
-  hostName?: string;
   onProjectChange: (project: HostProject) => void;
   attachments: Attachment[];
   onFiles: (files: File[]) => void;
@@ -69,6 +71,7 @@ export function MobileComposer(props: Props) {
   const area = useRef<HTMLTextAreaElement>(null);
   const photos = useRef<HTMLInputElement>(null);
   const files = useRef<HTMLInputElement>(null);
+  const panelAnchor = useRef<HTMLButtonElement>(null);
   const controls = remoteModelControls(
     props.catalog,
     props.configuration.harness,
@@ -106,24 +109,6 @@ export function MobileComposer(props: Props) {
   return (
     <>
       <div className="mobile-composer-dock">
-        <div className="mobile-composer-context">
-          <span className="mobile-composer-host">
-            <AppWindow size={15} />
-            <span>{props.hostName}</span>
-          </span>
-          <button
-            type="button"
-            disabled={props.disabled}
-            onClick={() => props.onPanelChange("projects")}
-            aria-haspopup="dialog"
-            aria-expanded={props.panel === "projects"}
-            aria-label={t("Choose project")}
-          >
-            <Folder size={15} />
-            <span>{props.project?.name ?? t("Project")}</span>
-            <ChevronDown size={13} />
-          </button>
-        </div>
         <form
           className="mobile-composer"
           onSubmit={(event) => {
@@ -169,20 +154,6 @@ export function MobileComposer(props: Props) {
               }
             }}
           />
-          {props.planMode && (
-            <div className="mobile-composer-plan">
-              <ListBullet size={14} />
-              <span>{t("Plan mode")}</span>
-              <button
-                type="button"
-                disabled={props.disabled}
-                onClick={() => props.onPlanModeChange(false)}
-                aria-label={t("Turn off plan mode")}
-              >
-                {t("Turn off")}
-              </button>
-            </div>
-          )}
           <div className="mobile-composer-toolbar">
             <button
               type="button"
@@ -191,10 +162,30 @@ export function MobileComposer(props: Props) {
               aria-haspopup="dialog"
               aria-expanded={props.panel === "actions"}
               disabled={props.disabled}
-              onClick={() => props.onPanelChange("actions")}
+              onClick={(event) => {
+                panelAnchor.current = event.currentTarget;
+                props.onPanelChange("actions");
+              }}
             >
               <Plus size={24} />
             </button>
+            {props.planMode && (
+              <button
+                type="button"
+                className={`mobile-composer-plan ${planStyle.pill?.className ?? planStyle.className}`}
+                disabled={props.disabled}
+                aria-label={t("Plan mode")}
+                title={t("Plan mode")}
+                aria-haspopup="dialog"
+                aria-expanded={props.panel === "plan"}
+                onClick={(event) => {
+                  panelAnchor.current = event.currentTarget;
+                  props.onPanelChange("plan");
+                }}
+              >
+                <planStyle.Icon size={18} aria-hidden="true" />
+              </button>
+            )}
             <button
               type="button"
               className="mobile-composer-action mobile-composer-permissions"
@@ -208,21 +199,39 @@ export function MobileComposer(props: Props) {
               aria-haspopup="dialog"
               aria-expanded={props.panel === "permissions"}
               disabled={props.disabled}
-              onClick={() => props.onPanelChange("permissions")}
+              onClick={(event) => {
+                panelAnchor.current = event.currentTarget;
+                props.onPanelChange("permissions");
+              }}
             >
-              <Shield size={22} />
+              <RuntimeModeIcon
+                mode={props.configuration.runtimeMode}
+                size={22}
+                className={
+                  props.configuration.runtimeMode === "full-access"
+                    ? "text-amber-400/90"
+                    : undefined
+                }
+              />
             </button>
             <button
               type="button"
               className="mobile-composer-model"
+              title={modelName}
               disabled={props.disabled}
               aria-label={t("Model and reasoning")}
               aria-haspopup="dialog"
               aria-expanded={props.panel === "model"}
-              onClick={() => props.onPanelChange("model")}
+              onClick={(event) => {
+                panelAnchor.current = event.currentTarget;
+                props.onPanelChange("model");
+              }}
             >
-              <HarnessIcon harness={props.configuration.harness} />
-              <span>
+              <HarnessIcon
+                harness={props.configuration.harness}
+                className="mobile-composer-agent-icon size-3.5"
+              />
+              <span className="mobile-composer-model-label">
                 <strong>{modelName}</strong>
                 {effort && <small>{t(effort)}</small>}
               </span>
@@ -274,6 +283,7 @@ export function MobileComposer(props: Props) {
       </div>
       {props.panel === "model" && (
         <MobileModelControls
+          anchor={panelAnchor}
           catalog={props.catalog}
           configuration={props.configuration}
           lockedAgent={props.lockedAgent}
@@ -282,8 +292,38 @@ export function MobileComposer(props: Props) {
           onClose={close}
         />
       )}
+      {props.panel === "plan" && (
+        <MobileSheet
+          title="Plan mode"
+          placement="anchor"
+          anchor={panelAnchor}
+          width={180}
+          side="top"
+          onClose={close}
+        >
+          <button
+            type="button"
+            className="mobile-sheet-row"
+            aria-label={t("Turn off plan mode")}
+            disabled={props.disabled}
+            onClick={() => {
+              close();
+              props.onPlanModeChange(false);
+            }}
+          >
+            <X size={18} />
+            <span>{t("Turn off")}</span>
+          </button>
+        </MobileSheet>
+      )}
       {props.panel === "permissions" && (
-        <MobileSheet title="Permissions" onClose={close}>
+        <MobileSheet
+          title="Permissions"
+          placement="anchor"
+          anchor={panelAnchor}
+          width={340}
+          onClose={close}
+        >
           <div role="radiogroup" aria-label={t("Permissions")}>
             {RUNTIME_MODES.map((mode) => (
               <button
@@ -301,7 +341,15 @@ export function MobileComposer(props: Props) {
                   });
                 }}
               >
-                <Shield size={22} />
+                <RuntimeModeIcon
+                  mode={mode}
+                  size={22}
+                  className={
+                    mode === "full-access"
+                      ? "text-amber-400/90"
+                      : "text-content/70"
+                  }
+                />
                 <span className="mobile-sheet-row-text">
                   <strong>{t(RUNTIME_MODE_LABEL[mode])}</strong>
                   <small>{t(RUNTIME_MODE_HINT[mode])}</small>
@@ -315,7 +363,13 @@ export function MobileComposer(props: Props) {
         </MobileSheet>
       )}
       {props.panel === "actions" && (
-        <MobileSheet title="Add to message" onClose={close}>
+        <MobileSheet
+          title="Add to message"
+          placement="anchor"
+          anchor={panelAnchor}
+          width={280}
+          onClose={close}
+        >
           <button
             type="button"
             className="mobile-sheet-row"
@@ -337,7 +391,7 @@ export function MobileComposer(props: Props) {
               files.current?.click();
             }}
           >
-            <FileIcon size={22} />
+            <FilePlus size={22} />
             <span>{t("Upload files")}</span>
           </button>
           <button
@@ -351,20 +405,26 @@ export function MobileComposer(props: Props) {
               props.onPlanModeChange(!props.planMode);
             }}
           >
-            <ListBullet size={22} />
+            <AiIdea size={22} className="text-yellow-300/80" />
             <span>{t("Plan mode")}</span>
             {props.planMode && <Check size={20} />}
           </button>
         </MobileSheet>
       )}
       {props.panel === "projects" && (
-        <MobileSheet title="Choose project" onClose={close}>
-          <p className="mobile-sheet-hint">
-            {t(
-              "Changing projects starts a new conversation and keeps your message.",
-            )}
-          </p>
-          <div role="radiogroup" aria-label={t("Projects")}>
+        <MobileSheet
+          title="Choose project"
+          placement="anchor"
+          anchor={panelAnchor}
+          width={340}
+          side="top"
+          onClose={close}
+        >
+          <div
+            className="mobile-project-options"
+            role="radiogroup"
+            aria-label={t("Projects")}
+          >
             {props.projects.map((project) => (
               <button
                 type="button"

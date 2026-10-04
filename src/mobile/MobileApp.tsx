@@ -4,24 +4,28 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type MouseEvent,
 } from "react";
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import {
   ArrowLeft,
+  Chatting,
   ChevronRight,
+  Computer,
   Folder,
   FolderPlus,
-  Globe,
   LoaderCircle,
-  MessageSquare,
+  MoreHorizontal,
+  Internet,
   Plus,
   RefreshCw,
-  Settings,
-  X,
 } from "../shared/ui/icons";
-import type { Attachment } from "../features/sessions/model/session";
+import {
+  sessionDisplayTitle,
+  type Attachment,
+} from "../features/sessions/model/session";
 import type {
   HostProject,
   HostSession,
@@ -40,8 +44,18 @@ import {
   MobileClient,
   type PendingCommand,
   type MobileFirstMessage,
+  type MobileSessionPatch,
 } from "./client";
 import { MobileComposer, type MobileComposerPanel } from "./MobileComposer";
+import { MobileSessionActions } from "./MobileSessionActions";
+import { MobileConnectionSheet } from "./MobileConnectionSheet";
+import { MobileSelect } from "./MobileSelect";
+import { MobileSheet } from "./MobileSheet";
+import { formatMobileRelativeTime } from "./relativeTime";
+import { MobileHostStatus } from "./MobileHostStatus";
+import { useHostConnectionStatus } from "./useHostConnectionStatus";
+import { useTranslation } from "../shared/i18n/useTranslation";
+import { setUiLanguage, translate } from "../shared/i18n/language";
 import { readMobileAttachments } from "./attachments";
 import { mobileStorage } from "./storage";
 import {
@@ -53,7 +67,9 @@ const client = new MobileClient(mobileStorage);
 const readHostImage = (path: string) => client.readBinaryFile(path);
 type View = "connection" | "projects" | "sessions" | "chat";
 const message = (error: unknown) =>
-  error instanceof Error ? error.message : "Unable to reach this Host.";
+  error instanceof Error
+    ? error.message
+    : translate("Unable to reach this Host.");
 function IconButton({
   label,
   children,
@@ -62,15 +78,16 @@ function IconButton({
 }: {
   label: string;
   children: ReactNode;
-  onClick: () => void;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <button
       className="mobile-icon-button"
       type="button"
-      aria-label={label}
-      title={label}
+      aria-label={t(label)}
+      title={t(label)}
       onClick={onClick}
       disabled={disabled}
     >
@@ -87,15 +104,17 @@ function Empty({
   title: string;
   children: ReactNode;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="mobile-empty">
       <div className="mobile-empty-icon">{icon}</div>
-      <h2>{title}</h2>
+      <h2>{t(title)}</h2>
       <p>{children}</p>
     </div>
   );
 }
 export function MobileApp() {
+  const { language, t } = useTranslation();
   const appUpdates = useMobileAppUpdates();
   const [view, setView] = useState<View>("connection");
   const [connected, setConnected] = useState(false);
@@ -119,18 +138,28 @@ export function MobileApp() {
   const [readingAttachments, setReadingAttachments] = useState(false);
   const [planMode, setPlanMode] = useState(false);
   const [composerPanel, setComposerPanel] = useState<MobileComposerPanel>(null);
+  const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
   const [folderPath, setFolderPath] = useState("");
   const [addingProject, setAddingProject] = useState(false);
+  const [addingConnection, setAddingConnection] = useState(false);
+  const [preferencePanel, setPreferencePanel] = useState<
+    "theme" | "language" | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [pollError, setPollError] = useState("");
   const [pending, setPending] = useState<PendingCommand>();
   const [foreground, setForeground] = useState(true);
+  const hostStatus = useHostConnectionStatus(client, connected, foreground);
+  const [now, setNow] = useState(() => Date.now());
   const [theme, setTheme] = useState(
     () => localStorage.getItem("monocode-mobile-theme") || "dark",
   );
   const navigation = useRef(0);
+  const connectionTrigger = useRef<HTMLButtonElement>(null);
+  const projectTrigger = useRef<HTMLButtonElement>(null);
+  const sessionActionsTrigger = useRef<HTMLButtonElement>(null);
   const projectGeneration = useRef(0);
 
   useEffect(() => {
@@ -199,6 +228,13 @@ export function MobileApp() {
   }, []);
 
   useEffect(() => {
+    if (!foreground || view !== "sessions") return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, [foreground, view]);
+
+  useEffect(() => {
     if (!connected || !foreground || view === "connection") return;
     let live = true;
     let timer: ReturnType<typeof setTimeout>;
@@ -216,7 +252,14 @@ export function MobileApp() {
           running = result.some((item) => item.status === "running");
         } else if (view === "chat" && sessionId) {
           const result = await client.session(sessionId);
-          if (live) setSnapshot(result);
+          if (live)
+            setSnapshot((previous) =>
+              previous &&
+              previous.session.id === result.session.id &&
+              previous.revision > result.revision
+                ? previous
+                : result,
+            );
           running = result.status === "running";
         }
         if (live) {
@@ -267,6 +310,7 @@ export function MobileApp() {
       setUrl(client.connection!.endpoint);
       setProjects(items);
       setConnected(true);
+      setAddingConnection(false);
       setView("projects");
       setPending(await client.pending());
     } catch (problem) {
@@ -288,6 +332,7 @@ export function MobileApp() {
     setSnapshot(undefined);
     setAnimateFrom(undefined);
     setComposerPanel(null);
+    setSessionActionsOpen(false);
     setView(nextView);
     setLoading(true);
     setError("");
@@ -323,6 +368,7 @@ export function MobileApp() {
     setAttachments([]);
     setPlanMode(false);
     setComposerPanel(null);
+    setSessionActionsOpen(false);
     setView("chat");
     setLoading(!!id);
     setError("");
@@ -409,7 +455,9 @@ export function MobileApp() {
       )
     ) {
       setError(
-        "No available model. Install and sign in to a provider on this Host.",
+        t(
+          "No available model. Install and sign in to a provider on this Host.",
+        ),
       );
       return;
     }
@@ -484,14 +532,78 @@ export function MobileApp() {
     navigation.current += 1;
     setLoading(false);
     setComposerPanel(null);
+    setSessionActionsOpen(false);
+    setPreferencePanel(null);
     setView(next);
+  };
+  const updateSessionMetadata = async (patch: MobileSessionPatch) => {
+    if (!project || !sessionId) return;
+    const turn = navigation.current;
+    const id = sessionId;
+    setBusy(true);
+    try {
+      const summary = await client.updateSession(project.id, id, patch);
+      const result = await client.session(id);
+      if (navigation.current === turn) {
+        setSnapshot((previous) =>
+          previous && previous.revision > result.revision ? previous : result,
+        );
+        setSessions((items) =>
+          items.map((item) => (item.id === id ? summary : item)),
+        );
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  const deleteCurrentSession = async () => {
+    if (!project || !sessionId) return;
+    const turn = navigation.current;
+    const id = sessionId;
+    setBusy(true);
+    try {
+      await client.deleteSession(project.id, id);
+      if (navigation.current === turn) {
+        navigate("sessions");
+        setSessions((items) => items.filter((item) => item.id !== id));
+        setSessionId(undefined);
+        setSnapshot(undefined);
+        setDraft("");
+        setAttachments([]);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  const reconnect = async () => {
+    setBusy(true);
+    try {
+      await client.reconnect();
+      if (!connected) {
+        setProjects(await client.projects());
+        setConnected(true);
+        setView("projects");
+      }
+      setError("");
+      setPollError("");
+    } catch (problem) {
+      setError(message(problem));
+    } finally {
+      setBusy(false);
+    }
   };
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     const listener = App.addListener("backButton", () => {
-      if (composerPanel) setComposerPanel(null);
-      else if (addingProject) setAddingProject(false);
-      else if (view === "chat") navigate("sessions");
+      if (sessionActionsOpen) {
+        if (!busy) setSessionActionsOpen(false);
+      } else if (preferencePanel) setPreferencePanel(null);
+      else if (addingConnection) {
+        if (!busy) setAddingConnection(false);
+      } else if (composerPanel) setComposerPanel(null);
+      else if (addingProject) {
+        if (!busy) setAddingProject(false);
+      } else if (view === "chat") navigate("sessions");
       else if (view === "sessions" || (view === "connection" && connected))
         navigate("projects");
       else void App.exitApp();
@@ -499,17 +611,31 @@ export function MobileApp() {
     return () => {
       void listener.then((handle) => handle.remove());
     };
-  }, [view, connected, addingProject, composerPanel]);
+  }, [
+    view,
+    connected,
+    addingConnection,
+    addingProject,
+    composerPanel,
+    preferencePanel,
+    sessionActionsOpen,
+    busy,
+  ]);
 
   const running = snapshot?.status === "running";
   const title =
     view === "chat"
-      ? snapshot?.session.title || "New conversation"
+      ? (snapshot &&
+          sessionDisplayTitle(
+            snapshot.session.title,
+            snapshot.session.harness,
+          )) ||
+        t("New conversation")
       : view === "sessions"
-        ? project?.name || "Conversations"
+        ? project?.name || t("Conversations")
         : view === "projects"
-          ? "Projects"
-          : "Connections";
+          ? t("Projects")
+          : t("Connections");
   return (
     <div className="mobile-app">
       <header className="mobile-header">
@@ -523,20 +649,46 @@ export function MobileApp() {
         ) : (
           <img className="mobile-logo" src="/monocode.png" alt="MonoCode" />
         )}
-        <div className="mobile-header-title">
+        <div className="mobile-header-title" data-capsule={view === "chat"}>
           <strong>{title}</strong>
-          <span>
-            {view === "chat"
-              ? project?.name
-              : connected
-                ? client.connection?.name
-                : "MonoCode"}
-          </span>
+          {view === "chat" ? (
+            <div className="mobile-header-context">
+              {project?.name && (
+                <span className="mobile-header-context-item">
+                  <Folder size={12} aria-hidden="true" />
+                  <span>{project.name}</span>
+                </span>
+              )}
+              {project?.name && client.connection?.name && (
+                <span
+                  className="mobile-header-context-separator"
+                  aria-hidden="true"
+                >
+                  ·
+                </span>
+              )}
+              {client.connection?.name && (
+                <span className="mobile-header-context-item">
+                  <Computer size={12} aria-hidden="true" />
+                  <span>{client.connection.name}</span>
+                  <MobileHostStatus status={hostStatus} />
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="mobile-header-host">
+              <span>{client.connection?.name || "MonoCode"}</span>
+              {client.connection && <MobileHostStatus status={hostStatus} />}
+            </span>
+          )}
         </div>
         {view === "projects" ? (
           <IconButton
             label="Open project"
-            onClick={() => setAddingProject(true)}
+            onClick={(event) => {
+              projectTrigger.current = event.currentTarget;
+              setAddingProject(true);
+            }}
           >
             <FolderPlus size={20} />
           </IconButton>
@@ -549,115 +701,72 @@ export function MobileApp() {
           </IconButton>
         ) : view === "chat" ? (
           <IconButton
-            label="New conversation"
-            onClick={() => void openSession()}
-            disabled={busy}
+            label="Session actions"
+            onClick={(event) => {
+              sessionActionsTrigger.current = event.currentTarget;
+              setComposerPanel(null);
+              setSessionActionsOpen(true);
+            }}
+            disabled={busy || loading}
           >
-            <Plus size={20} />
+            <MoreHorizontal size={22} />
           </IconButton>
-        ) : (
-          <span className="mobile-connection-dot" data-connected={connected} />
-        )}
+        ) : null}
       </header>
 
-      {(error || pollError) && (
-        <div className="mobile-error" role="alert">
-          <span>{error || pollError}</span>
-          {connected && (
-            <IconButton
-              label="Reconnect"
-              disabled={busy}
-              onClick={() => {
-                setBusy(true);
-                void client
-                  .verify()
-                  .then(() => {
-                    setError("");
-                    setPollError("");
-                  })
-                  .catch((problem) => setError(message(problem)))
-                  .finally(() => setBusy(false));
-              }}
-            >
-              <RefreshCw size={16} />
-            </IconButton>
-          )}
-        </div>
-      )}
+      {(error || pollError || hostStatus.state === "failed") &&
+        !addingConnection && (
+          <div className="mobile-error" role="alert">
+            <span>
+              {error ||
+                pollError ||
+                hostStatus.detail ||
+                t("Connection failed")}
+            </span>
+            {client.connection && (
+              <IconButton
+                label="Reconnect"
+                disabled={busy || hostStatus.state === "reconnecting"}
+                onClick={() => void reconnect()}
+              >
+                <RefreshCw size={16} />
+              </IconButton>
+            )}
+          </div>
+        )}
       {pending && connected && (
         <div className="mobile-pending" role="status">
-          <span>A request is awaiting confirmation.</span>
+          <span>{t("A request is awaiting confirmation.")}</span>
           <button disabled={busy} onClick={() => void dispatch()}>
-            Retry
+            {t("Retry")}
           </button>
         </div>
       )}
 
       {view === "connection" ? (
         <main className="mobile-content mobile-connections">
-          <h1>Connect to your computer</h1>
-          <p className="mobile-muted">
-            Continue your projects and conversations from your phone.
-          </p>
-          <form
-            className="mobile-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void connect();
+          <button
+            className="mobile-button mobile-primary mobile-add-connection"
+            ref={connectionTrigger}
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={addingConnection}
+            disabled={busy || loading}
+            onClick={() => {
+              setError("");
+              setAddingConnection(true);
             }}
           >
-            <label>
-              Host URL
-              <input
-                type="url"
-                placeholder="http://192.168.1.10:3774"
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                required
-                disabled={busy || loading}
-              />
-            </label>
-            <label>
-              Device token
-              <input
-                type="password"
-                placeholder="Paste your device token"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                autoCapitalize="none"
-                autoCorrect="off"
-                autoComplete="off"
-                spellCheck={false}
-                required
-                disabled={busy || loading}
-              />
-            </label>
-            <button
-              className="mobile-button mobile-primary"
-              type="submit"
-              disabled={busy || loading || !url.trim() || !token.trim()}
-            >
-              {busy || loading ? (
-                <>
-                  <LoaderCircle size={16} className="mobile-spin" />
-                  Connecting…
-                </>
-              ) : (
-                <>
-                  <Globe size={16} />
-                  Connect by URL
-                </>
-              )}
-            </button>
-          </form>
-          {connected && (
+            <Plus size={18} />
+            {t("Add connection")}
+          </button>
+          {client.connection && (
             <div className="mobile-current-host">
-              <span className="mobile-connection-dot" data-connected="true" />
               <div>
-                <strong>{client.connection?.name}</strong>
+                <strong className="mobile-current-host-name">
+                  <span>{client.connection.name}</span>
+                  <MobileHostStatus status={hostStatus} />
+                </strong>
                 <small>{client.connection?.endpoint}</small>
               </div>
               <button
@@ -682,28 +791,49 @@ export function MobileApp() {
                     .finally(() => setBusy(false));
                 }}
               >
-                Disconnect
+                {t("Disconnect")}
               </button>
             </div>
           )}
           <div className="mobile-appearance">
-            <label htmlFor="mobile-theme">Appearance</label>
-            <select
+            <label htmlFor="mobile-theme">{t("Appearance")}</label>
+            <MobileSelect
               id="mobile-theme"
+              label={t("Appearance")}
               value={theme}
-              onChange={(event) => setTheme(event.target.value)}
-            >
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-              <option value="system">System</option>
-            </select>
+              open={preferencePanel === "theme"}
+              onOpenChange={(open) => setPreferencePanel(open ? "theme" : null)}
+              onChange={setTheme}
+              options={[
+                { value: "dark", label: t("Dark") },
+                { value: "light", label: t("Light") },
+                { value: "system", label: t("System") },
+              ]}
+            />
+          </div>
+          <div className="mobile-appearance mobile-language">
+            <label htmlFor="mobile-language">{t("Language")}</label>
+            <MobileSelect
+              id="mobile-language"
+              label={t("Language")}
+              value={language}
+              open={preferencePanel === "language"}
+              onOpenChange={(open) =>
+                setPreferencePanel(open ? "language" : null)
+              }
+              onChange={setUiLanguage}
+              options={[
+                { value: "en", label: "English" },
+                { value: "zh-CN", label: "简体中文" },
+              ]}
+            />
           </div>
           <MobileAppUpdates state={appUpdates} />
         </main>
       ) : view === "projects" ? (
         <main className="mobile-content">
           <p className="mobile-section-label">
-            Your projects <span>{projects.length}</span>
+            {t("Your projects")} <span>{projects.length}</span>
           </p>
           {projects.length ? (
             <div className="mobile-list">
@@ -726,13 +856,16 @@ export function MobileApp() {
             </div>
           ) : (
             <Empty icon={<Folder size={28} />} title="Open your first project">
-              Add a folder from your connected computer to get started.
+              {t("Add a folder from your connected computer to get started.")}
               <button
                 className="mobile-button"
-                onClick={() => setAddingProject(true)}
+                onClick={(event) => {
+                  projectTrigger.current = event.currentTarget;
+                  setAddingProject(true);
+                }}
               >
                 <FolderPlus size={16} />
-                Open project
+                {t("Open project")}
               </button>
             </Empty>
           )}
@@ -742,45 +875,52 @@ export function MobileApp() {
           {loading ? (
             <div className="mobile-loading">
               <LoaderCircle className="mobile-spin" size={20} />
-              Loading conversations…
+              {t("Loading conversations…")}
             </div>
           ) : sessions.some((item) => !item.archived) ? (
-            <div className="mobile-list">
+            <div className="mobile-list mobile-session-list">
               {sessions
                 .filter((item) => !item.archived)
-                .sort((a, b) => b.updatedAt - a.updatedAt)
+                .sort(
+                  (a, b) =>
+                    Number(!!b.pinned) - Number(!!a.pinned) ||
+                    b.updatedAt - a.updatedAt,
+                )
                 .map((item) => (
                   <button
-                    className="mobile-list-row"
+                    className="mobile-list-row mobile-session-row"
                     key={item.id}
                     onClick={() => void openSession(item.id)}
                   >
                     <span className="mobile-row-text">
-                      <strong>{item.title || "Untitled conversation"}</strong>
+                      <strong>
+                        {sessionDisplayTitle(item.title, item.harness) ||
+                          t("Untitled conversation")}
+                      </strong>
                       <small>
-                        {item.harness} ·{" "}
-                        {new Date(item.updatedAt).toLocaleDateString(
-                          undefined,
-                          { month: "short", day: "numeric" },
-                        )}
+                        {item.status === "running" ? (
+                          <LoaderCircle size={16} className="mobile-spin" />
+                        ) : item.needsInput ? (
+                          <span className="mobile-attention-dot" />
+                        ) : null}
+                        <span>
+                          {item.harness} ·{" "}
+                          {formatMobileRelativeTime(
+                            item.updatedAt,
+                            now,
+                            language,
+                          )}
+                        </span>
                       </small>
                     </span>
-                    {item.status === "running" ? (
-                      <LoaderCircle size={16} className="mobile-spin" />
-                    ) : item.needsInput ? (
-                      <span className="mobile-attention-dot" />
-                    ) : (
-                      <ChevronRight size={17} />
-                    )}
                   </button>
                 ))}
             </div>
           ) : (
-            <Empty
-              icon={<MessageSquare size={28} />}
-              title="No conversations yet"
-            >
-              Start a conversation in {project?.name}.
+            <Empty icon={<Chatting size={28} />} title="No conversations yet">
+              {t("Start a conversation in {project}.", {
+                project: project?.name || t("your project"),
+              })}
             </Empty>
           )}
         </main>
@@ -798,11 +938,11 @@ export function MobileApp() {
           ) : loading ? (
             <div className="mobile-loading">
               <LoaderCircle className="mobile-spin" size={20} />
-              Loading conversation…
+              {t("Loading conversation…")}
             </div>
           ) : (
             <Empty
-              icon={<MessageSquare size={30} />}
+              icon={<Chatting size={30} />}
               title={
                 sessionId
                   ? "Conversation unavailable"
@@ -810,8 +950,10 @@ export function MobileApp() {
               }
             >
               {sessionId
-                ? "Check your connection and retry."
-                : `Start a conversation in ${project?.name || "your project"}.`}
+                ? t("Check your connection and retry.")
+                : t("Start a conversation in {project}.", {
+                    project: project?.name || t("your project"),
+                  })}
             </Empty>
           )}
           <MobileComposer
@@ -872,7 +1014,6 @@ export function MobileApp() {
             onPanelChange={setComposerPanel}
             project={project}
             projects={projects}
-            hostName={client.connection?.name}
             onProjectChange={(item) => void openProject(item, "chat")}
             attachments={attachments}
             onFiles={(files) => void addFiles(files)}
@@ -888,88 +1029,111 @@ export function MobileApp() {
       )}
 
       {connected && view !== "chat" && (
-        <nav className="mobile-navigation" aria-label="Main navigation">
+        <nav className="mobile-navigation" aria-label={t("Main navigation")}>
           <button
             className={view === "projects" ? "is-selected" : ""}
             onClick={() => navigate("projects")}
           >
             <Folder size={20} />
-            <span>Projects</span>
+            <span>{t("Projects")}</span>
           </button>
           <button
             className={view === "sessions" ? "is-selected" : ""}
             disabled={!project}
             onClick={() => navigate("sessions")}
           >
-            <MessageSquare size={20} />
-            <span>Conversations</span>
+            <Chatting size={20} />
+            <span>{t("Conversations")}</span>
           </button>
           <button
             className={view === "connection" ? "is-selected" : ""}
             onClick={() => navigate("connection")}
           >
-            <Settings size={20} />
-            <span>Connections</span>
+            <Internet size={20} />
+            <span>{t("Connections")}</span>
           </button>
         </nav>
       )}
+      {sessionActionsOpen && view === "chat" && (
+        <MobileSessionActions
+          key={sessionId ?? "draft"}
+          snapshot={snapshot}
+          anchor={sessionActionsTrigger}
+          disabled={busy || loading || !!pending}
+          onUpdate={updateSessionMetadata}
+          onDelete={deleteCurrentSession}
+          onNew={() => void openSession()}
+          onClose={() => setSessionActionsOpen(false)}
+        />
+      )}
+      {addingConnection && (
+        <MobileConnectionSheet
+          anchor={connectionTrigger}
+          url={url}
+          token={token}
+          disabled={busy || loading}
+          error={error}
+          onUrlChange={setUrl}
+          onTokenChange={setToken}
+          onConnect={() => void connect()}
+          onClose={() => {
+            if (!busy) {
+              setAddingConnection(false);
+              setToken("");
+              setError("");
+            }
+          }}
+        />
+      )}
       {addingProject && (
-        <div className="mobile-modal-backdrop">
-          <section
-            className="mobile-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="open-project-title"
+        <MobileSheet
+          title="Open project"
+          placement="anchor"
+          anchor={projectTrigger}
+          onClose={() => {
+            if (!busy) setAddingProject(false);
+          }}
+        >
+          <p className="mobile-muted">
+            {t("Enter a folder path on {host}.", {
+              host: client.connection?.name || "",
+            })}
+          </p>
+          <form
+            className="mobile-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void addProject();
+            }}
           >
-            <div className="mobile-modal-title">
-              <h2 id="open-project-title">Open project</h2>
-              <IconButton
-                label="Close"
+            <label>
+              {t("Folder path")}
+              <input
+                autoFocus
+                placeholder="/home/me/projects/my-app"
+                value={folderPath}
+                onChange={(event) => setFolderPath(event.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                required
                 disabled={busy}
-                onClick={() => setAddingProject(false)}
-              >
-                <X size={18} />
-              </IconButton>
-            </div>
-            <p className="mobile-muted">
-              Enter a folder path on {client.connection?.name}.
-            </p>
-            <form
-              className="mobile-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void addProject();
-              }}
+              />
+            </label>
+            {error && (
+              <p className="mobile-form-error" role="alert">
+                {error}
+              </p>
+            )}
+            <button
+              type="submit"
+              className="mobile-button mobile-primary"
+              disabled={busy || !folderPath.trim()}
             >
-              <label>
-                Folder path
-                <input
-                  autoFocus
-                  placeholder="/home/me/projects/my-app"
-                  value={folderPath}
-                  onChange={(event) => setFolderPath(event.target.value)}
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  required
-                  disabled={busy}
-                />
-              </label>
-              {error && (
-                <p className="mobile-form-error" role="alert">
-                  {error}
-                </p>
-              )}
-              <button
-                type="submit"
-                className="mobile-button mobile-primary"
-                disabled={busy || !folderPath.trim()}
-              >
-                {busy ? "Opening…" : "Open project"}
-              </button>
-            </form>
-          </section>
-        </div>
+              {t(busy ? "Opening…" : "Open project")}
+            </button>
+          </form>
+        </MobileSheet>
       )}
     </div>
   );
