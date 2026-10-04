@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileApp } from "./MobileApp";
 import { setUiLanguage, UI_LANGUAGE_KEY } from "../shared/i18n/language";
+import { ensureRandomUUID } from "./browserCrypto";
 
 const healthyStatus = vi.hoisted(() => ({ state: "connected" as const }));
 const host = vi.hoisted(() => ({
@@ -83,6 +84,16 @@ async function submit() {
 }
 
 describe("mobile connection settings", () => {
+  it("renders the connection screen when LAN HTTP has no native randomUUID", async () => {
+    const native = globalThis.crypto;
+    const api = { getRandomValues: native.getRandomValues.bind(native) } as unknown as Crypto;
+    vi.stubGlobal("crypto", api);
+    ensureRandomUUID();
+    await render();
+    expect(button("Add connection")).toBeDefined();
+    expect(api.randomUUID()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
   it("keeps connection fields in a dialog and cancels without connecting", async () => {
     await render();
     expect(node.querySelector('input[type="url"], input[type="password"]')).toBeNull();
@@ -121,7 +132,7 @@ describe("mobile connection settings", () => {
         .click();
     });
     expect(localStorage.getItem(UI_LANGUAGE_KEY)).toBe("zh-CN");
-    expect(node.querySelector("header strong")!.textContent).toBe("连接");
+    expect(node.querySelector("header strong")!.textContent).toBe("设置");
     act(() => button("添加连接").click());
     input('input[type="url"]', "http://computer:3774");
     input('input[type="password"]', "device-token");
@@ -191,9 +202,10 @@ describe("mobile connection settings", () => {
     act(() => setUiLanguage("zh-CN"));
     await submit();
     expect(node.querySelector('[role="dialog"]')).toBeNull();
-    expect(node.querySelector("header strong")!.textContent).toBe("项目");
-    expect(node.querySelector(".mobile-row-text strong")!.textContent).toBe(
-      "Connections",
-    );
+    // A successful connection opens a new conversation in the first project.
+    expect(node.querySelector("header strong")!.textContent).toBe("新对话");
+    expect(
+      node.querySelector(".mobile-header-context-item span")!.textContent,
+    ).toBe("Connections");
   });
 });

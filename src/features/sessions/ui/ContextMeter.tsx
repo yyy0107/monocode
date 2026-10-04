@@ -9,8 +9,6 @@ import { Popover } from "../../../shared/ui/Popover";
 
 const SIZE = 14;
 const STROKE = 2;
-const RADIUS = (SIZE - STROKE) / 2;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 /** Ring turns amber then red as the window fills. */
 function ringClass(ratio: number): string {
@@ -103,37 +101,49 @@ export function ContextMeter({
   );
 }
 
-function MeterRing({ ratio, label }: { ratio: number; label?: string }) {
+export function MeterRing({
+  ratio,
+  label,
+  size = SIZE,
+  stroke = STROKE,
+}: {
+  ratio: number;
+  label?: string;
+  size?: number;
+  stroke?: number;
+}) {
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
   return (
     <svg
-      width={SIZE}
-      height={SIZE}
-      viewBox={`0 0 ${SIZE} ${SIZE}`}
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
       className={ringClass(ratio)}
       role={label ? "img" : undefined}
       aria-label={label}
       aria-hidden={label ? undefined : true}
     >
       <circle
-        cx={SIZE / 2}
-        cy={SIZE / 2}
-        r={RADIUS}
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
         fill="none"
         stroke="currentColor"
-        strokeWidth={STROKE}
+        strokeWidth={stroke}
         className="opacity-25"
       />
       <circle
-        cx={SIZE / 2}
-        cy={SIZE / 2}
-        r={RADIUS}
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
         fill="none"
         stroke="currentColor"
-        strokeWidth={STROKE}
+        strokeWidth={stroke}
         strokeLinecap="round"
-        strokeDasharray={CIRCUMFERENCE}
-        strokeDashoffset={CIRCUMFERENCE * (1 - ratio)}
-        transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
+        strokeDasharray={circumference}
+        strokeDashoffset={circumference * (1 - ratio)}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
       />
     </svg>
   );

@@ -61,9 +61,15 @@ export function useMobileActivity(
       return;
     }
     let live = true;
+    activity.current = loadMobileActivity(environmentId);
+    setUnreadIds(
+      new Set(
+        nativeActivityNotifications()
+          ? activity.current.manualUnreadIds()
+          : activity.current.unreadIds(),
+      ),
+    );
     if (!nativeActivityNotifications()) {
-      activity.current = loadMobileActivity(environmentId);
-      setUnreadIds(new Set(activity.current.unreadIds()));
       return;
     }
     const apply = (result: { environmentId: string; unreadIds: string[] }) => {
@@ -72,7 +78,12 @@ export function useMobileActivity(
         result.environmentId === environmentId &&
         current.current.environmentId === environmentId
       )
-        setUnreadIds(new Set(result.unreadIds));
+        setUnreadIds(
+          new Set([
+            ...result.unreadIds,
+            ...(activity.current?.manualUnreadIds() ?? []),
+          ]),
+        );
     };
     const unreadListener = MobileNotifications.addListener("unread", apply);
     const openListener = MobileNotifications.addListener("open", onOpen);
@@ -137,6 +148,13 @@ export function useMobileActivity(
   useEffect(() => {
     if (!environmentId) return;
     let live = true;
+    if (foreground && visibleSession && activity.current) {
+      activity.current.markRead(visibleSession.id, visibleSession.revision, {
+        finished: visibleSession.lastCompletedRunId,
+        input: visibleSession.pendingInputKey,
+      });
+      saveMobileActivity(environmentId, activity.current);
+    }
     if (nativeActivityNotifications()) {
       void MobileNotifications.setVisible({
         environmentId,
@@ -151,15 +169,16 @@ export function useMobileActivity(
           : {}),
       })
         .then((result) => {
-          if (live) setUnreadIds(new Set(result.unreadIds));
+          if (live)
+            setUnreadIds(
+              new Set([
+                ...result.unreadIds,
+                ...(activity.current?.manualUnreadIds() ?? []),
+              ]),
+            );
         })
         .catch(() => {});
     } else if (foreground && visibleSession && activity.current) {
-      activity.current.markRead(visibleSession.id, visibleSession.revision, {
-        finished: visibleSession.lastCompletedRunId,
-        input: visibleSession.pendingInputKey,
-      });
-      saveMobileActivity(environmentId, activity.current);
       setUnreadIds(new Set(activity.current.unreadIds()));
     }
     return () => {
@@ -184,6 +203,11 @@ export function useMobileActivity(
         const result = await client.activity();
         if (!live || result.environmentId !== environmentId) return;
         if (nativeActivityNotifications()) {
+          activity.current?.observe(
+            result.sessions,
+            current.current.visibleSession?.id,
+          );
+          if (activity.current) saveMobileActivity(environmentId, activity.current);
           const state = await MobileNotifications.observe({
             environmentId,
             sessions: result.sessions,
@@ -191,7 +215,13 @@ export function useMobileActivity(
               current.current.enabled &&
               current.current.permission === "granted",
           });
-          if (live) setUnreadIds(new Set(state.unreadIds));
+          if (live)
+            setUnreadIds(
+              new Set([
+                ...state.unreadIds,
+                ...(activity.current?.manualUnreadIds() ?? []),
+              ]),
+            );
         } else if (activity.current) {
           const notices = activity.current.observe(
             result.sessions,
@@ -247,8 +277,15 @@ export function useMobileActivity(
   const requestPermission = async () =>
     setPermission(await mobileNotificationPermission(true));
   const openSettings = () => MobileNotifications.openSettings().catch(() => {});
+  const markUnread = (id: string, revision: number) => {
+    if (!environmentId || !activity.current) return;
+    activity.current.markUnread(id, revision);
+    saveMobileActivity(environmentId, activity.current);
+    setUnreadIds((ids) => new Set([...ids, id]));
+  };
   return {
     unreadIds,
+    markUnread,
     enabled,
     permission,
     notificationError,

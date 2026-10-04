@@ -25,6 +25,29 @@ function session(
 }
 beforeEach(() => localStorage.clear());
 describe("mobile unread reply cursors", () => {
+  it("persists an explicit unread mark without replaying notifications and clears it on read", () => {
+    const activity = new MobileActivity();
+    activity.observe([session()]);
+    activity.markUnread("one", 10);
+    expect(activity.unreadIds()).toEqual(["one"]);
+    saveMobileActivity("manual-host", activity);
+    const restored = loadMobileActivity("manual-host");
+    expect(restored.manualUnreadIds()).toEqual(["one"]);
+    expect(restored.observe([session({ revision: 11, pinned: true })])).toEqual([]);
+    expect(restored.unreadIds()).toEqual(["one"]);
+    restored.markRead("one", 11);
+    expect(restored.unreadIds()).toEqual([]);
+  });
+  it("removes manual unread marks for archived and deleted conversations", () => {
+    const activity = new MobileActivity();
+    activity.observe([session()]);
+    activity.markUnread("one", 10);
+    activity.observe([session({ archived: true, revision: 11 })]);
+    expect(activity.manualUnreadIds()).toEqual([]);
+    activity.markUnread("one", 11);
+    activity.observe([]);
+    expect(activity.manualUnreadIds()).toEqual([]);
+  });
   it("acknowledges completion/input identities from a rendered snapshot before a later background poll", () => {
     const activity = new MobileActivity();
     activity.observe([session()]);

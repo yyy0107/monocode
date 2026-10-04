@@ -3,48 +3,55 @@ import {
   Archive,
   Copy,
   ChevronRight,
-  ExternalLink,
+  CircleDot,
   Pencil,
   Pin,
-  Plus,
   Trash2,
 } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
-import type { HostSession } from "../features/connections/model/protocol";
+import type {
+  HostSession,
+  HostSessionSummary,
+} from "../features/connections/model/protocol";
 import { sessionDisplayTitle } from "../features/sessions/model/session";
-import { parseGithubWorkItemUrl } from "../features/sessions/model/sessionWorkItem";
-import { MobileSheet } from "./MobileSheet";
+import { MobileSheet, SHEET_WIDTH, type MobileSheetPoint } from "./MobileSheet";
 import { mobileTranscriptPlatform } from "./transcriptPlatform";
 import type { MobileSessionPatch } from "./client";
 
 export function MobileSessionActions({
   snapshot,
+  summary,
   anchor,
+  anchorPoint,
   disabled,
   onUpdate,
   onDelete,
-  onNew,
+  onMarkUnread,
   onClose,
 }: {
   snapshot?: HostSession;
+  summary?: HostSessionSummary;
   anchor: RefObject<HTMLElement | null>;
+  anchorPoint?: MobileSheetPoint;
   disabled: boolean;
   onUpdate: (patch: MobileSessionPatch) => Promise<void>;
-  onDelete: () => Promise<void>;
-  onNew: () => void;
+  onDelete?: () => Promise<void>;
+  onMarkUnread?: () => Promise<void>;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const [page, setPage] = useState<
-    "menu" | "rename" | "copy" | "link" | "delete"
+    "menu" | "rename" | "copy" | "delete"
   >("menu");
   const [title, setTitle] = useState("");
-  const [url, setUrl] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const inFlight = useRef(false);
   const blocked = disabled || working;
-  const session = snapshot?.session;
+  const session = summary ?? snapshot?.session;
+  const pinned = summary?.pinned ?? snapshot?.pinned;
+  const archived = summary?.archived ?? snapshot?.archived;
+  const running = (summary?.status ?? snapshot?.status) === "running";
   const run = async (action: () => Promise<void>) => {
     if (disabled || inFlight.current) return;
     inFlight.current = true;
@@ -83,20 +90,21 @@ export function MobileSessionActions({
           ? "Rename"
           : page === "copy"
             ? "Copy session ID"
-            : page === "link"
-              ? "Link GitHub issue or PR"
-              : page === "delete"
-                ? "Delete session"
-                : "Session actions"
+            : page === "delete"
+              ? "Delete session"
+              : "Session actions"
       }
       placement="anchor"
       anchor={anchor}
-      width={320}
-      align="end"
+      anchorPoint={anchorPoint}
+      width={
+        page === "menu" || page === "copy" ? SHEET_WIDTH.menu : SHEET_WIDTH.form
+      }
+      align={anchorPoint ? "start" : "end"}
       onClose={close}
       onBack={page === "menu" ? undefined : back}
     >
-      <div className="mobile-session-actions">
+      <div className={`mobile-session-actions${summary ? " mobile-sidebar-session-actions" : ""}`}>
         {page === "menu" ? (
           <>
             {session && (
@@ -105,11 +113,32 @@ export function MobileSessionActions({
                   className="mobile-sheet-row"
                   disabled={blocked}
                   onClick={() =>
-                    void run(() => onUpdate({ pinned: !snapshot!.pinned }))
+                    void run(() => onUpdate({ pinned: !pinned }))
                   }
                 >
                   <Pin size={20} />
-                  <span>{t(snapshot!.pinned ? "Unpin" : "Pin")}</span>
+                  <span>{t(pinned ? "Unpin" : "Pin")}</span>
+                </button>
+                {onMarkUnread && (
+                  <button
+                    className="mobile-sheet-row"
+                    disabled={blocked}
+                    onClick={() => void run(onMarkUnread)}
+                  >
+                    <CircleDot size={20} />
+                    <span>{t("Mark as unread")}</span>
+                  </button>
+                )}
+                <button
+                  className="mobile-sheet-row"
+                  disabled={blocked}
+                  onClick={() =>
+                    summary ? copy(session.id) : setPage("copy")
+                  }
+                >
+                  <Copy size={20} />
+                  <span>{t("Copy session ID")}</span>
+                  {!summary && <ChevronRight size={18} />}
                 </button>
                 <button
                   className="mobile-sheet-row"
@@ -124,70 +153,34 @@ export function MobileSessionActions({
                   <Pencil size={20} />
                   <span>{t("Rename")}</span>
                 </button>
-                <button
-                  className="mobile-sheet-row"
-                  disabled={blocked}
-                  onClick={() => setPage("copy")}
-                >
-                  <Copy size={20} />
-                  <span>{t("Copy session ID")}</span>
-                  <ChevronRight size={18} />
-                </button>
-                <button
-                  className="mobile-sheet-row"
-                  disabled={blocked}
-                  onClick={() => {
-                    setUrl(session.linkedWorkItem?.url ?? "");
-                    setPage("link");
-                  }}
-                >
-                  <ExternalLink size={20} />
-                  <span>
-                    {t(
-                      session.linkedWorkItem
-                        ? "Edit GitHub issue or PR link…"
-                        : "Link GitHub issue or PR…",
-                    )}
-                  </span>
-                </button>
                 <div className="mobile-menu-divider" role="separator" />
                 <button
-                  className="mobile-sheet-row"
+                  className={`mobile-sheet-row${archived ? "" : " mobile-menu-danger"}`}
                   disabled={blocked}
                   onClick={() =>
-                    void run(() => onUpdate({ archived: !snapshot!.archived }))
+                    void run(() => onUpdate({ archived: !archived }))
                   }
                 >
                   <Archive size={20} />
-                  <span>{t(snapshot!.archived ? "Unarchive" : "Archive")}</span>
+                  <span>{t(archived ? "Unarchive" : "Archive")}</span>
                 </button>
-                <button
-                  className="mobile-sheet-row mobile-menu-danger"
-                  disabled={blocked || snapshot!.status === "running"}
-                  title={
-                    snapshot!.status === "running"
-                      ? t("Stop this session before deleting it")
-                      : undefined
-                  }
-                  onClick={() => setPage("delete")}
-                >
-                  <Trash2 size={20} />
-                  <span>{t("Delete")}</span>
-                </button>
-                <div className="mobile-menu-divider" role="separator" />
+                {onDelete && (
+                  <button
+                    className="mobile-sheet-row mobile-menu-danger"
+                    disabled={blocked || running}
+                    title={
+                      running
+                        ? t("Stop this session before deleting it")
+                        : undefined
+                    }
+                    onClick={() => setPage("delete")}
+                  >
+                    <Trash2 size={20} />
+                    <span>{t("Delete")}</span>
+                  </button>
+                )}
               </>
             )}
-            <button
-              className="mobile-sheet-row"
-              disabled={blocked}
-              onClick={() => {
-                close();
-                onNew();
-              }}
-            >
-              <Plus size={20} />
-              <span>{t("New conversation")}</span>
-            </button>
           </>
         ) : page === "copy" && session ? (
           <>
@@ -244,66 +237,7 @@ export function MobileSessionActions({
               </button>
             </div>
           </form>
-        ) : page === "link" ? (
-          <form
-            className="mobile-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const item = parseGithubWorkItemUrl(url.trim());
-              if (!item) {
-                setError(t("Enter a valid GitHub issue or pull request URL."));
-                return;
-              }
-              void run(() => onUpdate({ linkedWorkItem: item }));
-            }}
-          >
-            <label>
-              {t("Issue or pull request URL")}
-              <input
-                type="url"
-                value={url}
-                disabled={blocked}
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                placeholder="https://github.com/owner/repo/pull/123"
-                onChange={(event) => {
-                  setUrl(event.target.value);
-                  setError("");
-                }}
-              />
-            </label>
-            <div className="mobile-menu-form-buttons">
-              {session?.linkedWorkItem && (
-                <button
-                  type="button"
-                  className="mobile-button"
-                  disabled={blocked}
-                  onClick={() =>
-                    void run(() => onUpdate({ linkedWorkItem: null }))
-                  }
-                >
-                  {t("Remove link")}
-                </button>
-              )}
-              <button
-                type="button"
-                className="mobile-button"
-                disabled={blocked}
-                onClick={back}
-              >
-                {t("Cancel")}
-              </button>
-              <button
-                type="submit"
-                className="mobile-button mobile-primary"
-                disabled={blocked || !url.trim()}
-              >
-                {t("Save")}
-              </button>
-            </div>
-          </form>
-        ) : page === "delete" ? (
+        ) : page === "delete" && onDelete ? (
           <>
             <p className="mobile-muted">
               {t("Delete this conversation? This can’t be undone.")}
@@ -320,7 +254,7 @@ export function MobileSessionActions({
               <button
                 type="button"
                 className="mobile-button mobile-menu-danger"
-                disabled={blocked || snapshot?.status === "running"}
+                disabled={blocked || running}
                 onClick={() => void run(onDelete)}
               >
                 {t("Delete")}

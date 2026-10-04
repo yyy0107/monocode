@@ -6,6 +6,8 @@ export type ActivityEntry = {
   reply: number;
   finished: string | null;
   input: string | null;
+  /** An explicit sidebar action, independent of received-reply cursors. */
+  manualUnread?: boolean;
 };
 export type ActivityState = {
   initialized: boolean;
@@ -81,6 +83,7 @@ export class MobileActivity {
   ): void {
     const entry = this.state.entries[id];
     if (entry) {
+      delete entry.manualUnread;
       if (revision >= entry.revision) {
         if (cursors?.finished) entry.finished = cursors.finished;
         if (cursors?.input) entry.input = cursors.input;
@@ -98,10 +101,21 @@ export class MobileActivity {
     }
   }
 
+  markUnread(id: string, revision: number): void {
+    if (!this.state.entries[id]) this.markRead(id, revision);
+    this.state.entries[id].manualUnread = true;
+  }
+
+  manualUnreadIds(): string[] {
+    return Object.keys(this.state.entries).filter(
+      (id) => this.state.entries[id].manualUnread,
+    );
+  }
+
   unreadIds(): string[] {
     return Object.keys(this.state.entries).filter((id) => {
       const entry = this.state.entries[id];
-      return entry.reply > entry.read;
+      return !!entry.manualUnread || entry.reply > entry.read;
     });
   }
 }
@@ -129,7 +143,10 @@ export function loadMobileActivity(environmentId: string): MobileActivity {
           (entry.finished === null || typeof entry.finished === "string") &&
           (entry.input === null || typeof entry.input === "string")
         )
-          valid[id] = entry;
+          valid[id] = {
+            ...entry,
+            manualUnread: entry.manualUnread === true || undefined,
+          };
       }
       return new MobileActivity({
         initialized: state.initialized,

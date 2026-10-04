@@ -26,7 +26,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 function render(
-  options: { running?: boolean; pinned?: boolean; draft?: boolean } = {},
+  options: { running?: boolean; pinned?: boolean; sidebar?: boolean } = {},
 ) {
   const snapshot: HostSession = {
     projectId: "project",
@@ -50,22 +50,25 @@ function render(
   node.append(trigger);
   const onUpdate = vi.fn(async (_patch: object) => {});
   const onDelete = vi.fn(async () => {});
+  const onMarkUnread = vi.fn(async () => {});
   const onClose = vi.fn();
-  const onNew = vi.fn();
   act(() =>
     root.render(
       createElement(MobileSessionActions, {
-        snapshot: options.draft ? undefined : snapshot,
+        snapshot: options.sidebar ? undefined : snapshot,
+        summary: options.sidebar ? {
+          ...snapshot, id: "sidebar-session", title: "Sidebar conversation", harness: "codex",
+        } : undefined,
         anchor: { current: trigger },
         disabled: false,
         onUpdate,
-        onDelete,
+        onDelete: options.sidebar ? undefined : onDelete,
+        onMarkUnread: options.sidebar ? onMarkUnread : undefined,
         onClose,
-        onNew,
       }),
     ),
   );
-  return { onUpdate, onDelete, onClose, onNew };
+  return { onUpdate, onDelete, onClose, onMarkUnread };
 }
 function button(text: string) {
   return [...node.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -94,6 +97,33 @@ async function submit() {
 }
 
 describe("mobile session management", () => {
+  it("offers the five sidebar actions and colors archive red", () => {
+    render({ sidebar: true });
+    expect([...node.querySelectorAll(".mobile-session-actions button")].map(el => el.textContent?.trim()))
+      .toEqual(["Pin", "Mark as unread", "Copy session ID", "Rename", "Archive"]);
+    expect(button("Archive").classList.contains("mobile-menu-danger")).toBe(true);
+  });
+  it("marks the selected sidebar conversation unread and copies its ID directly", async () => {
+    const { onMarkUnread, onClose } = render({ sidebar: true });
+    await act(async () => button("Mark as unread").click());
+    expect(onMarkUnread).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+    render({ sidebar: true });
+    await act(async () => button("Copy session ID").click());
+    expect(clipboard.copyText).toHaveBeenCalledWith("sidebar-session");
+  });
+  it("renames and archives the selected sidebar conversation", async () => {
+    const { onUpdate } = render({ sidebar: true });
+    click("Rename");
+    expect(node.querySelector("input")!.value).toBe("Sidebar conversation");
+    input(" Renamed sidebar conversation ");
+    await submit();
+    expect(onUpdate).toHaveBeenCalledWith({ title: "Renamed sidebar conversation" });
+    act(() => root.render(null));
+    const archived = render({ sidebar: true });
+    await act(async () => button("Archive").click());
+    expect(archived.onUpdate).toHaveBeenCalledWith({ archived: true });
+  });
   it.each([false, true])(
     "toggles persisted pin state from %s",
     async (pinned) => {
@@ -147,23 +177,11 @@ describe("mobile session management", () => {
     click("Delete");
     expect(onDelete).not.toHaveBeenCalled();
   });
-  it("validates GitHub URLs and saves the same canonical metadata as desktop", async () => {
-    const { onUpdate } = render();
-    click("Link GitHub issue or PR…");
-    input("https://example.com/issues/42");
-    await submit();
-    expect(onUpdate).not.toHaveBeenCalled();
-    expect(node.querySelector('[role="alert"]')).not.toBeNull();
-    input("https://github.com/acme/monocode/issues/42");
-    await submit();
-    expect(onUpdate).toHaveBeenCalledWith({
-      linkedWorkItem: {
-        kind: "issue",
-        repo: "acme/monocode",
-        number: 42,
-        url: "https://github.com/acme/monocode/issues/42",
-      },
-    });
+  it("offers neither GitHub linking nor a new conversation", () => {
+    render();
+    expect(button("Link GitHub issue or PR…")).toBeUndefined();
+    expect(button("New conversation")).toBeUndefined();
+    expect(button("Rename")).toBeDefined();
   });
   it.each([
     ["Harness session ID", "provider-session"],
@@ -174,13 +192,5 @@ describe("mobile session management", () => {
     await act(async () => button(label).click());
     expect(clipboard.copyText).toHaveBeenCalledWith(value);
   });
-  it("keeps new conversation available before the first message is saved", () => {
-    const { onUpdate, onDelete, onNew } = render({ draft: true });
-    expect(button("Delete")).toBeUndefined();
-    expect(button("Rename")).toBeUndefined();
-    click("New conversation");
-    expect(onNew).toHaveBeenCalledOnce();
-    expect(onUpdate).not.toHaveBeenCalled();
-    expect(onDelete).not.toHaveBeenCalled();
-  });
+
 });

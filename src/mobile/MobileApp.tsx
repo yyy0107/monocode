@@ -14,14 +14,11 @@ import { StatusBar, Style } from "@capacitor/status-bar";
 import {
   ArrowLeft,
   Chatting,
-  ChevronRight,
   Computer,
   Folder,
   FolderPlus,
   LoaderCircle,
-  MoreHorizontal,
-  Internet,
-  Plus,
+  PanelLeft,
   RefreshCw,
 } from "../shared/ui/icons";
 import {
@@ -29,7 +26,6 @@ import {
   type Attachment,
   type QueuedMessage,
 } from "../features/sessions/model/session";
-import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { pendingSessionInputKey } from "../features/sessions/model/sessionActivity";
 import type {
   HostProject,
@@ -38,7 +34,7 @@ import type {
   HostCommand,
 } from "../features/connections/model/protocol";
 import { MobileTranscript } from "./MobileTranscript";
-import { MobileAppUpdates, useMobileAppUpdates } from "./MobileAppUpdates";
+import { useMobileAppUpdates } from "./MobileAppUpdates";
 import {
   configurationForSession,
   firstConfiguration,
@@ -54,11 +50,18 @@ import {
 import { MobileComposer, type MobileComposerPanel } from "./MobileComposer";
 import { MobileSessionActions } from "./MobileSessionActions";
 import { MobileSessionStatus } from "./MobileSessionStatus";
+import { MeterRing } from "../features/sessions/ui/ContextMeter";
+import { contextRatio } from "../features/sessions/model/contextUsage";
 import { MobileConnectionSheet } from "./MobileConnectionSheet";
-import { MobileSelect } from "./MobileSelect";
-import { MobileSheet } from "./MobileSheet";
-import { formatMobileRelativeTime } from "./relativeTime";
-import { sortMobileSessions } from "./sessionList";
+import { MobileSheet, type MobileSheetPoint } from "./MobileSheet";
+import { MobileDrawer } from "./MobileDrawer";
+import {
+  MobileSettings,
+  mobileSettingsTitle,
+  type MobilePreferencePanel,
+  type MobileSettingsPage,
+} from "./MobileSettings";
+import { readLastLocation, saveLastLocation } from "./lastLocation";
 import { useMobileActivity } from "./useMobileActivity";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { useHostConnectionStatus } from "./useHostConnectionStatus";
@@ -68,13 +71,32 @@ import { readMobileAttachments } from "./attachments";
 import { takeBackQueuedMessage } from "./queuedDraft";
 import { mobileStorage } from "./storage";
 import {
+  applyGlassSettings,
+  readGlassSettings,
+  saveGlassSettings,
+  type GlassSettings,
+} from "./glassSettings";
+import {
   applyThemePreference,
   saveThemePreference,
 } from "../features/settings/model/appearance";
 
 const client = new MobileClient(mobileStorage);
 const readHostImage = (path: string) => client.readBinaryFile(path);
-type View = "connection" | "projects" | "sessions" | "chat";
+// The conversation is the home screen; projects and history live in the
+// drawer. Settings doubles as the connection screen before pairing.
+type View = "chat" | "settings";
+// The stock glyph packs its dots tightly; the header capsule reads better
+// with wider, slightly heavier dots.
+function HeaderMoreIcon() {
+  return (
+    <svg width={24} height={24} viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="4.5" cy="12" r="2.25" fill="currentColor" />
+      <circle cx="12" cy="12" r="2.25" fill="currentColor" />
+      <circle cx="19.5" cy="12" r="2.25" fill="currentColor" />
+    </svg>
+  );
+}
 const message = (error: unknown) =>
   error instanceof Error
     ? error.message
@@ -125,7 +147,9 @@ function Empty({
 export function MobileApp() {
   const { language, t } = useTranslation();
   const appUpdates = useMobileAppUpdates();
-  const [view, setView] = useState<View>("connection");
+  const [view, setView] = useState<View>("settings");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [settingsPage, setSettingsPage] = useState<MobileSettingsPage>("root");
   const [connected, setConnected] = useState(false);
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
@@ -155,13 +179,14 @@ export function MobileApp() {
   }>>([]);
   const [composerPanel, setComposerPanel] = useState<MobileComposerPanel>(null);
   const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
+  const [sessionActionsTarget, setSessionActionsTarget] = useState<string>();
+  const [sessionActionsPoint, setSessionActionsPoint] = useState<MobileSheetPoint>();
   const [sessionStatusOpen, setSessionStatusOpen] = useState(false);
   const [folderPath, setFolderPath] = useState("");
   const [addingProject, setAddingProject] = useState(false);
   const [addingConnection, setAddingConnection] = useState(false);
-  const [preferencePanel, setPreferencePanel] = useState<
-    "theme" | "language" | null
-  >(null);
+  const [preferencePanel, setPreferencePanel] =
+    useState<MobilePreferencePanel>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -173,6 +198,7 @@ export function MobileApp() {
   const [theme, setTheme] = useState(
     () => localStorage.getItem("monocode-mobile-theme") || "dark",
   );
+  const [glass, setGlass] = useState<GlassSettings>(readGlassSettings);
   const navigation = useRef(0);
   const queueView = useRef({ view, sessionId });
   const queueOverlayClose = useRef<(() => void) | undefined>(undefined);
@@ -216,6 +242,11 @@ export function MobileApp() {
   }, [theme]);
 
   useEffect(() => {
+    applyGlassSettings(glass);
+    saveGlassSettings(glass);
+  }, [glass]);
+
+  useEffect(() => {
     let live = true;
     void (async () => {
       try {
@@ -224,8 +255,8 @@ export function MobileApp() {
           if (live) {
             setConnected(true);
             setProjects(items);
-            setView("projects");
             setUrl(client.connection!.endpoint);
+            await restoreLocation(items);
           }
         }
         if (live) setPending(await client.pending());
@@ -253,14 +284,14 @@ export function MobileApp() {
   }, []);
 
   useEffect(() => {
-    if (!foreground || view !== "sessions") return;
+    if (!foreground || !drawerOpen) return;
     setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
-  }, [foreground, view]);
+  }, [foreground, drawerOpen]);
 
   useEffect(() => {
-    if (!connected || !foreground || view === "connection") return;
+    if (!connected || !foreground || (view !== "chat" && !drawerOpen)) return;
     let live = true;
     let timer: ReturnType<typeof setTimeout>;
     let failures = 0;
@@ -268,14 +299,19 @@ export function MobileApp() {
     const poll = async () => {
       let running = false;
       try {
-        if (view === "projects") {
-          const result = await client.projects();
-          if (live) setProjects(result);
-        } else if (view === "sessions" && project) {
-          const result = await client.sessions(project.id);
-          if (live) setSessions(result);
-          running = result.some((item) => item.status === "running");
-        } else if (view === "chat" && sessionId) {
+        let listRunning = false;
+        if (drawerOpen) {
+          const [items, history] = await Promise.all([
+            client.projects(),
+            project ? client.sessions(project.id) : undefined,
+          ]);
+          if (live) {
+            setProjects(items);
+            if (history) setSessions(history);
+          }
+          listRunning = !!history?.some((item) => item.status === "running");
+        }
+        if (view === "chat" && sessionId) {
           const result = await client.session(sessionId);
           if (live)
             setSnapshot((previous) =>
@@ -287,6 +323,7 @@ export function MobileApp() {
             );
           running = result.status === "running";
         }
+        if (!running && listRunning) running = true;
         if (live) {
           failures = 0;
           setPollError("");
@@ -304,7 +341,7 @@ export function MobileApp() {
           failures
             ? Math.min(30_000, 2000 * 2 ** failures)
             : running
-              ? view === "chat"
+              ? view === "chat" && sessionId && !drawerOpen
                 ? 250
                 : 750
               : 3000,
@@ -315,7 +352,25 @@ export function MobileApp() {
       live = false;
       clearTimeout(timer);
     };
-  }, [connected, foreground, view, project, sessionId, snapshot?.status]);
+  }, [
+    connected,
+    foreground,
+    view,
+    drawerOpen,
+    project,
+    sessionId,
+    snapshot?.status,
+  ]);
+
+  useEffect(() => {
+    const environmentId = client.connection?.environmentId;
+    if (!connected || !environmentId || !project) return;
+    saveLastLocation({
+      environmentId,
+      projectId: project.id,
+      ...(sessionId ? { sessionId } : {}),
+    });
+  }, [connected, project?.id, sessionId]);
 
   const connect = async () => {
     setBusy(true);
@@ -338,8 +393,8 @@ export function MobileApp() {
       setProjects(items);
       setConnected(true);
       setAddingConnection(false);
-      setView("projects");
       setPending(await client.pending());
+      await restoreLocation(items);
     } catch (problem) {
       setError(message(problem));
     } finally {
@@ -348,8 +403,8 @@ export function MobileApp() {
   };
   const openProject = async (
     item: HostProject,
-    nextView: View = "sessions",
-  ) => {
+    nextView: View = "chat",
+  ): Promise<HostSessionSummary[] | undefined> => {
     const turn = ++navigation.current;
     const projectTurn = ++projectGeneration.current;
     setProject(item);
@@ -380,11 +435,31 @@ export function MobileApp() {
           runtimeMode: "supervised",
         },
       );
+      return history;
     } catch (problem) {
       if (navigation.current === turn) setError(message(problem));
     } finally {
       if (navigation.current === turn) setLoading(false);
     }
+  };
+  // Launch and reconnect return to the last project and conversation; a
+  // conversation deleted elsewhere falls back to a new one in that project.
+  const restoreLocation = async (items: HostProject[]) => {
+    const last = readLastLocation(client.connection?.environmentId);
+    const target =
+      items.find((item) => item.id === last?.projectId) ?? items[0];
+    setView("chat");
+    setSettingsPage("root");
+    if (!target) return;
+    const turn = navigation.current + 1;
+    const history = await openProject(target);
+    if (
+      navigation.current === turn &&
+      last?.sessionId &&
+      target.id === last.projectId &&
+      history?.some((item) => item.id === last.sessionId && !item.archived)
+    )
+      await openSession(last.sessionId);
   };
   const openSession = async (id?: string) => {
     const turn = ++navigation.current;
@@ -398,6 +473,7 @@ export function MobileApp() {
     setPlanMode(false);
     setComposerPanel(null);
     setSessionActionsOpen(false);
+    setDrawerOpen(false);
     setView("chat");
     setLoading(!!id);
     setError("");
@@ -417,7 +493,7 @@ export function MobileApp() {
   const activity = useMobileActivity(client, {
     connected,
     foreground,
-    visibleSession: view === "chat" && !loading && snapshot && snapshot.session.id === sessionId
+    visibleSession: view === "chat" && !drawerOpen && !loading && snapshot && snapshot.session.id === sessionId
       ? { id: snapshot.session.id, revision: snapshot.revision,
           lastCompletedRunId: snapshot.lastCompletedRunId, pendingInputKey: pendingSessionInputKey(snapshot.session, snapshot.runId) }
       : undefined,
@@ -669,20 +745,26 @@ export function MobileApp() {
     setComposerPanel(null);
     setSessionActionsOpen(false);
     setPreferencePanel(null);
+    setDrawerOpen(false);
+    setSettingsPage("root");
     setView(next);
   };
-  const updateSessionMetadata = async (patch: MobileSessionPatch) => {
-    if (!project || !sessionId) return;
+  const updateSessionMetadata = async (
+    patch: MobileSessionPatch,
+    id = sessionId,
+  ) => {
+    if (!project || !id) return;
     const turn = navigation.current;
-    const id = sessionId;
     setBusy(true);
     try {
       const summary = await client.updateSession(project.id, id, patch);
-      const result = await client.session(id);
+      const result = id === sessionId ? await client.session(id) : undefined;
       if (navigation.current === turn) {
-        setSnapshot((previous) =>
-          previous && previous.revision > result.revision ? previous : result,
-        );
+        if (result) {
+          setSnapshot((previous) =>
+            previous && previous.revision > result.revision ? previous : result,
+          );
+        }
         setSessions((items) =>
           items.map((item) => (item.id === id ? summary : item)),
         );
@@ -699,7 +781,7 @@ export function MobileApp() {
     try {
       await client.deleteSession(project.id, id);
       if (navigation.current === turn) {
-        navigate("sessions");
+        navigate("chat");
         setSessions((items) => items.filter((item) => item.id !== id));
         setSessionId(undefined);
         setSnapshot(undefined);
@@ -715,9 +797,10 @@ export function MobileApp() {
     try {
       await client.reconnect();
       if (!connected) {
-        setProjects(await client.projects());
+        const items = await client.projects();
+        setProjects(items);
         setConnected(true);
-        setView("projects");
+        await restoreLocation(items);
       }
       setError("");
       setPollError("");
@@ -740,9 +823,10 @@ export function MobileApp() {
       } else if (composerPanel) setComposerPanel(null);
       else if (addingProject) {
         if (!busy) setAddingProject(false);
-      } else if (view === "chat") navigate("sessions");
-      else if (view === "sessions" || (view === "connection" && connected))
-        navigate("projects");
+      } else if (drawerOpen) setDrawerOpen(false);
+      else if (view === "settings" && settingsPage !== "root")
+        setSettingsPage("root");
+      else if (view === "settings" && connected) navigate("chat");
       else void App.exitApp();
     });
     return () => {
@@ -757,11 +841,17 @@ export function MobileApp() {
     preferencePanel,
     sessionActionsOpen,
     sessionStatusOpen,
+    drawerOpen,
+    settingsPage,
     busy,
   ]);
 
   const running = snapshot?.status === "running";
+  const sessionActionsSummary = sessions.find(
+    (item) => item.id === sessionActionsTarget,
+  );
   const nativeReadOnly = !!snapshot?.session.nativeSession;
+  const contextRing = loading ? null : contextRatio(snapshot?.session.context);
   // Every view uses floating capsule controls; content scrolls beneath them.
   const floatingHeader = true;
   const title =
@@ -772,20 +862,35 @@ export function MobileApp() {
             snapshot.session.harness,
           )) ||
         t("New conversation")
-      : view === "sessions"
-        ? project?.name || t("Conversations")
-        : view === "projects"
-          ? t("Projects")
-          : t("Connections");
+      : t(mobileSettingsTitle(settingsPage));
+  const openAddProject = (trigger: HTMLButtonElement) => {
+    projectTrigger.current = trigger;
+    setError("");
+    setAddingProject(true);
+  };
   return (
     <div className="mobile-app" data-view={view}>
       <header className="mobile-header" data-floating={floatingHeader}>
-        {view === "chat" || view === "sessions" ? (
+        {view === "chat" ? (
+          <IconButton
+            label="Menu"
+            onClick={() => {
+              setComposerPanel(null);
+              setDrawerOpen(true);
+            }}
+          >
+            <PanelLeft size={22} />
+          </IconButton>
+        ) : connected || settingsPage !== "root" ? (
           <IconButton
             label="Back"
-            onClick={() => navigate(view === "chat" ? "sessions" : "projects")}
+            onClick={() =>
+              settingsPage !== "root"
+                ? setSettingsPage("root")
+                : navigate("chat")
+            }
           >
-            <ArrowLeft size={20} />
+            <ArrowLeft size={22} />
           </IconButton>
         ) : (
           <span className="mobile-header-logo">
@@ -825,47 +930,41 @@ export function MobileApp() {
             </span>
           )}
         </div>
-        {view === "projects" ? (
-          <IconButton
-            label="Open project"
-            onClick={(event) => {
-              projectTrigger.current = event.currentTarget;
-              setAddingProject(true);
-            }}
-          >
-            <FolderPlus size={20} />
-          </IconButton>
-        ) : view === "sessions" ? (
-          <IconButton
-            label="New conversation"
-            onClick={() => void openSession()}
-          >
-            <Plus size={20} />
-          </IconButton>
-        ) : view === "chat" ? (
+        {/* A new conversation has nothing to act on until its first message. */}
+        {view === "chat" && (snapshot || loading) ? (
           <div className="mobile-header-actions">
-            {snapshot && (
-              <IconButton
-                label="Status"
-                onClick={(event) => {
-                  sessionStatusTrigger.current = event.currentTarget;
-                  setComposerPanel(null);
-                  setSessionStatusOpen(true);
-                }}
-              >
-                <Computer size={20} />
-              </IconButton>
-            )}
+            {/* The computer stands in until the session reports its context
+                window; then the button becomes the context ring. */}
+            <IconButton
+              label="Status"
+              onClick={(event) => {
+                // Keep the placeholder at full strength while loading.
+                if (!snapshot || loading) return;
+                sessionStatusTrigger.current = event.currentTarget;
+                setComposerPanel(null);
+                setSessionStatusOpen(true);
+              }}
+            >
+              {contextRing === null ? (
+                <Computer size={24} />
+              ) : (
+                <MeterRing ratio={contextRing} size={20} stroke={2.25} />
+              )}
+            </IconButton>
             <IconButton
               label="Session actions"
               onClick={(event) => {
+                // Like the status button, stay visible but inert while loading.
+                if (!snapshot || loading) return;
                 sessionActionsTrigger.current = event.currentTarget;
+                setSessionActionsTarget(undefined);
+                setSessionActionsPoint(undefined);
                 setComposerPanel(null);
                 setSessionActionsOpen(true);
               }}
-              disabled={busy || loading}
+              disabled={busy}
             >
-              <MoreHorizontal size={22} />
+              <HeaderMoreIcon />
             </IconButton>
           </div>
         ) : null}
@@ -902,215 +1001,57 @@ export function MobileApp() {
       )}
       </div>
 
-      {view === "connection" ? (
-        <main className="mobile-content mobile-connections">
-          <button
-            className="mobile-button mobile-primary mobile-add-connection"
-            ref={connectionTrigger}
-            type="button"
-            aria-haspopup="dialog"
-            aria-expanded={addingConnection}
-            disabled={busy || loading}
-            onClick={() => {
-              setError("");
-              setAddingConnection(true);
-            }}
-          >
-            <Plus size={18} />
-            {t("Add connection")}
-          </button>
-          {client.connection && (
-            <div className="mobile-current-host">
-              <div>
-                <strong className="mobile-current-host-name">
-                  <span>{client.connection.name}</span>
-                  <MobileHostStatus status={hostStatus} />
-                </strong>
-                <small>{client.connection?.endpoint}</small>
-              </div>
-              <button
-                className="mobile-button"
-                disabled={busy}
-                onClick={() => {
-                  navigation.current += 1;
-                  projectGeneration.current += 1;
-                  setBusy(true);
-                  void client
-                    .disconnect()
-                    .then(() => {
-                      setConnected(false);
-                      setProjects([]);
-                      setProject(undefined);
-                      setSessions([]);
-                      setSnapshot(undefined);
-                      setSessionId(undefined);
-                      setError("");
-                    })
-                    .catch((problem) => setError(message(problem)))
-                    .finally(() => setBusy(false));
-                }}
-              >
-                {t("Disconnect")}
-              </button>
-            </div>
-          )}
-          <div className="mobile-appearance">
-            <label htmlFor="mobile-theme">{t("Appearance")}</label>
-            <MobileSelect
-              id="mobile-theme"
-              label={t("Appearance")}
-              value={theme}
-              open={preferencePanel === "theme"}
-              onOpenChange={(open) => setPreferencePanel(open ? "theme" : null)}
-              onChange={setTheme}
-              options={[
-                { value: "dark", label: t("Dark") },
-                { value: "light", label: t("Light") },
-                { value: "system", label: t("System") },
-              ]}
-            />
-          </div>
-          <div className="mobile-appearance mobile-language">
-            <label htmlFor="mobile-language">{t("Language")}</label>
-            <MobileSelect
-              id="mobile-language"
-              label={t("Language")}
-              value={language}
-              open={preferencePanel === "language"}
-              onOpenChange={(open) =>
-                setPreferencePanel(open ? "language" : null)
-              }
-              onChange={setUiLanguage}
-              options={[
-                { value: "en", label: "English" },
-                { value: "zh-CN", label: "简体中文" },
-              ]}
-            />
-          </div>
-          <div className="mobile-notification-settings">
-            <label className="mobile-appearance">
-              <span>{t("System notifications")}</span>
-              <input
-                type="checkbox"
-                checked={activity.enabled}
-                disabled={activity.permission === "unsupported"}
-                onChange={(event) => void activity.setNotificationsEnabled(event.currentTarget.checked)}
-              />
-            </label>
-            <p className="mobile-muted">
-              {activity.permission === "unsupported"
-                ? t("System notifications are unavailable on this platform.")
-                : t("Notify when a new reply is ready or a conversation needs your input.")}
-            </p>
-            {activity.enabled && activity.permission === "prompt" ? (
-              <button className="mobile-button" onClick={() => void activity.requestPermission()}>
-                {t("Allow notifications")}
-              </button>
-            ) : activity.enabled && activity.permission === "denied" ? (
-              <p className="mobile-muted">
-                {t("Notifications are blocked in system settings.")}{" "}
-                {activity.canOpenSettings ? <button className="mobile-button" onClick={() => void activity.openSettings()}>{t("Open settings")}</button> : null}
-              </p>
-            ) : null}
-            {activity.notificationError ? <p className="mobile-error" role="status">{activity.notificationError}</p> : null}
-          </div>
-          <MobileAppUpdates state={appUpdates} />
-        </main>
-      ) : view === "projects" ? (
-        <main className="mobile-content">
-          <p className="mobile-section-label">
-            {t("Your projects")}{" "}
-            <span className="mobile-count-pill">{projects.length}</span>
-          </p>
-          {projects.length ? (
-            <div className="mobile-list">
-              {projects.map((item) => (
-                <button
-                  className="mobile-list-row"
-                  key={item.id}
-                  onClick={() => void openProject(item)}
-                >
-                  <span className="mobile-row-icon">
-                    <Folder size={21} />
-                  </span>
-                  <span className="mobile-row-text">
-                    <strong>{item.name}</strong>
-                    <small>{item.cwd}</small>
-                  </span>
-                  <ChevronRight size={17} />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <Empty icon={<Folder size={28} />} title="Open your first project">
-              {t("Add a folder from your connected computer to get started.")}
-              <button
-                className="mobile-button"
-                onClick={(event) => {
-                  projectTrigger.current = event.currentTarget;
-                  setAddingProject(true);
-                }}
-              >
-                <FolderPlus size={16} />
-                {t("Open project")}
-              </button>
-            </Empty>
-          )}
-        </main>
-      ) : view === "sessions" ? (
-        <main className="mobile-content">
-          {loading ? (
-            <div className="mobile-loading">
-              <LoaderCircle className="mobile-spin" size={20} />
-              {t("Loading conversations…")}
-            </div>
-          ) : sessions.some((item) => !item.archived) ? (
-            <div className="mobile-list mobile-session-list">
-              {sortMobileSessions(sessions).map((item) => (
-                <button
-                  className="mobile-list-row mobile-session-row"
-                  key={item.id}
-                  onClick={() => void openSession(item.id)}
-                >
-                  <span className="mobile-row-text">
-                    <HarnessIcon
-                      harness={item.harness}
-                      className="size-3.5 shrink-0 self-center"
-                    />
-                    <strong>
-                      {sessionDisplayTitle(item.title, item.harness) ||
-                        t("Untitled conversation")}
-                    </strong>
-                    <small>
-                      {item.status === "running" ? (
-                        <LoaderCircle size={16} className="mobile-spin" />
-                      ) : item.needsInput ? (
-                        <span className="mobile-attention-dot" />
-                      ) : null}
-                      <span>
-                        {item.harness} ·{" "}
-                        {formatMobileRelativeTime(
-                          item.updatedAt,
-                          now,
-                          language,
-                        )}
-                      </span>
-                      {activity.unreadIds.has(item.id) ? (
-                        <span className="mobile-unread-dot" role="img" aria-label={t("Unread reply")} />
-                      ) : null}
-                    </small>
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <Empty icon={<Chatting size={28} />} title="No conversations yet">
-              {t("Start a conversation in {project}.", {
-                project: project?.name || t("your project"),
-              })}
-            </Empty>
-          )}
-        </main>
+      {view === "settings" ? (
+        <MobileSettings
+          page={settingsPage}
+          onPageChange={setSettingsPage}
+          connected={connected}
+          connection={
+            client.connection
+              ? {
+                  name: client.connection.name,
+                  endpoint: client.connection.endpoint,
+                }
+              : undefined
+          }
+          hostStatus={hostStatus}
+          busy={busy}
+          loading={loading}
+          addingConnection={addingConnection}
+          connectionTrigger={connectionTrigger}
+          onAddConnection={() => {
+            setError("");
+            setAddingConnection(true);
+          }}
+          onDisconnect={() => {
+            navigation.current += 1;
+            projectGeneration.current += 1;
+            setBusy(true);
+            void client
+              .disconnect()
+              .then(() => {
+                setConnected(false);
+                setProjects([]);
+                setProject(undefined);
+                setSessions([]);
+                setSnapshot(undefined);
+                setSessionId(undefined);
+                setError("");
+              })
+              .catch((problem) => setError(message(problem)))
+              .finally(() => setBusy(false));
+          }}
+          theme={theme}
+          onThemeChange={setTheme}
+          glass={glass}
+          onGlassChange={setGlass}
+          language={language}
+          onLanguageChange={setUiLanguage}
+          preferencePanel={preferencePanel}
+          onPreferencePanelChange={setPreferencePanel}
+          activity={activity}
+          appUpdates={appUpdates}
+        />
       ) : (
         <main className="mobile-chat">
           {snapshot ? (
@@ -1127,6 +1068,17 @@ export function MobileApp() {
               <LoaderCircle className="mobile-spin" size={20} />
               {t("Loading conversation…")}
             </div>
+          ) : !project ? (
+            <Empty icon={<Folder size={28} />} title="Open your first project">
+              {t("Add a folder from your connected computer to get started.")}
+              <button
+                className="mobile-button"
+                onClick={(event) => openAddProject(event.currentTarget)}
+              >
+                <FolderPlus size={16} />
+                {t("Open project")}
+              </button>
+            </Empty>
           ) : (
             <Empty
               icon={<Chatting size={30} />}
@@ -1146,7 +1098,7 @@ export function MobileApp() {
           {nativeReadOnly ? <p className="mobile-native-readonly" role="status">
             {translate("Imported native conversations continue on the desktop.")}
           </p> : null}
-          <MobileComposer
+          {project && <MobileComposer
             queue={
               <MobileMessageQueue
                 key={snapshot?.session.id}
@@ -1225,46 +1177,73 @@ export function MobileApp() {
             }
             planMode={planMode}
             onPlanModeChange={setPlanMode}
-          />
+          />}
         </main>
       )}
 
-      {connected && view !== "chat" && (
-        <nav className="mobile-navigation" aria-label={t("Main navigation")}>
-          <button
-            className={view === "projects" ? "is-selected" : ""}
-            onClick={() => navigate("projects")}
-          >
-            <Folder size={20} />
-            <span>{t("Projects")}</span>
-          </button>
-          <button
-            className={view === "sessions" ? "is-selected" : ""}
-            disabled={!project}
-            onClick={() => navigate("sessions")}
-          >
-            <Chatting size={20} />
-            <span>{t("Conversations")}</span>
-          </button>
-          <button
-            className={view === "connection" ? "is-selected" : ""}
-            onClick={() => navigate("connection")}
-          >
-            <Internet size={20} />
-            <span>{t("Connections")}</span>
-          </button>
-        </nav>
+      {connected && view === "chat" && (
+        <MobileDrawer
+          open={drawerOpen}
+          onOpenChange={(open) => {
+            if (open) setComposerPanel(null);
+            setDrawerOpen(open);
+          }}
+          projects={projects}
+          project={project}
+          sessions={sessions}
+          sessionId={sessionId}
+          loading={loading}
+          unreadIds={activity.unreadIds}
+          now={now}
+          hostName={client.connection?.name || "MonoCode"}
+          hostStatus={hostStatus}
+          projectTrigger={projectTrigger}
+          onProject={(item) => void openProject(item)}
+          onAddProject={() => {
+            setError("");
+            setAddingProject(true);
+          }}
+          onSession={(id) => void openSession(id)}
+          sessionActionsId={sessionActionsOpen ? sessionActionsTarget : undefined}
+          onSessionActions={(id, trigger, point) => {
+            sessionActionsTrigger.current = trigger;
+            setSessionActionsTarget(id);
+            setSessionActionsPoint(point);
+            setSessionActionsOpen(true);
+          }}
+          onNewSession={() => void openSession()}
+          onSettings={() => navigate("settings")}
+        />
       )}
-      {sessionActionsOpen && view === "chat" && (
+      {sessionActionsOpen &&
+        view === "chat" &&
+        (sessionActionsTarget ? sessionActionsSummary : snapshot) && (
         <MobileSessionActions
-          key={sessionId ?? "draft"}
-          snapshot={snapshot}
+          key={sessionActionsTarget ?? sessionId ?? "draft"}
+          snapshot={sessionActionsTarget ? undefined : snapshot}
+          summary={sessionActionsSummary}
           anchor={sessionActionsTrigger}
+          anchorPoint={sessionActionsPoint}
           disabled={busy || loading || !!pending}
-          onUpdate={updateSessionMetadata}
-          onDelete={deleteCurrentSession}
-          onNew={() => void openSession()}
-          onClose={() => setSessionActionsOpen(false)}
+          onUpdate={(patch) =>
+            updateSessionMetadata(patch, sessionActionsTarget ?? sessionId)
+          }
+          onDelete={sessionActionsTarget ? undefined : deleteCurrentSession}
+          onMarkUnread={
+            sessionActionsSummary
+              ? async () => {
+                  activity.markUnread(
+                    sessionActionsSummary.id,
+                    sessionActionsSummary.revision,
+                  );
+                }
+              : undefined
+          }
+          onClose={() => {
+            setSessionActionsOpen(false);
+            setSessionActionsTarget(undefined);
+            setSessionActionsPoint(undefined);
+          }}
         />
       )}
       {sessionStatusOpen && view === "chat" && snapshot && (
