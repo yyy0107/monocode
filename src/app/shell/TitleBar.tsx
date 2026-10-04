@@ -41,7 +41,7 @@ import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
 import { WindowControls } from "./WindowControls";
-import { IS_MAC, IS_WIN, MOD, SHIFT } from "../../platform/tauri/platform";
+import { IS_MAC, MOD, SHIFT } from "../../platform/tauri/platform";
 import type { RecentProject } from "../../features/projects/model/recents";
 import {
   ExplorerMenu,
@@ -1089,13 +1089,6 @@ function TitleBarComponent({
           </div>
         </div>
 
-        {!IS_MAC && !IS_WIN ? (
-          <div className="flex min-w-0 flex-1 items-center justify-center px-4">
-            <span className="pointer-events-none truncate text-[11.5px] font-medium text-content/40 select-none">
-              {systemTitle}
-            </span>
-          </div>
-        ) : null}
         {trailingControls}
       </div>
       {tabMenu && contextTab ? (

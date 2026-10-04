@@ -1,8 +1,10 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useProjectWorktrees } from "../hooks/useProjectWorktrees";
+import { useProjectBranchesState } from "../hooks/useProjectBranches";
 import { useWorktreeFocus, type WorktreeFocus } from "../model/worktreeFocus";
 import { pathKey, prettyCwd } from "../../../shared/lib/paths";
+import { basename } from "../../../platform/tauri/fs";
 import { Popover } from "../../../shared/ui/Popover";
 import {
   Check,
@@ -12,8 +14,8 @@ import {
   Loader,
 } from "../../../shared/ui/icons";
 
-/** The sidebar title. Picking a worktree narrows the sidebar, and the
- * sessions opened from it, to that working copy and names it here. */
+/** The sidebar project title opens the working-copy selector. Picking a
+ * worktree narrows the sidebar and new sessions to that working copy. */
 export function SidebarWorktreeSwitcher({
   cwd,
   tabStats,
@@ -32,7 +34,13 @@ export function SidebarWorktreeSwitcher({
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const focus = useWorktreeFocus(cwd);
-  const { data, error, refresh } = useProjectWorktrees(cwd);
+  const { branches, settled } = useProjectBranchesState(cwd, true);
+  // Empty Git metadata is a plain folder. A failed metadata lookup still
+  // permits the worktree query so its error can be shown.
+  const canListWorktrees =
+    Boolean(branches?.current || branches?.branches.length) ||
+    (settled && branches === null);
+  const { data, error, refresh } = useProjectWorktrees(cwd, canListWorktrees);
   // The project folder is the default, unfocused entry; missing worktrees
   // cannot be opened, so they are left out.
   const main = data?.worktrees.find((tree) => tree.isMain);
@@ -60,13 +68,13 @@ export function SidebarWorktreeSwitcher({
     if (switchError) setOpen(true);
   }, [switchError]);
 
-  const focused =
-    focus &&
-    worktrees.find((tree) => pathKey(tree.path) === pathKey(focus.path));
-  const title = focus
-    ? (focused?.branch ?? focus.branch ?? uiT("Detached worktree"))
-    : uiT("Workspace");
-  if (data && worktrees.length === 0 && !focus && !switchError && !pending)
+  const title = basename(cwd);
+  if (
+    (!canListWorktrees || (data && worktrees.length === 0)) &&
+    !focus &&
+    !switchError &&
+    !pending
+  )
     return (
       <span className="min-w-0 truncate text-sm font-medium leading-tight">
         {title}
@@ -157,7 +165,7 @@ export function SidebarWorktreeSwitcher({
             () => onSelect?.(undefined),
             main?.path ?? cwd,
           )}
-          {!data && !error ? (
+          {!data && !error && (canListWorktrees || !settled) ? (
             <div className="flex items-center gap-2 p-2 text-[12px] text-content/50">
               <Loader className="size-3.5 animate-spin" />
               {uiT("Loading working copies…")}

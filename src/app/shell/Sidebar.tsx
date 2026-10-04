@@ -55,6 +55,7 @@ import {
 } from "../../features/settings/model/appearance";
 import { formatInteger } from "../../shared/lib/numbers";
 import {
+  basename,
   type GitFileDiffKind,
   type GitHistoryCommit,
 } from "../../platform/tauri/fs";
@@ -1707,7 +1708,7 @@ function SidebarComponent({
                 />
               ) : (
                 <span className="min-w-0 truncate text-sm font-medium leading-tight">
-                  {uiT("Workspace")}
+                  {cwd && cwd !== "~" ? basename(cwd) : uiT("Workspace")}
                 </span>
               )}
             </div>
