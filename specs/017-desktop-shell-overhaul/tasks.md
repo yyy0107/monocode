@@ -529,3 +529,82 @@ with existing CSS, mixed-import and large-chunk advisories. The staged diff chec
 passed. These results are separate from the earlier full working-tree runs and
 the settings-page TypeScript failure. Native/platform and real remote scenarios
 remain unverified. No push or merge was requested.
+
+## Production startup responsiveness — follow-up (2026-10-05)
+
+- [x] Inspect the installed production runtime and distinguish startup recovery
+  from persistent interaction delay using the user's confirmation and bounded
+  process samples.
+- [x] Cache binding decoding by serialized storage value; preserve
+  cross-window updates, malformed-storage recovery and failed-write behavior.
+- [x] Defer unvisited hidden pooled transcripts, retaining first-show, revisit,
+  pool/session identity and host handoff behavior.
+- [x] Coalesce concurrent Host descriptor/catalog reads by identity scope,
+  retaining independent session sync and stale/disposed guards.
+- [x] Run relevant regression tests, TypeScript and focused diff checks; perform
+  independent read-only review of the cache, pool and metadata changes.
+- [x] Rebuild and inspect the production desktop packages containing these fixes.
+- [ ] Measure the updated installed desktop's native startup responsiveness.
+
+The installed /usr/bin/monocode matched the previous .deb's staged binary, so the
+reported window was production. The user clarified that delay mainly occurs
+immediately after launch. Early lifetime CPU percentages included startup; a
+later ten-second user-space CPU-clock profile sampled about 0.808 CPU seconds in
+WebKit (80 samples, no lost samples). Most samples were in JavaScriptCore, but
+stripped frames and this later observation do not establish a specific startup
+stack or prove that every source of delay has been found.
+
+Read-only inspection of the production origin found 1193 persisted bindings.
+The previous per-row lookup decoded the whole table each time. A Node/happy-dom
+benchmark using that serialized table (nine samples) measured median 223.321ms
+for 1193 lookups before caching versus 0.053ms with a warm parsed cache; 195
+lookups measured 36.818ms versus 0.023ms, or 0.337ms including the first parse.
+These are helper timings, not native WebKit or complete startup timings.
+
+The controlled 39-pane restoration regression mounted 39 transcripts before the
+fix and one after it. Visiting a second pane mounted one more transcript;
+returning to the first reused it. Existing visited-hidden, same-session host
+handoff and pool identity behavior remain covered. A separate 39-RemoteSession
+consumer regression reduced environment.describe and models.list from 39 calls
+each to one each while preserving all 39 sessions.sync requests and onSnapshot
+callbacks. Sharing ends when the request settles; failure retries and different
+machine/environment/project scopes are covered.
+
+Focused validation passed with 97 distinct tests:
+
+- `npx vitest run src/features/connections/model/remoteBindings.test.ts
+  src/features/connections/model/sharedHost.test.ts
+  src/features/connections/model/retiredOutbox.test.ts` — 15 tests.
+- `npx vitest run src/features/sessions/ui/TranscriptPool.test.ts` — 11 tests.
+- `npx vitest run src/features/connections/model/remoteHostMetadata.test.ts
+  src/features/connections/ui/RemoteSession.test.ts` — 43 tests. An existing
+  running-turn case printed React act advisories but passed.
+- `npx vitest run src/features/sessions/ui/AgentTranscript.firstPaint.test.ts
+  src/features/sessions/ui/AgentTranscriptScroll.test.ts` — 28 tests.
+
+`npx tsc --noEmit` and focused `git diff --check` passed. No provider protocol,
+Host or Rust source was changed by this startup follow-up; unrelated working-tree
+changes remain. No full-suite result, native speedup, install, process restart,
+commit, push or merge is claimed.
+
+The follow-up `npm run build:linux -- --ci` passed, including the desktop Host
+package, frontend TypeScript/Vite and optimized Rust Release build. Both the .deb
+and AppImage were unpacked successfully. All seven .deb Host resources and the
+six AppImage resources excluding linuxdeploy's patched Node matched the build
+inputs. Both bundled runtimes reported Node v24.21.0 and Host 0.7.0; release
+desktop library resolution found no missing dependencies. Temporary extractions
+were removed. Updated package sizes, SHA-256 and verification results are in
+target/release/desktop-build-info.json. The packages still use version 0.7.0 and
+include the working tree's other changes. The user's installed running desktop
+was not replaced or restarted; updated native startup timing remains unverified.
+
+Commit isolation verification (2026-10-05): the startup changes were extracted
+onto an archived HEAD tree without the unrelated pending Host, scope/retirement,
+mobile or orchestration features. The independent binding-cache change retains
+HEAD's existing binding API; scope-specific extensions remain with their other
+working-tree changes. Seven relevant suites passed 87 tests: remoteBindings (5),
+remoteHostMetadata (4), RemoteSession (33), sharedHost (6), TranscriptPool (11),
+AgentTranscript.firstPaint (3), and AgentTranscriptScroll (25). The isolated
+`tsc --noEmit` also passed. The existing running-turn act advisories remained.
+This separately validates the selected commit contents; the earlier 97-test and
+production-package results refer to the complete working tree.

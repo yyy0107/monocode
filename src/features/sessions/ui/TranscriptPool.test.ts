@@ -80,6 +80,140 @@ afterEach(() => {
 });
 
 describe("transcript pool", () => {
+  it("mounts only the active restored transcript, retaining it after a tab switch", () => {
+    const pool = new TranscriptPool();
+    const ids = Array.from({ length: 39 }, (_, index) => `restored-${index}`);
+    const show = (active: string) => {
+      act(() =>
+        root.render(
+          createElement(
+            "div",
+            null,
+            ...ids.map((id) =>
+              createElement(
+                "section",
+                { key: id, hidden: id !== active, "data-pane": id },
+                createElement(
+                  PooledTranscript,
+                  { pool, sessionId: id },
+                  createElement(Probe, { id, visible: id === active }),
+                ),
+              ),
+            ),
+            createElement(TranscriptPoolOutlet, { pool }),
+          ),
+        ),
+      );
+    };
+
+    show(ids[0]);
+    const firstInstance = probe(ids[0])?.dataset.instance;
+    expect(mounts).toEqual([ids[0]]);
+    expect(pool.getSnapshot()).toHaveLength(1);
+
+    show(ids[1]);
+    expect(mounts).toEqual([ids[0], ids[1]]);
+    expect(probe(ids[0])?.dataset.visible).toBe("false");
+    expect(probe(ids[0])?.dataset.instance).toBe(firstInstance);
+    expect(pool.getSnapshot()).toHaveLength(2);
+
+    show(ids[0]);
+    expect(probe(ids[0])?.dataset.instance).toBe(firstInstance);
+    expect(mounts).toEqual([ids[0], ids[1]]);
+    expect(unmounts).toEqual([]);
+  });
+
+  it("requires a first visit again when the pane's session or pool changes", () => {
+    const firstPool = new TranscriptPool();
+    const secondPool = new TranscriptPool();
+    const show = (pool: TranscriptPool, id: string, visible: boolean) => {
+      act(() =>
+        root.render(
+          createElement(
+            "div",
+            null,
+            createElement(
+              "section",
+              { "data-pane": "same-host" },
+              createElement(
+                PooledTranscript,
+                { pool, sessionId: id },
+                createElement(Probe, { id, visible }),
+              ),
+            ),
+            createElement(TranscriptPoolOutlet, { pool: firstPool }),
+            createElement(TranscriptPoolOutlet, { pool: secondPool }),
+          ),
+        ),
+      );
+    };
+
+    show(firstPool, "a", true);
+    const firstInstance = probe("a")?.dataset.instance;
+    show(firstPool, "b", false);
+    expect(probe("a")).toBeNull();
+    expect(probe("b")).toBeNull();
+    expect(firstPool.getSnapshot().map((entry) => entry.id)).toEqual(["a"]);
+    expect(firstPool.getSnapshot()[0].host).toBeNull();
+    expect(mounts).toEqual(["a"]);
+
+    show(firstPool, "a", false);
+    expect(probe("a")).toBeNull();
+    show(firstPool, "a", true);
+    expect(probe("a")?.dataset.instance).toBe(firstInstance);
+
+    show(secondPool, "a", false);
+    expect(probe("a")).toBeNull();
+    expect(secondPool.getSnapshot()).toEqual([]);
+    expect(firstPool.getSnapshot()[0].host).toBeNull();
+    show(secondPool, "a", true);
+    expect(probe("a")?.dataset.instance).not.toBe(firstInstance);
+    expect(mounts).toEqual(["a", "a"]);
+    expect(unmounts).toEqual([]);
+  });
+
+  it("does not let a never-shown host take a transcript from its visible pane", () => {
+    const pool = new TranscriptPool();
+    const show = (secondVisible: boolean, firstPresent = true) => {
+      act(() =>
+        root.render(
+          createElement(
+            "div",
+            null,
+            ...["first", "second"].map((pane) =>
+              pane === "first" && !firstPresent
+                ? null
+                : createElement(
+                    "section",
+                    { key: pane, "data-pane": pane },
+                    createElement(
+                      PooledTranscript,
+                      { pool, sessionId: "a" },
+                      createElement(Probe, {
+                        id: "a",
+                        visible: pane === "first" || secondVisible,
+                      }),
+                    ),
+                  ),
+            ),
+            createElement(TranscriptPoolOutlet, { pool }),
+          ),
+        ),
+      );
+    };
+
+    show(false);
+    const instance = probe("a")?.dataset.instance;
+    expect(probe("a")?.closest("section")?.dataset.pane).toBe("first");
+    show(true);
+    expect(probe("a")?.closest("section")?.dataset.pane).toBe("second");
+    show(true, false);
+    expect(probe("a")?.closest("section")?.dataset.pane).toBe("second");
+    expect(probe("a")?.dataset.instance).toBe(instance);
+    expect(mounts).toEqual(["a"]);
+    expect(unmounts).toEqual([]);
+  });
+
   it("cycles through ten chats without rebuilding any transcript", () => {
     const pool = new TranscriptPool();
     const ids = Array.from({ length: 10 }, (_, index) => `chat-${index}`);

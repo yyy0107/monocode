@@ -16,6 +16,7 @@ import type {
   PlanBuildTarget,
 } from "../../sessions/model/session";
 import { uploadRemoteAttachments } from "../model/remoteAttachments";
+import { loadRemoteHostCatalog, loadRemoteHostDescriptor } from "../model/remoteHostMetadata";
 import { temporaryWorktreeBranchName } from "../../source-control/model/worktrees";
 import type { AgentModel } from "../../sessions/model/models";
 import {
@@ -57,8 +58,6 @@ import {
 } from "../model/remoteModels";
 import {
   isRemoteProvider,
-  REMOTE_PROVIDERS,
-  requireHostDescriptor,
   type CommandReceipt,
   type HostCommand,
   type HostDescriptor,
@@ -105,8 +104,10 @@ const cachedDescriptors = new Map<string, HostDescriptor>();
 const cachedCatalogs = new Map<string, HostModelCatalog>();
 const snapshotKey = (machineId: string, sessionId: string) =>
   `${machineId}:${sessionId}`;
-const catalogKey = (machineId: string, projectId: string) =>
-  JSON.stringify([machineId, projectId]);
+const descriptorKey = (machineId: string, environmentId: string) =>
+  JSON.stringify([machineId, environmentId]);
+const catalogKey = (machineId: string, environmentId: string, projectId: string) =>
+  JSON.stringify([machineId, environmentId, projectId]);
 function rememberSessionSnapshot(key: string, snapshot: HostSession) {
   cachedSessionSnapshots.delete(key);
   cachedSessionSnapshots.set(key, snapshot);
@@ -227,7 +228,7 @@ function ConnectedRemoteSession({
 }) {
   const { t: uiT } = useTranslation();
   const [descriptor, setDescriptor] = useState<HostDescriptor | undefined>(() =>
-    cachedDescriptors.get(machine.id),
+    cachedDescriptors.get(descriptorKey(machine.id, machine.environmentId)),
   );
   const [online, setOnline] = useState(false);
   const [error, setError] = useState("");
@@ -277,7 +278,7 @@ function ConnectedRemoteSession({
   snapshotRef.current = snapshot;
   const [refresh, setRefresh] = useState(0);
   const [catalog, setCatalog] = useState<HostModelCatalog | undefined>(() =>
-    cachedCatalogs.get(catalogKey(machine.id, project.projectId)),
+    cachedCatalogs.get(catalogKey(machine.id, machine.environmentId, project.projectId)),
   );
   const [catalogError, setCatalogError] = useState("");
   const [catalogRefresh, setCatalogRefresh] = useState(0);
@@ -416,19 +417,9 @@ function ConnectedRemoteSession({
       let active = false;
       try {
         if (!described) {
-          const host = requireHostDescriptor(
-            await remoteRequest<HostDescriptor>(
-              machine.id,
-              "environment.describe",
-              { supportedProviders: REMOTE_PROVIDERS },
-            ),
-          );
-          if (host.environmentId !== machine.environmentId)
-            throw new Error(
-              "Host identity changed. Reconnect this machine before continuing.",
-            );
+          const host = await loadRemoteHostDescriptor(machine.id, machine.environmentId);
           if (stale()) return;
-          cachedDescriptors.set(machine.id, host);
+          cachedDescriptors.set(descriptorKey(machine.id, machine.environmentId), host);
           setDescriptor(host);
           described = true;
         }
@@ -487,14 +478,12 @@ function ConnectedRemoteSession({
   ]);
 
   useEffect(() => {
-    if (!descriptor) return;
+    if (!descriptor || descriptor.environmentId !== machine.environmentId) return;
     let disposed = false;
-    void remoteRequest<HostModelCatalog>(machine.id, "models.list", {
-      projectId: project.projectId,
-    })
+    void loadRemoteHostCatalog(machine.id, machine.environmentId, project.projectId)
       .then((value) => {
         if (disposed) return;
-        cachedCatalogs.set(catalogKey(machine.id, project.projectId), value);
+        cachedCatalogs.set(catalogKey(machine.id, machine.environmentId, project.projectId), value);
         setCatalog(value);
         setCatalogError("");
       })
@@ -506,6 +495,7 @@ function ConnectedRemoteSession({
     };
   }, [
     machine.id,
+    machine.environmentId,
     descriptor?.environmentId,
     project.projectId,
     catalogRefresh,

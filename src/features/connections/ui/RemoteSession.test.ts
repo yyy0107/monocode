@@ -10,7 +10,7 @@ import {
 import type { Block, Session } from "../../sessions/model/session";
 import type { AgentModel } from "../../sessions/model/models";
 import { rememberRemoteProject, configureSharedHost } from "../model/remoteProjects";
-import { preloadRemoteSession } from "./RemoteSession";
+import { preloadRemoteSession, RemoteSession } from "./RemoteSession";
 import { rememberRemoteSession, remoteSessionFor } from "../model/connections";
 import "../model/remoteCommands";
 import type {
@@ -397,6 +397,82 @@ async function settle() {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 }
+it("shares startup Host metadata across restored panes while syncing each conversation", async () => {
+  const original = vi.mocked(invoke).getMockImplementation()!;
+  let describe!: () => void;
+  let listModels!: () => void;
+  const describing = new Promise<void>(resolve => { describe = resolve; });
+  const listingModels = new Promise<void>(resolve => { listModels = resolve; });
+  vi.mocked(invoke).mockImplementation(async (command, input) => {
+    const request = input as { method?: string; params?: { sessionId?: string } } | undefined;
+    if (request?.method === "environment.describe") await describing;
+    if (request?.method === "models.list") await listingModels;
+    if (request?.method === "sessions.sync") return { kind: "snapshot", value: {
+      projectId: "project", revision: 1, status: "idle", updatedAt: 0,
+      session: { ...shell(), id: request.params?.sessionId, cwd: "/home/me/repo" },
+    } };
+    return original(command, input);
+  });
+  const onSnapshot = vi.fn();
+  const restored = Array.from({ length: 39 }, (_, index) => ({ ...shell(), id: `restored-${index}` }));
+  for (const session of restored) rememberRemoteSession(session.id, `host-${session.id}`);
+  await act(async () => root.render(restored.map(session => createElement(RemoteSession, {
+    key: session.id, shell: session, visible: session.id === restored[0].id,
+    onSnapshot, onOpenFile: vi.fn(), onOpenDiff: vi.fn(), onOpenPlan: vi.fn(),
+    render: overrides => createElement("span", { "data-pane": session.id }, overrides.allowedModelHarnesses.join(",")),
+  }))));
+  const calls = (method: string) => vi.mocked(invoke).mock.calls.filter(([command, input]) =>
+    command === "remote_request" && (input as { method?: string })?.method === method,
+  );
+  expect(calls("environment.describe")).toHaveLength(1);
+  await act(async () => describe());
+  await settle();
+  expect(calls("models.list")).toHaveLength(1);
+  expect(calls("sessions.sync")).toHaveLength(39);
+  expect(onSnapshot).toHaveBeenCalledTimes(39);
+  await act(async () => listModels());
+  await settle();
+  expect(container.querySelectorAll("[data-pane]")).toHaveLength(39);
+  expect(calls("environment.describe")).toHaveLength(1);
+  expect(calls("models.list")).toHaveLength(1);
+});
+
+it("ignores a disposed pane when its shared Host descriptor finishes", async () => {
+  const original = vi.mocked(invoke).getMockImplementation()!;
+  let describe!: () => void;
+  const describing = new Promise<void>(resolve => { describe = resolve; });
+  vi.mocked(invoke).mockImplementation(async (command, input) => {
+    const request = input as { method?: string; params?: { sessionId?: string } } | undefined;
+    if (request?.method === "environment.describe") await describing;
+    if (request?.method === "sessions.sync") return { kind: "snapshot", value: {
+      projectId: "project", revision: 1, status: "idle", updatedAt: 0,
+      session: { ...shell(), id: request.params?.sessionId, cwd: "/home/me/repo" },
+    } };
+    return original(command, input);
+  });
+  const onSnapshot = vi.fn();
+  const restored = ["closed", "remaining"].map(id => ({ ...shell(), id }));
+  for (const session of restored) rememberRemoteSession(session.id, `host-${session.id}`);
+  const panes = (sessions: Session[]) => sessions.map(session => createElement(RemoteSession, {
+    key: session.id, shell: session, visible: true, onSnapshot,
+    onOpenFile: vi.fn(), onOpenDiff: vi.fn(), onOpenPlan: vi.fn(),
+    render: () => createElement("span", null, session.id),
+  }));
+  await act(async () => root.render(panes(restored)));
+  await act(async () => root.render(panes(restored.slice(1))));
+  await act(async () => describe());
+  await settle();
+  expect(vi.mocked(invoke).mock.calls.filter(([command, input]) =>
+    command === "remote_request" && (input as { method?: string })?.method === "environment.describe",
+  )).toHaveLength(1);
+  expect(onSnapshot).toHaveBeenCalledTimes(1);
+  expect(onSnapshot).toHaveBeenCalledWith("remaining", expect.objectContaining({ session: expect.objectContaining({ id: "host-remaining" }) }));
+  expect(vi.mocked(invoke).mock.calls.some(([command, input]) =>
+    command === "remote_request" && (input as { method?: string; params?: { sessionId?: string } })?.method === "sessions.sync" &&
+    (input as { params?: { sessionId?: string } }).params?.sessionId === "host-closed",
+  )).toBe(false);
+});
+
 const byLabel = (prefix: string) =>
   container.querySelector<HTMLButtonElement>(`button[aria-label^="${prefix}"]`);
 async function type(text: string) {

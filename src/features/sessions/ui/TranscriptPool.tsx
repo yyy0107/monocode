@@ -138,8 +138,10 @@ export function PooledTranscript({
   children: ReactElement<PooledProps>;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const shown = useRef(false);
 
   useLayoutEffect(() => {
+    shown.current = false;
     const node = host.current;
     if (!pool || !node) return;
     return () => pool.park(sessionId, node);
@@ -147,6 +149,10 @@ export function PooledTranscript({
 
   useLayoutEffect(() => {
     if (pool && host.current) {
+      // Restoring a hidden pane must not build its markdown before the user
+      // visits it. Once shown, retain the existing transcript and its state.
+      if (!shown.current && children.props.visible === false) return;
+      shown.current = true;
       pool.show(sessionId, host.current, children, onMouseDown);
     }
   });

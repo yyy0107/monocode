@@ -243,3 +243,21 @@ an active drag before hiding, and settle reduced motion immediately.
   hit regions protect only the controls, leaving the top boundary continuously
   available to ResizeHandle. Verify hit testing above inactive/active tabs,
   blank space and trailing actions, plus an actual drag from above a tab.
+
+## Production startup responsiveness — follow-up (2026-10-05)
+
+- Cache parsed remote bindings by their serialized localStorage value.
+  Read that value on each access to preserve cross-window freshness, and copy
+  records before mutations so storage failures cannot mutate the cache.
+- Defer a pooled transcript's first show while its pane is hidden. Reset this
+  first-visit state when pool/session identity changes; retain existing pool
+  behavior after the first visible render and preserve the no-pool consumer.
+- Share only in-flight environment.describe and models.list requests through
+  remoteHostMetadata. Key descriptors by machine and expected environment, and
+  catalogs by machine/environment/project. Retain each pane's identity checks,
+  cancellation guards, session polling and snapshot callback. Scope the existing
+  fulfilled metadata cache by environment too.
+- Exercise storage failure/cross-window recovery, 39 restored panes, request
+  scope/failure/revalidation and transcript consumers. Record actual production
+  observations separately from controlled benchmarks; package the current tree
+  without installing or restarting the user's running desktop.

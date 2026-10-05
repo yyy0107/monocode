@@ -28,6 +28,28 @@ export const OPEN_REMOTE_PROJECT_EVENT = "monocode:open-remote-project";
 export const refreshRemoteMachines = () =>
   window.dispatchEvent(new Event(CHANGE));
 const TAB_KEY = "monocode.remote-tabs.v2";
+/** Read storage on every lookup so writes in other windows are immediately visible,
+ * but decode each version only once instead of once per sidebar row or tab. */
+function cachedRemoteRecord<T>(key: string) {
+  let serialized: string | null | undefined;
+  let record: Readonly<Record<string, T>> = {};
+  return (): Readonly<Record<string, T>> => {
+    try {
+      const next = localStorage.getItem(key);
+      if (next === serialized) return record;
+      let value: unknown;
+      try { value = JSON.parse(next ?? "{}"); } catch { /* Invalid storage is empty. */ }
+      record = value && typeof value === "object" && !Array.isArray(value)
+        ? value as Record<string, T>
+        : {};
+      serialized = next;
+      return record;
+    } catch {
+      return {};
+    }
+  };
+}
+const remoteTabBindings = cachedRemoteRecord<string>(TAB_KEY);
 const WORKTREE_KEY = "monocode.remote-pending-worktrees.v1";
 
 export function remotePendingWorktree(shellId: string): string | undefined {
@@ -64,16 +86,12 @@ export function rememberRemotePendingWorktree(shellId: string, path?: string) {
 
 /** The host session a tab in a remote project shows; none for a new session. */
 export function remoteSessionFor(shellId: string): string | undefined {
-  try {
-    const value = JSON.parse(localStorage.getItem(TAB_KEY) ?? "{}")[shellId];
-    return typeof value === "string" ? value : undefined;
-  } catch {
-    return undefined;
-  }
+  const value = remoteTabBindings()[shellId];
+  return typeof value === "string" ? value : undefined;
 }
 export function rememberRemoteSession(shellId: string, sessionId?: string) {
   try {
-    const all = JSON.parse(localStorage.getItem(TAB_KEY) ?? "{}");
+    const all = { ...remoteTabBindings() };
     if (sessionId) all[shellId] = sessionId;
     else delete all[shellId];
     localStorage.setItem(TAB_KEY, JSON.stringify(all));
@@ -85,7 +103,7 @@ export function rememberRemoteSession(shellId: string, sessionId?: string) {
 
 export function forgetDeletedRemoteBindings(ids: readonly string[]) {
   const deleted = new Set(ids);
-  const bindings = JSON.parse(localStorage.getItem(TAB_KEY) ?? "{}");
+  const bindings = { ...remoteTabBindings() };
   for (const [shellId, hostId] of Object.entries(bindings)) {
     if (typeof hostId === "string" && deleted.has(hostId)) delete bindings[shellId];
   }

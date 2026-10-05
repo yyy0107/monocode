@@ -275,3 +275,24 @@ its tabs/actions stay above the overlapping resize hit target.
 The dock's raised tab/action wrappers must fit their visible controls. Its full
 top boundary, including positions above tabs and trailing buttons, exposes the
 resize cursor and drag gesture. A full-row wrapper must not block that boundary.
+
+## Production startup responsiveness — follow-up (2026-10-05)
+
+The user reproduced the delay in the production desktop and clarified that it
+mainly happens immediately after launch. Restoring a large workspace must avoid
+repeatedly decoding the entire remote-session binding table and building
+transcripts for tabs that have never been shown. After its first visit, a
+transcript retains the existing pool, scroll and revisit behavior. Background
+session synchronization, queue ownership and mounted terminal lifetimes remain
+independent of transcript visibility.
+
+Simultaneous panes in the same Host scope share in-flight descriptor/model
+catalog reads. Completed or failed reads are not retained by this coalescer:
+later reconnects revalidate, identity changes fail closed, and different machines,
+environments and projects remain isolated. Closing a waiting pane must not apply
+its eventual result. Local-storage changes remain visible across windows before
+the storage event is delivered, and failed writes must not alter cached records.
+
+Verify restored-pane mount/request counts and existing transcript first-paint
+and scrolling behavior. Rebuild production packages. Controlled counts and helper
+benchmarks are evidence of removed work, not native launch-to-responsive timing.
