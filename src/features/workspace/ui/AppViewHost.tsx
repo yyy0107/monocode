@@ -1,12 +1,14 @@
 import {
   createContext,
   memo,
+  Suspense,
   useContext,
   useRef,
   type ReactNode,
 } from "react";
 import type { AppViewKind } from "../model/layout";
 import { SurfaceVisibilityContext } from "../../../shared/ui/SurfaceVisibility";
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 
 /** App owns the view dependencies; workspace panes only know its kind. */
 export type AppViewRenderer = (kind: AppViewKind, active: boolean) => ReactNode;
@@ -26,12 +28,28 @@ export function AppViewHost({ kind, visible, focused }: Props) {
   if (visible) mounted.current = true;
   if (!mounted.current || !render) return null;
   return (
-    <FrozenAppView
-      kind={kind}
-      visible={visible}
-      focused={focused}
-      render={render}
-    />
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+      <Suspense fallback={<AppViewLoading />}>
+        <FrozenAppView
+          kind={kind}
+          visible={visible}
+          focused={focused}
+          render={render}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
+function AppViewLoading() {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="status"
+      className="flex min-h-0 flex-1 items-center justify-center text-[13px] text-content/45"
+    >
+      {t("Loading…")}
+    </div>
   );
 }
 

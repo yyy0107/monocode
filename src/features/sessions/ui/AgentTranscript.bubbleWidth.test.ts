@@ -4,11 +4,19 @@ import { resolve } from "node:path";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { compile } from "tailwindcss";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentTranscript } from "./AgentTranscript";
 
+const appearance = vi.hoisted(() => ({
+  layout: "chat" as "chat" | "full",
+}));
+vi.mock("../hooks/useTranscriptLayout", () => ({
+  useTranscriptLayout: () => appearance.layout,
+}));
+
 /**
- * Chat bubbles are capped at the smaller of their container and 36rem. A bare
+ * Both layouts hug short messages. Chat bubbles are capped at the smaller of
+ * their container and 36rem; full-layout bubbles are capped at the container. A bare
  * 36rem cap (`max-w-xl`) looks identical in a wide pane but lets a long prompt
  * overrun a narrow session pane, which is where the bug was reported.
  *
@@ -152,7 +160,9 @@ function maxWidth(element: Element, containing: number): number {
 let container: HTMLDivElement;
 let root: Root;
 
-function renderPrompt() {
+function renderPrompt(
+  text = "A long pasted prompt that needs the full bubble width",
+) {
   act(() =>
     root.render(
       createElement(AgentTranscript, {
@@ -160,7 +170,7 @@ function renderPrompt() {
           {
             id: "prompt",
             role: "user",
-            text: "A long pasted prompt that needs the full bubble width",
+            text,
           },
         ],
       }),
@@ -198,17 +208,30 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("stops at the pane in a narrow session pane", () => {
-  renderPrompt();
-  expect(bubbleCap(22 * REM)).toBe(22 * REM);
-});
+describe.each(["chat", "full"] as const)("%s user message width", (layout) => {
+  beforeEach(() => {
+    appearance.layout = layout;
+  });
 
-it("stops at 36rem in a pane wider than that", () => {
-  renderPrompt();
-  expect(bubbleCap(80 * REM)).toBe(36 * REM);
-});
+  afterEach(() => {
+    appearance.layout = "chat";
+  });
 
-it("keeps the 36rem cap when the pane is exactly that wide", () => {
-  renderPrompt();
-  expect(bubbleCap(36 * REM)).toBe(36 * REM);
+  it("hugs a short message and stops at the pane in a narrow session pane", () => {
+    renderPrompt("Hello");
+    expect(
+      container.querySelector(".user-message-bubble")?.classList,
+    ).toContain("w-fit");
+    expect(bubbleCap(22 * REM)).toBe(22 * REM);
+  });
+
+  it("keeps the layout's width cap in a wide pane", () => {
+    renderPrompt();
+    expect(bubbleCap(80 * REM)).toBe((layout === "chat" ? 36 : 80) * REM);
+  });
+
+  it("stops at 36rem when the pane is exactly that wide", () => {
+    renderPrompt();
+    expect(bubbleCap(36 * REM)).toBe(36 * REM);
+  });
 });

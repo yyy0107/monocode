@@ -21,6 +21,14 @@ quick open → app-view tabs → activity bar.
    renders views through an `AppViewRenderer` context supplied by App, mounts
    on first activation and freezes while hidden. Remove the five view booleans
    and the props that existed only for full-page rendering.
+   Keep a bounded-height flex container between `FilePane` and each app view:
+   `flex-1` on the view must have a flex parent, with `min-h-0` through the
+   chain so internal `overflow-y-auto` regions can shrink and scroll. Isolate
+   lazy-content suspension inside the app pane with a local loading fallback;
+   the window shell and neighbouring panes remain mounted and visible.
+   Regressions cover the container contract, retained view state and
+   pane-local loading. Browser geometry checks verify actual overflow and
+   scrolling on long Settings pages and representative app views.
 4. Persist the sidebar width; extract `ProjectList`/`ProjectAvatar`; add
    `ActivityBar`; reduce `Sidebar` to the panel; drop the project rail and its
    collapsed-mode setting; migrate the sidebar keybinding in the override

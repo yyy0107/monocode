@@ -101,14 +101,9 @@ it("lets keyboard users expand and collapse a truncated prompt", async () => {
   );
 });
 
-it("remeasures prompt corners when a pooled tab is shown at a new width", () => {
-  let textWidth = 200;
+it("remeasures truncation when a pooled tab is shown at a new width", () => {
   let textHeight = 20;
-  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(
-    function () {
-      return this.tagName === "PRE" ? textWidth : 200;
-    },
-  );
+  let clippedHeight = 20;
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(
     function () {
       return this.tagName === "PRE" ? textHeight : 200;
@@ -116,51 +111,37 @@ it("remeasures prompt corners when a pooled tab is shown at a new width", () => 
   );
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(
     function () {
-      return this.tagName === "PRE" ? textHeight : 200;
+      return this.tagName === "PRE" ? clippedHeight : 200;
     },
   );
-  const getStyle = window.getComputedStyle.bind(window);
-  vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
-    const style = getStyle(element);
-    return element.tagName === "PRE"
-      ? new Proxy(style, {
-          get(target, property) {
-            return property === "lineHeight"
-              ? "20px"
-              : Reflect.get(target, property);
-          },
-        })
-      : style;
-  });
 
   const blocks = [
     { id: "prompt", role: "user" as const, text: "A long pasted prompt" },
   ];
   const show = (visible: boolean) =>
     act(() => root.render(createElement(AgentTranscript, { blocks, visible })));
-  const bubble = () => container.querySelector(".user-message-bubble")!;
+  const expandButton = () => container.querySelector("button[aria-expanded]");
 
   show(true);
-  expect(bubble().classList).toContain("rounded-full");
+  expect(expandButton()).toBeNull();
 
-  textWidth = 0;
   textHeight = 0;
+  clippedHeight = 0;
   show(false);
-  expect(bubble().classList).toContain("rounded-xl");
 
-  // Reattached in a narrower pane, so the same prompt wraps onto two lines.
-  textWidth = 260;
-  textHeight = 40;
+  // Reattached in a narrower pane, so the same prompt exceeds four lines.
+  textHeight = 120;
+  clippedHeight = 80;
   show(true);
-  expect(bubble().classList).toContain("rounded-xl");
+  expect(expandButton()?.textContent).toBe("Show more");
 
-  textWidth = 0;
   textHeight = 0;
+  clippedHeight = 0;
   show(false);
-  textWidth = 260;
   textHeight = 20;
+  clippedHeight = 20;
   show(true);
-  expect(bubble().classList).toContain("rounded-full");
+  expect(expandButton()).toBeNull();
 });
 
 it("shows a copy error instead of success and allows retry", async () => {

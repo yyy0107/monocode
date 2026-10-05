@@ -1,8 +1,15 @@
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Block } from "../model/session";
 import { AgentTranscript } from "./AgentTranscript";
+
+const appearance = vi.hoisted(() => ({
+  layout: "chat" as "chat" | "full",
+}));
+vi.mock("../hooks/useTranscriptLayout", () => ({
+  useTranscriptLayout: () => appearance.layout,
+}));
 
 function tool(id: string, approval?: Block["approval"]): Block {
   return {
@@ -792,50 +799,61 @@ describe("worker assignment prompts", () => {
   });
 });
 
-describe("AgentTranscript chat image messages", () => {
-  it("lifts sent images above the bubble so the caption can round", () => {
-    const markup = render([
-      {
-        id: "user",
-        role: "user",
-        text: "Make this a capsule",
-        attachments: [
-          {
-            id: "image",
-            name: "shot.png",
-            mimeType: "image/png",
-            kind: "image",
-            size: 1,
-            data: "AA==",
-          },
-        ],
-      },
-    ]);
-    const media = markup.indexOf("user-message-media");
-    const bubble = markup.indexOf("user-message-bubble");
-    expect(media).toBeGreaterThan(-1);
-    expect(media).toBeLessThan(bubble);
-    expect(markup.slice(bubble)).not.toContain("attachment-chip-image");
-  });
+describe.each(["chat", "full"] as const)(
+  "AgentTranscript %s image messages",
+  (layout) => {
+    beforeEach(() => {
+      appearance.layout = layout;
+    });
 
-  it("omits the empty bubble for an image-only message", () => {
-    const markup = render([
-      {
-        id: "user",
-        role: "user",
-        text: "",
-        attachments: [
-          {
-            id: "image",
-            name: "shot.png",
-            mimeType: "image/png",
-            kind: "image",
-            size: 1,
-            data: "AA==",
-          },
-        ],
-      },
-    ]);
-    expect(markup).toMatch(/<div hidden=""[^>]*user-message-bubble/);
-  });
-});
+    afterEach(() => {
+      appearance.layout = "chat";
+    });
+
+    it("lifts sent images above the text bubble", () => {
+      const markup = render([
+        {
+          id: "user",
+          role: "user",
+          text: "Make this a capsule",
+          attachments: [
+            {
+              id: "image",
+              name: "shot.png",
+              mimeType: "image/png",
+              kind: "image",
+              size: 1,
+              data: "AA==",
+            },
+          ],
+        },
+      ]);
+      const media = markup.indexOf("user-message-media");
+      const bubble = markup.indexOf("user-message-bubble");
+      expect(media).toBeGreaterThan(-1);
+      expect(media).toBeLessThan(bubble);
+      expect(markup.slice(bubble)).not.toContain("attachment-chip-image");
+    });
+
+    it("omits the empty bubble for an image-only message", () => {
+      const markup = render([
+        {
+          id: "user",
+          role: "user",
+          text: "",
+          attachments: [
+            {
+              id: "image",
+              name: "shot.png",
+              mimeType: "image/png",
+              kind: "image",
+              size: 1,
+              data: "AA==",
+            },
+          ],
+        },
+      ]);
+      expect(markup).toMatch(/<div hidden=""[^>]*user-message-bubble/);
+    });
+  },
+);

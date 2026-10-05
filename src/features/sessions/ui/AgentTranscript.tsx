@@ -1865,7 +1865,6 @@ function UserMessageBlock({
   const { t: uiT } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
-  const [singleLine, setSingleLine] = useState(false);
   const textRef = useRef<HTMLElement>(null);
   const card = block.secondOpinion;
   const note = block.noteCard;
@@ -1878,15 +1877,13 @@ function UserMessageBlock({
   const displayText = messageLink
     ? `${messageLink.beforeText}${messageLink.afterText}`
     : text;
-  const chat = layout === "chat";
-  // Chat bubbles lift sent images above the text, like a messaging app, so a
-  // short caption can still round into a capsule.
-  const mediaAttachments =
-    chat && !block.draft
-      ? (block.attachments ?? []).filter(
-          (file) => file.kind === "image" && attachmentPreviewSrc(file),
-        )
-      : [];
+  // Sent images sit above the caption, using the same presentation on desktop
+  // and mobile. Drafts keep their attachments inside the editable card.
+  const mediaAttachments = !block.draft
+    ? (block.attachments ?? []).filter(
+        (file) => file.kind === "image" && attachmentPreviewSrc(file),
+      )
+    : [];
   const bubbleAttachments = mediaAttachments.length
     ? (block.attachments ?? []).filter(
         (file) => !mediaAttachments.includes(file),
@@ -1900,58 +1897,24 @@ function UserMessageBlock({
     block.ciContext ||
     block.draft,
   );
-  const textOnly =
-    Boolean(text) &&
-    !block.draft &&
-    !bubbleAttachments.length &&
-    !card &&
-    !note &&
-    !block.ciContext;
-
-  // Only the chat layout rounds a single line; the document layout always uses
-  // the square corners, so it never needs the measurement at all.
-  const roundsSingleLine = chat && textOnly;
-
   useLayoutEffect(() => {
     const el = textRef.current;
     if (!el || !text) {
       setOverflows(false);
-      setSingleLine(false);
       return;
     }
 
-    // Every user message carries one of these observers, so the callback runs
-    // once per message whenever the transcript reflows. `getComputedStyle`
-    // forces a style recalculation on each call and the line height only moves
-    // with the font or the UI scale — never with a resize — so it is resolved
-    // once here rather than on every delivery.
-    let lineHeight = 0;
     const measure = () => {
       if (!expanded) {
         setOverflows(el.scrollHeight > el.clientHeight + 1);
       }
-      if (!roundsSingleLine) {
-        setSingleLine(false);
-        return;
-      }
-      // Pooled or offscreen turns can measure as zero before they are laid out.
-      if (el.clientWidth === 0) {
-        setSingleLine(false);
-        return;
-      }
-      if (!lineHeight) {
-        lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight);
-      }
-      setSingleLine(
-        Number.isFinite(lineHeight) && el.scrollHeight <= lineHeight + 1,
-      );
     };
 
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [text, roundsSingleLine, expanded, visible]);
+  }, [text, expanded, visible]);
 
   const toggle = () => {
     if (overflows) setExpanded((value) => !value);
@@ -1960,14 +1923,11 @@ function UserMessageBlock({
   return (
     <div
       data-prompt-anchor={block.id}
+      data-message-layout={layout}
       data-editing-last-turn={editing ? "true" : undefined}
-      className={`user-message-row group/usermsg overflow-visible ${
-        chat ? "flex flex-col items-end pt-1.5 pr-4 pb-5 pl-14" : "p-1.5 pb-4"
-      }`}
+      className="user-message-row group/usermsg flex flex-col items-end overflow-visible pt-1 pr-4 pb-5 pl-[18%]"
     >
-      <div
-        className={`user-message-hover-zone min-w-0 overflow-visible ${chat ? "flex w-fit max-w-full flex-col items-end" : "w-full"}`}
-      >
+      <div className="user-message-hover-zone flex w-fit max-w-full min-w-0 flex-col items-end overflow-visible">
         {mediaAttachments.length ? (
           <div
             className={`user-message-media flex max-w-[min(100%,36rem)] flex-wrap justify-end gap-1.5 ${hasBubble ? "mb-1.5" : ""}`}
@@ -1981,15 +1941,13 @@ function UserMessageBlock({
           hidden={!hasBubble}
           data-draft={block.draft ? "true" : undefined}
           data-monocode={monocode ? "true" : undefined}
-          className={`user-message-bubble relative min-w-0 px-3 py-2 font-sans text-content transition-[background-color] duration-200 ${
+          className={`user-message-bubble relative w-fit min-w-0 px-3 py-2 font-sans text-content transition-[background-color] duration-200 ${
+            layout === "chat" ? "max-w-[min(100%,36rem)]" : "max-w-full"
+          } ${
             block.draft
               ? "border border-dashed border-content/30 bg-content/4"
               : "bg-content/10"
-          } ${editing ? "edit-last-turn-bubble" : ""} ${
-            chat
-              ? `w-fit max-w-[min(100%,36rem)] ${singleLine ? "rounded-full" : "rounded-xl"}`
-              : "rounded-lg border border-content/10"
-          }`}
+          } ${editing ? "edit-last-turn-bubble" : ""}`}
           style={{ zIndex: stickyIndex }}
         >
           {bubbleAttachments.length ? (

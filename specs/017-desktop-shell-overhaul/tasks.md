@@ -23,6 +23,19 @@
 - [x] Preserve view state while hidden; hide portal overlays and suspend their
   global handlers. Close existing/restored Notes tabs when Notes is disabled.
 
+### App-view layout and loading follow-up
+- [x] Restore a bounded-height flex chain from FilePane/AppViewHost to the view
+  so long Settings pages and other app-view content scroll within the pane.
+- [x] Confine first-use lazy loading to the app pane; keep the window shell and
+  neighbouring panes visible throughout the switch.
+- [x] Add regressions for the host layout and local loading fallback while
+  preserving existing hidden-view state and portal behavior.
+- [x] Verify affected tests, web checks, Host tests and production build; check
+  browser geometry and scrolling for long Settings pages and a representative
+  app-view layout, including short and split panes. Record actual outcomes.
+- [ ] Manual Linux zh-CN Tauri QA: verify app-view scrolling and local loading
+  in the native window, including panes resized by a visible terminal dock.
+
 ## Phase 4 — activity bar and single sidebar
 - [x] Persist sidebar width.
 - [x] Extract ProjectList/ProjectAvatar/useUpdateStatus.
@@ -86,3 +99,31 @@
   its 9 tests passed alone and the final full check passed.
   `npm run build` and `git diff --check` passed. Native frame animation has
   not been visually verified.
+- App-view layout/loading follow-up: `LANG=en_US.UTF-8 npm run check:web`
+  passed with 466 files and 4844 tests (2 files/13 tests skipped); its TypeScript
+  check passed. The 4 `AppViewHost` regressions also passed on their own.
+  `npm run build` passed with the existing CSS `::highlight` optimizer,
+  bundle-size and mixed static/dynamic import advisories. `npm run test:host`
+  passed with 28 files and 193 tests (1 file/5 tests skipped), including the
+  script's Host build/type check.
+  Versions rechecked for this follow-up: Node `v24.16.0`, npm `12.0.1`,
+  Vitest `3.2.7` and TypeScript `5.8.3`. The focused final
+  `git diff --check` passed; the temporary preview was cleaned up and its
+  server stopped.
+- A real in-app browser fixture used the actual `FilePane` and `SettingsView`
+  components. Appearance content measured 600px client height / 1578px scroll
+  height; wheel input moved `scrollTop` to 977.6px. Switching to another tab
+  and back retained 977.6px and did not show a loading fallback.
+  In a short, split pane, content measured 260px / 2191px and navigation
+  measured 260px / 459px; wheel input independently reached 1697.6px and
+  199.2px. The Settings header stayed fixed at viewport top 48px.
+- In the same browser fixture, light-theme Keybindings measured 600px / 2188px
+  and wheel input reached 1588px. A representative second app-view layout
+  measured 600px / 3840px and scrolled to 720px. With lazy content deliberately
+  delayed, the shell retained its 48px height, `globalBlank` remained false,
+  and the Loading fallback appeared only inside the pane.
+- These browser checks establish actual overflow, wheel scrolling, retained
+  scroll position and pane-local loading in the fixture. A real terminal dock
+  and the native Tauri window were not exercised; reduced fixture height only
+  verifies a smaller pane. Native Linux zh-CN QA remains pending, and macOS
+  and Windows remain unverified.

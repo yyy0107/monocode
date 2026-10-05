@@ -29,6 +29,9 @@ terminal docks, persisted snapshots and existing keyboard overrides.
    stay visible. Each view has one instance per window; a tab holding only app
    views appears in every project's tab strip. Esc leaves a view without
    closing its tab. Settings navigation lives inside the Settings view.
+   Each view fills the available pane height so its content and internal
+   navigation can scroll independently. First-use lazy loading stays inside
+   the pane; it does not clear the window or hide the surrounding shell.
 4. **Activity bar and single sidebar.** A 48px activity bar (Search, Inbox,
    Notes, Automations, project avatars, all-projects pop-out, live agents,
    updates, Settings) replaces the 200px project rail. One sidebar keeps
@@ -46,4 +49,9 @@ terminal docks, persisted snapshots and existing keyboard overrides.
   app view; it opens in the project's last visited tab.
 - Older workspace snapshots restore unchanged; app-view tabs round-trip by
   kind only; duplicate kinds collapse to the first.
+- Long Settings pages and other app views scroll within their available pane
+  height, including split panes and a visible terminal dock.
+- Switching to an app view whose content is still loading keeps the menu,
+  activity bar, sidebar, tab strip, footer and adjacent panes visible, with a
+  loading fallback confined to that app pane.
 - No Rust change; the macOS native menu keeps working through the same events.

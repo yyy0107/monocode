@@ -567,6 +567,35 @@ html.has-chat-background.chat-background-effect-ready.chat-background-gradient-b
   width: fit-content;
 }
 
+/* User messages share the phone's bubble in both transcript layouts. */
+.user-message-row .user-message-bubble {
+  min-height: 38px;
+  padding: 8px 13px;
+  border-radius: 19px 19px 6px 19px;
+}
+
+.user-message-row .user-message-bubble:not([data-draft="true"]) {
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+}
+
+.user-message-row .user-message-bubble > pre,
+.user-message-row .user-message-with-link {
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.user-message-row .user-message-actions {
+  width: max-content;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  padding: 3px 4px 0;
+  gap: 2px;
+}
+
+.user-message-row .user-message-actions time {
+  font-size: 11px;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .user-message-hover-zone {
     position: relative;
@@ -601,6 +630,12 @@ html.has-chat-background.chat-background-effect-ready.chat-background-gradient-b
 html.has-user-accent .user-message-bubble {
   background: color-mix(in srgb, var(--user-accent-color) 24%, transparent);
   border-color: color-mix(in srgb, var(--user-accent-color) 30%, transparent);
+}
+
+html.has-user-accent
+  .user-message-row
+  .user-message-bubble:not([data-draft="true"]) {
+  background: color-mix(in srgb, var(--user-accent-color) 22%, transparent);
 }
 
 /*
@@ -3268,13 +3303,22 @@ html.theme-light .btw-burst {
   );
 }
 
-/* Images sent in chat sit above the text bubble as larger rounded tiles. */
-.user-message-media .attachment-chip-thumbnail {
-  width: 7.5rem;
-  height: 7.5rem;
-  border-radius: 1rem;
-  border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
+/* Sent images form a wrapping row above the caption, never composer chips. */
+.user-message-media .attachment-chip-image {
+  max-width: 100%;
 }
 .user-message-media .attachment-chip-image button {
-  border-radius: 1rem;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 19px;
+}
+.user-message-media .attachment-chip-thumbnail {
+  width: 7.5rem;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: inherit;
+  border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
 }

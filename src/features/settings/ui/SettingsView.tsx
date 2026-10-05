@@ -1082,7 +1082,7 @@ function ChatPage() {
           id="transcript-layout"
           label={uiT("Transcript layout")}
           description={uiT(
-            "Full width keeps user prompts as a spanning card. Chat aligns them to the right with a max width, like a messaging app.",
+            "User messages appear as right-aligned bubbles. Full width lets longer messages use more space; Chat limits their width like a messaging app.",
           )}
         >
           <Segmented
