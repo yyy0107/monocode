@@ -127,6 +127,33 @@ describe("historyWithLiveSessions", () => {
     });
   });
 
+  it("shows the current provider and model before a switched session is persisted", () => {
+    const cwd = "/tmp/project-a";
+    const stored = {
+      ...summary("live", cwd),
+      title: "Fix sidebar identity",
+      pinned: true,
+    };
+    const session = {
+      ...newSession("claude", cwd),
+      id: stored.id,
+      title: stored.title,
+      model: "claude:sonnet",
+      blocks: [{ id: "u", role: "user" as const, text: "Continue" }],
+    };
+
+    const rows = historyWithLiveSessions([stored], [session], cwd);
+    expect(rows[0]).toMatchObject({
+      harness: "claude",
+      model: "claude:sonnet",
+      title: stored.title,
+      pinned: true,
+      updatedAt: stored.updatedAt,
+    });
+    expect(stored.harness).toBe("cursor");
+    expect(stored.model).toBe("gpt-5");
+  });
+
   it("does not inject an internal worker without a loaded run", () => {
     const worker = {
       ...newSession("codex", run.cwd),

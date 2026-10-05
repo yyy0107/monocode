@@ -188,9 +188,11 @@ export function historyWithLiveSessions(
       const stored = rows[storedIndex];
       const draft = !!sessionDraftBlock(session);
       const automationId = session.automationId || stored.automationId;
-      // Live title and work item land before the next persist, e.g. mid-turn.
+      // Live provider, title and work item land before the next persist.
       const linkedWorkItem = session.linkedWorkItem ?? stored.linkedWorkItem;
       if (
+        stored.harness !== session.harness ||
+        stored.model !== session.model ||
         !!stored.draft !== draft ||
         stored.automationId !== automationId ||
         stored.title !== session.title ||
@@ -198,6 +200,8 @@ export function historyWithLiveSessions(
       ) {
         rows[storedIndex] = {
           ...stored,
+          harness: session.harness,
+          model: session.model,
           title: session.title,
           titleState: session.titleState,
           draft: draft || undefined,

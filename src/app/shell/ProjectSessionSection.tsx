@@ -41,7 +41,10 @@ import {
 import { MOD } from "../../platform/tauri/platform";
 import { copyText } from "../../platform/tauri/clipboard";
 import { resolveModel } from "../../features/sessions/model/models";
-import { sessionDisplayTitle } from "../../features/sessions/model/session";
+import {
+  HARNESS_TITLE,
+  sessionDisplayTitle,
+} from "../../features/sessions/model/session";
 import { ParticleText } from "../../shared/ui/ParticleText";
 import { nextUnseenFinishedSessions } from "../../features/sessions/model/sessionDone";
 import { orchestrationTaskLabel } from "../../features/orchestration/model/orchestrationSummary";
@@ -2478,6 +2481,19 @@ const SessionCard = memo(function SessionCard({
               dense || (compact && !orchestrationExpanded) ? "" : "mt-1"
             }`}
           >
+            {dense || (compact && !orchestrationExpanded) ? (
+              <span
+                role="img"
+                aria-label={HARNESS_TITLE[session.harness]}
+                title={HARNESS_TITLE[session.harness]}
+                className="flex shrink-0 items-center"
+              >
+                <HarnessIcon
+                  harness={session.harness}
+                  className="size-3.5 shrink-0"
+                />
+              </span>
+            ) : null}
             {session.pinned ? (
               <Pin
                 className="size-3 shrink-0 text-content/45"
