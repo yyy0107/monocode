@@ -5,36 +5,19 @@ import {
   ChevronRight,
   FolderPlus,
   Internet,
-  Inbox,
   MoreHorizontal,
   Pin,
   PinOff,
-  File,
   Plus,
-  Search,
-  Settings,
-  Zap,
 } from "../../shared/ui/icons";
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { useDragResize } from "../../shared/hooks/useDragResize";
 import { useLockOverscroll } from "../../shared/hooks/useLockOverscroll";
 import { useProjectDiffStats } from "../../features/source-control/hooks/useProjectDiffStats";
 import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
 import { useTabGroupLogos } from "../../features/projects/hooks/useTabGroupLogos";
-import {
-  loadProjectRailWidth,
-  PROJECT_RAIL_WIDTH_DEFAULT,
-  PROJECT_RAIL_WIDTH_MAX,
-  PROJECT_RAIL_WIDTH_MIN,
-  saveProjectRailWidth,
-} from "../../features/settings/model/appearance";
-import {
-  basename,
-  type GitDiffStats,
-} from "../../platform/tauri/fs";
-import { MOD } from "../../platform/tauri/platform";
+import { basename, type GitDiffStats } from "../../platform/tauri/fs";
 import { formatInteger } from "../../shared/lib/numbers";
-import { pathKey, projectKey, projectName } from "../../shared/lib/paths";
+import { pathKey, projectKey } from "../../shared/lib/paths";
 import {
   collectRailProjects,
   loadPinnedProjects,
@@ -53,10 +36,7 @@ import {
   loadTabGroupCustomColors,
   loadTabGroupLabels,
   loadTabGroupMascots,
-  resolveTabGroupColor,
   resolveTabGroupLabel,
-  resolveTabGroupLogo,
-  resolveTabGroupMascot,
 } from "../../features/workspace/model/tabGroups";
 import {
   loadProjectGroupAssignments,
@@ -66,22 +46,11 @@ import {
   updateProjectGroup,
   type ProjectGroup,
 } from "../../features/projects/model/projectGroups";
-import type { LiveAgent } from "../../features/sessions/model/liveAgents";
-import { LiveAgentsPreview } from "../../features/sessions/ui/LiveAgentsPreview";
-import { ProjectLogoIcon } from "../../features/projects/ui/ProjectLogoIcon";
 import { ProjectMascot } from "../../features/projects/ui/ProjectMascot";
-import { RailAction, RailSearch } from "./RailAction";
-import { DevModeSlot, WindowNavigationSpace } from "./TitleBar";
-import { SidebarUpdateFooter } from "./SidebarUpdate";
-import type { InstalledUpdate } from "../model/updateNotice";
-import { SettingsNav } from "./SettingsRail";
 import { Shimmer } from "../../shared/ui/Shimmer";
-import type { SettingsSectionId } from "../../features/settings/model/settings";
-import { InboxNotificationMenu } from "../../features/inbox/ui/InboxNotificationMenu";
 import { notificationMuteStatus } from "../../features/notifications/ui/notificationMuteActions";
 import { useProjectNotificationPreferences } from "../../features/notifications/hooks/useProjectNotificationPreferences";
 import { useNotificationProjects } from "../../features/notifications/hooks/useNotificationProjects";
-import { GithubStarPrompt } from "./GithubStarPrompt";
 import { Popover } from "../../shared/ui/Popover";
 import { OPEN_REMOTE_PROJECT_EVENT } from "../../features/connections/model/connections";
 import {
@@ -91,83 +60,34 @@ import {
 import { remoteProjectFor } from "../../features/connections/model/remoteProjects";
 import { useProjectMenu } from "./useProjectMenu";
 
-type Props = {
-  visible?: boolean;
+import { ProjectAvatar } from "./ProjectAvatar";
+export type ProjectListProps = {
   cwd: string;
   recents: RecentProject[];
-  inboxUnseen?: boolean;
   busyPaths?: Iterable<string>;
-  canGoBack?: boolean;
-  canGoForward?: boolean;
-  onGoBack?: () => void;
-  onGoForward?: () => void;
-  onSearch?: () => void;
-  searchActive?: boolean;
-  onOpenInbox?: () => void;
-  inboxActive?: boolean;
-  notesEnabled?: boolean;
-  onOpenNotes?: () => void;
-  notesActive?: boolean;
-  onOpenAutomations?: () => void;
-  automationsActive?: boolean;
-  onTogglePanel?: () => void;
+  compact?: boolean;
+  active?: boolean;
+  query?: string;
   onSelectProject: (path: string) => void;
   onOpenProject: () => void;
   onRemoveProject?: (path: string, options: { purgeData: boolean }) => void;
-  liveAgents?: LiveAgent[];
-  activeSessionId?: string;
-  onSelectAgent?: (sessionId: string) => void;
-  settingsOpen?: boolean;
-  settingsSection?: SettingsSectionId;
-  onOpenSettings?: () => void;
   onOpenNotificationSettings?: (projectPath?: string) => void;
-  onSelectSettingsSection?: (section: SettingsSectionId) => void;
-  onCloseSettings?: () => void;
-  updateNotice?: InstalledUpdate | null;
-  onOpenWhatsNew?: (version: string) => void;
-  onDismissUpdate?: () => void;
 };
 
-export function ProjectRail({
-  visible = true,
+export function ProjectList({
   cwd,
   recents,
-  inboxUnseen = false,
   busyPaths,
-  onSearch,
-  searchActive = false,
-  onOpenInbox,
-  inboxActive = false,
-  notesEnabled = true,
-  onOpenNotes,
-  notesActive = false,
-  onOpenAutomations,
-  automationsActive = false,
+  compact = false,
+  active = true,
+  query = "",
   onSelectProject,
   onOpenProject,
   onRemoveProject,
-  liveAgents = [],
-  activeSessionId,
-  onSelectAgent,
-  settingsOpen = false,
-  settingsSection = "general",
-  onOpenSettings,
   onOpenNotificationSettings,
-  onSelectSettingsSection,
-  onCloseSettings,
-  updateNotice = null,
-  onOpenWhatsNew,
-  onDismissUpdate,
-}: Props) {
+}: ProjectListProps) {
   const { t: uiT } = useTranslation();
-  const resize = useDragResize({
-    min: PROJECT_RAIL_WIDTH_MIN,
-    max: () =>
-      Math.min(PROJECT_RAIL_WIDTH_MAX, Math.floor(window.innerWidth * 0.35)),
-    defaultWidth: PROJECT_RAIL_WIDTH_DEFAULT,
-    initial: loadProjectRailWidth(),
-    onCommit: saveProjectRailWidth,
-  });
+  const searchActive = !active;
   const [railOrder, setRailOrder] = useState(loadProjectRailOrder);
   const [pinnedPaths, setPinnedPaths] = useState(loadPinnedProjects);
   const [groupLabels, setGroupLabels] = useState(loadTabGroupLabels);
@@ -194,27 +114,16 @@ export function ProjectRail({
       }),
     [],
   );
-  const [inboxMenu, setInboxMenu] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
   const projectMenu = useProjectMenu({
     onRemoveProject,
     onOpenNotificationSettings,
-    onOpen: () => setInboxMenu(null),
   });
-  useEffect(() => {
-    if (visible) return;
-    projectMenu.dismiss();
-    setInboxMenu(null);
-  }, [visible]);
   const notificationPreferences = useProjectNotificationPreferences();
   const allProjects = useMemo(
     () => collectRailProjects(recents, cwd),
     [cwd, recents],
   );
   const notificationProjects = useNotificationProjects([...allProjects.keys()]);
-  const menuTrigger = useRef<HTMLElement | null>(null);
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const scrollRef = useRef<HTMLDivElement>(null);
   const groupLogos = useTabGroupLogos();
@@ -223,10 +132,24 @@ export function ProjectRail({
     const status = notificationMuteStatus(notificationPreferences[project.id]);
     for (const path of project.paths) muteStatuses.set(pathKey(path), status);
   }
-  const sections = useMemo(
-    () => projectRailSections(recents, cwd, railOrder, pinnedPaths),
-    [cwd, pinnedPaths, railOrder, recents],
-  );
+  const sections = useMemo(() => {
+    const ordered = projectRailSections(recents, cwd, railOrder, pinnedPaths);
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return ordered;
+    const matches = (project: RecentProject) =>
+      [
+        project.path,
+        resolveTabGroupLabel(
+          projectKey(project.path),
+          groupLabels,
+          basename(project.path),
+        ),
+      ].some((value) => value.toLocaleLowerCase().includes(needle));
+    return {
+      pinned: ordered.pinned.filter(matches),
+      projects: ordered.projects.filter(matches),
+    };
+  }, [cwd, pinnedPaths, railOrder, recents, query, groupLabels]);
   const groupedProjectSections = useMemo(() => {
     const byGroup = new Map<string, RecentProject[]>(
       projectGroups.map((group) => [group.id, []]),
@@ -331,240 +254,130 @@ export function ProjectRail({
     "y",
   );
   return (
-    <nav
-      ref={resize.setPaneRef}
+    <div
       aria-label={uiT("Projects")}
-      className={`sidebar-glass relative shrink-0 flex-col border-r border-stroke ${visible ? "flex" : "hidden"}`}
+      data-project-list={compact ? "avatars" : "full"}
+      className="flex min-h-0 flex-1 flex-col"
     >
       <div
-        className="flex h-10 shrink-0 select-none items-center pr-1.5"
-        data-tauri-drag-region="deep"
+        ref={(el) => {
+          lockOverscroll(el);
+          scrollRef.current = el;
+        }}
+        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-none pb-2"
       >
-        <WindowNavigationSpace />
-        <DevModeSlot />
-      </div>
-
-      {settingsOpen ? (
-        <SettingsNav
-          section={settingsSection}
-          onSelect={(next) => onSelectSettingsSection?.(next)}
-          onClose={() => onCloseSettings?.()}
-        />
-      ) : (
-        <>
-          <div className="flex shrink-0 flex-col gap-px px-2 pb-2 pt-0.5">
-            <RailSearch
-              label={uiT("Search")}
-              icon={Search}
-              onClick={onSearch}
-              active={searchActive}
-              shortcut={`${MOD}K`}
-              ariaLabel={uiT("Search ({value0}K)", { value0: String(MOD) })}
-            />
-            <div className="mt-0.5" />
-            <RailAction
-              label={uiT("Inbox")}
-              icon={Inbox}
-              onClick={onOpenInbox}
-              onOpenContextMenu={(x, y) => {
-                menuTrigger.current =
-                  document.activeElement instanceof HTMLElement
-                    ? document.activeElement
-                    : null;
-                projectMenu.close();
-                setInboxMenu({ x, y });
-              }}
-              active={inboxActive}
-              dot={inboxUnseen}
-              ariaLabel={inboxUnseen ? uiT("Inbox, new items") : uiT("Inbox")}
-            />
-            {notesEnabled ? (
-              <RailAction
-                label={uiT("Notes")}
-                icon={File}
-                onClick={onOpenNotes}
-                active={notesActive}
-                ariaLabel={uiT("Notes")}
-              />
-            ) : null}
-            <RailAction
-              label={uiT("Automations")}
-              icon={Zap}
-              onClick={onOpenAutomations}
-              active={automationsActive}
-              ariaLabel={uiT("Automations")}
-            />
-          </div>
-
-          <div
-            ref={(el) => {
-              lockOverscroll(el);
-              scrollRef.current = el;
-            }}
-            className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-none pb-2"
-          >
-            {sections.pinned.length > 0 ? (
-              <ProjectSection
-                label={uiT("Pinned")}
-                items={sections.pinned}
-                muteStatuses={muteStatuses}
-                cwd={cwd}
-                busy={busy}
-                statsEnabled={visible}
-                sortable={pinnedSortable}
-                pinned
-                searchActive={
-                  searchActive ||
-                  inboxActive ||
-                  notesActive ||
-                  automationsActive
-                }
-                onSelect={onSelectProject}
-                onTogglePin={toggleProjectPin}
-                onContextMenu={onProjectContextMenu}
-                onOpenMenu={projectMenu.open}
-                groupLabels={groupLabels}
-                groupColors={groupColors}
-                groupCustomColors={groupCustomColors}
-                groupLogos={groupLogos}
-                groupMascots={groupMascots}
-              />
-            ) : null}
-
-            {projectGroups.length > 0 ? (
-              <div className="mb-2 shrink-0">
-                <ProjectSectionHeader
-                  label={uiT("Groups")}
-                  onAddGroup={(x, y) => projectMenu.createGroup(x, y)}
-                />
-                <div className="flex flex-col gap-px px-2">
-                  {groupedProjectSections.grouped.map(({ group, items }) => (
-                    <ProjectGroupSection
-                      key={group.id}
-                      group={group}
-                      items={items}
-                      muteStatuses={muteStatuses}
-                      cwd={cwd}
-                      busy={busy}
-                      statsEnabled={visible}
-                      searchActive={
-                        searchActive ||
-                        inboxActive ||
-                        notesActive ||
-                        automationsActive
-                      }
-                      onSelect={onSelectProject}
-                      onTogglePin={toggleProjectPin}
-                      onContextMenu={onProjectContextMenu}
-                      onOpenMenu={projectMenu.open}
-                      onReorder={onReorderProjects}
-                      onToggleCollapsed={() =>
-                        updateProjectGroup(group.id, (current) => ({
-                          ...current,
-                          collapsed: !current.collapsed,
-                        }))
-                      }
-                      onOpenGroupMenu={(x, y) =>
-                        projectMenu.openGroupMenu(group.id, x, y)
-                      }
-                      groupLabels={groupLabels}
-                      groupColors={groupColors}
-                      groupCustomColors={groupCustomColors}
-                      groupLogos={groupLogos}
-                      groupMascots={groupMascots}
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            <ProjectSection
-              label={uiT("Projects")}
-              items={groupedProjectSections.ungrouped}
-              muteStatuses={muteStatuses}
-              emptyLabel={
-                sections.projects.length === 0 && projectGroups.length === 0
-                  ? "No projects yet"
-                  : undefined
-              }
-              onAdd={onOpenProject}
-              cwd={cwd}
-              busy={busy}
-              statsEnabled={visible}
-              sortable={projectSortable}
-              pinned={false}
-              searchActive={
-                searchActive || inboxActive || notesActive || automationsActive
-              }
-              onSelect={onSelectProject}
-              onTogglePin={toggleProjectPin}
-              onContextMenu={onProjectContextMenu}
-              onOpenMenu={projectMenu.open}
-              groupLabels={groupLabels}
-              groupColors={groupColors}
-              groupCustomColors={groupCustomColors}
-              groupLogos={groupLogos}
-              groupMascots={groupMascots}
-            />
-          </div>
-          <LiveAgentsPreview
-            agents={liveAgents}
-            activeSessionId={activeSessionId}
-            onSelect={onSelectAgent}
+        {sections.pinned.length > 0 ? (
+          <ProjectSection
+            compact={compact}
+            label={uiT("Pinned")}
+            items={sections.pinned}
+            muteStatuses={muteStatuses}
+            cwd={cwd}
+            busy={busy}
+            statsEnabled={!compact}
+            sortable={pinnedSortable}
+            pinned
+            searchActive={searchActive}
+            onSelect={onSelectProject}
+            onTogglePin={toggleProjectPin}
+            onContextMenu={onProjectContextMenu}
+            onOpenMenu={projectMenu.open}
             groupLabels={groupLabels}
             groupColors={groupColors}
             groupCustomColors={groupCustomColors}
+            groupLogos={groupLogos}
             groupMascots={groupMascots}
           />
-          <SidebarUpdateFooter
-            update={updateNotice}
-            onOpenWhatsNew={onOpenWhatsNew}
-            onDismissUpdate={onDismissUpdate}
-          />
-          <div className="flex shrink-0 flex-col gap-px p-2">
-            <GithubStarPrompt />
-            <RailAction
-              label={uiT("Settings")}
-              icon={Settings}
-              onClick={onOpenSettings}
-              shortcut={`${MOD},`}
-              ariaLabel={uiT("Settings ({value0},)", { value0: String(MOD) })}
-            />
+        ) : null}
+
+        {projectGroups.length > 0 ? (
+          <div className="mb-2 shrink-0">
+            {compact ? null : (
+              <ProjectSectionHeader
+                label={uiT("Groups")}
+                onAddGroup={(x, y) => projectMenu.createGroup(x, y)}
+              />
+            )}
+            <div
+              className={
+                compact
+                  ? "flex flex-col items-center gap-1"
+                  : "flex flex-col gap-px px-2"
+              }
+            >
+              {groupedProjectSections.grouped.map(({ group, items }) => (
+                <ProjectGroupSection
+                  compact={compact}
+                  key={group.id}
+                  group={group}
+                  items={items}
+                  muteStatuses={muteStatuses}
+                  cwd={cwd}
+                  busy={busy}
+                  statsEnabled={!compact}
+                  searchActive={searchActive}
+                  onSelect={onSelectProject}
+                  onTogglePin={toggleProjectPin}
+                  onContextMenu={onProjectContextMenu}
+                  onOpenMenu={projectMenu.open}
+                  onReorder={onReorderProjects}
+                  onToggleCollapsed={() =>
+                    updateProjectGroup(group.id, (current) => ({
+                      ...current,
+                      collapsed: !current.collapsed,
+                    }))
+                  }
+                  onOpenGroupMenu={(x, y) =>
+                    projectMenu.openGroupMenu(group.id, x, y)
+                  }
+                  groupLabels={groupLabels}
+                  groupColors={groupColors}
+                  groupCustomColors={groupCustomColors}
+                  groupLogos={groupLogos}
+                  groupMascots={groupMascots}
+                />
+              ))}
+            </div>
           </div>
-        </>
-      )}
-      {visible ? projectMenu.element : null}
-      {visible && inboxMenu ? (
-        <InboxNotificationMenu
-          {...inboxMenu}
-          projectPaths={[...allProjects.keys()]}
-          onOpenSettings={onOpenNotificationSettings}
-          onClose={() => {
-            setInboxMenu(null);
-            menuTrigger.current?.focus();
-          }}
+        ) : null}
+
+        <ProjectSection
+          compact={compact}
+          label={uiT("Projects")}
+          items={groupedProjectSections.ungrouped}
+          muteStatuses={muteStatuses}
+          emptyLabel={
+            sections.projects.length === 0 && projectGroups.length === 0
+              ? uiT(query.trim() ? "No matching projects" : "No projects yet")
+              : undefined
+          }
+          onAdd={onOpenProject}
+          cwd={cwd}
+          busy={busy}
+          statsEnabled={!compact}
+          sortable={projectSortable}
+          pinned={false}
+          searchActive={searchActive}
+          onSelect={onSelectProject}
+          onTogglePin={toggleProjectPin}
+          onContextMenu={onProjectContextMenu}
+          onOpenMenu={projectMenu.open}
+          groupLabels={groupLabels}
+          groupColors={groupColors}
+          groupCustomColors={groupCustomColors}
+          groupLogos={groupLogos}
+          groupMascots={groupMascots}
         />
-      ) : null}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={uiT("Resize project sidebar")}
-        aria-valuenow={resize.width}
-        aria-valuemin={PROJECT_RAIL_WIDTH_MIN}
-        aria-valuemax={PROJECT_RAIL_WIDTH_MAX}
-        className={`absolute inset-y-0 -right-px z-10 w-1.5 cursor-col-resize touch-none ${
-          resize.dragging ? "bg-content/15" : "hover:bg-content/10"
-        }`}
-        onPointerDown={resize.onPointerDown}
-        onDoubleClick={resize.onDoubleClick}
-      />
-    </nav>
+      </div>
+      {projectMenu.element}
+    </div>
   );
 }
 
 type SortableHandle = ReturnType<typeof useAnimatedReorder>;
 
 function ProjectSection({
+  compact,
   label,
   items,
   muteStatuses,
@@ -586,6 +399,7 @@ function ProjectSection({
   groupLogos,
   groupMascots,
 }: {
+  compact: boolean;
   label: string;
   items: RecentProject[];
   muteStatuses: ReadonlyMap<string, string | null>;
@@ -607,17 +421,25 @@ function ProjectSection({
   groupLogos: ReturnType<typeof useTabGroupLogos>;
   groupMascots: Record<string, string>;
 }) {
+  const { t: uiT } = useTranslation();
   return (
-    <div className="shrink-0 mb-2">
-      <ProjectSectionHeader label={label} onAdd={onAdd} />
+    <div className={compact ? "shrink-0" : "shrink-0 mb-2"}>
+      {compact ? null : <ProjectSectionHeader label={label} onAdd={onAdd} />}
       {items.length === 0 && emptyLabel ? (
         <p className="px-4 pb-1 text-[11px] leading-tight text-content/40">
-          {emptyLabel}
+          {uiT(emptyLabel)}
         </p>
       ) : null}
-      <div className="flex flex-col gap-px px-2">
+      <div
+        className={
+          compact
+            ? "flex flex-col items-center gap-1"
+            : "flex flex-col gap-px px-2"
+        }
+      >
         {items.map((item) => (
           <ProjectCard
+            compact={compact}
             key={item.path}
             item={item}
             muteStatus={muteStatuses.get(pathKey(item.path)) ?? undefined}
@@ -677,6 +499,7 @@ function ProjectSectionHeader({
 }
 
 function ProjectGroupSection({
+  compact,
   group,
   items,
   muteStatuses,
@@ -697,6 +520,7 @@ function ProjectGroupSection({
   groupLogos,
   groupMascots,
 }: {
+  compact: boolean;
   group: ProjectGroup;
   items: RecentProject[];
   muteStatuses: ReadonlyMap<string, string | null>;
@@ -723,8 +547,11 @@ function ProjectGroupSection({
     onReorder,
     "y",
   );
-  const countLabel = `${items.length} ${items.length === 1 ? "project" : "projects"}`;
-  const expanded = !group.collapsed;
+  const countLabel = uiT(
+    items.length === 1 ? "{count} project" : "{count} projects",
+    { count: items.length },
+  );
+  const expanded = compact || !group.collapsed;
   const openMenu = (target: HTMLElement, x?: number, y?: number) => {
     const rect = target.getBoundingClientRect();
     onOpenGroupMenu(x ?? rect.left, y ?? rect.bottom);
@@ -733,82 +560,92 @@ function ProjectGroupSection({
   return (
     <div
       className={`shrink-0 overflow-hidden rounded-md ${
-        expanded ? "mb-1.5 bg-content/5" : ""
+        expanded && !compact ? "mb-1.5 bg-content/5" : ""
       }`}
       data-project-group={group.id}
       role="group"
       aria-label={group.name}
     >
-      <div
-        className="project-reorder-item group relative flex h-8 items-stretch rounded-md px-2 opacity-65 cursor-default"
-        onContextMenu={(event) => {
-          event.preventDefault();
-          event.currentTarget
-            .querySelector<HTMLButtonElement>("button")
-            ?.focus();
-          openMenu(event.currentTarget, event.clientX, event.clientY);
-        }}
-      >
-        <button
-          type="button"
-          aria-expanded={!group.collapsed}
-          aria-label={`${group.name}, ${countLabel}`}
-          title={`${group.name} · ${countLabel}`}
-          onClick={onToggleCollapsed}
-          className="flex min-w-0 flex-1 cursor-default items-center gap-2 text-left transition-[padding] duration-150 motion-reduce:transition-none group-hover:pr-6 group-has-[:focus-visible]:pr-6"
+      {compact ? null : (
+        <div
+          className="project-reorder-item group relative flex h-8 items-stretch rounded-md px-2 opacity-65 cursor-default"
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.currentTarget
+              .querySelector<HTMLButtonElement>("button")
+              ?.focus();
+            openMenu(event.currentTarget, event.clientX, event.clientY);
+          }}
         >
-          <div className="grid size-4 shrink-0 place-items-center">
-            {group.collapsed ? (
-              <>
-                <span
-                  data-group-mascot
-                  className="grid size-4 place-items-center group-hover:hidden group-has-[:focus-visible]:hidden"
-                >
-                  <ProjectMascot
-                    project={group.id}
-                    color={projectGroupColor(group)}
-                    name={group.mascot ?? null}
-                    className="size-3"
+          <button
+            type="button"
+            aria-expanded={!group.collapsed}
+            aria-label={`${group.name}, ${countLabel}`}
+            title={`${group.name} · ${countLabel}`}
+            onClick={onToggleCollapsed}
+            className="flex min-w-0 flex-1 cursor-default items-center gap-2 text-left transition-[padding] duration-150 motion-reduce:transition-none group-hover:pr-6 group-has-[:focus-visible]:pr-6"
+          >
+            <div className="grid size-4 shrink-0 place-items-center">
+              {group.collapsed ? (
+                <>
+                  <span
+                    data-group-mascot
+                    className="grid size-4 place-items-center group-hover:hidden group-has-[:focus-visible]:hidden"
+                  >
+                    <ProjectMascot
+                      project={group.id}
+                      color={projectGroupColor(group)}
+                      name={group.mascot ?? null}
+                      className="size-3"
+                    />
+                  </span>
+                  <ChevronRight
+                    data-group-chevron
+                    className="hidden size-3.5 group-hover:block group-has-[:focus-visible]:block"
+                    strokeWidth={1.75}
                   />
-                </span>
-                <ChevronRight
+                </>
+              ) : (
+                <ChevronDown
                   data-group-chevron
-                  className="hidden size-3.5 group-hover:block group-has-[:focus-visible]:block"
+                  className="size-3.5"
                   strokeWidth={1.75}
                 />
-              </>
-            ) : (
-              <ChevronDown
-                data-group-chevron
-                className="size-3.5"
-                strokeWidth={1.75}
-              />
-            )}
-          </div>
-          <span className={nameClassName}>{group.name}</span>
-        </button>
-        <button
-          type="button"
-          data-no-drag
-          title={uiT("Group options")}
-          aria-label={uiT("{value0} group options", {
-            value0: String(group.name),
-          })}
-          aria-haspopup="menu"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            openMenu(event.currentTarget);
-          }}
-          className="absolute right-1 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 hover:bg-content/8 hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
-        >
-          <MoreHorizontal className="size-4" strokeWidth={1.75} />
-        </button>
-      </div>
+              )}
+            </div>
+            <span className={nameClassName}>{group.name}</span>
+          </button>
+          <button
+            type="button"
+            data-no-drag
+            title={uiT("Group options")}
+            aria-label={uiT("{value0} group options", {
+              value0: String(group.name),
+            })}
+            aria-haspopup="menu"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              openMenu(event.currentTarget);
+            }}
+            className="absolute right-1 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 hover:bg-content/8 hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
+          >
+            <MoreHorizontal className="size-4" strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
       {expanded ? (
-        <div data-project-group-items className="flex flex-col gap-px p-1">
+        <div
+          data-project-group-items
+          className={
+            compact
+              ? "flex flex-col items-center gap-1"
+              : "flex flex-col gap-px p-1"
+          }
+        >
           {items.map((item) => (
             <ProjectCard
+              compact={compact}
               key={item.path}
               item={item}
               muteStatus={muteStatuses.get(pathKey(item.path)) ?? undefined}
@@ -838,6 +675,7 @@ const nameClassName =
   "min-w-0 flex-1 truncate text-sm font-medium leading-tight";
 
 function ProjectCard({
+  compact,
   item,
   muteStatus,
   selected,
@@ -855,6 +693,7 @@ function ProjectCard({
   groupLogos,
   groupMascots,
 }: {
+  compact: boolean;
   item: RecentProject;
   muteStatus?: string;
   selected: boolean;
@@ -875,10 +714,7 @@ function ProjectCard({
   const { t: uiT } = useTranslation();
   const fallbackName = basename(item.path);
   const key = projectKey(item.path);
-  const seed = projectName(item.path);
   const name = resolveTabGroupLabel(key, groupLabels, fallbackName);
-  const logoPath = resolveTabGroupLogo(key, groupLogos);
-  const color = resolveTabGroupColor(key, groupColors, groupCustomColors, seed);
   const diffEnabled = statsEnabled && Boolean(item.path) && item.path !== "~";
   const stats = useProjectDiffStats(item.path, diffEnabled);
   const files = stats?.files ?? 0;
@@ -895,24 +731,32 @@ function ProjectCard({
   const connection = !remote
     ? ""
     : !machine
-      ? "Machine not connected on this computer"
+      ? uiT("Machine not connected on this computer")
       : online === undefined
-        ? "Connecting"
+        ? uiT("Connecting")
         : online
-          ? "Connected"
-          : "Reconnecting";
+          ? uiT("Connected")
+          : uiT("Reconnecting");
   const cardTitle = projectCardTitle(
     remote
-      ? `${remote.cwd} on ${machine?.name ?? "another machine"} (${connection})`
+      ? uiT("{path} on {machine} ({connection})", {
+          path: remote.cwd,
+          machine: machine?.name ?? uiT("another machine"),
+          connection,
+        })
       : item.path,
     name,
     stats,
     busy,
+    uiT,
   );
   const cardAriaLabel = projectCardAriaLabel(
-    machine ? `${name} on ${machine.name}` : name,
+    machine
+      ? uiT("{project} on {machine}", { project: name, machine: machine.name })
+      : name,
     stats,
     busy,
+    uiT,
   );
   const labelClassName = machine
     ? "min-w-0 max-w-[75%] shrink-0 truncate text-sm font-medium leading-tight"
@@ -922,7 +766,7 @@ function ProjectCard({
     <div
       ref={(el) => sortable.setItemRef(item.path, el)}
       data-selected={selected || undefined}
-      className={`reorder-item project-reorder-item group relative flex touch-none items-stretch rounded-md px-2 h-8 ${
+      className={`reorder-item project-reorder-item group relative flex touch-none items-stretch rounded-md ${compact ? "size-8" : "px-2 h-8"} ${
         selected ? "bg-selection-strong text-content" : "opacity-65"
       } cursor-default`}
       onPointerDown={(event) => {
@@ -959,47 +803,62 @@ function ProjectCard({
           muteStatus ? `${cardAriaLabel}, ${muteStatus}` : cardAriaLabel
         }
         aria-current={selected ? "true" : undefined}
-        className="flex min-w-0 flex-1 cursor-default items-center gap-2 text-left transition-[padding] duration-150 motion-reduce:transition-none group-hover:pr-6 group-has-[:focus-visible]:pr-6"
+        className={
+          compact
+            ? "relative grid size-8 place-items-center"
+            : "flex min-w-0 flex-1 cursor-default items-center gap-2 text-left transition-[padding] duration-150 motion-reduce:transition-none group-hover:pr-6 group-has-[:focus-visible]:pr-6"
+        }
       >
-        <div className="project-card-logo grid size-4 shrink-0 place-items-center transition-opacity group-hover:opacity-0">
-          {logoPath && !busy ? (
-            <ProjectLogoIcon
-              path={logoPath}
-              className="size-4 rounded-sm"
-              imageClassName="size-4"
-            />
-          ) : (
-            <ProjectMascot
-              project={seed}
-              color={color}
-              name={resolveTabGroupMascot(key, groupMascots)}
-              className="size-3"
-              active={busy}
-            />
-          )}
-        </div>
-        {busy ? (
-          <Shimmer as="span" duration={1.4} className={labelClassName}>
-            {name}
-          </Shimmer>
+        {compact ? (
+          <ProjectAvatar
+            path={item.path}
+            busy={busy}
+            colors={groupColors}
+            customColors={groupCustomColors}
+            logos={groupLogos}
+            mascots={groupMascots}
+          />
         ) : (
-          <span className={labelClassName}>{name}</span>
+          <>
+            <div className="project-card-logo grid size-4 shrink-0 place-items-center transition-opacity group-hover:opacity-0">
+              <ProjectAvatar
+                path={item.path}
+                busy={busy}
+                colors={groupColors}
+                customColors={groupCustomColors}
+                logos={groupLogos}
+                mascots={groupMascots}
+                className="size-4"
+              />
+            </div>
+            {busy ? (
+              <Shimmer as="span" duration={1.4} className={labelClassName}>
+                {name}
+              </Shimmer>
+            ) : (
+              <span className={labelClassName}>{name}</span>
+            )}
+            {machine ? (
+              <span className="min-w-0 flex-1 truncate text-[11px] leading-tight text-content/45">
+                {machine.name}
+              </span>
+            ) : null}
+            {hasChanges ? (
+              <span className="project-card-stats shrink-0 group-hover:hidden group-has-[:focus-visible]:hidden">
+                <ProjectDiffStat additions={additions} deletions={deletions} />
+              </span>
+            ) : null}
+          </>
         )}
-        {machine ? (
-          <span className="min-w-0 flex-1 truncate text-[11px] leading-tight text-content/45">
-            {machine.name}
-          </span>
-        ) : null}
-        {hasChanges ? (
-          <span className="project-card-stats shrink-0 group-hover:hidden group-has-[:focus-visible]:hidden">
-            <ProjectDiffStat additions={additions} deletions={deletions} />
-          </span>
-        ) : null}
         {remote ? (
           <span
             role="img"
             aria-label={connection}
-            className="relative grid size-4 shrink-0 place-items-center text-content/45"
+            className={
+              compact
+                ? "absolute right-0 bottom-0 grid size-3 place-items-center text-content/60"
+                : "relative grid size-4 shrink-0 place-items-center text-content/45"
+            }
           >
             <Internet
               className="size-3"
@@ -1019,7 +878,11 @@ function ProjectCard({
             role="img"
             aria-label={muteStatus}
             title={muteStatus}
-            className="grid size-4 shrink-0 place-items-center text-amber-400"
+            className={
+              compact
+                ? "absolute right-0 top-0 grid size-3 place-items-center text-amber-400"
+                : "grid size-4 shrink-0 place-items-center text-amber-400"
+            }
           >
             <BellOff
               className="size-3.5"
@@ -1029,44 +892,48 @@ function ProjectCard({
           </span>
         ) : null}
       </button>
-      <button
-        type="button"
-        data-no-drag
-        title={uiT("Project options")}
-        aria-label={uiT("Project options")}
-        aria-haspopup="menu"
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          const rect = event.currentTarget.getBoundingClientRect();
-          onOpenMenu(
-            item.path,
-            event.detail === 0 ? rect.left : event.clientX,
-            event.detail === 0 ? rect.bottom : event.clientY,
-          );
-        }}
-        className="absolute right-1 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 hover:bg-content/8 hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
-      >
-        <MoreHorizontal className="size-4" strokeWidth={1.75} />
-      </button>
-      <button
-        type="button"
-        data-no-drag
-        title={pinned ? uiT("Unpin project") : uiT("Pin project")}
-        aria-label={pinned ? uiT("Unpin project") : uiT("Pin project")}
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          onTogglePin(item.path);
-        }}
-        className="absolute left-2 top-1/2 grid size-4 -translate-y-1/2 place-items-center rounded-sm text-content/55 opacity-0 pointer-events-none transition-opacity hover:text-content group-hover:pointer-events-auto group-hover:opacity-100"
-      >
-        {pinned ? (
-          <PinOff className="size-3.5" strokeWidth={1.75} />
-        ) : (
-          <Pin className="size-3.5" strokeWidth={1.75} />
-        )}
-      </button>
+      {compact ? null : (
+        <>
+          <button
+            type="button"
+            data-no-drag
+            title={uiT("Project options")}
+            aria-label={uiT("Project options")}
+            aria-haspopup="menu"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              const rect = event.currentTarget.getBoundingClientRect();
+              onOpenMenu(
+                item.path,
+                event.detail === 0 ? rect.left : event.clientX,
+                event.detail === 0 ? rect.bottom : event.clientY,
+              );
+            }}
+            className="absolute right-1 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 hover:bg-content/8 hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
+          >
+            <MoreHorizontal className="size-4" strokeWidth={1.75} />
+          </button>
+          <button
+            type="button"
+            data-no-drag
+            title={pinned ? uiT("Unpin project") : uiT("Pin project")}
+            aria-label={pinned ? uiT("Unpin project") : uiT("Pin project")}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onTogglePin(item.path);
+            }}
+            className="absolute left-2 top-1/2 grid size-4 -translate-y-1/2 place-items-center rounded-sm text-content/55 opacity-0 pointer-events-none transition-opacity hover:text-content group-hover:pointer-events-auto group-hover:opacity-100"
+          >
+            {pinned ? (
+              <PinOff className="size-3.5" strokeWidth={1.75} />
+            ) : (
+              <Pin className="size-3.5" strokeWidth={1.75} />
+            )}
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -1115,16 +982,21 @@ function projectCardTitle(
   name: string,
   stats: GitDiffStats | null,
   busy: boolean,
+  t: ReturnType<typeof useTranslation>["t"],
 ): string {
   const parts = [name, path];
-  if (busy) parts.push("Working");
+  if (busy) parts.push(t("Working"));
   const files = stats?.files ?? 0;
   const additions = stats?.additions ?? 0;
   const deletions = stats?.deletions ?? 0;
   if (files > 0 || additions > 0 || deletions > 0) {
     parts.push(
       [
-        files > 0 ? `${files} ${files === 1 ? "file" : "files"} changed` : "",
+        files > 0
+          ? t(files === 1 ? "{count} file changed" : "{count} files changed", {
+              count: files,
+            })
+          : "",
         additions > 0 ? `+${formatInteger(additions)}` : "",
         deletions > 0 ? `-${formatInteger(deletions)}` : "",
       ]
@@ -1139,14 +1011,19 @@ function projectCardAriaLabel(
   name: string,
   stats: GitDiffStats | null,
   busy: boolean,
+  t: ReturnType<typeof useTranslation>["t"],
 ): string {
   const parts = [name];
-  if (busy) parts.push("working");
+  if (busy) parts.push(t("working"));
   const files = stats?.files ?? 0;
   const additions = stats?.additions ?? 0;
   const deletions = stats?.deletions ?? 0;
   if (files > 0) {
-    parts.push(`${files} ${files === 1 ? "file" : "files"} changed`);
+    parts.push(
+      t(files === 1 ? "{count} file changed" : "{count} files changed", {
+        count: files,
+      }),
+    );
   }
   if (additions > 0) parts.push(`+${formatInteger(additions)}`);
   if (deletions > 0) parts.push(`-${formatInteger(deletions)}`);

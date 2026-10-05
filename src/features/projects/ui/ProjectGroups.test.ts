@@ -10,7 +10,7 @@ import {
   saveProjectGroups,
 } from "../model/projectGroups";
 import { savePinnedProjects } from "../model/recents";
-import { ProjectRail } from "../../../app/shell/ProjectRail";
+import { ProjectList } from "../../../app/shell/ProjectList";
 import { useProjectDiffStats } from "../../source-control/hooks/useProjectDiffStats";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -39,11 +39,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function renderRail(visible = true) {
+async function renderRail(compact = false) {
   await act(async () =>
     root.render(
-      createElement(ProjectRail, {
-        visible,
+      createElement(ProjectList, {
+        compact,
         cwd: "/work/personal",
         recents: [
           { path: "/work/client", openedAt: 1 },
@@ -56,15 +56,15 @@ async function renderRail(visible = true) {
   );
 }
 
-it("suspends project Git stats while the rail is hidden", async () => {
+it("keeps project Git stats in the project pop-out and suspends them for avatars", async () => {
   await renderRail();
   expect(vi.mocked(useProjectDiffStats).mock.calls.some(([, enabled]) => enabled)).toBe(true);
 
   vi.mocked(useProjectDiffStats).mockClear();
-  await renderRail(false);
+  await renderRail(true);
   expect(vi.mocked(useProjectDiffStats).mock.calls.length).toBeGreaterThan(0);
   expect(vi.mocked(useProjectDiffStats).mock.calls.every(([, enabled]) => !enabled)).toBe(true);
-  expect(container.querySelector('nav[aria-label="Projects"]')).not.toBeNull();
+  expect(container.querySelector('[data-project-list="avatars"]')).not.toBeNull();
 });
 
 function button(label: string): HTMLButtonElement {
@@ -146,7 +146,7 @@ it("renders assigned projects in persistent collapsible groups", async () => {
   expect(button("personal")).toBeDefined();
 });
 
-it("creates, styles, assigns, and deletes a group from the rail", async () => {
+it("creates, styles, assigns, and deletes a group from the project list", async () => {
   await renderRail();
   expect(sectionLabels()).toEqual(["Projects"]);
   expect(

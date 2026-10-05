@@ -1,6 +1,8 @@
 import {
   closeLeaf,
   focusedFileTab,
+  isAppViewOnlyTab,
+  isAppViewTab,
   firstLeafId,
   leaf,
   leafIds,
@@ -23,6 +25,7 @@ export function workspaceTabCwd(
   tab: WorkspaceTab,
   sessions: readonly Pick<Session, "id" | "cwd">[],
 ): string | null {
+  if (isAppViewOnlyTab(tab)) return null;
   for (const id of leafIds(tab.layout)) {
     const session = sessions.find((entry) => entry.id === id);
     if (session?.cwd && session.cwd !== "~") return session.cwd;
@@ -31,6 +34,13 @@ export function workspaceTabCwd(
   const file = focusedFileTab(tab);
   const cwd = file?.projectCwd ?? file?.cwd;
   if (cwd && cwd !== "~") return cwd;
+
+  for (const pane of [...tab.editorPanes, ...(tab.terminalPanes ?? [])]) {
+    const projectFile = pane.files.find(
+      (entry) => !isAppViewTab(entry) && entry.cwd !== "~",
+    );
+    if (projectFile) return projectFile.projectCwd ?? projectFile.cwd;
+  }
 
   return null;
 }
@@ -41,12 +51,18 @@ export function workspaceTabWorktree(
   tab: WorkspaceTab,
   sessions: readonly Pick<Session, "id" | "cwd" | "worktreeCwd">[],
 ): string | null {
+  if (isAppViewOnlyTab(tab)) return null;
   for (const id of leafIds(tab.layout)) {
     const session = sessions.find((entry) => entry.id === id);
     if (session?.cwd && session.cwd !== "~") return sessionWorkCwd(session);
   }
   const cwd = focusedFileTab(tab)?.cwd;
-  return cwd && cwd !== "~" ? cwd : null;
+  if (cwd && cwd !== "~") return cwd;
+  for (const pane of [...tab.editorPanes, ...(tab.terminalPanes ?? [])]) {
+    const file = pane.files.find((entry) => !isAppViewTab(entry) && entry.cwd !== "~");
+    if (file) return file.cwd;
+  }
+  return null;
 }
 
 /** Tabs without a working copy show in every worktree. */
@@ -66,7 +82,9 @@ export function focusedWorkspaceTabCwd(
   const session = sessions.find((entry) => entry.id === tab.focusedId);
   const file = focusedFileTab(tab);
   return (
-    session?.cwd ?? file?.projectCwd ?? file?.cwd ?? workspaceTabCwd(tab, sessions)
+    session?.cwd ??
+    (file && !isAppViewTab(file) ? file.projectCwd ?? file.cwd : undefined) ??
+    workspaceTabCwd(tab, sessions)
   );
 }
 
@@ -177,6 +195,7 @@ export function filterTabsForProject(
   path: string,
 ): WorkspaceTab[] {
   return tabs.filter((tab) => {
+    if (isAppViewOnlyTab(tab)) return true;
     const cwd = workspaceTabCwd(tab, sessions);
     return cwd ? sameProjectPath(cwd, path) : false;
   });

@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { LAYER } from "../../../shared/lib/layers";
 import { prettyCwd } from "../../../shared/lib/paths";
 import { projectSessionCount } from "../model/projectData";
+import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 
 type Props = {
   name: string;
@@ -23,12 +24,13 @@ export function RemoveProjectDialog({
   onConfirm,
 }: Props) {
   const { t: uiT } = useTranslation();
+  const visible = useSurfaceVisibility();
   const [sessions, setSessions] = useState<number | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
+    if (visible) cancelRef.current?.focus();
+  }, [visible]);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,6 +43,7 @@ export function RemoveProjectDialog({
   }, [path]);
 
   useEffect(() => {
+    if (!visible) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
@@ -49,7 +52,9 @@ export function RemoveProjectDialog({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onCancel]);
+  }, [visible, onCancel]);
+
+  if (!visible) return null;
 
   return createPortal(
     <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>

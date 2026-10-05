@@ -8,6 +8,8 @@ import {
 import {
   leaf,
   leafIds,
+  APP_VIEW_KINDS,
+  newAppViewWorkspaceTab,
   newAgentTab,
   newChangesTab,
   newCommitTab,
@@ -26,6 +28,101 @@ import {
   hydrateWorkspaceSnapshot,
   parseWorkspaceSnapshot,
 } from "./workspaceSnapshot";
+
+describe("app view snapshots", () => {
+  it.each(APP_VIEW_KINDS)("round-trips %s by kind without transient view data", (kind) => {
+    const tab = newAppViewWorkspaceTab(kind);
+    const original = tab.editorPanes[0].files[0];
+    const file = {
+      ...original,
+      path: "/incorrect-path",
+      cwd: "/incorrect-project",
+      projectCwd: "/incorrect-owner",
+      preview: true,
+      appView: { kind, query: "transient query", selectedSection: "providers" },
+    };
+    tab.editorPanes[0].files = [file];
+    const snapshot = collectWorkspaceSnapshot([tab], [], tab.id, "/repo", new Map());
+    const workspace = hydrateWorkspaceSnapshot(snapshot, new Map());
+    expect(workspace?.tabs[0].editorPanes[0].files[0]).toEqual({
+      id: original.id, path: `app:${kind}`, cwd: "~", appView: { kind },
+    });
+    expect(workspace?.sessions).toEqual([]);
+  });
+
+  it.each([
+    { plan: { sessionId: "s", blockId: "b", title: "Plan" } },
+    { releaseNotes: { version: "0.1.23" } },
+    { review: true },
+    { changes: true },
+    { changeKind: "staged" },
+    { sessionChanges: { sessionId: "s" } },
+    { commit: { sha: "123", shortSha: "123", subject: "Commit" } },
+    { agent: { sessionId: "s", leadId: "lead", harness: "codex" } },
+    { terminal: true },
+    { remoteFile: { machineId: "m", projectId: "p", relativePath: "a.ts" } },
+  ])("rejects an app view mixed with virtual fields %j", (extra) => {
+    const app = newAppViewWorkspaceTab("settings");
+    app.editorPanes[0].files[0] = { ...app.editorPanes[0].files[0], ...extra };
+    expect(parseWorkspaceSnapshot({
+      tabs: [app], sessions: [], activeTabId: app.id, projectCwd: "~",
+    })).toBeNull();
+  });
+
+  it("rejects unknown kinds instead of restoring them as files", () => {
+    const app = newAppViewWorkspaceTab("settings");
+    const raw = JSON.parse(JSON.stringify(app));
+    raw.editorPanes[0].files[0].appView.kind = "unknown";
+    expect(parseWorkspaceSnapshot({ tabs: [raw], activeTabId: app.id })).toBeNull();
+  });
+
+  it("rejects app views disguised as terminal panes", () => {
+    const app = newAppViewWorkspaceTab("notes");
+    expect(parseWorkspaceSnapshot({
+      tabs: [{ ...app, terminalPanes: app.editorPanes, editorPanes: [] }],
+      activeTabId: app.id,
+    })).toBeNull();
+  });
+
+  it("keeps the first kind across panes and tabs while retaining other content", () => {
+    const first = newAppViewWorkspaceTab("settings");
+    const duplicate = newAppViewWorkspaceTab("settings");
+    const notes = newAppViewWorkspaceTab("notes");
+    const chatTab = {
+      ...newTab("chat"),
+      layout: splitPane(leaf("chat"), "chat", "right", duplicate.focusedId),
+      focusedId: duplicate.focusedId,
+      editorPanes: duplicate.editorPanes,
+    };
+    const raw = {
+      tabs: [first, chatTab, duplicate, notes],
+      sessions: [chat("chat", "/repo")],
+      activeTabId: duplicate.id,
+      projectCwd: "/repo",
+    };
+    const parsed = parseWorkspaceSnapshot(raw)!;
+    expect(parsed.tabs.map((tab) => tab.id)).toEqual([first.id, chatTab.id, notes.id]);
+    expect(parsed.tabs[1].layout).toEqual(leaf("chat"));
+    expect(parsed.tabs[1].focusedId).toBe("chat");
+    expect(parsed.tabs[1].editorPanes).toEqual([]);
+    expect(parsed.activeTabId).toBe(first.id);
+    const collected = collectWorkspaceSnapshot(raw.tabs, raw.sessions, duplicate.id, "/repo", new Map());
+    expect(collected.tabs.map((tab) => tab.id)).toEqual(parsed.tabs.map((tab) => tab.id));
+    expect(collected.activeTabId).toBe(first.id);
+  });
+
+  it("retains the other files when removing a duplicate within one pane", () => {
+    const first = newAppViewWorkspaceTab("notes");
+    const duplicate = newAppViewWorkspaceTab("notes");
+    const file = newFileTab("/repo/a.ts", "/repo");
+    duplicate.editorPanes[0].files.push(file);
+    const parsed = parseWorkspaceSnapshot({
+      tabs: [first, duplicate], activeTabId: duplicate.id,
+    })!;
+    expect(parsed.tabs[1].editorPanes[0].files).toEqual([file]);
+    expect(parsed.tabs[1].editorPanes[0].activeFileId).toBe(file.id);
+  });
+});
 
 function chat(id: string, cwd: string): Session {
   const session = newSession("cursor", cwd);

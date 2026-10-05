@@ -298,7 +298,8 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     id: "popover-opacity",
     section: "appearance",
     label: "Popover opacity",
-    keywords: "dropdown menu picker dialog modal popup glass translucent transparency vibrancy",
+    keywords:
+      "dropdown menu picker dialog modal popup glass translucent transparency vibrancy",
   },
   {
     id: "blur",
@@ -318,12 +319,16 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     label: "Interface scale",
     keywords: "zoom font size bigger smaller ui",
   },
-  {
-    id: "collapsed-project-rail",
-    section: "appearance",
-    label: "Collapsed project rail",
-    keywords: "sidebar compact icons hidden navigation layout",
-  },
+  ...(IS_MAC
+    ? []
+    : [
+        {
+          id: "menu-bar",
+          section: "appearance" as const,
+          label: "Menu bar",
+          keywords: "menubar file edit view alt toolbar commands",
+        },
+      ]),
   {
     id: "show-excluded-files",
     section: "appearance",
@@ -389,7 +394,8 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     id: "native-sessions",
     section: "providers",
     label: "Native sessions",
-    keywords: "codex pi import history synchronization sync resume native 导入 同步 会话 历史",
+    keywords:
+      "codex pi import history synchronization sync resume native 导入 同步 会话 历史",
   },
   {
     id: "agent-clis",
@@ -603,8 +609,6 @@ const FILE_TAB_MODE_KEY = "monocode.fileTabMode";
 
 const TAB_ANIMATIONS_ENABLED_KEY = "monocode.tabAnimationsEnabled";
 
-const COLLAPSED_PROJECT_RAIL_MODE_KEY = "monocode.collapsedProjectRailMode";
-
 export type FollowUpBehavior = "steer" | "queue";
 
 export const FOLLOW_UP_BEHAVIOR_DEFAULT: FollowUpBehavior = "steer";
@@ -658,53 +662,6 @@ export function loadTabAnimationsEnabled(): boolean {
 
 export function saveTabAnimationsEnabled(value: boolean) {
   writeFlag(TAB_ANIMATIONS_ENABLED_KEY, value);
-}
-
-export type CollapsedProjectRailMode = "compact" | "hidden";
-
-export const COLLAPSED_PROJECT_RAIL_MODE_DEFAULT: CollapsedProjectRailMode =
-  "compact";
-
-export const COLLAPSED_PROJECT_RAIL_MODE_CHANGE_EVENT =
-  "monocode:collapsed-project-rail-mode-change";
-
-export function loadCollapsedProjectRailMode(): CollapsedProjectRailMode {
-  try {
-    const raw = localStorage.getItem(COLLAPSED_PROJECT_RAIL_MODE_KEY);
-    return raw === "compact" || raw === "hidden"
-      ? raw
-      : COLLAPSED_PROJECT_RAIL_MODE_DEFAULT;
-  } catch {
-    return COLLAPSED_PROJECT_RAIL_MODE_DEFAULT;
-  }
-}
-
-export function saveCollapsedProjectRailMode(value: CollapsedProjectRailMode) {
-  try {
-    localStorage.setItem(COLLAPSED_PROJECT_RAIL_MODE_KEY, value);
-  } catch {
-    // private mode / quota
-  }
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(
-    new CustomEvent<CollapsedProjectRailMode>(
-      COLLAPSED_PROJECT_RAIL_MODE_CHANGE_EVENT,
-      { detail: value },
-    ),
-  );
-}
-
-export function subscribeCollapsedProjectRailMode(onStoreChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener(
-    COLLAPSED_PROJECT_RAIL_MODE_CHANGE_EVENT,
-    onStoreChange,
-  );
-  return () =>
-    window.removeEventListener(
-      COLLAPSED_PROJECT_RAIL_MODE_CHANGE_EVENT,
-      onStoreChange,
-    );
 }
 
 export type ModelControls = "menu" | "beside";
@@ -986,6 +943,35 @@ export function subscribeAutosave(onStoreChange: () => void) {
   };
 }
 
+const MENU_BAR_VISIBLE_KEY = "monocode.menuBarVisible";
+const MENU_BAR_CHANGE_EVENT = "monocode:menu-bar-change";
+
+/** Windows/Linux in-window menu bar; hidden means it appears on an Alt tap. */
+export function loadMenuBarVisible(): boolean {
+  return readFlag(MENU_BAR_VISIBLE_KEY) ?? true;
+}
+
+export function saveMenuBarVisible(value: boolean): boolean {
+  writeFlag(MENU_BAR_VISIBLE_KEY, value);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(MENU_BAR_CHANGE_EVENT));
+  }
+  return loadMenuBarVisible();
+}
+
+export function subscribeMenuBarVisible(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === MENU_BAR_VISIBLE_KEY) onStoreChange();
+  };
+  window.addEventListener(MENU_BAR_CHANGE_EVENT, onStoreChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(MENU_BAR_CHANGE_EVENT, onStoreChange);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
 const CLAUDE_HOOKS_KEY = "monocode.claudeHooks";
 
 export const CLAUDE_HOOKS_DEFAULT = true;
@@ -1029,11 +1015,6 @@ export const KEYBINDINGS: KeybindingRow[] = [
       ]
     : []),
   { command: "App: Toggle Sidebar", keys: `${MOD}B`, when: "Always" },
-  {
-    command: "App: Toggle Session Sidebar",
-    keys: `${MOD}${SHIFT}B`,
-    when: "Always",
-  },
   { command: "App: Switch Model", keys: `${MOD}.`, when: "Always" },
   {
     command: "Composer: Toggle Workspace",
@@ -1250,6 +1231,19 @@ function parseKeybindingOverrides(raw: string | null): KeybindingOverrides {
         : undefined;
     if (shortcut) next[command] = { shortcut };
     else if (disabled) next[command] = { disabled: true };
+  }
+  // A session-sidebar rebind expresses the user's choice for the remaining
+  // sidebar. Apply it last so it wins over the former project-rail command,
+  // regardless of JSON entry order. Never carry its disabled state forward.
+  const legacy = (value as Record<string, unknown>)[
+    "App: Toggle Session Sidebar"
+  ];
+  if (legacy && typeof legacy === "object") {
+    const override = legacy as { disabled?: unknown; shortcut?: unknown };
+    if (override.disabled !== true && typeof override.shortcut === "string") {
+      const shortcut = canonicalShortcut(override.shortcut);
+      if (shortcut) next["App: Toggle Sidebar"] = { shortcut };
+    }
   }
   return next;
 }

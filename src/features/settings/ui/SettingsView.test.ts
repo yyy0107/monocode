@@ -117,6 +117,21 @@ afterEach(async () => {
 });
 
 describe("settings pages", () => {
+  it("only leaves Settings on Escape while its workspace pane is active", async () => {
+    const onClose = vi.fn();
+    await render("general", { active: false, onClose });
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(onClose).not.toHaveBeenCalled();
+
+    await render("general", { active: true, onClose });
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("switches English and Chinese in place and remembers the selected language", async () => {
     await render("general");
     const search = container.querySelector<HTMLInputElement>(
@@ -691,37 +706,31 @@ describe("settings pages", () => {
     expect(localStorage.getItem("monocode.tabAnimationsEnabled")).toBe("1");
   });
 
-  it("defaults to the icon rail and lets users hide it", async () => {
+  it("owns navigation inside the Settings view and changes pages in place", async () => {
+    await render("general", { onSelectSection: undefined });
+    const view = container.querySelector("[data-app-settings]")!;
+    const navigation = view.querySelector('nav[aria-label="Settings"]')!;
+    const appearance = Array.from(
+      navigation.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "Appearance")!;
+
+    await act(async () => appearance.click());
+
+    expect(appearance.getAttribute("aria-current")).toBe("true");
+    expect(view.querySelector('[data-setting-id="theme"]')).not.toBeNull();
+    expect(view.querySelector('[data-setting-id="ui-language"]')).toBeNull();
+    expect(navigation.textContent).not.toContain("Back");
+  });
+
+  it("removes the project rail layout setting and ignores its stored preference", async () => {
+    localStorage.setItem("monocode.collapsedProjectRailMode", "hidden");
     await render("appearance");
-    let control = container.querySelector<HTMLElement>(
-      '[role="radiogroup"][aria-label="Collapsed project rail"]',
-    )!;
-    let [iconRail, hidden] = Array.from(
-      control.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
-    );
-
-    expect(iconRail?.getAttribute("aria-checked")).toBe("true");
-    expect(hidden?.getAttribute("aria-checked")).toBe("false");
-
-    await act(async () => hidden?.click());
-
-    expect(hidden?.getAttribute("aria-checked")).toBe("true");
-    expect(localStorage.getItem("monocode.collapsedProjectRailMode")).toBe(
-      "hidden",
-    );
-
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await render("appearance");
-
-    control = container.querySelector<HTMLElement>(
-      '[role="radiogroup"][aria-label="Collapsed project rail"]',
-    )!;
-    [iconRail, hidden] = Array.from(
-      control.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
-    );
-    expect(iconRail?.getAttribute("aria-checked")).toBe("false");
-    expect(hidden?.getAttribute("aria-checked")).toBe("true");
+    expect(
+      container.querySelector('[data-setting-id="collapsed-project-rail"]'),
+    ).toBeNull();
+    expect(
+      SETTINGS_INDEX.some((row) => row.id === "collapsed-project-rail"),
+    ).toBe(false);
   });
 
   it("sets interface scale from a menu instead of a live slider", async () => {
@@ -745,21 +754,18 @@ describe("settings pages", () => {
     document.documentElement.style.removeProperty("zoom");
   });
 
-  it("reports collapsed project rail changes to the app shell", async () => {
-    const onCollapsedProjectRailModeChange = vi.fn();
-    await render("appearance", {
-      collapsedProjectRailMode: "compact",
-      onCollapsedProjectRailModeChange,
-    });
-    const control = container.querySelector<HTMLElement>(
-      '[role="radiogroup"][aria-label="Collapsed project rail"]',
-    )!;
-    const hidden =
-      control.querySelectorAll<HTMLButtonElement>('[role="radio"]')[1];
+  it("reports embedded navigation changes to its owner", async () => {
+    await render("general");
+    const keybindings = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("nav button"),
+    ).find((button) => button.textContent === "Keybindings")!;
 
-    await act(async () => hidden?.click());
+    await act(async () => keybindings.click());
 
-    expect(onCollapsedProjectRailModeChange).toHaveBeenCalledWith("hidden");
+    expect(onSelectSection).toHaveBeenCalledWith("keybindings");
+    expect(
+      container.querySelector('[aria-label="Change App: Search shortcut"]'),
+    ).not.toBeNull();
   });
 
   // The search index is hand-maintained; this is what keeps it honest.
@@ -944,6 +950,34 @@ describe("settings search", () => {
     const input = container.querySelector<HTMLInputElement>(
       '[aria-label="Change App: Search shortcut"]',
     )!;
+    await act(async () => input.click());
+    await act(async () =>
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "KeyM",
+          key: "m",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+
+    expect(localStorage.getItem("monocode.keybindingOverrides")).toBe(
+      '{"App: Search":{"shortcut":"Control+Shift+KeyM"}}',
+    );
+    expect(input.value).toBe("Ctrl+Shift+M");
+  });
+
+  it("stores a keybinding recorded in Chinese under the English command id", async () => {
+    localStorage.setItem(UI_LANGUAGE_KEY, "zh-CN");
+    refreshUiLanguage();
+    await render("keybindings");
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="更改 应用：搜索 的快捷键"]',
+    )!;
+    expect(input).not.toBeNull();
     await act(async () => input.click());
     await act(async () =>
       document.body.dispatchEvent(

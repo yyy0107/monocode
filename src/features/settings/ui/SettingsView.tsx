@@ -48,8 +48,7 @@ import { GradientBlurBackground } from "./GradientBlurBackground";
 import { McpSettings } from "./McpSettings";
 import { InboxProviderMark } from "../../inbox/ui/InboxProviderMark";
 import { RemoveProjectDialog } from "../../projects/ui/RemoveProjectDialog";
-import { WindowNavigationSpace } from "../../../app/shell/TitleBar";
-import { WindowControls } from "../../../app/shell/WindowControls";
+import { SettingsNav } from "../../../app/shell/SettingsRail";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { useColorScheme } from "../../../shared/hooks/useColorScheme";
 import {
@@ -302,7 +301,6 @@ import {
   currentKeybindings,
   loadClaudeHooks,
   loadCloseToTray,
-  loadCollapsedProjectRailMode,
   loadComposerRunner,
   loadDiffViewer,
   loadFileTabMode,
@@ -310,6 +308,7 @@ import {
   loadFormatOnSave,
   loadGridArcadeEnabled,
   loadLiveAgentsEnabled,
+  loadMenuBarVisible,
   loadModelControls,
   loadNotesEnabled,
   loadKeybindingOverrides,
@@ -318,7 +317,6 @@ import {
   loadTabAnimationsEnabled,
   saveClaudeHooks,
   saveCloseToTray,
-  saveCollapsedProjectRailMode,
   saveComposerRunner,
   saveDiffViewer,
   saveFileTabMode,
@@ -326,6 +324,7 @@ import {
   saveFormatOnSave,
   saveGridArcadeEnabled,
   saveLiveAgentsEnabled,
+  saveMenuBarVisible,
   saveModelControls,
   saveNotesEnabled,
   saveKeybindingOverride,
@@ -333,13 +332,12 @@ import {
   saveQuickComposerEnabled,
   saveQuickComposerShortcut,
   subscribeKeybindings,
+  subscribeMenuBarVisible,
   type KeybindingOverride,
   saveTabAnimationsEnabled,
   searchSettings,
   settingsSectionDescription,
   settingsSectionLabel,
-  COLLAPSED_PROJECT_RAIL_MODE_DEFAULT,
-  type CollapsedProjectRailMode,
   type DiffViewer,
   type FileTabMode,
   type FollowUpBehavior,
@@ -394,6 +392,8 @@ const RevealedSetting = createContext<string | null>(null);
 
 type Props = {
   section: SettingsSectionId;
+  /** Hidden or unfocused workspace views must not consume global shortcuts. */
+  active?: boolean;
   /** Card to scroll to; the General page is too long to land at the top. */
   anchor?: SettingsAnchor | null;
   /** Project to focus when opening notification settings from a quick action. */
@@ -409,7 +409,6 @@ type Props = {
   onDeleteWorktreeSessions?: (
     sessionIds: readonly string[],
   ) => Promise<boolean>;
-  besideRail?: boolean;
   onClose: () => void;
   /** Lets search jump to a setting that lives on another page. */
   onSelectSection?: (section: SettingsSectionId) => void;
@@ -419,12 +418,11 @@ type Props = {
   onRestoreProject?: (path: string) => void;
   onDeleteProject?: (path: string) => void;
   onOpenWhatsNew: (version: string) => void;
-  collapsedProjectRailMode?: CollapsedProjectRailMode;
-  onCollapsedProjectRailModeChange?: (mode: CollapsedProjectRailMode) => void;
 };
 
 export function SettingsView({
-  section,
+  section: requestedSection,
+  active = true,
   anchor = null,
   notificationProjectPath = null,
   notificationSettingsRequest = 0,
@@ -435,7 +433,6 @@ export function SettingsView({
   onRemoveWorktree = removeWorktree,
   onCheckWorktreeRemoval,
   onDeleteWorktreeSessions,
-  besideRail = false,
   onClose,
   onSelectSection,
   onOpenSession,
@@ -444,17 +441,23 @@ export function SettingsView({
   onRestoreProject,
   onDeleteProject,
   onOpenWhatsNew,
-  collapsedProjectRailMode,
-  onCollapsedProjectRailModeChange,
 }: Props) {
   const { t: uiT } = useTranslation();
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
+  const [section, setSection] = useState(requestedSection);
   const [revealed, setRevealed] = useState<string | null>(anchor);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const appearance = useAppearanceSettings(
-    collapsedProjectRailMode,
-    onCollapsedProjectRailModeChange,
+  const appearance = useAppearanceSettings();
+
+  useEffect(() => setSection(requestedSection), [requestedSection]);
+
+  const selectSection = useCallback(
+    (next: SettingsSectionId) => {
+      setSection(next);
+      onSelectSection?.(next);
+    },
+    [onSelectSection],
   );
 
   useEffect(() => setRevealed(anchor), [anchor, notificationSettingsRequest]);
@@ -475,13 +478,14 @@ export function SettingsView({
 
   const onReveal = useCallback(
     (next: SettingsSectionId, settingId: string | null) => {
-      if (next !== section) onSelectSection?.(next);
+      if (next !== section) selectSection(next);
       setRevealed(settingId);
     },
-    [onSelectSection, section],
+    [selectSection, section],
   );
 
   useEffect(() => {
+    if (!active) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       event.preventDefault();
@@ -491,7 +495,7 @@ export function SettingsView({
     // Let dialogs and other Settings controls handle Escape first.
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [active]);
 
   return (
     <div
@@ -500,11 +504,7 @@ export function SettingsView({
       data-app-settings
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
-      <div
-        className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
-        data-tauri-drag-region="deep"
-      >
-        {!besideRail ? <WindowNavigationSpace /> : null}
+      <div className="flex h-10 shrink-0 select-none items-center border-b border-stroke">
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
           <span className="shrink-0 text-content/45">{uiT("Settings")}</span>
           <span aria-hidden className="shrink-0 text-content/25">
@@ -514,10 +514,7 @@ export function SettingsView({
             {settingsSectionLabel(section)}
           </span>
         </div>
-        <div
-          className="flex shrink-0 items-center gap-1.5 pr-2"
-          data-tauri-drag-region="false"
-        >
+        <div className="flex shrink-0 items-center gap-1.5 pr-2">
           {section === "appearance" ? (
             <button
               type="button"
@@ -530,79 +527,85 @@ export function SettingsView({
           ) : null}
           <SettingsSearch onReveal={onReveal} />
         </div>
-        {IS_MAC ? null : <WindowControls />}
       </div>
 
-      {section === "skills" ? (
-        <SkillsPage
-          key={cwd}
-          cwd={cwd}
-          header={
-            <PageHeader
-              title={settingsSectionLabel(section)}
-              description={settingsSectionDescription(section)}
-            />
-          }
-        />
-      ) : (
-        <RevealedSetting.Provider value={revealed}>
-          <div
-            ref={lockOverscroll}
-            className="@container/settings min-h-0 flex-1 overflow-y-auto overscroll-none"
-          >
-            <div className="mx-auto w-full max-w-5xl px-5 py-6 pb-16 @min-[560px]/settings:px-8 @min-[560px]/settings:py-8">
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <SettingsNav section={section} onSelect={selectSection} />
+        {section === "skills" ? (
+          <SkillsPage
+            key={cwd}
+            cwd={cwd}
+            header={
               <PageHeader
                 title={settingsSectionLabel(section)}
                 description={settingsSectionDescription(section)}
               />
-              {section === "general" ? (
-                <GeneralPage onOpenWhatsNew={onOpenWhatsNew} />
-              ) : null}
-              {section === "connections" ? <ConnectionsSettings /> : null}
-              {section === "appearance" ? (
-                <AppearancePage appearance={appearance} />
-              ) : null}
-              {section === "chat" ? <ChatPage /> : null}
-              {section === "keybindings" ? <KeybindingsPage /> : null}
-              {section === "mcp" ? (
-                <McpSettings cwd={cwd} recents={recents} />
-              ) : null}
-              {section === "providers" ? (
-                <ProvidersPage cwd={cwd} recents={recents} onOpenSession={onOpenSession} />
-              ) : null}
-              {section === "worktrees" ? (
-                <WorktreesPage
-                  cwd={cwd}
-                  recents={recents}
-                  liveSessions={liveSessions}
-                  onRemove={onRemoveWorktree}
-                  onCheckRemove={onCheckWorktreeRemoval}
-                  onDeleteSessions={onDeleteWorktreeSessions}
+            }
+          />
+        ) : (
+          <RevealedSetting.Provider value={revealed}>
+            <div
+              ref={lockOverscroll}
+              className="@container/settings min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
+            >
+              <div className="mx-auto w-full max-w-5xl px-5 py-6 pb-16 @min-[560px]/settings:px-8 @min-[560px]/settings:py-8">
+                <PageHeader
+                  title={settingsSectionLabel(section)}
+                  description={settingsSectionDescription(section)}
                 />
-              ) : null}
-              {section === "inbox" ? (
-                <InboxPage
-                  cwd={cwd}
-                  recents={recents}
-                  notificationProjectPath={notificationProjectPath}
-                  notificationSettingsRequest={notificationSettingsRequest}
-                />
-              ) : null}
-              {section === "archive" ? (
-                <ArchivePage
-                  cwd={cwd}
-                  sessions={sessions}
-                  onOpenSession={onOpenSession}
-                  onArchiveSession={onArchiveSession}
-                  onDeleteSession={onDeleteSession}
-                  onRestoreProject={onRestoreProject}
-                  onDeleteProject={onDeleteProject}
-                />
-              ) : null}
+                {section === "general" ? (
+                  <GeneralPage onOpenWhatsNew={onOpenWhatsNew} />
+                ) : null}
+                {section === "connections" ? <ConnectionsSettings /> : null}
+                {section === "appearance" ? (
+                  <AppearancePage appearance={appearance} />
+                ) : null}
+                {section === "chat" ? <ChatPage /> : null}
+                {section === "keybindings" ? <KeybindingsPage /> : null}
+                {section === "mcp" ? (
+                  <McpSettings cwd={cwd} recents={recents} />
+                ) : null}
+                {section === "providers" ? (
+                  <ProvidersPage
+                    cwd={cwd}
+                    recents={recents}
+                    onOpenSession={onOpenSession}
+                  />
+                ) : null}
+                {section === "worktrees" ? (
+                  <WorktreesPage
+                    cwd={cwd}
+                    recents={recents}
+                    liveSessions={liveSessions}
+                    onRemove={onRemoveWorktree}
+                    onCheckRemove={onCheckWorktreeRemoval}
+                    onDeleteSessions={onDeleteWorktreeSessions}
+                  />
+                ) : null}
+                {section === "inbox" ? (
+                  <InboxPage
+                    cwd={cwd}
+                    recents={recents}
+                    notificationProjectPath={notificationProjectPath}
+                    notificationSettingsRequest={notificationSettingsRequest}
+                  />
+                ) : null}
+                {section === "archive" ? (
+                  <ArchivePage
+                    cwd={cwd}
+                    sessions={sessions}
+                    onOpenSession={onOpenSession}
+                    onArchiveSession={onArchiveSession}
+                    onDeleteSession={onDeleteSession}
+                    onRestoreProject={onRestoreProject}
+                    onDeleteProject={onDeleteProject}
+                  />
+                ) : null}
+              </div>
             </div>
-          </div>
-        </RevealedSetting.Provider>
-      )}
+          </RevealedSetting.Provider>
+        )}
+      </div>
     </div>
   );
 }
@@ -901,7 +904,7 @@ function GeneralPage({
           id="notes"
           label={uiT("Notes")}
           description={uiT(
-            "A global markdown notebook on the project rail. Save a finished turn from the transcript, then mention it later with @note or add it to chat.",
+            "A global markdown notebook in the activity bar. Save a finished turn from the transcript, then mention it later with @note or add it to chat.",
           )}
         >
           <Toggle
@@ -939,7 +942,7 @@ function GeneralPage({
           id="working-agents"
           label={uiT("Working agents")}
           description={uiT(
-            "When two or more chats are in flight, a card on the project rail lists them so you can jump across projects. Finished turns stay until you open that session.",
+            "Open the working agents icon in the activity bar to jump across projects. Finished turns stay until you open that session.",
           )}
         >
           <Toggle
@@ -1907,12 +1910,7 @@ function UpdateRow({
 
 type AppearanceSettings = ReturnType<typeof useAppearanceSettings>;
 
-function useAppearanceSettings(
-  controlledCollapsedProjectRailMode?: CollapsedProjectRailMode,
-  onControlledCollapsedProjectRailModeChange?: (
-    mode: CollapsedProjectRailMode,
-  ) => void,
-) {
+function useAppearanceSettings() {
   const [themePreference, setThemePreference] =
     useState<ThemePreference>(loadThemePreference);
   const [accentColor, setAccentColor] = useState(loadAccentColor);
@@ -1945,10 +1943,6 @@ function useAppearanceSettings(
     null,
   );
   const [uiScale, setUiScale] = useState(loadUiScale);
-  const [storedCollapsedProjectRailMode, setStoredCollapsedProjectRailMode] =
-    useState<CollapsedProjectRailMode>(loadCollapsedProjectRailMode);
-  const collapsedProjectRailMode =
-    controlledCollapsedProjectRailMode ?? storedCollapsedProjectRailMode;
 
   useEffect(() => subscribeUiScale(() => setUiScale(loadUiScale())), []);
 
@@ -2075,15 +2069,6 @@ function useAppearanceSettings(
     void applyUiScale(next);
   }, []);
 
-  const onCollapsedProjectRailMode = useCallback(
-    (next: CollapsedProjectRailMode) => {
-      saveCollapsedProjectRailMode(next);
-      setStoredCollapsedProjectRailMode(next);
-      onControlledCollapsedProjectRailModeChange?.(next);
-    },
-    [onControlledCollapsedProjectRailModeChange],
-  );
-
   const restoreDefaults = useCallback(() => {
     onThemePreference(THEME_PREFERENCE_DEFAULT);
     onAccentColor(ACCENT_COLOR_DEFAULT);
@@ -2104,7 +2089,6 @@ function useAppearanceSettings(
     onNewThreadBackgroundEffect(NEW_THREAD_BACKGROUND_EFFECT_DEFAULT);
     if (chatBackgroundPath) void onClearChatBackground();
     onUiScale(Math.round(UI_SCALE_DEFAULT * 100));
-    onCollapsedProjectRailMode(COLLAPSED_PROJECT_RAIL_MODE_DEFAULT);
   }, [
     chatBackgroundPath,
     onBlur,
@@ -2122,7 +2106,6 @@ function useAppearanceSettings(
     onTint,
     onDarkLightness,
     onUiScale,
-    onCollapsedProjectRailMode,
   ]);
 
   return {
@@ -2144,7 +2127,6 @@ function useAppearanceSettings(
     chatBackgroundBusy,
     chatBackgroundError,
     uiScale,
-    collapsedProjectRailMode,
     onThemePreference,
     onAccentColor,
     onOpacity,
@@ -2161,7 +2143,6 @@ function useAppearanceSettings(
     onChatBackgroundScope,
     onNewThreadBackgroundEffect,
     onUiScale,
-    onCollapsedProjectRailMode,
     restoreDefaults,
   };
 }
@@ -2289,7 +2270,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
           id="sidebar-opacity"
           label={uiT("Sidebar opacity")}
           description={uiT(
-            "Applies to the project rail and the other glass panes.",
+            "Applies to the activity bar, sidebar and other glass panes.",
           )}
         >
           <Slider
@@ -2305,7 +2286,9 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         <Row
           id="popover-opacity"
           label={uiT("Popover opacity")}
-          description={uiT("How much background shows through menus, pickers, dialogs, and other popovers.")}
+          description={uiT(
+            "How much background shows through menus, pickers, dialogs, and other popovers.",
+          )}
         >
           <Slider
             label={uiT("Popover opacity")}
@@ -2350,23 +2333,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
       <ChatBackgroundCard appearance={appearance} />
 
       <Group title={uiT("Layout")}>
-        <Row
-          id="collapsed-project-rail"
-          label={uiT("Collapsed project rail")}
-          description={uiT(
-            "Keep project navigation available as a compact icon rail, or hide the rail completely.",
-          )}
-        >
-          <Segmented
-            label={uiT("Collapsed project rail")}
-            value={appearance.collapsedProjectRailMode}
-            options={[
-              { value: "compact", label: uiT("Icon rail") },
-              { value: "hidden", label: uiT("Hidden") },
-            ]}
-            onChange={appearance.onCollapsedProjectRailMode}
-          />
-        </Row>
+        {IS_MAC ? null : <MenuBarRow />}
         <Row
           id="interface-scale"
           label={uiT("Interface scale")}
@@ -2399,6 +2366,29 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </Row>
       </Group>
     </>
+  );
+}
+
+function MenuBarRow() {
+  const { t: uiT } = useTranslation();
+  const visible = useSyncExternalStore(
+    subscribeMenuBarVisible,
+    loadMenuBarVisible,
+  );
+  return (
+    <Row
+      id="menu-bar"
+      label={uiT("Menu bar")}
+      description={uiT(
+        "Keep File, Edit, View, Go, Terminal and Help visible above the title bar. When off, tap Alt to show it.",
+      )}
+    >
+      <Toggle
+        label={uiT("Show menu bar")}
+        on={visible}
+        onChange={(next) => void saveMenuBarVisible(next)}
+      />
+    </Row>
   );
 }
 
@@ -2890,7 +2880,7 @@ function KeybindingsPage() {
                 <QuickComposerShortcutEditor />
               ) : (
                 <KeybindingShortcutEditor
-                  command={uiT(row.command)}
+                  command={row.command}
                   display={disabled ? null : row.keys}
                   modified={Boolean(override)}
                   onSave={save}
@@ -3844,7 +3834,7 @@ function ProviderAccountEditor({
   );
 }
 
-/** The icon the project rail shows: custom logo, else the project mascot. */
+/** The icon the activity bar shows: custom logo, else the project mascot. */
 function ProjectScopeIcon({ path }: { path: string }) {
   const logos = useTabGroupLogos();
   const [colors] = useState(loadTabGroupColors);
@@ -4021,7 +4011,7 @@ function ArchivePage({
       <Group
         title={uiT("Archived projects")}
         description={uiT(
-          "Archive a project from the rail to keep its chats without listing it in the sidebar.",
+          "Archive a project from the project list to keep its chats without listing it in the sidebar.",
         )}
       >
         {archivedProjects.length === 0 ? (

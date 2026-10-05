@@ -43,8 +43,6 @@ import { ProjectMascot } from "../../projects/ui/ProjectMascot";
 import { SearchableProjectPicker } from "../../projects/ui/SearchableProjectPicker";
 import { SearchableSelect } from "../../../shared/ui/SearchableSelect";
 import { SkillPromptField } from "../../skills/ui/SkillPromptField";
-import { WindowNavigationSpace } from "../../../app/shell/TitleBar";
-import { WindowControls } from "../../../app/shell/WindowControls";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { useTabGroupLogos } from "../../projects/hooks/useTabGroupLogos";
 import {
@@ -103,7 +101,6 @@ import {
   resolveModel,
 } from "../../sessions/model/models";
 import { projectKey, projectName } from "../../../shared/lib/paths";
-import { IS_MAC } from "../../../platform/tauri/platform";
 import {
   looksLikeProject,
   type RecentProject,
@@ -128,12 +125,10 @@ import {
 } from "../../workspace/model/tabGroups";
 
 type Props = {
-  besideRail?: boolean;
-  compactRail?: boolean;
+  active?: boolean;
   cwd?: string;
   recents: RecentProject[];
   onClose: () => void;
-  onToggleSidebar?: () => void;
   onLaunch: (
     automation: Automation,
     run: AutomationRun,
@@ -149,14 +144,27 @@ const ACTION_OUTLINE = `${ACTION} h-7 border border-content/15 text-content/80 h
 let rememberedAutomationId: string | null = null;
 
 export function AutomationsView({
-  besideRail = false,
-  compactRail = false,
+  active = true,
   cwd,
   recents,
+  onClose,
   onLaunch,
   onOpenSession,
 }: Props) {
   const { t: uiT } = useTranslation();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onCloseRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active]);
   return (
     <div
       role="region"
@@ -164,13 +172,7 @@ export function AutomationsView({
       data-app-automations
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
-      <div
-        className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
-        data-tauri-drag-region="deep"
-      >
-        {compactRail || !besideRail ? (
-          <WindowNavigationSpace besideCompactRail={compactRail} />
-        ) : null}
+      <div className="flex h-10 shrink-0 select-none items-center border-b border-stroke">
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
           <Zap
             className="size-3.5 shrink-0 text-content/45"
@@ -180,7 +182,6 @@ export function AutomationsView({
             {uiT("Automations")}
           </span>
         </div>
-        {IS_MAC ? null : <WindowControls />}
       </div>
       <AutomationsContent
         cwd={cwd}

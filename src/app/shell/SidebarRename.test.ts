@@ -10,13 +10,13 @@ import { useProjectDiffStats } from "../../features/source-control/hooks/useProj
 import { copyText } from "../../platform/tauri/clipboard";
 
 // Keep native services out of these menu/input interaction tests.
+vi.mock("../../features/source-control/ui/SidebarWorktreeSwitcher", () => ({ SidebarWorktreeSwitcher: () => null }));
 vi.mock("../../features/source-control/hooks/useProjectDiffStats", () => ({
   useProjectDiffStats: vi.fn(() => null),
 }));
 vi.mock("../../features/source-control/hooks/useGitFileStatuses", () => ({
   useGitFileStatuses: () => ({ files: new Map(), dirs: new Map() }),
 }));
-vi.mock("./SidebarUpdate", () => ({ SidebarUpdateFooter: () => null }));
 vi.mock("../../features/files/ui/FileTree", () => ({ FileTree: () => null }));
 vi.mock("../../platform/tauri/clipboard", () => ({
   copyText: vi.fn().mockResolvedValue(undefined),
@@ -36,10 +36,6 @@ function card(): HTMLElement {
 
 function renameInput(): HTMLInputElement {
   return container.querySelector("input:not([placeholder])")!;
-}
-
-function projectSearchInput(): HTMLInputElement | null {
-  return document.querySelector('input[placeholder="Search projects..."]');
 }
 
 function pressKey(target: HTMLElement, key: string) {
@@ -139,32 +135,6 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-});
-
-describe("project rail visibility", () => {
-  it("keeps the mounted rail and its scroll state when collapsed", async () => {
-    props = {
-      ...props,
-      recents: [{ path: "/workspace/project", openedAt: Date.now() }],
-      projectRailOpen: true,
-      compactProjectRail: false,
-      onSelectProject: vi.fn(),
-      onOpenProject: vi.fn(),
-    };
-    await act(async () => render());
-    const rail = container.querySelector<HTMLElement>('nav[aria-label="Projects"]');
-    expect(rail).not.toBeNull();
-    rail!.scrollTop = 37;
-
-    props = { ...props, projectRailOpen: false };
-    await act(async () => render());
-    expect(rail?.classList.contains("hidden")).toBe(true);
-
-    props = { ...props, projectRailOpen: true };
-    await act(async () => render());
-    expect(container.querySelector('nav[aria-label="Projects"]')).toBe(rail);
-    expect(rail?.scrollTop).toBe(37);
-  });
 });
 
 describe("sidebar session multiselection", () => {
@@ -642,36 +612,6 @@ describe("sidebar session rename", () => {
       "session-1",
       "My draft title",
     );
-  });
-});
-
-describe("sidebar project picker", () => {
-  it("focuses the project search input when opened", async () => {
-    // Hold animation frames so the deferred focus retry runs on demand.
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      frames.push(callback);
-      return frames.length;
-    });
-    vi.stubGlobal("cancelAnimationFrame", vi.fn());
-    props.onSelectProject = vi.fn();
-    await act(async () => render());
-
-    const trigger = container.querySelector<HTMLButtonElement>(
-      '[aria-label^="Switch project"]',
-    )!;
-    act(() => trigger.click());
-
-    const input = projectSearchInput();
-    expect(input).not.toBeNull();
-    expect(document.activeElement).toBe(input);
-
-    // Focus lost before the next frame is restored by the retry.
-    act(() => input!.blur());
-    expect(document.activeElement).not.toBe(input);
-    expect(frames).toHaveLength(1);
-    act(() => frames.forEach((frame) => frame(0)));
-    expect(document.activeElement).toBe(input);
   });
 });
 
@@ -1380,536 +1320,6 @@ describe("sidebar session reminders", () => {
   });
 });
 
-describe("collapsed rail Inbox actions", () => {
-  it("restores the hidden rail layout when compact mode is disabled", async () => {
-    props.projectRailOpen = false;
-    props.compactProjectRail = false;
-    props.onSelectProject = vi.fn();
-    props.onOpenProject = vi.fn();
-    props.onNew = vi.fn();
-    props.onSearch = vi.fn();
-    props.onOpenInbox = vi.fn();
-    props.onOpenNotes = vi.fn();
-    props.onOpenAutomations = vi.fn();
-    props.onOpenSettings = vi.fn();
-    props.onToggleProjectRail = vi.fn();
-    await act(async () => render());
-
-    const sidebar = container.querySelector("aside")!;
-    expect(container.querySelector("[data-compact-project-rail]")).toBeNull();
-    expect(
-      sidebar.querySelector('[data-window-navigation-space]'),
-    ).not.toBeNull();
-    expect(
-      sidebar.querySelector('button[aria-label^="Search"]'),
-    ).not.toBeNull();
-    expect(
-      sidebar.querySelector('button[aria-label^="Settings"]'),
-    ).not.toBeNull();
-  });
-
-  it("yields its local header to the full-width title bar", async () => {
-    props.projectRailOpen = false;
-    props.titleBarAbove = true;
-    props.onSelectProject = vi.fn();
-    props.onOpenProject = vi.fn();
-    props.onGoBack = vi.fn();
-    await act(async () => render());
-
-    const rail = container.querySelector<HTMLElement>(
-      "[data-compact-project-rail]",
-    )!;
-    expect(
-      rail.querySelector("[data-compact-rail-divider]")?.className,
-    ).toContain("top-0");
-    expect(
-      rail.querySelector("[data-compact-rail-divider]")?.className,
-    ).not.toContain("top-10");
-    expect(container.textContent).not.toContain("Development");
-    expect(container.querySelector('button[aria-label^="Back"]')).toBeNull();
-  });
-
-  it("keeps project shortcuts in a compact vertical rail", async () => {
-    props.projectRailOpen = false;
-    props.onSelectProject = vi.fn();
-    props.onOpenProject = vi.fn();
-    props.onNew = vi.fn();
-    props.onSearch = vi.fn();
-    props.onOpenInbox = vi.fn();
-    props.onOpenNotes = vi.fn();
-    props.onOpenAutomations = vi.fn();
-    props.onOpenSettings = vi.fn();
-    props.onToggleProjectRail = vi.fn();
-    await act(async () => render());
-
-    const rail = container.querySelector<HTMLElement>(
-      "[data-compact-project-rail]",
-    )!;
-    expect(rail).not.toBeNull();
-    expect(rail.className).toContain("w-12");
-    expect(rail.className).not.toContain("border-r");
-    expect(
-      rail.querySelector("[data-compact-rail-divider]")?.className,
-    ).toContain("top-10");
-    expect(
-      rail.querySelectorAll('[class*="border-b"], [class*="border-t"]'),
-    ).toHaveLength(1);
-    expect(rail.firstElementChild?.className).toContain("border-b");
-    expect(
-      rail.querySelector("[data-compact-rail-actions]")?.className,
-    ).toContain("gap-1.5");
-    expect(
-      Array.from(rail.querySelectorAll("button"), (button) =>
-        button.getAttribute("aria-label")?.replace(/ \(.+\)$/, ""),
-      ),
-    ).toEqual([
-      "Switch project, current project project",
-      "Sessions",
-      "Explorer",
-      "Changes",
-      "Search",
-      "Inbox",
-      "Notes",
-      "Automations",
-      "Settings",
-    ]);
-    const workspaceTabs = rail.querySelector<HTMLElement>(
-      '[role="tablist"][aria-label="Workspace"]',
-    )!;
-    expect(workspaceTabs).not.toBeNull();
-    expect(
-      Array.from(workspaceTabs.querySelectorAll('[role="tab"]'), (button) =>
-        button.getAttribute("aria-label"),
-      ),
-    ).toEqual(["Sessions", "Explorer", "Changes"]);
-    const sessionsTab = workspaceTabs.querySelector<HTMLButtonElement>(
-      '[aria-label="Sessions"]',
-    )!;
-    expect(sessionsTab.getAttribute("aria-selected")).toBe("true");
-    expect(sessionsTab.querySelector("span")).toBeNull();
-    expect(
-      container.querySelectorAll('[role="tablist"][aria-label="Workspace"]'),
-    ).toHaveLength(1);
-    act(() =>
-      workspaceTabs
-        .querySelector<HTMLButtonElement>('[aria-label="Explorer"]')!
-        .click(),
-    );
-    expect(props.onTabChange).toHaveBeenCalledWith("files");
-    expect(
-      container.querySelector('button[aria-label="Inbox"]')?.closest("nav"),
-    ).toBe(rail);
-    const projectPicker = rail.querySelector<HTMLButtonElement>(
-      'button[aria-label^="Switch project"]',
-    )!;
-    expect(projectPicker.className).toContain("size-8");
-    expect(
-      Array.from(rail.querySelectorAll("button")).every((button) =>
-        button.className.includes("size-8"),
-      ),
-    ).toBe(true);
-    expect(
-      Array.from(rail.querySelectorAll("button")).every(
-        (button) => !button.className.includes("transition"),
-      ),
-    ).toBe(true);
-    expect(projectPicker.querySelector("svg, img")).not.toBeNull();
-    expect(projectPicker.querySelector("span")).toBeNull();
-    expect(
-      container.querySelectorAll('button[aria-label^="Switch project"]'),
-    ).toHaveLength(1);
-
-    act(() => projectPicker.click());
-    expect(projectSearchInput()).not.toBeNull();
-
-    expect(rail.querySelector('button[aria-label="Expand projects"]')).toBeNull();
-  });
-
-  it("slides the collapsed sidebar open until dismissed from the compact tabs", async () => {
-    // happy-dom animations never finish, so drive them by hand.
-    const animations: { keyframes: Keyframe[]; animation: Animation }[] = [];
-    vi.spyOn(HTMLElement.prototype, "animate").mockImplementation(
-      (keyframes) => {
-        const animation = {
-          cancel: vi.fn(),
-          onfinish: null,
-        } as unknown as Animation;
-        animations.push({ keyframes: keyframes as Keyframe[], animation });
-        return animation;
-      },
-    );
-    const finish = () =>
-      act(() => {
-        const { animation } = animations.at(-1)!;
-        animation.onfinish?.call(animation, new Event("finish") as never);
-      });
-    props.open = false;
-    props.projectRailOpen = false;
-    props.onSelectProject = vi.fn();
-    props.onOpenProject = vi.fn();
-    props.onTabChange = vi.fn((tab) => {
-      props = { ...props, tab };
-      render();
-    });
-    await act(async () => render());
-
-    const drawer = () =>
-      container.querySelector<HTMLElement>("[data-sidebar-drawer]");
-    const compactTab = (label: string) =>
-      container.querySelector<HTMLButtonElement>(
-        `[data-compact-project-rail] [role="tab"][aria-label="${label}"]`,
-      )!;
-    // A dismissed drawer slides shut before it unmounts.
-    const expectDrawerDismissed = () => {
-      expect(drawer()?.dataset.sidebarDrawer).toBe("closing");
-      expect(drawer()?.inert).toBe(true);
-      expect(animations.at(-1)!.keyframes.at(-1)).toEqual({ width: "0px" });
-      finish();
-      expect(drawer()).toBeNull();
-    };
-    expect(drawer()).toBeNull();
-    expect(compactTab("Sessions").getAttribute("aria-selected")).toBe("false");
-
-    act(() => compactTab("Explorer").click());
-    expect(props.onTabChange).toHaveBeenLastCalledWith("files");
-    expect(drawer()?.dataset.sidebarDrawer).toBe("open");
-    // It pushes the workspace like the pinned sidebar, growing from nothing.
-    expect(drawer()?.className).not.toContain("absolute");
-    expect(drawer()?.querySelector("aside")?.className).toContain("body-glass");
-    expect(animations).toHaveLength(1);
-    expect(animations[0].keyframes[0]).toEqual({ width: "0px" });
-    expect(compactTab("Explorer").getAttribute("aria-selected")).toBe("true");
-
-    act(() => compactTab("Sessions").click());
-    expect(drawer()?.contains(card())).toBe(true);
-    // Switching tabs keeps the drawer open without replaying the slide.
-    expect(animations).toHaveLength(1);
-
-    act(() => compactTab("Sessions").click());
-    expectDrawerDismissed();
-
-    // Reopening mid-slide reverses the running animation.
-    act(() => compactTab("Sessions").click());
-    act(() => compactTab("Sessions").click());
-    const closing = animations.at(-1)!.animation;
-    act(() => compactTab("Sessions").click());
-    expect(closing.cancel).toHaveBeenCalled();
-    expect(drawer()?.dataset.sidebarDrawer).toBe("open");
-
-    pressKey(document.body, "Escape");
-    expectDrawerDismissed();
-
-    act(() => compactTab("Sessions").click());
-    act(() => {
-      document.body.dispatchEvent(
-        new PointerEvent("pointerdown", { bubbles: true }),
-      );
-    });
-    expectDrawerDismissed();
-
-    act(() => compactTab("Sessions").click());
-    act(() => card().click());
-    expect(props.onSelectSession).toHaveBeenCalledWith("session-1");
-    expectDrawerDismissed();
-
-    // Pinning the sidebar open replaces the drawer at once.
-    act(() => compactTab("Sessions").click());
-    props.open = true;
-    act(() => render());
-    expect(drawer()).toBeNull();
-  });
-
-  it.each([
-    ["compact rail", true],
-    ["sidebar header", false],
-  ])(
-    "deletes a project from the %s picker while the rail is hidden",
-    async (_, compact) => {
-      props.projectRailOpen = false;
-      props.compactProjectRail = compact;
-      props.recents = [{ path: "/workspace/other", openedAt: 1 }];
-      props.onSelectProject = vi.fn();
-      props.onOpenProject = vi.fn();
-      props.onRemoveProject = vi.fn();
-      await act(async () => render());
-
-      act(() =>
-        container
-          .querySelector<HTMLButtonElement>('button[aria-label^="Switch project"]')!
-          .click(),
-      );
-      const row = document.querySelector<HTMLButtonElement>(
-        'button[title="/workspace/other"]',
-      )!;
-      await act(async () => {
-        row.dispatchEvent(
-          new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
-        );
-      });
-      expect(projectSearchInput()).not.toBeNull();
-      const remove = Array.from(
-        document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-      ).find((item) => item.textContent?.startsWith("Delete"))!;
-      act(() => {
-        remove.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-        remove.click();
-      });
-      expect(projectSearchInput()).not.toBeNull();
-      const dialog = document.querySelector('[aria-label="Delete other"]')!;
-      const confirm = Array.from(
-        dialog.querySelectorAll<HTMLButtonElement>("button"),
-      ).find((button) => button.textContent === "Delete")!;
-      act(() => confirm.click());
-      expect(props.onRemoveProject).toHaveBeenCalledWith("/workspace/other", {
-        purgeData: true,
-      });
-      expect(document.activeElement).toBe(projectSearchInput());
-    },
-  );
-
-  it("opens the active picker project's menu from the keyboard", async () => {
-    props.projectRailOpen = false;
-    props.recents = [{ path: "/workspace/other", openedAt: 1 }];
-    props.onSelectProject = vi.fn();
-    props.onOpenProject = vi.fn();
-    props.onRemoveProject = vi.fn();
-    await act(async () => render());
-
-    act(() =>
-      container
-        .querySelector<HTMLButtonElement>('button[aria-label^="Switch project"]')!
-        .click(),
-    );
-    pressKey(projectSearchInput()!, "ArrowDown");
-    await act(async () => {
-      projectSearchInput()!.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "ContextMenu",
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-    expect(
-      document.querySelector<HTMLInputElement>('input[aria-label="Group name"]')
-        ?.value,
-    ).toBe("other");
-  });
-
-  it("opens a Tab-focused picker row's menu rather than the highlighted one", async () => {
-    props.projectRailOpen = false;
-    props.recents = [{ path: "/workspace/other", openedAt: 1 }];
-    props.onSelectProject = vi.fn();
-    props.onOpenProject = vi.fn();
-    await act(async () => render());
-
-    act(() =>
-      container
-        .querySelector<HTMLButtonElement>('button[aria-label^="Switch project"]')!
-        .click(),
-    );
-    const row = document.querySelector<HTMLButtonElement>(
-      'button[title="/workspace/other"]',
-    )!;
-    row.focus();
-    await act(async () => {
-      row.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "F10",
-          shiftKey: true,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-    expect(
-      document.querySelector<HTMLInputElement>('input[aria-label="Group name"]')
-        ?.value,
-    ).toBe("other");
-  });
-
-  it("shows a rename from the picker menu in the open picker", async () => {
-    props.projectRailOpen = false;
-    props.recents = [{ path: "/workspace/other", openedAt: 1 }];
-    props.onSelectProject = vi.fn();
-    props.onOpenProject = vi.fn();
-    await act(async () => render());
-
-    act(() =>
-      container
-        .querySelector<HTMLButtonElement>('button[aria-label^="Switch project"]')!
-        .click(),
-    );
-    const row = () =>
-      document.querySelector<HTMLButtonElement>('button[title="/workspace/other"]')!;
-    await act(async () => {
-      row().dispatchEvent(
-        new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
-      );
-    });
-    const name = document.querySelector<HTMLInputElement>(
-      'input[aria-label="Group name"]',
-    )!;
-    typeTitle(name, "Client site");
-    pressKey(name, "Enter");
-
-    expect(document.querySelector('input[aria-label="Group name"]')).toBeNull();
-    expect(row().textContent).toContain("Client site");
-  });
-
-  it("marks the compact Changes shortcut when the working tree has changes", async () => {
-    vi.mocked(useProjectDiffStats).mockReturnValue({
-      files: 1,
-      additions: 3,
-      deletions: 0,
-    });
-    props.projectRailOpen = false;
-    props.onSelectProject = vi.fn();
-    props.onOpenProject = vi.fn();
-    await act(async () => render());
-
-    const changes = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Changes +3"]',
-    )!;
-    expect(changes).not.toBeNull();
-    expect(changes.querySelector("span.bg-accent")).not.toBeNull();
-  });
-
-  it("uses an active compact shortcut to return to the workspace", async () => {
-    props.projectRailOpen = false;
-    props.onSelectProject = vi.fn();
-    props.onOpenProject = vi.fn();
-    props.onOpenInbox = vi.fn();
-    props.onGoBack = vi.fn();
-    props.inboxActive = true;
-    await act(async () => render());
-
-    const inbox = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Inbox"]',
-    )!;
-    expect(inbox.getAttribute("aria-pressed")).toBe("true");
-    act(() => inbox.click());
-    expect(props.onGoBack).toHaveBeenCalledOnce();
-    expect(props.onOpenInbox).not.toHaveBeenCalled();
-
-    props.inboxActive = false;
-    act(() => render());
-    act(() =>
-      container
-        .querySelector<HTMLButtonElement>('button[aria-label="Inbox"]')!
-        .click(),
-    );
-    expect(props.onOpenInbox).toHaveBeenCalledOnce();
-  });
-
-  it.each(["mouse", "ContextMenu", "Shift+F10"])(
-    "opens the shared Inbox menu via %s",
-    async (input) => {
-      props.projectRailOpen = false;
-      props.onSelectProject = vi.fn();
-      props.onOpenProject = vi.fn();
-      props.onOpenInbox = vi.fn();
-      props.onOpenNotificationSettings = vi.fn();
-      props.recents = [{ path: "/workspace/other", openedAt: 1 }];
-      await act(async () => render());
-      const inbox = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Inbox"]',
-      )!;
-      expect(inbox).not.toBeNull();
-      await act(async () => {
-        inbox.dispatchEvent(
-          input === "mouse"
-            ? new MouseEvent("contextmenu", {
-                bubbles: true,
-                cancelable: true,
-                clientX: 150,
-                clientY: 60,
-              })
-            : new KeyboardEvent("keydown", {
-                bubbles: true,
-                cancelable: true,
-                key: input === "Shift+F10" ? "F10" : input,
-                shiftKey: input === "Shift+F10",
-              }),
-        );
-      });
-      const menu = document.querySelector(
-        '[role="menu"][aria-label="Inbox actions"]',
-      );
-      expect(menu).not.toBeNull();
-      expect(menu!.textContent).toContain("Mark all as read");
-      expect(menu!.textContent).toContain("Mute all projects");
-      expect(menu!.textContent).toContain("Resume muted projects");
-      expect(menu!.textContent).toContain("2 projects");
-      const settings = [...menu!.querySelectorAll("button")].find((button) =>
-        button.textContent?.startsWith("Notification settings"),
-      )!;
-      act(() => settings.click());
-      expect(
-        props.onOpenNotificationSettings,
-      ).toHaveBeenCalledExactlyOnceWith();
-      expect(props.onOpenInbox).not.toHaveBeenCalled();
-      expect(document.activeElement).toBe(inbox);
-      expect(
-        document.querySelector('[role="menu"][aria-label="Inbox actions"]'),
-      ).toBeNull();
-    },
-  );
-});
-
-describe("sidebar working agents", () => {
-  it("shows the original working widget when the project rail is collapsed", () => {
-    props.projectRailOpen = false;
-    props.onSelectAgent = vi.fn();
-    props.liveAgents = [
-      {
-        id: "agent-a",
-        cwd: "/workspace/alpha",
-        title: "Build settings",
-        harness: "codex",
-        activity: "Editing Settings.tsx",
-        startedAt: Date.now() - 10_000,
-        needsApproval: false,
-        done: false,
-      },
-      {
-        id: "agent-b",
-        cwd: "/workspace/beta",
-        title: "Review tests",
-        harness: "claude",
-        activity: "Running tests",
-        startedAt: Date.now() - 5_000,
-        needsApproval: false,
-        done: false,
-      },
-    ];
-    act(() => render());
-
-    const preview = container.querySelector<HTMLElement>(
-      '[data-live-agents-preview="full"]',
-    )!;
-    expect(preview.querySelectorAll("[data-live-agent-card]")).toHaveLength(2);
-    expect(
-      preview.querySelector('[data-live-agent-card="agent-a"]')!.textContent,
-    ).toContain("alpha");
-    expect(
-      preview.querySelector('[data-live-agent-card="agent-b"]')!.textContent,
-    ).toContain("beta");
-    expect(preview.querySelector(".mascot-active")).not.toBeNull();
-
-    act(() =>
-      preview
-        .querySelector<HTMLButtonElement>('[data-live-agent-card="agent-b"]')!
-        .click(),
-    );
-    expect(props.onSelectAgent).toHaveBeenCalledExactlyOnceWith("agent-b");
-
-    props.projectRailOpen = true;
-    act(() => render());
-    expect(container.querySelector("[data-live-agents-preview]")).toBeNull();
-  });
-});
-
 it("labels preserved sessions as having no branch selected", () => {
   props.sessions = [
     {
@@ -1928,4 +1338,152 @@ it("labels preserved sessions as having no branch selected", () => {
   act(render);
   expect(card().textContent).not.toContain("No branch selected");
   expect(card().textContent).toContain("project/main");
+});
+
+
+describe("single sidebar layout and width", () => {
+  it("removes the fallback chrome row when controls move to the menu bar", () => {
+    props.onToggleSidebar = vi.fn();
+    props.onGoToFile = vi.fn();
+    act(render);
+    const fallbackRow = container.querySelector("aside")!.firstElementChild!;
+    expect(fallbackRow.classList.contains("h-10")).toBe(true);
+    expect(fallbackRow.querySelector("[data-window-navigation-space]")).not.toBeNull();
+    const toggle = fallbackRow.querySelector<HTMLButtonElement>(
+      'button[aria-label="Toggle Sidebar (Ctrl+B)"]',
+    )!;
+    act(() => toggle.click());
+    expect(props.onToggleSidebar).toHaveBeenCalledOnce();
+    expect(fallbackRow.nextElementSibling!.classList.contains("h-8")).toBe(true);
+
+    props.chromeInMenuBar = true;
+    act(render);
+    const workspaceRow = container.querySelector("aside")!.firstElementChild!;
+    expect(workspaceRow.classList.contains("h-10")).toBe(true);
+    expect(workspaceRow.querySelector('button[aria-label^="Quick Open"]')).not.toBeNull();
+    expect(workspaceRow.nextElementSibling!.getAttribute("role")).toBe("tablist");
+    expect(container.querySelector("[data-window-navigation-space]")).toBeNull();
+    expect(container.querySelector('button[aria-label^="Toggle Sidebar"]')).toBeNull();
+    expect(card()).not.toBeNull();
+
+    props.chromeInMenuBar = false;
+    act(render);
+    expect(container.querySelectorAll("[data-window-navigation-space]")).toHaveLength(1);
+    expect(container.querySelectorAll('button[aria-label^="Toggle Sidebar"]')).toHaveLength(1);
+  });
+
+  it("keeps exactly one panel with Sessions, Explorer and Changes", () => {
+    act(render);
+    expect(container.querySelectorAll("aside")).toHaveLength(1);
+    expect([...container.querySelectorAll('[role="tablist"] [role="tab"]')].map(tab => tab.textContent)).toEqual(["Sessions", "Explorer", "Changes"]);
+    expect(container.querySelector("nav")).toBeNull();
+    props.open = false;
+    act(render);
+    const shell = container.querySelector<HTMLElement>("[data-sidebar-transition]")!;
+    expect(shell.hasAttribute("inert")).toBe(true);
+    act(() => shell.dispatchEvent(Object.assign(new Event("transitionend", { bubbles: true }), { propertyName: "width" })));
+    expect(container.querySelector("aside")).toBeNull();
+    props.open = true;
+    act(render);
+    expect(card()).not.toBeNull();
+  });
+
+  it("keeps content during collapse, hides its portal and unmounts after the fallback timer", () => {
+    vi.useFakeTimers();
+    localStorage.setItem("monocode.sidebarWidth", "390");
+    act(render);
+    const aside = container.querySelector("aside");
+    act(() => card().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+
+    props.open = false;
+    act(render);
+    const shell = container.querySelector<HTMLElement>("[data-sidebar-transition]")!;
+    expect(shell.style.width).toBe("0px");
+    expect(shell.getAttribute("aria-hidden")).toBe("true");
+    expect(shell.hasAttribute("inert")).toBe(true);
+    expect(container.querySelector("aside")).toBe(aside);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    act(() => vi.advanceTimersByTime(100));
+    expect(container.querySelector("aside")).toBe(aside);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(container.querySelector("aside")).toBeNull();
+    expect(localStorage.getItem("monocode.sidebarWidth")).toBe("390");
+  });
+
+  it("reverses collapse without letting the old timeout remove the reopened sidebar", () => {
+    vi.useFakeTimers();
+    act(render);
+    const aside = container.querySelector("aside");
+    props.open = false;
+    act(render);
+    act(() => vi.advanceTimersByTime(50));
+    props.open = true;
+    act(render);
+    const shell = container.querySelector<HTMLElement>("[data-sidebar-transition]")!;
+    expect(shell.style.width).toBe("260px");
+    expect(shell.hasAttribute("inert")).toBe(false);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(container.querySelector("aside")).toBe(aside);
+  });
+
+  it("collapses immediately when reduced motion is requested", () => {
+    vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
+    act(render);
+    props.open = false;
+    act(render);
+    expect(container.querySelector("aside")).toBeNull();
+    expect(container.querySelector<HTMLElement>("[data-sidebar-transition]")!.style.width).toBe("0px");
+  });
+
+  it("finishes a live resize before collapse and restores its saved width", () => {
+    vi.stubGlobal("innerWidth", 1500);
+    act(render);
+    const handle = container.querySelector<HTMLElement>('[aria-label="Resize sidebar"]')!;
+    handle.setPointerCapture = vi.fn();
+    handle.releasePointerCapture = vi.fn();
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { button: 0, pointerId: 1, clientX: 260, bubbles: true }));
+      window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 390 }));
+    });
+    const shell = container.querySelector<HTMLElement>("[data-sidebar-transition]")!;
+    expect(shell.style.width).toBe("390px");
+    expect(shell.classList.contains("transition-none")).toBe(true);
+    props.open = false;
+    act(render);
+    expect(shell.style.width).toBe("0px");
+    expect(localStorage.getItem("monocode.sidebarWidth")).toBe("390");
+    expect(document.documentElement.classList.contains("is-resizing")).toBe(false);
+    act(() => {
+      window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 500 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 500 }));
+    });
+    expect(localStorage.getItem("monocode.sidebarWidth")).toBe("390");
+    props.open = true;
+    act(render);
+    expect(shell.style.width).toBe("390px");
+    expect(container.querySelector<HTMLElement>("aside")!.style.width).toBe("390px");
+  });
+
+  it("commits resize width, restores it after remount and resets on double click", () => {
+    vi.stubGlobal("innerWidth", 1500);
+    act(render);
+    const handle = container.querySelector<HTMLElement>('[aria-label="Resize sidebar"]')!;
+    handle.setPointerCapture = vi.fn();
+    handle.releasePointerCapture = vi.fn();
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { button: 0, pointerId: 1, clientX: 260, bubbles: true }));
+      window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 390 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 390 }));
+    });
+    expect(localStorage.getItem("monocode.sidebarWidth")).toBe("390");
+    expect(container.querySelector("aside")!.style.width).toBe("390px");
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(render);
+    expect(container.querySelector("aside")!.style.width).toBe("390px");
+    act(() => container.querySelector('[aria-label="Resize sidebar"]')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(container.querySelector("aside")!.style.width).toBe("260px");
+    expect(localStorage.getItem("monocode.sidebarWidth")).toBe("260");
+  });
 });

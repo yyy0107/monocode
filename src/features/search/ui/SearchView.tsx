@@ -18,8 +18,6 @@ import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import { MatchText } from "../../../shared/ui/MatchText";
 import { ProjectLogoIcon } from "../../projects/ui/ProjectLogoIcon";
-import { WindowNavigationSpace } from "../../../app/shell/TitleBar";
-import { WindowControls } from "../../../app/shell/WindowControls";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import {
   conversationRowsFrom,
@@ -42,7 +40,6 @@ import {
   recentOpenedFiles,
 } from "../../files/model/fileIndex";
 import { prettyCwd, projectName } from "../../../shared/lib/paths";
-import { IS_MAC } from "../../../platform/tauri/platform";
 import {
   isLocalProject,
   type RecentProject,
@@ -67,16 +64,16 @@ const SCOPES: { id: SearchScope; label: string }[] = [
 ];
 
 type Props = {
+  /** Whether this workspace view owns keyboard focus. Content stays mounted. */
   open: boolean;
   cwd: string;
   recents: RecentProject[];
   history: SessionSummary[];
   sessions: Session[];
   focusToken?: number;
-  besideRail?: boolean;
-  compactRail?: boolean;
+  /** Fills the query, e.g. from Quick Open's "Search everywhere" row. */
+  queryRequest?: { query: string; token: number };
   onClose: () => void;
-  onToggleSidebar?: () => void;
   onOpenFile: OpenFileFn;
   onOpenSession: (sessionId: string, blockId?: string, query?: string) => void;
   onOpenProject: (path: string) => void;
@@ -89,8 +86,7 @@ export function SearchView({
   history,
   sessions,
   focusToken = 0,
-  besideRail = false,
-  compactRail = false,
+  queryRequest,
   onClose,
   onOpenFile,
   onOpenSession,
@@ -118,16 +114,11 @@ export function SearchView({
   const truncated = contentTruncated || sessionTruncated;
 
   useEffect(() => {
-    if (!open) return;
-    setQuery("");
+    if (!queryRequest) return;
+    setQuery(queryRequest.query);
     setScope("all");
     setActive(0);
-    setContentHits([]);
-    setRemoteHits([]);
-    setContentTruncated(false);
-    setSessionTruncated(false);
-    setError(null);
-  }, [open]);
+  }, [queryRequest?.token]);
 
   useEffect(() => {
     if (!open) return;
@@ -140,17 +131,16 @@ export function SearchView({
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
       event.preventDefault();
       event.stopPropagation();
       onCloseRef.current();
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
     if (!isLocalProject(cwd)) {
       setFiles([]);
       return;
@@ -164,7 +154,7 @@ export function SearchView({
     return () => {
       cancelled = true;
     };
-  }, [cwd, open]);
+  }, [cwd]);
 
   const conversationRows = useMemo(
     () => conversationRowsFrom(history, sessions),
@@ -206,7 +196,7 @@ export function SearchView({
   );
 
   useEffect(() => {
-    if (!open || !trimmed) {
+    if (!trimmed) {
       setRemoteHits([]);
       setContentHits([]);
       setSessionTruncated(false);
@@ -301,7 +291,7 @@ export function SearchView({
         void cancelProjectSearch(cwd, searchId).catch(() => undefined);
       }
     };
-  }, [cwd, open, scope, trimmed]);
+  }, [cwd, scope, trimmed]);
 
   const hits = useMemo(() => {
     if (!trimmed) return [];
@@ -376,8 +366,6 @@ export function SearchView({
     }
   };
 
-  if (!open) return null;
-
   const empty = !trimmed;
   const noResults = !empty && hits.length === 0 && !loading;
   const limitNotice = truncated ? (
@@ -393,13 +381,7 @@ export function SearchView({
       data-app-search
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
-      <div
-        className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
-        data-tauri-drag-region="deep"
-      >
-        {compactRail || !besideRail ? (
-          <WindowNavigationSpace besideCompactRail={compactRail} />
-        ) : null}
+      <div className="flex h-10 shrink-0 select-none items-center border-b border-stroke">
         <label className="flex min-w-0 flex-1 items-center gap-2 px-3 text-content/50">
           <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
           <input
@@ -413,7 +395,6 @@ export function SearchView({
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
-            data-tauri-drag-region="false"
             className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none select-text placeholder:text-content/40"
           />
           {loading ? (
@@ -423,7 +404,6 @@ export function SearchView({
             />
           ) : null}
         </label>
-        {!IS_MAC ? <WindowControls /> : null}
       </div>
 
       <div className="flex h-9 shrink-0 items-center gap-px border-b border-stroke px-3">

@@ -1,3 +1,11 @@
+import { translate } from "../shared/i18n/language";
+import { useTranslation } from "../shared/i18n/useTranslation";
+import {
+  AppViewRendererContext,
+  type AppViewRenderer,
+} from "../features/workspace/ui/AppViewHost";
+import { ActivityBar } from "./shell/ActivityBar";
+import { contentTabTarget } from "./model/appViewNavigation";
 import { SessionTitleCoordinator } from "../integrations/harness/core/titleCoordinator";
 import { readHarnessSessionTitle } from "../integrations/harness/core/registry";
 import { manualSessionTitle } from "../features/sessions/model/titlePolicy";
@@ -63,8 +71,8 @@ import { flushSync } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  startTransition,
   Suspense,
   useCallback,
   useEffect,
@@ -73,15 +81,28 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
 } from "react";
 import { Sidebar } from "./shell/Sidebar";
 import { ApprovalToasts } from "../features/sessions/ui/ApprovalToasts";
 import { HarnessUpdateNotice } from "../features/providers/ui/HarnessUpdateNotice";
 import { WhatsNewDialog } from "./shell/WhatsNewDialog";
 import { ProviderSignInDialog } from "../features/sessions/ui/ProviderSignInDialog";
-import { WindowNavigation, TitleBar, type Tab as TitleTab } from "./shell/TitleBar";
-import { MenuBar } from "./shell/MenuBar";
-import { FilePicker } from "../features/files/ui/FilePicker";
+import {
+  WindowNavigation,
+  TitleBar,
+  type Tab as TitleTab,
+} from "./shell/TitleBar";
+import { MENU_BAR_HEIGHT, MenuBar } from "./shell/MenuBar";
+import {
+  commandShortcutLabel,
+  HELP_URLS,
+  paletteCommands,
+  type CommandHandlers,
+} from "./commands/registry";
+import { useCommandDispatcher } from "./commands/useCommandDispatcher";
+import { QuickOpen } from "../features/search/ui/QuickOpen";
+import { conversationRowsFrom } from "../features/search/model/appSearch";
 import {
   DeleteSessionDialog,
   type SessionDeleteChoice,
@@ -113,9 +134,7 @@ import { UsageFooter } from "./shell/UsageFooter";
 import { useProjectBranches } from "../features/source-control/hooks/useProjectBranches";
 import { useInboxActivity } from "../features/inbox/hooks/useInboxUnseen";
 import {
-  loadProjectRailOpen,
   loadSessionSidebarOpen,
-  saveProjectRailOpen,
   saveSessionSidebarOpen,
   type SidebarTabId,
 } from "../features/settings/model/appearance";
@@ -134,7 +153,7 @@ import {
 } from "../features/settings/model/uiScale";
 import { resolveZoomKeybinding } from "../features/settings/model/zoomKeybinding";
 import { resolveAppShortcut } from "../features/settings/model/appShortcuts";
-import { runUpdateFlow } from "./model/updater";
+import { readAppVersion, runUpdateFlow } from "./model/updater";
 import {
   displayAttachments,
   prepareAttachments,
@@ -160,6 +179,11 @@ import {
   firstLeafId,
   focusedFileTab,
   isolateTerminalPanes,
+  appViewTitle,
+  findAppViewTab,
+  isAppViewOnlyTab,
+  openAppViewTab,
+  type AppViewKind,
   isFilesystemTab,
   isCommitTab,
   isTerminalTab,
@@ -571,9 +595,16 @@ import {
   remoteTabCwd,
   remoteSessionFor,
 } from "../features/connections/model/connections";
-import { buildRemotePlan, remoteSessionActions } from "../features/connections/model/remoteSessionActions";
+import {
+  buildRemotePlan,
+  remoteSessionActions,
+} from "../features/connections/model/remoteSessionActions";
 import { remoteSessionState } from "../features/connections/model/remoteSessionState";
-import { remotePath, remoteProjectFor, sessionUsesHost } from "../features/connections/model/remoteProjects";
+import {
+  remotePath,
+  remoteProjectFor,
+  sessionUsesHost,
+} from "../features/connections/model/remoteProjects";
 import type { HostSession } from "../features/connections/model/protocol";
 import { AddRemoteProjectDialog } from "../features/connections/ui/AddRemoteProjectDialog";
 import type { ConnectableInboxSource } from "../features/inbox/model/inboxFilters";
@@ -609,27 +640,29 @@ import {
 import {
   loadCloseToTray,
   loadAutosave,
-  loadCollapsedProjectRailMode,
   loadFileTabMode,
   loadLiveAgentsEnabled,
   loadNotesEnabled,
   loadDiffViewer,
   loadFollowUpBehavior,
   loadKeybindingOverrides,
+  loadMenuBarVisible,
   loadSettingsSection,
   keybindingPressed,
   matchCustomKeybinding,
   saveSettingsSection,
   saveAutosave,
+  saveMenuBarVisible,
   subscribeLiveAgentsEnabled,
+  subscribeMenuBarVisible,
   subscribeNotesEnabled,
-  type CollapsedProjectRailMode,
   type SettingsSectionId,
   type FollowUpBehavior,
 } from "../features/settings/model/settings";
 import {
   handleEditorFindKey,
   openFindInActiveEditor,
+  openReplaceInActiveEditor,
 } from "../features/files/editor/editorSearch";
 
 import {
@@ -935,6 +968,7 @@ function Workspace({
   history: bootHistory = [],
   historyCwd: bootHistoryCwd = null,
 }: AppProps) {
+  useTranslation();
   const [projectCwd, setProjectCwd] = useState(
     () =>
       windowTransfer?.projectCwd ??
@@ -997,7 +1031,6 @@ function Workspace({
     (id: string) => tabProjectsRef.current.get(id),
     [],
   );
-  const [projectRailOpen, setProjectRailOpen] = useState(loadProjectRailOpen);
   const [sessionSidebarOpen, setSessionSidebarOpen] = useState(
     loadSessionSidebarOpen,
   );
@@ -1006,9 +1039,7 @@ function Workspace({
   const dockVisible = !!currentProjectDock?.open;
   const [filesSearchOpen, setFilesSearchOpen] = useState(false);
   const [searchFocusToken, setSearchFocusToken] = useState(0);
-  const [searchViewOpen, setSearchViewOpen] = useState(false);
   const [searchViewFocusToken, setSearchViewFocusToken] = useState(0);
-  const [inboxViewOpen, setInboxViewOpen] = useState(false);
   const [linkedWorkItemPanels, setLinkedWorkItemPanels] = useState<
     ReadonlyMap<string, LinkedWorkItemPanelState>
   >(() => new Map());
@@ -1025,8 +1056,6 @@ function Workspace({
   const [inboxAskPortal, setInboxAskPortal] =
     useState<InboxSessionPortal | null>(null);
   const openingInboxSessions = useRef(new Map<string, Promise<string>>());
-  const [notesViewOpen, setNotesViewOpen] = useState(false);
-  const [automationsViewOpen, setAutomationsViewOpen] = useState(false);
   const [inspectedWorkerId, setInspectedWorkerId] = useState<string | null>(
     null,
   );
@@ -1051,15 +1080,9 @@ function Workspace({
     loadLiveAgentsEnabled,
     () => true,
   );
-  const [collapsedProjectRailMode, setCollapsedProjectRailMode] =
-    useState<CollapsedProjectRailMode>(loadCollapsedProjectRailMode);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsReturnViewRef = useRef({
-    search: false,
-    inbox: false,
-    notes: false,
-    automations: false,
-  });
+  const menuBarPinned =
+    useSyncExternalStore(subscribeMenuBarVisible, loadMenuBarVisible) &&
+    !IS_MAC;
   const [updateNotice, setUpdateNotice] = useState(installedUpdate);
   const [whatsNewVersion, setWhatsNewVersion] = useState<string | null>(null);
   const [providerSignInRequest, setProviderSignInRequest] = useState<{
@@ -1094,9 +1117,9 @@ function Workspace({
   const [editorNavigation, setEditorNavigation] =
     useState<EditorNavigationTarget | null>(null);
   const editorNavigationToken = useRef(0);
-  const [filePickerOpen, setFilePickerOpen] = useState(false);
-  const [filePickerInitialQuery, setFilePickerInitialQuery] = useState("");
-  const [filePickerResetToken, setFilePickerResetToken] = useState(0);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [paletteToken, setPaletteToken] = useState(0);
   const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(
     () => new Set(windowTransfer?.dirtyFileIds ?? []),
   );
@@ -1137,25 +1160,40 @@ function Workspace({
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
   const titleCoordinator = useRef<SessionTitleCoordinator | null>(null);
-  if (!titleCoordinator.current) titleCoordinator.current = new SessionTitleCoordinator({
-    get: (id) => sessionsRef.current.find((session) => session.id === id),
-    update: (id, change) => {
-      const previous = sessionsRef.current;
-      const next = previous.map((session) => session.id === id ? change(session) : session);
-      if (!next.some((session, index) => session !== previous[index])) return;
-      sessionsRef.current = next;
-      setSessions((current) => current.map((session) => session.id === id ? change(session) : session));
-    },
-    read: readHarnessSessionTitle,
-    generate: (session, message) => generateHarnessTitle(session.harness, { sessionId: session.id, cwd: sessionWorkCwd(session), message, providerAccountId: session.providerAccountId }),
-  });
+  if (!titleCoordinator.current)
+    titleCoordinator.current = new SessionTitleCoordinator({
+      get: (id) => sessionsRef.current.find((session) => session.id === id),
+      update: (id, change) => {
+        const previous = sessionsRef.current;
+        const next = previous.map((session) =>
+          session.id === id ? change(session) : session,
+        );
+        if (!next.some((session, index) => session !== previous[index])) return;
+        sessionsRef.current = next;
+        setSessions((current) =>
+          current.map((session) =>
+            session.id === id ? change(session) : session,
+          ),
+        );
+      },
+      read: readHarnessSessionTitle,
+      generate: (session, message) =>
+        generateHarnessTitle(session.harness, {
+          sessionId: session.id,
+          cwd: sessionWorkCwd(session),
+          message,
+          providerAccountId: session.providerAccountId,
+        }),
+    });
   useEffect(() => () => titleCoordinator.current?.close(), []);
   const titleBindings = useRef(new Map<string, string>());
   useEffect(() => {
     const present = new Set(sessions.map((session) => session.id));
-    for (const id of titleBindings.current.keys()) if (!present.has(id)) {
-      titleBindings.current.delete(id); titleCoordinator.current!.cancel(id);
-    }
+    for (const id of titleBindings.current.keys())
+      if (!present.has(id)) {
+        titleBindings.current.delete(id);
+        titleCoordinator.current!.cancel(id);
+      }
     for (const session of sessions) {
       if (!session.providerSessionId || sessionUsesHost(session)) continue;
       const binding = `${session.harness}:${session.providerAccountId ?? "default"}:${session.providerSessionId}`;
@@ -1204,6 +1242,7 @@ function Workspace({
   const workspacePins = useRef(restoredPins);
   const tabWorkspace = useCallback(
     (tab: WorkspaceTab, list: readonly Session[]) => {
+      if (isAppViewOnlyTab(tab)) return null;
       const pinnedTab = workspacePins.current.get(tab.id);
       if (pinnedTab) return pinnedTab;
       for (const id of leafIds(tab.layout)) {
@@ -1262,32 +1301,28 @@ function Workspace({
 
   const projectCwdRef = useRef(projectCwd);
   projectCwdRef.current = projectCwd;
-  const searchViewOpenRef = useRef(searchViewOpen);
-  searchViewOpenRef.current = searchViewOpen;
-  const inboxViewOpenRef = useRef(inboxViewOpen);
-  inboxViewOpenRef.current = inboxViewOpen;
+  const focusedAppView = tabs.find((tab) => tab.id === activeTabId);
+  const activeAppView = focusedAppView
+    ? focusedFileTab(focusedAppView)?.appView?.kind
+    : undefined;
+  const appViewFocusedRef = useRef(activeAppView);
+  appViewFocusedRef.current = activeAppView;
+  const inboxVisible = !!focusedAppView?.editorPanes.some(
+    (pane) =>
+      pane.files.find((file) => file.id === pane.activeFileId)?.appView
+        ?.kind === "inbox",
+  );
   const foregroundSurfaceRef = useRef<{
     workspaceVisible: boolean;
     inboxSessionId?: string;
   }>({ workspaceVisible: true });
   foregroundSurfaceRef.current = {
-    workspaceVisible:
-      !searchViewOpen &&
-      !inboxViewOpen &&
-      !notesViewOpen &&
-      !automationsViewOpen &&
-      !settingsOpen,
-    inboxSessionId: inboxViewOpen ? inboxAskPortal?.sessionId : undefined,
+    workspaceVisible: true,
+    inboxSessionId: inboxVisible ? inboxAskPortal?.sessionId : undefined,
   };
-  const notesViewOpenRef = useRef(notesViewOpen);
-  notesViewOpenRef.current = notesViewOpen;
-  const automationsViewOpenRef = useRef(automationsViewOpen);
-  automationsViewOpenRef.current = automationsViewOpen;
-  const settingsOpenRef = useRef(settingsOpen);
-  settingsOpenRef.current = settingsOpen;
   const sessionNavigationIdsRef = useRef<readonly string[]>([]);
-  const filePickerOpenRef = useRef(filePickerOpen);
-  filePickerOpenRef.current = filePickerOpen;
+  const paletteOpenRef = useRef(paletteOpen);
+  paletteOpenRef.current = paletteOpen;
   const whatsNewVersionRef = useRef(whatsNewVersion);
   whatsNewVersionRef.current = whatsNewVersion;
   useEffect(() => {
@@ -1309,10 +1344,6 @@ function Workspace({
     },
     [],
   );
-
-  useEffect(() => {
-    if (!notesEnabled) setNotesViewOpen(false);
-  }, [notesEnabled]);
 
   useEffect(
     () =>
@@ -1637,7 +1668,12 @@ function Workspace({
 
   const activeFile = activeTab ? focusedFileTab(activeTab) : undefined;
   const sidebarCwd =
-    activeFile?.projectCwd ?? activeFile?.cwd ?? active?.cwd ?? projectCwd;
+    (activeFile?.appView
+      ? undefined
+      : (activeFile?.projectCwd ?? activeFile?.cwd)) ??
+    active?.cwd ??
+    (activeTab ? workspaceTabCwd(activeTab, sessions) : undefined) ??
+    projectCwd;
   const sidebarCwdRef = useRef(sidebarCwd);
   sidebarCwdRef.current = sidebarCwd;
   const [sidebarTabSelection, setSidebarTabSelection] = useState<{
@@ -1656,7 +1692,7 @@ function Workspace({
     saveProjectSidebarTab(cwd, tab);
     setSidebarTabSelection({
       project: pathKey(cwd),
-      tab: tab === "inbox" ? "sessions" : tab,
+      tab,
     });
   }, []);
   const sidebarCwdKey =
@@ -1670,7 +1706,12 @@ function Workspace({
     !loadedProjects.has(sidebarCwdKey) &&
     !historyFailed;
   const gitCwd =
-    activeFile?.cwd ?? (active ? sessionWorkCwd(active) : sidebarCwd);
+    (activeFile?.appView ? undefined : activeFile?.cwd) ??
+    (active
+      ? sessionWorkCwd(active)
+      : ((activeTab ? workspaceTabWorktree(activeTab, sessions) : undefined) ??
+        projectWorktree?.path ??
+        sidebarCwd));
   const gitCwdBranches = useProjectBranches(
     gitCwd,
     Boolean(gitCwd) && gitCwd !== "~" && !isRemoteProjectPath(sidebarCwd),
@@ -1680,15 +1721,18 @@ function Workspace({
       ? active.branch || gitCwdBranches?.current || undefined
       : undefined;
   const remoteFilesProject = remoteProjectFor(sidebarCwd);
-  const filesCwd = remoteFilesProject && !remoteFilesProject.local
-    ? isRemoteProjectPath(gitCwd)
-      ? gitCwd
-      : remotePath(
-          remoteFilesProject.environmentId,
-          remoteTabCwd(sidebarCwd, active?.id) ??
-            (gitCwd && gitCwd !== sidebarCwd ? gitCwd : remoteFilesProject.cwd),
-        )
-    : gitCwd;
+  const filesCwd =
+    remoteFilesProject && !remoteFilesProject.local
+      ? isRemoteProjectPath(gitCwd)
+        ? gitCwd
+        : remotePath(
+            remoteFilesProject.environmentId,
+            remoteTabCwd(sidebarCwd, active?.id) ??
+              (gitCwd && gitCwd !== sidebarCwd
+                ? gitCwd
+                : remoteFilesProject.cwd),
+          )
+      : gitCwd;
   const gitCwdRef = useRef(filesCwd);
   gitCwdRef.current = filesCwd;
   const projectBranches = useProjectBranches(
@@ -1747,7 +1791,13 @@ function Workspace({
           ? DEFAULT_PROVIDER_ACCOUNT_ID
           : undefined),
     };
-  }, [active?.id, active?.harness, active?.model, active?.blocks, active?.providerAccountId]);
+  }, [
+    active?.id,
+    active?.harness,
+    active?.model,
+    active?.blocks,
+    active?.providerAccountId,
+  ]);
   const activeProviderSignInRequest = useMemo(() => {
     if (
       !active ||
@@ -1817,8 +1867,10 @@ function Workspace({
   }
   const approvalSessionIds = approvalSessionIdsRef.current;
 
-  const activeSessionId = inboxViewOpen
-    ? inboxAskPortal?.sessionId
+  const activeSessionId = activeAppView
+    ? activeAppView === "inbox" && composerFocused
+      ? inboxAskPortal?.sessionId
+      : undefined
     : active?.id;
   const activeSessionIdRef = useRef(activeSessionId);
   activeSessionIdRef.current = activeSessionId;
@@ -1865,11 +1917,7 @@ function Workspace({
           if (
             document.activeElement === document.body &&
             !projectTerminalFocusedRef.current &&
-            !searchViewOpenRef.current &&
-            !inboxViewOpenRef.current &&
-            !notesViewOpenRef.current &&
-            !automationsViewOpenRef.current &&
-            !settingsOpenRef.current
+            !appViewFocusedRef.current
           ) {
             setComposerFocused(true);
             setComposerFocusToken((token) => token + 1);
@@ -1900,12 +1948,9 @@ function Workspace({
     flushHarnessEvents();
   }, [
     activeTabId,
-    inboxViewOpen,
+    inboxVisible,
     inboxAskPortal?.sessionId,
-    searchViewOpen,
-    notesViewOpen,
-    automationsViewOpen,
-    settingsOpen,
+    activeAppView,
     flushHarnessEvents,
   ]);
 
@@ -2028,7 +2073,7 @@ function Workspace({
   }, [sidebarCwd, refreshHistory]);
 
   useEffect(() => {
-    if (!inboxViewOpen) return;
+    if (!inboxVisible) return;
     let cancelled = false;
     void listLinkedSessions()
       .then((rows) => {
@@ -2040,7 +2085,7 @@ function Workspace({
     return () => {
       cancelled = true;
     };
-  }, [inboxViewOpen]);
+  }, [inboxVisible]);
 
   useEffect(() => {
     prefetchProjectFiles(gitCwd);
@@ -2405,10 +2450,6 @@ function Workspace({
   );
 
   const onNew = useCallback(() => {
-    setSearchViewOpen(false);
-    setInboxViewOpen(false);
-    setNotesViewOpen(false);
-    setAutomationsViewOpen(false);
     const cwd = active?.cwd ?? sessionDefaults?.cwd ?? projectCwd;
     const focus = worktreeFocus(cwd);
     const session = {
@@ -2431,12 +2472,31 @@ function Workspace({
     projectCwd,
   ]);
 
+  const ensureContentTab = useCallback(
+    (cwd: string) => {
+      const target = contentTabTarget(
+        tabsRef.current,
+        sessionsRef.current,
+        activeTabIdRef.current,
+        cwd,
+        tabVisitRef.current.back,
+      );
+      if (target) {
+        activateTab(target.id);
+        return target;
+      }
+      let id = "";
+      flushSync(() => {
+        id = createWorkspaceTab(cwd);
+      });
+      activateTab(id);
+      return tabsRef.current.find((tab) => tab.id === id)!;
+    },
+    [activateTab, createWorkspaceTab],
+  );
+
   const onSelectRemoteSession = useCallback(
     (project: string, remoteSessionId: string) => {
-      setSearchViewOpen(false);
-      setInboxViewOpen(false);
-      setNotesViewOpen(false);
-      setAutomationsViewOpen(false);
       const existing = tabsRef.current
         .map((tab) => ({
           tab,
@@ -2464,9 +2524,6 @@ function Workspace({
   const onStartInboxItem = useCallback(
     async (item: InboxItem, body?: string) => {
       const start = (description?: string) => {
-        setInboxViewOpen(false);
-        setNotesViewOpen(false);
-        setAutomationsViewOpen(false);
         const cwd =
           item.projectPath || active?.cwd || sessionDefaults?.cwd || projectCwd;
         setSidebarTab("sessions", cwd);
@@ -2502,10 +2559,6 @@ function Workspace({
   const onAddNoteToChat = useCallback(
     (card: NoteComposerCard) => {
       if (!card.id) return;
-      setSearchViewOpen(false);
-      setInboxViewOpen(false);
-      setNotesViewOpen(false);
-      setAutomationsViewOpen(false);
       const cwd =
         (card.sourceCwd && looksLikeProject(card.sourceCwd)
           ? card.sourceCwd
@@ -2667,7 +2720,8 @@ function Workspace({
   const onOpenTerminal = useCallback(
     (cwd: string, asWorkspaceTab = false, occupySessionId?: string) => {
       const workdir = cwd || gitCwd;
-      if (!isLocalProject(projectCwdRef.current) || !isLocalProject(workdir)) return;
+      if (!isLocalProject(projectCwdRef.current) || !isLocalProject(workdir))
+        return;
       if (openProjectTerminal(workdir)) return;
 
       if (asWorkspaceTab || !activeTab) {
@@ -3131,7 +3185,7 @@ function Workspace({
             const seed = sessionsRef.current[0];
             const session = newSession(
               seed?.harness ?? "claude",
-              file.cwd || projectCwd,
+              file.appView ? projectCwd : file.cwd || projectCwd,
               seed?.model,
               seed?.runtimeMode,
               seed?.modelSettings,
@@ -3206,6 +3260,12 @@ function Workspace({
     },
     [activeTabId, onCloseTab, projectCwd, tabCloseScope],
   );
+
+  useEffect(() => {
+    if (notesEnabled) return;
+    const view = findAppViewTab(tabs, "notes");
+    if (view) onCloseFile(view.pane.id, view.file.id);
+  }, [notesEnabled, tabs, onCloseFile]);
 
   const onCloseOtherFiles = useCallback((paneId: string, fileId: string) => {
     const tab = tabsRef.current.find((entry) => findSurfacePane(entry, paneId));
@@ -3429,7 +3489,11 @@ function Workspace({
           );
         } else {
           // The tab held only editor panes and must stay: seed a session.
-          const session = seedSession(editorFiles[0].cwd || projectCwd);
+          const session = seedSession(
+            editorFiles[0].appView
+              ? projectCwdRef.current
+              : editorFiles[0].cwd || projectCwd,
+          );
           setSessions((prev) => [...prev, session]);
           nextTab = resetTabToSession(tab, session.id);
           focusesSession = true;
@@ -3599,6 +3663,7 @@ function Workspace({
     if (!sidebarCwd || sidebarCwd === "~" || isRemoteProjectPath(sidebarCwd))
       return stats;
     for (const tab of filterTabsForProject(tabs, sessions, sidebarCwd)) {
+      if (isAppViewOnlyTab(tab)) continue;
       const workspace = tabWorkspace(tab, sessions) ?? sidebarCwd;
       const key = pathKey(workspace);
       const entry = stats.get(key) ?? { tabs: 0, busy: false };
@@ -3614,7 +3679,12 @@ function Workspace({
     // A projectless session belongs to no project, so it stands on its own
     // rather than trailing the last project's tabs.
     const active = tabs.find((tab) => tab.id === activeTabId);
-    if (active && !workspaceTabCwd(active, sessions)) return [active];
+    if (
+      active &&
+      !isAppViewOnlyTab(active) &&
+      !workspaceTabCwd(active, sessions)
+    )
+      return [active, ...tabs.filter(isAppViewOnlyTab)];
     // Each worktree keeps its own tabs; the others stay open, just hidden.
     const worktree = projectWorktree?.path ?? projectCwd;
     return filterTabsForProject(tabs, sessions, projectCwd).filter((tab) => {
@@ -3697,6 +3767,19 @@ function Workspace({
         workspaceNavigation.cancel();
       setProjectTerminalFocused(false);
       if (inboxAskPortal?.sessionId === paneId) {
+        setTabs((current) =>
+          current.map((tab) => {
+            if (tab.id !== activeTabId) return tab;
+            const inboxPane = tab.editorPanes.find(
+              (pane) =>
+                pane.files.find((file) => file.id === pane.activeFileId)
+                  ?.appView?.kind === "inbox",
+            );
+            return inboxPane
+              ? { ...tab, focusedId: inboxPane.id, diffFocused: false }
+              : tab;
+          }),
+        );
         setComposerFocused(true);
         return;
       }
@@ -3731,9 +3814,12 @@ function Workspace({
           ? ((await resolveOpenablePath(diffCwd, path)) ?? path)
           : undefined;
         if (resolved) rememberOpenedFile(diffCwd, resolved);
+        const target = ensureContentTab(
+          diffProjectCwd ?? projectCwdRef.current,
+        );
         setTabs((prev) =>
           prev.map((tab) => {
-            if (tab.id !== activeTabId) return tab;
+            if (tab.id !== target.id) return tab;
             if (session) {
               return openSessionChangesTab(
                 tab,
@@ -3765,7 +3851,7 @@ function Workspace({
         setComposerFocused(false);
       })();
     },
-    [activeTabId],
+    [ensureContentTab],
   );
 
   const onOpenWorkingTreeDiff = useCallback(
@@ -3775,28 +3861,33 @@ function Workspace({
   );
 
   /** Stack one section's working-tree changes in one review, whatever the diff-view setting. */
-  const onOpenAllChanges = useCallback((kind: GitFileDiffKind) => {
-    setTabs((prev) =>
-      prev.map((tab) =>
-        tab.id === activeTabId
-          ? openChangesTab(
-              tab,
-              gitCwdRef.current,
-              undefined,
-              kind,
-              sidebarCwdRef.current,
-            )
-          : tab,
-      ),
-    );
-    setComposerFocused(false);
-  }, [activeTabId]);
+  const onOpenAllChanges = useCallback(
+    (kind: GitFileDiffKind) => {
+      const target = ensureContentTab(sidebarCwdRef.current);
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === target.id
+            ? openChangesTab(
+                tab,
+                gitCwdRef.current,
+                undefined,
+                kind,
+                sidebarCwdRef.current,
+              )
+            : tab,
+        ),
+      );
+      setComposerFocused(false);
+    },
+    [ensureContentTab],
+  );
 
   const onOpenCommit = useCallback(
     (commit: GitHistoryCommit, pin?: boolean) => {
+      const target = ensureContentTab(sidebarCwdRef.current);
       setTabs((prev) =>
         prev.map((tab) =>
-          tab.id === activeTabId
+          tab.id === target.id
             ? openCommitTab(
                 tab,
                 gitCwdRef.current,
@@ -3813,10 +3904,12 @@ function Workspace({
       );
       setComposerFocused(false);
     },
-    [activeTabId],
+    [ensureContentTab],
   );
 
   const onShowSourceControl = useCallback(() => {
+    setSessionSidebarOpen(true);
+    saveSessionSidebarOpen(true);
     setSidebarTab("changes");
   }, []);
 
@@ -4277,9 +4370,9 @@ function Workspace({
   );
 
   useEffect(() => {
-    if (!inboxAskPortal || !inboxViewOpen) return;
+    if (!inboxAskPortal || !inboxVisible) return;
     setComposerFocused(true);
-  }, [inboxAskPortal, inboxViewOpen]);
+  }, [inboxAskPortal, inboxVisible]);
 
   const onSelectHistorySession = useCallback(
     async (sessionId: string) => {
@@ -4325,12 +4418,7 @@ function Workspace({
       const session = await ensureOpenSession(sessionId);
       if (!session)
         throw new Error("This conversation is no longer available.");
-      setSearchViewOpen(false);
-      setInboxViewOpen(false);
-      setNotesViewOpen(false);
-      setAutomationsViewOpen(false);
-      setSettingsOpen(false);
-      setFilePickerOpen(false);
+      setPaletteOpen(false);
       setSidebarTab("sessions", session.cwd);
       setProjectCwd(session.cwd);
       setRecents(rememberProject(session.cwd));
@@ -4499,9 +4587,14 @@ function Workspace({
         }
         const updated = {
           ...restored,
-          ...manualSessionTitle(restored, formatSessionTitle(restored.harness, trimmed)),
+          ...manualSessionTitle(
+            restored,
+            formatSessionTitle(restored.harness, trimmed),
+          ),
         };
-        await persistManualSessionTitle(updated, updated.title).catch(() => undefined);
+        await persistManualSessionTitle(updated, updated.title).catch(
+          () => undefined,
+        );
         const saved = await upsertSession(updated).catch(() => null);
         if (saved) {
           rememberLoadedSession(loadedSessionCache.current, updated);
@@ -4924,12 +5017,8 @@ function Workspace({
           sessions: sessionsRef.current,
           projectTerminalFocused: projectTerminalFocusedRef.current,
           surfaceOpen: Boolean(
-            searchViewOpenRef.current ||
-            inboxViewOpenRef.current ||
-            notesViewOpenRef.current ||
-            automationsViewOpenRef.current ||
-            settingsOpenRef.current ||
-            filePickerOpenRef.current ||
+            appViewFocusedRef.current ||
+            paletteOpenRef.current ||
             whatsNewVersionRef.current,
           ),
         },
@@ -5399,10 +5488,7 @@ function Workspace({
         }
         const next = sessionInWorktree(latest, target);
         if (fromComposer)
-          workspacePins.current.set(
-            sessionId,
-            currentWorkspace(latest.cwd),
-          );
+          workspacePins.current.set(sessionId, currentWorkspace(latest.cwd));
         else workspacePins.current.delete(sessionId);
         if (latest.worktreeRemoved)
           await keepSessionChanges(sessionId, target.path);
@@ -5461,10 +5547,6 @@ function Workspace({
       // `looksLikeProject` comes out the same way — so closing these first
       // meant cancelling a folder picker shut whatever the user had open.
       // Nothing below opens a project without also leaving one of these views.
-      setSearchViewOpen(false);
-      setInboxViewOpen(false);
-      setNotesViewOpen(false);
-      setAutomationsViewOpen(false);
 
       // At most one folder can take the blank session, and it keeps the
       // retargeting rules `onCwdChange` already owns.
@@ -5479,7 +5561,10 @@ function Workspace({
           step.action === "create",
       );
       if (created.length > 0) {
-        setSessions((prev) => [...prev, ...created.map((step) => step.session)]);
+        setSessions((prev) => [
+          ...prev,
+          ...created.map((step) => step.session),
+        ]);
         // Each tab sits beside the one before it in the run, so the folders keep
         // their selection order.
         setTabs((prev) =>
@@ -5580,7 +5665,11 @@ function Workspace({
 
       const tabs = tabsRef.current;
       const sessions = sessionsRef.current;
-      const projectTabs = filterTabsForProject(tabs, sessions, normalized);
+      const projectTabs = filterTabsForProject(
+        tabs,
+        sessions,
+        normalized,
+      ).filter((tab) => !isAppViewOnlyTab(tab));
       const projectTabIds = new Set(projectTabs.map((tab) => tab.id));
       const projectSessions = sessions.filter((session) =>
         sameProjectPath(session.cwd, normalized),
@@ -5782,10 +5871,7 @@ function Workspace({
     for (const tab of tabsRef.current) {
       for (const pane of tab.editorPanes) {
         for (const file of pane.files) {
-          if (
-            isFilesystemTab(file) &&
-            isEqualOrInside(file.path, path)
-          ) {
+          if (isFilesystemTab(file) && isEqualOrInside(file.path, path)) {
             dropped.add(file.id);
           }
         }
@@ -5811,9 +5897,7 @@ function Workspace({
         const fileProjectCwd = sidebarCwdRef.current;
         const resolved = await resolveFileOpenRequest(fileCwd, path, options);
         rememberOpenedFile(fileCwd, resolved);
-        const tab = tabsRef.current.find(
-          (entry) => entry.id === activeTabIdRef.current,
-        );
+        const tab = ensureContentTab(fileProjectCwd);
         if (!tab) return;
         const file = newFileTab(
           resolved,
@@ -5882,17 +5966,17 @@ function Workspace({
         setComposerFocused(false);
       })();
     },
-    [activateTab, insertBesideActive],
+    [activateTab, insertBesideActive, ensureContentTab],
   );
 
   const onOpenPlan = useCallback(
     (sessionId: string, blockId: string) => {
-      const tab = tabsRef.current.find((entry) => entry.id === activeTabId);
       const session = sessionsRef.current.find(
         (entry) => entry.id === sessionId,
       );
       const block = session?.blocks.find((entry) => entry.id === blockId);
-      if (!tab || !session || !block) return;
+      if (!session || !block) return;
+      const tab = ensureContentTab(session.cwd);
       const file = {
         ...newPlanTab(
           session.id,
@@ -5909,7 +5993,7 @@ function Workspace({
       );
       setComposerFocused(false);
     },
-    [activeTabId],
+    [ensureContentTab],
   );
 
   const onPinFile = useCallback((fileId: string) => {
@@ -6134,13 +6218,20 @@ function Workspace({
       attachments: Attachment[] = [],
       options?: SubmitOptions,
     ): SubmissionAcceptance => {
-      const remote = sessionsRef.current.find((session) => session.id === sessionId);
+      const remote = sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
       if (remote && sessionUsesHost(remote))
-        return !!remoteSessionActions(sessionId)?.submit(text, attachments, options);
+        return !!remoteSessionActions(sessionId)?.submit(
+          text,
+          attachments,
+          options,
+        );
       if (
         editedResends.isActive(sessionId) ||
         (remote && nativeSessionReadOnly(remote))
-      ) return false;
+      )
+        return false;
       // Output already received belongs before the submitted user message.
       // Flush before reading the session too, since pending errors can settle it.
       flushHarnessEvents();
@@ -6528,7 +6619,9 @@ function Workspace({
             tasks: [],
           }
         : undefined;
-      const isFirstTurn = current.blocks.every((block) => block.draft || block.internal);
+      const isFirstTurn = current.blocks.every(
+        (block) => block.draft || block.internal,
+      );
       const placeholderTitle =
         canReplaceSessionTitle(
           current.title,
@@ -6562,7 +6655,9 @@ function Workspace({
         ...(ciContext ? { ciContext } : {}),
         ...(operatorCommand.matched ? { monocode: true } : {}),
         ...(intent === "plan" || intent === "orchestrate" ? { intent } : {}),
-        ...(options?.appRequestId ? { appRequestId: options.appRequestId } : {}),
+        ...(options?.appRequestId
+          ? { appRequestId: options.appRequestId }
+          : {}),
         // The orchestrator writes these turns, not the user; hide them.
         ...(options?.managed ? { internal: true } : {}),
       };
@@ -6684,13 +6779,27 @@ function Workspace({
 
       const launchTitleGeneration = (workCwd: string) => {
         if (!live) return;
-        const titleMessage = harnessText || attachments.map((file) => file.name).join(", ");
-        if ((isFirstTurn && placeholderTitle) || options?.refreshTitle) titleCoordinator.current!.begin(sessionId, titleMessage, !!options?.refreshTitle);
+        const titleMessage =
+          harnessText || attachments.map((file) => file.name).join(", ");
+        if ((isFirstTurn && placeholderTitle) || options?.refreshTitle)
+          titleCoordinator.current!.begin(
+            sessionId,
+            titleMessage,
+            !!options?.refreshTitle,
+          );
         else void titleCoordinator.current!.read(sessionId);
-        void resolveLinkedWorkItem(titleMessage, workCwd, null).then((linkedWorkItem) => {
-          if (!linkedWorkItem) return;
-          setSessions((prev) => prev.map((session) => session.id === sessionId && !session.linkedWorkItem ? { ...session, linkedWorkItem } : session));
-        }).catch(() => undefined);
+        void resolveLinkedWorkItem(titleMessage, workCwd, null)
+          .then((linkedWorkItem) => {
+            if (!linkedWorkItem) return;
+            setSessions((prev) =>
+              prev.map((session) =>
+                session.id === sessionId && !session.linkedWorkItem
+                  ? { ...session, linkedWorkItem }
+                  : session,
+              ),
+            );
+          })
+          .catch(() => undefined);
       };
 
       if (!live) {
@@ -6748,10 +6857,7 @@ function Workspace({
             false,
           );
           workCwd = tree.path;
-          workspacePins.current.set(
-            sessionId,
-            currentWorkspace(current.cwd),
-          );
+          workspacePins.current.set(sessionId, currentWorkspace(current.cwd));
           if (proposalDraft)
             proposalDraft = { ...proposalDraft, checkoutCwd: tree.path };
           setSessions((prev) =>
@@ -6910,11 +7016,24 @@ function Workspace({
           if (routed) enqueueHarnessEvent(sessionId, routed);
         };
         const routeTurnEvent = (event: HarnessEvent) => {
-          if (event.type === "session.titleUpdated" || event.type === "session.titleRefreshRequested") {
+          if (
+            event.type === "session.titleUpdated" ||
+            event.type === "session.titleRefreshRequested"
+          ) {
             flushHarnessEvents();
             const session = sessionsRef.current.find((s) => s.id === sessionId);
-            if (session?.harness === current.harness && session.providerSessionId === event.providerSessionId && (session.providerAccountId ?? "default") === (providerAccountId ?? "default")) {
-              if (event.type === "session.titleUpdated") titleCoordinator.current!.native(sessionId, event.providerSessionId, event.title);
+            if (
+              session?.harness === current.harness &&
+              session.providerSessionId === event.providerSessionId &&
+              (session.providerAccountId ?? "default") ===
+                (providerAccountId ?? "default")
+            ) {
+              if (event.type === "session.titleUpdated")
+                titleCoordinator.current!.native(
+                  sessionId,
+                  event.providerSessionId,
+                  event.title,
+                );
               else void titleCoordinator.current!.read(sessionId);
             }
             return;
@@ -7234,7 +7353,11 @@ function Workspace({
           }
         })
         .finally(() => {
-          titleCoordinator.current!.settled(sessionId, turnGen.current.get(sessionId) !== gen || controlOutcome.status === "cancelled");
+          titleCoordinator.current!.settled(
+            sessionId,
+            turnGen.current.get(sessionId) !== gen ||
+              controlOutcome.status === "cancelled",
+          );
           editedResend?.reject();
           if (editedResend) editedResends.finish(sessionId);
           options?.onSettled?.(
@@ -7323,7 +7446,12 @@ function Workspace({
             title: eventRun
               ? HARNESS_LABEL[automation.harness]
               : formatSessionTitle(automation.harness, automation.name),
-            titleState: { source: eventRun ? "placeholder" as const : "manual" as const, epoch: 0, purpose: "initial" as const, fallbackAttempted: false },
+            titleState: {
+              source: eventRun ? ("placeholder" as const) : ("manual" as const),
+              epoch: 0,
+              purpose: "initial" as const,
+              fallbackAttempted: false,
+            },
             automationId: automation.id,
             ...(linkedWorkItem ? { linkedWorkItem } : {}),
             ...(automation.workspaceMode === "worktree"
@@ -7377,10 +7505,6 @@ function Workspace({
         }
 
         if (reveal) {
-          setSearchViewOpen(false);
-          setInboxViewOpen(false);
-          setNotesViewOpen(false);
-          setAutomationsViewOpen(false);
           setSidebarTab("sessions", session.cwd);
         }
 
@@ -7426,60 +7550,65 @@ function Workspace({
   );
 
   const launchQuickSession = useCallback(
-    (launch: QuickLaunch, deliveryId: string, placement?: AppSessionPlacement) =>
-      acceptQuickLaunch(launch, deliveryId, {
-        getSessions: () => sessionsRef.current,
-        updateSessions: (update) => {
-          sessionsRef.current = update(sessionsRef.current);
-          // Compose with submission's queued transcript updates.
-          setSessions(update);
+    (
+      launch: QuickLaunch,
+      deliveryId: string,
+      placement?: AppSessionPlacement,
+    ) =>
+      acceptQuickLaunch(
+        launch,
+        deliveryId,
+        {
+          getSessions: () => sessionsRef.current,
+          updateSessions: (update) => {
+            sessionsRef.current = update(sessionsRef.current);
+            // Compose with submission's queued transcript updates.
+            setSessions(update);
+          },
+          appendTab,
+          placeSession: (sessionId, target, cwd) => {
+            const anchor = sessionsRef.current.find(
+              (session) => session.id === target.besideSessionId,
+            );
+            const tab = tabsRef.current.find((entry) =>
+              leafIds(entry.layout).includes(target.besideSessionId),
+            );
+            if (!anchor || !sameProjectPath(anchor.cwd, cwd) || !tab)
+              throw new Error(
+                "The target session must be open in this project",
+              );
+            const nextTabs = tabsRef.current.map((entry) =>
+              entry.id === tab.id
+                ? {
+                    ...entry,
+                    layout: splitPane(
+                      entry.layout,
+                      target.besideSessionId,
+                      target.direction,
+                      sessionId,
+                    ),
+                    focusedId: launch.reveal ? sessionId : entry.focusedId,
+                    diffFocused: launch.reveal ? false : entry.diffFocused,
+                  }
+                : entry,
+            );
+            tabsRef.current = nextTabs;
+            setTabs(nextTabs);
+            return tab.id;
+          },
+          setProjectCwd,
+          setRecents,
+          revealTab: (id, cwd) => {
+            setActiveTabId(id);
+            setComposerFocused(false);
+            setSidebarTab("sessions", cwd);
+          },
+          submit: submitSession,
+          saveDraft: (id, prompt, attachments, requestId) =>
+            flushSync(() => onSaveDraft(id, prompt, attachments, requestId)),
         },
-        appendTab,
-        placeSession: (sessionId, target, cwd) => {
-          const anchor = sessionsRef.current.find(
-            (session) => session.id === target.besideSessionId,
-          );
-          const tab = tabsRef.current.find((entry) =>
-            leafIds(entry.layout).includes(target.besideSessionId),
-          );
-          if (!anchor || !sameProjectPath(anchor.cwd, cwd) || !tab)
-            throw new Error("The target session must be open in this project");
-          const nextTabs = tabsRef.current.map((entry) =>
-            entry.id === tab.id
-              ? {
-                  ...entry,
-                  layout: splitPane(
-                    entry.layout,
-                    target.besideSessionId,
-                    target.direction,
-                    sessionId,
-                  ),
-                  focusedId: launch.reveal ? sessionId : entry.focusedId,
-                  diffFocused: launch.reveal ? false : entry.diffFocused,
-                }
-              : entry,
-          );
-          tabsRef.current = nextTabs;
-          setTabs(nextTabs);
-          return tab.id;
-        },
-        setProjectCwd,
-        setRecents,
-        revealTab: (id, cwd) => {
-          setActiveTabId(id);
-          setComposerFocused(false);
-          setSearchViewOpen(false);
-          setInboxViewOpen(false);
-          setNotesViewOpen(false);
-          setAutomationsViewOpen(false);
-          setSidebarTab("sessions", cwd);
-        },
-        submit: submitSession,
-        saveDraft: (id, prompt, attachments, requestId) =>
-          flushSync(() =>
-            onSaveDraft(id, prompt, attachments, requestId),
-          ),
-      }, placement),
+        placement,
+      ),
     [appendTab, submitSession, onSaveDraft],
   );
   useQuickComposerLaunches(launchQuickSession);
@@ -7650,7 +7779,12 @@ function Workspace({
     const scheduled = new Set<string>();
     for (const session of sessions) {
       // The Host owns these queues, including shared projects with local paths.
-      if (!session.inboxAsk && !session.nativeSession && remoteProjectFor(session.cwd)) continue;
+      if (
+        !session.inboxAsk &&
+        !session.nativeSession &&
+        remoteProjectFor(session.cwd)
+      )
+        continue;
       const queued = session.queuedMessages ?? [];
       if (session.busy || queued.length === 0) continue;
 
@@ -7981,7 +8115,12 @@ function Workspace({
           modelSettings,
         ),
         title: formatSessionTitle(harness, SECOND_OPINION_TITLE),
-        titleState: { source: "manual" as const, epoch: 0, purpose: "initial" as const, fallbackAttempted: false },
+        titleState: {
+          source: "manual" as const,
+          epoch: 0,
+          purpose: "initial" as const,
+          fallbackAttempted: false,
+        },
       };
       openSessionBeside(sourceId, session, source.cwd);
       onSubmit(session.id, request.prompt, [], request.options);
@@ -8602,7 +8741,12 @@ function Workspace({
           harness,
           display === "New session" ? HANDOFF_TITLE : display,
         ),
-        titleState: { source: "manual" as const, epoch: 0, purpose: "initial" as const, fallbackAttempted: false },
+        titleState: {
+          source: "manual" as const,
+          epoch: 0,
+          purpose: "initial" as const,
+          fallbackAttempted: false,
+        },
         handoffCard: buildHandoffComposerCard({
           from,
           to: harness,
@@ -8652,9 +8796,12 @@ function Workspace({
       if (current && sessionUsesHost(current))
         return remoteSessionActions(sessionId)?.compact() ?? false;
       if (
-        !current || current.busy || current.worktreeRemoved ||
+        !current ||
+        current.busy ||
+        current.worktreeRemoved ||
         nativeSessionReadOnly(current)
-      ) return false;
+      )
+        return false;
       if (!canCompactHarnessContext(current.harness)) {
         const unsupported = sessionsRef.current.map((session) =>
           session.id === sessionId
@@ -9680,10 +9827,6 @@ function Workspace({
 
   const onSelectLiveAgent = useCallback(
     (sessionId: string) => {
-      setSearchViewOpen(false);
-      setInboxViewOpen(false);
-      setNotesViewOpen(false);
-      setAutomationsViewOpen(false);
       onOpenApprovalSession(sessionId);
     },
     [onOpenApprovalSession],
@@ -9706,6 +9849,18 @@ function Workspace({
   const projectHistory = useMemo(
     () => history.filter((entry) => sameProjectPath(entry.cwd, sidebarCwd)),
     [history, sidebarCwd],
+  );
+
+  // Quick Open's `#` mode: every project's unarchived sessions.
+  const paletteSessions = useMemo(
+    () =>
+      paletteOpen
+        ? conversationRowsFrom(
+            history.filter((entry) => !entry.archived),
+            sessions.filter((session) => !session.inboxAsk),
+          )
+        : [],
+    [paletteOpen, history, sessions],
   );
 
   const sidebarHistory = useMemo(
@@ -9790,14 +9945,6 @@ function Workspace({
   );
 
   const onToggleSidebar = useCallback(() => {
-    setProjectRailOpen((open) => {
-      const next = !open;
-      saveProjectRailOpen(next);
-      return next;
-    });
-  }, []);
-
-  const onToggleSessionSidebar = useCallback(() => {
     setSessionSidebarOpen((open) => {
       const next = !open;
       saveSessionSidebarOpen(next);
@@ -9805,32 +9952,17 @@ function Workspace({
     });
   }, []);
 
-  const onToggleProjectRail = useCallback(() => {
-    setProjectRailOpen((open) => {
-      const next = !open;
-      saveProjectRailOpen(next);
-      return next;
-    });
+  /** Quick Open: files by default, `>` commands, `#` sessions, `@` projects. */
+  const openPalette = useCallback((query: string) => {
+    setPaletteQuery(query);
+    setPaletteToken((token) => token + 1);
+    setPaletteOpen(true);
   }, []);
-
-  const onGoToFile = useCallback(() => {
-    setSearchViewOpen(false);
-    setInboxViewOpen(false);
-    setNotesViewOpen(false);
-    setAutomationsViewOpen(false);
-    setFilePickerInitialQuery("");
-    setFilePickerResetToken((token) => token + 1);
-    setFilePickerOpen(true);
-  }, []);
-  const onOpenCommandPalette = useCallback(() => {
-    setSearchViewOpen(false);
-    setInboxViewOpen(false);
-    setNotesViewOpen(false);
-    setAutomationsViewOpen(false);
-    setFilePickerInitialQuery(">");
-    setFilePickerResetToken((token) => token + 1);
-    setFilePickerOpen(true);
-  }, []);
+  const onGoToFile = useCallback(() => openPalette(""), [openPalette]);
+  const onOpenCommandPalette = useCallback(
+    () => openPalette(">"),
+    [openPalette],
+  );
   const onReload = useCallback(() => {
     void (async () => {
       if (!(await confirmReload(dirtyFilesRef.current.size > 0))) return;
@@ -9839,54 +9971,82 @@ function Workspace({
   }, []);
 
   const onFindInProject = useCallback(() => {
-    setSearchViewOpen(false);
-    setInboxViewOpen(false);
-    setNotesViewOpen(false);
-    setAutomationsViewOpen(false);
+    setSessionSidebarOpen(true);
+    saveSessionSidebarOpen(true);
     setSidebarTab("files");
     setFilesSearchOpen(true);
     setSearchFocusToken((token) => token + 1);
   }, []);
 
-  const onOpenSearch = useCallback(() => {
-    workspaceNavigation.cancel();
-    startTransition(() => {
-      setFilePickerOpen(false);
-      setSettingsOpen(false);
-      setInboxViewOpen(false);
-      setNotesViewOpen(false);
-      setAutomationsViewOpen(false);
-      setSearchViewOpen(true);
-      setSearchViewFocusToken((token) => token + 1);
-    });
-  }, []);
+  const openAppView = useCallback(
+    (kind: AppViewKind) => {
+      workspaceNavigation.cancel();
+      setPaletteOpen(false);
+      let target: ReturnType<typeof openAppViewTab> | undefined;
+      flushSync(() =>
+        setTabs((current) => {
+          target = openAppViewTab(current, kind);
+          return target.tabs;
+        }),
+      );
+      if (target) activateTab(target.tabId, target.paneId);
+      setProjectTerminalFocused(false);
+      setComposerFocused(false);
+    },
+    [activateTab, workspaceNavigation.cancel],
+  );
 
-  const onLeaveSearch = useCallback(() => {
-    setSearchViewOpen(false);
-  }, []);
+  const leaveAppView = useCallback(() => {
+    const tab = tabsRef.current.find(
+      (entry) => entry.id === activeTabIdRef.current,
+    );
+    if (!tab) return;
+    for (const id of leafIds(tab.layout)) {
+      if (sessionsRef.current.some((session) => session.id === id)) {
+        activateTab(tab.id, id);
+        return;
+      }
+      const pane = findSurfacePane(tab, id)?.pane;
+      const file = pane?.files.find((entry) => !entry.appView);
+      if (pane && file) {
+        activateTab(tab.id, pane.id);
+        onSelectFileSurface(pane.id, file.id);
+        return;
+      }
+    }
+    ensureContentTab(projectCwdRef.current);
+  }, [activateTab, ensureContentTab, onSelectFileSurface]);
+
+  const onOpenSearch = useCallback(() => {
+    openAppView("search");
+    setSearchViewFocusToken((token) => token + 1);
+  }, [openAppView]);
+
+  const [searchQueryRequest, setSearchQueryRequest] = useState<
+    { query: string; token: number } | undefined
+  >();
+  const onSearchEverywhere = useCallback(
+    (query: string) => {
+      setSearchQueryRequest((previous) => ({
+        query,
+        token: (previous?.token ?? 0) + 1,
+      }));
+      onOpenSearch();
+    },
+    [onOpenSearch],
+  );
+
+  const onLeaveSearch = leaveAppView;
 
   const onOpenInbox = useCallback(() => {
-    workspaceNavigation.cancel();
-    startTransition(() => {
-      setFilePickerOpen(false);
-      setSettingsOpen(false);
-      setSearchViewOpen(false);
-      setNotesViewOpen(false);
-      setAutomationsViewOpen(false);
-      setInboxViewOpen(true);
-    });
-  }, []);
+    openAppView("inbox");
+  }, [openAppView]);
 
   const onOpenLinkedWorkItem = useCallback(
     (item: LinkedWorkItem, sessionId: string) => {
       const request = linkedWorkItemPanelRequest.current + 1;
       linkedWorkItemPanelRequest.current = request;
-      setFilePickerOpen(false);
-      setSettingsOpen(false);
-      setSearchViewOpen(false);
-      setNotesViewOpen(false);
-      setAutomationsViewOpen(false);
-      setInboxViewOpen(false);
+      setPaletteOpen(false);
       const cwd =
         sessionsRef.current.find((session) => session.id === sessionId)?.cwd ??
         history.find((session) => session.id === sessionId)?.cwd ??
@@ -9909,13 +10069,10 @@ function Workspace({
     [history, onSelectHistorySession, sidebarCwd],
   );
 
-  const onLeaveInbox = useCallback(() => {
-    setInboxViewOpen(false);
-  }, []);
+  const onLeaveInbox = leaveAppView;
 
   const onOpenInboxSession = useCallback(
     (sessionId: string) => {
-      setInboxViewOpen(false);
       const cwd =
         sessionsRef.current.find((session) => session.id === sessionId)?.cwd ??
         history.find((session) => session.id === sessionId)?.cwd;
@@ -9966,9 +10123,6 @@ function Workspace({
           onSettled: (outcome) => settle(outcome.status),
         }),
       );
-      setInboxViewOpen(false);
-      setNotesViewOpen(false);
-      setSearchViewOpen(false);
       setSidebarTab("sessions", cwd);
       await onSelectHistorySession(session.id);
     },
@@ -9981,49 +10135,24 @@ function Workspace({
   );
 
   const onOpenNotes = useCallback(() => {
-    workspaceNavigation.cancel();
     if (!loadNotesEnabled()) return;
-    startTransition(() => {
-      setFilePickerOpen(false);
-      setSettingsOpen(false);
-      setSearchViewOpen(false);
-      setInboxViewOpen(false);
-      setAutomationsViewOpen(false);
-      setNotesViewOpen(true);
-    });
-  }, []);
+    openAppView("notes");
+  }, [openAppView]);
 
-  const onLeaveNotes = useCallback(() => {
-    setNotesViewOpen(false);
-  }, []);
+  const onLeaveNotes = leaveAppView;
 
   const onOpenAutomations = useCallback(() => {
-    workspaceNavigation.cancel();
-    startTransition(() => {
-      setFilePickerOpen(false);
-      setSettingsOpen(false);
-      setSearchViewOpen(false);
-      setInboxViewOpen(false);
-      setNotesViewOpen(false);
-      setAutomationsViewOpen(true);
-    });
-  }, []);
+    openAppView("automations");
+  }, [openAppView]);
 
-  const onLeaveAutomations = useCallback(() => {
-    setAutomationsViewOpen(false);
-  }, []);
+  const onLeaveAutomations = leaveAppView;
 
   const onOpenAutomationSession = useCallback(
     async (sessionId: string) => {
       const session = await ensureOpenSession(sessionId);
       if (!session)
         throw new Error("This conversation is no longer available.");
-      setAutomationsViewOpen(false);
-      setSearchViewOpen(false);
-      setInboxViewOpen(false);
-      setNotesViewOpen(false);
-      setSettingsOpen(false);
-      setFilePickerOpen(false);
+      setPaletteOpen(false);
       setSidebarTab("sessions", session.cwd);
       setProjectCwd(session.cwd);
       setRecents(rememberProject(session.cwd));
@@ -10034,31 +10163,15 @@ function Workspace({
 
   const openSettings = useCallback(
     (section?: SettingsSectionId, anchor?: SettingsAnchor) => {
-      workspaceNavigation.cancel();
-      if (!settingsOpenRef.current) {
-        settingsReturnViewRef.current = {
-          search: searchViewOpenRef.current,
-          inbox: inboxViewOpenRef.current,
-          notes: notesViewOpenRef.current,
-          automations: automationsViewOpenRef.current,
-        };
+      if (section) {
+        setSettingsSection(section);
+        saveSettingsSection(section);
       }
-      startTransition(() => {
-        setFilePickerOpen(false);
-        setSearchViewOpen(false);
-        setInboxViewOpen(false);
-        setNotesViewOpen(false);
-        setAutomationsViewOpen(false);
-        if (section) {
-          setSettingsSection(section);
-          saveSettingsSection(section);
-        }
-        setSettingsAnchor(anchor ?? null);
-        setNotificationProjectPath(null);
-        setSettingsOpen(true);
-      });
+      setSettingsAnchor(anchor ?? null);
+      setNotificationProjectPath(null);
+      openAppView("settings");
     },
-    [],
+    [openAppView],
   );
 
   const onOpenSettings = useCallback(() => openSettings(), [openSettings]);
@@ -10078,7 +10191,8 @@ function Workspace({
   useEffect(() => {
     const onOpenMcp = () => openSettings("mcp");
     window.addEventListener("monocode:open-mcp-settings", onOpenMcp);
-    return () => window.removeEventListener("monocode:open-mcp-settings", onOpenMcp);
+    return () =>
+      window.removeEventListener("monocode:open-mcp-settings", onOpenMcp);
   }, [openSettings]);
 
   const onOpenNotificationSettings = useCallback(
@@ -10095,14 +10209,7 @@ function Workspace({
     [openSettings],
   );
 
-  const onCloseSettings = useCallback(() => {
-    const returnView = settingsReturnViewRef.current;
-    setSearchViewOpen(returnView.search);
-    setInboxViewOpen(returnView.inbox);
-    setNotesViewOpen(returnView.notes && loadNotesEnabled());
-    setAutomationsViewOpen(returnView.automations);
-    setSettingsOpen(false);
-  }, []);
+  const onCloseSettings = leaveAppView;
 
   const onSelectSettingsSection = useCallback((section: SettingsSectionId) => {
     setSettingsSection(section);
@@ -10111,56 +10218,13 @@ function Workspace({
 
   const onOpenArchivedSession = useCallback(
     (sessionId: string) => {
-      setSettingsOpen(false);
       void onSelectHistorySession(sessionId);
     },
     [onSelectHistorySession],
   );
 
-  const onRailBack = useCallback(() => {
-    if (settingsOpen) {
-      onCloseSettings();
-      return;
-    }
-    if (searchViewOpen) {
-      setSearchViewOpen(false);
-      return;
-    }
-    if (inboxViewOpen) {
-      setInboxViewOpen(false);
-      return;
-    }
-    if (notesViewOpen) {
-      setNotesViewOpen(false);
-      return;
-    }
-    if (automationsViewOpen) {
-      setAutomationsViewOpen(false);
-      return;
-    }
-    onVisitBack();
-  }, [
-    onCloseSettings,
-    onVisitBack,
-    searchViewOpen,
-    settingsOpen,
-    inboxViewOpen,
-    notesViewOpen,
-    automationsViewOpen,
-  ]);
-
-  const onRailForward = useCallback(() => {
-    setSearchViewOpen(false);
-    setSettingsOpen(false);
-    setInboxViewOpen(false);
-    setNotesViewOpen(false);
-    setAutomationsViewOpen(false);
-    onVisitForward();
-  }, [onVisitForward]);
-
-  useEffect(() => {
-    if (sidebarTab === "inbox") setSidebarTab("sessions");
-  }, [sidebarTab]);
+  const onRailBack = onVisitBack;
+  const onRailForward = onVisitForward;
 
   useEffect(() => {
     if (!dockVisible) setProjectTerminalFocused(false);
@@ -10172,8 +10236,7 @@ function Workspace({
     for (const tab of tabs) {
       for (const pane of tab.editorPanes) {
         for (const file of pane.files) {
-          if (!isFilesystemTab(file) || seen.has(file.path))
-            continue;
+          if (!isFilesystemTab(file) || seen.has(file.path)) continue;
           seen.add(file.path);
           paths.push(file.path);
         }
@@ -10202,7 +10265,8 @@ function Workspace({
         (session) => session.id === activeWorkspace.focusedId,
       );
       if (!current) return;
-      const remoteProject = isRemoteProjectPath(current.cwd) || !!sessionUsesHost(current);
+      const remoteProject =
+        isRemoteProjectPath(current.cwd) || !!sessionUsesHost(current);
       const navigationId = remoteProject
         ? remoteSessionFor(current.id)
         : current.id;
@@ -10278,77 +10342,99 @@ function Workspace({
     [onSelectProject],
   );
 
+  const toggleAutosave = useCallback(() => {
+    const next = saveAutosave(!loadAutosave());
+    if (IS_MAC) void invoke("autosave_set_enabled", { enabled: next });
+  }, []);
+
+  const zoom = useCallback((direction: "in" | "out" | "reset") => {
+    const next = saveUiScale(
+      direction === "reset"
+        ? UI_SCALE_DEFAULT
+        : direction === "in"
+          ? zoomInUiScale(loadUiScale())
+          : zoomOutUiScale(loadUiScale()),
+    );
+    void applyUiScale(next);
+  }, []);
+
+  const commandHandlers: CommandHandlers = {
+    "Tab: New": onNew,
+    "Terminal: New": onNewTerminal,
+    "App: New Window": () => void invoke("open_new_window").catch(() => {}),
+    "App: Open Project": () => void pickProject(),
+    "File: Autosave": toggleAutosave,
+    "Pane: Close": () => onClosePane(),
+    "Tab: Close": activeTabId ? () => onCloseTitleTab(activeTabId) : undefined,
+    "Tab: Close Others": onCloseOtherTabs,
+    "Tab: Close All": onCloseAllTabs,
+    "Editor: Find": () => void openFindInActiveEditor(),
+    "Editor: Replace": () => void openReplaceInActiveEditor(),
+    "App: Find in Files": onFindInProject,
+    "App: Command Palette": onOpenCommandPalette,
+    "App: Search": onGoToFile,
+    "View: Search Everywhere": () => onOpenSearch(),
+    "App: Toggle Sidebar": onToggleSidebar,
+    "View: Toggle Changes": onToggleChanges,
+    "Terminal: Toggle Dock": onToggleProjectTerminal,
+    "View: Toggle Menu Bar": IS_MAC
+      ? undefined
+      : () => void saveMenuBarVisible(!loadMenuBarVisible()),
+    "Pane: Split Right": () => onSplit("right"),
+    "Pane: Split Down": () => onSplit("down"),
+    "View: Inbox": onOpenInbox,
+    "View: Notes": notesEnabled ? onOpenNotes : undefined,
+    "View: Automations": onOpenAutomations,
+    "App: Settings": () => openSettings(),
+    "App: Switch Model": () =>
+      window.dispatchEvent(new Event("open_model_picker")),
+    "View: Zoom In": () => zoom("in"),
+    "View: Zoom Out": () => zoom("out"),
+    "View: Reset Zoom": () => zoom("reset"),
+    "View: Reload": onReload,
+    "Tab: Back": onVisitBack,
+    "Tab: Forward": onVisitForward,
+    "App: Go to File": onGoToFile,
+    "Tab: Next": onNext,
+    "Tab: Previous": onPrev,
+    "Tab: Cycle Next": onNext,
+    "Tab: Cycle Previous": onPrev,
+    "Tab: Activate 1–8": (slot) => onActivate(Number(slot)),
+    "Tab: Activate Last": () => onActivate(-1),
+    "Session: Previous": () => onNavigateSessionList(-1),
+    "Session: Next": () => onNavigateSessionList(1),
+    "Session: Previous in Current Tab": () => onNavigateSessionList(-1, true),
+    "Session: Next in Current Tab": () => onNavigateSessionList(1, true),
+    "Project: Previous": () => onNavigateProjectList(-1),
+    "Project: Next": () => onNavigateProjectList(1),
+    "Pane: Focus Left": () => onFocusDir("left"),
+    "Pane: Focus Right": () => onFocusDir("right"),
+    "Pane: Focus Up": () => onFocusDir("up"),
+    "Pane: Focus Down": () => onFocusDir("down"),
+    "Terminal: New Tab": onNewTerminalTab,
+    "Help: Keyboard Shortcuts": () => openSettings("keybindings"),
+    "Help: What's New": () =>
+      void readAppVersion().then((version) => onOpenWhatsNew(version)),
+    "Help: Check for Updates": () => void runUpdateFlow(true),
+    ...Object.fromEntries(
+      Object.entries(HELP_URLS).map(([id, url]) => [
+        id,
+        () => void openUrl(url).catch(console.error),
+      ]),
+    ),
+  };
+  const dispatch = useCommandDispatcher(commandHandlers);
+
   const actions = useRef({
-    onNew,
     onArchiveFocusedSession,
-    onCloseOtherTabs,
-    onCloseAllTabs,
-    onClosePane,
-    onNext,
-    onPrev,
-    onVisitBack,
-    onVisitForward,
-    onActivate,
-    onSplit,
-    onFocusDir,
-    onToggleSidebar,
-    onToggleSessionSidebar,
-    onGoToFile,
-    onOpenCommandPalette,
-    onReload,
-    onFindInProject,
-    onOpenSearch,
-    onOpenInbox,
-    onOpenNotes,
-    pickProject,
-    onNewTerminal,
-    onNewTerminalTab,
-    onToggleProjectTerminal,
-    onNavigateSessionList,
-    onNavigateProjectList,
     openSettings,
     onOpenApprovalSession,
   });
   actions.current = {
-    onNew,
     onArchiveFocusedSession,
-    onCloseOtherTabs,
-    onCloseAllTabs,
-    onClosePane,
-    onNext,
-    onPrev,
-    onVisitBack,
-    onVisitForward,
-    onActivate,
-    onSplit,
-    onFocusDir,
-    onToggleSidebar,
-    onToggleSessionSidebar,
-    onGoToFile,
-    onOpenCommandPalette,
-    onReload,
-    onFindInProject,
-    onOpenSearch,
-    onOpenInbox,
-    onOpenNotes,
-    pickProject,
-    onNewTerminal,
-    onNewTerminalTab,
-    onToggleProjectTerminal,
-    onNavigateSessionList,
-    onNavigateProjectList,
     openSettings,
     onOpenApprovalSession,
   };
-
-  const debounce = useRef({ name: "", at: 0 });
-  const run = useCallback((name: string, fn: () => void) => {
-    const now = performance.now();
-    if (name === debounce.current.name && now - debounce.current.at < 80)
-      return;
-    debounce.current = { name, at: now };
-    fn();
-  }, []);
 
   useEffect(() => {
     if (!IS_MAC) return;
@@ -10375,20 +10461,17 @@ function Workspace({
         keybindingPressed(command, e, defaultMatch);
       // A rebound zoom chord may be Option-only, so it is resolved outside the
       // Cmd/Ctrl guard that only the browser-standard defaults need.
-      const zoom = resolveZoomKeybinding(e);
-      if (zoom) {
+      const zoomAction = resolveZoomKeybinding(e);
+      if (zoomAction) {
         e.preventDefault();
         e.stopPropagation();
-        if (zoom === "zoom-in") {
-          const next = saveUiScale(zoomInUiScale(loadUiScale()));
-          void applyUiScale(next);
-        } else if (zoom === "zoom-out") {
-          const next = saveUiScale(zoomOutUiScale(loadUiScale()));
-          void applyUiScale(next);
-        } else {
-          saveUiScale(UI_SCALE_DEFAULT);
-          void applyUiScale(UI_SCALE_DEFAULT);
-        }
+        dispatch(
+          zoomAction === "zoom-in"
+            ? "View: Zoom In"
+            : zoomAction === "zoom-out"
+              ? "View: Zoom Out"
+              : "View: Reset Zoom",
+        );
         return;
       }
       const cmd = customCommand
@@ -10418,12 +10501,8 @@ function Workspace({
             target?.matches('textarea[data-composer-empty="true"]'),
           );
           const surfaceOpen =
-            searchViewOpenRef.current ||
-            inboxViewOpenRef.current ||
-            notesViewOpenRef.current ||
-            automationsViewOpenRef.current ||
-            settingsOpenRef.current ||
-            filePickerOpenRef.current ||
+            Boolean(appViewFocusedRef.current) ||
+            paletteOpenRef.current ||
             Boolean(whatsNewVersionRef.current);
           if (
             !shouldHandleListNavigation({
@@ -10461,50 +10540,16 @@ function Workspace({
         }
         e.preventDefault();
         e.stopPropagation();
-        const a = actions.current;
-        if (cmd === "new") run("new", a.onNew);
-        else if (cmd === "close-others")
-          run("close-others", a.onCloseOtherTabs);
-        else if (cmd === "close-all") run("close-all", a.onCloseAllTabs);
-        else if (cmd === "close") run("close", a.onClosePane);
-        else if (cmd === "next") run("next", a.onNext);
-        else if (cmd === "prev") run("prev", a.onPrev);
-        else if (cmd === "cycle-next") run("next", a.onNext);
-        else if (cmd === "cycle-prev") run("prev", a.onPrev);
-        else if (cmd === "back") run("back", a.onVisitBack);
-        else if (cmd === "forward") run("forward", a.onVisitForward);
-        else if (cmd === "split-right")
-          run("split-right", () => a.onSplit("right"));
-        else if (cmd === "split-down")
-          run("split-down", () => a.onSplit("down"));
-        else if (cmd === "new-terminal") run("new-terminal", a.onNewTerminal);
-        else if (cmd === "new-terminal-tab")
-          run("new-terminal-tab", a.onNewTerminalTab);
-        else if (cmd === "toggle-terminal")
-          run("toggle-terminal", a.onToggleProjectTerminal);
-        else if (cmd === "prev-session")
-          run("prev-session", () => a.onNavigateSessionList(-1));
-        else if (cmd === "next-session")
-          run("next-session", () => a.onNavigateSessionList(1));
-        else if (cmd === "prev-session-in-tab")
-          run("prev-session-in-tab", () => a.onNavigateSessionList(-1, true));
-        else if (cmd === "next-session-in-tab")
-          run("next-session-in-tab", () => a.onNavigateSessionList(1, true));
-        else if (cmd === "prev-project")
-          run("prev-project", () => a.onNavigateProjectList(-1));
-        else if (cmd === "next-project")
-          run("next-project", () => a.onNavigateProjectList(1));
-        else if (typeof cmd === "object" && "focus" in cmd)
-          run(`focus-${cmd.focus}`, () => a.onFocusDir(cmd.focus));
-        else if (typeof cmd === "object" && "activate" in cmd)
-          run(`activate-${cmd.activate}`, () => a.onActivate(cmd.activate));
+        dispatch(
+          tabCommandKeybinding(cmd),
+          typeof cmd === "object" && "activate" in cmd
+            ? cmd.activate
+            : undefined,
+        );
         return;
       }
       if (
-        !searchViewOpenRef.current &&
-        !inboxViewOpenRef.current &&
-        !notesViewOpenRef.current &&
-        !automationsViewOpenRef.current &&
+        !appViewFocusedRef.current &&
         !(
           e.target instanceof Element &&
           e.target.closest("[data-session-drop], [data-agent-tab]")
@@ -10527,111 +10572,26 @@ function Workspace({
         }
         e.preventDefault();
         e.stopPropagation();
-        const a = actions.current;
-        if (shortcut === "App: New Window")
-          run("new_window", () => void invoke("open_new_window"));
-        else if (shortcut === "App: Open Project")
-          run("open_project", () => void a.pickProject());
-        else if (shortcut === "App: Toggle Sidebar")
-          run("toggle_sidebar", a.onToggleSidebar);
-        else if (shortcut === "App: Toggle Session Sidebar")
-          run("toggle_session_sidebar", a.onToggleSessionSidebar);
-        else if (shortcut === "App: Go to File")
-          run("go_to_file", a.onGoToFile);
-        else if (shortcut === "App: Command Palette")
-          run("open_command_palette", a.onOpenCommandPalette);
-        else if (shortcut === "View: Reload") run("reload", a.onReload);
-        else if (shortcut === "App: Search") run("open_search", a.onOpenSearch);
-        else if (shortcut === "App: Settings")
-          run("open_settings", () => a.openSettings());
-        else if (shortcut === "App: Find in Files")
-          run("find_in_project", a.onFindInProject);
+        dispatch(shortcut);
         return;
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [run]);
+  }, [dispatch]);
 
   useEffect(() => {
+    // Commands with a native menu event are subscribed by useCommandDispatcher;
+    // these carry a payload or open a specific place.
     const unlisten: Array<Promise<() => void>> = [
-      listen("new_tab", () => run("new", actions.current.onNew)),
-      listen("close_other_tabs", () =>
-        run("close-others", actions.current.onCloseOtherTabs),
-      ),
-      listen("close_all_tabs", () =>
-        run("close-all", actions.current.onCloseAllTabs),
-      ),
-      listen("close_tab", () => run("close", actions.current.onClosePane)),
       listen<boolean>("toggle_autosave", ({ payload }) => {
         const saved = saveAutosave(payload);
         if (saved !== payload && IS_MAC) {
           void invoke("autosave_set_enabled", { enabled: saved });
         }
       }),
-      listen("next_tab", () => run("next", actions.current.onNext)),
-      listen("prev_tab", () => run("prev", actions.current.onPrev)),
-      listen("back_tab", () => run("back", actions.current.onVisitBack)),
-      listen("forward_tab", () =>
-        run("forward", actions.current.onVisitForward),
-      ),
-      listen("split_right", () =>
-        run("split-right", () => actions.current.onSplit("right")),
-      ),
-      listen("split_down", () =>
-        run("split-down", () => actions.current.onSplit("down")),
-      ),
-      listen("new_terminal", () =>
-        run("new-terminal", actions.current.onNewTerminal),
-      ),
-      listen("new_terminal_tab", () =>
-        run("new-terminal-tab", actions.current.onNewTerminalTab),
-      ),
-      listen("toggle_terminal", () =>
-        run("toggle-terminal", actions.current.onToggleProjectTerminal),
-      ),
-      listen("focus_left", () =>
-        run("focus-left", () => actions.current.onFocusDir("left")),
-      ),
-      listen("focus_right", () =>
-        run("focus-right", () => actions.current.onFocusDir("right")),
-      ),
-      listen("focus_up", () =>
-        run("focus-up", () => actions.current.onFocusDir("up")),
-      ),
-      listen("focus_down", () =>
-        run("focus-down", () => actions.current.onFocusDir("down")),
-      ),
-      listen("toggle_sidebar", () =>
-        run("toggle_sidebar", actions.current.onToggleSidebar),
-      ),
-      listen("toggle_session_sidebar", () =>
-        run("toggle_session_sidebar", actions.current.onToggleSessionSidebar),
-      ),
-      listen("open_project", () => {
-        void actions.current.pickProject();
-      }),
-      listen("go_to_file", () => run("go_to_file", actions.current.onGoToFile)),
-      listen("open_command_palette", () =>
-        run("open_command_palette", actions.current.onOpenCommandPalette),
-      ),
-      listen("reload", () => run("reload", actions.current.onReload)),
-      listen("open_search", () => actions.current.onOpenSearch()),
-      listen("open_inbox", () => actions.current.onOpenInbox()),
-      listen("open_notes", () => actions.current.onOpenNotes()),
-      listen("open_settings", () => actions.current.openSettings()),
-      listen("check_for_updates", () => {
-        void runUpdateFlow(true);
-      }),
       listen("sidebar_opacity", () => {
         actions.current.openSettings("appearance");
-      }),
-      listen("find_in_project", () => actions.current.onFindInProject()),
-      listen("find", () => {
-        openFindInActiveEditor();
-      }),
-      listen("open_model_picker", () => {
-        window.dispatchEvent(new Event("open_model_picker"));
       }),
       // Every window hears the click; only the one holding the session acts.
       listen<string>(NOTIFICATION_CLICK_EVENT, ({ payload: sessionId }) => {
@@ -10644,25 +10604,11 @@ function Workspace({
           .catch(() => {});
         actions.current.onOpenApprovalSession(sessionId);
       }),
-      listen("zoom_in", () => {
-        const next = zoomInUiScale(loadUiScale());
-        saveUiScale(next);
-        void applyUiScale(next);
-      }),
-      listen("zoom_out", () => {
-        const next = zoomOutUiScale(loadUiScale());
-        saveUiScale(next);
-        void applyUiScale(next);
-      }),
-      listen("zoom_reset", () => {
-        saveUiScale(UI_SCALE_DEFAULT);
-        void applyUiScale(UI_SCALE_DEFAULT);
-      }),
     ];
     return () => {
       void Promise.all(unlisten).then((fns) => fns.forEach((fn) => fn()));
     };
-  }, [run]);
+  }, []);
 
   const dockGridRef = useRef<HTMLDivElement>(null);
   const dockDragSize = useRef<number | null>(null);
@@ -10695,26 +10641,40 @@ function Workspace({
   }, [currentProjectDock, dockVisible]);
 
   const lastRemoteSnapshot = useRef(new Map<string, HostSession>());
-  const onRemoteSnapshot = useCallback((shellId: string, snapshot?: HostSession) => {
-    if (!snapshot) {
-      lastRemoteSnapshot.current.delete(shellId);
-      setSessions((current) => current.map((entry) => entry.id === shellId
-        ? { ...entry, title: "New remote session", blocks: [], busy: false }
-        : entry));
-      return;
-    }
-    if (lastRemoteSnapshot.current.get(shellId) === snapshot) return;
-    lastRemoteSnapshot.current.set(shellId, snapshot);
-    setSessions((current) => {
-      const shell = current.find((entry) => entry.id === shellId);
-      if (!shell) return current;
-      const project = remoteProjectFor(shell.cwd);
-      if (!project) return current;
-      return current.map((entry) => entry.id === shellId
-        ? remoteSessionState(entry, snapshot, project)
-        : entry);
-    });
-  }, []);
+  const onRemoteSnapshot = useCallback(
+    (shellId: string, snapshot?: HostSession) => {
+      if (!snapshot) {
+        lastRemoteSnapshot.current.delete(shellId);
+        setSessions((current) =>
+          current.map((entry) =>
+            entry.id === shellId
+              ? {
+                  ...entry,
+                  title: "New remote session",
+                  blocks: [],
+                  busy: false,
+                }
+              : entry,
+          ),
+        );
+        return;
+      }
+      if (lastRemoteSnapshot.current.get(shellId) === snapshot) return;
+      lastRemoteSnapshot.current.set(shellId, snapshot);
+      setSessions((current) => {
+        const shell = current.find((entry) => entry.id === shellId);
+        if (!shell) return current;
+        const project = remoteProjectFor(shell.cwd);
+        if (!project) return current;
+        return current.map((entry) =>
+          entry.id === shellId
+            ? remoteSessionState(entry, snapshot, project)
+            : entry,
+        );
+      });
+    },
+    [],
+  );
 
   const onManageWorktrees = useCallback(
     () => openSettings("worktrees"),
@@ -10777,39 +10737,113 @@ function Workspace({
     onNewTerminal: onNewTerminalInSession,
   };
 
-  const chromeSurfaceOpen =
-    searchViewOpen ||
-    settingsOpen ||
-    inboxViewOpen ||
-    notesViewOpen ||
-    automationsViewOpen;
-  const compactProjectRail = collapsedProjectRailMode === "compact";
-  const compactRailActive = compactProjectRail && !projectRailOpen;
-  const titleBarAbove =
-    !chromeSurfaceOpen &&
-    (compactRailActive ||
-      (!projectRailOpen &&
-        (!sessionSidebarOpen || !looksLikeProject(sidebarCwd))));
+  const renderAppView: AppViewRenderer = (kind, active) => {
+    switch (kind) {
+      case "search":
+        return (
+          <SearchView
+            open={active}
+            cwd={gitCwd}
+            recents={recents}
+            history={projectHistory}
+            sessions={sessions.filter((session) => !session.inboxAsk)}
+            focusToken={searchViewFocusToken}
+            queryRequest={searchQueryRequest}
+            onClose={onLeaveSearch}
+            onOpenFile={onOpenFile}
+            onOpenSession={(sessionId, blockId, query) => {
+              if (blockId) requestTranscriptJump(sessionId, blockId, query);
+              void onSelectHistorySession(sessionId);
+            }}
+            onOpenProject={onSelectProject}
+          />
+        );
+      case "inbox":
+        return (
+          <InboxView
+            active={active}
+            cwd={sidebarCwd}
+            recents={recents}
+            onClose={onLeaveInbox}
+            onStart={onStartInboxItem}
+            onAsk={onAskInboxItem}
+            onAskRestart={onRestartInboxAsk}
+            onAskMount={setInboxAskPortal}
+            sessions={inboxRelatedSessions}
+            repairSessions={repairSessions}
+            onRepairChecks={onRepairChecks}
+            onOpenSession={onOpenInboxSession}
+            onOpenIntegrations={onOpenInboxIntegrations}
+          />
+        );
+      case "notes":
+        return (
+          <NotesView
+            active={active}
+            cwd={projectCwd}
+            recents={recents}
+            onClose={onLeaveNotes}
+          />
+        );
+      case "automations":
+        return (
+          <AutomationsView
+            active={active}
+            cwd={projectCwd}
+            recents={recents}
+            onClose={onLeaveAutomations}
+            onLaunch={(automation, run) =>
+              launchAutomation(automation, run, true)
+            }
+            onOpenSession={onOpenAutomationSession}
+          />
+        );
+      case "settings":
+        return (
+          <SettingsView
+            active={active}
+            section={settingsSection}
+            anchor={settingsAnchor}
+            notificationProjectPath={notificationProjectPath}
+            notificationSettingsRequest={notificationSettingsRequest}
+            recents={recents}
+            cwd={sidebarCwd}
+            sessions={sidebarHistory}
+            liveSessions={sessions}
+            onRemoveWorktree={onRemoveWorktree}
+            onCheckWorktreeRemoval={onCheckWorktreeRemoval}
+            onDeleteWorktreeSessions={onDeleteWorktreeSessions}
+            onClose={onCloseSettings}
+            onSelectSection={onSelectSettingsSection}
+            onOpenSession={onOpenArchivedSession}
+            onArchiveSession={onArchiveHistorySession}
+            onDeleteSession={onDeleteHistorySession}
+            onRestoreProject={onRestoreProject}
+            onDeleteProject={(path) =>
+              onRemoveProject(path, { purgeData: true })
+            }
+            onOpenWhatsNew={onOpenWhatsNew}
+          />
+        );
+    }
+  };
+
   const workspaceTitleBar = (
     <TitleBar
       tabs={titleTabs}
       activeId={activeTabId}
       cwd={sidebarCwd}
-      projectRailOpen={projectRailOpen}
+      projectRailOpen={sessionSidebarOpen}
       sessionSidebarOpen={sessionSidebarOpen}
-      compactRail={compactRailActive && titleBarAbove}
+      chromeInMenuBar={menuBarPinned}
       canGoBack={tabVisitNav.canBack}
       canGoForward={tabVisitNav.canForward}
       onGoBack={onRailBack}
       onGoForward={onRailForward}
       onToggleSidebar={onToggleSidebar}
-      onToggleSessionSidebar={onToggleSessionSidebar}
       onSelect={activateTab}
       onNew={onNew}
       onNewTerminal={onNewTerminal}
-      onOpenSettings={onOpenSettings}
-      onOpenInbox={onOpenInbox}
-      onOpenNotes={notesEnabled ? onOpenNotes : undefined}
       onClose={onCloseTitleTab}
       onCloseMany={onCloseTabs}
       onArchiveTab={onArchiveTitleTab}
@@ -10826,560 +10860,424 @@ function Workspace({
   return (
     <OrchestrationActions.Provider value={orchestrationActions}>
       <OrchestrationWorkers.Provider value={orchestrationWorkers}>
-        <div
-          className={`relative flex h-full flex-col text-content ${
-            HAS_NATIVE_GLASS ? "bg-background-base/40" : "bg-background-base"
-          }`}
-        >
-          <WindowNavigation
-            canGoBack={chromeSurfaceOpen || tabVisitNav.canBack}
-            canGoForward={tabVisitNav.canForward}
-            onGoBack={onRailBack}
-            onGoForward={onRailForward}
-            onTogglePanel={onToggleProjectRail}
-            panelActive={projectRailOpen}
-          />
-          {titleBarAbove ? workspaceTitleBar : null}
-          <div className="flex min-h-0 min-w-0 flex-1">
-            <Sidebar
-              cwd={sidebarCwd}
-              gitCwd={gitCwd}
-              worktreeTabStats={worktreeTabStats}
-              onSelectWorkspace={onSelectWorkspace}
-              workspaceSwitchPending={
-                workspaceNavigation.pending?.project === sidebarCwd
-              }
-              workspaceSwitchError={
-                workspaceNavigation.error?.project === sidebarCwd
-                  ? workspaceNavigation.error.message
-                  : undefined
-              }
-              explorerRootLabel={explorerRootLabel}
-              open={sessionSidebarOpen}
-              tab={sidebarTab}
-              onTabChange={setSidebarTab}
-              filesSearchOpen={filesSearchOpen}
-              onFilesSearchOpenChange={setFilesSearchOpen}
-              onOpenFilesSearch={onFindInProject}
-              searchFocusToken={searchFocusToken}
-              sessions={sidebarHistory}
-              busySessionIds={busySessionIds}
-              approvalSessionIds={approvalSessionIds}
-              activeSessionId={active?.id}
-              status={historyFailed ? "error" : "idle"}
-              pending={historyPending}
-              onSelectSession={onSelectHistorySession}
-              onSelectRemoteSession={onSelectRemoteSession}
-              onRemoteSessionDeleted={onRemoteSessionDeleted}
-              onPrefetchSession={onPrefetchHistorySession}
-              onSessionNavigationOrder={onSessionNavigationOrder}
-              onPlaceSessionOnPane={onPlaceSessionOnPane}
-              onRenameSession={onRenameHistorySession}
-              onArchiveSession={onArchiveHistorySession}
-              onArchiveSessions={onArchiveHistorySessions}
-              onPinSession={onPinHistorySession}
-              onPinSessions={onPinHistorySessions}
-              onSetSessionLinkedWorkItem={onSetHistorySessionLinkedWorkItem}
-              reminders={sessionReminders.reminders}
-              onSetReminders={sessionReminders.schedule}
-              onCancelReminders={sessionReminders.cancel}
-              onDeleteSession={onDeleteHistorySession}
-              onDeleteSessions={onDeleteHistorySessions}
-              onOpenFile={onOpenFile}
-              onOpenTerminal={onOpenTerminal}
-              onFileMoved={onFileMoved}
-              onFileDeleted={onFileDeleted}
-              canGoBack={
-                tabVisitNav.canBack ||
-                searchViewOpen ||
-                settingsOpen ||
-                inboxViewOpen ||
-                notesViewOpen ||
-                automationsViewOpen
-              }
-              canGoForward={tabVisitNav.canForward}
-              onGoBack={onRailBack}
-              onGoForward={onRailForward}
-              onOpenDiff={onOpenWorkingTreeDiff}
-              onOpenAllChanges={onOpenAllChanges}
-              onOpenCommit={onOpenCommit}
-              selectedDiffPath={
-                activeTab ? selectedChangePath(activeTab, gitCwd) : undefined
-              }
-              selectedDiffKind={
-                activeTab ? selectedChangeKind(activeTab) : undefined
-              }
-              selectedCommitSha={
-                activeTab ? selectedCommitSha(activeTab) : undefined
-              }
-              textHarness={pickTextHarness(active?.harness)}
-              recents={recents}
-              busyProjectPaths={sessions.flatMap((session) =>
-                session.busy && session.cwd ? [session.cwd] : [],
-              )}
-              liveAgents={liveAgents}
-              onSelectAgent={onSelectLiveAgent}
-              onSelectProject={onSelectProject}
-              onOpenProject={pickProject}
-              onRemoveProject={onRemoveProject}
-              onNew={onNew}
-              openSessions={openProjectSessions}
-              onNewTerminal={onNewTerminal}
-              onSearch={onOpenSearch}
-              onOpenInbox={onOpenInbox}
-              onOpenInboxItem={onOpenLinkedWorkItem}
-              onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-              onOpenAutomations={onOpenAutomations}
-              onGoToFile={onGoToFile}
-              searchActive={searchViewOpen}
-              inboxActive={inboxViewOpen}
-              notesActive={notesViewOpen}
-              automationsActive={automationsViewOpen}
-              notesEnabled={notesEnabled}
-              projectRailOpen={projectRailOpen}
-              compactProjectRail={compactProjectRail}
-              titleBarAbove={titleBarAbove}
-              onToggleProjectRail={onToggleProjectRail}
-              unseenFinishedIds={unseenFinishedIds}
-              inboxUnseen={inboxUnseen}
-              linkedSessionUpdateIds={linkedSessionUpdateIds}
-              settingsOpen={settingsOpen}
-              settingsSection={settingsSection}
-              onOpenSettings={onOpenSettings}
-              onOpenNotificationSettings={onOpenNotificationSettings}
-              onSelectSettingsSection={onSelectSettingsSection}
-              onCloseSettings={onCloseSettings}
-              updateNotice={updateNotice}
-              onOpenWhatsNew={onOpenWhatsNew}
-              onDismissUpdate={() => setUpdateNotice(null)}
-            />
+        <AppViewRendererContext.Provider value={renderAppView}>
+          <div
+            className={`relative flex h-full flex-col text-content ${
+              HAS_NATIVE_GLASS ? "bg-background-base/40" : "bg-background-base"
+            }`}
+            style={
+              {
+                "--menu-bar-h": menuBarPinned ? `${MENU_BAR_HEIGHT}px` : "0px",
+              } as CSSProperties
+            }
+          >
+            {!IS_MAC ? (
+              <MenuBar
+                handlers={commandHandlers}
+                dispatch={dispatch}
+                canGoBack={tabVisitNav.canBack}
+                canGoForward={tabVisitNav.canForward}
+                sidebarOpen={sessionSidebarOpen}
+              />
+            ) : null}
+            {!menuBarPinned ? (
+              <WindowNavigation
+                canGoBack={tabVisitNav.canBack}
+                canGoForward={tabVisitNav.canForward}
+                onGoBack={onRailBack}
+                onGoForward={onRailForward}
+                onTogglePanel={onToggleSidebar}
+                panelActive={sessionSidebarOpen}
+              />
+            ) : null}
+            <div className="flex min-h-0 min-w-0 flex-1">
+              <ActivityBar
+                chromeInMenuBar={menuBarPinned}
+                cwd={sidebarCwd}
+                recents={recents}
+                busyPaths={sessions.flatMap((session) =>
+                  session.busy && session.cwd ? [session.cwd] : [],
+                )}
+                liveAgents={liveAgents}
+                activeSessionId={active?.id}
+                onSelectAgent={onSelectLiveAgent}
+                onSelectProject={onSelectProject}
+                onOpenProject={pickProject}
+                onRemoveProject={onRemoveProject}
+                onSearch={onGoToFile}
+                onOpenInbox={onOpenInbox}
+                onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+                onOpenSettings={onOpenSettings}
+                onOpenAutomations={onOpenAutomations}
+                searchActive={activeAppView === "search"}
+                inboxActive={activeAppView === "inbox"}
+                notesActive={activeAppView === "notes"}
+                automationsActive={activeAppView === "automations"}
+                settingsActive={activeAppView === "settings"}
+                notesEnabled={notesEnabled}
+                inboxUnseen={inboxUnseen}
+                onOpenNotificationSettings={onOpenNotificationSettings}
+                updateNotice={updateNotice}
+                onOpenWhatsNew={onOpenWhatsNew}
+                onDismissUpdate={() => setUpdateNotice(null)}
+              />
+              <Sidebar
+                cwd={sidebarCwd}
+                gitCwd={gitCwd}
+                worktreeTabStats={worktreeTabStats}
+                onSelectWorkspace={onSelectWorkspace}
+                workspaceSwitchPending={
+                  workspaceNavigation.pending?.project === sidebarCwd
+                }
+                workspaceSwitchError={
+                  workspaceNavigation.error?.project === sidebarCwd
+                    ? workspaceNavigation.error.message
+                    : undefined
+                }
+                explorerRootLabel={explorerRootLabel}
+                open={sessionSidebarOpen}
+                chromeInMenuBar={menuBarPinned}
+                onToggleSidebar={onToggleSidebar}
+                tab={sidebarTab}
+                onTabChange={setSidebarTab}
+                filesSearchOpen={filesSearchOpen}
+                onFilesSearchOpenChange={setFilesSearchOpen}
+                onOpenFilesSearch={onFindInProject}
+                searchFocusToken={searchFocusToken}
+                sessions={sidebarHistory}
+                busySessionIds={busySessionIds}
+                approvalSessionIds={approvalSessionIds}
+                activeSessionId={active?.id}
+                status={historyFailed ? "error" : "idle"}
+                pending={historyPending}
+                onSelectSession={onSelectHistorySession}
+                onSelectRemoteSession={onSelectRemoteSession}
+                onRemoteSessionDeleted={onRemoteSessionDeleted}
+                onPrefetchSession={onPrefetchHistorySession}
+                onSessionNavigationOrder={onSessionNavigationOrder}
+                onPlaceSessionOnPane={onPlaceSessionOnPane}
+                onRenameSession={onRenameHistorySession}
+                onArchiveSession={onArchiveHistorySession}
+                onArchiveSessions={onArchiveHistorySessions}
+                onPinSession={onPinHistorySession}
+                onPinSessions={onPinHistorySessions}
+                onSetSessionLinkedWorkItem={onSetHistorySessionLinkedWorkItem}
+                reminders={sessionReminders.reminders}
+                onSetReminders={sessionReminders.schedule}
+                onCancelReminders={sessionReminders.cancel}
+                onDeleteSession={onDeleteHistorySession}
+                onDeleteSessions={onDeleteHistorySessions}
+                onOpenFile={onOpenFile}
+                onOpenTerminal={onOpenTerminal}
+                onFileMoved={onFileMoved}
+                onFileDeleted={onFileDeleted}
+                onOpenDiff={onOpenWorkingTreeDiff}
+                onOpenAllChanges={onOpenAllChanges}
+                onOpenCommit={onOpenCommit}
+                selectedDiffPath={
+                  activeTab ? selectedChangePath(activeTab, gitCwd) : undefined
+                }
+                selectedDiffKind={
+                  activeTab ? selectedChangeKind(activeTab) : undefined
+                }
+                selectedCommitSha={
+                  activeTab ? selectedCommitSha(activeTab) : undefined
+                }
+                textHarness={pickTextHarness(active?.harness)}
+                onNew={onNew}
+                openSessions={openProjectSessions}
+                onOpenInboxItem={onOpenLinkedWorkItem}
+                onGoToFile={onGoToFile}
+                unseenFinishedIds={unseenFinishedIds}
+                linkedSessionUpdateIds={linkedSessionUpdateIds}
+              />
 
-            <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
-              <div
-                className={
-                  searchViewOpen ||
-                  settingsOpen ||
-                  inboxViewOpen ||
-                  notesViewOpen ||
-                  automationsViewOpen
-                    ? "hidden"
-                    : "flex min-h-0 min-w-0 flex-1 flex-col"
-                }
-                aria-hidden={
-                  searchViewOpen ||
-                  settingsOpen ||
-                  inboxViewOpen ||
-                  notesViewOpen ||
-                  automationsViewOpen
-                }
-                inert={
-                  searchViewOpen ||
-                  settingsOpen ||
-                  inboxViewOpen ||
-                  notesViewOpen ||
-                  automationsViewOpen ||
-                  undefined
-                }
-              >
-                {!IS_MAC ? (
-                  <MenuBar
-                    onNew={onNew}
-                    onNewTerminal={onNewTerminal}
-                    onToggleTerminal={onToggleProjectTerminal}
-                    onGoToFile={onGoToFile}
-                    onToggleSidebar={onToggleSidebar}
-                    onToggleSessionSidebar={onToggleSessionSidebar}
-                    onShowSourceControl={onToggleChanges}
-                    onCloseCurrentTab={
-                      activeTabId ? () => onCloseTab(activeTabId) : undefined
-                    }
-                    onCloseOtherTabs={onCloseOtherTabs}
-                    onCloseAllTabs={onCloseAllTabs}
-                    onPickProject={pickProject}
-                    onFindInProject={onFindInProject}
-                    onSearch={onOpenSearch}
-                    onOpenInbox={onOpenInbox}
-                    onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-                    onZoomIn={() => {
-                      const next = saveUiScale(zoomInUiScale(loadUiScale()));
-                      void applyUiScale(next);
-                    }}
-                    onZoomOut={() => {
-                      const next = saveUiScale(zoomOutUiScale(loadUiScale()));
-                      void applyUiScale(next);
-                    }}
-                    onZoomReset={() => {
-                      saveUiScale(UI_SCALE_DEFAULT);
-                      void applyUiScale(UI_SCALE_DEFAULT);
-                    }}
-                  />
-                ) : null}
-                {titleBarAbove ? null : workspaceTitleBar}
+              <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                  {workspaceTitleBar}
 
-                <main className="relative flex min-h-0 min-w-0 flex-1">
-                  <div
-                    ref={dockGridRef}
-                    className="grid h-full min-h-0 min-w-0 flex-1"
-                  >
-                    {projectTerminals.map((dock) => {
-                      const show =
-                        dock.open &&
-                        sameProjectPath(dock.projectPath, projectCwd);
-                      return (
-                        <div
-                          key={dock.projectPath}
-                          className={
-                            show
-                              ? "h-full min-h-0 min-w-0 w-full overflow-hidden"
-                              : "hidden"
-                          }
-                          style={show ? { gridArea: "dock" } : undefined}
-                          aria-hidden={!show}
-                        >
-                          <ProjectTerminalDock
-                            dock={dock}
-                            focused={show && projectTerminalFocused}
-                            onFocus={focusProjectTerminal}
-                            onHide={onHideProjectTerminal}
-                            onSideChange={onProjectTerminalSide}
-                            onSizePaint={paintDockSize}
-                            onSizeCommit={commitDockSize}
-                            onAddTerminal={onNewTerminal}
-                            onSelectTerminal={onSelectProjectTerminal}
-                            onCloseTerminal={onCloseProjectTerminal}
-                            onCloseOtherTerminals={onCloseOtherProjectTerminals}
-                            onReorderTerminals={onReorderProjectTerminals}
-                            onTerminalMetaChange={onTerminalMetaChange}
-                          />
-                        </div>
-                      );
-                    })}
+                  <main className="relative flex min-h-0 min-w-0 flex-1">
                     <div
-                      className="relative flex min-h-0 min-w-0 flex-row"
-                      style={{ gridArea: "main" }}
+                      ref={dockGridRef}
+                      className="grid h-full min-h-0 min-w-0 flex-1"
                     >
-                      <div className="relative min-h-0 min-w-0 flex-1">
-                        {tabs.map((tab) => (
+                      {projectTerminals.map((dock) => {
+                        const show =
+                          dock.open &&
+                          sameProjectPath(dock.projectPath, projectCwd);
+                        return (
                           <div
-                            key={tab.id}
-                            aria-hidden={tab.id !== activeTabId}
+                            key={dock.projectPath}
                             className={
-                              tab.id === activeTabId
-                                ? "absolute inset-0 flex h-full min-h-0 flex-col"
+                              show
+                                ? "h-full min-h-0 min-w-0 w-full overflow-hidden"
                                 : "hidden"
                             }
+                            style={show ? { gridArea: "dock" } : undefined}
+                            aria-hidden={!show}
                           >
-                            <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-                              <PaneTree
-                                {...sessionPaneProps}
-                                visible={
-                                  tab.id === activeTabId && !inboxViewOpen
-                                }
-                                layout={tab.layout}
-                                sessions={sessions}
-                                editorPanes={[
-                                  ...tab.editorPanes,
-                                  ...(tab.terminalPanes ?? []),
-                                ]}
-                                dirtyFileIds={dirtyFiles}
-                                fileErrorCounts={fileErrorCounts}
-                                focusedId={
-                                  tab.id === activeTabId &&
-                                  !inboxViewOpen &&
-                                  !tab.diffFocused &&
-                                  !projectTerminalFocused
-                                    ? tab.focusedId
-                                    : ""
-                                }
-                                addToChatSessionId={
-                                  tab.id === activeTabId
-                                    ? active?.id
-                                    : undefined
-                                }
-                                composerFocused={
-                                  composerFocused && !projectTerminalFocused
-                                }
-                                composerFocusToken={composerFocusToken}
-                                onSelectFile={onSelectFileSurface}
-                                onCloseFile={onCloseFile}
-                                onCloseOtherFiles={onCloseOtherFiles}
-                                onPinFile={onPinFile}
-                                onReorderFiles={onReorderFiles}
-                                onFileDirtyChange={onFileDirtyChange}
-                                onFileErrorCountChange={onFileErrorCountChange}
-                                transcriptPool={transcriptPool}
-                                onRatio={(splitId, index, ratio) =>
-                                  onRatio(tab.id, splitId, index, ratio)
-                                }
-                                editorNavigation={editorNavigation}
-                                onUpdatePlan={onUpdatePlan}
-                                onMovePane={onMovePane}
-                                onDetachPane={onDetachPane}
-                                onTerminalMetaChange={onTerminalMetaChange}
-                              />
-                            </div>
+                            <ProjectTerminalDock
+                              dock={dock}
+                              focused={show && projectTerminalFocused}
+                              onFocus={focusProjectTerminal}
+                              onHide={onHideProjectTerminal}
+                              onSideChange={onProjectTerminalSide}
+                              onSizePaint={paintDockSize}
+                              onSizeCommit={commitDockSize}
+                              onAddTerminal={onNewTerminal}
+                              onSelectTerminal={onSelectProjectTerminal}
+                              onCloseTerminal={onCloseProjectTerminal}
+                              onCloseOtherTerminals={
+                                onCloseOtherProjectTerminals
+                              }
+                              onReorderTerminals={onReorderProjectTerminals}
+                              onTerminalMetaChange={onTerminalMetaChange}
+                            />
                           </div>
-                        ))}
+                        );
+                      })}
+                      <div
+                        className="relative flex min-h-0 min-w-0 flex-row"
+                        style={{ gridArea: "main" }}
+                      >
+                        <div className="relative min-h-0 min-w-0 flex-1">
+                          {tabs.map((tab) => (
+                            <div
+                              key={tab.id}
+                              aria-hidden={tab.id !== activeTabId}
+                              className={
+                                tab.id === activeTabId
+                                  ? "absolute inset-0 flex h-full min-h-0 flex-col"
+                                  : "hidden"
+                              }
+                            >
+                              <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+                                <PaneTree
+                                  {...sessionPaneProps}
+                                  visible={tab.id === activeTabId}
+                                  layout={tab.layout}
+                                  sessions={sessions}
+                                  editorPanes={[
+                                    ...tab.editorPanes,
+                                    ...(tab.terminalPanes ?? []),
+                                  ]}
+                                  dirtyFileIds={dirtyFiles}
+                                  fileErrorCounts={fileErrorCounts}
+                                  focusedId={
+                                    tab.id === activeTabId &&
+                                    !tab.diffFocused &&
+                                    !projectTerminalFocused
+                                      ? tab.focusedId
+                                      : ""
+                                  }
+                                  addToChatSessionId={
+                                    tab.id === activeTabId
+                                      ? active?.id
+                                      : undefined
+                                  }
+                                  composerFocused={
+                                    composerFocused && !projectTerminalFocused
+                                  }
+                                  composerFocusToken={composerFocusToken}
+                                  onSelectFile={onSelectFileSurface}
+                                  onCloseFile={onCloseFile}
+                                  onCloseOtherFiles={onCloseOtherFiles}
+                                  onPinFile={onPinFile}
+                                  onReorderFiles={onReorderFiles}
+                                  onFileDirtyChange={onFileDirtyChange}
+                                  onFileErrorCountChange={
+                                    onFileErrorCountChange
+                                  }
+                                  transcriptPool={transcriptPool}
+                                  onRatio={(splitId, index, ratio) =>
+                                    onRatio(tab.id, splitId, index, ratio)
+                                  }
+                                  editorNavigation={editorNavigation}
+                                  onUpdatePlan={onUpdatePlan}
+                                  onMovePane={onMovePane}
+                                  onDetachPane={onDetachPane}
+                                  onTerminalMetaChange={onTerminalMetaChange}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  {[...linkedWorkItemPanels.values()].map((panel) => (
-                    <LinkedWorkItemPanel
-                      repairSessions={repairSessions}
-                      onRepairChecks={onRepairChecks}
-                      onOpenSession={(sessionId) => {
-                        closeLinkedWorkItemPanel(panel.sessionId);
-                        onOpenInboxSession(sessionId);
-                      }}
-                      key={panel.sessionId}
-                      target={panel.item}
-                      cwd={panel.cwd}
-                      recents={recents}
-                      visible={
-                        !searchViewOpen &&
-                        !settingsOpen &&
-                        !inboxViewOpen &&
-                        !notesViewOpen &&
-                        !automationsViewOpen &&
-                        activeLinkedWorkItemPanel?.sessionId === panel.sessionId
-                      }
-                      onClose={() => closeLinkedWorkItemPanel(panel.sessionId)}
-                    />
-                  ))}
-                </main>
+                    {[...linkedWorkItemPanels.values()].map((panel) => (
+                      <LinkedWorkItemPanel
+                        repairSessions={repairSessions}
+                        onRepairChecks={onRepairChecks}
+                        onOpenSession={(sessionId) => {
+                          closeLinkedWorkItemPanel(panel.sessionId);
+                          onOpenInboxSession(sessionId);
+                        }}
+                        key={panel.sessionId}
+                        target={panel.item}
+                        cwd={panel.cwd}
+                        recents={recents}
+                        visible={
+                          !activeAppView &&
+                          activeLinkedWorkItemPanel?.sessionId ===
+                            panel.sessionId
+                        }
+                        onClose={() =>
+                          closeLinkedWorkItemPanel(panel.sessionId)
+                        }
+                      />
+                    ))}
+                  </main>
+                </div>
+                <div className="hidden" aria-hidden>
+                  {sessions
+                    .filter((session) => session.inboxAsk)
+                    .map((session) => {
+                      const visible =
+                        inboxVisible &&
+                        inboxAskPortal?.sessionId === session.id;
+                      return (
+                        <SessionSurface
+                          key={session.id}
+                          host={visible ? inboxAskPortal.host : undefined}
+                        >
+                          <SessionPane
+                            {...sessionPaneProps}
+                            session={session}
+                            visible={visible}
+                            focused={visible}
+                            inSplit={false}
+                            composerFocused={composerFocused}
+                            composerFocusToken={composerFocusToken}
+                          />
+                        </SessionSurface>
+                      );
+                    })}
+                </div>
+                {
+                  <UsageFooter
+                    providers={usageProviders}
+                    session={usageSession}
+                    project={active?.cwd ?? projectCwd}
+                    onSelectAccount={onSelectProviderAccount}
+                    onManageAccounts={() =>
+                      openSettings("providers", "provider-accounts")
+                    }
+                    terminals={runningTerminals}
+                    terminalOpen={runningTerminalOpen}
+                    onToggleTerminal={onToggleRunningTerminal}
+                    onNewTerminal={
+                      isLocalProject(projectCwd) ? onNewTerminal : undefined
+                    }
+                    onShowTerminal={
+                      isLocalProject(projectCwd)
+                        ? onShowProjectTerminal
+                        : undefined
+                    }
+                    projectTerminalActive={
+                      !!currentProjectDock &&
+                      currentProjectDock.pane.files.length > 0
+                    }
+                  />
+                }
               </div>
-              {searchViewOpen ? (
-                <SearchView
-                  open
-                  cwd={gitCwd}
-                  recents={recents}
-                  history={projectHistory}
-                  sessions={sessions.filter((session) => !session.inboxAsk)}
-                  focusToken={searchViewFocusToken}
-                  besideRail={projectRailOpen || compactProjectRail}
-                  compactRail={compactRailActive}
-                  onClose={onLeaveSearch}
-                  onToggleSidebar={onToggleSidebar}
-                  onOpenFile={onOpenFile}
-                  onOpenSession={(sessionId, blockId, query) => {
-                    if (blockId)
-                      requestTranscriptJump(sessionId, blockId, query);
-                    void onSelectHistorySession(sessionId);
-                  }}
-                  onOpenProject={onSelectProject}
-                />
-              ) : null}
-              <div className="hidden" aria-hidden>
-                {sessions
-                  .filter((session) => session.inboxAsk)
-                  .map((session) => {
-                    const visible =
-                      inboxViewOpen && inboxAskPortal?.sessionId === session.id;
-                    return (
-                      <SessionSurface
-                        key={session.id}
-                        host={visible ? inboxAskPortal.host : undefined}
-                      >
-                        <SessionPane
-                          {...sessionPaneProps}
-                          session={session}
-                          visible={visible}
-                          focused={visible}
-                          inSplit={false}
-                          composerFocused={composerFocused}
-                          composerFocusToken={composerFocusToken}
-                        />
-                      </SessionSurface>
-                    );
-                  })}
-              </div>
-              {inboxViewOpen ? (
-                <InboxView
-                  cwd={sidebarCwd}
-                  recents={recents}
-                  besideRail={projectRailOpen || compactProjectRail}
-                  compactRail={compactRailActive}
-                  onClose={onLeaveInbox}
-                  onToggleSidebar={onToggleSidebar}
-                  onStart={onStartInboxItem}
-                  onAsk={onAskInboxItem}
-                  onAskRestart={onRestartInboxAsk}
-                  onAskMount={setInboxAskPortal}
-                  sessions={inboxRelatedSessions}
-                  repairSessions={repairSessions}
-                  onRepairChecks={onRepairChecks}
-                  onOpenSession={onOpenInboxSession}
-                  onOpenIntegrations={onOpenInboxIntegrations}
-                />
-              ) : null}
-              {notesViewOpen ? (
-                <NotesView
-                  besideRail={projectRailOpen || compactProjectRail}
-                  compactRail={compactRailActive}
-                  cwd={projectCwd}
-                  recents={recents}
-                  onClose={onLeaveNotes}
-                  onToggleSidebar={onToggleSidebar}
-                />
-              ) : null}
-              {automationsViewOpen ? (
-                <AutomationsView
-                  besideRail={projectRailOpen || compactProjectRail}
-                  compactRail={compactRailActive}
-                  cwd={projectCwd}
-                  recents={recents}
-                  onClose={onLeaveAutomations}
-                  onToggleSidebar={onToggleSidebar}
-                  onLaunch={(automation, run) =>
-                    launchAutomation(automation, run, true)
-                  }
-                  onOpenSession={onOpenAutomationSession}
-                />
-              ) : null}
-              {settingsOpen ? (
-                <SettingsView
-                  section={settingsSection}
-                  anchor={settingsAnchor}
-                  notificationProjectPath={notificationProjectPath}
-                  notificationSettingsRequest={notificationSettingsRequest}
-                  recents={recents}
-                  cwd={sidebarCwd}
-                  sessions={sidebarHistory}
-                  liveSessions={sessions}
-                  onRemoveWorktree={onRemoveWorktree}
-                  onCheckWorktreeRemoval={onCheckWorktreeRemoval}
-                  onDeleteWorktreeSessions={onDeleteWorktreeSessions}
-                  besideRail
-                  onClose={onCloseSettings}
-                  onSelectSection={onSelectSettingsSection}
-                  onOpenSession={onOpenArchivedSession}
-                  onArchiveSession={onArchiveHistorySession}
-                  onDeleteSession={onDeleteHistorySession}
-                  onRestoreProject={onRestoreProject}
-                  onDeleteProject={(path) =>
-                    onRemoveProject(path, { purgeData: true })
-                  }
-                  onOpenWhatsNew={onOpenWhatsNew}
-                  collapsedProjectRailMode={collapsedProjectRailMode}
-                  onCollapsedProjectRailModeChange={setCollapsedProjectRailMode}
-                />
-              ) : null}
-              {searchViewOpen ||
-              inboxViewOpen ||
-              notesViewOpen ||
-              automationsViewOpen ||
-              settingsOpen ? null : (
-                <UsageFooter
-                  providers={usageProviders}
-                  session={usageSession}
-                  project={active?.cwd ?? projectCwd}
-                  onSelectAccount={onSelectProviderAccount}
-                  onManageAccounts={() =>
-                    openSettings("providers", "provider-accounts")
-                  }
-                  terminals={runningTerminals}
-                  terminalOpen={runningTerminalOpen}
-                  onToggleTerminal={onToggleRunningTerminal}
-                  onNewTerminal={
-                    isLocalProject(projectCwd) ? onNewTerminal : undefined
-                  }
-                  onShowTerminal={
-                    isLocalProject(projectCwd)
-                      ? onShowProjectTerminal
-                      : undefined
-                  }
-                  projectTerminalActive={
-                    !!currentProjectDock &&
-                    currentProjectDock.pane.files.length > 0
-                  }
-                />
-              )}
             </div>
+
+            {paletteOpen ? (
+              <QuickOpen
+                key={paletteToken}
+                open
+                cwd={filesCwd}
+                openPaths={openFilePaths}
+                initialQuery={paletteQuery}
+                commands={paletteCommands(commandHandlers)}
+                commandShortcut={commandShortcutLabel}
+                sessions={paletteSessions}
+                recents={recents}
+                currentProject={
+                  looksLikeProject(sidebarCwd) ? sidebarCwd : null
+                }
+                onOpenFile={onOpenFile}
+                onRunCommand={(id) => void dispatch(id)}
+                onOpenSession={(sessionId) =>
+                  void onSelectHistorySession(sessionId)
+                }
+                onOpenProject={onSelectProject}
+                onAddProject={() => void dispatch("App: Open Project")}
+                onSearchEverywhere={onSearchEverywhere}
+                onClose={() => setPaletteOpen(false)}
+              />
+            ) : null}
+
+            {sessionDeleteDialog && (
+              <DeleteSessionDialog
+                title={sessionDeleteDialog.title}
+                unusedWorktree={sessionDeleteDialog.unusedWorktree}
+                onClose={(choice) => {
+                  sessionDeleteDialog.resolve(choice);
+                  setSessionDeleteDialog(undefined);
+                }}
+              />
+            )}
+            <HarnessUpdateNotice
+              topOffset={
+                12 + (reminderNoticesHeight ? reminderNoticesHeight + 8 : 0)
+              }
+              onHeightChange={setHarnessUpdateHeight}
+            />
+            <ApprovalToasts
+              notices={hiddenApprovalToasts}
+              topOffset={
+                12 +
+                (reminderNoticesHeight ? reminderNoticesHeight + 8 : 0) +
+                (harnessUpdateHeight ? harnessUpdateHeight + 8 : 0)
+              }
+              onFocusSession={onOpenApprovalSession}
+              onApproval={onApproval}
+            />
+            <ReminderNotices
+              reminders={sessionReminders.due}
+              error={sessionReminders.error}
+              onOpen={sessionReminders.open}
+              onSnooze={sessionReminders.schedule}
+              onDismiss={sessionReminders.cancel}
+              onRetry={sessionReminders.refresh}
+              onOpenSettings={() => openSettings("general", "notifications")}
+              onHeightChange={setReminderNoticesHeight}
+            />
+            {whatsNewVersion ? (
+              <WhatsNewDialog
+                version={whatsNewVersion}
+                onClose={() => setWhatsNewVersion(null)}
+              />
+            ) : null}
+            {remoteProjectDialogOpen ? (
+              <AddRemoteProjectDialog
+                onCancel={() => setRemoteProjectDialogOpen(false)}
+                onOpen={(key) => {
+                  setRemoteProjectDialogOpen(false);
+                  onSelectProject(key);
+                }}
+              />
+            ) : null}
+            {providerSignInRequest ? (
+              <ProviderSignInDialog
+                key={providerSignInRequest.key}
+                harness={providerSignInRequest.harness}
+                onClose={() => setProviderSignInRequest(null)}
+              />
+            ) : null}
           </div>
-
-          {filePickerOpen ? (
-            <FilePicker
-              key={filePickerResetToken}
-              open
-              cwd={filesCwd}
-              openPaths={openFilePaths}
-              initialQuery={filePickerInitialQuery}
-              onOpenFile={onOpenFile}
-              onRunAction={(id) => {
-                if (id === "reload") actions.current.onReload();
-              }}
-              onClose={() => setFilePickerOpen(false)}
-            />
-          ) : null}
-
-          {sessionDeleteDialog && (
-            <DeleteSessionDialog
-              title={sessionDeleteDialog.title}
-              unusedWorktree={sessionDeleteDialog.unusedWorktree}
-              onClose={(choice) => {
-                sessionDeleteDialog.resolve(choice);
-                setSessionDeleteDialog(undefined);
-              }}
-            />
-          )}
-          <HarnessUpdateNotice
-            topOffset={
-              12 + (reminderNoticesHeight ? reminderNoticesHeight + 8 : 0)
-            }
-            onHeightChange={setHarnessUpdateHeight}
-          />
-          <ApprovalToasts
-            notices={hiddenApprovalToasts}
-            topOffset={
-              12 +
-              (reminderNoticesHeight ? reminderNoticesHeight + 8 : 0) +
-              (harnessUpdateHeight ? harnessUpdateHeight + 8 : 0)
-            }
-            onFocusSession={onOpenApprovalSession}
-            onApproval={onApproval}
-          />
-          <ReminderNotices
-            reminders={sessionReminders.due}
-            error={sessionReminders.error}
-            onOpen={sessionReminders.open}
-            onSnooze={sessionReminders.schedule}
-            onDismiss={sessionReminders.cancel}
-            onRetry={sessionReminders.refresh}
-            onOpenSettings={() => openSettings("general", "notifications")}
-            onHeightChange={setReminderNoticesHeight}
-          />
-          {whatsNewVersion ? (
-            <WhatsNewDialog
-              version={whatsNewVersion}
-              onClose={() => setWhatsNewVersion(null)}
-            />
-          ) : null}
-          {remoteProjectDialogOpen ? (
-            <AddRemoteProjectDialog
-              onCancel={() => setRemoteProjectDialogOpen(false)}
-              onOpen={(key) => {
-                setRemoteProjectDialogOpen(false);
-                onSelectProject(key);
-              }}
-            />
-          ) : null}
-          {providerSignInRequest ? (
-            <ProviderSignInDialog
-              key={providerSignInRequest.key}
-              harness={providerSignInRequest.harness}
-              onClose={() => setProviderSignInRequest(null)}
-            />
-          ) : null}
-        </div>
-        <TranscriptPoolOutlet pool={transcriptPool} />
+          <TranscriptPoolOutlet pool={transcriptPool} />
+        </AppViewRendererContext.Provider>
       </OrchestrationWorkers.Provider>
     </OrchestrationActions.Provider>
   );
 }
 function conversationTitle(session: Session): string {
-  const hostId = (isRemoteProjectPath(session.cwd) || sessionUsesHost(session))
-    ? remoteSessionFor(session.id)
-    : undefined;
+  const hostId =
+    isRemoteProjectPath(session.cwd) || sessionUsesHost(session)
+      ? remoteSessionFor(session.id)
+      : undefined;
   const remote = hostId
     ? cachedRemoteSessionSummary(session.cwd, hostId)
     : undefined;
@@ -11496,7 +11394,8 @@ function toTitleTab(
     if (seenKeys.has(key)) return;
     seenKeys.add(key);
     files.push(
-      file.plan?.title?.trim() ||
+      (file.appView ? translate(appViewTitle(file.appView.kind)) : undefined) ||
+        file.plan?.title?.trim() ||
         (file.releaseNotes
           ? releaseNotesTitle(file.releaseNotes.version)
           : file.terminal
@@ -11532,11 +11431,13 @@ function toTitleTab(
 
   return {
     id: tab.id,
-    project: focused
-      ? projectName(focused.cwd)
-      : focusedFile
-        ? projectName(focusedFile.projectCwd ?? focusedFile.cwd)
-        : "~",
+    project: isAppViewOnlyTab(tab)
+      ? ""
+      : focused
+        ? projectName(focused.cwd)
+        : focusedFile
+          ? projectName(focusedFile.projectCwd ?? focusedFile.cwd)
+          : "~",
     title: focused ? conversationTitle(focused) : "",
     more,
     sessionCount: tabSessions.length,
@@ -11567,8 +11468,7 @@ function dropOpenFiles(
   const editorPanes: EditorPane[] = [];
   for (const pane of tab.editorPanes) {
     const files = pane.files.filter(
-      (file) =>
-        !isFilesystemTab(file) || !shouldDrop(file.path),
+      (file) => !isFilesystemTab(file) || !shouldDrop(file.path),
     );
     if (files.length === 0) {
       const sibling = siblingLeafId(layout, pane.id);

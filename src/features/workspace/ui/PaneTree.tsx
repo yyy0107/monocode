@@ -472,6 +472,7 @@ function PaneTreeComponent({
               {editorPane ? (
                 <FilePane
                   pane={editorPane}
+                  visible={visible}
                   focused={focusedId === editorPane.id}
                   showTabs={inSplit || editorPane.files.length > 1}
                   dirtyFileIds={dirtyFileIds}

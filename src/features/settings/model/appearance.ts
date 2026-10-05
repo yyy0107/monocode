@@ -20,7 +20,7 @@ const SESSION_SIDEBAR_OPEN_KEY = "monocode.sessionSidebarOpen";
 const BODY_KEY = "monocode.bodyGlass";
 const SCHEME_KEY = "monocode.colorScheme";
 const SIDEBAR_TAB_ORDER_KEY = "monocode.sidebarTabOrder";
-const PROJECT_RAIL_WIDTH_KEY = "monocode.projectRailWidth";
+const SIDEBAR_WIDTH_KEY = "monocode.sidebarWidth";
 const TRANSCRIPT_LAYOUT_KEY = "monocode.transcriptLayout";
 const TRANSCRIPT_ANCHOR_KEY = "monocode.transcriptAnchor";
 const CHAT_BACKGROUND_PATH_KEY = "monocode.chatBackgroundPath";
@@ -103,11 +103,10 @@ export const SHOW_EXCLUDED_FILES_DEFAULT = false;
 export const SHOW_EXCLUDED_FILES_CHANGE_EVENT =
   "monocode:showexcludedfileschange";
 
-export type SidebarTabId = "files" | "sessions" | "changes" | "inbox";
+export type SidebarTabId = "files" | "sessions" | "changes";
 
 const DEFAULT_SIDEBAR_TAB_ORDER: SidebarTabId[] = [
   "sessions",
-  "inbox",
   "files",
   "changes",
 ];
@@ -137,9 +136,9 @@ export const SIDEBAR_BLUR_MIN = 1;
 export const SIDEBAR_BLUR_MAX = 64;
 export const SIDEBAR_BLUR_DEFAULT = 24;
 
-export const PROJECT_RAIL_WIDTH_MIN = 180;
-export const PROJECT_RAIL_WIDTH_MAX = 360;
-export const PROJECT_RAIL_WIDTH_DEFAULT = 200;
+export const SIDEBAR_WIDTH_MIN = 260;
+export const SIDEBAR_WIDTH_MAX = 560;
+export const SIDEBAR_WIDTH_DEFAULT = 260;
 
 export const BODY_GLASS_DEFAULT = !IS_LINUX;
 
@@ -751,8 +750,7 @@ function isSidebarTabId(value: unknown): value is SidebarTabId {
   return (
     value === "files" ||
     value === "sessions" ||
-    value === "changes" ||
-    value === "inbox"
+    value === "changes"
   );
 }
 
@@ -798,20 +796,20 @@ export function saveSidebarTabOrder(order: SidebarTabId[]) {
   }
 }
 
-export function loadProjectRailWidth(): number {
+export function loadSidebarWidth(): number {
   return Math.round(
     clamp(
-      readNumber(PROJECT_RAIL_WIDTH_KEY) ?? PROJECT_RAIL_WIDTH_DEFAULT,
-      PROJECT_RAIL_WIDTH_MIN,
-      PROJECT_RAIL_WIDTH_MAX,
+      readNumber(SIDEBAR_WIDTH_KEY) ?? SIDEBAR_WIDTH_DEFAULT,
+      SIDEBAR_WIDTH_MIN,
+      SIDEBAR_WIDTH_MAX,
     ),
   );
 }
 
-export function saveProjectRailWidth(value: number) {
+export function saveSidebarWidth(value: number) {
   writeNumber(
-    PROJECT_RAIL_WIDTH_KEY,
-    Math.round(clamp(value, PROJECT_RAIL_WIDTH_MIN, PROJECT_RAIL_WIDTH_MAX)),
+    SIDEBAR_WIDTH_KEY,
+    Math.round(clamp(value, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)),
   );
 }
 

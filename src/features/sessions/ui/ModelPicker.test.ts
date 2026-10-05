@@ -64,6 +64,7 @@ vi.mock("../../../shared/ui/Popover", () => ({
 }));
 
 import { ModelControlPills, ModelPicker } from "./ModelPicker";
+import { SurfaceVisibilityContext } from "../../../shared/ui/SurfaceVisibility";
 
 it("uses session-specific thinking choices in the toolbar menu", () => {
   const model = "pi:provider/live";
@@ -149,6 +150,38 @@ function inputText(input: HTMLInputElement, value: string) {
 }
 
 describe("model picker", () => {
+  it("ignores global menu and Escape events while its app view is hidden", () => {
+    const onClose = vi.fn();
+    const picker = createElement(ModelPicker, {
+      harness: "grok",
+      model: "grok:grok-4.6",
+      values: {},
+      hotkeys: true,
+      onChange: vi.fn(),
+      onSettingsChange: vi.fn(),
+      onClose,
+    });
+    const renderVisible = (visible: boolean) => act(() => root.render(
+      createElement(SurfaceVisibilityContext.Provider, { value: visible }, picker),
+    ));
+    renderVisible(false);
+    act(() => window.dispatchEvent(new Event("open_model_picker")));
+    expect(container.querySelector("[data-model-picker]")).toBeNull();
+
+    renderVisible(true);
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    expect(container.querySelector("[data-model-picker]")).not.toBeNull();
+    renderVisible(false);
+    const escape = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    act(() => window.dispatchEvent(escape));
+    expect(escape.defaultPrevented).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+
+    renderVisible(true);
+    keyDown(window, "Escape");
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("translates model controls without changing model names or protocol values", () => {
     setUiLanguage("zh-CN");
     const onChange = vi.fn();

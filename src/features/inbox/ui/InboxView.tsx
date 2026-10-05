@@ -42,8 +42,8 @@ import { InboxProviderMark } from "./InboxProviderMark";
 import { ProjectLogoIcon } from "../../projects/ui/ProjectLogoIcon";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
 import { Popover } from "../../../shared/ui/Popover";
-import { IconButton, WindowNavigationSpace } from "../../../app/shell/TitleBar";
-import { WindowControls } from "../../../app/shell/WindowControls";
+import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
+import { IconButton } from "../../../app/shell/TitleBar";
 import { useDragResize } from "../../../shared/hooks/useDragResize";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { useTabGroupLogos } from "../../projects/hooks/useTabGroupLogos";
@@ -103,7 +103,6 @@ import {
 } from "../model/inboxFilters";
 import { copyText } from "../../../platform/tauri/clipboard";
 import { projectKey, projectName } from "../../../shared/lib/paths";
-import { IS_MAC } from "../../../platform/tauri/platform";
 import { playCue } from "../../settings/model/sounds";
 import {
   sameProjectPath,
@@ -376,10 +375,8 @@ type Props = {
   onAskMount: (portal: InboxSessionPortal | null) => void;
   cwd: string;
   recents: RecentProject[];
-  besideRail?: boolean;
-  compactRail?: boolean;
+  active?: boolean;
   onClose?: () => void;
-  onToggleSidebar?: () => void;
   onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
   repairSessions?: CiRepairProps["repairSessions"];
   onRepairChecks?: CiRepairProps["onRepairChecks"];
@@ -397,8 +394,7 @@ export function InboxView({
   onAskMount,
   cwd,
   recents,
-  besideRail = false,
-  compactRail = false,
+  active = true,
   onClose,
   onStart,
   repairSessions,
@@ -523,8 +519,9 @@ export function InboxView({
   }, [target]);
 
   useEffect(() => {
+    if (!active) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
       event.preventDefault();
       event.stopPropagation();
       if (filterMenu) {
@@ -539,7 +536,7 @@ export function InboxView({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [connectMenuOpen, filterMenu]);
+  }, [active, connectMenuOpen, filterMenu]);
 
   useEffect(() => {
     const onChange = () => {
@@ -569,9 +566,8 @@ export function InboxView({
     };
   }, []);
 
-  // The mount read does the real work: opening Settings unmounts this view, so
-  // a token set there lands on the way back in. Reads can also overlap, and
-  // only the newest may write, or a slow earlier answer restores a stale one.
+  // Returning from Settings refreshes connections without remounting this view.
+  // Only the newest overlapping read may write its connection state.
   useEffect(() => {
     let cancelled = false;
     let latest = 0;
@@ -618,7 +614,7 @@ export function InboxView({
       window.removeEventListener(GITLAB_CHANGE_EVENT, read);
       window.removeEventListener(AZUREDEVOPS_CHANGE_EVENT, read);
     };
-  }, []);
+  }, [active]);
 
   useEffect(() => {
     saveInboxConnections(connections);
@@ -1148,13 +1144,7 @@ export function InboxView({
       data-app-inbox
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
-      <div
-        className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
-        data-tauri-drag-region="deep"
-      >
-        {compactRail || !besideRail ? (
-          <WindowNavigationSpace besideCompactRail={compactRail} />
-        ) : null}
+      <div className="flex h-10 shrink-0 select-none items-center border-b border-stroke">
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
           <Inbox
             className="size-3.5 shrink-0 text-content/45"
@@ -1162,7 +1152,6 @@ export function InboxView({
           />
           <span className="min-w-0 truncate text-content">{uiT("Inbox")}</span>
         </div>
-        {IS_MAC ? null : <WindowControls />}
       </div>
 
       <div className="flex min-h-0 min-w-0 flex-1">
@@ -3213,6 +3202,7 @@ function InboxProjectPicker({
   onChange: (path: string) => void;
 }) {
   const { t: uiT } = useTranslation();
+  const visible = useSurfaceVisibility();
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -3222,7 +3212,7 @@ function InboxProjectPicker({
     null;
 
   useEffect(() => {
-    if (!open) return;
+    if (!visible || !open) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (button.current?.contains(target) || menu.current?.contains(target)) {
@@ -3241,7 +3231,7 @@ function InboxProjectPicker({
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKey, true);
     };
-  }, [open]);
+  }, [visible, open]);
 
   return (
     <div className="relative">

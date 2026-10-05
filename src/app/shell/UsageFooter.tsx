@@ -28,7 +28,7 @@ import {
   runningTerminalChipLabel,
   type RunningTerminal,
 } from "../../features/terminal/model/terminalTab";
-import { MOD } from "../../platform/tauri/platform";
+import { useShortcutLabel } from "../commands/useCommandShortcut";
 import { UsageProviderChip } from "./UsageProviderChip";
 import { PiUsage } from "./PiUsage";
 import {
@@ -295,9 +295,10 @@ export function UsageFooter({
   const showUsage = wantClaude || wantCodex || showOpencodeChip;
   const showTerminals = terminals.length > 0;
   const showTerminalButton = Boolean(onNewTerminal || onShowTerminal);
+  const newTerminalLabel = useShortcutLabel("New Terminal", "Terminal: New");
   const terminalLabel = projectTerminalActive
-    ? "Terminal"
-    : `New Terminal (${MOD}\`)`;
+    ? uiT("Terminal")
+    : newTerminalLabel;
   const onTerminalClick = projectTerminalActive
     ? (onShowTerminal ?? onNewTerminal)
     : (onNewTerminal ?? onShowTerminal);

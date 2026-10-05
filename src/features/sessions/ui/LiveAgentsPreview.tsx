@@ -27,6 +27,7 @@ const LIVE_AGENT_CAP = 4;
 
 type Props = {
   agents: LiveAgent[];
+  minimumAgents?: number;
   activeSessionId?: string;
   onSelect?: (sessionId: string) => void;
   bottomSpacing?: boolean;
@@ -38,6 +39,7 @@ type Props = {
 
 export function LiveAgentsPreview({
   agents,
+  minimumAgents = LIVE_AGENT_MIN,
   activeSessionId,
   onSelect,
   bottomSpacing = false,
@@ -59,7 +61,7 @@ export function LiveAgentsPreview({
   const [now, setNow] = useState(() => Date.now());
   const lockList = useLockOverscroll<HTMLDivElement>();
   const ticking =
-    agents.length >= LIVE_AGENT_MIN &&
+    agents.length >= minimumAgents &&
     agents.some((agent) => !agent.done && agent.startedAt != null);
 
   useEffect(() => {
@@ -68,7 +70,7 @@ export function LiveAgentsPreview({
     return () => window.clearInterval(id);
   }, [ticking]);
 
-  if (agents.length < LIVE_AGENT_MIN) return null;
+  if (agents.length < minimumAgents) return null;
 
   const extra = agents.length - LIVE_AGENT_CAP;
   const visible =

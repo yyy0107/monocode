@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   leafIds,
   newFileTab,
+  newAppViewWorkspaceTab,
+  isAppViewOnlyTab,
+  openAppViewTab,
+  openEditorTab,
   newTerminalFile,
   newTab,
   splitPane,
@@ -43,7 +47,63 @@ function tab(id: string, sessionId: string): WorkspaceTab {
   return { ...newTab(sessionId), id };
 }
 
+describe("moving app view panes", () => {
+  it("reopens a moved kind in its new owner and detaches it as a global tab", () => {
+    const chat = session("chat", "/repo");
+    const destination = tab("destination", chat.id);
+    const app = newAppViewWorkspaceTab("settings");
+    const pane = app.editorPanes[0];
+    const placed = applyPlaceTabOnPane({
+      tabs: [destination, app], sessions: [chat], sourceTabId: app.id,
+      targetId: chat.id, edge: "right", replaceTarget: false,
+    })!;
+    expect(placed.tabs).toHaveLength(1);
+    expect(placed.tabs[0].editorPanes).toEqual([pane]);
+    expect(workspaceTabCwd(placed.tabs[0], [chat])).toBe("/repo");
+    const reopened = openAppViewTab(placed.tabs, "settings");
+    expect(reopened.tabs).toHaveLength(1);
+    expect(reopened.tabId).toBe(destination.id);
+    expect(reopened.paneId).toBe(pane.id);
+    const detached = applyDetachPaneToTab({
+      tabs: reopened.tabs, paneId: pane.id, targetTabId: destination.id,
+      position: "after", createTabId: () => "detached-app",
+    })!;
+    expect(detached.tabs[0].editorPanes).toEqual([]);
+    expect(isAppViewOnlyTab(detached.tabs[1])).toBe(true);
+    expect(detached.tabs[1].editorPanes[0]).toEqual(pane);
+    expect(openAppViewTab(detached.tabs, "settings").tabId).toBe("detached-app");
+    expect(filterTabsForProject(detached.tabs, [chat], "/other").map((tab) => tab.id))
+      .toEqual(["detached-app"]);
+  });
+});
+
 describe("focusedWorkspaceTabCwd", () => {
+  it("shows app-only tabs in every project and worktree without owning one", () => {
+    const app = newAppViewWorkspaceTab("inbox");
+    expect(workspaceTabCwd(app, [])).toBeNull();
+    expect(workspaceTabWorktree(app, [])).toBeNull();
+    expect(focusedWorkspaceTabCwd(app, [])).toBeNull();
+    expect(workspaceTabProject(app, [])).toBeNull();
+    expect(filterTabsForProject([app], [], "/alpha")).toEqual([app]);
+    expect(filterTabsForProject([app], [], "/beta")).toEqual([app]);
+    expect(tabInWorktree(app, [], "/alpha-worktree")).toBe(true);
+    expect(findTabForProject([app], [], "/alpha")).toBeUndefined();
+  });
+
+  it("keeps a mixed editor tab in its project while the app pane is focused", () => {
+    const app = newAppViewWorkspaceTab("search");
+    const mixed = openEditorTab(
+      app,
+      newFileTab("/repo-worktree/a.ts", "/repo-worktree", false, undefined, "/repo"),
+    );
+    mixed.focusedId = app.focusedId;
+    expect(workspaceTabCwd(mixed, [])).toBe("/repo");
+    expect(focusedWorkspaceTabCwd(mixed, [])).toBe("/repo");
+    expect(workspaceTabWorktree(mixed, [])).toBe("/repo-worktree");
+    expect(filterTabsForProject([mixed], [], "/repo")).toEqual([mixed]);
+    expect(filterTabsForProject([mixed], [], "/other")).toEqual([]);
+  });
+
   it.each(["editor", "terminal"] as const)(
     "keeps a worktree-only %s tab under its owning project",
     (kind) => {

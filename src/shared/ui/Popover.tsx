@@ -1,4 +1,5 @@
 import { NativePopupHost } from "./NativePopupHost";
+import { useSurfaceVisibility } from "./SurfaceVisibility";
 import {
   useCallback,
   useContext,
@@ -151,12 +152,13 @@ function NativePopover({
   dismissOnEscape = true,
   ...props
 }: Props & { host: HTMLElement }) {
+  const visible = useSurfaceVisibility();
   const surface = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (autoFocus) surface.current?.focus({ preventScroll: true });
-  }, [autoFocus]);
+    if (visible && autoFocus) surface.current?.focus({ preventScroll: true });
+  }, [visible, autoFocus]);
   useEffect(() => {
-    if (!onDismiss) return;
+    if (!visible || !onDismiss) return;
     const key = (event: KeyboardEvent) => {
       if (!dismissOnEscape || event.key !== "Escape") return;
       event.preventDefault();
@@ -179,7 +181,7 @@ function NativePopover({
       window.removeEventListener("keydown", key, true);
       window.removeEventListener("pointerdown", outside);
     };
-  }, [onDismiss, dismissOnEscape, ignore]);
+  }, [visible, onDismiss, dismissOnEscape, ignore]);
   // These position the ordinary web popover; the OS positions this surface.
   const {
     anchor: _anchor,
@@ -194,6 +196,7 @@ function NativePopover({
     bare: _bare,
     ...rest
   } = props;
+  if (!visible) return null;
   return createPortal(
     <div
       {...rest}
@@ -233,6 +236,7 @@ function WebPopover({
   children,
   ...rest
 }: Props) {
+  const visible = useSurfaceVisibility();
   const frame = useRef<HTMLDivElement | null>(null);
   const surface = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<PopoverPosition | null>(null);
@@ -258,6 +262,7 @@ function WebPopover({
   }, [key, side, align, gap, padding, width, minHeight, maxHeight]);
 
   useLayoutEffect(() => {
+    if (!visible) return;
     place();
     // Content that lands after open — a branch list, a filtered menu — resizes
     // the surface, and a top-anchored menu has to be measured again to sit
@@ -271,14 +276,14 @@ function WebPopover({
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [place]);
+  }, [visible, place]);
 
   useEffect(() => {
-    if (autoFocus) surface.current?.focus();
-  }, [autoFocus]);
+    if (visible && autoFocus) surface.current?.focus();
+  }, [visible, autoFocus]);
 
   useEffect(() => {
-    if (!onDismiss) return;
+    if (!visible || !onDismiss) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
@@ -301,7 +306,9 @@ function WebPopover({
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKey, true);
     };
-  }, [onDismiss, dismissOnEscape, ignore]);
+  }, [visible, onDismiss, dismissOnEscape, ignore]);
+
+  if (!visible) return null;
 
   // The first pass measures the surface off to the side; the layout effect
   // lands it before the browser paints.

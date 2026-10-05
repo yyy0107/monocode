@@ -4,11 +4,14 @@ import {
 } from "../../sessions/model/inFlight";
 import {
   closeLeaf,
+  APP_VIEW_KINDS,
   isAgentTab,
+  isAppViewTab,
   isTerminalTab,
   leafIds,
   newTab,
   type CommitTabSource,
+  type AppViewKind,
   type EditorPane,
   type FilePaneTab,
   type LayoutNode,
@@ -91,9 +94,11 @@ export function collectWorkspaceSnapshot(
       .filter((id) => !keptIds.has(id)),
   );
   const snapshot = withoutInboxSessions({
-    tabs: withoutAgentTabs(kept)
-      .map(sanitizeTab)
-      .filter((tab): tab is WorkspaceTab => tab != null),
+    tabs: withoutDuplicateAppViews(
+      withoutAgentTabs(kept)
+        .map(sanitizeTab)
+        .filter((tab): tab is WorkspaceTab => tab != null),
+    ),
     sessions: sessions
       .filter((session) => !droppedIds.has(session.id))
       .map(sessionStub)
@@ -105,7 +110,15 @@ export function collectWorkspaceSnapshot(
       .filter((dock): dock is ProjectTerminalDock => dock != null),
     ...(isDockSide(lastDockSide) ? { lastDockSide } : {}),
   });
-  return withProjectReturnTargets(snapshot, memory);
+  return withProjectReturnTargets(
+    {
+      ...snapshot,
+      activeTabId: snapshot.tabs.some((tab) => tab.id === snapshot.activeTabId)
+        ? snapshot.activeTabId
+        : (snapshot.tabs[0]?.id ?? ""),
+    },
+    memory,
+  );
 }
 
 function withProjectReturnTargets(
@@ -176,6 +189,37 @@ function withoutAgentTabs(tabs: WorkspaceTab[]): WorkspaceTab[] {
   });
 }
 
+/** Keep the first valid view of each kind without stranding duplicate panes. */
+function withoutDuplicateAppViews(tabs: WorkspaceTab[]): WorkspaceTab[] {
+  const seen = new Set<AppViewKind>();
+  return tabs.flatMap((tab) => {
+    let remaining: WorkspaceTab | null = tab;
+    const panes: EditorPane[] = [];
+    for (const pane of tab.editorPanes) {
+      const files = pane.files.filter((file) => {
+        if (!isAppViewTab(file)) return true;
+        if (seen.has(file.appView.kind)) return false;
+        seen.add(file.appView.kind);
+        return true;
+      });
+      if (files.length === pane.files.length) {
+        panes.push(pane);
+      } else if (files.length === 0) {
+        remaining = remaining && closeLeaf(remaining, pane.id);
+      } else {
+        panes.push({
+          ...pane,
+          files,
+          activeFileId: files.some((file) => file.id === pane.activeFileId)
+            ? pane.activeFileId
+            : files[0].id,
+        });
+      }
+    }
+    return remaining ? [{ ...remaining, editorPanes: panes }] : [];
+  });
+}
+
 /** Also removes tabs saved by the earlier, persistent Inbox implementation. */
 function withoutInboxSessions(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
   const inboxIds = snapshot.sessions
@@ -214,9 +258,11 @@ export function parseWorkspaceSnapshot(raw: unknown): WorkspaceSnapshot | null {
   if (!Array.isArray(value.tabs) || typeof value.activeTabId !== "string") {
     return null;
   }
-  const tabs = value.tabs
-    .map(sanitizeTab)
-    .filter((tab): tab is WorkspaceTab => tab != null);
+  const tabs = withoutDuplicateAppViews(
+    value.tabs
+      .map(sanitizeTab)
+      .filter((tab): tab is WorkspaceTab => tab != null),
+  );
   if (tabs.length === 0) return null;
   const sessions = Array.isArray(value.sessions)
     ? value.sessions
@@ -456,6 +502,10 @@ function sanitizeTab(raw: unknown): WorkspaceTab | null {
   if (!layout) return null;
   const editorResult = sanitizePanes(value.editorPanes);
   const terminalResult = sanitizePanes(value.terminalPanes);
+  // App views are editor documents; malformed terminal entries must not
+  // bypass the window's kind lookup and duplicate sanitization.
+  if (terminalResult.panes.some((pane) => pane.files.some(isAppViewTab)))
+    return null;
   const invalidPaneIds = new Set([
     ...editorResult.invalidIds,
     ...terminalResult.invalidIds,
@@ -559,6 +609,24 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
   if (typeof value.id !== "string" || !value.id) return null;
   if (typeof value.path !== "string" || !value.path) return null;
   if (typeof value.cwd !== "string" || !value.cwd) return null;
+  if ("appView" in value) {
+    const appView = value.appView;
+    if (!appView || typeof appView !== "object") return null;
+    const kind = (appView as Record<string, unknown>).kind;
+    if (!APP_VIEW_KINDS.includes(kind as AppViewKind)) return null;
+    if (
+      [
+        "plan", "releaseNotes", "review", "changes", "changeKind",
+        "sessionChanges", "commit", "agent", "terminal", "remoteFile",
+      ].some((field) => field in value)
+    ) return null;
+    return {
+      id: value.id,
+      path: `app:${kind}`,
+      cwd: "~",
+      appView: { kind: kind as AppViewKind },
+    };
+  }
   const plan = sanitizePlan(value.plan);
   const hasReleaseNotes = "releaseNotes" in value;
   const releaseNotes = sanitizeReleaseNotes(value.releaseNotes);

@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  APP_VIEW_KINDS,
   closeLeaf,
   closeSurfacePanes,
   editorTabKey,
   isChangesTab,
   isCommitTab,
   isFilesystemTab,
+  isAppViewOnlyTab,
+  isAppViewTab,
+  isPreviewableTab,
+  isVirtualDocumentTab,
   isReleaseNotesTab,
   isReviewTab,
   isSessionChangesTab,
@@ -16,6 +21,7 @@ import {
   newChangesTab,
   newCommitTab,
   newEditorWorkspaceTab,
+  newAppViewWorkspaceTab,
   newFileTab,
   newPlanTab,
   newReleaseNotesWorkspaceTab,
@@ -30,6 +36,7 @@ import {
   openChangesTab,
   openCommitTab,
   openEditorTab,
+  openAppViewTab,
   openSessionChangesTab,
   pinEditorFile,
   openWorkspaceFile,
@@ -41,6 +48,83 @@ import {
   updateTerminalTab,
   type WorkspaceTab,
 } from "./layout";
+
+describe("app view tabs", () => {
+  it.each(APP_VIEW_KINDS)("opens %s as a permanent virtual document", (kind) => {
+    const tab = newAppViewWorkspaceTab(kind);
+    const file = tab.editorPanes[0].files[0];
+    expect(file).toMatchObject({ path: `app:${kind}`, cwd: "~", appView: { kind } });
+    expect(editorTabKey(file)).toBe(`app:${kind}`);
+    expect(isAppViewTab(file)).toBe(true);
+    expect(isVirtualDocumentTab(file)).toBe(true);
+    expect(isFilesystemTab(file)).toBe(false);
+    expect(isPreviewableTab(file)).toBe(false);
+    expect(isAppViewOnlyTab(tab)).toBe(true);
+    expect(openEditorTab(newTab("chat"), file).editorPanes[0].files[0].preview)
+      .toBeUndefined();
+  });
+
+  it("finds an existing kind across the whole window and focuses its pane", () => {
+    const chat = newTab("chat");
+    const opened = openAppViewTab([chat], "settings");
+    const settings = opened.tabs[1];
+    const mixed = {
+      ...settings,
+      layout: splitPane(settings.layout, settings.focusedId, "right", "other-chat"),
+      focusedId: "other-chat",
+      diffFocused: true,
+    };
+    const reopened = openAppViewTab([chat, mixed], "settings");
+    expect(reopened.tabs).toHaveLength(2);
+    expect(reopened.tabId).toBe(settings.id);
+    expect(reopened.paneId).toBe(settings.focusedId);
+    expect(reopened.tabs[1].focusedId).toBe(settings.focusedId);
+    expect(reopened.tabs[1].diffFocused).toBe(false);
+    expect(reopened.tabs[1].editorPanes[0].files).toEqual(settings.editorPanes[0].files);
+    expect(isAppViewOnlyTab(mixed)).toBe(false);
+  });
+
+  it("recognizes split app-only tabs and excludes sessions, files and terminals", () => {
+    const settings = newAppViewWorkspaceTab("settings");
+    const notesPane = newAppViewWorkspaceTab("notes").editorPanes[0];
+    const only = {
+      ...settings,
+      layout: splitPane(settings.layout, settings.focusedId, "right", notesPane.id),
+      editorPanes: [...settings.editorPanes, notesPane],
+    };
+    expect(isAppViewOnlyTab(only)).toBe(true);
+    expect(isAppViewOnlyTab({ ...only, terminalPanes: [notesPane] })).toBe(false);
+    expect(isAppViewOnlyTab(newTab("chat"))).toBe(false);
+    expect(isAppViewOnlyTab(newEditorWorkspaceTab(newFileTab("/r/a.ts", "/r"))))
+      .toBe(false);
+  });
+
+  it.each(["file", "plan", "diff"])(
+    "splits a %s beside the app view instead of inserting inside it",
+    (kind) => {
+      const app = newAppViewWorkspaceTab("settings");
+      const file = kind === "plan"
+        ? newPlanTab("chat", "plan", "Plan", "/repo")
+        : newFileTab("/repo/file.ts", "/repo", kind === "diff");
+      const opened = openEditorTab(app, file);
+      expect(opened.editorPanes).toHaveLength(2);
+      expect(opened.editorPanes[0]).toBe(app.editorPanes[0]);
+      expect(opened.editorPanes[1].files[0].id).toBe(file.id);
+      expect(opened.focusedId).toBe(opened.editorPanes[1].id);
+    },
+  );
+
+  it("uses a non-app pane when the app view has focus", () => {
+    const app = newAppViewWorkspaceTab("notes");
+    const mixed = openEditorTab(app, newFileTab("/repo/a.ts", "/repo"), { pin: true });
+    mixed.focusedId = app.focusedId;
+    const opened = openEditorTab(mixed, newFileTab("/repo/b.ts", "/repo"));
+    expect(opened.editorPanes).toHaveLength(2);
+    expect(opened.editorPanes[0].files).toEqual(app.editorPanes[0].files);
+    expect(opened.editorPanes[1].files.map((file) => file.path))
+      .toEqual(["/repo/a.ts", "/repo/b.ts"]);
+  });
+});
 
 describe("preview tabs", () => {
   it("keeps remote files from different machines in distinct editor tabs", () => {

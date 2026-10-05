@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   COMPOSER_RUNNER_DEFAULT,
   AUTOSAVE_DEFAULT,
-  COLLAPSED_PROJECT_RAIL_MODE_DEFAULT,
   searchSettings,
   SETTINGS_INDEX,
   settingsSectionsByGroup,
@@ -17,7 +16,6 @@ import {
   TAB_ANIMATIONS_ENABLED_DEFAULT,
   loadComposerRunner,
   loadAutosave,
-  loadCollapsedProjectRailMode,
   loadModelControls,
   loadDiffViewer,
   loadKeybindingOverrides,
@@ -34,7 +32,6 @@ import {
   NOTES_ENABLED_DEFAULT,
   saveComposerRunner,
   saveAutosave,
-  saveCollapsedProjectRailMode,
   saveModelControls,
   saveDiffViewer,
   saveFormatOnSave,
@@ -64,7 +61,6 @@ const AUTOSAVE_KEY = "monocode.autosave";
 const FILE_TAB_MODE_KEY = "monocode.fileTabMode";
 const FOLLOW_UP_BEHAVIOR_KEY = "monocode.followUpBehavior";
 const TAB_ANIMATIONS_KEY = "monocode.tabAnimationsEnabled";
-const COLLAPSED_PROJECT_RAIL_MODE_KEY = "monocode.collapsedProjectRailMode";
 
 describe("follow-up behavior setting", () => {
   beforeEach(mockLocalStorage);
@@ -314,6 +310,60 @@ describe("keybinding overrides", () => {
     });
   });
 
+  it.each([false, true])(
+    "migrates a legacy sidebar shortcut with precedence, reversed order: %s",
+    (reverse) => {
+      const entries = [
+        ["App: Toggle Session Sidebar", { shortcut: "Shift+Control+KeyM" }],
+        ["App: Toggle Sidebar", { shortcut: "Control+KeyY" }],
+      ];
+      const raw = JSON.stringify(
+        Object.fromEntries(reverse ? entries.reverse() : entries),
+      );
+      localStorage.setItem(KEYBINDING_OVERRIDES_KEY, raw);
+
+      const expected = {
+        "App: Toggle Sidebar": { shortcut: "Control+Shift+KeyM" },
+      };
+      expect(loadKeybindingOverrides()).toEqual(expected);
+      expect(loadKeybindingOverrides()).toEqual(expected);
+      expect(localStorage.getItem(KEYBINDING_OVERRIDES_KEY)).toBe(raw);
+
+      // A future explicit save contains only current ids and parses identically.
+      localStorage.setItem(KEYBINDING_OVERRIDES_KEY, JSON.stringify(expected));
+      expect(loadKeybindingOverrides()).toEqual(expected);
+    },
+  );
+
+  it("drops a disabled legacy sidebar override and keeps the toggle available", () => {
+    localStorage.setItem(
+      KEYBINDING_OVERRIDES_KEY,
+      JSON.stringify({
+        "App: Toggle Session Sidebar": {
+          disabled: true,
+          shortcut: "Control+Shift+KeyM",
+        },
+      }),
+    );
+    expect(loadKeybindingOverrides()).toEqual({});
+    expect(keybindingPressed("App: Toggle Sidebar", key("KeyB"), true)).toBe(
+      true,
+    );
+  });
+
+  it("preserves a current sidebar override when the legacy value is invalid", () => {
+    localStorage.setItem(
+      KEYBINDING_OVERRIDES_KEY,
+      JSON.stringify({
+        "App: Toggle Session Sidebar": { shortcut: "KeyM" },
+        "App: Toggle Sidebar": { shortcut: "Control+KeyY" },
+      }),
+    );
+    expect(loadKeybindingOverrides()).toEqual({
+      "App: Toggle Sidebar": { shortcut: "Control+KeyY" },
+    });
+  });
+
   it("ignores malformed, unknown, and invalid stored overrides", () => {
     localStorage.setItem(
       KEYBINDING_OVERRIDES_KEY,
@@ -390,7 +440,7 @@ describe("grid arcade enabled setting", () => {
 });
 
 describe("workspace navigation keybindings", () => {
-  it("keeps separate shortcuts for the project rail and session sidebar", () => {
+  it("keeps a single sidebar toggle on the primary B chord", () => {
     expect(
       KEYBINDINGS.filter((row) =>
         ["App: Toggle Sidebar", "App: Toggle Session Sidebar"].includes(
@@ -399,11 +449,6 @@ describe("workspace navigation keybindings", () => {
       ),
     ).toEqual([
       { command: "App: Toggle Sidebar", keys: `${MOD}B`, when: "Always" },
-      {
-        command: "App: Toggle Session Sidebar",
-        keys: `${MOD}${SHIFT}B`,
-        when: "Always",
-      },
     ]);
   });
   it("documents the command palette and reload shortcuts", () => {
@@ -567,29 +612,6 @@ describe("tab animations setting", () => {
     expect(loadTabAnimationsEnabled()).toBe(false);
     saveTabAnimationsEnabled(true);
     expect(loadTabAnimationsEnabled()).toBe(true);
-  });
-});
-
-describe("collapsed project rail setting", () => {
-  beforeEach(mockLocalStorage);
-  afterEach(() => {
-    localStorage.removeItem(COLLAPSED_PROJECT_RAIL_MODE_KEY);
-  });
-
-  it("defaults to the icon rail", () => {
-    expect(COLLAPSED_PROJECT_RAIL_MODE_DEFAULT).toBe("compact");
-    expect(loadCollapsedProjectRailMode()).toBe("compact");
-  });
-
-  it("persists the hidden mode and ignores unknown values", () => {
-    saveCollapsedProjectRailMode("hidden");
-    expect(localStorage.getItem(COLLAPSED_PROJECT_RAIL_MODE_KEY)).toBe(
-      "hidden",
-    );
-    expect(loadCollapsedProjectRailMode()).toBe("hidden");
-
-    localStorage.setItem(COLLAPSED_PROJECT_RAIL_MODE_KEY, "floating");
-    expect(loadCollapsedProjectRailMode()).toBe("compact");
   });
 });
 

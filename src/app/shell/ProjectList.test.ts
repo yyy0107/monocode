@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { ProjectRail } from "./ProjectRail";
+import { ProjectList } from "./ProjectList";
 import {
   configureSharedHost,
   rememberRemoteProject,
@@ -21,7 +21,6 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("../../features/source-control/hooks/useProjectDiffStats", () => ({
   useProjectDiffStats: () => null,
 }));
-vi.mock("./SidebarUpdate", () => ({ SidebarUpdateFooter: () => null }));
 vi.mock(
   "../../features/connections/model/connections",
   async (importOriginal) => ({
@@ -67,7 +66,7 @@ afterEach(() => {
 async function renderRail(path: string) {
   await act(async () =>
     root.render(
-      createElement(ProjectRail, {
+      createElement(ProjectList, {
         cwd: path,
         recents: [{ path, openedAt: 1 }],
         onSelectProject: vi.fn(),

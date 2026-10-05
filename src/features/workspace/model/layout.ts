@@ -55,12 +55,34 @@ export type SessionChangesSource = {
   sessionId: string;
 };
 
+export const APP_VIEW_KINDS = [
+  "settings",
+  "search",
+  "inbox",
+  "notes",
+  "automations",
+] as const;
+
+export type AppViewKind = (typeof APP_VIEW_KINDS)[number];
+
+export function appViewTitle(kind: AppViewKind): string {
+  return {
+    settings: "Settings",
+    search: "Search",
+    inbox: "Inbox",
+    notes: "Notes",
+    automations: "Automations",
+  }[kind];
+}
+
 export type FilePaneTab = {
   id: string;
   path: string;
   cwd: string;
   /** Owning project when cwd points at one of its linked worktrees. */
   projectCwd?: string;
+  /** Application-owned view, unique by kind within a window. */
+  appView?: { kind: AppViewKind };
   plan?: PlanTabSource;
   releaseNotes?: ReleaseNotesTabSource;
   review?: boolean;
@@ -246,6 +268,67 @@ export function newEditorWorkspaceTab(file: FilePaneTab): WorkspaceTab {
   };
 }
 
+export function newAppViewWorkspaceTab(kind: AppViewKind): WorkspaceTab {
+  return newEditorWorkspaceTab({
+    id: crypto.randomUUID(),
+    path: `app:${kind}`,
+    cwd: "~",
+    appView: { kind },
+  });
+}
+
+/** Locate a view across all projects, tabs and panes in this window. */
+export function findAppViewTab(
+  tabs: readonly WorkspaceTab[],
+  kind: AppViewKind,
+): { tab: WorkspaceTab; pane: EditorPane; file: FilePaneTab } | undefined {
+  for (const tab of tabs) {
+    for (const pane of tab.editorPanes) {
+      const file = pane.files.find((entry) => entry.appView?.kind === kind);
+      if (file) return { tab, pane, file };
+    }
+  }
+  return undefined;
+}
+
+/** Focus the window's existing view, or create its standalone workspace tab. */
+export function openAppViewTab(
+  tabs: WorkspaceTab[],
+  kind: AppViewKind,
+): { tabs: WorkspaceTab[]; tabId: string; paneId: string } {
+  const existing = findAppViewTab(tabs, kind);
+  if (existing) {
+    return {
+      tabs: tabs.map((tab) =>
+        tab === existing.tab
+          ? openEditorTab(tab, existing.file, { pin: true })
+          : tab,
+      ),
+      tabId: existing.tab.id,
+      paneId: existing.pane.id,
+    };
+  }
+  const created = newAppViewWorkspaceTab(kind);
+  return {
+    tabs: [...tabs, created],
+    tabId: created.id,
+    paneId: created.focusedId,
+  };
+}
+
+/** Only app views: this tab has no project and is visible in each project. */
+export function isAppViewOnlyTab(tab: WorkspaceTab): boolean {
+  const ids = leafIds(tab.layout);
+  return (
+    tab.editorPanes.length > 0 &&
+    (tab.terminalPanes ?? []).length === 0 &&
+    ids.every((id) => tab.editorPanes.some((pane) => pane.id === id)) &&
+    tab.editorPanes.every(
+      (pane) => pane.files.length > 0 && pane.files.every(isAppViewTab),
+    )
+  );
+}
+
 /** The file of a top-level tab that holds nothing but one preview file. */
 export function previewWorkspaceFile(
   tab: WorkspaceTab,
@@ -408,6 +491,12 @@ export function isPlanTab(
   return !!file.plan;
 }
 
+export function isAppViewTab(
+  file: FilePaneTab,
+): file is FilePaneTab & { appView: { kind: AppViewKind } } {
+  return !!file.appView;
+}
+
 export function isReleaseNotesTab(
   file: FilePaneTab,
 ): file is FilePaneTab & { releaseNotes: ReleaseNotesTabSource } {
@@ -432,6 +521,7 @@ export function isAgentTab(
 
 export function isVirtualDocumentTab(file: FilePaneTab): boolean {
   return (
+    isAppViewTab(file) ||
     isPlanTab(file) ||
     isReleaseNotesTab(file) ||
     isCommitTab(file) ||
@@ -512,6 +602,7 @@ export function isSessionChangesTab(
 }
 
 export function editorTabKey(file: FilePaneTab): string {
+  if (file.appView) return `app:${file.appView.kind}`;
   if (file.terminal) return `terminal:${file.id}`;
   if (file.agent) return `agent:${file.agent.sessionId}`;
   if (file.plan) return `plan:${file.plan.blockId}`;
@@ -541,6 +632,7 @@ export type OpenEditorTabOptions = {
 /** Tabs opened by browsing lists: files, per-file diffs, commits, session diffs. */
 export function isPreviewableTab(file: FilePaneTab): boolean {
   return (
+    !file.appView &&
     !file.terminal &&
     !file.agent &&
     !file.plan &&
@@ -627,7 +719,13 @@ export function openEditorTab(
       ? { ...file, preview: true }
       : withoutPreview(file);
   const focusedPane = tab.editorPanes.find((pane) => pane.id === tab.focusedId);
-  const targetPane = focusedPane ?? tab.editorPanes[0];
+  const acceptsFile = (pane: EditorPane) =>
+    !pane.files.some(
+      (entry) => entry.id === pane.activeFileId && isAppViewTab(entry),
+    );
+  const targetPane =
+    (focusedPane && acceptsFile(focusedPane) ? focusedPane : undefined) ??
+    tab.editorPanes.find(acceptsFile);
   if (targetPane) {
     const previewIndex = file.preview
       ? targetPane.files.findIndex((entry) => entry.preview)
@@ -666,7 +764,7 @@ export function openEditorTab(
     ),
     focusedId: editorPane.id,
     diffFocused: false,
-    editorPanes: [editorPane],
+    editorPanes: [...tab.editorPanes, editorPane],
   };
 }
 

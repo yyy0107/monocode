@@ -96,3 +96,22 @@ it("invalidates the cached list when an automation changes", async () => {
   notifyAutomationsChanged();
   expect(peekAutomations()).toBeNull();
 });
+
+it("only leaves Automations on Escape while its workspace pane is active", async () => {
+  invoke.mockResolvedValue([]);
+  const onClose = vi.fn();
+  const props = {
+    recents: [],
+    onClose,
+    onLaunch: vi.fn(),
+    onOpenSession: vi.fn(),
+  };
+  await act(async () => root.render(createElement(AutomationsView, { ...props, active: false })));
+  act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })));
+  expect(onClose).not.toHaveBeenCalled();
+  expect(container.querySelector('[data-app-automations]')).not.toBeNull();
+
+  await act(async () => root.render(createElement(AutomationsView, { ...props, active: true })));
+  act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })));
+  expect(onClose).toHaveBeenCalledOnce();
+});

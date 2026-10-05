@@ -64,7 +64,7 @@ import {
 } from "../model/transcriptJump";
 import { EmptySession } from "./EmptySession";
 import { useComposerDockMotion } from "./useComposerDockMotion";
-import { MOD } from "../../../platform/tauri/platform";
+import { useShortcutLabel } from "../../../app/commands/useCommandShortcut";
 import {
   acknowledgeQuoteRequest,
   ADD_TO_CHAT_EVENT,
@@ -327,6 +327,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
   transcriptPool,
 }: Props) {
   const { t: uiT } = useTranslation();
+  const closePaneLabel = useShortcutLabel("Close Pane", "Pane: Close");
   useSyncExternalStore(
     subscribeNativeSessions,
     nativeSessionSnapshot,
@@ -770,7 +771,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
           </span>
           <button
             type="button"
-            title={uiT("Close Pane ({value0}W)", { value0: String(MOD) })}
+            title={closePaneLabel}
             aria-label={uiT("Close pane")}
             data-no-drag
             className="grid size-5 shrink-0 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content"

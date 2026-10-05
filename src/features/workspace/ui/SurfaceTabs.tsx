@@ -15,7 +15,9 @@ import {
   revealPath,
 } from "../../../platform/tauri/fs";
 import {
+  appViewTitle,
   isAgentTab,
+  isAppViewTab,
   isChangesTab,
   isCommitTab,
   isFilesystemTab,
@@ -120,6 +122,16 @@ export function surfaceTabMenuItems(
 export function surfaceTabPresentation(
   file: FilePaneTab,
 ): SurfaceTabPresentation {
+  if (isAppViewTab(file)) {
+    const title = translateUi(appViewTitle(file.appView.kind));
+    return {
+      name: title,
+      label: title,
+      iconName: file.appView.kind === "notes" ? "notes.md" : "APP_VIEW",
+      tooltip: title,
+    };
+  }
+
   if (isReleaseNotesTab(file)) {
     const title = releaseNotesTitle(file.releaseNotes.version);
     return {

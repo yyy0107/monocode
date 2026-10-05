@@ -47,6 +47,7 @@ export function useDragResize({
   const paneRef = useRef<HTMLElement | null>(null);
   const widthRef = useRef(width);
   const stopDrag = useRef<(() => void) | null>(null);
+  const finishDrag = useCallback(() => stopDrag.current?.(), []);
 
   const apply = (next: number) => {
     widthRef.current = next;
@@ -127,6 +128,7 @@ export function useDragResize({
     width,
     dragging,
     setPaneRef,
+    finishDrag,
     onPointerDown,
     onDoubleClick,
   };

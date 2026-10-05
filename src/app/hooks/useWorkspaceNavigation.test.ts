@@ -19,6 +19,7 @@ import {
 } from "../../features/source-control/model/worktrees";
 import {
   leafIds,
+  newAppViewWorkspaceTab,
   newTab,
   splitPane,
   type WorkspaceTab,
@@ -358,6 +359,31 @@ it("selects an existing workspace tab without moving the current session", async
     workspace: treeA.path,
     checkout: treeA.path,
   });
+  expect(move).not.toHaveBeenCalled();
+});
+
+it("keeps globally visible app tabs out of workspace return targets", async () => {
+  const sessions = [
+    chat("main", project, undefined, true),
+    chat("worktree", project, treeA.path, true),
+  ];
+  await mount(sessions, "main", [
+    ...sessions.map((session) => ({ ...newTab(session.id), id: `tab-${session.id}` })),
+    newAppViewWorkspaceTab("settings"),
+  ]);
+  await select(treeA);
+  expect(screen()).toMatchObject({ activeTab: "tab-worktree", workspace: treeA.path });
+  expect(move).not.toHaveBeenCalled();
+});
+
+it("creates a project tab for an empty workspace even when app tabs are open", async () => {
+  const sessions = [chat("main", project, undefined, true)];
+  await mount(sessions, "main", [
+    { ...newTab("main"), id: "tab-main" },
+    newAppViewWorkspaceTab("notes"),
+  ]);
+  await select(treeA);
+  expect(screen()).toMatchObject({ activeTab: "tab-created", workspace: treeA.path });
   expect(move).not.toHaveBeenCalled();
 });
 

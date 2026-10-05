@@ -38,9 +38,12 @@ describe("resolveAppShortcut", () => {
     expect(resolveAppShortcut(key({ key: ",", ctrlKey: true }))).toBe(
       "App: Settings",
     );
+    expect(resolveAppShortcut(key({ key: "b", metaKey: true }))).toBe(
+      "App: Toggle Sidebar",
+    );
     expect(
       resolveAppShortcut(key({ key: "b", metaKey: true, shiftKey: true })),
-    ).toBe("App: Toggle Session Sidebar");
+    ).toBeNull();
   });
 
   it("ignores a chord while an IME is composing", () => {
@@ -56,6 +59,21 @@ describe("resolveAppShortcut", () => {
         resolveAppShortcut(key({ ...chord, isComposing: true })),
       ).toBeNull();
     }
+  });
+
+  it("resolves a migrated sidebar override under the remaining command id", () => {
+    localStorage.setItem(
+      "monocode.keybindingOverrides",
+      JSON.stringify({
+        "App: Toggle Session Sidebar": { shortcut: "Control+Shift+KeyM" },
+      }),
+    );
+    expect(
+      resolveAppShortcut(
+        key({ key: "M", code: "KeyM", ctrlKey: true, shiftKey: true }),
+      ),
+    ).toBe("App: Toggle Sidebar");
+    expect(resolveAppShortcut(key({ key: "b", ctrlKey: true }))).toBeNull();
   });
 
   it("ignores a rebound chord while composing", () => {

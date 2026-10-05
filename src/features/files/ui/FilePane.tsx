@@ -9,6 +9,7 @@ import {
 import { SurfaceTabs } from "../../workspace/ui/SurfaceTabs";
 import {
   isAgentTab,
+  isAppViewTab,
   isChangesTab,
   isCommitTab,
   isPlanTab,
@@ -35,6 +36,7 @@ import { MarkdownPreview } from "../../sessions/ui/AgentMarkdown";
 import { BinaryFileView } from "./BinaryFileView";
 import { ReleaseNotesSurface } from "../../../app/ui/ReleaseNotesSurface";
 import { isRemoteProjectPath } from "../../projects/model/recents";
+import { AppViewHost } from "../../workspace/ui/AppViewHost";
 
 const CommitDiff = lazySurface(async () => {
   const module = await import("../../source-control/ui/CommitDiff");
@@ -60,6 +62,7 @@ const WorkingTreeDiff = lazySurface(async () => {
 type Props = {
   pane: EditorPane;
   focused: boolean;
+  visible?: boolean;
   /** The title bar already names a standalone file, so avoid repeating it. */
   showTabs?: boolean;
   dirtyFileIds: Set<string>;
@@ -88,6 +91,7 @@ type Props = {
 function FilePaneComponent({
   pane,
   focused,
+  visible = true,
   showTabs = true,
   dirtyFileIds,
   fileErrorCounts,
@@ -181,7 +185,13 @@ function FilePaneComponent({
                   : "hidden"
               }
             >
-              {isAgentTab(file) ? (
+              {isAppViewTab(file) ? (
+                <AppViewHost
+                  kind={file.appView.kind}
+                  visible={visible && file.id === pane.activeFileId}
+                  focused={focused && file.id === pane.activeFileId}
+                />
+              ) : isAgentTab(file) ? (
                 <AgentTabView
                   title={file.path}
                   session={sessions.find(
@@ -245,6 +255,7 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
   if (
     previous.pane !== next.pane ||
     previous.focused !== next.focused ||
+    previous.visible !== next.visible ||
     previous.showTabs !== next.showTabs ||
     previous.dirtyFileIds !== next.dirtyFileIds ||
     previous.fileErrorCounts !== next.fileErrorCounts ||

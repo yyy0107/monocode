@@ -74,17 +74,29 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function render(projects = recents, cwd = "/work/Edefyn") {
+async function render(projects = recents, cwd = "/work/Edefyn", active = true) {
   await act(async () =>
     root.render(
       createElement(NotesView, {
         cwd,
+        active,
         recents: projects,
         onClose,
       }),
     ),
   );
 }
+
+it("only leaves Notes on Escape while its workspace pane is active", async () => {
+  await render(recents, "/work/Edefyn", false);
+  act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })));
+  expect(onClose).not.toHaveBeenCalled();
+  expect(container.querySelector('[data-app-notes]')).not.toBeNull();
+
+  await render();
+  act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })));
+  expect(onClose).toHaveBeenCalledOnce();
+});
 
 it("shows a preloaded note immediately while refreshing in the background", async () => {
   await loadNotes();

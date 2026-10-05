@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  loadSidebarWidth,
+  saveSidebarWidth,
+  loadSidebarTabOrder,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_MAX,
   ACCENT_COLOR_DEFAULT,
   CHAT_BACKGROUND_OPACITY_DEFAULT,
   CHAT_BACKGROUND_SCOPE_DEFAULT,
@@ -310,5 +316,28 @@ describe("Popover opacity setting", () => {
     expect(loadPopoverOpacity()).toBe(0);
     savePopoverOpacity(2);
     expect(loadPopoverOpacity()).toBe(1);
+  });
+});
+
+
+describe("single sidebar persistence", () => {
+  beforeEach(mockLocalStorage);
+
+  it("loads committed widths and bounds invalid stored values", () => {
+    expect(loadSidebarWidth()).toBe(SIDEBAR_WIDTH_DEFAULT);
+    saveSidebarWidth(375.6);
+    expect(localStorage.getItem("monocode.sidebarWidth")).toBe("376");
+    expect(loadSidebarWidth()).toBe(376);
+    localStorage.setItem("monocode.sidebarWidth", "invalid");
+    expect(loadSidebarWidth()).toBe(SIDEBAR_WIDTH_DEFAULT);
+    localStorage.setItem("monocode.sidebarWidth", "1000");
+    expect(loadSidebarWidth()).toBe(SIDEBAR_WIDTH_MAX);
+    saveSidebarWidth(1);
+    expect(loadSidebarWidth()).toBe(SIDEBAR_WIDTH_MIN);
+  });
+
+  it("drops legacy Inbox from the order while preserving the panel order", () => {
+    localStorage.setItem("monocode.sidebarTabOrder", JSON.stringify(["inbox", "changes", "files", "sessions"]));
+    expect(loadSidebarTabOrder()).toEqual(["changes", "files", "sessions"]);
   });
 });

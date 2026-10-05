@@ -7,7 +7,7 @@ import {
   updateNotificationPreferences,
 } from "../../notifications/model/notificationPreferences";
 import { rememberNotificationProjects } from "../../notifications/model/notificationProjects";
-import { ProjectRail } from "../../../app/shell/ProjectRail";
+import { ActivityBar } from "../../../app/shell/ActivityBar";
 import { invoke } from "@tauri-apps/api/core";
 import { inboxItemKey, listInboxItems, type InboxItem } from "../model/githubTasks";
 import {
@@ -68,7 +68,7 @@ function button(label: string) {
 async function openInboxMenu() {
   await act(async () =>
     root.render(
-      createElement(ProjectRail, {
+      createElement(ActivityBar, {
         cwd: "/repos/work",
         recents: [{ path: "/repos/private", openedAt: 1 }],
         onSelectProject: vi.fn(),
@@ -106,7 +106,7 @@ it("uses already loaded Inbox activity immediately even when the provider stops 
   const recents = [{ path: "/repos/work", openedAt: 1 }];
   function Harness() {
     const activity = useInboxActivity(recents, "/repos/work", []);
-    return createElement(ProjectRail, {
+    return createElement(ActivityBar, {
       cwd: "/repos/work", recents, inboxUnseen: activity.unseen,
       onSelectProject: vi.fn(), onOpenProject: vi.fn(), onOpenInbox: vi.fn(),
     });
@@ -152,7 +152,7 @@ it("keeps unread items and the menu open when marking read fails, then allows re
   expect(document.activeElement).toBe(inbox);
 });
 
-it("marks all Inbox providers as read from the rail, including muted projects", async () => {
+it("marks all Inbox providers as read from the activity bar, including muted projects", async () => {
   const items: InboxItem[] = (["github", "gitlab", "linear"] as const).map((provider) => ({
     provider, kind: "issue", repo: "company/work", number: 1,
     title: "Inbox update", url: `https://${provider}.com/company/work/1`,
@@ -201,7 +201,7 @@ it("disables mark all as read for read items and reacts when unread items are re
   expect(button("Mark all as read").disabled).toBe(true);
 });
 
-it("mutes all rail and known Inbox projects for one hour directly from Inbox", async () => {
+it("mutes all activity-bar and known Inbox projects for one hour directly from Inbox", async () => {
   vi.spyOn(Date, "now").mockReturnValue(new Date(2030, 0, 15, 20, 30).getTime());
   rememberNotificationProjects([
     {
@@ -339,7 +339,7 @@ it("keeps the menu open and reports failed persistence so the action can be retr
   ).toBeNull();
 });
 
-it("keeps every rail path actionable without checking the filesystem", async () => {
+it("keeps every project path actionable without checking the filesystem", async () => {
   vi.mocked(invoke).mockRejectedValue(new Error("Native bridge unavailable"));
   await openInboxMenu();
   expect(button("Mute all projects").disabled).toBe(false);

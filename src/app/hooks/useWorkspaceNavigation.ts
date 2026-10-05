@@ -11,7 +11,10 @@ import {
   type WorktreeFocus,
 } from "../../features/source-control/model/worktreeFocus";
 import type { Worktree } from "../../features/source-control/model/worktrees";
-import type { WorkspaceTab } from "../../features/workspace/model/layout";
+import {
+  isAppViewOnlyTab,
+  type WorkspaceTab,
+} from "../../features/workspace/model/layout";
 import {
   filterTabsForProject,
   workspaceTabCwd,
@@ -131,6 +134,7 @@ export function useWorkspaceNavigation(options: Options) {
             view.sessions,
             next.project,
           ).filter((entry) => {
+            if (isAppViewOnlyTab(entry)) return false;
             const workspace = view.tabWorkspace(entry, view.sessions);
             return !workspace || sameProjectPath(workspace, path);
           });

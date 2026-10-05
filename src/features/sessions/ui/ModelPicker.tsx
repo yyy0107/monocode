@@ -1,5 +1,6 @@
 import { translate } from "../../../shared/i18n/language";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 import {
   Check,
   ChevronDown,
@@ -275,6 +276,7 @@ export function ModelPicker({
   onClose,
 }: Props) {
   const { t: uiT } = useTranslation();
+  const visible = useSurfaceVisibility();
   const source = useModelSource();
   const catalogVersion = useSyncExternalStore(
     subscribeModels,
@@ -493,6 +495,7 @@ export function ModelPicker({
   }, [submenu, values]);
 
   useEffect(() => {
+    if (!visible) return;
     const inBlockingUi = (target: EventTarget | null) => {
       if (!(target instanceof Element)) return false;
       if (target.closest(".monocode-terminal")) return true;
@@ -539,7 +542,7 @@ export function ModelPicker({
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("open_model_picker", onMenu);
     };
-  }, [hotkeys, source]);
+  }, [visible, hotkeys, source]);
 
   const setSetting = (setting: ModelSetting, value: string) => {
     onSettingsChange({ ...values, [setting.id]: value });
@@ -552,7 +555,7 @@ export function ModelPicker({
   };
 
   useEffect(() => {
-    if (!recentMenu) return;
+    if (!visible || !recentMenu) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.isComposing) return;
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -575,7 +578,7 @@ export function ModelPicker({
 
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [recentActive, recentMenu]);
+  }, [visible, recentActive, recentMenu]);
 
   const pickSetting = (setting: ModelSetting, value: string) => {
     setSetting(setting, value);

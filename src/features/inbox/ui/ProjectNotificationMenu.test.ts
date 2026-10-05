@@ -6,7 +6,8 @@ import {
   loadNotificationPreferences,
   updateNotificationPreferences,
 } from "../../notifications/model/notificationPreferences";
-import { ProjectRail } from "../../../app/shell/ProjectRail";
+import { ProjectList } from "../../../app/shell/ProjectList";
+import { ActivityBar } from "../../../app/shell/ActivityBar";
 import { invoke } from "@tauri-apps/api/core";
 import { rememberNotificationProjects } from "../../notifications/model/notificationProjects";
 
@@ -59,7 +60,7 @@ function button(label: string) {
 it("opens a project in a detected editor from the project context menu", async () => {
   await act(async () =>
     root.render(
-      createElement(ProjectRail, {
+      createElement(ProjectList, {
         cwd: "/work/private",
         recents: [],
         onSelectProject: vi.fn(),
@@ -98,7 +99,7 @@ it("opens path-based project actions immediately without Git discovery", async (
     id: "local:/work/private", name: "person/private",
     detail: "github.com", kind: "repository", paths: ["/work/private"],
   }]);
-  await act(async () => root.render(createElement(ProjectRail, {
+  await act(async () => root.render(createElement(ProjectList, {
     cwd: "/work/private", recents: [], onSelectProject: vi.fn(), onOpenProject: vi.fn(),
   })));
   act(() => container.querySelector('button[aria-current="true"]')!.dispatchEvent(
@@ -117,7 +118,7 @@ it("shows persisted mute status on the project and in its reopened menu", async 
   updateNotificationPreferences(["local:/work/private"], {
     mutedUntil: null,
   });
-  await act(async () => root.render(createElement(ProjectRail, {
+  await act(async () => root.render(createElement(ProjectList, {
     cwd: "/work/private",
     recents: [],
     onSelectProject: vi.fn(),
@@ -170,7 +171,7 @@ it("mutes a repository from its project context menu", async () => {
   });
   act(() =>
     root.render(
-      createElement(ProjectRail, {
+      createElement(ProjectList, {
         cwd: "/work/private",
         recents: [],
         onSelectProject: vi.fn(),
@@ -252,7 +253,7 @@ it("opens notification settings for all projects from the Inbox context menu", a
   const onOpenNotificationSettings = vi.fn();
   await act(async () =>
     root.render(
-      createElement(ProjectRail, {
+      createElement(ActivityBar, {
         cwd: "/work/private",
         recents: [],
         onSelectProject: vi.fn(),
@@ -283,7 +284,7 @@ it("opens project notification settings from a keyboard context menu", async () 
   const onOpenNotificationSettings = vi.fn();
   await act(async () =>
     root.render(
-      createElement(ProjectRail, {
+      createElement(ProjectList, {
         cwd: "/work/private",
         recents: [],
         onSelectProject: vi.fn(),

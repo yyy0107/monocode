@@ -61,6 +61,8 @@ export function WindowControls() {
 
   return (
     <div
+      role="group"
+      aria-label={uiT("Window controls")}
       className="flex h-full shrink-0 items-stretch border-l border-stroke"
       data-tauri-drag-region="false"
     >

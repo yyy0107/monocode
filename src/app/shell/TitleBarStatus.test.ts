@@ -4,7 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TitleBar, WindowNavigation, type Tab } from "./TitleBar";
 
-vi.mock("./WindowControls", () => ({ WindowControls: () => null }));
+vi.mock("./WindowControls", () => ({
+  WindowControls: () => createElement("div", { "data-window-controls": true }),
+}));
 
 let container: HTMLDivElement;
 let root: Root;
@@ -56,7 +58,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("keeps the window controls mounted while the project rail is toggled", () => {
+it("keeps window navigation mounted while the sidebar is toggled", () => {
   const onGoBack = vi.fn();
   const onGoForward = vi.fn();
   const onTogglePanel = vi.fn();
@@ -75,22 +77,28 @@ it("keeps the window controls mounted while the project rail is toggled", () => 
     );
 
   renderNavigation(true);
-  const navigation = container.querySelector('[data-window-navigation]')!;
+  const navigation = container.querySelector("[data-window-navigation]")!;
   const toggle = container.querySelector<HTMLButtonElement>(
-    'button[aria-label="Toggle Projects"]',
+    'button[aria-label="Toggle Sidebar (Ctrl+B)"]',
   )!;
   const icon = toggle.querySelector("svg");
   act(() => toggle.click());
   expect(onTogglePanel).toHaveBeenCalledOnce();
 
   renderNavigation(false);
-  expect(container.querySelector('[data-window-navigation]')).toBe(navigation);
-  expect(container.querySelector('button[aria-label="Toggle Projects"]')).toBe(toggle);
+  expect(container.querySelector("[data-window-navigation]")).toBe(navigation);
+  expect(
+    container.querySelector('button[aria-label="Toggle Sidebar (Ctrl+B)"]'),
+  ).toBe(toggle);
   expect(toggle.querySelector("svg")).toBe(icon);
   expect(toggle.getAttribute("aria-pressed")).not.toBe("true");
   act(() => {
-    container.querySelector<HTMLButtonElement>('button[aria-label^="Back"]')!.click();
-    container.querySelector<HTMLButtonElement>('button[aria-label^="Forward"]')!.click();
+    container
+      .querySelector<HTMLButtonElement>('button[aria-label^="Back"]')!
+      .click();
+    container
+      .querySelector<HTMLButtonElement>('button[aria-label^="Forward"]')!
+      .click();
     toggle.click();
   });
   expect(onGoBack).not.toHaveBeenCalled();
@@ -138,36 +146,65 @@ describe("title tab response status", () => {
   });
 });
 
-it.each([true, false])(
-  "offers a separate session sidebar toggle when the project rail is %s",
-  (projectRailOpen) => {
-    const onToggleSidebar = vi.fn();
-    const onToggleSessionSidebar = vi.fn();
-    act(() =>
-      root.render(
-        createElement(TitleBar, {
-          tabs: [tab("active")],
-          activeId: "active",
-          cwd: "/project",
-          projectRailOpen,
-          sessionSidebarOpen: false,
-          onToggleSidebar,
-          onToggleSessionSidebar,
-          onNew: vi.fn(),
-          onSelect: vi.fn(),
-          onClose: vi.fn(),
-          onCloseMany: vi.fn(),
-          onReorder: vi.fn(),
-        }),
-      ),
-    );
+it("reserves navigation space when the sidebar is closed", () => {
+  act(() =>
+    root.render(
+      createElement(TitleBar, {
+        tabs: [tab("active")],
+        activeId: "active",
+        cwd: "/project",
+        projectRailOpen: false,
+        sessionSidebarOpen: false,
+        onToggleSidebar: vi.fn(),
+        onNew: vi.fn(),
+        onSelect: vi.fn(),
+        onClose: vi.fn(),
+        onCloseMany: vi.fn(),
+        onReorder: vi.fn(),
+      }),
+    ),
+  );
+  expect(
+    container.querySelector("[data-window-navigation-space]"),
+  ).not.toBeNull();
+});
 
-    const toggle = container.querySelector<HTMLButtonElement>(
-      'button[aria-label^="Toggle Session Sidebar"]',
-    );
-    expect(toggle).not.toBeNull();
-    act(() => toggle?.click());
-    expect(onToggleSessionSidebar).toHaveBeenCalledOnce();
-    expect(onToggleSidebar).not.toHaveBeenCalled();
+it.each([false, true])(
+  "moves window chrome out of the title strip in menu mode (compact=%s)",
+  (compactRail) => {
+    const renderChrome = (chromeInMenuBar: boolean) =>
+      act(() =>
+        root.render(
+          createElement(TitleBar, {
+            tabs: [tab("active")],
+            activeId: "active",
+            cwd: "/project",
+            projectRailOpen: false,
+            sessionSidebarOpen: false,
+            compactRail,
+            chromeInMenuBar,
+            onToggleSidebar: vi.fn(),
+            onNew: vi.fn(),
+            onSelect: vi.fn(),
+            onClose: vi.fn(),
+            onCloseMany: vi.fn(),
+            onReorder: vi.fn(),
+          }),
+        ),
+      );
+
+    renderChrome(false);
+    expect(container.querySelectorAll("[data-window-controls]")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-window-navigation-space]")).toHaveLength(1);
+
+    renderChrome(true);
+    expect(container.querySelector("[data-window-controls]")).toBeNull();
+    expect(container.querySelector("[data-window-navigation-space]")).toBeNull();
+    expect(container.querySelector("[data-compact-title-nav]")).toBeNull();
+    expect(container.querySelector("[data-title-tab-strip]")).not.toBeNull();
+
+    renderChrome(false);
+    expect(container.querySelectorAll("[data-window-controls]")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-window-navigation-space]")).toHaveLength(1);
   },
 );

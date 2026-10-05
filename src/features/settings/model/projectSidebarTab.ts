@@ -3,7 +3,7 @@ import { loadSidebarTabOrder, type SidebarTabId } from "./appearance";
 
 const KEY = "monocode.projectSidebarTabs.v1";
 
-type ProjectSidebarTab = Exclude<SidebarTabId, "inbox">;
+type ProjectSidebarTab = SidebarTabId;
 type StoredTabs = Record<string, ProjectSidebarTab>;
 
 function isProjectSidebarTab(value: unknown): value is ProjectSidebarTab {

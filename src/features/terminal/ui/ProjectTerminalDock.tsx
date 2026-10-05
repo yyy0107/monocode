@@ -26,7 +26,7 @@ import {
   type DockSide,
   type ProjectTerminalDock,
 } from "../../projects/model/projectTerminal";
-import { MOD } from "../../../platform/tauri/platform";
+import { useShortcutLabel } from "../../../app/commands/useCommandShortcut";
 import type { TerminalMetaPatch } from "../model/terminalTab";
 import { lazySurface } from "../../../shared/ui/lazySurface";
 
@@ -88,6 +88,11 @@ export function ProjectTerminalDock({
   onTerminalMetaChange,
 }: Props) {
   const { t: uiT } = useTranslation();
+  const newTerminalLabel = useShortcutLabel("New Terminal", "Terminal: New");
+  const hideTerminalLabel = useShortcutLabel(
+    "Hide Terminal",
+    "Terminal: Toggle Dock",
+  );
   const vertical = isVerticalDock(dock.side);
   const [dragging, setDragging] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -220,7 +225,7 @@ export function ProjectTerminalDock({
         trailing={
           <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
             <IconButton
-              label={uiT("New Terminal ({value0}`)", { value0: String(MOD) })}
+              label={newTerminalLabel}
               onClick={onAddTerminal}
             >
               <Plus className="size-3.5" strokeWidth={1.75} />
@@ -238,7 +243,7 @@ export function ProjectTerminalDock({
               </IconButton>
             </div>
             <IconButton
-              label={uiT("Hide Terminal ({value0}J)", { value0: String(MOD) })}
+              label={hideTerminalLabel}
               onClick={onHide}
             >
               <HideIcon className="size-3.5" strokeWidth={1.75} />

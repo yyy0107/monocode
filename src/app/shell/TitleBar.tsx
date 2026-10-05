@@ -1,11 +1,13 @@
 import { translate } from "../../shared/i18n/language";
 import { useTranslation } from "../../shared/i18n/useTranslation";
+import { useShortcutLabel } from "../commands/useCommandShortcut";
 import {
   CheckCircle,
   ChevronLeft,
   ChevronRight,
-  DashboardSquare,
   Inbox,
+  MoveLeft,
+  MoveRight,
   PanelLeft,
   Plus,
   Search,
@@ -41,7 +43,7 @@ import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
 import { WindowControls } from "./WindowControls";
-import { IS_MAC, MOD, SHIFT } from "../../platform/tauri/platform";
+import { IS_MAC } from "../../platform/tauri/platform";
 import type { RecentProject } from "../../features/projects/model/recents";
 import {
   ExplorerMenu,
@@ -91,12 +93,12 @@ type Props = {
   projectRailOpen?: boolean;
   sessionSidebarOpen?: boolean;
   compactRail?: boolean;
+  chromeInMenuBar?: boolean;
   canGoBack?: boolean;
   canGoForward?: boolean;
   onGoBack?: () => void;
   onGoForward?: () => void;
   onToggleSidebar: () => void;
-  onToggleSessionSidebar?: () => void;
   onSelect: (id: string) => void;
   onNew: () => void;
   onNewTerminal?: () => void;
@@ -539,7 +541,6 @@ export function TabVisitNav({
   onGoForward,
   onTogglePanel,
   panelActive = false,
-  panelLabel = "Toggle Projects",
 }: {
   canGoBack?: boolean;
   canGoForward?: boolean;
@@ -547,24 +548,25 @@ export function TabVisitNav({
   onGoForward?: () => void;
   onTogglePanel?: () => void;
   panelActive?: boolean;
-  panelLabel?: string;
 }) {
-  const { t: uiT } = useTranslation();
+  const backLabel = useShortcutLabel("Back", "Tab: Back");
+  const forwardLabel = useShortcutLabel("Forward", "Tab: Forward");
+  const panelLabel = useShortcutLabel("Toggle Sidebar", "App: Toggle Sidebar");
   return (
     <div className="flex shrink-0 items-center">
       <IconButton
-        label={uiT("Back ({value0}[)", { value0: String(MOD) })}
+        label={backLabel}
         disabled={!canGoBack}
         onClick={onGoBack}
       >
-        <ChevronLeft className="size-3.5" strokeWidth={1.75} />
+        <MoveLeft className="size-3.5" strokeWidth={1.75} />
       </IconButton>
       <IconButton
-        label={uiT("Forward ({value0}])", { value0: String(MOD) })}
+        label={forwardLabel}
         disabled={!canGoForward}
         onClick={onGoForward}
       >
-        <ChevronRight className="size-3.5" strokeWidth={1.75} />
+        <MoveRight className="size-3.5" strokeWidth={1.75} />
       </IconButton>
       {onTogglePanel ? (
         <IconButton
@@ -581,15 +583,18 @@ export function TabVisitNav({
 
 const WINDOW_NAVIGATION_LEFT = IS_MAC ? 78 : 6;
 const WINDOW_NAVIGATION_WIDTH = 78;
+export const WINDOW_NAVIGATION_END =
+  WINDOW_NAVIGATION_LEFT + 48 + WINDOW_NAVIGATION_WIDTH;
 
 export function WindowNavigation(props: Parameters<typeof TabVisitNav>[0]) {
+  const { t: uiT } = useTranslation();
   return (
     <nav
-      aria-label="Window navigation"
+      aria-label={uiT("Window navigation")}
       data-window-navigation
       data-tauri-drag-region="false"
-      className="absolute top-0 z-20 flex h-10 items-center"
-      style={{ left: WINDOW_NAVIGATION_LEFT }}
+      className="absolute z-20 flex h-10 items-center"
+      style={{ left: WINDOW_NAVIGATION_LEFT + 48, top: "var(--menu-bar-h, 0px)" }}
     >
       <TabVisitNav {...props} />
     </nav>
@@ -624,7 +629,7 @@ function TitleBarComponent({
   projectRailOpen = true,
   sessionSidebarOpen = true,
   compactRail = false,
-  onToggleSessionSidebar,
+  chromeInMenuBar = false,
   onSelect,
   onNew,
   onNewTerminal,
@@ -643,6 +648,9 @@ function TitleBarComponent({
   onSelectProject,
 }: Props) {
   const { t: uiT } = useTranslation();
+  const goToFileLabel = useShortcutLabel("Quick Open", "App: Go to File");
+  const newSessionLabel = useShortcutLabel("New session", "Tab: New");
+  const settingsLabel = useShortcutLabel("Settings", "App: Settings");
   const tabIds = tabs.map((tab) => tab.id);
   const { displayed, setTabNode, finishMotion } = useTabCloseMotion(tabs);
   const externalTabDrop = useMemo<ReorderExternalDrop<string> | undefined>(
@@ -777,7 +785,6 @@ function TitleBarComponent({
           kind: "item",
           id: "close",
           label: uiT("Close Tab"),
-          shortcut: `${MOD}W`,
           disabled: !titleTabClosable(contextTab, tabs.length),
         },
         { kind: "sep" },
@@ -873,8 +880,9 @@ function TitleBarComponent({
       railClosed &&
       Boolean(onOpenInbox || onOpenNotes || onOpenSettings)) ||
     (railClosed && !projectless);
+  const showWindowControls = !IS_MAC && !chromeInMenuBar;
   const trailingControls =
-    showTrailingActions || !IS_MAC ? (
+    showTrailingActions || showWindowControls ? (
       <div className="flex h-full shrink-0 items-stretch">
         {showTrailingActions ? (
           <div className="flex items-center gap-0.5 px-2">
@@ -890,33 +898,23 @@ function TitleBarComponent({
             ) : null}
             {railClosed && !projectless ? (
               <>
-                <IconButton
-                  label={uiT("Go to File ({value0}P)", { value0: String(MOD) })}
-                  onClick={onGoToFile}
+                <IconButton label={goToFileLabel} onClick={onGoToFile}
                 >
                   <Search className="size-3.5" strokeWidth={1.75} />
                 </IconButton>
-                <IconButton
-                  label={uiT("New session ({value0}T)", {
-                    value0: String(MOD),
-                  })}
-                  onClick={onNew}
-                >
+                <IconButton label={newSessionLabel} onClick={onNew}>
                   <Plus className="size-3.5" strokeWidth={1.75} />
                 </IconButton>
               </>
             ) : null}
             {!projectRailOpen && !showCurrentProject && onOpenSettings ? (
-              <IconButton
-                label={uiT("Settings ({value0},)", { value0: String(MOD) })}
-                onClick={onOpenSettings}
-              >
+              <IconButton label={settingsLabel} onClick={onOpenSettings}>
                 <Settings className="size-3.5" strokeWidth={1.75} />
               </IconButton>
             ) : null}
           </div>
         ) : null}
-        {!IS_MAC ? <WindowControls /> : null}
+        {showWindowControls ? <WindowControls /> : null}
       </div>
     ) : null;
 
@@ -930,7 +928,7 @@ function TitleBarComponent({
       }`}
       data-tauri-drag-region="deep"
     >
-      {compactRail ? (
+      {compactRail && !chromeInMenuBar ? (
         <div
           data-compact-title-nav
           className="flex shrink-0 items-center"
@@ -938,21 +936,11 @@ function TitleBarComponent({
           <WindowNavigationSpace />
         </div>
       ) : null}
-      {railClosed && (projectless || !sessionSidebarOpen) && !compactRail ? (
+      {!chromeInMenuBar &&
+      railClosed &&
+      (projectless || !sessionSidebarOpen) &&
+      !compactRail ? (
         <WindowNavigationSpace />
-      ) : null}
-      {!sessionSidebarOpen && !projectless && onToggleSessionSidebar ? (
-        <div className="flex shrink-0 items-center px-1.5">
-          <IconButton
-            label={uiT("Toggle Session Sidebar ({value0}{value1}B)", {
-              value0: String(MOD),
-              value1: String(SHIFT),
-            })}
-            onClick={onToggleSessionSidebar}
-          >
-            <DashboardSquare className="size-3.5" strokeWidth={1.75} />
-          </IconButton>
-        </div>
       ) : null}
       {showProjectButton && onSelectProject ? (
         <CwdPicker

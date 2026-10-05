@@ -1,73 +1,65 @@
 import { useTranslation } from "../../shared/i18n/useTranslation";
-import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ExplorerMenu,
-  type ExplorerMenuItem,
-} from "../../features/files/ui/ExplorerMenu";
-import { ALT, MOD, SHIFT } from "../../platform/tauri/platform";
-import { runUpdateFlow } from "../model/updater";
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { ExplorerMenu } from "../../features/files/ui/ExplorerMenu";
 import {
-  keybindingShortcutLabel,
   loadAutosave,
   loadKeybindingOverrides,
-  saveAutosave,
+  loadMenuBarVisible,
   subscribeAutosave,
   subscribeKeybindings,
+  subscribeMenuBarVisible,
 } from "../../features/settings/model/settings";
-
-type MenuKey = "file" | "view" | "terminal";
+import {
+  MENUS,
+  menuItems,
+  type CommandHandlers,
+  type MenuId,
+} from "../commands/registry";
+import type { CommandDispatch } from "../commands/useCommandDispatcher";
+import { TabVisitNav, WINDOW_NAVIGATION_END } from "./TitleBar";
+import { WindowControls } from "./WindowControls";
 
 type Props = {
-  onNew: () => void;
-  onNewTerminal?: () => void;
-  onToggleTerminal?: () => void;
-  onGoToFile?: () => void;
-  onToggleSidebar: () => void;
-  onToggleSessionSidebar: () => void;
-  onShowSourceControl?: () => void;
-  onCloseCurrentTab?: () => void;
-  onCloseOtherTabs?: () => void;
-  onCloseAllTabs?: () => void;
-  onPickProject?: () => void;
-  onFindInProject?: () => void;
-  onSearch?: () => void;
-  onOpenInbox?: () => void;
-  onOpenNotes?: () => void;
-  onZoomIn?: () => void;
-  onZoomOut?: () => void;
-  onZoomReset?: () => void;
+  handlers: CommandHandlers;
+  dispatch: CommandDispatch;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  sidebarOpen?: boolean;
 };
 
+export const MENU_BAR_HEIGHT = 36;
+
+/**
+ * The Windows/Linux in-window menu bar. It stays visible by default; with the
+ * menu bar turned off, tapping Alt alone reveals it over the title bar.
+ */
 export function MenuBar({
-  onNew,
-  onNewTerminal,
-  onToggleTerminal,
-  onGoToFile,
-  onToggleSidebar,
-  onToggleSessionSidebar,
-  onShowSourceControl,
-  onCloseCurrentTab,
-  onCloseOtherTabs,
-  onCloseAllTabs,
-  onPickProject,
-  onFindInProject,
-  onSearch,
-  onOpenInbox,
-  onOpenNotes,
-  onZoomIn,
-  onZoomOut,
-  onZoomReset,
+  handlers,
+  dispatch,
+  canGoBack = false,
+  canGoForward = false,
+  sidebarOpen = false,
 }: Props) {
   const { t: uiT } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const [activeMenu, setActiveMenu] = useState<MenuKey | null>(null);
+  const visible = useSyncExternalStore(
+    subscribeMenuBarVisible,
+    loadMenuBarVisible,
+  );
+  const autosave = useSyncExternalStore(subscribeAutosave, loadAutosave);
+  const [revealed, setRevealed] = useState(false);
+  const [activeMenu, setActiveMenu] = useState<MenuId | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(
     null,
   );
   const [, refreshShortcuts] = useState(loadKeybindingOverrides);
-  const [autosave, setAutosave] = useState(loadAutosave);
-  const barRef = useRef<HTMLDivElement>(null);
+  const buttons = useRef(new Map<MenuId, HTMLButtonElement>());
+  const bar = useRef<HTMLDivElement>(null);
 
   useEffect(
     () =>
@@ -75,53 +67,15 @@ export function MenuBar({
     [],
   );
 
-  useEffect(() => subscribeAutosave(() => setAutosave(loadAutosave())), []);
+  const shown = visible || revealed || activeMenu !== null;
+  const available = MENUS.filter(
+    (menu) => menuItems(menu.id, { handlers, translate: uiT }).length > 0,
+  );
 
-  const shortcut = (command: string, keys: string) =>
-    keybindingShortcutLabel(command, keys) ?? undefined;
-
-  // Toggle with standalone Alt key tap
-  useEffect(() => {
-    let altPressedAlone = false;
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Alt") {
-        altPressedAlone = true;
-      } else if (altPressedAlone) {
-        altPressedAlone = false;
-      }
-    };
-
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === "Alt" && altPressedAlone) {
-        setOpen((prev) => {
-          if (prev) {
-            setActiveMenu(null);
-            setMenuAnchor(null);
-            return false;
-          }
-          return true;
-        });
-        altPressedAlone = false;
-      }
-    };
-
-    const onBlur = () => {
-      altPressedAlone = false;
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, []);
-
-  const openDropdown = useCallback((key: MenuKey, target: HTMLElement) => {
-    const rect = target.getBoundingClientRect();
+  const openMenu = useCallback((key: MenuId) => {
+    const button = buttons.current.get(key);
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
     setActiveMenu(key);
     setMenuAnchor({ x: rect.left, y: rect.bottom + 2 });
   }, []);
@@ -131,292 +85,153 @@ export function MenuBar({
     setMenuAnchor(null);
   }, []);
 
-  const handlePick = useCallback(
-    (id: string) => {
-      closeMenu();
-      setOpen(false);
-
-      switch (id) {
-        case "new_tab":
-          onNew();
-          break;
-        case "new_terminal":
-          onNewTerminal?.();
-          break;
-        case "toggle_terminal":
-          onToggleTerminal?.();
-          break;
-        case "new_window":
-          void invoke("open_new_window").catch(() => {});
-          break;
-        case "open_project":
-          onPickProject?.();
-          break;
-        case "open_search":
-          onSearch?.();
-          break;
-        case "open_inbox":
-          onOpenInbox?.();
-          break;
-        case "open_notes":
-          onOpenNotes?.();
-          break;
-        case "go_to_file":
-          onGoToFile?.();
-          break;
-        case "find_in_project":
-          onFindInProject?.();
-          break;
-        case "close_tab":
-          onCloseCurrentTab?.();
-          break;
-        case "close_other_tabs":
-          onCloseOtherTabs?.();
-          break;
-        case "close_all_tabs":
-          onCloseAllTabs?.();
-          break;
-        case "toggle_autosave": {
-          const next = saveAutosave(!loadAutosave());
-          setAutosave(next);
-          break;
-        }
-        case "toggle_sidebar":
-          onToggleSidebar();
-          break;
-        case "toggle_session_sidebar":
-          onToggleSessionSidebar();
-          break;
-        case "open_model_picker":
-          window.dispatchEvent(new Event("open_model_picker"));
-          break;
-        case "toggle_diff":
-          onShowSourceControl?.();
-          break;
-        case "check_for_updates":
-          void runUpdateFlow(true);
-          break;
-        case "zoom_in":
-          onZoomIn?.();
-          break;
-        case "zoom_out":
-          onZoomOut?.();
-          break;
-        case "zoom_reset":
-          onZoomReset?.();
-          break;
+  // Alt tapped alone: open File when the bar is pinned, else reveal the bar.
+  const activeRef = useRef(activeMenu);
+  activeRef.current = activeMenu;
+  useEffect(() => {
+    let altPressedAlone = false;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Alt") altPressedAlone = false;
+      else if (!e.repeat) altPressedAlone = true;
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== "Alt" || !altPressedAlone) return;
+      altPressedAlone = false;
+      if (activeRef.current) {
+        closeMenu();
+        setRevealed(false);
+      } else if (loadMenuBarVisible()) {
+        openMenu("file");
+      } else {
+        setRevealed((prev) => !prev);
       }
-    },
-    [
-      closeMenu,
-      autosave,
-      onCloseCurrentTab,
-      onCloseOtherTabs,
-      onCloseAllTabs,
-      onFindInProject,
-      onGoToFile,
-      onNew,
-      onNewTerminal,
-      onToggleTerminal,
-      onPickProject,
-      onSearch,
-      onOpenInbox,
-      onOpenNotes,
-      onShowSourceControl,
-      onToggleSidebar,
-      onToggleSessionSidebar,
-      onZoomIn,
-      onZoomOut,
-      onZoomReset,
-    ],
-  );
+    };
+    const onBlur = () => {
+      altPressedAlone = false;
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [closeMenu, openMenu]);
 
-  const getMenuItems = (key: MenuKey): ExplorerMenuItem[] => {
-    switch (key) {
-      case "file":
-        return [
-          {
-            kind: "item",
-            id: "new_tab",
-            label: uiT("New Tab"),
-            shortcut: shortcut("Tab: New", `${MOD}T`),
-          },
-          {
-            kind: "item",
-            id: "new_terminal",
-            label: uiT("New Terminal"),
-            shortcut: shortcut("Terminal: New", `${MOD}\``),
-          },
-          {
-            kind: "item",
-            id: "new_window",
-            label: uiT("New Window"),
-            shortcut: shortcut("App: New Window", `${MOD}${SHIFT}N`),
-          },
-          { kind: "sep" },
-          {
-            kind: "item",
-            id: "toggle_autosave",
-            label: uiT("Autosave"),
-            checked: autosave,
-          },
-          { kind: "sep" },
-          {
-            kind: "item",
-            id: "open_project",
-            label: uiT("Open Project…"),
-            shortcut: shortcut("App: Open Project", `${MOD}O`),
-          },
-          {
-            kind: "item",
-            id: "open_search",
-            label: uiT("Search…"),
-            shortcut: shortcut("App: Search", `${MOD}K`),
-          },
-          {
-            kind: "item",
-            id: "go_to_file",
-            label: uiT("Go to File…"),
-            shortcut: shortcut("App: Go to File", `${MOD}P`),
-          },
-          {
-            kind: "item",
-            id: "find_in_project",
-            label: uiT("Find in Files…"),
-            shortcut: shortcut("App: Find in Files", `${MOD}${SHIFT}F`),
-          },
-          { kind: "sep" },
-          {
-            kind: "item",
-            id: "close_tab",
-            label: uiT("Close Pane"),
-            shortcut: shortcut("Pane: Close", `${MOD}W`),
-          },
-          {
-            kind: "item",
-            id: "close_other_tabs",
-            label: uiT("Close Other Tabs"),
-            shortcut: shortcut("Tab: Close Others", `${MOD}${ALT}T`),
-          },
-          {
-            kind: "item",
-            id: "close_all_tabs",
-            label: uiT("Close All Tabs"),
-            shortcut: shortcut("Tab: Close All", `${MOD}${SHIFT}W`),
-          },
-          { kind: "sep" },
-          {
-            kind: "item",
-            id: "check_for_updates",
-            label: uiT("Check for Updates…"),
-          },
-        ];
-      case "view":
-        return [
-          {
-            kind: "item",
-            id: "toggle_sidebar",
-            label: uiT("Toggle Sidebar"),
-            shortcut: shortcut("App: Toggle Sidebar", `${MOD}B`),
-          },
-          {
-            kind: "item",
-            id: "toggle_session_sidebar",
-            label: uiT("Toggle Session Sidebar"),
-            shortcut: shortcut(
-              "App: Toggle Session Sidebar",
-              `${MOD}${SHIFT}B`,
-            ),
-          },
-          { kind: "item", id: "open_inbox", label: uiT("Inbox") },
-          ...(onOpenNotes
-            ? [{ kind: "item" as const, id: "open_notes", label: uiT("Notes") }]
-            : []),
-          {
-            kind: "item",
-            id: "toggle_terminal",
-            label: uiT("Toggle Terminal"),
-            shortcut: shortcut("Terminal: Toggle Dock", `${MOD}J`),
-          },
-          {
-            kind: "item",
-            id: "open_model_picker",
-            label: uiT("Switch Model…"),
-            shortcut: shortcut("App: Switch Model", `${MOD}.`),
-          },
-          { kind: "item", id: "toggle_diff", label: uiT("Toggle Changes") },
-          { kind: "sep" },
-          {
-            kind: "item",
-            id: "zoom_in",
-            label: uiT("Zoom In"),
-            shortcut: shortcut("View: Zoom In", `${MOD}+`),
-          },
-          {
-            kind: "item",
-            id: "zoom_out",
-            label: uiT("Zoom Out"),
-            shortcut: shortcut("View: Zoom Out", `${MOD}-`),
-          },
-          {
-            kind: "item",
-            id: "zoom_reset",
-            label: uiT("Reset Zoom"),
-            shortcut: shortcut("View: Reset Zoom", `${MOD}0`),
-          },
-        ];
-      case "terminal":
-        return [
-          {
-            kind: "item",
-            id: "new_terminal",
-            label: uiT("New Terminal"),
-            shortcut: shortcut("Terminal: New", `${MOD}\``),
-          },
-          {
-            kind: "item",
-            id: "toggle_terminal",
-            label: uiT("Toggle Terminal"),
-            shortcut: shortcut("Terminal: Toggle Dock", `${MOD}J`),
-          },
-        ];
-    }
+  // Before a dropdown opens, the temporary row owns its own dismissal.
+  useEffect(() => {
+    if (visible || !revealed || activeMenu) return;
+    const dismiss = () => setRevealed(false);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      dismiss();
+    };
+    const onOutside = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !bar.current?.contains(event.target)
+      ) {
+        dismiss();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onOutside);
+    window.addEventListener("blur", dismiss);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onOutside);
+      window.removeEventListener("blur", dismiss);
+    };
+  }, [visible, revealed, activeMenu]);
+
+  // Left/Right move between open menus; the menu itself ignores them.
+  useEffect(() => {
+    if (!activeMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (e.defaultPrevented && e.key === "ArrowLeft") return;
+      const ids = available.map((menu) => menu.id);
+      const index = ids.indexOf(activeMenu);
+      if (index < 0) return;
+      const step = e.key === "ArrowRight" ? 1 : -1;
+      openMenu(ids[(index + step + ids.length) % ids.length]);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeMenu, available, openMenu]);
+
+  if (!shown) return null;
+
+  const onPick = (id: string) => {
+    closeMenu();
+    setRevealed(false);
+    // Let the menu hand focus back before the command moves it again.
+    requestAnimationFrame(() => void dispatch(id));
   };
 
-  if (!open && !activeMenu) {
-    return null;
-  }
-
-  const MENUS: { key: MenuKey; label: string }[] = [
-    { key: "file", label: uiT("File") },
-    { key: "view", label: uiT("View") },
-    { key: "terminal", label: uiT("Terminal") },
-  ];
+  const checked = (id: string) =>
+    id === "File: Autosave"
+      ? autosave
+      : id === "View: Toggle Menu Bar"
+        ? visible
+        : false;
 
   return (
     <div
-      ref={barRef}
-      className="flex h-7 shrink-0 items-center gap-0.5 border-b border-stroke bg-content/5 px-2 text-[12px]"
-      data-tauri-drag-region="false"
+      ref={bar}
+      data-menu-bar
+      data-tauri-drag-region="deep"
+      className={`flex shrink-0 select-none items-center gap-0.5 border-b border-stroke text-[12px] ${
+        visible ? "relative pl-2" : "sidebar-glass absolute z-30 px-2"
+      }`}
+      style={{
+        height: MENU_BAR_HEIGHT,
+        // Alt-reveal leaves the title-row navigation and window buttons usable.
+        ...(!visible
+          ? {
+              left: WINDOW_NAVIGATION_END,
+              right: 120,
+              top: (40 - MENU_BAR_HEIGHT) / 2,
+            }
+          : {}),
+      }}
     >
-      {MENUS.map(({ key, label }) => {
-        const isActive = activeMenu === key;
+      {visible ? (
+        <nav
+          aria-label={uiT("Window navigation")}
+          data-window-navigation
+          data-tauri-drag-region="false"
+          className="mr-2 flex shrink-0 items-center"
+        >
+          <TabVisitNav
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
+            onGoBack={() => onPick("Tab: Back")}
+            onGoForward={() => onPick("Tab: Forward")}
+            onTogglePanel={() => onPick("App: Toggle Sidebar")}
+            panelActive={sidebarOpen}
+          />
+        </nav>
+      ) : null}
+      {available.map(({ id, label }) => {
+        const isActive = activeMenu === id;
         return (
           <button
-            key={key}
+            key={id}
+            ref={(node) => {
+              if (node) buttons.current.set(id, node);
+              else buttons.current.delete(id);
+            }}
             type="button"
             data-tauri-drag-region="false"
-            onClick={(e) => {
-              if (isActive) {
-                closeMenu();
-              } else {
-                openDropdown(key, e.currentTarget);
-              }
-            }}
-            onMouseEnter={(e) => {
-              if (activeMenu && activeMenu !== key) {
-                openDropdown(key, e.currentTarget);
-              }
+            aria-haspopup="menu"
+            aria-expanded={isActive}
+            onClick={() => (isActive ? closeMenu() : openMenu(id))}
+            onMouseEnter={() => {
+              if (activeMenu && activeMenu !== id) openMenu(id);
             }}
             className={`rounded px-2 py-0.5 transition-colors ${
               isActive
@@ -424,19 +239,36 @@ export function MenuBar({
                 : "text-content/70 hover:bg-content/10 hover:text-content"
             }`}
           >
-            {label}
+            {uiT(label)}
           </button>
         );
       })}
 
+      {visible ? (
+        <>
+          <div className="min-w-0 flex-1" />
+          <WindowControls />
+        </>
+      ) : null}
+
       {activeMenu && menuAnchor ? (
         <ExplorerMenu
+          key={activeMenu}
           x={menuAnchor.x}
           y={menuAnchor.y}
-          items={getMenuItems(activeMenu)}
-          ariaLabel={uiT("{value0} menu", { value0: String(activeMenu) })}
-          onPick={handlePick}
-          onClose={closeMenu}
+          items={menuItems(activeMenu, {
+            handlers,
+            checked,
+            translate: uiT,
+          })}
+          ariaLabel={uiT(
+            MENUS.find((menu) => menu.id === activeMenu)?.label ?? "",
+          )}
+          onPick={onPick}
+          onClose={() => {
+            closeMenu();
+            setRevealed(false);
+          }}
         />
       ) : null}
     </div>

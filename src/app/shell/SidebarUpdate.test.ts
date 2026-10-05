@@ -2,11 +2,8 @@ import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { UpdaterPhase, UpdaterSnapshot } from "../model/updater";
-import {
-  SidebarUpdate,
-  SidebarUpdateFooter,
-  isSidebarUpdateActionable,
-} from "./SidebarUpdate";
+import { SidebarUpdate } from "./SidebarUpdate";
+import { isUpdateActionable } from "./useUpdateStatus";
 
 const updaterMocks = vi.hoisted(() => ({
   installPendingUpdate: vi.fn(),
@@ -50,8 +47,8 @@ function installButtonClick() {
   return onClick;
 }
 
-describe("isSidebarUpdateActionable", () => {
-  it("only claims sidebar space for an update the user can act on", () => {
+describe("isUpdateActionable", () => {
+  it("only claims activity-bar space for an update the user can act on", () => {
     const phases: UpdaterPhase[] = [
       "idle",
       "checking",
@@ -61,7 +58,7 @@ describe("isSidebarUpdateActionable", () => {
       "error",
     ];
     const actionable = phases.filter((phase) =>
-      isSidebarUpdateActionable({ phase, currentVersion: "0.1.37" }),
+      isUpdateActionable({ phase, currentVersion: "0.1.37" }),
     );
     expect(actionable).toEqual(["available", "downloading"]);
   });
@@ -128,31 +125,5 @@ describe("SidebarUpdate", () => {
     });
     await Promise.all([first, second]);
     expect(updaterMocks.installPendingUpdate).toHaveBeenCalledOnce();
-  });
-});
-
-describe("SidebarUpdateFooter", () => {
-  // renderToStaticMarkup never runs effects, so the automatic probe stays in its
-  // initial `idle` phase here — exactly the state that used to render a
-  // permanent "Check for updates" row.
-  it("stays silent while the automatic probe has nothing to offer", () => {
-    expect(renderToStaticMarkup(createElement(SidebarUpdateFooter, {}))).toBe(
-      "",
-    );
-  });
-
-  it("still shows the post-install card without an update row", () => {
-    const markup = renderToStaticMarkup(
-      createElement(SidebarUpdateFooter, {
-        update: { version: "0.1.37" },
-        onOpenWhatsNew: vi.fn(),
-        onDismissUpdate: vi.fn(),
-      }),
-    );
-
-    expect(markup).toContain("Updated to 0.1.37");
-    expect(markup).toContain("What&#x27;s new");
-    expect(markup).not.toContain("Check for updates");
-    expect(markup).not.toContain("Update to");
   });
 });

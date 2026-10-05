@@ -18,7 +18,8 @@ are not prerequisites for local work.
 ## Spec Kit
 
 The active feature is recorded in `.specify/feature.json` and lives in
-`specs/004-native-session-titles/`. Read spec.md, plan.md, contracts and tasks.md together.
+`specs/017-desktop-shell-overhaul/`. Read spec.md, plan.md, contracts and tasks.md together.
+The native session titles record remains in `specs/004-native-session-titles/`.
 The completed native session synchronization record remains in
 `specs/002-native-session-sync/`.
 The completed Pi upgrade record remains in `specs/001-pi-1-0-1-upgrade/`.

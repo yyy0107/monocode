@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { setUiLanguage } from "../../../shared/i18n/language";
 import {
+  newAppViewWorkspaceTab,
   newChangesTab,
   newCommitTab,
   newFileTab,
@@ -15,6 +17,27 @@ import {
 } from "./SurfaceTabs";
 
 describe("surfaceTabPresentation", () => {
+  it("localizes app titles and tooltips at display time", () => {
+    const file = newAppViewWorkspaceTab("settings").editorPanes[0].files[0];
+    try {
+      setUiLanguage("zh-CN");
+      expect(surfaceTabPresentation(file)).toMatchObject({
+        name: "设置", label: "设置", tooltip: "设置",
+      });
+    } finally {
+      setUiLanguage("en");
+    }
+  });
+
+  it("uses app view names and offers only tab actions", () => {
+    const file = newAppViewWorkspaceTab("settings").editorPanes[0].files[0];
+    expect(surfaceTabPresentation(file)).toMatchObject({
+      name: "Settings", label: "Settings", tooltip: "Settings",
+    });
+    expect(surfaceTabMenuItems(file).map((item) => item.kind === "item" ? item.id : ""))
+      .toEqual(["close", "close-others"]);
+  });
+
   it("labels release notes from their version", () => {
     const file = newReleaseNotesWorkspaceTab({ version: "0.1.23" })
       .editorPanes[0]?.files[0];

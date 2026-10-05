@@ -1,5 +1,6 @@
 import { useTranslation } from "../i18n/useTranslation";
 import { NativePopupHost } from "./NativePopupHost";
+import { useSurfaceVisibility } from "./SurfaceVisibility";
 import { X } from "./icons";
 import { useContext, useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -44,6 +45,7 @@ export function ModalPanel({
   children,
 }: Props) {
   const { t: uiT } = useTranslation();
+  const visible = useSurfaceVisibility();
   const popupHost = useContext(NativePopupHost);
   const closeRef = useRef<HTMLButtonElement>(null);
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
@@ -52,10 +54,11 @@ export function ModalPanel({
   const descriptionId = description ? `${uid}-desc` : undefined;
 
   useEffect(() => {
-    if (!minimalHeader) closeRef.current?.focus();
-  }, [minimalHeader]);
+    if (visible && !minimalHeader) closeRef.current?.focus();
+  }, [visible, minimalHeader]);
 
   useEffect(() => {
+    if (!visible) return;
     const onKey = (event: KeyboardEvent) => {
       if (
         event.key !== "Escape" ||
@@ -70,7 +73,9 @@ export function ModalPanel({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  }, [visible, onClose]);
+
+  if (!visible) return null;
 
   return (
     <div
@@ -139,6 +144,8 @@ export function ModalPanel({
 
 export function Modal(props: Props) {
   const host = useContext(NativePopupHost);
+  const visible = useSurfaceVisibility();
+  if (!visible) return null;
   if (host) return createPortal(<ModalPanel {...props} />, host);
   return createPortal(
     <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>
