@@ -2174,5 +2174,7 @@
   "Conversation request is no longer current.": "对话加载请求已失效。",
   "Host returned a different conversation.": "Host 返回了另一段对话。",
   "Window navigation": "窗口导航",
-  "Window controls": "窗口控制"
+  "Window controls": "窗口控制",
+  "Nothing to attach from that drop — the file may have been moved, renamed, or deleted.": "此次拖放没有可添加的附件，文件可能已被移动、重命名或删除。",
+  "This drag did not provide a file. Save the image, then drag the saved file here.": "此次拖放未提供文件。请先保存图片，再将保存的文件拖到这里。"
 }
