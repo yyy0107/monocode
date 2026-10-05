@@ -43,6 +43,92 @@ Validation: affected vitest files during development; `npm run check:web` and
 `npm run build` per phase; `npm run test:host` at the end. Manual checks on
 Linux zh-CN via `npm run tauri dev`. macOS/Windows remain unverified.
 
+## Phase 5 — multi-project tree (2026-10-05)
+
+- Keep ActivityBar at 48px with window-wide actions and a project access action;
+  move avatars into ProjectList named rows. Extend ProjectList with controlled
+  expansion/child rendering while retaining pin/group/order/menu storage.
+- Sidebar owns one transition/resizer, the view tabs, query and filters. Extract
+  ProjectSessionSection from its existing session controller; every project
+  keeps its own folders, pagination, rename and menu state. In multi-project
+  Files/Changes, replace the top Projects title with the compact ghost
+  SearchableProjectPicker and its visible current-project label; reuse its
+  avatar, resolved name, search and existing select/open handlers. Place the
+  existing branch/worktree selector in a compact form beside it for an available
+  local Git project, retaining its selection/open behavior. Keep quick-open/search
+  and add aligned at the right. Render the tabs immediately below the header,
+  omitting separate project-picker and worktree-toolbar rows in these modes.
+  Render the active file/search/source-control content through a local
+  renderWorkingCopy() in the remaining `flex-1 min-h-0`
+  viewport, without ProjectList rows or the former 60%/420px cap. Files keeps
+  its internal scroller behind `overflow-hidden`; Changes uses `overflow-y-auto`.
+  Empty/`~` cwd retains the picker with the existing localized Choose project
+  hint. Callers with recents undefined retain their current header, worktree
+  toolbar, ProjectList and bounded working-copy behavior, without a project
+  picker. Sessions reuses the header picker with an opt-in All projects choice
+  and window-local scope state, separate from cwd. Scope the project tree and
+  lazy/search loaders to that selection; choosing a concrete project also calls
+  the existing activation handler and expands it. Reveal its group temporarily
+  without persisting group collapse changes. Retain the scope across sidebar
+  tabs and fall back to All projects when the project disappears. Keep the
+  compact worktree control in the header only when the scope matches the active
+  local project. Use single-line 32px session rows matching project row
+  width, with focus-accessible
+  metadata; use consistent 3px row/session-group gaps and 8px project-group
+  separation. Source-control controls and the change list remain reachable by
+  scrolling in short windows.
+- App retains its multi-project history array but loads/error/dedup/generation
+  state becomes project-keyed. Refresh actions target the edited session's cwd.
+  Reuse listSessionsByProject and existing remote summaries without new protocol
+  fields. Add explicit per-project creation, project-scoped remote identity,
+  and active-only session navigation order. Invalidate pending reads on project
+  removal/location changes; scope reminders and completion/link flags by project.
+- Expansion loads only summaries; global search fills missing lists through a
+  four-request queue. Remote polling and one-shot searches share deduped cache
+  reads; cache remains usable offline or collapsed. Search never persists
+  temporary expansion or prunes folders against partial results.
+- Reuse `shared/ui/AnimatedCollapse` for project groups/children and session
+  folders/pins/reminders. Keep the existing fold CSS, cancel stale timers on
+  reversal, hide closing surfaces/portals, and settle reduced motion immediately.
+  AGENTS.md owns this standing UI rule for future disclosure changes.
+- Terminal docks reuse `useCollapseMotion` and the shared motion duration/easing
+  in `animated-collapse-size`. Keep dock grid areas/tracks stable at zero size
+  when closed, disable grid transitions for imperative drag painting, finish a
+  resize before hiding, and retain mounted terminal views so PTYs survive.
+- Keep the recent-project wire format but remove its 20-item truncation. Store
+  expansion under normalized project keys and rebase/clear with project paths.
+  Mobile continues to consume Host projects.list/HostProject[]; its protocol and
+  layout are unchanged. Inspect shared desktop project pickers for schema
+  compatibility and test retention by re-reading stored recents.
+- Validate affected UI/data/navigation regressions, complete web/Host/build
+  checks sequentially, and record actual browser/native QA independently.
+
+## Hover summary follow-up (2026-10-05)
+
+- Add shared HoverSummary intent/focus handling and a 320px Popover surface
+  with 12px padding and wrapping metadata rows. Retain existing Popover
+  placement and SurfaceVisibility handling. Open and close immediately on
+  hover/focus departure, retaining pointer or focus within the row/card.
+  Disable the entrance animation only for these cards; overlap the row edge
+  by 1px and include the whole Popover frame and trigger region in pointer
+  retention. Dismiss on drag/scroll/menu/hidden surfaces and restore
+  project-row focus on Escape.
+- Replace dense session metadata strings with a full-title/status header and
+  optional model, branch, worktree path and update rows. Keep session prefetch
+  independent and the existing subagent tooltip's priority.
+- ProjectList accepts optional projectSummaries/onProjectHoverOpen; its
+  interactive card reuses pin storage and useProjectMenu with the original row
+  as the return-focus target. Existing callers without counts show identity
+  and actions. Stop React portal event propagation to row actions.
+- App supplies actual openSessionIds(tabs) independently of retained live
+  openSessions. Sidebar calculates full unfiltered project counts and performs
+  deduped lazy reads on hover. Reuse Host caches and project-scoped
+  shell-to-Host IDs; distinguish unknown/empty/error/cached data without new
+  protocols or persistence. Add English-key Chinese summary labels.
+- Verify intent/focus/actions/counts/loading/remote isolation in affected
+  tests; check real browser layout in both themes/languages, narrow sidebars
+  and viewport edges. Complete check:web, test:host and build sequentially.
+
 ## Terminal dock disclosure motion
 
 Extract `useCollapseMotion` from shared AnimatedCollapse and use the shared 340ms

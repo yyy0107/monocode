@@ -54,7 +54,11 @@ type Props = {
   buttonClassName?: string;
   appearance?: "ghost" | "filled";
   compact?: boolean;
+  /** Keep the project name visible when using compact avatar sizing. */
+  showLabel?: boolean;
   onSelectProject: (path: string) => void;
+  /** Enables a session-scope picker; an empty cwd selects all projects. */
+  onSelectAllProjects?: () => void;
   onOpenProject?: () => void;
   /** Opens the project's context menu; the search input receives focus back. */
   onProjectContextMenu?: (
@@ -77,7 +81,9 @@ export function SearchableProjectPicker({
   buttonClassName,
   appearance = "ghost",
   compact = false,
+  showLabel = !compact,
   onSelectProject,
+  onSelectAllProjects,
   onOpenProject,
   onProjectContextMenu,
   projectMenuActive = false,
@@ -103,7 +109,9 @@ export function SearchableProjectPicker({
   const key = projectKey(cwd);
   const label = inProject
     ? resolveTabGroupLabel(key, groupLabels, basename(cwd) || seed)
-    : "Choose project";
+    : onSelectAllProjects
+      ? "All projects"
+      : "Choose project";
   const logoPath = resolveTabGroupLogo(key, groupLogos);
   const color = resolveTabGroupColor(key, groupColors, groupCustomColors, seed);
   const railProjects = projectRailItems(recents, railCwd ?? cwd);
@@ -112,12 +120,17 @@ export function SearchableProjectPicker({
       ? [{ path: cwd, openedAt: 0 }, ...railProjects]
       : railProjects;
   const orderedProjects = [
+    ...(onSelectAllProjects ? [{ path: "", openedAt: 0 }] : []),
     ...projects.filter((item) => sameProjectPath(item.path, cwd)),
     ...projects.filter((item) => !sameProjectPath(item.path, cwd)),
   ];
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredProjects = normalizedQuery
     ? orderedProjects.filter((item) => {
+        if (!item.path)
+          return ["All projects", uiT("All projects")].some((value) =>
+            value.toLocaleLowerCase().includes(normalizedQuery),
+          );
         const itemKey = projectKey(item.path);
         const itemLabel = resolveTabGroupLabel(
           itemKey,
@@ -153,6 +166,10 @@ export function SearchableProjectPicker({
 
   const pickProject = (path: string) => {
     closePicker();
+    if (!path) {
+      onSelectAllProjects?.();
+      return;
+    }
     if (!sameProjectPath(path, cwd)) onSelectProject(path);
   };
 
@@ -171,7 +188,7 @@ export function SearchableProjectPicker({
           : Array.prototype.indexOf.call(rows, target);
       const project = filteredProjects[index];
       const row = rows[index];
-      if (!project || !row) return;
+      if (!project?.path || !row) return;
       event.preventDefault();
       const rect = row.getBoundingClientRect();
       onProjectContextMenu(
@@ -202,7 +219,11 @@ export function SearchableProjectPicker({
     }
   };
 
-  const action = mode === "move" ? "Move note to project" : "Switch project";
+  const action = onSelectAllProjects
+    ? "Filter projects"
+    : mode === "move"
+      ? "Move note to project"
+      : "Switch project";
 
   return (
     <div
@@ -215,12 +236,14 @@ export function SearchableProjectPicker({
         type="button"
         title={inProject ? cwd : undefined}
         aria-label={
-          inProject
+          inProject || onSelectAllProjects
             ? uiT("{value0}, current project {value1}", {
-                value0: String(action),
-                value1: String(label),
+                value0: uiT(action),
+                value1: inProject ? label : uiT(label),
               })
-            : uiT("Choose project for note")
+            : uiT(
+                mode === "move" ? "Choose project for note" : "Choose project",
+              )
         }
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -233,7 +256,9 @@ export function SearchableProjectPicker({
           openPicker();
         }}
         className={`flex min-w-0 items-center rounded-md text-[12px] leading-none ${
-          compact ? "size-8 justify-center p-0" : "h-6.5 gap-1.5 px-2"
+          compact && !showLabel
+            ? "size-8 justify-center p-0"
+            : `${compact ? "h-8" : "h-6.5"} gap-1.5 px-2`
         } ${
           open
             ? "bg-selection text-content"
@@ -257,10 +282,10 @@ export function SearchableProjectPicker({
             active={busy}
           />
         )}
-        {compact ? null : (
+        {!showLabel ? null : (
           <>
             <span className="min-w-0 truncate font-medium text-content/90">
-              {label}
+              {inProject ? label : uiT(label)}
             </span>
             <ChevronDown
               className={`size-3 shrink-0 text-content/45 transition-transform ${
@@ -305,6 +330,23 @@ export function SearchableProjectPicker({
           >
             {filteredProjects.length > 0 ? (
               filteredProjects.map((item, index) => {
+                if (!item.path)
+                  return (
+                    <button
+                      key="all-projects"
+                      type="button"
+                      onMouseEnter={() => setActive(index)}
+                      onClick={() => pickProject("")}
+                      className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] font-medium ${active === index ? "bg-selection text-content" : "text-content/75 hover:bg-content/5 hover:text-content"}`}
+                    >
+                      <span className="grid size-4 shrink-0 place-items-center">
+                        {!inProject ? (
+                          <Check className="size-3.5" strokeWidth={2} />
+                        ) : null}
+                      </span>
+                      <span>{uiT("All projects")}</span>
+                    </button>
+                  );
                 const current = sameProjectPath(item.path, cwd);
                 const itemKey = projectKey(item.path);
                 const itemSeed = projectName(item.path);

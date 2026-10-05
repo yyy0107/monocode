@@ -15,6 +15,10 @@ import {
   saveProjectRailOrder,
   syncProjectRailOrder,
 } from "./recents";
+import {
+  loadProjectTreeExpanded,
+  saveProjectTreeExpanded,
+} from "./projectTree";
 
 function mockLocalStorage() {
   const data = new Map<string, string>();
@@ -128,6 +132,31 @@ describe("projectRailItems", () => {
   });
 });
 
+describe("rememberProject retention", () => {
+  beforeEach(mockLocalStorage);
+
+  it("keeps more than 20 projects across storage reloads using the existing schema", () => {
+    for (let i = 0; i < 25; i++) rememberProject(`/work/project-${i}`);
+    expect(loadRecents()).toHaveLength(25);
+    expect(loadRecents().at(-1)?.path).toBe("/work/project-0");
+    const stored = JSON.parse(localStorage.getItem("monocode.recentProjects")!);
+    expect(stored[0]).toEqual({
+      path: "/work/project-24",
+      openedAt: expect.any(Number),
+    });
+    rememberProject("/work/project-0/");
+    expect(loadRecents()).toHaveLength(25);
+    expect(loadRecents()[0].path).toBe("/work/project-0");
+    replaceProjectPath("/work/project-1", "/work/renamed");
+    archiveProject("/work/project-2");
+    forgetProject("/work/project-3");
+    expect(loadRecents()).toHaveLength(23);
+    expect(loadRecents().some(({ path }) => path === "/work/renamed")).toBe(
+      true,
+    );
+  });
+});
+
 describe("forgetProject", () => {
   beforeEach(() => {
     mockLocalStorage();
@@ -142,6 +171,7 @@ describe("forgetProject", () => {
     rememberProject("/tmp/gone");
     saveProjectRailOrder(["/tmp/keep", "/tmp/gone"]);
     savePinnedProjects(["/tmp/gone"]);
+    saveProjectTreeExpanded(["/tmp/gone", "/tmp/keep"]);
 
     expect(forgetProject("/tmp/gone").map((item) => item.path)).toEqual([
       "/tmp/keep",
@@ -149,6 +179,7 @@ describe("forgetProject", () => {
     expect(loadRecents().map((item) => item.path)).toEqual(["/tmp/keep"]);
     expect(loadProjectRailOrder()).toEqual(["/tmp/keep"]);
     expect(loadPinnedProjects()).toEqual([]);
+    expect([...loadProjectTreeExpanded("/tmp/current")]).toEqual(["/tmp/keep"]);
   });
 
   it("treats differently-cased Windows paths as one project", () => {
@@ -170,6 +201,7 @@ describe("replaceProjectPath", () => {
     rememberProject("/work/monocode");
     saveProjectRailOrder(["/work/other", "/work/monocode"]);
     savePinnedProjects(["/work/monocode"]);
+    saveProjectTreeExpanded(["/work/monocode"]);
 
     expect(
       replaceProjectPath("/work/monocode", "/work/monocode-personal").map(
@@ -181,6 +213,9 @@ describe("replaceProjectPath", () => {
       "/work/monocode-personal",
     ]);
     expect(loadPinnedProjects()).toEqual(["/work/monocode-personal"]);
+    expect([...loadProjectTreeExpanded("/work/other")]).toEqual([
+      "/work/monocode-personal",
+    ]);
   });
 });
 
@@ -197,6 +232,7 @@ describe("archiveProject", () => {
     rememberProject("/tmp/keep");
     rememberProject("/tmp/gone");
     savePinnedProjects(["/tmp/gone"]);
+    saveProjectTreeExpanded(["/tmp/gone"]);
 
     expect(archiveProject("/tmp/gone").map((item) => item.path)).toEqual([
       "/tmp/keep",
@@ -206,6 +242,7 @@ describe("archiveProject", () => {
     ]);
     expect(loadPinnedProjects()).toEqual([]);
     expect(loadRecents().map((item) => item.path)).toEqual(["/tmp/keep"]);
+    expect([...loadProjectTreeExpanded("/tmp/keep")]).toEqual([]);
   });
 
   it("opening a project again restores it from the archive", () => {

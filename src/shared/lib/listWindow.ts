@@ -6,10 +6,8 @@ export function listWindowSize(
   total: number,
   requested: number,
   requiredIndex = -1,
+  minimum = LIST_PAGE_SIZE,
 ): number {
   if (total <= 0) return 0;
-  return Math.min(
-    total,
-    Math.max(LIST_PAGE_SIZE, requested, requiredIndex + 1),
-  );
+  return Math.min(total, Math.max(minimum, requested, requiredIndex + 1));
 }

@@ -36,6 +36,7 @@ export type ActivityBarProps = {
   activeSessionId?: string;
   onSelectProject: (path: string) => void;
   onOpenProject: () => void;
+  onShowProjects?: () => void;
   onRemoveProject?: ComponentProps<typeof ProjectList>["onRemoveProject"];
   onSelectAgent?: (sessionId: string) => void;
   onSearch?: () => void;
@@ -66,6 +67,7 @@ export function ActivityBar({
   activeSessionId,
   onSelectProject,
   onOpenProject,
+  onShowProjects,
   onRemoveProject,
   onSelectAgent,
   onSearch,
@@ -165,15 +167,15 @@ export function ActivityBar({
         />
       </div>
       <div className="my-2 h-px w-7 shrink-0 bg-stroke" />
-      <ProjectList {...listProps} compact />
+      <div className="min-h-0 flex-1" />
       <div className="flex shrink-0 flex-col gap-1.5 pt-1.5">
         <ActivityAction
           ref={projectsAnchor}
           label={t("All projects")}
           icon={Folder}
           active={popup === "projects"}
-          expanded={popup === "projects"}
-          onClick={() => togglePopup("projects")}
+          expanded={onShowProjects ? undefined : popup === "projects"}
+          onClick={onShowProjects ?? (() => togglePopup("projects"))}
         />
         {liveAgents.length > 0 ? (
           <ActivityAction

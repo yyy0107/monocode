@@ -410,6 +410,7 @@ export function useProjectMenu({
       <TabGroupMenu
         x={projectMenu.x}
         y={projectMenu.y}
+        ariaLabel={uiT("Project options")}
         groupId={key}
         label={resolveTabGroupLabel(
           key,

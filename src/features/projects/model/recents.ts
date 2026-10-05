@@ -1,5 +1,9 @@
 import { pathKey, prettyCwd, slash } from "../../../shared/lib/paths";
 import { REMOTE_PATH_PREFIX } from "../../../shared/lib/remotePaths";
+import {
+  clearProjectTreeExpanded,
+  rebaseProjectTreeExpanded,
+} from "./projectTree";
 
 const KEY = "monocode.recentProjects";
 const RAIL_ORDER_KEY = "monocode.projectRailOrder";
@@ -7,7 +11,6 @@ const RAIL_PINNED_KEY = "monocode.projectRailPinned";
 const ARCHIVED_KEY = "monocode.archivedProjects";
 const ARCHIVED_CHANGED = "monocode:archived-projects-changed";
 const PROJECT_PATHS_CHANGED = "monocode:project-paths-changed";
-const MAX = 20;
 
 export type RecentProject = {
   path: string;
@@ -66,11 +69,10 @@ export function rememberProject(path: string): RecentProject[] {
   const normalized = normalize(path);
   if (normalized === "~") return loadRecents();
   dropArchived(normalized);
-  const prev = loadRecents().filter((p) => !sameProjectPath(p.path, normalized));
-  const next = [{ path: normalized, openedAt: Date.now() }, ...prev].slice(
-    0,
-    MAX,
+  const prev = loadRecents().filter(
+    (p) => !sameProjectPath(p.path, normalized),
   );
+  const next = [{ path: normalized, openedAt: Date.now() }, ...prev];
   save(next);
   return next;
 }
@@ -104,6 +106,7 @@ export function replaceProjectPath(from: string, to: string): RecentProject[] {
     recents.push({ ...item, path });
   }
   save(recents);
+  rebaseProjectTreeExpanded(previous, nextPath);
   saveProjectRailOrder(replacePath(loadProjectRailOrder(), previous, nextPath));
   savePinnedProjects(replacePath(loadPinnedProjects(), previous, nextPath));
 
@@ -140,10 +143,15 @@ export function subscribeProjectPathsChanged(onChange: () => void): () => void {
 /** Drops a project from the rail: its recent entry, saved order slot, and pin. */
 function dropFromRail(path: string): RecentProject[] {
   const normalized = normalize(path);
-  const next = loadRecents().filter((item) => !sameProjectPath(item.path, normalized));
+  clearProjectTreeExpanded(normalized);
+  const next = loadRecents().filter(
+    (item) => !sameProjectPath(item.path, normalized),
+  );
   save(next);
   saveProjectRailOrder(
-    loadProjectRailOrder().filter((entry) => !sameProjectPath(entry, normalized)),
+    loadProjectRailOrder().filter(
+      (entry) => !sameProjectPath(entry, normalized),
+    ),
   );
   savePinnedProjects(
     loadPinnedProjects().filter((entry) => !sameProjectPath(entry, normalized)),

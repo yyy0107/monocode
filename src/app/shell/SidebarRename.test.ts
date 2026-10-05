@@ -749,6 +749,10 @@ describe("sidebar pinned sessions", () => {
 
     act(() => toggle.click());
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    const fold = group.querySelector<HTMLElement>(".zen-fold-item")!;
+    expect(fold.dataset.foldState).toBe("closing");
+    expect(fold.inert).toBe(true);
+    act(() => fold.dispatchEvent(new Event("animationend", { bubbles: true })));
     expect(group.querySelector('[data-session-card="session-1"]')).toBeNull();
     expect(
       JSON.parse(

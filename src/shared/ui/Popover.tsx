@@ -36,6 +36,11 @@ export type PopoverAnchor =
 export type PopoverDismissReason = "outside" | "escape";
 
 type Props = Omit<ComponentPropsWithoutRef<"div">, "style"> & {
+  /** Hover surfaces can include the glass frame in their pointer boundary. */
+  frameProps?: Pick<
+    ComponentPropsWithoutRef<"div">,
+    "onPointerEnter" | "onPointerLeave"
+  > & { ref?: Ref<HTMLDivElement> };
   anchor: PopoverAnchor;
   side?: PopoverSide;
   align?: PopoverAlign;
@@ -141,6 +146,7 @@ export function Popover(props: Props) {
 
 function NativePopover({
   host,
+  frameProps,
   children,
   className,
   maxHeight,
@@ -200,8 +206,11 @@ function NativePopover({
   return createPortal(
     <div
       {...rest}
+      {...frameProps}
       ref={(el) => {
         surface.current = el;
+        if (typeof frameProps?.ref === "function") frameProps.ref(el);
+        else if (frameProps?.ref) frameProps.ref.current = el;
         if (typeof ref === "function") ref(el);
         else if (ref) ref.current = el;
       }}
@@ -216,6 +225,7 @@ function NativePopover({
 
 function WebPopover({
   anchor,
+  frameProps,
   side = "bottom",
   align = "start",
   gap,
@@ -346,7 +356,12 @@ function WebPopover({
 
   return createPortal(
     <div
-      ref={frame}
+      {...frameProps}
+      ref={(el) => {
+        frame.current = el;
+        if (typeof frameProps?.ref === "function") frameProps.ref(el);
+        else if (frameProps?.ref) frameProps.ref.current = el;
+      }}
       data-popover-side={position?.side ?? side}
       style={{ ...placed, zIndex: layer }}
       className={bare ? undefined : FRAME}

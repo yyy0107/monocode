@@ -122,40 +122,38 @@ it("keeps a 48px bar with title-row fallback and routes destinations to workspac
   ).toBe(true);
 });
 
-it("preserves pinned project ordering in avatars and the all-projects pop-out", async () => {
+it("leaves space for the named sidebar and preserves pinned projects in the fallback pop-out", async () => {
   saveProjectRailOrder(["/work/beta", "/work/alpha"]);
   savePinnedProjects(["/work/beta"]);
   await render();
-  const avatars = container.querySelector('[data-project-list="avatars"]')!;
-  const titles = [
-    ...avatars.querySelectorAll<HTMLButtonElement>("button[title]"),
-  ].map((button) => button.title);
-  expect(titles).toEqual(["beta\n/work/beta", "alpha\n/work/alpha"]);
+  expect(container.querySelector('[data-project-list="avatars"]')).toBeNull();
   await act(async () => action("All projects").click());
   const list = document.querySelector('[data-project-list="full"]')!;
   expect(list.textContent).toContain("Pinnedbeta");
   act(() =>
     list
-      .querySelector<HTMLButtonElement>('button[title="beta\n/work/beta"]')!
+      .querySelector<HTMLButtonElement>(
+        'button[data-project-select="/work/beta"]',
+      )!
       .click(),
   );
   expect(props.onSelectProject).toHaveBeenCalledExactlyOnceWith("/work/beta");
   expect(document.querySelector('[data-project-list="full"]')).toBeNull();
 });
 
-it("focuses and filters the project pop-out without altering the avatar list", async () => {
+it("focuses and filters the fallback project pop-out", async () => {
   await render();
   await act(async () => action("All projects").click());
   expect(document.activeElement).toBe(projectInput());
   typeQuery("beta");
   const list = document.querySelector('[data-project-list="full"]')!;
-  expect(list.querySelector('button[title="beta\n/work/beta"]')).not.toBeNull();
-  expect(list.querySelector('button[title="alpha\n/work/alpha"]')).toBeNull();
   expect(
-    container.querySelectorAll(
-      '[data-project-list="avatars"] .project-reorder-item',
-    ),
-  ).toHaveLength(2);
+    list.querySelector('button[data-project-select="/work/beta"]'),
+  ).not.toBeNull();
+  expect(
+    list.querySelector('button[data-project-select="/work/alpha"]'),
+  ).toBeNull();
+  expect(container.querySelector('[data-project-list="avatars"]')).toBeNull();
   act(() =>
     window.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
@@ -254,9 +252,20 @@ it("localizes shell labels and tooltips while preserving project names", async (
   await act(async () => setUiLanguage("zh-CN"));
   expect(container.querySelector('nav[aria-label="活动栏"]')).not.toBeNull();
   expect(action("所有项目")).not.toBeNull();
+  await act(async () => action("所有项目").click());
   expect(
-    container.querySelector('button[title="alpha\n/work/alpha"]'),
+    document.querySelector('button[data-project-select="/work/alpha"]'),
   ).not.toBeNull();
+});
+
+it("opens the named project sidebar when its shell provides that action", async () => {
+  props.onShowProjects = vi.fn();
+  await render();
+  await act(async () => action("All projects").click());
+  expect(props.onShowProjects).toHaveBeenCalledOnce();
+  expect(
+    document.querySelector('[role="dialog"][aria-label="All projects"]'),
+  ).toBeNull();
 });
 
 it("keeps installed update notes accessible from the updates pop-out", async () => {

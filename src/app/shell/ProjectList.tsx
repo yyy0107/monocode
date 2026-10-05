@@ -1,16 +1,36 @@
+import { AnimatedCollapse } from "../../shared/ui/AnimatedCollapse";
+import {
+  HoverSummary,
+  HoverSummaryRow,
+  useHoverSummary,
+} from "../../shared/ui/HoverSummary";
+import type { ProjectHoverSummary } from "../model/projectHoverSummary";
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import {
   BellOff,
   ChevronDown,
   ChevronRight,
   FolderPlus,
+  FolderOpen,
   Internet,
+  MessageSquare,
   MoreHorizontal,
   Pin,
   PinOff,
   Plus,
+  Settings,
 } from "../../shared/ui/icons";
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { useLockOverscroll } from "../../shared/hooks/useLockOverscroll";
 import { useProjectDiffStats } from "../../features/source-control/hooks/useProjectDiffStats";
 import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
@@ -72,7 +92,29 @@ export type ProjectListProps = {
   onOpenProject: () => void;
   onRemoveProject?: (path: string, options: { purgeData: boolean }) => void;
   onOpenNotificationSettings?: (projectPath?: string) => void;
+  expandedPaths?: ReadonlySet<string>;
+  onToggleProject?: (path: string) => void;
+  canExpandProject?: (path: string) => boolean;
+  renderProjectChildren?: (path: string) => ReactNode;
+  onNewInProject?: (path: string) => void;
+  needsApprovalPaths?: Iterable<string>;
+  statsEnabled?: boolean;
+  scrollable?: boolean;
+  scrollRef?: Ref<HTMLDivElement>;
+  matchedProjectPaths?: ReadonlySet<string>;
+  searchActive?: boolean;
+  /** Full project counts, independent of the current sidebar filter/preview. */
+  projectSummaries?: ReadonlyMap<string, ProjectHoverSummary>;
+  onProjectHoverOpen?: (path: string) => void;
 };
+
+const ProjectSummaryContext = createContext<{
+  summaries?: ReadonlyMap<string, ProjectHoverSummary>;
+  onOpen?: (path: string) => void;
+  onPin?: (path: string) => void;
+  restoringPinFocusPath?: { current: string | undefined };
+  disabled: boolean;
+}>({ disabled: false });
 
 export function ProjectList({
   cwd,
@@ -85,9 +127,33 @@ export function ProjectList({
   onOpenProject,
   onRemoveProject,
   onOpenNotificationSettings,
+  expandedPaths,
+  onToggleProject,
+  canExpandProject,
+  renderProjectChildren,
+  onNewInProject,
+  needsApprovalPaths,
+  statsEnabled,
+  scrollable = true,
+  scrollRef: externalScrollRef,
+  matchedProjectPaths,
+  searchActive: searchActiveProp,
+  projectSummaries,
+  onProjectHoverOpen,
 }: ProjectListProps) {
   const { t: uiT } = useTranslation();
-  const searchActive = !active;
+  const searchActive = searchActiveProp ?? !active;
+  const tree =
+    !compact && expandedPaths !== undefined
+      ? {
+          expandedPaths,
+          onToggleProject,
+          canExpandProject,
+          renderProjectChildren,
+          onNewInProject,
+          needsApproval: new Set([...(needsApprovalPaths ?? [])].map(pathKey)),
+        }
+      : undefined;
   const [railOrder, setRailOrder] = useState(loadProjectRailOrder);
   const [pinnedPaths, setPinnedPaths] = useState(loadPinnedProjects);
   const [groupLabels, setGroupLabels] = useState(loadTabGroupLabels);
@@ -126,6 +192,18 @@ export function ProjectList({
   const notificationProjects = useNotificationProjects([...allProjects.keys()]);
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const summaryPinFocus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const path = summaryPinFocus.current;
+    if (!path) return;
+    const target = [
+      ...(scrollRef.current?.querySelectorAll<HTMLButtonElement>(
+        "[data-project-select]",
+      ) ?? []),
+    ].find((button) => button.dataset.projectSelect === pathKey(path));
+    target?.focus({ preventScroll: true });
+    summaryPinFocus.current = undefined;
+  }, [pinnedPaths]);
   const groupLogos = useTabGroupLogos();
   const muteStatuses = new Map<string, string | null>();
   for (const project of notificationProjects.projects) {
@@ -134,6 +212,14 @@ export function ProjectList({
   }
   const sections = useMemo(() => {
     const ordered = projectRailSections(recents, cwd, railOrder, pinnedPaths);
+    if (matchedProjectPaths) {
+      const matches = (project: RecentProject) =>
+        matchedProjectPaths.has(pathKey(project.path));
+      return {
+        pinned: ordered.pinned.filter(matches),
+        projects: ordered.projects.filter(matches),
+      };
+    }
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return ordered;
     const matches = (project: RecentProject) =>
@@ -149,7 +235,15 @@ export function ProjectList({
       pinned: ordered.pinned.filter(matches),
       projects: ordered.projects.filter(matches),
     };
-  }, [cwd, pinnedPaths, railOrder, recents, query, groupLabels]);
+  }, [
+    cwd,
+    pinnedPaths,
+    railOrder,
+    recents,
+    query,
+    groupLabels,
+    matchedProjectPaths,
+  ]);
   const groupedProjectSections = useMemo(() => {
     const byGroup = new Map<string, RecentProject[]>(
       projectGroups.map((group) => [group.id, []]),
@@ -166,12 +260,14 @@ export function ProjectList({
     }
     return {
       ungrouped,
-      grouped: projectGroups.map((group) => ({
-        group,
-        items: byGroup.get(group.id) ?? [],
-      })),
+      grouped: projectGroups
+        .map((group) => ({
+          group,
+          items: byGroup.get(group.id) ?? [],
+        }))
+        .filter(({ items }) => !searchActive || items.length > 0),
     };
-  }, [projectGroupAssignments, projectGroups, sections.projects]);
+  }, [projectGroupAssignments, projectGroups, sections.projects, searchActive]);
   const busy = useMemo(() => {
     const set = new Set<string>();
     for (const path of busyPaths ?? []) set.add(path);
@@ -254,29 +350,131 @@ export function ProjectList({
     "y",
   );
   return (
-    <div
-      aria-label={uiT("Projects")}
-      data-project-list={compact ? "avatars" : "full"}
-      className="flex min-h-0 flex-1 flex-col"
+    <ProjectSummaryContext.Provider
+      value={{
+        summaries: projectSummaries,
+        onOpen: onProjectHoverOpen,
+        onPin: (path) => {
+          summaryPinFocus.current = path;
+          toggleProjectPin(path);
+        },
+        restoringPinFocusPath: summaryPinFocus,
+        disabled: projectMenu.isActive,
+      }}
     >
       <div
-        ref={(el) => {
-          lockOverscroll(el);
-          scrollRef.current = el;
-        }}
-        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-none pb-2"
+        aria-label={uiT("Projects")}
+        data-project-list={tree ? "tree" : compact ? "avatars" : "full"}
+        className={`flex flex-col ${scrollable ? "min-h-0 flex-1" : "shrink-0"}`}
       >
-        {sections.pinned.length > 0 ? (
+        <div
+          ref={(el) => {
+            lockOverscroll(el);
+            scrollRef.current = el;
+            if (typeof externalScrollRef === "function") externalScrollRef(el);
+            else if (externalScrollRef) externalScrollRef.current = el;
+          }}
+          className={`flex flex-col gap-1 pb-2 ${scrollable ? "min-h-0 flex-1 overflow-y-auto overscroll-none" : "shrink-0"}`}
+        >
+          {sections.pinned.length > 0 ? (
+            <ProjectSection
+              compact={compact}
+              label={uiT("Pinned")}
+              items={sections.pinned}
+              muteStatuses={muteStatuses}
+              cwd={cwd}
+              busy={busy}
+              statsEnabled={statsEnabled ?? !compact}
+              tree={tree}
+              sortable={pinnedSortable}
+              pinned
+              searchActive={searchActive}
+              onSelect={onSelectProject}
+              onTogglePin={toggleProjectPin}
+              onContextMenu={onProjectContextMenu}
+              onOpenMenu={projectMenu.open}
+              groupLabels={groupLabels}
+              groupColors={groupColors}
+              groupCustomColors={groupCustomColors}
+              groupLogos={groupLogos}
+              groupMascots={groupMascots}
+            />
+          ) : null}
+
+          {projectGroups.length > 0 ? (
+            <div className={`shrink-0 ${tree ? "mb-1" : "mb-2"}`}>
+              {compact ? null : (
+                <ProjectSectionHeader
+                  label={uiT("Groups")}
+                  onAddGroup={(x, y) => projectMenu.createGroup(x, y)}
+                />
+              )}
+              <div
+                className={
+                  compact
+                    ? "flex flex-col items-center gap-1"
+                    : `flex flex-col px-2 ${tree ? "gap-1" : "gap-px"}`
+                }
+              >
+                {groupedProjectSections.grouped.map(({ group, items }) => (
+                  <ProjectGroupSection
+                    compact={compact}
+                    key={group.id}
+                    group={group}
+                    items={items}
+                    muteStatuses={muteStatuses}
+                    cwd={cwd}
+                    busy={busy}
+                    statsEnabled={statsEnabled ?? !compact}
+                    tree={tree}
+                    searchActive={searchActive}
+                    onSelect={onSelectProject}
+                    onTogglePin={toggleProjectPin}
+                    onContextMenu={onProjectContextMenu}
+                    onOpenMenu={projectMenu.open}
+                    onReorder={onReorderProjects}
+                    onToggleCollapsed={() =>
+                      updateProjectGroup(group.id, (current) => ({
+                        ...current,
+                        collapsed: !current.collapsed,
+                      }))
+                    }
+                    onOpenGroupMenu={(x, y) =>
+                      projectMenu.openGroupMenu(group.id, x, y)
+                    }
+                    groupLabels={groupLabels}
+                    groupColors={groupColors}
+                    groupCustomColors={groupCustomColors}
+                    groupLogos={groupLogos}
+                    groupMascots={groupMascots}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <ProjectSection
             compact={compact}
-            label={uiT("Pinned")}
-            items={sections.pinned}
+            hideHeader={!!tree}
+            label={uiT("Projects")}
+            items={groupedProjectSections.ungrouped}
             muteStatuses={muteStatuses}
+            emptyLabel={
+              sections.projects.length === 0 && projectGroups.length === 0
+                ? uiT(
+                    query.trim() || searchActive
+                      ? "No matching projects"
+                      : "No projects yet",
+                  )
+                : undefined
+            }
+            onAdd={onOpenProject}
             cwd={cwd}
             busy={busy}
-            statsEnabled={!compact}
-            sortable={pinnedSortable}
-            pinned
+            statsEnabled={statsEnabled ?? !compact}
+            tree={tree}
+            sortable={projectSortable}
+            pinned={false}
             searchActive={searchActive}
             onSelect={onSelectProject}
             onTogglePin={toggleProjectPin}
@@ -288,96 +486,26 @@ export function ProjectList({
             groupLogos={groupLogos}
             groupMascots={groupMascots}
           />
-        ) : null}
-
-        {projectGroups.length > 0 ? (
-          <div className="mb-2 shrink-0">
-            {compact ? null : (
-              <ProjectSectionHeader
-                label={uiT("Groups")}
-                onAddGroup={(x, y) => projectMenu.createGroup(x, y)}
-              />
-            )}
-            <div
-              className={
-                compact
-                  ? "flex flex-col items-center gap-1"
-                  : "flex flex-col gap-px px-2"
-              }
-            >
-              {groupedProjectSections.grouped.map(({ group, items }) => (
-                <ProjectGroupSection
-                  compact={compact}
-                  key={group.id}
-                  group={group}
-                  items={items}
-                  muteStatuses={muteStatuses}
-                  cwd={cwd}
-                  busy={busy}
-                  statsEnabled={!compact}
-                  searchActive={searchActive}
-                  onSelect={onSelectProject}
-                  onTogglePin={toggleProjectPin}
-                  onContextMenu={onProjectContextMenu}
-                  onOpenMenu={projectMenu.open}
-                  onReorder={onReorderProjects}
-                  onToggleCollapsed={() =>
-                    updateProjectGroup(group.id, (current) => ({
-                      ...current,
-                      collapsed: !current.collapsed,
-                    }))
-                  }
-                  onOpenGroupMenu={(x, y) =>
-                    projectMenu.openGroupMenu(group.id, x, y)
-                  }
-                  groupLabels={groupLabels}
-                  groupColors={groupColors}
-                  groupCustomColors={groupCustomColors}
-                  groupLogos={groupLogos}
-                  groupMascots={groupMascots}
-                />
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        <ProjectSection
-          compact={compact}
-          label={uiT("Projects")}
-          items={groupedProjectSections.ungrouped}
-          muteStatuses={muteStatuses}
-          emptyLabel={
-            sections.projects.length === 0 && projectGroups.length === 0
-              ? uiT(query.trim() ? "No matching projects" : "No projects yet")
-              : undefined
-          }
-          onAdd={onOpenProject}
-          cwd={cwd}
-          busy={busy}
-          statsEnabled={!compact}
-          sortable={projectSortable}
-          pinned={false}
-          searchActive={searchActive}
-          onSelect={onSelectProject}
-          onTogglePin={toggleProjectPin}
-          onContextMenu={onProjectContextMenu}
-          onOpenMenu={projectMenu.open}
-          groupLabels={groupLabels}
-          groupColors={groupColors}
-          groupCustomColors={groupCustomColors}
-          groupLogos={groupLogos}
-          groupMascots={groupMascots}
-        />
+        </div>
+        {projectMenu.element}
       </div>
-      {projectMenu.element}
-    </div>
+    </ProjectSummaryContext.Provider>
   );
 }
 
 type SortableHandle = ReturnType<typeof useAnimatedReorder>;
+type ProjectTree = {
+  expandedPaths: ReadonlySet<string>;
+  onToggleProject?: (path: string) => void;
+  canExpandProject?: (path: string) => boolean;
+  renderProjectChildren?: (path: string) => ReactNode;
+  onNewInProject?: (path: string) => void;
+  needsApproval: ReadonlySet<string>;
+};
 
 function ProjectSection({
   compact,
+  hideHeader = false,
   label,
   items,
   muteStatuses,
@@ -386,6 +514,7 @@ function ProjectSection({
   cwd,
   busy,
   statsEnabled,
+  tree,
   sortable,
   pinned,
   searchActive,
@@ -400,6 +529,7 @@ function ProjectSection({
   groupMascots,
 }: {
   compact: boolean;
+  hideHeader?: boolean;
   label: string;
   items: RecentProject[];
   muteStatuses: ReadonlyMap<string, string | null>;
@@ -408,13 +538,19 @@ function ProjectSection({
   cwd: string;
   busy: Set<string>;
   statsEnabled: boolean;
+  tree?: ProjectTree;
   sortable: SortableHandle;
   pinned: boolean;
   searchActive: boolean;
   onSelect: (path: string) => void;
   onTogglePin: (path: string) => void;
   onContextMenu: (path: string, event: MouseEvent<HTMLElement>) => void;
-  onOpenMenu: (path: string, x: number, y: number) => void;
+  onOpenMenu: (
+    path: string,
+    x: number,
+    y: number,
+    trigger?: HTMLElement | null,
+  ) => void;
   groupLabels: Record<string, string>;
   groupColors: Record<string, number>;
   groupCustomColors: Record<string, string>;
@@ -423,8 +559,12 @@ function ProjectSection({
 }) {
   const { t: uiT } = useTranslation();
   return (
-    <div className={compact ? "shrink-0" : "shrink-0 mb-2"}>
-      {compact ? null : <ProjectSectionHeader label={label} onAdd={onAdd} />}
+    <div
+      className={compact ? "shrink-0" : `shrink-0 ${tree ? "mb-1" : "mb-2"}`}
+    >
+      {compact || hideHeader ? null : (
+        <ProjectSectionHeader label={label} onAdd={onAdd} />
+      )}
       {items.length === 0 && emptyLabel ? (
         <p className="px-4 pb-1 text-[11px] leading-tight text-content/40">
           {uiT(emptyLabel)}
@@ -434,7 +574,7 @@ function ProjectSection({
         className={
           compact
             ? "flex flex-col items-center gap-1"
-            : "flex flex-col gap-px px-2"
+            : `flex flex-col px-2 ${tree ? "gap-[3px]" : "gap-px"}`
         }
       >
         {items.map((item) => (
@@ -443,9 +583,14 @@ function ProjectSection({
             key={item.path}
             item={item}
             muteStatus={muteStatuses.get(pathKey(item.path)) ?? undefined}
-            selected={!searchActive && sameProjectPath(item.path, cwd)}
+            selected={
+              (!searchActive || !!tree) && sameProjectPath(item.path, cwd)
+            }
             busy={isBusyPath(item.path, busy)}
-            statsEnabled={statsEnabled}
+            statsEnabled={
+              statsEnabled && (!tree || sameProjectPath(item.path, cwd))
+            }
+            tree={tree}
             pinned={pinned}
             sortable={sortable}
             onSelect={onSelect}
@@ -506,6 +651,7 @@ function ProjectGroupSection({
   cwd,
   busy,
   statsEnabled,
+  tree,
   searchActive,
   onSelect,
   onTogglePin,
@@ -527,11 +673,17 @@ function ProjectGroupSection({
   cwd: string;
   busy: Set<string>;
   statsEnabled: boolean;
+  tree?: ProjectTree;
   searchActive: boolean;
   onSelect: (path: string) => void;
   onTogglePin: (path: string) => void;
   onContextMenu: (path: string, event: MouseEvent<HTMLElement>) => void;
-  onOpenMenu: (path: string, x: number, y: number) => void;
+  onOpenMenu: (
+    path: string,
+    x: number,
+    y: number,
+    trigger?: HTMLElement | null,
+  ) => void;
   onReorder: (ids: string[]) => void;
   onToggleCollapsed: () => void;
   onOpenGroupMenu: (x: number, y: number) => void;
@@ -551,7 +703,8 @@ function ProjectGroupSection({
     items.length === 1 ? "{count} project" : "{count} projects",
     { count: items.length },
   );
-  const expanded = compact || !group.collapsed;
+  const expanded =
+    compact || !group.collapsed || (searchActive && items.length > 0);
   const openMenu = (target: HTMLElement, x?: number, y?: number) => {
     const rect = target.getBoundingClientRect();
     onOpenGroupMenu(x ?? rect.left, y ?? rect.bottom);
@@ -560,7 +713,11 @@ function ProjectGroupSection({
   return (
     <div
       className={`shrink-0 overflow-hidden rounded-md ${
-        expanded && !compact ? "mb-1.5 bg-content/5" : ""
+        tree
+          ? `mb-1 last:mb-0 ${expanded ? "bg-content/5" : ""}`
+          : expanded && !compact
+            ? "mb-1.5 bg-content/5"
+            : ""
       }`}
       data-project-group={group.id}
       role="group"
@@ -579,14 +736,14 @@ function ProjectGroupSection({
         >
           <button
             type="button"
-            aria-expanded={!group.collapsed}
+            aria-expanded={expanded}
             aria-label={`${group.name}, ${countLabel}`}
             title={`${group.name} · ${countLabel}`}
-            onClick={onToggleCollapsed}
+            onClick={searchActive ? undefined : onToggleCollapsed}
             className="flex min-w-0 flex-1 cursor-default items-center gap-2 text-left transition-[padding] duration-150 motion-reduce:transition-none group-hover:pr-6 group-has-[:focus-visible]:pr-6"
           >
             <div className="grid size-4 shrink-0 place-items-center">
-              {group.collapsed ? (
+              {!expanded ? (
                 <>
                   <span
                     data-group-mascot
@@ -634,13 +791,13 @@ function ProjectGroupSection({
           </button>
         </div>
       )}
-      {expanded ? (
+      <AnimatedCollapse expanded={expanded}>
         <div
           data-project-group-items
           className={
             compact
               ? "flex flex-col items-center gap-1"
-              : "flex flex-col gap-px p-1"
+              : `flex flex-col ${tree ? "gap-[3px] px-1 py-[3px]" : "gap-px p-1"}`
           }
         >
           {items.map((item) => (
@@ -649,9 +806,14 @@ function ProjectGroupSection({
               key={item.path}
               item={item}
               muteStatus={muteStatuses.get(pathKey(item.path)) ?? undefined}
-              selected={!searchActive && sameProjectPath(item.path, cwd)}
+              selected={
+                (!searchActive || !!tree) && sameProjectPath(item.path, cwd)
+              }
               busy={isBusyPath(item.path, busy)}
-              statsEnabled={statsEnabled}
+              statsEnabled={
+                statsEnabled && (!tree || sameProjectPath(item.path, cwd))
+              }
+              tree={tree}
               pinned={false}
               sortable={sortable}
               onSelect={onSelect}
@@ -666,7 +828,7 @@ function ProjectGroupSection({
             />
           ))}
         </div>
-      ) : null}
+      </AnimatedCollapse>
     </div>
   );
 }
@@ -681,6 +843,7 @@ function ProjectCard({
   selected,
   busy,
   statsEnabled,
+  tree,
   pinned,
   sortable,
   onSelect,
@@ -699,12 +862,18 @@ function ProjectCard({
   selected: boolean;
   busy: boolean;
   statsEnabled: boolean;
+  tree?: ProjectTree;
   pinned: boolean;
   sortable: SortableHandle;
   onSelect: (path: string) => void;
   onTogglePin: (path: string) => void;
   onContextMenu: (path: string, event: MouseEvent<HTMLElement>) => void;
-  onOpenMenu: (path: string, x: number, y: number) => void;
+  onOpenMenu: (
+    path: string,
+    x: number,
+    y: number,
+    trigger?: HTMLElement | null,
+  ) => void;
   groupLabels: Record<string, string>;
   groupColors: Record<string, number>;
   groupCustomColors: Record<string, string>;
@@ -712,6 +881,14 @@ function ProjectCard({
   groupMascots: Record<string, string>;
 }) {
   const { t: uiT } = useTranslation();
+  const hoverSummary = useContext(ProjectSummaryContext);
+  const hover = useHoverSummary<HTMLButtonElement>({
+    enabled: !hoverSummary.disabled && !sortable.draggingId,
+    interactive: true,
+    onOpen: () => hoverSummary.onOpen?.(item.path),
+  });
+  const nameButtonRef = hover.anchorRef;
+  const summary = hoverSummary.summaries?.get(pathKey(item.path));
   const fallbackName = basename(item.path);
   const key = projectKey(item.path);
   const name = resolveTabGroupLabel(key, groupLabels, fallbackName);
@@ -737,19 +914,6 @@ function ProjectCard({
         : online
           ? uiT("Connected")
           : uiT("Reconnecting");
-  const cardTitle = projectCardTitle(
-    remote
-      ? uiT("{path} on {machine} ({connection})", {
-          path: remote.cwd,
-          machine: machine?.name ?? uiT("another machine"),
-          connection,
-        })
-      : item.path,
-    name,
-    stats,
-    busy,
-    uiT,
-  );
   const cardAriaLabel = projectCardAriaLabel(
     machine
       ? uiT("{project} on {machine}", { project: name, machine: machine.name })
@@ -758,19 +922,47 @@ function ProjectCard({
     busy,
     uiT,
   );
-  const labelClassName = machine
-    ? "min-w-0 max-w-[75%] shrink-0 truncate text-sm font-medium leading-tight"
-    : nameClassName;
+  const labelClassName = (
+    machine
+      ? "min-w-0 max-w-[75%] shrink-0 truncate text-sm font-medium leading-tight"
+      : nameClassName
+  ).replace("font-medium", tree && selected ? "font-semibold" : "font-medium");
+  const treeAvatar = tree ? (
+    <ProjectAvatar
+      path={item.path}
+      busy={busy}
+      colors={groupColors}
+      customColors={groupCustomColors}
+      logos={groupLogos}
+      mascots={groupMascots}
+      className="size-4"
+    />
+  ) : null;
+  const expandable = tree?.canExpandProject?.(item.path) !== false;
+  const expanded =
+    expandable && (tree?.expandedPaths.has(pathKey(item.path)) ?? false);
+  const needsApproval = tree?.needsApproval.has(pathKey(item.path)) ?? false;
 
-  return (
+  const header = (
     <div
-      ref={(el) => sortable.setItemRef(item.path, el)}
+      ref={tree ? undefined : (el) => sortable.setItemRef(item.path, el)}
       data-selected={selected || undefined}
-      className={`reorder-item project-reorder-item group relative flex touch-none items-stretch rounded-md ${compact ? "size-8" : "px-2 h-8"} ${
-        selected ? "bg-selection-strong text-content" : "opacity-65"
+      data-project-header={tree ? "" : undefined}
+      className={`${tree ? "project-tree-header project-reorder-item" : "reorder-item project-reorder-item"} group relative flex touch-none items-stretch rounded-md ${compact ? "size-8" : "px-2 h-8"} ${
+        tree
+          ? selected
+            ? "text-content hover:bg-content/5"
+            : "text-content/80 hover:bg-content/5 hover:text-content"
+          : selected
+            ? "bg-selection-strong text-content"
+            : "opacity-65"
       } cursor-default`}
+      onPointerEnter={hover.triggerProps.onPointerEnter}
+      onPointerLeave={hover.triggerProps.onPointerLeave}
       onPointerDown={(event) => {
+        hover.triggerProps.onPointerDown();
         if (event.button !== 0) return;
+        hover.close();
         if ((event.target as HTMLElement | null)?.closest("[data-no-drag]")) {
           return;
         }
@@ -781,6 +973,7 @@ function ProjectCard({
           return;
         }
         if (sortable.consumeClick()) return;
+        hover.close();
         onSelect(item.path);
       }}
       onContextMenu={(event) => onContextMenu(item.path, event)}
@@ -796,17 +989,69 @@ function ProjectCard({
         onOpenMenu(item.path, rect.left, rect.bottom);
       }}
     >
+      {tree && expandable ? (
+        // Like project groups, the avatar slot doubles as the disclosure so
+        // session rows can indent to the project name.
+        <button
+          type="button"
+          data-no-drag
+          aria-label={uiT(expanded ? "Collapse project" : "Expand project")}
+          aria-expanded={expanded}
+          title={uiT(expanded ? "Collapse project" : "Expand project")}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            tree.onToggleProject?.(item.path);
+          }}
+          className="grid w-4 shrink-0 place-items-center rounded-sm text-content/55 outline-none hover:text-content"
+        >
+          <span
+            data-project-avatar
+            className="project-card-logo grid size-4 place-items-center group-hover:hidden group-has-[:focus-visible]:hidden"
+          >
+            {treeAvatar}
+          </span>
+          {expanded ? (
+            <ChevronDown
+              data-project-chevron
+              className="hidden size-3.5 group-hover:block group-has-[:focus-visible]:block"
+            />
+          ) : (
+            <ChevronRight
+              data-project-chevron
+              className="hidden size-3.5 group-hover:block group-has-[:focus-visible]:block"
+            />
+          )}
+        </button>
+      ) : tree ? (
+        <span
+          data-project-avatar
+          className="project-card-logo grid w-4 shrink-0 place-items-center"
+        >
+          {treeAvatar}
+        </span>
+      ) : null}
       <button
+        ref={nameButtonRef}
         type="button"
-        title={muteStatus ? `${cardTitle}\n${muteStatus}` : cardTitle}
+        data-project-select={pathKey(item.path)}
         aria-label={
           muteStatus ? `${cardAriaLabel}, ${muteStatus}` : cardAriaLabel
         }
+        aria-description={remote?.cwd ?? item.path}
         aria-current={selected ? "true" : undefined}
+        aria-haspopup="dialog"
+        aria-describedby={hover.open ? hover.id : undefined}
+        onFocus={() => {
+          if (hoverSummary.restoringPinFocusPath?.current === item.path) return;
+          hover.triggerProps.onFocus();
+        }}
+        onBlur={hover.triggerProps.onBlur}
+        onKeyDown={hover.triggerProps.onKeyDown}
         className={
           compact
             ? "relative grid size-8 place-items-center"
-            : "flex min-w-0 flex-1 cursor-default items-center gap-2 text-left transition-[padding] duration-150 motion-reduce:transition-none group-hover:pr-6 group-has-[:focus-visible]:pr-6"
+            : `flex min-w-0 flex-1 cursor-default items-center gap-2 text-left ${tree ? "pl-2 group-hover:pr-12 group-has-[:focus-visible]:pr-12" : "transition-[padding] duration-150 motion-reduce:transition-none group-hover:pr-6 group-has-[:focus-visible]:pr-6"}`
         }
       >
         {compact ? (
@@ -820,17 +1065,19 @@ function ProjectCard({
           />
         ) : (
           <>
-            <div className="project-card-logo grid size-4 shrink-0 place-items-center transition-opacity group-hover:opacity-0">
-              <ProjectAvatar
-                path={item.path}
-                busy={busy}
-                colors={groupColors}
-                customColors={groupCustomColors}
-                logos={groupLogos}
-                mascots={groupMascots}
-                className="size-4"
-              />
-            </div>
+            {tree ? null : (
+              <div className="project-card-logo grid size-4 shrink-0 place-items-center transition-opacity group-hover:opacity-0">
+                <ProjectAvatar
+                  path={item.path}
+                  busy={busy}
+                  colors={groupColors}
+                  customColors={groupCustomColors}
+                  logos={groupLogos}
+                  mascots={groupMascots}
+                  className="size-4"
+                />
+              </div>
+            )}
             {busy ? (
               <Shimmer as="span" duration={1.4} className={labelClassName}>
                 {name}
@@ -847,6 +1094,14 @@ function ProjectCard({
               <span className="project-card-stats shrink-0 group-hover:hidden group-has-[:focus-visible]:hidden">
                 <ProjectDiffStat additions={additions} deletions={deletions} />
               </span>
+            ) : null}
+            {needsApproval ? (
+              <span
+                role="img"
+                aria-label={uiT("Needs approval")}
+                title={uiT("Needs approval")}
+                className="size-1.5 shrink-0 rounded-full bg-amber-400"
+              />
             ) : null}
           </>
         )}
@@ -894,6 +1149,22 @@ function ProjectCard({
       </button>
       {compact ? null : (
         <>
+          {tree?.onNewInProject ? (
+            <button
+              type="button"
+              data-no-drag
+              aria-label={uiT("New session in {project}", { project: name })}
+              title={uiT("New session in {project}", { project: name })}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                tree.onNewInProject?.(item.path);
+              }}
+              className="absolute right-7 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 hover:bg-content/8 hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
+            >
+              <Plus className="size-3.5" strokeWidth={1.75} />
+            </button>
+          ) : null}
           <button
             type="button"
             data-no-drag
@@ -914,27 +1185,184 @@ function ProjectCard({
           >
             <MoreHorizontal className="size-4" strokeWidth={1.75} />
           </button>
+          {tree ? null : (
+            <button
+              type="button"
+              data-no-drag
+              title={pinned ? uiT("Unpin project") : uiT("Pin project")}
+              aria-label={pinned ? uiT("Unpin project") : uiT("Pin project")}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onTogglePin(item.path);
+              }}
+              className="absolute left-2 top-1/2 grid size-4 -translate-y-1/2 place-items-center rounded-sm text-content/55 opacity-0 pointer-events-none transition-opacity hover:text-content group-hover:pointer-events-auto group-hover:opacity-100"
+            >
+              {pinned ? (
+                <PinOff className="size-3.5" strokeWidth={1.75} />
+              ) : (
+                <Pin className="size-3.5" strokeWidth={1.75} />
+              )}
+            </button>
+          )}
+        </>
+      )}
+      <HoverSummary
+        hover={hover}
+        role="dialog"
+        label={uiT("Project summary for {project}", { project: name })}
+        data-project-summary={pathKey(item.path)}
+      >
+        <div className="flex min-w-0 items-start gap-2.5 text-content">
+          <ProjectAvatar
+            path={item.path}
+            busy={busy}
+            colors={groupColors}
+            customColors={groupCustomColors}
+            logos={groupLogos}
+            mascots={groupMascots}
+            className="mt-0.5 size-4 shrink-0"
+          />
+          <span className="min-w-0 flex-1 text-[13px] font-medium leading-relaxed [overflow-wrap:anywhere]">
+            {name}
+          </span>
           <button
             type="button"
             data-no-drag
-            title={pinned ? uiT("Unpin project") : uiT("Pin project")}
-            aria-label={pinned ? uiT("Unpin project") : uiT("Pin project")}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onTogglePin(item.path);
+            aria-label={uiT(pinned ? "Unpin project" : "Pin project")}
+            aria-pressed={pinned}
+            onClick={() => {
+              hover.close();
+              if (hoverSummary.onPin) hoverSummary.onPin(item.path);
+              else onTogglePin(item.path);
             }}
-            className="absolute left-2 top-1/2 grid size-4 -translate-y-1/2 place-items-center rounded-sm text-content/55 opacity-0 pointer-events-none transition-opacity hover:text-content group-hover:pointer-events-auto group-hover:opacity-100"
+            className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
           >
             {pinned ? (
-              <PinOff className="size-3.5" strokeWidth={1.75} />
+              <PinOff className="size-3.5" />
             ) : (
-              <Pin className="size-3.5" strokeWidth={1.75} />
+              <Pin className="size-3.5" />
             )}
           </button>
-        </>
-      )}
+        </div>
+        {summary ? (
+          <>
+            <div className="mt-2 flex min-w-0 items-start gap-2 text-content/65">
+              <MessageSquare
+                aria-hidden="true"
+                className="mt-0.5 size-3.5 shrink-0 text-content/45"
+              />
+              <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 tabular-nums">
+                <span>
+                  {uiT(
+                    summary.total === 1
+                      ? "{count} session"
+                      : "{count} sessions",
+                    {
+                      count:
+                        summary.total === undefined
+                          ? "—"
+                          : formatInteger(summary.total),
+                    },
+                  )}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {uiT("{count} unread", {
+                    count: formatInteger(summary.unread),
+                  })}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {uiT("{count} opened", {
+                    count: formatInteger(summary.opened),
+                  })}
+                </span>
+              </div>
+            </div>
+            {summary.historyState === "idle" ||
+            summary.historyState === "loading" ? (
+              <p role="status" className="mt-1.5 text-[11px] text-content/45">
+                {uiT("Loading project summary…")}
+              </p>
+            ) : summary.historyState === "error" ? (
+              <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[11px]">
+                <p role="status" className="min-w-0 flex-1 text-content/50">
+                  {uiT("Project summary unavailable")}
+                </p>
+                {hoverSummary.onOpen && summary.canRetry !== false ? (
+                  <button
+                    type="button"
+                    aria-label={uiT("Retry")}
+                    onClick={() => hoverSummary.onOpen?.(item.path)}
+                    className="shrink-0 rounded-md px-1.5 py-0.5 text-content/65 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
+                  >
+                    {uiT("Retry")}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {summary.cached ? (
+              <p className="mt-1 text-[11px] text-content/45">
+                {uiT("Showing cached summary")}
+              </p>
+            ) : null}
+          </>
+        ) : null}
+        <div className="mt-2.5 space-y-2 border-t border-content/10 pt-2.5">
+          <HoverSummaryRow icon={<FolderOpen />} label={uiT("Project path")}>
+            {remote?.cwd ?? item.path}
+          </HoverSummaryRow>
+          {remote ? (
+            <HoverSummaryRow icon={<Internet />} label={uiT("Machine")}>
+              <span>{machine?.name ?? uiT("another machine")}</span>
+              <span className="block text-[11px] text-content/45">
+                {connection}
+              </span>
+            </HoverSummaryRow>
+          ) : null}
+          {muteStatus ? (
+            <HoverSummaryRow icon={<BellOff />} label={uiT("Notifications")}>
+              {muteStatus}
+            </HoverSummaryRow>
+          ) : null}
+        </div>
+        <div className="mt-2.5 border-t border-content/10 pt-1.5">
+          <button
+            type="button"
+            data-no-drag
+            aria-label={uiT("Edit project")}
+            onClick={() => {
+              const trigger = nameButtonRef.current;
+              if (!trigger) return;
+              const rect = trigger.getBoundingClientRect();
+              hover.close();
+              onOpenMenu(item.path, rect.left, rect.bottom, trigger);
+            }}
+            className="-mx-1 flex w-[calc(100%+8px)] items-center gap-2 rounded-md px-1 py-1.5 text-left text-content/75 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
+          >
+            <Settings className="size-3.5 text-content/45" aria-hidden="true" />
+            {uiT("Edit project")}
+          </button>
+        </div>
+      </HoverSummary>
     </div>
+  );
+  return tree ? (
+    <div
+      ref={(el) => sortable.setItemRef(item.path, el)}
+      data-project-path={pathKey(item.path)}
+      className="reorder-item shrink-0"
+    >
+      {header}
+      <AnimatedCollapse expanded={expanded}>
+        <div data-project-children={pathKey(item.path)}>
+          {tree.renderProjectChildren?.(item.path)}
+        </div>
+      </AnimatedCollapse>
+    </div>
+  ) : (
+    header
   );
 }
 
@@ -977,36 +1405,6 @@ function ProjectDiffStat({
   );
 }
 
-function projectCardTitle(
-  path: string,
-  name: string,
-  stats: GitDiffStats | null,
-  busy: boolean,
-  t: ReturnType<typeof useTranslation>["t"],
-): string {
-  const parts = [name, path];
-  if (busy) parts.push(t("Working"));
-  const files = stats?.files ?? 0;
-  const additions = stats?.additions ?? 0;
-  const deletions = stats?.deletions ?? 0;
-  if (files > 0 || additions > 0 || deletions > 0) {
-    parts.push(
-      [
-        files > 0
-          ? t(files === 1 ? "{count} file changed" : "{count} files changed", {
-              count: files,
-            })
-          : "",
-        additions > 0 ? `+${formatInteger(additions)}` : "",
-        deletions > 0 ? `-${formatInteger(deletions)}` : "",
-      ]
-        .filter(Boolean)
-        .join(" "),
-    );
-  }
-  return parts.join("\n");
-}
-
 function projectCardAriaLabel(
   name: string,
   stats: GitDiffStats | null,
@@ -1031,7 +1429,11 @@ function projectCardAriaLabel(
 }
 
 /** Adds a folder on this computer, or one on a connected machine. */
-function AddProjectButton({ onOpenFolder }: { onOpenFolder: () => void }) {
+export function AddProjectButton({
+  onOpenFolder,
+}: {
+  onOpenFolder: () => void;
+}) {
   const { t: uiT } = useTranslation();
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);

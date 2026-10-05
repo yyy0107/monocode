@@ -1,1955 +1,897 @@
-import { useTranslation } from "../../shared/i18n/useTranslation";
-import { NO_BRANCH_LABEL } from "../../features/source-control/model/worktrees";
-import {
-  type WorktreeFocus,
-  inWorktreeFocus,
-  useWorktreeFocus,
-} from "../../features/source-control/model/worktreeFocus";
-import { SidebarWorktreeSwitcher } from "../../features/source-control/ui/SidebarWorktreeSwitcher";
-import { OrchestrationSidebarAgents } from "../../features/orchestration/ui/OrchestrationSidebarAgents";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  Archive,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  CircleAlert,
-  CircleDashed,
-  CircleDot,
-  Clock,
-  Folder,
-  GitBranch,
-  GitPullRequest,
-  ListFilter,
-  PanelLeft,
-  Pin,
-  Plus,
-  Search,
-  Share,
-  Zap,
-} from "../../shared/ui/icons";
 import {
   memo,
+  useCallback,
   useEffect,
-  useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
+  type MouseEvent,
   type ReactNode,
-  type RefObject,
 } from "react";
+import {
+  ChevronDown,
+  ListFilter,
+  PanelLeft,
+  Search,
+} from "../../shared/ui/icons";
+import { useTranslation } from "../../shared/i18n/useTranslation";
+import { pathKey, projectKey } from "../../shared/lib/paths";
+import { basename } from "../../platform/tauri/fs";
+import { useShortcutLabel } from "../commands/useCommandShortcut";
+import { useDragResize } from "../../shared/hooks/useDragResize";
+import { useLockOverscroll } from "../../shared/hooks/useLockOverscroll";
+import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
+import { useProjectDiffStats } from "../../features/source-control/hooks/useProjectDiffStats";
+import { useGitFileStatuses } from "../../features/source-control/hooks/useGitFileStatuses";
+import { SidebarWorktreeSwitcher } from "../../features/source-control/ui/SidebarWorktreeSwitcher";
+import { FileTree } from "../../features/files/ui/FileTree";
+import { ProjectSearch } from "../../features/projects/ui/ProjectSearch";
+import { SearchableProjectPicker } from "../../features/projects/ui/SearchableProjectPicker";
+import { SourceControl } from "../../features/source-control/ui/SourceControl";
 import {
   loadSidebarTabOrder,
   loadSidebarWidth,
+  saveSidebarTabOrder,
   saveSidebarWidth,
+  SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MIN,
   SIDEBAR_WIDTH_MAX,
-  SIDEBAR_WIDTH_DEFAULT,
-  saveSidebarTabOrder,
   type SidebarTabId,
 } from "../../features/settings/model/appearance";
-import { formatInteger } from "../../shared/lib/numbers";
 import {
-  basename,
-  type GitFileDiffKind,
-  type GitHistoryCommit,
-} from "../../platform/tauri/fs";
-import { MOD } from "../../platform/tauri/platform";
-import { useShortcutLabel } from "../commands/useCommandShortcut";
-import { copyText } from "../../platform/tauri/clipboard";
-import { resolveModel } from "../../features/sessions/model/models";
-import type { OpenFileFn } from "../../features/search/model/search";
-import { sessionDisplayTitle } from "../../features/sessions/model/session";
-import { ParticleText } from "../../shared/ui/ParticleText";
-import { nextUnseenFinishedSessions } from "../../features/sessions/model/sessionDone";
-import { orchestrationTaskLabel } from "../../features/orchestration/model/orchestrationSummary";
+  collectRailProjects,
+  isRemoteProjectPath,
+  sameProjectPath,
+} from "../../features/projects/model/recents";
 import {
-  orderedSessionActionIds,
-  pruneSessionSelection,
-  toggleSessionSelection,
-} from "../../features/sessions/model/sessionSelection";
+  loadProjectTreeExpanded,
+  saveProjectTreeExpanded,
+  subscribeProjectTreeExpanded,
+} from "../../features/projects/model/projectTree";
 import {
-  paneDropFromPoint,
-  setExternalPaneDrop,
-} from "../../features/workspace/model/paneDrop";
-import type { PaneEdge } from "../../features/workspace/model/layout";
-import { suppressTextSelection } from "../../shared/lib/drag";
-import {
-  compareSessionSummaries,
-  filterSessionsByArchive,
-  filterSessionsByQuery,
-} from "../../features/sessions/data/sessionHistory";
-import {
-  addSessionToFolder,
-  applySessionListDrop,
-  buildSessionList,
-  createFolderWithSessions,
-  dissolveFolder,
-  folderAccent,
-  folderContaining,
-  folderShellFill,
-  loadPinnedSessionsCollapsed,
-  loadReminderSessionsCollapsed,
-  loadSessionFolders,
-  mergeFolderSessionSummaries,
-  pruneSessionFolders,
-  removeSessionFromFolder,
-  renameFolder,
-  reorderSessionFolders,
-  savePinnedSessionsCollapsed,
-  saveReminderSessionsCollapsed,
-  saveSessionFolders,
-  sessionListNavigationIds,
-  setFolderCollapsed,
-  setFolderColor,
-  setFolderCustomColor,
-  subscribeSessionFolders,
-  ungroupedSessions,
-  type SessionFolder,
-  type SessionListDropTarget,
-} from "../../features/sessions/model/sessionFolders";
-import { LIST_PAGE_SIZE, listWindowSize } from "../../shared/lib/listWindow";
+  loadTabGroupLabels,
+  resolveTabGroupLabel,
+  subscribeTabGroupLabels,
+} from "../../features/workspace/model/tabGroups";
 import {
   filterSessionsByHarness,
   filterSessionsByStatus,
   filterSessionsByTime,
-  harnessesInSessions,
   hasActiveSessionFilters,
+  harnessesInSessions,
   loadSessionSidebarFilters,
   saveSessionSidebarFilters,
   type SessionSidebarFilters,
 } from "../../features/sessions/model/sessionFilters";
-import type {
-  HarnessId,
-  LinkedWorkItem,
-} from "../../features/sessions/model/session";
-import type { SessionSummary } from "../../features/sessions/data/sessionStore";
-import { TAB_GROUP_COLORS } from "../../features/workspace/model/tabGroups";
-import { useDragResize } from "../../shared/hooks/useDragResize";
-import { useGitFileStatuses } from "../../features/source-control/hooks/useGitFileStatuses";
-import { useLockOverscroll } from "../../shared/hooks/useLockOverscroll";
-import { useProjectDiffStats } from "../../features/source-control/hooks/useProjectDiffStats";
-import { useSortable } from "../../shared/hooks/useSortable";
-import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
-import { normalizeHex } from "../../shared/lib/colorUtils";
-import { isRemoteProjectPath } from "../../features/projects/model/recents";
+import { filterSessionsByArchive } from "../../features/sessions/data/sessionHistory";
+import { sessionDisplayTitle } from "../../features/sessions/model/session";
 import {
-  ColorPickerPopover,
-  ColorSwatchRow,
-} from "../../shared/ui/ColorPickerPopover";
-import {
-  ExplorerMenu,
-  type ExplorerMenuItem,
-} from "../../features/files/ui/ExplorerMenu";
-import { FileTree } from "../../features/files/ui/FileTree";
-import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
-import { prefetchGithubWorkItem } from "../../features/inbox/model/githubTasks";
-import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
-import { IconButton, WindowNavigationSpace } from "./TitleBar";
-import { SidebarTransition } from "./SidebarTransition";
-import { ResizeHandle } from "../../shared/ui/ResizeHandle";
-import { ProjectSearch } from "../../features/projects/ui/ProjectSearch";
-import { Popover } from "../../shared/ui/Popover";
-import { SessionFiltersMenu } from "../../features/sessions/ui/SessionFiltersMenu";
-import { LinkSessionWorkItemDialog } from "../../features/sessions/ui/LinkSessionWorkItemDialog";
-import { sessionReminderPresets } from "../../features/sessions/ui/sessionReminderPresets";
-import {
-  formatReminderTime,
-  reminderTime,
-  type SessionReminder,
-} from "../../features/sessions/model/sessionReminders";
-import { SessionsEmpty } from "../../features/sessions/ui/SessionsEmpty";
-import { SourceControl } from "../../features/source-control/ui/SourceControl";
-import {
-  refreshRemoteProjectSessions,
-  remoteRequest,
+  cachedRemoteProjectSessionsState,
+  cachedRemoteSessions,
+  hasCachedRemoteProjectSessions,
+  REMOTE_HISTORY_UPDATED,
   remotePendingWorktree,
   remoteSessionFor,
-  useRemoteProjectSessions,
 } from "../../features/connections/model/connections";
 import {
   parseRemotePath,
   remotePath,
   remoteProjectFor,
 } from "../../features/connections/model/remoteProjects";
+import { formatInteger } from "../../shared/lib/numbers";
+import type { SessionSummary } from "../../features/sessions/data/sessionStore";
+import { SessionFiltersMenu } from "../../features/sessions/ui/SessionFiltersMenu";
+import { IconButton, WindowNavigationSpace } from "./TitleBar";
+import { SidebarTransition } from "./SidebarTransition";
+import { ResizeHandle } from "../../shared/ui/ResizeHandle";
+import { ProjectList, AddProjectButton } from "./ProjectList";
+import { ProjectSessionSection } from "./ProjectSessionSection";
+import type { SidebarProps } from "./Sidebar.types";
+import {
+  projectHoverSummary,
+  type ProjectHoverSummary,
+} from "../model/projectHoverSummary";
 
-const MIN_WIDTH = SIDEBAR_WIDTH_MIN;
-const MAX_WIDTH = SIDEBAR_WIDTH_MAX;
-const DEFAULT_WIDTH = SIDEBAR_WIDTH_DEFAULT;
-const REMINDERS_COLOR = "#f59e0b";
-
-type SidebarTab = SidebarTabId;
-
-const TAB_LABELS: Record<SidebarTab, string> = {
+const TAB_LABELS: Record<SidebarTabId, string> = {
   sessions: "Sessions",
   files: "Explorer",
   changes: "Changes",
 };
 
-type Props = {
-  cwd: string;
-  /** Working copy for Changes / explorer git. Falls back to `cwd`. */
-  gitCwd?: string;
-  /** Branch identity shown for a worktree whose folder has a temporary name. */
-  explorerRootLabel?: string;
-  /** Open tabs per worktree path key, for the worktree switcher. */
-  worktreeTabStats?: ReadonlyMap<string, { tabs: number; busy: boolean }>;
-  onSelectWorkspace?: (focus?: WorktreeFocus) => void;
-  workspaceSwitchPending?: boolean;
-  workspaceSwitchError?: string;
-  open: boolean;
-  sessions: SessionSummary[];
-  busySessionIds: Set<string>;
-  approvalSessionIds: Set<string>;
-  activeSessionId?: string;
-  /** Open tabs, including blank ones not yet in history. */
-  openSessions?: readonly SessionSummary[];
-  status: "idle" | "error";
-  /** First listing for this project has not arrived yet. */
-  pending: boolean;
-  onSelectSession: (sessionId: string) => void;
-  onSelectRemoteSession?: (project: string, sessionId: string) => void;
-  onRemoteSessionDeleted?: (sessionId: string) => void;
-  onSessionNavigationOrder?: (ids: readonly string[]) => void;
-  onPrefetchSession?: (sessionId: string) => void;
-  onPlaceSessionOnPane?: (
-    sessionId: string,
-    targetId: string,
-    edge: PaneEdge,
-  ) => void;
-  onRenameSession?: (sessionId: string, title: string) => void;
-  onArchiveSession?: (sessionId: string, archived: boolean) => void;
-  onArchiveSessions?: (
-    sessionIds: readonly string[],
-    archived: boolean,
-  ) => void;
-  onPinSession?: (sessionId: string, pinned: boolean) => void;
-  onPinSessions?: (sessionIds: readonly string[], pinned: boolean) => void;
-  onSetSessionLinkedWorkItem?: (
-    sessionId: string,
-    item: LinkedWorkItem | undefined,
-  ) => void;
-  reminders?: readonly SessionReminder[];
-  onSetReminders?: (sessionIds: readonly string[], dueAt: number) => void;
-  onCancelReminders?: (sessionIds: readonly string[]) => void;
-  onDeleteSession?: (sessionId: string) => void;
-  onDeleteSessions?: (sessionIds: readonly string[]) => void;
-  onOpenFile: OpenFileFn;
-  onOpenTerminal?: (cwd: string) => void;
-  onFileMoved?: (from: string, to: string) => void;
-  onFileDeleted?: (path: string) => void;
-  tab: SidebarTab;
-  onTabChange: (tab: SidebarTab) => void;
-  filesSearchOpen: boolean;
-  onFilesSearchOpenChange: (open: boolean) => void;
-  onOpenFilesSearch?: () => void;
-  searchFocusToken?: number;
-  onOpenDiff?: (path: string, kind?: GitFileDiffKind, pin?: boolean) => void;
-  onOpenAllChanges?: (kind: GitFileDiffKind) => void;
-  onOpenCommit?: (commit: GitHistoryCommit, pin?: boolean) => void;
-  selectedDiffPath?: string;
-  selectedDiffKind?: GitFileDiffKind;
-  selectedCommitSha?: string;
-  textHarness?: HarnessId;
-  onNew?: () => string | void;
-  onToggleSidebar?: () => void;
-  chromeInMenuBar?: boolean;
-  onOpenInboxItem?: (item: LinkedWorkItem, sessionId: string) => void;
-  onGoToFile?: () => void;
-  unseenFinishedIds?: Set<string>;
-  /** Linked GitHub work changed after the session last advanced. */
-  linkedSessionUpdateIds?: ReadonlySet<string>;
-};
-
-function SidebarComponent({
-  cwd,
-  gitCwd,
-  explorerRootLabel,
-  worktreeTabStats,
-  onSelectWorkspace,
-  workspaceSwitchPending,
-  workspaceSwitchError,
-  open,
-  sessions,
-  busySessionIds,
-  approvalSessionIds,
-  activeSessionId,
-  openSessions = [],
-  status,
-  pending,
-  onSelectSession: onSelectLocalSession,
-  onSelectRemoteSession,
-  onRemoteSessionDeleted,
-  onSessionNavigationOrder,
-  onPrefetchSession: onPrefetchLocalSession,
-  onPlaceSessionOnPane: onPlaceLocalSessionOnPane,
-  onRenameSession: onRenameLocalSession,
-  onArchiveSession: onArchiveLocalSession,
-  onArchiveSessions: onArchiveLocalSessions,
-  onPinSession: onPinLocalSession,
-  onPinSessions: onPinLocalSessions,
-  onSetSessionLinkedWorkItem: onSetLocalSessionLinkedWorkItem,
-  reminders = [],
-  onSetReminders,
-  onCancelReminders,
-  onDeleteSession: onDeleteLocalSession,
-  onDeleteSessions: onDeleteLocalSessions,
-  onOpenFile,
-  onOpenTerminal,
-  onFileMoved,
-  onFileDeleted,
-  tab: requestedTab,
-  onTabChange,
-  filesSearchOpen,
-  onFilesSearchOpenChange,
-  onOpenFilesSearch,
-  searchFocusToken = 0,
-  onOpenDiff,
-  onOpenAllChanges,
-  onOpenCommit,
-  selectedDiffPath,
-  selectedDiffKind,
-  selectedCommitSha,
-  textHarness,
-  onNew,
-  onToggleSidebar,
-  chromeInMenuBar = false,
-  onOpenInboxItem,
-  onGoToFile,
-  unseenFinishedIds: unseenFinishedIdsProp,
-  linkedSessionUpdateIds = new Set(),
-}: Props) {
-  const { t: uiT } = useTranslation();
-  const sidebarToggleLabel = useShortcutLabel(
-    "Toggle Sidebar",
-    "App: Toggle Sidebar",
+function SidebarComponent(props: SidebarProps) {
+  const { t } = useTranslation();
+  const {
+    cwd,
+    open,
+    tab,
+    sessions,
+    recents = [],
+    projectHistory = sessions,
+    onNewInProject,
+  } = props;
+  const toggleLabel = useShortcutLabel("Toggle Sidebar", "App: Toggle Sidebar");
+  const quickOpenLabel = useShortcutLabel("Quick Open", "App: Go to File");
+  const resize = useDragResize({
+    min: SIDEBAR_WIDTH_MIN,
+    max: () => Math.min(SIDEBAR_WIDTH_MAX, Math.floor(window.innerWidth * 0.5)),
+    defaultWidth: SIDEBAR_WIDTH_DEFAULT,
+    initial: loadSidebarWidth(),
+    onCommit: saveSidebarWidth,
+  });
+  const [tabOrder, setTabOrder] = useState(loadSidebarTabOrder);
+  const sortable = useAnimatedReorder(tabOrder, (next) => {
+    setTabOrder(next);
+    saveSidebarTabOrder(next);
+  });
+  const [expandedPaths, setExpandedPaths] = useState(() =>
+    loadProjectTreeExpanded(cwd),
   );
-  const remoteProject = isRemoteProjectPath(cwd) || !!remoteProjectFor(cwd);
-  const tab: SidebarTabId = requestedTab;
-  const remote = useRemoteProjectSessions(cwd, remoteProject);
-  const hostProject = remoteProject ? remoteProjectFor(cwd) : undefined;
-  const remoteChange = async (
-    sessionId: string,
-    patch: {
-      title?: string;
-      archived?: boolean;
-      pinned?: boolean;
-      linkedWorkItem?: LinkedWorkItem | null;
-    },
-  ) => {
-    if (!remote.machine || !hostProject) {
-      window.alert("Connect this project's machine to change its sessions.");
-      return;
-    }
-    try {
-      await remoteRequest(remote.machine.id, "sessions.update", {
-        projectId: hostProject.projectId,
-        sessionId,
-        ...patch,
-      });
-      refreshRemoteProjectSessions();
-    } catch (error) {
-      window.alert(`Could not update this session.\n\n${String(error)}`);
-    }
-  };
-  const remoteDelete = async (sessionIds: readonly string[]) => {
-    if (sessionIds.length === 0) return;
-    if (!remote.machine || !hostProject) {
-      window.alert("Connect this project's machine to delete its sessions.");
-      return;
-    }
+  const initialExpansion = useRef(expandedPaths);
+  useEffect(() => {
+    // Store the implicit first-use expansion so rename/removal can update it.
+    // An existing empty array intentionally keeps every project collapsed.
+    saveProjectTreeExpanded(initialExpansion.current);
+  }, []);
+  const [query, setQuery] = useState("");
+  const [sessionProjectPath, setSessionProjectPath] = useState<string | null>(
+    null,
+  );
+  const [filters, setFilters] = useState(loadSessionSidebarFilters);
+  const [filterMenu, setFilterMenu] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [labels, setLabels] = useState(loadTabGroupLabels);
+  const [remoteRevision, setRemoteRevision] = useState(0);
+  const [searchRevision, setSearchRevision] = useState(0);
+  const [searchFailed, setSearchFailed] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const treeScrollRef = useRef<HTMLDivElement>(null);
+  const treeViewportRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [treeHeight, setTreeHeight] = useState(700);
+  const treeLock = useLockOverscroll<HTMLDivElement>();
+  const searchActive = tab === "sessions" && !!query.trim();
+  const allProjects = useMemo(
+    () => [...collectRailProjects(recents, cwd).values()],
+    [cwd, recents],
+  );
+  const projects = useMemo(
+    () =>
+      tab === "sessions" && sessionProjectPath
+        ? allProjects.filter(({ path }) =>
+            sameProjectPath(path, sessionProjectPath),
+          )
+        : allProjects,
+    [allProjects, tab, sessionProjectPath],
+  );
+  useEffect(() => {
     if (
-      !window.confirm(
-        `Delete ${sessionIds.length === 1 ? "this conversation" : `${sessionIds.length} conversations`}? This can’t be undone.`,
-      )
+      sessionProjectPath &&
+      !allProjects.some(({ path }) => sameProjectPath(path, sessionProjectPath))
+    )
+      setSessionProjectPath(null);
+  }, [allProjects, sessionProjectPath]);
+  const projectPathsKey = projects
+    .map((project) => pathKey(project.path))
+    .join("\0");
+  const loadedPaths =
+    props.loadedProjectPaths ??
+    new Set(!props.pending && props.status !== "error" ? [pathKey(cwd)] : []);
+  const failedPaths =
+    props.failedProjectPaths ??
+    new Set(props.status === "error" ? [pathKey(cwd)] : []);
+  const loadedPathsKey = [...loadedPaths].sort().join("\0");
+  const expandedPathsKey = [...expandedPaths].sort().join("\0");
+  const activationRef = useRef({ cwd, tab });
+  useEffect(() => {
+    const previous = activationRef.current;
+    activationRef.current = { cwd, tab };
+    if (
+      sameProjectPath(previous.cwd, cwd) &&
+      (previous.tab === tab || tab === "sessions")
     )
       return;
-    try {
-      for (const sessionId of sessionIds) {
-        await remoteRequest(remote.machine.id, "sessions.delete", {
-          projectId: hostProject.projectId,
-          sessionId,
-        });
-        onRemoteSessionDeleted?.(sessionId);
-      }
-      refreshRemoteProjectSessions();
-    } catch (error) {
-      window.alert(`Could not delete this session.\n\n${String(error)}`);
-      refreshRemoteProjectSessions();
-    }
-  };
-  const onSelectSession = remoteProject
-    ? (sessionId: string) =>
-        remote.sessions.find((row) => row.id === sessionId)?.nativeSession
-          ? onSelectLocalSession?.(sessionId)
-          : onSelectRemoteSession?.(cwd, sessionId)
-    : onSelectLocalSession;
-  const onPrefetchSession = remoteProject ? undefined : onPrefetchLocalSession;
-  const onPlaceSessionOnPane = remoteProject
-    ? undefined
-    : onPlaceLocalSessionOnPane;
-  const onRenameSession = remoteProject
-    ? (sessionId: string, title: string) => {
-        void remoteChange(sessionId, { title });
-      }
-    : onRenameLocalSession;
-  const onArchiveSession = remoteProject
-    ? (sessionId: string, archived: boolean) => {
-        void remoteChange(sessionId, { archived });
-      }
-    : onArchiveLocalSession;
-  const onArchiveSessions = remoteProject
-    ? (sessionIds: readonly string[], archived: boolean) => {
-        void Promise.all(
-          sessionIds.map((id) => remoteChange(id, { archived })),
-        );
-      }
-    : onArchiveLocalSessions;
-  const onPinSession = remoteProject
-    ? (sessionId: string, pinned: boolean) => {
-        void remoteChange(sessionId, { pinned });
-      }
-    : onPinLocalSession;
-  const onPinSessions = remoteProject
-    ? (sessionIds: readonly string[], pinned: boolean) => {
-        void Promise.all(sessionIds.map((id) => remoteChange(id, { pinned })));
-      }
-    : onPinLocalSessions;
-  const onDeleteSession = remoteProject
-    ? (sessionId: string) => {
-        void remoteDelete([sessionId]);
-      }
-    : onDeleteLocalSession;
-  const onDeleteSessions = remoteProject
-    ? (sessionIds: readonly string[]) => {
-        void remoteDelete(sessionIds);
-      }
-    : onDeleteLocalSessions;
-  const onSetSessionLinkedWorkItem = remoteProject
-    ? (sessionId: string, item: LinkedWorkItem | undefined) => {
-        void remoteChange(sessionId, { linkedWorkItem: item ?? null });
-      }
-    : onSetLocalSessionLinkedWorkItem;
-  const activeRemoteId = activeSessionId
-    ? remoteSessionFor(activeSessionId)
-    : undefined;
-  const activeListedSessionId = remoteProject
-    ? activeRemoteId
-    : activeSessionId;
-  const listedBusySessionIds = remoteProject
-    ? new Set(
-        remote.sessions
-          .filter(
-            (session) => session.status === "running" && !session.needsInput,
-          )
-          .map((session) => session.id),
-      )
-    : busySessionIds;
-  const listedApprovalSessionIds = remoteProject
-    ? new Set(
-        remote.sessions
-          .filter((session) => session.needsInput)
-          .map((session) => session.id),
-      )
-    : approvalSessionIds;
-  const projectSessions: SessionSummary[] = useMemo(
+    if (!cwd || cwd === "~" || expandedPaths.has(pathKey(cwd))) return;
+    const next = new Set(expandedPaths);
+    next.add(pathKey(cwd));
+    setExpandedPaths(next);
+    saveProjectTreeExpanded(next);
+  }, [cwd, tab]);
+
+  useEffect(
     () =>
-      remoteProject
-        ? remote.sessions.map((session) => ({
-            id: session.id,
-            cwd,
-            harness: session.harness,
-            model: session.model ?? "",
-            runtimeMode: session.runtimeMode ?? "supervised",
-            providerSessionId: session.providerSessionId ?? undefined,
-            title: session.title,
-            createdAt: session.createdAt ?? session.updatedAt,
-            updatedAt: session.updatedAt,
-            archived: session.archived,
-            pinned: session.pinned,
-            linkedWorkItem: session.linkedWorkItem,
-            draft: session.draft,
-            repo: session.repo,
-            branch: session.branch,
-            worktreeCwd: session.worktreeCwd,
-            nativeSession: session.nativeSession,
-          }))
-        : sessions,
-    [remoteProject, remote.sessions, sessions, cwd],
+      subscribeProjectTreeExpanded(() =>
+        setExpandedPaths(loadProjectTreeExpanded(cwd)),
+      ),
+    [cwd],
   );
+  useEffect(
+    () => subscribeTabGroupLabels(() => setLabels(loadTabGroupLabels())),
+    [],
+  );
+  useEffect(() => {
+    const updated = () => setRemoteRevision((value) => value + 1);
+    window.addEventListener(REMOTE_HISTORY_UPDATED, updated);
+    return () => window.removeEventListener(REMOTE_HISTORY_UPDATED, updated);
+  }, []);
+  useEffect(() => {
+    if (
+      !open ||
+      props.recents !== undefined ||
+      !treeViewportRef.current ||
+      typeof ResizeObserver === "undefined"
+    )
+      return;
+    const node = treeViewportRef.current;
+    const measure = () => {
+      if (node.clientHeight) setTreeHeight(node.clientHeight);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [open, props.recents]);
+  useEffect(() => {
+    if (props.searchFocusToken && tab === "sessions" && open)
+      searchInputRef.current?.focus();
+  }, [props.searchFocusToken, tab, open]);
+  useEffect(() => {
+    if (tab !== "sessions") {
+      setQuery("");
+      setFilterMenu(null);
+    }
+  }, [tab]);
+  useEffect(() => {
+    if (!filterMenu) return;
+    const node = treeScrollRef.current;
+    const close = () => setFilterMenu(null);
+    node?.addEventListener("scroll", close);
+    return () => node?.removeEventListener("scroll", close);
+  }, [filterMenu]);
+
+  const expansionRequests = useRef(new Set<string>());
+  useEffect(() => {
+    if (!open || tab !== "sessions") return;
+    for (const project of projects) {
+      const key = pathKey(project.path);
+      if (
+        !expandedPaths.has(key) ||
+        loadedPaths.has(key) ||
+        failedPaths.has(key) ||
+        expansionRequests.current.has(key)
+      )
+        continue;
+      // Remote sections own their polling lifecycle. Local loads are deduplicated by App.
+      if (isRemoteProjectPath(project.path) || remoteProjectFor(project.path))
+        continue;
+      if (!props.onLoadProject) continue;
+      expansionRequests.current.add(key);
+      void props
+        .onLoadProject(project.path)
+        .catch(() => undefined)
+        .finally(() => expansionRequests.current.delete(key));
+    }
+  }, [
+    open,
+    tab,
+    expandedPathsKey,
+    loadedPathsKey,
+    projectPathsKey,
+    props.onLoadProject,
+  ]);
+
+  // One queue shared across query changes keeps the actual number of requests
+  // bounded, even when a user types another query while earlier reads finish.
+  const searchRequests = useRef(new Set<string>());
+  const searchInFlight = useRef(new Set<string>());
+  const searchQueue = useRef<string[]>([]);
+  const searchRunning = useRef(0);
+  const searchContext = useRef({
+    active: searchActive && open,
+    onLoad: props.onLoadProject,
+    onRemote: props.onPrefetchRemoteProject,
+  });
+  searchContext.current = {
+    active: searchActive && open,
+    onLoad: props.onLoadProject,
+    onRemote: props.onPrefetchRemoteProject,
+  };
+  useEffect(() => {
+    if (!searchActive || !open) {
+      searchQueue.current = [];
+      searchRequests.current.clear();
+      return;
+    }
+    searchQueue.current = projects.flatMap(({ path }) => {
+      const key = pathKey(path);
+      const remote = isRemoteProjectPath(path) || !!remoteProjectFor(path);
+      if (
+        (remote
+          ? hasCachedRemoteProjectSessions(path)
+          : loadedPaths.has(key)) ||
+        searchRequests.current.has(key) ||
+        searchInFlight.current.has(key)
+      )
+        return [];
+      if (remote ? !props.onPrefetchRemoteProject : !props.onLoadProject)
+        return [];
+      return [path];
+    });
+    const pump = () => {
+      while (
+        searchContext.current.active &&
+        searchRunning.current < 4 &&
+        searchQueue.current.length
+      ) {
+        const path = searchQueue.current.shift()!;
+        const key = pathKey(path);
+        searchRequests.current.add(key);
+        searchInFlight.current.add(key);
+        searchRunning.current++;
+        const loader =
+          isRemoteProjectPath(path) || remoteProjectFor(path)
+            ? searchContext.current.onRemote
+            : searchContext.current.onLoad;
+        void Promise.resolve()
+          .then(() => loader?.(path))
+          .then(() => {
+            setSearchFailed((current) => {
+              const next = new Set(current);
+              next.delete(key);
+              return next;
+            });
+          })
+          .catch(() => setSearchFailed((current) => new Set(current).add(key)))
+          .finally(() => {
+            searchRunning.current--;
+            searchInFlight.current.delete(key);
+            setSearchRevision((value) => value + 1);
+            pump();
+          });
+      }
+    };
+    pump();
+  }, [
+    open,
+    searchActive,
+    projectPathsKey,
+    loadedPathsKey,
+    searchRevision,
+    props.onLoadProject,
+    props.onPrefetchRemoteProject,
+  ]);
+
+  const historyByProject = useMemo(() => {
+    const grouped = new Map<string, SessionSummary[]>();
+    for (const row of projectHistory) {
+      const key = pathKey(row.cwd);
+      const mine = grouped.get(key) ?? [];
+      mine.push(row);
+      grouped.set(key, mine);
+    }
+    // Direct consumers supply only the current project's list.
+    if (!props.projectHistory) grouped.set(pathKey(cwd), sessions);
+    return grouped;
+  }, [projectHistory, sessions, cwd, props.projectHistory]);
+  const projectSessionFlags = (
+    flags: ReadonlySet<string> | undefined,
+    path: string,
+  ): Set<string> | undefined => {
+    if (!flags || props.recents === undefined)
+      return flags ? new Set(flags) : undefined;
+    const localRows = [
+      ...(historyByProject.get(pathKey(path)) ?? []),
+      ...(props.openSessions?.filter((row) => sameProjectPath(row.cwd, path)) ??
+        []),
+    ];
+    const remote = isRemoteProjectPath(path) || !!remoteProjectFor(path);
+    const scoped = new Set<string>();
+    for (const row of localRows) {
+      if (flags.has(row.id))
+        scoped.add(remote ? (remoteSessionFor(row.id) ?? row.id) : row.id);
+    }
+    return scoped;
+  };
+  const hoverRequests = useRef(new Map<string, Promise<void>>());
+  const [hoverRevision, setHoverRevision] = useState(0);
+  const [hoverFailed, setHoverFailed] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const hoverMounted = useRef(true);
+  useEffect(() => {
+    hoverMounted.current = true;
+    return () => {
+      hoverMounted.current = false;
+    };
+  }, []);
+  const onProjectHoverOpen = useCallback(
+    (path: string) => {
+      const key = pathKey(path);
+      if (hoverRequests.current.has(key)) return;
+      const remote = isRemoteProjectPath(path) || !!remoteProjectFor(path);
+      // A known local list needs no extra read. Remote cards refresh once on
+      // deliberate opening, through the same deduped cache used by pollers.
+      if (!remote && loadedPaths.has(key) && !failedPaths.has(key)) return;
+      const loader = remote
+        ? props.onPrefetchRemoteProject
+        : props.onLoadProject;
+      if (!loader) return;
+      setHoverFailed((current) => {
+        if (!current.has(key)) return current;
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
+      const request = Promise.resolve()
+        .then(() => loader(path))
+        .then(() => {
+          if (!hoverMounted.current) return;
+          setSearchFailed((current) => {
+            if (!current.has(key)) return current;
+            const next = new Set(current);
+            next.delete(key);
+            return next;
+          });
+        })
+        .catch(() => {
+          if (hoverMounted.current)
+            setHoverFailed((current) => new Set(current).add(key));
+        })
+        .finally(() => {
+          if (hoverRequests.current.get(key) !== request) return;
+          hoverRequests.current.delete(key);
+          if (hoverMounted.current) setHoverRevision((value) => value + 1);
+        });
+      hoverRequests.current.set(key, request);
+      setHoverRevision((value) => value + 1);
+    },
+    [
+      loadedPathsKey,
+      failedPaths,
+      props.onLoadProject,
+      props.onPrefetchRemoteProject,
+    ],
+  );
+  useEffect(() => {
+    // A successful remote poll can recover an earlier one-shot hover failure.
+    setHoverFailed((current) => {
+      const next = new Set(current);
+      for (const key of current) {
+        if (!isRemoteProjectPath(key) && !remoteProjectFor(key)) continue;
+        const state = cachedRemoteProjectSessionsState(key);
+        if (state.loaded && !state.pending && !state.error && !state.offline)
+          next.delete(key);
+      }
+      return next.size === current.size ? current : next;
+    });
+  }, [remoteRevision]);
+  const projectSummaries = useMemo(() => {
+    const summaries = new Map<string, ProjectHoverSummary>();
+    for (const { path } of projects) {
+      const key = pathKey(path);
+      const remote = isRemoteProjectPath(path) || !!remoteProjectFor(path);
+      const loader = remote
+        ? props.onPrefetchRemoteProject
+        : props.onLoadProject;
+      const loaded = remote
+        ? hasCachedRemoteProjectSessions(path)
+        : loadedPaths.has(key);
+      // Existing Sidebar consumers may have no history loader. Their unknown
+      // projects still receive the basic card without an indefinite spinner.
+      if (!loaded && !loader) continue;
+      const remoteState = remote
+        ? cachedRemoteProjectSessionsState(path)
+        : undefined;
+      const summary = projectHoverSummary({
+        path,
+        history: historyByProject.get(key) ?? [],
+        openSessions: props.openSessions,
+        openSessionIds: props.openSessionIds,
+        unseenFinishedIds: projectSessionFlags(props.unseenFinishedIds, path),
+        ...(remote
+          ? {
+              remoteSessions: cachedRemoteSessions(path),
+              remoteSessionId: remoteSessionFor,
+            }
+          : {}),
+        loaded,
+        pending: hoverRequests.current.has(key) || !!remoteState?.pending,
+        failed:
+          failedPaths.has(key) ||
+          searchFailed.has(key) ||
+          hoverFailed.has(key) ||
+          !!remoteState?.error ||
+          !!remoteState?.offline,
+      });
+      summaries.set(key, loader ? summary : { ...summary, canRetry: false });
+    }
+    return summaries;
+  }, [
+    projects,
+    historyByProject,
+    props.openSessions,
+    props.openSessionIds,
+    props.unseenFinishedIds,
+    props.recents,
+    loadedPathsKey,
+    failedPaths,
+    remoteRevision,
+    searchFailed,
+    hoverFailed,
+    hoverRevision,
+    props.onLoadProject,
+    props.onPrefetchRemoteProject,
+  ]);
+  const matchInfo = useMemo(() => {
+    const matched = new Set<string>();
+    const names = new Set<string>();
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return { matched, names };
+    for (const { path } of projects) {
+      const key = pathKey(path);
+      const label = resolveTabGroupLabel(
+        projectKey(path),
+        labels,
+        basename(path),
+      );
+      const nameHit = [path, label].some((value) =>
+        value.toLocaleLowerCase().includes(needle),
+      );
+      if (nameHit) {
+        names.add(key);
+        matched.add(key);
+        continue;
+      }
+      const remoteRows =
+        isRemoteProjectPath(path) || remoteProjectFor(path)
+          ? cachedRemoteSessions(path)
+          : undefined;
+      const rows: SessionSummary[] = remoteRows
+        ? remoteRows.map((row) => ({
+            ...row,
+            cwd: path,
+            model: row.model ?? "",
+            providerSessionId: row.providerSessionId ?? undefined,
+            runtimeMode: row.runtimeMode ?? "supervised",
+            createdAt: row.createdAt ?? row.updatedAt,
+          }))
+        : (historyByProject.get(key) ?? []);
+      const busy = remoteRows
+        ? new Set(
+            remoteRows
+              .filter((row) => row.status === "running" && !row.needsInput)
+              .map((row) => row.id),
+          )
+        : props.busySessionIds;
+      const approvals = remoteRows
+        ? new Set(
+            remoteRows.filter((row) => row.needsInput).map((row) => row.id),
+          )
+        : props.approvalSessionIds;
+      const filtered = filterSessionsByStatus(
+        filterSessionsByTime(
+          filterSessionsByHarness(
+            filterSessionsByArchive(rows, filters.showArchived),
+            filters.hiddenHarnesses,
+          ),
+          filters.time,
+          Date.now(),
+        ),
+        filters.status,
+        busy,
+        approvals,
+        projectSessionFlags(props.unseenFinishedIds, path) ?? new Set(),
+      );
+      if (
+        filtered.some(
+          (row) =>
+            !row.orchestrationLeadId &&
+            sessionDisplayTitle(row.title, row.harness)
+              .toLocaleLowerCase()
+              .includes(needle),
+        )
+      )
+        matched.add(key);
+      if (failedPaths.has(key) || searchFailed.has(key)) matched.add(key);
+    }
+    return { matched, names };
+  }, [
+    query,
+    projects,
+    labels,
+    historyByProject,
+    remoteRevision,
+    filters,
+    props.busySessionIds,
+    props.approvalSessionIds,
+    props.unseenFinishedIds,
+    props.openSessions,
+    failedPaths,
+    searchFailed,
+  ]);
+  const shownExpanded = searchActive ? matchInfo.matched : expandedPaths;
+  const shownExpandedKey = [...shownExpanded].sort().join("\0");
+  useEffect(() => {
+    if (
+      tab === "sessions" &&
+      (!shownExpanded.has(pathKey(cwd)) ||
+        (sessionProjectPath && !sameProjectPath(cwd, sessionProjectPath)))
+    )
+      props.onSessionNavigationOrder?.([]);
+  }, [
+    cwd,
+    tab,
+    shownExpandedKey,
+    sessionProjectPath,
+    props.onSessionNavigationOrder,
+  ]);
+  const searchPending =
+    open &&
+    searchActive &&
+    (searchRunning.current > 0 ||
+      searchQueue.current.length > 0 ||
+      projects.some(
+        ({ path }) =>
+          (isRemoteProjectPath(path) || remoteProjectFor(path)
+            ? !hasCachedRemoteProjectSessions(path)
+            : !loadedPaths.has(pathKey(path))) &&
+          !searchRequests.current.has(pathKey(path)) &&
+          !!(isRemoteProjectPath(path) || remoteProjectFor(path)
+            ? props.onPrefetchRemoteProject
+            : props.onLoadProject),
+      ));
+
+  const expandProject = (path: string) => {
+    const key = pathKey(path);
+    const next = new Set(expandedPaths);
+    next.add(key);
+    setExpandedPaths(next);
+    saveProjectTreeExpanded(next);
+  };
+  const selectProject = (path: string) => {
+    // A second click on an open project collapses it, like its disclosure.
+    if (!searchActive && shownExpanded.has(pathKey(path))) {
+      toggleProject(path);
+      return;
+    }
+    expandProject(path);
+    props.onSelectProject?.(path);
+  };
+  const toggleProject = (path: string) => {
+    if (searchActive) return;
+    const key = pathKey(path);
+    const next = new Set(expandedPaths);
+    if (!next.delete(key)) next.add(key);
+    setExpandedPaths(next);
+    saveProjectTreeExpanded(next);
+  };
+  const newInProject = (path: string) => {
+    expandProject(path);
+    return onNewInProject
+      ? onNewInProject(path)
+      : sameProjectPath(path, cwd)
+        ? props.onNew?.()
+        : undefined;
+  };
+
+  const remoteCurrent = isRemoteProjectPath(cwd) || !!remoteProjectFor(cwd);
+  const hostProject = remoteCurrent ? remoteProjectFor(cwd) : undefined;
+  const activeRemoteId = props.activeSessionId
+    ? remoteSessionFor(props.activeSessionId)
+    : undefined;
   const remoteExecutionCwd =
-    remote.sessions.find((session) => session.id === activeRemoteId)?.cwd ??
-    (activeSessionId ? remotePendingWorktree(activeSessionId) : undefined) ??
-    (remoteProject && gitCwd && gitCwd !== cwd
-      ? (parseRemotePath(gitCwd)?.hostPath ?? gitCwd)
+    cachedRemoteSessions(cwd).find((row) => row.id === activeRemoteId)?.cwd ??
+    (props.activeSessionId
+      ? remotePendingWorktree(props.activeSessionId)
       : undefined) ??
-    undefined;
+    (remoteCurrent && props.gitCwd && props.gitCwd !== cwd
+      ? (parseRemotePath(props.gitCwd)?.hostPath ?? props.gitCwd)
+      : undefined);
   const gitRoot =
-    remoteProject && hostProject && !hostProject.local
+    remoteCurrent && hostProject && !hostProject.local
       ? remotePath(
           hostProject.environmentId,
           remoteExecutionCwd ?? hostProject.cwd,
         )
-      : gitCwd || cwd;
-  const resize = useDragResize({
-    min: MIN_WIDTH,
-    max: () => Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.5)),
-    defaultWidth: DEFAULT_WIDTH,
-    initial: loadSidebarWidth(),
-    onCommit: saveSidebarWidth,
-  });
-  const [tabOrder, setTabOrder] = useState<SidebarTab[]>(loadSidebarTabOrder);
-  const [now, setNow] = useState(() => Date.now());
-  const sessionsLock = useLockOverscroll<HTMLDivElement>();
-  const sessionsScrollRef = useRef<HTMLDivElement>(null);
-  const [sessionMenu, setSessionMenu] = useState<{
-    x: number;
-    y: number;
-    sessionId: string;
-  } | null>(null);
-  const [linkingSession, setLinkingSession] = useState<SessionSummary | null>(
-    null,
-  );
-  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const contextSelectionRef = useRef(false);
-  const selectionAnchorRef = useRef<string | null>(null);
-  const [folderMenu, setFolderMenu] = useState<{
-    x: number;
-    y: number;
-    folderId: string;
-  } | null>(null);
-  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
-    null,
-  );
-  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
-  const [sessionFolders, setSessionFolders] = useState<SessionFolder[]>(() =>
-    loadSessionFolders(cwd),
-  );
-  const [pinnedSessionsCollapsed, setPinnedSessionsCollapsed] = useState(() =>
-    loadPinnedSessionsCollapsed(cwd),
-  );
-  const [reminderSessionsCollapsed, setReminderSessionsCollapsed] = useState(
-    () => loadReminderSessionsCollapsed(cwd),
-  );
-  const [sessionDrop, setSessionDrop] = useState<SessionListDropTarget | null>(
-    null,
-  );
-  const [sessionFilters, setSessionFilters] = useState(
-    loadSessionSidebarFilters,
-  );
-  const [filterMenu, setFilterMenu] = useState<{ x: number; y: number } | null>(
-    null,
-  );
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sessionListLimit, setSessionListLimit] = useState(LIST_PAGE_SIZE);
-  const loadMoreRef = useRef<HTMLLIElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const pendingFolderSessionIds = useRef(new Set<string>());
-  const busyIdsRef = useRef(busySessionIds);
-  const focusedSessionIdRef = useRef(activeSessionId);
-  const unseenFinishedLocalRef = useRef<Set<string>>(new Set());
-  if (
-    busyIdsRef.current !== busySessionIds ||
-    focusedSessionIdRef.current !== activeSessionId
-  ) {
-    unseenFinishedLocalRef.current = nextUnseenFinishedSessions({
-      previousBusyIds: busyIdsRef.current,
-      busyIds: busySessionIds,
-      previousUnseenIds: unseenFinishedLocalRef.current,
-      focusedSessionId: activeSessionId,
-    });
-    busyIdsRef.current = busySessionIds;
-    focusedSessionIdRef.current = activeSessionId;
-  }
-  const unseenFinishedIds =
-    unseenFinishedIdsProp ?? unseenFinishedLocalRef.current;
-  // Revisits render straight from cache, so this is only ever true the first
-  // time a project is opened.
-  const pendingFirstLoad = remoteProject
-    ? !!remote.machine && !remote.loaded && projectSessions.length === 0
-    : pending && sessions.length === 0;
-  const worktreeFocus = useWorktreeFocus(cwd);
-  const focusedWorktree = remoteProject ? undefined : worktreeFocus;
-  const listedSessions = mergeFolderSessionSummaries(
-    projectSessions,
-    remoteProject ? [] : openSessions,
-    sessionFolders,
-  ).filter(
-    (session) =>
-      !session.orchestrationLeadId && inWorktreeFocus(session, focusedWorktree),
-  );
-  const visibleSessions = [
-    ...filterSessionsByQuery(
-      filterSessionsByStatus(
-        filterSessionsByTime(
-          filterSessionsByHarness(
-            filterSessionsByArchive(
-              listedSessions,
-              sessionFilters.showArchived,
-            ),
-            sessionFilters.hiddenHarnesses,
-          ),
-          sessionFilters.time,
-          now,
+      : props.gitCwd || cwd;
+  const changes = useProjectDiffStats(gitRoot, open);
+  const additions = changes?.additions ?? 0;
+  const deletions = changes?.deletions ?? 0;
+  const gitStatuses = useGitFileStatuses(gitRoot, open && tab === "files");
+  const workingCopyHeight = Math.min(420, treeHeight * 0.6);
+  const busyPaths = projects
+    .filter(
+      ({ path }) =>
+        (historyByProject.get(pathKey(path)) ?? []).some((row) =>
+          props.busySessionIds.has(row.id),
+        ) ||
+        cachedRemoteSessions(path).some(
+          (row) => row.status === "running" && !row.needsInput,
         ),
-        sessionFilters.status,
-        listedBusySessionIds,
-        listedApprovalSessionIds,
-        unseenFinishedIds,
-      ),
-      searchQuery,
-    ),
-  ].sort(compareSessionSummaries);
-  const filtersActive = hasActiveSessionFilters(sessionFilters);
-  const searchNarrowed = Boolean(searchQuery.trim());
-  // Summaries for the whole project stay in `sessions` so filters still work.
-  // Folders sit above the ungrouped list. Only a page of ungrouped cards
-  // mounts; the sentinel below asks for the next page.
-  const reminderIds = new Set(reminders.map((reminder) => reminder.sessionId));
-  const reminderGroup = {
-    sessionIds: [...reminders]
-      .sort((a, b) => a.dueAt - b.dueAt)
-      .map((reminder) => reminder.sessionId),
-    collapsed: reminderSessionsCollapsed,
-  };
-  const ungroupedVisible = ungroupedSessions(
-    visibleSessions,
-    sessionFolders,
-  ).filter((session) => !reminderIds.has(session.id));
-  const activeUngroupedIndex = ungroupedVisible.findIndex(
-    (session) => session.id === activeListedSessionId,
-  );
-  const shownUngroupedCount = listWindowSize(
-    ungroupedVisible.length,
-    sessionListLimit,
-    activeUngroupedIndex,
-  );
-  const shownUngrouped = ungroupedVisible.slice(0, shownUngroupedCount);
-  const fullSessionListEntries = buildSessionList(
-    visibleSessions,
-    sessionFolders,
-    ungroupedVisible,
-    pinnedSessionsCollapsed,
-    reminderGroup,
-  );
-  const sessionListEntries = buildSessionList(
-    visibleSessions,
-    sessionFolders,
-    shownUngrouped,
-    pinnedSessionsCollapsed,
-    reminderGroup,
-  );
-  const sessionNavigationIds = sessionListNavigationIds(
-    fullSessionListEntries,
-    searchNarrowed,
-  );
-  const sessionNavigationKey = sessionNavigationIds.join("\0");
-  useEffect(() => {
-    onSessionNavigationOrder?.(sessionNavigationIds);
-  }, [onSessionNavigationOrder, sessionNavigationKey]);
-  useEffect(() => {
-    if (tab !== "sessions") {
-      selectionAnchorRef.current = null;
-      setSelectedSessionIds(new Set());
-      return;
-    }
-    const available = new Set(sessionNavigationIds);
-    if (
-      selectionAnchorRef.current &&
-      !available.has(selectionAnchorRef.current)
-    ) {
-      selectionAnchorRef.current = null;
-    }
-    setSelectedSessionIds((current) =>
-      pruneSessionSelection(current, available),
-    );
-  }, [cwd, tab, sessionNavigationKey]);
-  const hasMoreSessions = shownUngroupedCount < ungroupedVisible.length;
-  const sessionListKey = `${cwd}\0${sessionFilters.showArchived}\0${sessionFilters.time}\0${sessionFilters.hiddenHarnesses.join(",")}\0${sessionFilters.status.working}\0${sessionFilters.status.needsApproval}\0${sessionFilters.status.done}\0${searchQuery}`;
-  const sessionHarnesses = harnessesInSessions(projectSessions);
-  const narrowedByUser = searchNarrowed || filtersActive;
-  const visibleTabs = tabOrder;
-  const sortable = useAnimatedReorder(visibleTabs, (next) => {
-    setTabOrder(next);
-    saveSidebarTabOrder(next);
-  });
-  const visibleFolderIds = sessionListEntries.flatMap((entry) =>
-    entry.kind === "folder" ? [entry.folder.id] : [],
-  );
-  const folderSortable = useSortable(
-    visibleFolderIds,
-    (ids) => {
-      setSessionFolders((current) => {
-        const next = reorderSessionFolders(current, ids);
-        if (next === current) return current;
-        saveSessionFolders(cwd, next);
-        return next;
-      });
-    },
-    { axis: "y" },
-  );
-  const panelOpen = open;
-  const gitStatuses = useGitFileStatuses(gitRoot, panelOpen && tab === "files");
-  const changeStats = useProjectDiffStats(gitRoot, panelOpen);
+    )
+    .map(({ path }) => path);
+  const approvalPaths = projects
+    .filter(
+      ({ path }) =>
+        (historyByProject.get(pathKey(path)) ?? []).some((row) =>
+          props.approvalSessionIds.has(row.id),
+        ) || cachedRemoteSessions(path).some((row) => row.needsInput),
+    )
+    .map(({ path }) => path);
 
-  useEffect(() => {
-    setSessionListLimit(LIST_PAGE_SIZE);
-    const scroller = sessionsScrollRef.current;
-    if (scroller) scroller.scrollTop = 0;
-  }, [sessionListKey]);
-
-  useEffect(() => {
-    if (tab !== "sessions" || !hasMoreSessions) return;
-    const sentinel = loadMoreRef.current;
-    const root = sessionsScrollRef.current;
-    if (!sentinel || !root) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry?.isIntersecting) return;
-        setSessionListLimit((current) => current + LIST_PAGE_SIZE);
-      },
-      { root, rootMargin: "240px" },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [tab, hasMoreSessions, shownUngroupedCount]);
-
-  useEffect(() => {
-    setSessionFolders(loadSessionFolders(cwd));
-    setPinnedSessionsCollapsed(loadPinnedSessionsCollapsed(cwd));
-    setReminderSessionsCollapsed(loadReminderSessionsCollapsed(cwd));
-    setRenamingFolderId(null);
-    setFolderMenu(null);
-    setSessionDrop(null);
-    pendingFolderSessionIds.current.clear();
-  }, [cwd]);
-
-  useEffect(
-    () =>
-      subscribeSessionFolders(cwd, () => {
-        setSessionFolders(loadSessionFolders(cwd));
-      }),
-    [cwd],
-  );
-
-  useEffect(() => {
-    if (pending || status === "error") return;
-    if (remoteProject && !remote.loaded) return;
-    const known = new Set(projectSessions.map((session) => session.id));
-    const completedFolderSessions = new Map<string, string>();
-    for (const session of remoteProject ? [] : openSessions)
-      known.add(session.id);
-    if (activeListedSessionId) known.add(activeListedSessionId);
-    if (remoteProject && activeSessionId) known.add(activeSessionId);
-    if (remoteProject) {
-      for (const folder of sessionFolders) {
-        for (const shellId of folder.sessionIds) {
-          const hostId = remoteSessionFor(shellId);
-          if (hostId && known.has(hostId))
-            completedFolderSessions.set(shellId, hostId);
-        }
-      }
-    }
-    for (const id of pendingFolderSessionIds.current) {
-      known.add(id);
-      const hostId = remoteProject ? remoteSessionFor(id) : undefined;
-      if (hostId && known.has(hostId)) {
-        completedFolderSessions.set(id, hostId);
-        pendingFolderSessionIds.current.delete(id);
-        continue;
-      }
-      if (
-        projectSessions.some((session) => session.id === id) ||
-        openSessions.some((session) => session.id === id)
-      ) {
-        pendingFolderSessionIds.current.delete(id);
-      }
-    }
-    setSessionFolders((current) => {
-      const migrated = completedFolderSessions.size
-        ? current.map((folder) => ({
-            ...folder,
-            sessionIds: folder.sessionIds.map(
-              (id) => completedFolderSessions.get(id) ?? id,
-            ),
-          }))
-        : current;
-      const next = pruneSessionFolders(migrated, known);
-      if (next === current) return current;
-      saveSessionFolders(cwd, next);
-      return next;
-    });
-  }, [
-    activeListedSessionId,
-    activeSessionId,
-    cwd,
-    openSessions,
-    pending,
-    projectSessions,
-    remoteProject,
-    remote.loaded,
-    sessionFolders,
-    status,
-  ]);
-
-  useEffect(() => {
-    if (tab !== "sessions") return;
-    const id = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(id);
-  }, [tab]);
-
-  useEffect(() => {
-    if (tab !== "sessions") {
-      setFilterMenu(null);
-      setSearchQuery("");
-    }
-  }, [tab]);
-
-  useEffect(() => {
-    if (!sessionMenu && !folderMenu && !filterMenu) return;
-    const onScroll = () => {
-      closeSessionMenu();
-      setFolderMenu(null);
-      setFilterMenu(null);
-    };
-    const scrollParent = sessionsScrollRef.current ?? window;
-    scrollParent.addEventListener("scroll", onScroll, true);
-    return () => scrollParent.removeEventListener("scroll", onScroll, true);
-  }, [sessionMenu, folderMenu, filterMenu]);
-
-  useEffect(() => {
-    if (selectedSessionIds.size === 0) return;
-    const clear = () => {
-      selectionAnchorRef.current = null;
-      contextSelectionRef.current = false;
-      setSelectedSessionIds(new Set());
-      setSessionMenu(null);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      clear();
-    };
-    // A pointer landing off the cards drops the selection; a menu acting on
-    // it stays open, and the cards handle their own clicks.
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      const el = target instanceof Element ? target : null;
-      if (el?.closest("[data-session-card],[data-popover-side]")) return;
-      clear();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("pointerdown", onPointerDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("pointerdown", onPointerDown);
-    };
-  }, [selectedSessionIds.size]);
-
-  const commitSessionFolders = (next: SessionFolder[]) => {
-    setSessionFolders(next);
-    saveSessionFolders(cwd, next);
-  };
-
-  const onNewInFolder = (folderId: string) => {
-    const sessionId = onNew?.();
-    if (!sessionId) return;
-    pendingFolderSessionIds.current.add(sessionId);
-    setSearchQuery("");
-    setSessionFolders((current) => {
-      const next = setFolderCollapsed(
-        addSessionToFolder(current, folderId, sessionId),
-        folderId,
-        false,
+  const renderWorkingCopy = (): ReactNode => {
+    if (props.recents !== undefined && (!cwd || cwd === "~"))
+      return (
+        <p className="px-3 py-2 text-[12px] text-content/50">
+          {t("Choose project")}
+        </p>
       );
-      saveSessionFolders(cwd, next);
-      return next;
-    });
-  };
-
-  const menuSessionIds = sessionMenu
-    ? orderedSessionActionIds(
-        sessionMenu.sessionId,
-        selectedSessionIds,
-        sessionNavigationIds,
-      )
-    : [];
-  const menuSessions = menuSessionIds.flatMap((sessionId) => {
-    const session = listedSessions.find((entry) => entry.id === sessionId);
-    return session ? [session] : [];
-  });
-  const multipleMenuSessions = menuSessionIds.length > 1;
-  const menuReminderTimes = [
-    ...new Set(
-      reminders
-        .filter((reminder) => menuSessionIds.includes(reminder.sessionId))
-        .map((reminder) => reminder.dueAt),
-    ),
-  ];
-  const allMenuSessionsPinned =
-    menuSessions.length > 0 && menuSessions.every((session) => session.pinned);
-  const allMenuSessionsArchived =
-    menuSessions.length > 0 &&
-    menuSessions.every((session) => session.archived);
-  const menuSessionFolder =
-    menuSessionIds.length === 1
-      ? folderContaining(sessionFolders, menuSessionIds[0])
-      : undefined;
-  const anyMenuSessionFoldered = menuSessionIds.some((sessionId) =>
-    sessionFolders.some((folder) => folder.sessionIds.includes(sessionId)),
-  );
-  const canRemoveMenuSessionsFromFolders = multipleMenuSessions
-    ? anyMenuSessionFoldered
-    : !!menuSessionFolder;
-  const menuFolder = folderMenu
-    ? sessionFolders.find((folder) => folder.id === folderMenu.folderId)
-    : undefined;
-  const folderMenuItems: ExplorerMenuItem[] = [
-    { kind: "item", id: "rename", label: uiT("Rename"), shortcut: "F2" },
-    { kind: "sep" },
-    { kind: "item", id: "ungroup", label: uiT("Ungroup") },
-  ];
-  const sessionMenuItems: ExplorerMenuItem[] = [
-    ...(onCancelReminders && menuReminderTimes.length > 0
-      ? [
-          {
-            kind: "item" as const,
-            id: "reminder:cancel",
-            label: uiT("Cancel reminder"),
-            description:
-              menuReminderTimes.length === 1
-                ? formatReminderTime(menuReminderTimes[0])
-                : uiT("Multiple reminder times"),
-          },
-          { kind: "sep" as const },
-        ]
-      : []),
-    ...(onPinSession || onPinSessions
-      ? [
-          {
-            kind: "item" as const,
-            id: "pin",
-            label: allMenuSessionsPinned ? uiT("Unpin") : uiT("Pin"),
-          },
-        ]
-      : []),
-    ...(!multipleMenuSessions && onRenameSession
-      ? [
-          {
-            kind: "item" as const,
-            id: "rename",
-            label: uiT("Rename"),
-            shortcut: "F2",
-          },
-        ]
-      : []),
-    ...(!multipleMenuSessions
-      ? [
-          {
-            kind: "item" as const,
-            id: "copy-session-id",
-            label: uiT("Copy session ID"),
-            submenu: [
-              {
-                kind: "item" as const,
-                id: "copy-harness-session-id",
-                label: uiT("Harness session ID"),
-                disabled: !menuSessions[0]?.providerSessionId,
-              },
-              {
-                kind: "item" as const,
-                id: "copy-monocode-session-id",
-                label: uiT("MonoCode session ID"),
-              },
-            ],
-          },
-        ]
-      : []),
-    ...(!multipleMenuSessions && onSetSessionLinkedWorkItem
-      ? [
-          {
-            kind: "item" as const,
-            id: "link-work-item",
-            label: menuSessions[0]?.linkedWorkItem
-              ? uiT("Edit GitHub issue or PR link…")
-              : uiT("Link GitHub issue or PR…"),
-          },
-        ]
-      : []),
-    {
-      kind: "item",
-      id: "reminder",
-      label: uiT("Remind me"),
-      disabled: !onSetReminders,
-      submenu: sessionReminderPresets(),
-    },
-    { kind: "sep" as const },
-    { kind: "item" as const, id: "folder-new", label: uiT("New folder") },
-    ...(sessionFolders.length > 0 ? [{ kind: "sep" as const }] : []),
-    ...sessionFolders.map((folder) => ({
-      kind: "item" as const,
-      id: `folder-add:${folder.id}`,
-      label: uiT("Add to {value0}", { value0: String(folder.name) }),
-      checked:
-        menuSessionIds.length > 0 &&
-        menuSessionIds.every((sessionId) =>
-          folder.sessionIds.includes(sessionId),
-        ),
-    })),
-    ...(canRemoveMenuSessionsFromFolders
-      ? [
-          {
-            kind: "item" as const,
-            id: "folder-remove",
-            label: multipleMenuSessions
-              ? uiT("Remove from folders")
-              : uiT("Remove from folder"),
-          },
-        ]
-      : []),
-    ...(onArchiveSession ||
-    onArchiveSessions ||
-    onDeleteSession ||
-    onDeleteSessions
-      ? [
-          { kind: "sep" as const },
-          ...(onArchiveSession || onArchiveSessions
-            ? [
-                {
-                  kind: "item" as const,
-                  id: "archive",
-                  label: allMenuSessionsArchived
-                    ? uiT("Unarchive")
-                    : uiT("Archive"),
-                },
-              ]
-            : []),
-          ...(onDeleteSession || onDeleteSessions
-            ? [
-                {
-                  kind: "item" as const,
-                  id: "delete",
-                  label: uiT("Delete"),
-                  shortcut: "⌫",
-                  danger: true,
-                },
-              ]
-            : []),
-        ]
-      : []),
-  ];
-
-  const onSessionContextMenu = (
-    sessionId: string,
-    e: ReactMouseEvent<HTMLDivElement>,
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
-    contextSelectionRef.current = !selectedSessionIds.has(sessionId);
-    if (contextSelectionRef.current) {
-      setSelectedSessionIds(new Set([sessionId]));
-    }
-    setFilterMenu(null);
-    setFolderMenu(null);
-    setSessionMenu({ x: e.clientX, y: e.clientY, sessionId });
-  };
-
-  const closeSessionMenu = () => {
-    setSessionMenu(null);
-    if (!contextSelectionRef.current) return;
-    contextSelectionRef.current = false;
-    selectionAnchorRef.current = null;
-    setSelectedSessionIds(new Set());
-  };
-
-  const onFolderContextMenu = (
-    folderId: string,
-    e: ReactMouseEvent<HTMLButtonElement>,
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setFilterMenu(null);
-    setSessionMenu(null);
-    setFolderMenu({ x: e.clientX, y: e.clientY, folderId });
-  };
-
-  const onSessionMenuPick = (id: string) => {
-    if (!sessionMenu) return;
-    const sessionId = sessionMenu.sessionId;
-    const sessionIds = menuSessionIds;
-    const providerSessionId = menuSessions[0]?.providerSessionId;
-    const archived = allMenuSessionsArchived;
-    const pinned = allMenuSessionsPinned;
-    closeSessionMenu();
-    if (id === "reminder:cancel") {
-      onCancelReminders?.(sessionIds);
-      return;
-    }
-    if (id.startsWith("reminder:")) {
-      const dueAt = reminderTime(id);
-      if (dueAt != null) {
-        setReminderSessionsCollapsed(false);
-        saveReminderSessionsCollapsed(cwd, false);
-        onSetReminders?.(sessionIds, dueAt);
-      }
-      return;
-    }
-    if (id === "pin") {
-      if (sessionIds.length > 1 && onPinSessions) {
-        onPinSessions(sessionIds, !pinned);
-      } else {
-        for (const id of sessionIds) onPinSession?.(id, !pinned);
-      }
-      return;
-    }
-    if (id === "rename") {
-      setRenamingSessionId(sessionId);
-      return;
-    }
-    if (id === "copy-harness-session-id" || id === "copy-monocode-session-id") {
-      const value =
-        id === "copy-harness-session-id" ? providerSessionId : sessionId;
-      if (value) {
-        void copyText(value).catch((error) => {
-          console.error("Failed to copy session ID:", error);
-        });
-      }
-      return;
-    }
-    if (id === "link-work-item") {
-      setLinkingSession(menuSessions[0] ?? null);
-      return;
-    }
-    if (id === "folder-new") {
-      const { folders, id: createdId } = createFolderWithSessions(
-        sessionFolders,
-        sessionIds,
-      );
-      if (!createdId) return;
-      commitSessionFolders(folders);
-      setRenamingFolderId(createdId);
-      return;
-    }
-    if (id.startsWith("folder-add:")) {
-      const folderId = id.slice("folder-add:".length);
-      const folders = sessionIds.reduce(
-        (current, id) => addSessionToFolder(current, folderId, id),
-        sessionFolders,
-      );
-      commitSessionFolders(setFolderCollapsed(folders, folderId, false));
-      return;
-    }
-    if (id === "folder-remove") {
-      commitSessionFolders(
-        sessionIds.reduce(
-          (current, id) => removeSessionFromFolder(current, id),
-          sessionFolders,
-        ),
-      );
-      return;
-    }
-    if (id === "archive") {
-      if (sessionIds.length > 1 && onArchiveSessions) {
-        onArchiveSessions(sessionIds, !archived);
-      } else {
-        for (const id of sessionIds) onArchiveSession?.(id, !archived);
-      }
-      return;
-    }
-    if (id === "delete") {
-      if (sessionIds.length > 1 && onDeleteSessions) {
-        onDeleteSessions(sessionIds);
-      } else {
-        for (const id of sessionIds) onDeleteSession?.(id);
-      }
-    }
-  };
-
-  const onFolderMenuPick = (id: string) => {
-    if (!folderMenu) return;
-    const folderId = folderMenu.folderId;
-    setFolderMenu(null);
-    if (id === "rename") {
-      setRenamingFolderId(folderId);
-      return;
-    }
-    if (id === "ungroup") {
-      commitSessionFolders(dissolveFolder(sessionFolders, folderId));
-    }
-  };
-
-  const onFolderColorChange = (colorIndex: number | null) => {
-    if (!folderMenu) return;
-    commitSessionFolders(
-      setFolderColor(sessionFolders, folderMenu.folderId, colorIndex),
-    );
-  };
-
-  const onFolderCustomColorChange = (color: string) => {
-    if (!folderMenu) return;
-    commitSessionFolders(
-      setFolderCustomColor(sessionFolders, folderMenu.folderId, color),
-    );
-  };
-
-  const onSessionListDrop = (
-    draggedId: string,
-    target: SessionListDropTarget,
-  ) => {
-    const { folders, createdId } = applySessionListDrop(
-      sessionFolders,
-      draggedId,
-      target,
-    );
-    if (folders === sessionFolders) return;
-    commitSessionFolders(folders);
-    if (createdId) setRenamingFolderId(createdId);
-  };
-
-  const isSessionDrop = (kind: "folder" | "session", id: string) =>
-    sessionDrop?.kind === kind && sessionDrop.id === id;
-
-  const onSessionCardSelect = (
-    sessionId: string,
-    event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
-  ) => {
-    contextSelectionRef.current = false;
-    setSessionMenu(null);
-    if (event.shiftKey) {
-      const visibleIds = sessionListNavigationIds(
-        sessionListEntries,
-        searchNarrowed,
-      );
-      if (
-        selectionAnchorRef.current &&
-        !visibleIds.includes(selectionAnchorRef.current)
-      ) {
-        selectionAnchorRef.current = null;
-      }
-      const anchor =
-        selectionAnchorRef.current ?? activeListedSessionId ?? sessionId;
-      const start = visibleIds.indexOf(anchor);
-      const end = visibleIds.indexOf(sessionId);
-      const range =
-        start < 0 || end < 0
-          ? [sessionId]
-          : visibleIds.slice(Math.min(start, end), Math.max(start, end) + 1);
-      selectionAnchorRef.current = start < 0 ? sessionId : anchor;
-      setSelectedSessionIds(
-        (current) =>
-          new Set(
-            event.ctrlKey || event.metaKey ? [...current, ...range] : range,
-          ),
-      );
-      return;
-    }
-    selectionAnchorRef.current = sessionId;
-    if (event.ctrlKey || event.metaKey) {
-      const next = toggleSessionSelection(selectedSessionIds, sessionId);
-      if (next.size === 0) selectionAnchorRef.current = null;
-      setSelectedSessionIds(next);
-      return;
-    }
-    setSelectedSessionIds(new Set());
-    onSelectSession(sessionId);
-  };
-
-  // Cards are memoized. Their handlers go through one stable set that calls
-  // the latest version, so a sidebar render no longer re-renders every card.
-  const cardHandlers = useRef({
-    onSessionCardSelect,
-    onOpenInboxItem,
-    onPrefetchSession,
-    onPlaceSessionOnPane,
-    onSessionListDrop,
-    onSessionContextMenu,
-    onArchiveSession,
-    setRenamingSessionId,
-    onDeleteSession,
-  });
-  cardHandlers.current = {
-    onSessionCardSelect,
-    onOpenInboxItem,
-    onPrefetchSession,
-    onPlaceSessionOnPane,
-    onSessionListDrop,
-    onSessionContextMenu,
-    onArchiveSession,
-    setRenamingSessionId,
-    onDeleteSession,
-  };
-  const cardActions = useMemo(
-    () => ({
-      select: (
-        sessionId: string,
-        event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
-      ) => cardHandlers.current.onSessionCardSelect(sessionId, event),
-      openWorkItem: (item: LinkedWorkItem, sessionId: string) =>
-        cardHandlers.current.onOpenInboxItem?.(item, sessionId),
-      prefetch: (sessionId: string) =>
-        cardHandlers.current.onPrefetchSession?.(sessionId),
-      placeOnPane: (sessionId: string, targetId: string, edge: PaneEdge) =>
-        cardHandlers.current.onPlaceSessionOnPane?.(sessionId, targetId, edge),
-      listDrop: (draggedId: string, target: SessionListDropTarget) =>
-        cardHandlers.current.onSessionListDrop(draggedId, target),
-      contextMenu: (sessionId: string, e: ReactMouseEvent<HTMLDivElement>) =>
-        cardHandlers.current.onSessionContextMenu(sessionId, e),
-      archive: (sessionId: string, archived: boolean) =>
-        cardHandlers.current.onArchiveSession?.(sessionId, archived),
-      rename: (sessionId: string) =>
-        cardHandlers.current.setRenamingSessionId(sessionId),
-      delete: (sessionId: string) =>
-        cardHandlers.current.onDeleteSession?.(sessionId),
-    }),
-    [],
-  );
-
-  const sessionInsertMotion = useRef<SessionInsertMotion>({
-    cwd: "",
-    seen: new Set(),
-  });
-  // Runs after the rows' mount effects: a project's first paint never animates,
-  // and rows that mount later (sidebar opened, folder expanded) are not new.
-  useLayoutEffect(() => {
-    const motion = sessionInsertMotion.current;
-    motion.cwd = cwd;
-    for (const session of listedSessions) motion.seen.add(session.id);
-  });
-
-  const renderSessionCard = (session: SessionSummary, compact = false) =>
-    renamingSessionId === session.id && onRenameSession ? (
-      <SessionRenameRow
-        session={session}
-        isActive={session.id === activeListedSessionId}
-        needsApproval={listedApprovalSessionIds.has(session.id)}
-        onCommit={(title) => {
-          onRenameSession(session.id, title);
-          setRenamingSessionId(null);
-        }}
-        onCancel={() => setRenamingSessionId(null)}
-      />
-    ) : (
-      <SessionCard
-        session={session}
-        isActive={session.id === activeListedSessionId}
-        isSelected={selectedSessionIds.has(session.id)}
-        busy={listedBusySessionIds.has(session.id)}
-        done={unseenFinishedIds.has(session.id)}
-        linkedUpdate={linkedSessionUpdateIds.has(session.id)}
-        needsApproval={listedApprovalSessionIds.has(session.id)}
-        dropTarget={isSessionDrop("session", session.id)}
-        compact={compact}
-        now={now}
-        onSelect={cardActions.select}
-        onOpenWorkItem={
-          onOpenInboxItem && !remoteProject
-            ? cardActions.openWorkItem
-            : undefined
-        }
-        onPrefetch={onPrefetchSession ? cardActions.prefetch : undefined}
-        onPlaceOnPane={
-          onPlaceSessionOnPane ? cardActions.placeOnPane : undefined
-        }
-        onListDrop={
-          reminderIds.has(session.id) ? undefined : cardActions.listDrop
-        }
-        onListDropTargetChange={setSessionDrop}
-        onContextMenu={cardActions.contextMenu}
-        onArchive={onArchiveSession ? cardActions.archive : undefined}
-        onRename={onRenameSession ? cardActions.rename : undefined}
-        onDelete={onDeleteSession ? cardActions.delete : undefined}
-      />
-    );
-
-  const onSessionFiltersChange = (next: SessionSidebarFilters) => {
-    setSessionFilters(next);
-    saveSessionSidebarFilters(next);
-  };
-
-  const onFilterButtonClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (filterMenu) {
-      setFilterMenu(null);
-      return;
-    }
-    const rect = event.currentTarget.getBoundingClientRect();
-    setSessionMenu(null);
-    setFolderMenu(null);
-    setFilterMenu({
-      x: rect.right - 228,
-      y: rect.bottom + 2,
-    });
-  };
-
-  const sessionSearchInput = (
-    <input
-      ref={searchInputRef}
-      type="text"
-      value={searchQuery}
-      placeholder={uiT("Search conversations...")}
-      aria-label={uiT("Search conversations")}
-      spellCheck={false}
-      autoComplete="off"
-      autoCorrect="off"
-      autoCapitalize="off"
-      onChange={(event) => setSearchQuery(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.key !== "Escape") return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (searchQuery) {
-          setSearchQuery("");
-        }
-      }}
-      className="h-full w-full min-w-0 rounded-md bg-transparent py-0 pl-7 pr-2 text-[12px] text-content outline-none placeholder:text-content/35"
-    />
-  );
-
-  const onTabPick = (itemId: SidebarTab) => {
-    onTabChange(itemId);
-  };
-
-  const changeAdditions = changeStats?.additions ?? 0;
-  const changeDeletions = changeStats?.deletions ?? 0;
-  const hasChangeStats = changeAdditions > 0 || changeDeletions > 0;
-  const changesLabel = hasChangeStats
-    ? [
-        uiT("Changes"),
-        changeAdditions > 0 ? `+${changeAdditions}` : "",
-        changeDeletions > 0 ? `-${changeDeletions}` : "",
-      ]
-        .filter(Boolean)
-        .join(" ")
-    : uiT("Changes");
-
-  const workspaceTabItems = visibleTabs.map((itemId) => {
-    const active = tab === itemId;
-    const isChangesTab = itemId === "changes";
     return (
       <div
-        key={itemId}
-        ref={(el) => sortable.setItemRef(itemId, el)}
-        className="reorder-item workspace-tab relative flex min-w-0 flex-1 touch-none items-stretch"
-        onPointerDown={(event) => {
-          if (event.button !== 0) return;
-          sortable.onItemPointerDown(itemId, event);
-        }}
+        data-project-working-copy
+        className={`flex min-h-0 flex-1 flex-col ${tab === "changes" ? "overflow-y-auto" : "overflow-hidden"}`}
+        style={
+          props.recents === undefined
+            ? { height: workingCopyHeight, maxHeight: workingCopyHeight }
+            : undefined
+        }
       >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={active}
-          aria-label={isChangesTab ? changesLabel : undefined}
-          data-tauri-drag-region="false"
-          onClick={() => {
-            if (sortable.consumeClick()) return;
-            onTabPick(itemId);
-          }}
-          className="surface-tab flex h-6 min-w-0 flex-1 items-center justify-center self-center px-2 text-[12px] leading-none"
-        >
-          {isChangesTab && hasChangeStats ? (
-            <DiffStat additions={changeAdditions} deletions={changeDeletions} />
-          ) : (
-            <span className="block truncate leading-label">
-              {uiT(TAB_LABELS[itemId])}
-            </span>
-          )}
-        </button>
-      </div>
-    );
-  });
-
-  const sidebarContent = (
-    <aside
-      className="body-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-stroke"
-      style={{ width: resize.dragging ? "100%" : resize.width }}
-    >
-      {!chromeInMenuBar ? (
-        <div
-          className="flex h-10 shrink-0 select-none items-center pr-1.5"
-          data-tauri-drag-region="deep"
-        >
-          <WindowNavigationSpace />
-          <div className="min-w-0 flex-1" />
-          {onToggleSidebar ? (
-            <IconButton label={sidebarToggleLabel} onClick={onToggleSidebar}>
-              <PanelLeft className="size-3.5" strokeWidth={1.75} />
-            </IconButton>
-          ) : null}
-        </div>
-      ) : null}
-      <div
-        className={`flex ${chromeInMenuBar ? "h-10" : "h-8"} shrink-0 items-center gap-1 border-b border-stroke pl-3 pr-1.5`}
-      >
-        <div className="flex min-w-0 flex-1 items-center">
-          {!remoteProject && cwd && cwd !== "~" ? (
-            <SidebarWorktreeSwitcher
-              cwd={cwd}
-              tabStats={worktreeTabStats}
-              onSelect={onSelectWorkspace}
-              pending={workspaceSwitchPending}
-              switchError={workspaceSwitchError}
-            />
-          ) : (
-            <span className="min-w-0 truncate text-sm font-medium leading-tight">
-              {cwd && cwd !== "~" ? basename(cwd) : uiT("Workspace")}
-            </span>
-          )}
-        </div>
-        <WorkspaceTitleActions onSearch={onGoToFile} onNew={onNew} />
-      </div>
-      <div
-        role="tablist"
-        aria-label={uiT("Workspace")}
-        className="flex h-9 shrink-0 items-center gap-px border-b border-stroke px-2"
-      >
-        {workspaceTabItems}
-      </div>
-      <>
-        <div
-          className={`flex min-h-0 flex-1 flex-col overflow-hidden ${
-            tab === "files" ? "" : "hidden"
-          }`}
-        >
-          {filesSearchOpen ? (
+        {tab === "files" ? (
+          props.filesSearchOpen ? (
             <ProjectSearch
               cwd={gitRoot}
-              focusToken={searchFocusToken}
-              onOpenFile={onOpenFile}
-              onClose={() => onFilesSearchOpenChange(false)}
+              focusToken={props.searchFocusToken}
+              onOpenFile={props.onOpenFile}
+              onClose={() => props.onFilesSearchOpenChange(false)}
             />
-          ) : cwd && cwd !== "~" ? (
-            <div className="flex min-h-0 flex-1 flex-col">
-              <FileTree
-                key={gitRoot}
-                cwd={gitRoot}
-                rootLabel={explorerRootLabel}
-                onOpenFile={onOpenFile}
-                onOpenTerminal={
-                  isRemoteProjectPath(cwd) ? undefined : onOpenTerminal
-                }
-                onFileMoved={onFileMoved}
-                onFileDeleted={onFileDeleted}
-                onSearch={onOpenFilesSearch}
-                gitStatuses={gitStatuses}
-              />
-            </div>
           ) : (
-            <p className="px-3 py-2 text-[12px] text-content/50">
-              {uiT("No project folder")}
-            </p>
-          )}
-        </div>
-        {tab === "sessions" && cwd && cwd !== "~" ? (
-          <div className="flex h-9 shrink-0 items-center gap-1 border-b border-stroke px-2">
-            <div className="relative flex h-7 min-w-0 flex-1 items-center">
-              <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
-              {sessionSearchInput}
-            </div>
-            <SessionsHeaderButton
-              label={uiT("Filter sessions")}
-              active={filtersActive}
-              open={!!filterMenu}
-              hasPopup
-              onClick={onFilterButtonClick}
-            >
-              <ListFilter className="size-3" strokeWidth={1.75} />
-            </SessionsHeaderButton>
-          </div>
-        ) : null}
-        <div
-          ref={(el) => {
-            sessionsLock(el);
-            sessionsScrollRef.current = el;
-          }}
-          className={`min-h-0 flex-1 overflow-y-auto overscroll-none ${
-            tab === "sessions" ? "" : "hidden"
-          }`}
-        >
-          {!cwd || cwd === "~" ? (
-            <p className="px-3 py-2 text-[12px] text-content/50">
-              {uiT("No project folder")}
-            </p>
-          ) : (
-            <div>
-              {/*
-              A project's first load stays deliberately blank. The listing is
-              served from a covering index and resolves within a frame or two,
-              so a placeholder only ever flashed — reading as a glitch rather
-              than as progress. This is checked before the empty state so that
-              cannot claim "No sessions yet" before the rows have landed.
-            */}
-              {pendingFirstLoad ? null : status === "error" &&
-                projectSessions.length === 0 ? (
-                <p className="px-3 py-2 text-[12px] text-content/50">
-                  {uiT("Couldn’t load sessions")}
-                </p>
-              ) : visibleSessions.length === 0 ? (
-                // A narrowed-down result is a transient answer to what the user
-                // just typed, so it stays a quiet line of text. Only the genuine
-                // "this project has nothing in it" case earns the illustration.
-                narrowedByUser ? (
-                  <p className="px-3 py-2 text-[12px] text-content/50">
-                    {searchNarrowed
-                      ? uiT("No matching sessions")
-                      : uiT("No sessions match these filters")}
-                  </p>
-                ) : remoteProject && !remote.machine ? (
-                  <p className="px-3 py-2 text-[12px] text-content/45">
-                    {uiT(
-                      "This project’s machine isn’t connected on this computer.",
-                    )}
-                  </p>
-                ) : (
-                  <SessionsEmpty
-                    message={uiT("Sessions you start will show up here")}
-                  />
-                )
-              ) : (
-                <ul data-session-list className="flex flex-col gap-0.5 p-1.5">
-                  {sessionListEntries.map((entry, index) => {
-                    if (entry.kind === "pinned" || entry.kind === "reminders") {
-                      const isReminders = entry.kind === "reminders";
-                      const expanded = searchNarrowed || !entry.collapsed;
-                      const beforeUngrouped =
-                        sessionListEntries[index + 1]?.kind === "session";
-                      return (
-                        <li
-                          key={`${entry.kind}-sessions`}
-                          data-pinned-sessions={isReminders ? undefined : ""}
-                          data-reminder-sessions={isReminders ? "" : undefined}
-                          className={`relative ${
-                            expanded || beforeUngrouped ? "mb-1.5" : ""
-                          }`}
-                        >
-                          <div className="overflow-hidden rounded-md bg-content/5">
-                            <FolderRow
-                              folder={
-                                isReminders
-                                  ? {
-                                      name: "Reminders",
-                                      customColor: REMINDERS_COLOR,
-                                    }
-                                  : { name: "Pinned" }
-                              }
-                              sessions={entry.sessions}
-                              expanded={expanded}
-                              dropTarget={false}
-                              busy={entry.sessions.some((session) =>
-                                listedBusySessionIds.has(session.id),
-                              )}
-                              done={entry.sessions.some((session) =>
-                                unseenFinishedIds.has(session.id),
-                              )}
-                              needsApproval={entry.sessions.some((session) =>
-                                listedApprovalSessionIds.has(session.id),
-                              )}
-                              groupIcon={
-                                isReminders ? (
-                                  <Clock
-                                    className="size-3.5"
-                                    strokeWidth={1.75}
-                                  />
-                                ) : (
-                                  <Pin
-                                    className="size-3.5 text-content"
-                                    strokeWidth={1.75}
-                                  />
-                                )
-                              }
-                              onToggle={() => {
-                                if (searchNarrowed) return;
-                                const collapsed = !entry.collapsed;
-                                if (isReminders) {
-                                  setReminderSessionsCollapsed(collapsed);
-                                  saveReminderSessionsCollapsed(cwd, collapsed);
-                                  return;
-                                }
-                                setPinnedSessionsCollapsed(collapsed);
-                                savePinnedSessionsCollapsed(cwd, collapsed);
-                              }}
-                            />
-                            {expanded ? (
-                              <ul className="flex flex-col gap-px p-1">
-                                {entry.sessions.map((session) => (
-                                  <SessionListItem
-                                    key={session.id}
-                                    session={session}
-                                    cwd={cwd}
-                                    motion={sessionInsertMotion}
-                                  >
-                                    {renderSessionCard(session, true)}
-                                  </SessionListItem>
-                                ))}
-                              </ul>
-                            ) : null}
-                          </div>
-                        </li>
-                      );
-                    }
-                    if (entry.kind === "folder") {
-                      const expanded =
-                        searchNarrowed || !entry.folder.collapsed;
-                      const shellFill = folderShellFill(
-                        entry.folder.colorIndex,
-                        entry.folder.customColor,
-                      );
-                      const folderIndex = visibleFolderIds.indexOf(
-                        entry.folder.id,
-                      );
-                      const beforeUngrouped =
-                        sessionListEntries[index + 1]?.kind === "session";
-                      const draggingFolder =
-                        folderSortable.draggingId === entry.folder.id;
-                      const showFolderDropStart =
-                        folderSortable.draggingId &&
-                        folderSortable.toIndex === folderIndex &&
-                        folderSortable.fromIndex !== null &&
-                        folderSortable.toIndex < folderSortable.fromIndex;
-                      const showFolderDropEnd =
-                        folderSortable.draggingId &&
-                        folderSortable.toIndex === folderIndex &&
-                        folderSortable.fromIndex !== null &&
-                        folderSortable.toIndex > folderSortable.fromIndex;
-                      return (
-                        <li
-                          key={entry.folder.id}
-                          ref={(el) =>
-                            folderSortable.setItemRef(entry.folder.id, el)
-                          }
-                          data-session-folder={entry.folder.id}
-                          className={`relative ${
-                            expanded || beforeUngrouped ? "mb-1.5" : ""
-                          } ${draggingFolder ? "opacity-40" : ""}`}
-                        >
-                          {showFolderDropStart ? (
-                            <div className="pointer-events-none absolute inset-x-1 top-0 z-20 h-0.5 rounded-full bg-accent" />
-                          ) : null}
-                          {showFolderDropEnd ? (
-                            <div className="pointer-events-none absolute inset-x-1 bottom-0 z-20 h-0.5 rounded-full bg-accent" />
-                          ) : null}
-                          <div
-                            className={`overflow-hidden rounded-md ${
-                              shellFill ? "" : "bg-content/5"
-                            }`}
-                            style={
-                              shellFill ? { background: shellFill } : undefined
-                            }
-                          >
-                            {renamingFolderId === entry.folder.id ? (
-                              <FolderRenameRow
-                                folder={entry.folder}
-                                memberCount={entry.sessions.length}
-                                dropTarget={isSessionDrop(
-                                  "folder",
-                                  entry.folder.id,
-                                )}
-                                onCommit={(name) => {
-                                  commitSessionFolders(
-                                    renameFolder(
-                                      sessionFolders,
-                                      entry.folder.id,
-                                      name,
-                                    ),
-                                  );
-                                  setRenamingFolderId(null);
-                                }}
-                                onCancel={() => setRenamingFolderId(null)}
-                              />
-                            ) : (
-                              <FolderRow
-                                folder={entry.folder}
-                                sessions={entry.sessions}
-                                expanded={expanded}
-                                dropTarget={isSessionDrop(
-                                  "folder",
-                                  entry.folder.id,
-                                )}
-                                busy={entry.sessions.some((session) =>
-                                  listedBusySessionIds.has(session.id),
-                                )}
-                                done={entry.sessions.some((session) =>
-                                  unseenFinishedIds.has(session.id),
-                                )}
-                                needsApproval={entry.sessions.some((session) =>
-                                  listedApprovalSessionIds.has(session.id),
-                                )}
-                                onPointerDown={(event) =>
-                                  folderSortable.onItemPointerDown(
-                                    entry.folder.id,
-                                    event,
-                                  )
-                                }
-                                onToggle={() => {
-                                  if (folderSortable.consumeClick()) return;
-                                  if (searchNarrowed) return;
-                                  commitSessionFolders(
-                                    setFolderCollapsed(
-                                      sessionFolders,
-                                      entry.folder.id,
-                                      !entry.folder.collapsed,
-                                    ),
-                                  );
-                                }}
-                                onContextMenu={(event) =>
-                                  onFolderContextMenu(entry.folder.id, event)
-                                }
-                                onRename={() =>
-                                  setRenamingFolderId(entry.folder.id)
-                                }
-                              />
-                            )}
-                            {expanded ? (
-                              <>
-                                <ul className="flex flex-col gap-px p-1">
-                                  {entry.sessions.map((session) => (
-                                    <SessionListItem
-                                      key={session.id}
-                                      session={session}
-                                      cwd={cwd}
-                                      motion={sessionInsertMotion}
-                                    >
-                                      {renderSessionCard(session, true)}
-                                    </SessionListItem>
-                                  ))}
-                                </ul>
-                                {onNew ? (
-                                  <div className="border-t border-stroke p-1">
-                                    <button
-                                      type="button"
-                                      data-no-drag
-                                      data-tauri-drag-region="false"
-                                      title={uiT("New session")}
-                                      aria-label={uiT("New session")}
-                                      onClick={() =>
-                                        onNewInFolder(entry.folder.id)
-                                      }
-                                      className="relative flex w-full items-center gap-1 rounded-md border border-transparent px-2.5 py-1.5 text-left text-content/45 hover:bg-content/10 hover:text-content"
-                                    >
-                                      <Plus
-                                        className="size-3 shrink-0"
-                                        strokeWidth={1.75}
-                                      />
-                                      <span className="text-[13px] font-semibold leading-snug">
-                                        {uiT("New session")}
-                                      </span>
-                                    </button>
-                                  </div>
-                                ) : null}
-                              </>
-                            ) : null}
-                          </div>
-                        </li>
-                      );
-                    }
-                    return (
-                      <SessionListItem
-                        key={entry.session.id}
-                        session={entry.session}
-                        cwd={cwd}
-                        motion={sessionInsertMotion}
-                      >
-                        {renderSessionCard(entry.session)}
-                      </SessionListItem>
-                    );
-                  })}
-                  {hasMoreSessions ? (
-                    <li
-                      ref={loadMoreRef}
-                      aria-hidden
-                      className="h-px list-none"
-                    />
-                  ) : null}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-        {tab === "changes" ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <FileTree
+              key={gitRoot}
+              cwd={gitRoot}
+              rootLabel={props.explorerRootLabel}
+              onOpenFile={props.onOpenFile}
+              onOpenTerminal={
+                isRemoteProjectPath(cwd) ? undefined : props.onOpenTerminal
+              }
+              onFileMoved={props.onFileMoved}
+              onFileDeleted={props.onFileDeleted}
+              onSearch={props.onOpenFilesSearch}
+              gitStatuses={gitStatuses}
+            />
+          )
+        ) : (
+          <div
+            data-project-changes-content
+            className={`flex min-h-[480px] shrink-0 flex-col ${props.recents !== undefined ? "flex-1" : ""}`}
+            style={
+              props.recents === undefined
+                ? { height: Math.max(480, workingCopyHeight) }
+                : undefined
+            }
+          >
             <SourceControl
               cwd={gitRoot}
-              enabled={panelOpen}
-              textHarness={textHarness}
-              selectedPath={selectedDiffPath}
-              selectedKind={selectedDiffKind}
-              selectedSha={selectedCommitSha}
+              enabled={open}
+              textHarness={props.textHarness}
+              selectedPath={props.selectedDiffPath}
+              selectedKind={props.selectedDiffKind}
+              selectedSha={props.selectedCommitSha}
               onOpenFile={
-                onOpenDiff ??
-                ((path) => onOpenFile(path, undefined, { exact: true }))
+                props.onOpenDiff ??
+                ((file) => props.onOpenFile(file, undefined, { exact: true }))
               }
-              onOpenAllChanges={onOpenAllChanges ?? (() => {})}
-              onOpenCommit={onOpenCommit ?? (() => {})}
+              onOpenAllChanges={props.onOpenAllChanges ?? (() => {})}
+              onOpenCommit={props.onOpenCommit ?? (() => {})}
             />
           </div>
-        ) : null}
-      </>
-      {sessionMenu ? (
-        <ExplorerMenu
-          x={sessionMenu.x}
-          y={sessionMenu.y}
-          items={sessionMenuItems}
-          ariaLabel={
-            multipleMenuSessions
-              ? uiT("{value0} selected session actions", {
-                  value0: String(menuSessionIds.length),
-                })
-              : uiT("Session actions")
-          }
-          onPick={onSessionMenuPick}
-          onClose={closeSessionMenu}
-        />
-      ) : null}
-      {folderMenu ? (
-        <ExplorerMenu
-          x={folderMenu.x}
-          y={folderMenu.y}
-          items={folderMenuItems}
-          ariaLabel={uiT("Folder actions")}
-          width={260}
-          header={
-            <FolderColorSwatches
-              colorIndex={menuFolder?.colorIndex}
-              customColor={menuFolder?.customColor}
-              onChange={onFolderColorChange}
-              onCustomChange={onFolderCustomColorChange}
-            />
-          }
-          onPick={onFolderMenuPick}
-          onClose={() => setFolderMenu(null)}
-        />
-      ) : null}
-      {filterMenu ? (
-        <SessionFiltersMenu
-          x={filterMenu.x}
-          y={filterMenu.y}
-          harnesses={sessionHarnesses}
-          filters={sessionFilters}
-          onChange={onSessionFiltersChange}
-          onClose={() => setFilterMenu(null)}
-        />
-      ) : null}
-      {linkingSession ? (
-        <LinkSessionWorkItemDialog
-          initial={linkingSession.linkedWorkItem}
-          sessionTitle={sessionDisplayTitle(
-            linkingSession.title,
-            linkingSession.harness,
-          )}
-          onSave={(item) => {
-            onSetSessionLinkedWorkItem?.(linkingSession.id, item);
-            setLinkingSession(null);
-          }}
-          onClose={() => setLinkingSession(null)}
-        />
-      ) : null}
-    </aside>
-  );
+        )}
+      </div>
+    );
+  };
 
+  const renderChildren = (path: string): ReactNode => {
+    const current = sameProjectPath(path, cwd);
+    const key = pathKey(path);
+    const remote = isRemoteProjectPath(path) || !!remoteProjectFor(path);
+    return (
+      <ProjectSessionSection
+        {...props}
+        key={key}
+        cwd={path}
+        sessions={historyByProject.get(key) ?? []}
+        openSessions={props.openSessions?.filter((row) =>
+          sameProjectPath(row.cwd, path),
+        )}
+        activeSessionId={current ? props.activeSessionId : undefined}
+        activeProject={current}
+        reminders={
+          props.recents === undefined
+            ? props.reminders
+            : props.reminders?.filter((reminder) =>
+                sameProjectPath(reminder.cwd, path),
+              )
+        }
+        unseenFinishedIds={projectSessionFlags(props.unseenFinishedIds, path)}
+        linkedSessionUpdateIds={projectSessionFlags(
+          props.linkedSessionUpdateIds,
+          path,
+        )}
+        complete={remote || loadedPaths.has(key)}
+        pending={
+          !remote &&
+          !loadedPaths.has(key) &&
+          !failedPaths.has(key) &&
+          !searchFailed.has(key)
+        }
+        status={
+          failedPaths.has(key) || searchFailed.has(key) ? "error" : "idle"
+        }
+        searchQuery={matchInfo.names.has(key) ? "" : query}
+        searchActive={searchActive}
+        sessionFilters={filters}
+        scrollRef={treeScrollRef}
+        onClearQuery={() => setQuery("")}
+        dense={props.recents !== undefined}
+        pollRemote={open && expandedPaths.has(key)}
+        onRetry={() => {
+          setSearchFailed((previous) => {
+            const next = new Set(previous);
+            next.delete(key);
+            return next;
+          });
+          void (
+            remote
+              ? props.onPrefetchRemoteProject?.(path)
+              : props.onLoadProject?.(path)
+          )?.catch(() =>
+            setSearchFailed((current) => new Set(current).add(key)),
+          );
+        }}
+        onNew={() => newInProject(path)}
+        onSelectSession={(id) =>
+          props.recents === undefined
+            ? props.onSelectSession(id)
+            : props.onSelectSession(id, path)
+        }
+      />
+    );
+  };
+
+  const filterSummaries: SessionSummary[] = [...projectHistory];
+  for (const { path } of projects) {
+    if (!isRemoteProjectPath(path) && !remoteProjectFor(path)) continue;
+    for (const row of cachedRemoteSessions(path))
+      filterSummaries.push({
+        ...row,
+        cwd: path,
+        model: row.model ?? "",
+        providerSessionId: row.providerSessionId ?? undefined,
+        runtimeMode: row.runtimeMode ?? "supervised",
+        createdAt: row.createdAt ?? row.updatedAt,
+      });
+  }
+  const filtersActive = hasActiveSessionFilters(filters);
+  const onFilter = (event: MouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setFilterMenu(
+      filterMenu ? null : { x: rect.right - 228, y: rect.bottom + 2 },
+    );
+  };
+  const projectHeader = props.recents !== undefined;
+  const showWorktreeSwitcher =
+    cwd && cwd !== "~" && !remoteCurrent && props.onSelectWorkspace;
+  const renderWorktreeSwitcher = (compact = false) => (
+    <SidebarWorktreeSwitcher
+      key={compact ? cwd : undefined}
+      cwd={cwd}
+      compact={compact}
+      tabStats={props.worktreeTabStats}
+      onSelect={props.onSelectWorkspace}
+      pending={props.workspaceSwitchPending}
+      switchError={props.workspaceSwitchError}
+    />
+  );
   return (
     <SidebarTransition
       open={open}
@@ -1961,1066 +903,267 @@ function SidebarComponent({
         <ResizeHandle
           edge="right"
           dragging={resize.dragging}
-          aria-label={uiT("Resize sidebar")}
+          aria-label={t("Resize sidebar")}
           aria-valuenow={resize.width}
-          aria-valuemin={MIN_WIDTH}
-          aria-valuemax={MAX_WIDTH}
+          aria-valuemin={SIDEBAR_WIDTH_MIN}
+          aria-valuemax={SIDEBAR_WIDTH_MAX}
           onPointerDown={resize.onPointerDown}
           onDoubleClick={resize.onDoubleClick}
         />
       }
     >
-      {sidebarContent}
+      <aside
+        className="body-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-stroke"
+        style={{ width: resize.dragging ? "100%" : resize.width }}
+      >
+        {!props.chromeInMenuBar ? (
+          <div
+            className="flex h-10 shrink-0 select-none items-center pr-2"
+            data-tauri-drag-region="deep"
+          >
+            <WindowNavigationSpace />
+            <div className="min-w-0 flex-1" />
+            {props.onToggleSidebar ? (
+              <IconButton label={toggleLabel} onClick={props.onToggleSidebar}>
+                <PanelLeft className="size-3.5" strokeWidth={1.75} />
+              </IconButton>
+            ) : null}
+          </div>
+        ) : null}
+        <div
+          data-project-header
+          className={`flex ${props.chromeInMenuBar ? "h-10" : "h-8"} min-w-0 shrink-0 items-center gap-1 border-b border-stroke ${projectHeader ? "pl-1.5" : "pl-3"} pr-2`}
+        >
+          {projectHeader ? (
+            <div
+              data-project-switcher
+              className="flex min-w-0 flex-1 items-center gap-1"
+            >
+              <SearchableProjectPicker
+                key={tab === "sessions" ? "session-scope" : "working-copy"}
+                cwd={tab === "sessions" ? (sessionProjectPath ?? "") : cwd}
+                railCwd={cwd}
+                recents={recents}
+                appearance="ghost"
+                compact
+                showLabel
+                className="min-w-0 flex-1"
+                buttonClassName="max-w-full"
+                onSelectProject={(path) => {
+                  if (tab === "sessions") {
+                    setSessionProjectPath(path);
+                    expandProject(path);
+                  }
+                  props.onSelectProject?.(path);
+                }}
+                onSelectAllProjects={
+                  tab === "sessions"
+                    ? () => setSessionProjectPath(null)
+                    : undefined
+                }
+                onOpenProject={props.onOpenProject}
+              />
+              {showWorktreeSwitcher &&
+              (tab !== "sessions" ||
+                (sessionProjectPath &&
+                  sameProjectPath(sessionProjectPath, cwd))) ? (
+                <div
+                  data-active-worktree-toolbar
+                  className="flex min-w-0 max-w-[50%] items-center"
+                >
+                  {renderWorktreeSwitcher(true)}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+              {t("Projects")}
+            </span>
+          )}
+          {props.onGoToFile ? (
+            <IconButton label={quickOpenLabel} onClick={props.onGoToFile}>
+              <Search className="size-3.5" />
+            </IconButton>
+          ) : null}
+          {props.onOpenProject ? (
+            <AddProjectButton onOpenFolder={props.onOpenProject} />
+          ) : null}
+        </div>
+        <div
+          role="tablist"
+          aria-label={t("Workspace")}
+          className="flex h-9 shrink-0 items-center gap-px border-b border-stroke px-2"
+        >
+          {tabOrder.map((id) => (
+            <div
+              key={id}
+              ref={(el) => sortable.setItemRef(id, el)}
+              className="reorder-item workspace-tab relative flex min-w-0 flex-1 touch-none items-stretch"
+              onPointerDown={(event) => {
+                if (event.button === 0) sortable.onItemPointerDown(id, event);
+              }}
+            >
+              <button
+                type="button"
+                role="tab"
+                title={t(TAB_LABELS[id])}
+                aria-selected={tab === id}
+                aria-label={
+                  id === "changes" && (additions || deletions)
+                    ? `${t("Changes")} ${additions ? `+${additions}` : ""} ${deletions ? `-${deletions}` : ""}`.trim()
+                    : undefined
+                }
+                onClick={() => {
+                  if (!sortable.consumeClick()) props.onTabChange(id);
+                }}
+                className="surface-tab flex h-6 min-w-0 flex-1 items-center justify-center self-center px-2 text-[12px] leading-none"
+              >
+                {id === "changes" && (additions || deletions) ? (
+                  <DiffStat additions={additions} deletions={deletions} />
+                ) : (
+                  <span className="block truncate leading-label">
+                    {t(
+                      id === "files" && props.recents !== undefined
+                        ? "Files"
+                        : TAB_LABELS[id],
+                    )}
+                  </span>
+                )}
+              </button>
+            </div>
+          ))}
+        </div>
+        {tab === "sessions" ? (
+          <div className="flex h-9 shrink-0 items-center gap-1 border-b border-stroke px-2">
+            <div className="relative flex h-7 min-w-0 flex-1 items-center">
+              <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={query}
+                placeholder={t(
+                  props.recents === undefined || sessionProjectPath
+                    ? "Search conversations..."
+                    : "Search projects and conversations...",
+                )}
+                aria-label={t(
+                  props.recents === undefined || sessionProjectPath
+                    ? "Search conversations"
+                    : "Search projects and conversations",
+                )}
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setQuery("");
+                  }
+                }}
+                className="h-full w-full min-w-0 rounded-md bg-transparent py-0 pl-7 pr-2 text-[12px] text-content outline-none placeholder:text-content/35"
+              />
+            </div>
+            <button
+              type="button"
+              title={t("Filter sessions")}
+              aria-label={t("Filter sessions")}
+              aria-haspopup="menu"
+              aria-expanded={!!filterMenu}
+              onClick={onFilter}
+              className={`relative z-50 grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content ${filterMenu || filtersActive ? "bg-selection text-content" : ""}`}
+            >
+              <ListFilter className="size-3" strokeWidth={1.75} />
+            </button>
+          </div>
+        ) : null}
+        {!projectHeader && showWorktreeSwitcher ? (
+          <div
+            data-active-worktree-toolbar
+            className="flex h-8 shrink-0 items-center border-b border-stroke px-3"
+          >
+            {renderWorktreeSwitcher()}
+            <ChevronDown className="ml-auto size-3 opacity-30" />
+          </div>
+        ) : null}
+        {searchPending ? (
+          <p
+            role="status"
+            className="shrink-0 px-3 py-1 text-[11px] text-content/50"
+          >
+            {t("Searching projects…")}
+          </p>
+        ) : null}
+        {searchActive && !searchPending && matchInfo.matched.size === 0 ? (
+          <p className="px-3 py-2 text-[12px] text-content/50">
+            {t("No matching sessions")}
+          </p>
+        ) : null}
+        <div
+          ref={treeViewportRef}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          {tab !== "sessions" && props.recents !== undefined ? (
+            renderWorkingCopy()
+          ) : (
+            <ProjectList
+              cwd={cwd}
+              recents={recents}
+              busyPaths={busyPaths}
+              needsApprovalPaths={approvalPaths}
+              projectSummaries={projectSummaries}
+              onProjectHoverOpen={
+                props.onLoadProject || props.onPrefetchRemoteProject
+                  ? onProjectHoverOpen
+                  : undefined
+              }
+              expandedPaths={shownExpanded}
+              onToggleProject={toggleProject}
+              renderProjectChildren={
+                tab === "sessions" ? renderChildren : renderWorkingCopy
+              }
+              onNewInProject={
+                onNewInProject || props.onNew ? newInProject : undefined
+              }
+              onSelectProject={selectProject}
+              onOpenProject={props.onOpenProject ?? (() => {})}
+              onRemoveProject={props.onRemoveProject}
+              onOpenNotificationSettings={props.onOpenNotificationSettings}
+              statsEnabled={false}
+              searchActive={searchActive || !!sessionProjectPath}
+              matchedProjectPaths={
+                searchActive
+                  ? matchInfo.matched
+                  : sessionProjectPath
+                    ? new Set(projects.map(({ path }) => pathKey(path)))
+                    : undefined
+              }
+              scrollRef={(node) => {
+                treeScrollRef.current = node;
+                treeLock(node);
+              }}
+            />
+          )}
+        </div>
+        {filterMenu ? (
+          <SessionFiltersMenu
+            x={filterMenu.x}
+            y={filterMenu.y}
+            harnesses={harnessesInSessions(filterSummaries)}
+            filters={filters}
+            onChange={(next: SessionSidebarFilters) => {
+              setFilters(next);
+              saveSessionSidebarFilters(next);
+            }}
+            onClose={() => setFilterMenu(null)}
+          />
+        ) : null}
+      </aside>
     </SidebarTransition>
   );
 }
 
 export const Sidebar = memo(SidebarComponent);
-
-function WorkspaceTitleActions({
-  onSearch,
-  onNew,
-}: {
-  onSearch?: () => void;
-  onNew?: () => void;
-}) {
-  const quickOpenLabel = useShortcutLabel("Quick Open", "App: Go to File");
-  const newSessionLabel = useShortcutLabel("New session", "Tab: New");
-  if (!onSearch && !onNew) return null;
-  return (
-    <div
-      className="flex shrink-0 items-center gap-0.5"
-      data-tauri-drag-region="false"
-    >
-      {onSearch ? (
-        <IconButton label={quickOpenLabel} onClick={onSearch}>
-          <Search className="size-3.5" strokeWidth={1.75} />
-        </IconButton>
-      ) : null}
-      {onNew ? (
-        <IconButton label={newSessionLabel} onClick={onNew}>
-          <Plus className="size-3.5" strokeWidth={1.75} />
-        </IconButton>
-      ) : null}
-    </div>
-  );
-}
-
-function SessionsHeaderButton({
-  label,
-  active = false,
-  open = false,
-  hasPopup = false,
-  onClick,
-  children,
-}: {
-  label: string;
-  active?: boolean;
-  open?: boolean;
-  hasPopup?: boolean;
-  onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      aria-expanded={open}
-      aria-haspopup={hasPopup ? "menu" : undefined}
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={onClick}
-      className={`relative z-50 grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content ${
-        open || active ? "bg-selection text-content" : ""
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function sessionListDropFromPoint(
-  x: number,
-  y: number,
-  draggedId: string,
-): SessionListDropTarget | null {
-  const el = document.elementFromPoint(x, y);
-  if (!el) return null;
-  if (el.closest("[data-reminder-sessions]")) return null;
-  const card = el.closest("[data-session-card]") as HTMLElement | null;
-  const cardId = card?.dataset.sessionCard;
-  if (cardId === draggedId) return null;
-  const folder = el.closest("[data-session-folder]") as HTMLElement | null;
-  const folderId = folder?.dataset.sessionFolder;
-  if (folderId && cardId && card && folder.contains(card)) {
-    return { kind: "folder", id: folderId };
-  }
-  if (cardId) return { kind: "session", id: cardId };
-  if (folderId) return { kind: "folder", id: folderId };
-  return null;
-}
-
-function FolderColorSwatches({
-  colorIndex,
-  customColor,
-  onChange,
-  onCustomChange,
-}: {
-  colorIndex: number | undefined;
-  customColor: string | undefined;
-  onChange: (index: number | null) => void;
-  onCustomChange: (color: string) => void;
-}) {
-  const paletteColor =
-    colorIndex != null ? TAB_GROUP_COLORS[colorIndex] : TAB_GROUP_COLORS[0];
-  const pickerValue =
-    customColor ?? normalizeHex(paletteColor ?? TAB_GROUP_COLORS[0]);
-  return (
-    <div className="px-1 py-1">
-      <ColorSwatchRow
-        colors={TAB_GROUP_COLORS}
-        colorIndex={colorIndex}
-        customColor={customColor}
-        customPickerOpen
-        customHighlighted={customColor != null}
-        onPickIndex={(index) => onChange(index === 0 ? null : index)}
-      />
-      <ColorPickerPopover value={pickerValue} onChange={onCustomChange} />
-    </div>
-  );
-}
-
-function FolderRow({
-  folder,
-  sessions,
-  expanded,
-  dropTarget,
-  busy,
-  done,
-  needsApproval,
-  groupIcon,
-  onPointerDown,
-  onToggle,
-  onContextMenu,
-  onRename,
-}: {
-  folder: Pick<SessionFolder, "name" | "colorIndex" | "customColor">;
-  sessions: SessionSummary[];
-  expanded: boolean;
-  dropTarget: boolean;
-  busy: boolean;
-  done: boolean;
-  needsApproval: boolean;
-  groupIcon?: ReactNode;
-  onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onToggle: () => void;
-  onContextMenu?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
-  onRename?: () => void;
-}) {
-  const count = sessions.length;
-  const accent = folderAccent(folder.colorIndex, folder.customColor);
-  return (
-    <button
-      type="button"
-      title={folder.name}
-      aria-expanded={expanded}
-      data-tauri-drag-region="false"
-      onPointerDown={onPointerDown}
-      onClick={onToggle}
-      onContextMenu={onContextMenu}
-      onKeyDown={(event) => {
-        if (event.key === "F2" && onRename) {
-          event.preventDefault();
-          onRename();
-        }
-      }}
-      className={`group relative flex w-full touch-none items-center gap-1.5 px-2 h-8 text-left ${
-        expanded ? "rounded-md" : ""
-      } ${
-        dropTarget
-          ? "text-content"
-          : expanded
-            ? "text-content hover:bg-content/10"
-            : "text-content/80 hover:bg-content/10 hover:text-content"
-      }`}
-    >
-      {dropTarget ? (
-        <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
-      ) : null}
-      <span
-        className={`relative grid size-4 shrink-0 place-items-center ${
-          accent ? "" : "text-content/50"
-        }`}
-        style={accent ? { color: accent } : undefined}
-      >
-        {expanded ? (
-          groupIcon ? (
-            <>
-              <span className="group-hover:hidden group-focus-visible:hidden">
-                {groupIcon}
-              </span>
-              <ChevronDown
-                className="hidden size-3.5 text-content group-hover:block group-focus-visible:block"
-                strokeWidth={1.75}
-              />
-            </>
-          ) : (
-            <ChevronDown className="size-3.5 text-content" strokeWidth={1.75} />
-          )
-        ) : (
-          <>
-            <span className="group-hover:hidden group-focus-visible:hidden">
-              {groupIcon ?? (
-                <Folder className="size-3.5 text-content" strokeWidth={1.75} />
-              )}
-            </span>
-            <ChevronRight
-              className="hidden size-3.5 group-hover:block group-focus-visible:block text-content"
-              strokeWidth={1.75}
-            />
-          </>
-        )}
-      </span>
-      <span className="relative min-w-0 flex-1 truncate text-[13px] font-semibold leading-snug text-content">
-        {folder.name}
-      </span>
-      <span className="relative flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-content/45">
-        {!expanded && needsApproval ? (
-          <CircleAlert className="size-3 text-amber-400" strokeWidth={1.75} />
-        ) : !expanded && busy ? (
-          <TerminalSpinner className="inline-block w-3 select-none text-center text-[11px] leading-none text-accent" />
-        ) : !expanded && done ? (
-          <Check className="size-3 text-emerald-400" strokeWidth={2.25} />
-        ) : null}
-        <span>{count}</span>
-      </span>
-    </button>
-  );
-}
-
-function FolderRenameRow({
-  folder,
-  memberCount,
-  dropTarget,
-  onCommit,
-  onCancel,
-}: {
-  folder: SessionFolder;
-  memberCount: number;
-  dropTarget: boolean;
-  onCommit: (name: string) => void;
-  onCancel: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const finished = useRef(false);
-  const [value, setValue] = useState(folder.name);
-
-  useEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-    input.focus();
-    input.select();
-  }, []);
-
-  const finish = (success: boolean) => {
-    if (finished.current) return;
-    if (success) {
-      const trimmed = value.trim();
-      if (!trimmed) {
-        onCancel();
-        return;
-      }
-      finished.current = true;
-      onCommit(trimmed);
-      return;
-    }
-    finished.current = true;
-    onCancel();
-  };
-
-  return (
-    <div
-      className={`relative flex w-full items-center gap-1.5 px-2 py-1.5 ${
-        dropTarget ? "" : "text-content"
-      }`}
-    >
-      {dropTarget ? (
-        <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
-      ) : null}
-      <span className="relative grid size-4 shrink-0 place-items-center text-content/50">
-        <ChevronDown className="size-3.5" strokeWidth={1.75} />
-      </span>
-      <input
-        ref={inputRef}
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        onBlur={() => finish(true)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            finish(true);
-            return;
-          }
-          if (event.key === "Escape") {
-            event.preventDefault();
-            finish(false);
-          }
-        }}
-        className="relative min-w-0 flex-1 rounded bg-content/10 px-2 py-0.5 text-[13px] font-semibold leading-snug text-content outline-none ring-1 ring-accent/40"
-      />
-      <span className="relative shrink-0 text-[11px] tabular-nums text-content/45">
-        {memberCount}
-      </span>
-    </div>
-  );
-}
-
-const SESSION_PREFETCH_DELAY_MS = 120;
-/** Rows created this recently slide in; older ones are just being listed. */
-const SESSION_INSERT_WINDOW_MS = 15_000;
-
-type SessionInsertMotion = { cwd: string; seen: Set<string> };
-
-/** List row that grows open when a new session lands, pushing rows below it down. */
-function SessionListItem({
-  session,
-  cwd,
-  motion,
-  children,
-}: {
-  session: SessionSummary;
-  cwd: string;
-  motion: RefObject<SessionInsertMotion>;
-  children: ReactNode;
-}) {
-  const ref = useRef<HTMLLIElement>(null);
-  // Decided once per row: effects can replay (StrictMode, reordering), and a
-  // row that already slid in must not do it again.
-  const played = useRef(false);
-  useLayoutEffect(() => {
-    if (played.current) return;
-    played.current = true;
-    const state = motion.current;
-    const fresh =
-      state.cwd === cwd &&
-      !state.seen.has(session.id) &&
-      (session.createdAt === 0 ||
-        Date.now() - session.createdAt < SESSION_INSERT_WINDOW_MS);
-    state.seen.add(session.id);
-    const el = ref.current;
-    const content = el?.firstElementChild;
-    if (
-      !fresh ||
-      !el ||
-      !(content instanceof HTMLElement) ||
-      typeof el.animate !== "function" ||
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-    )
-      return;
-    // The card takes its place at once; everything below starts where it was
-    // and slides down, uncovering it as it fades in.
-    const offset =
-      el.offsetHeight +
-      (parseFloat(getComputedStyle(el.parentElement ?? el).rowGap) || 0);
-    const timing = {
-      duration: 380,
-      easing: "cubic-bezier(0.32, 0.72, 0, 1)",
-    };
-    for (
-      let node: Element | null = el;
-      node && !node.hasAttribute("data-session-list");
-      node = node.parentElement
-    ) {
-      for (
-        let below = node.nextElementSibling;
-        below;
-        below = below.nextElementSibling
-      ) {
-        if (!(below instanceof HTMLElement)) continue;
-        below.animate(
-          [{ transform: `translateY(${-offset}px)` }, { transform: "none" }],
-          // Stack with a push already in flight instead of restarting it.
-          { ...timing, composite: "add" },
-        );
-      }
-    }
-    content.animate([{ opacity: 0 }, { opacity: 1 }], {
-      duration: 220,
-      easing: "ease-out",
-    });
-  }, []);
-  return <li ref={ref}>{children}</li>;
-}
-
-const SessionCard = memo(function SessionCard({
-  session,
-  isActive,
-  isSelected,
-  busy,
-  done,
-  linkedUpdate,
-  needsApproval,
-  dropTarget,
-  compact = false,
-  now,
-  onSelect,
-  onOpenWorkItem,
-  onPrefetch,
-  onPlaceOnPane,
-  onListDrop,
-  onListDropTargetChange,
-  onContextMenu,
-  onArchive,
-  onRename,
-  onDelete,
-}: {
-  session: SessionSummary;
-  isActive: boolean;
-  isSelected: boolean;
-  busy: boolean;
-  done: boolean;
-  linkedUpdate: boolean;
-  needsApproval: boolean;
-  dropTarget?: boolean;
-  compact?: boolean;
-  now: number;
-  onSelect: (
-    sessionId: string,
-    event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
-  ) => void;
-  onOpenWorkItem?: (item: LinkedWorkItem, sessionId: string) => void;
-  onPrefetch?: (sessionId: string) => void;
-  onPlaceOnPane?: (sessionId: string, targetId: string, edge: PaneEdge) => void;
-  onListDrop?: (draggedId: string, target: SessionListDropTarget) => void;
-  onListDropTargetChange?: (target: SessionListDropTarget | null) => void;
-  onContextMenu?: (
-    sessionId: string,
-    e: ReactMouseEvent<HTMLDivElement>,
-  ) => void;
-  onArchive?: (sessionId: string, archived: boolean) => void;
-  onRename?: (sessionId: string) => void;
-  onDelete?: (sessionId: string) => void;
-}) {
-  const { t: uiT } = useTranslation();
-  const skipClickUntil = useRef(0);
-  const prefetchTimer = useRef<number | null>(null);
-  const orchestrationTooltipRootRef = useRef<HTMLDivElement>(null);
-  const orchestrationTooltipId = useId();
-  const [dragging, setDragging] = useState(false);
-  const [orchestrationTooltipOpen, setOrchestrationTooltipOpen] =
-    useState(false);
-  const orchestration = session.orchestration;
-  const draft = !!session.draft;
-  const orchestrationExpanded =
-    !!orchestration && (isActive || isSelected || busy);
-  const orchestrationDone =
-    orchestration?.tasks.filter((task) => task.status === "completed").length ??
-    0;
-  const title = sessionDisplayTitle(session.title, session.harness);
-  const gitLabel = session.worktreeRemoved
-    ? NO_BRANCH_LABEL
-    : formatGitLabel(session.repo, session.branch);
-  const time = formatRelative(session.updatedAt, now);
-  const model =
-    compact && !orchestrationExpanded
-      ? null
-      : resolveModel(session.harness, session.model).name;
-  const statusClass = needsApproval
-    ? "text-amber-400"
-    : busy
-      ? "text-accent"
-      : done
-        ? "text-emerald-400"
-        : draft
-          ? "text-content/55"
-          : "text-content/45";
-  const status = (
-    <span
-      className={`flex shrink-0 items-center gap-1 text-[11px] tabular-nums ${statusClass}`}
-    >
-      {needsApproval ? (
-        <>
-          <CircleAlert className="size-3" strokeWidth={1.75} />
-          <span>
-            {orchestration ? uiT("Needs input") : uiT("Need approval")}
-          </span>
-        </>
-      ) : busy ? (
-        <>
-          <TerminalSpinner className="inline-block w-3 select-none text-center text-[11px] leading-none text-accent" />
-          <span>{uiT("Working...")}</span>
-        </>
-      ) : done ? (
-        <>
-          <Check className="size-3" strokeWidth={2.25} />
-          <span>{uiT("Done")}</span>
-        </>
-      ) : draft ? (
-        <>
-          <CircleDashed className="size-3" strokeWidth={1.75} />
-          <span>{uiT("Draft")}</span>
-        </>
-      ) : (
-        <span>{time}</span>
-      )}
-    </span>
-  );
-
-  const linkedWorkItem = session.linkedWorkItem;
-  const linkedUpdateDot = linkedUpdate ? (
-    <span
-      title={uiT("Linked {value0} updated since this session", {
-        value0: String(linkedWorkItem?.kind === "pr" ? "PR" : "issue"),
-      })}
-      aria-label={uiT("Linked work item updated")}
-      className="size-1.5 shrink-0 rounded-full bg-accent"
-    />
-  ) : null;
-  const workItemBadge = linkedWorkItem ? (
-    <button
-      type="button"
-      data-no-drag
-      data-tauri-drag-region="false"
-      title={uiT(
-        "Open {value0} #{value1} beside this session ({value2}-click for GitHub)",
-        {
-          value0: String(linkedWorkItem.kind === "pr" ? "PR" : "issue"),
-          value1: String(linkedWorkItem.number),
-          value2: String(MOD),
-        },
-      )}
-      aria-label={uiT("Open {value0} #{value1}", {
-        value0: String(linkedWorkItem.kind === "pr" ? "PR" : "issue"),
-        value1: String(linkedWorkItem.number),
-      })}
-      onPointerEnter={() => {
-        // Hover usually precedes the click by a few hundred ms, which is
-        // most of what the panel would otherwise spend waiting on GitHub.
-        if (onOpenWorkItem) prefetchGithubWorkItem(session.cwd, linkedWorkItem);
-      }}
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.metaKey || event.ctrlKey) {
-          void openUrl(linkedWorkItem.url).catch(() => undefined);
-          return;
-        }
-        if (onOpenWorkItem) onOpenWorkItem(linkedWorkItem, session.id);
-        else void openUrl(linkedWorkItem.url).catch(() => undefined);
-      }}
-      onAuxClick={(event) => {
-        if (event.button !== 1) return;
-        event.preventDefault();
-        event.stopPropagation();
-        void openUrl(linkedWorkItem.url).catch(() => undefined);
-      }}
-      className="flex shrink-0 cursor-pointer items-center gap-0.5 rounded px-0.5 text-[11px] tabular-nums text-accent hover:underline"
-    >
-      {linkedWorkItem.kind === "pr" ? (
-        <GitPullRequest className="size-3" strokeWidth={1.75} />
-      ) : (
-        <CircleDot className="size-3" strokeWidth={1.75} />
-      )}
-      <span>#{linkedWorkItem.number}</span>
-    </button>
-  ) : null;
-
-  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onSelect(session.id, e);
-      return;
-    }
-    if (e.key === "F2" && onRename) {
-      e.preventDefault();
-      onRename(session.id);
-      return;
-    }
-    if ((e.key === "Delete" || e.key === "Backspace") && onDelete) {
-      e.preventDefault();
-      onDelete(session.id);
-    }
-  };
-
-  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    // Warm the transcript during the press. Opening stays on click so a
-    // drag-to-pane gesture does not switch conversations.
-    if (prefetchTimer.current != null) {
-      window.clearTimeout(prefetchTimer.current);
-      prefetchTimer.current = null;
-    }
-    onPrefetch?.(session.id);
-    if (!onPlaceOnPane && !onListDrop) return;
-    const handle = event.currentTarget;
-    const pointerId = event.pointerId;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    let active = false;
-    let lastX = startX;
-    let lastY = startY;
-    let lastList: SessionListDropTarget | null = null;
-    handle.setPointerCapture(pointerId);
-    const restoreSelection = suppressTextSelection();
-
-    const setListTarget = (next: SessionListDropTarget | null) => {
-      if (lastList?.kind === next?.kind && lastList?.id === next?.id) return;
-      lastList = next;
-      onListDropTargetChange?.(next);
-    };
-
-    const onMove = (ev: PointerEvent) => {
-      lastX = ev.clientX;
-      lastY = ev.clientY;
-      if (!active) {
-        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
-        active = true;
-        setDragging(true);
-        if (onPlaceOnPane) {
-          setExternalPaneDrop({
-            fromId: session.id,
-            overId: null,
-            edge: "left",
-          });
-        }
-      }
-      setListTarget(
-        onListDrop
-          ? sessionListDropFromPoint(ev.clientX, ev.clientY, session.id)
-          : null,
-      );
-      if (!onPlaceOnPane) return;
-      const over = paneDropFromPoint(ev.clientX, ev.clientY);
-      if (!over || over.id === session.id) {
-        setExternalPaneDrop({
-          fromId: session.id,
-          overId: over?.id === session.id ? session.id : null,
-          edge: over?.edge ?? "left",
-        });
-        return;
-      }
-      setExternalPaneDrop({
-        fromId: session.id,
-        overId: over.id,
-        edge: over.edge,
-      });
-    };
-
-    const onUp = () => finish(true);
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key !== "Escape") return;
-      ev.preventDefault();
-      finish(false);
-    };
-
-    function finish(commit: boolean) {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      window.removeEventListener("keydown", onKey);
-      restoreSelection();
-      setDragging(false);
-      setExternalPaneDrop(null);
-      setListTarget(null);
-      try {
-        handle.releasePointerCapture(pointerId);
-      } catch {
-        /* already released */
-      }
-      if (!active) return;
-      skipClickUntil.current = performance.now() + 400;
-      if (!commit) return;
-      const listOver = onListDrop
-        ? sessionListDropFromPoint(lastX, lastY, session.id)
-        : null;
-      if (listOver) {
-        onListDrop?.(session.id, listOver);
-        return;
-      }
-      const over = paneDropFromPoint(lastX, lastY);
-      if (over && over.id !== session.id) {
-        onPlaceOnPane?.(session.id, over.id, over.edge);
-      }
-    }
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-    window.addEventListener("keydown", onKey);
-  };
-
-  useEffect(
-    () => () => {
-      if (prefetchTimer.current != null) {
-        window.clearTimeout(prefetchTimer.current);
-        prefetchTimer.current = null;
-      }
-    },
-    [onPrefetch, session.id],
-  );
-
-  const schedulePrefetch = () => {
-    if (!onPrefetch || prefetchTimer.current != null) return;
-    prefetchTimer.current = window.setTimeout(() => {
-      prefetchTimer.current = null;
-      onPrefetch(session.id);
-    }, SESSION_PREFETCH_DELAY_MS);
-  };
-
-  const cancelScheduledPrefetch = () => {
-    if (prefetchTimer.current == null) return;
-    window.clearTimeout(prefetchTimer.current);
-    prefetchTimer.current = null;
-  };
-
-  const archiveLabel = session.archived ? "Unarchive" : "Archive";
-  // Expanding an orchestration card must not move its existing header. Keep
-  // the collapsed top inset and give only the new detail area extra room at
-  // the bottom.
-  const cardPaddingY = orchestrationExpanded
-    ? compact
-      ? "pb-2.5 pt-1.5"
-      : "pb-2.5 pt-2"
-    : compact
-      ? "py-1.5"
-      : "py-2";
-
-  return (
-    <div className="group relative">
-      <div
-        title={title}
-        data-session-card={session.id}
-        data-orchestration-card={orchestration ? "true" : undefined}
-        data-session-selected={isSelected ? "true" : undefined}
-        data-tauri-drag-region="false"
-        onPointerDown={onPointerDown}
-        onPointerEnter={schedulePrefetch}
-        onPointerLeave={cancelScheduledPrefetch}
-        onClick={(event) => {
-          if (performance.now() < skipClickUntil.current) return;
-          onSelect(session.id, event);
-        }}
-        onContextMenu={
-          onContextMenu
-            ? (event) => onContextMenu(session.id, event)
-            : undefined
-        }
-        className={`relative border flex w-full cursor-default select-none touch-none flex-col rounded-md px-2.5 text-left ${cardPaddingY} ${
-          dragging ? "opacity-40" : ""
-        } ${
-          dropTarget
-            ? "text-content border-transparent"
-            : isSelected
-              ? `bg-accent/15 text-content ${draft ? "border-content/30 border-dashed" : "border-transparent"}`
-              : needsApproval
-                ? "bg-content/20 text-content border-content/30 border-dashed"
-                : isActive
-                  ? `bg-selection text-content ${draft ? "border-content/30 border-dashed" : "border-transparent"}`
-                  : draft
-                    ? "border-content/25 border-dashed text-content/80 hover:bg-content/5 hover:text-content"
-                    : `text-content/80 hover:text-content border-transparent ${
-                        orchestrationExpanded
-                          ? "bg-content/5 hover:bg-content/10"
-                          : "hover:bg-content/5"
-                      }`
-        }`}
-      >
-        {dropTarget ? (
-          <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
-        ) : null}
-        <div
-          role="button"
-          tabIndex={0}
-          aria-current={isActive ? "true" : undefined}
-          aria-pressed={isSelected}
-          data-session-select={session.id}
-          onKeyDown={onKeyDown}
-          onMouseDown={(event) => {
-            if (event.button !== 0) return;
-            // Shift-click can trigger :focus-visible. Mouse selection should
-            // only highlight the card; Tab can still focus this button.
-            event.preventDefault();
-            // Clear prior focus too, so shortcuts cannot target another card.
-            const focused = event.currentTarget.ownerDocument.activeElement;
-            if (focused instanceof HTMLElement) focused.blur();
-          }}
-          className="rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
-        >
-          {compact && !orchestrationExpanded ? null : (
-            <span className="relative flex items-center gap-2">
-              <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                <HarnessIcon
-                  harness={session.harness}
-                  className="size-3.5 shrink-0"
-                />
-                <span className="min-w-0 truncate text-[11px] text-content/50">
-                  {model}
-                </span>
-              </span>
-              <span className="flex shrink-0 items-center gap-1.5">
-                {linkedUpdateDot}
-                {status}
-              </span>
-            </span>
-          )}
-          <span
-            className={`relative flex min-w-0 items-center gap-1.5 ${
-              compact && !orchestrationExpanded ? "" : "mt-1"
-            }`}
-          >
-            {session.pinned ? (
-              <Pin
-                className="size-3 shrink-0 text-content/45"
-                strokeWidth={1.75}
-              />
-            ) : null}
-            <ParticleText
-              text={title}
-              className="line-clamp-1 text-[13px] font-semibold leading-snug text-content"
-            />
-            {compact && !orchestrationExpanded ? (
-              <span className="flex shrink-0 items-center gap-1.5">
-                {linkedUpdateDot}
-                {status}
-              </span>
-            ) : null}
-          </span>
-        </div>
-        {orchestrationExpanded ? (
-          <OrchestrationSidebarAgents
-            leadId={session.id}
-            summary={orchestration!}
-          />
-        ) : null}
-        <span className="relative mt-1 flex items-center gap-2">
-          {gitLabel ? (
-            <span
-              className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-content/45"
-              title={
-                session.worktreeCwd
-                  ? `${gitLabel}\n${session.worktreeCwd}`
-                  : gitLabel
-              }
-            >
-              <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
-              <span className="min-w-0 truncate">{gitLabel}</span>
-            </span>
-          ) : (
-            <span className="min-w-0 flex-1" />
-          )}
-          <span className="relative flex shrink-0 items-center gap-px">
-            {onArchive ? (
-              <button
-                type="button"
-                data-no-drag
-                data-tauri-drag-region="false"
-                title={archiveLabel}
-                aria-label={`${archiveLabel} ${title}`}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onArchive(session.id, !session.archived);
-                }}
-                className="pointer-events-none grid size-5 place-items-center rounded-md text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
-              >
-                <Archive className="size-3 shrink-0" strokeWidth={1.75} />
-              </button>
-            ) : null}
-            {workItemBadge}
-            {session.automationId ? (
-              <span
-                data-automation-icon
-                role="img"
-                title={uiT("Started by an automation")}
-                aria-label={uiT("Started by an automation")}
-                className="grid size-5 -mr-1 shrink-0 place-items-center text-amber-400"
-              >
-                <Zap className="size-3" strokeWidth={1.75} />
-              </span>
-            ) : null}
-            {orchestration ? (
-              <div
-                ref={orchestrationTooltipRootRef}
-                className="relative shrink-0"
-                onMouseEnter={() => setOrchestrationTooltipOpen(true)}
-                onMouseLeave={() => setOrchestrationTooltipOpen(false)}
-              >
-                <button
-                  type="button"
-                  data-no-drag
-                  data-tauri-drag-region="false"
-                  data-orchestration-icon
-                  aria-label={uiT(
-                    "Orchestrator, {value0} {value1}, {value2} done",
-                    {
-                      value0: String(orchestration.tasks.length),
-                      value1: String(
-                        orchestration.tasks.length === 1
-                          ? "subagent"
-                          : "subagents",
-                      ),
-                      value2: String(orchestrationDone),
-                    },
-                  )}
-                  aria-describedby={
-                    orchestrationTooltipOpen
-                      ? orchestrationTooltipId
-                      : undefined
-                  }
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onFocus={() => setOrchestrationTooltipOpen(true)}
-                  onBlur={() => setOrchestrationTooltipOpen(false)}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setOrchestrationTooltipOpen(false);
-                    onSelect(session.id, event);
-                  }}
-                  className="grid size-5 shrink-0 place-items-center rounded-md text-fuchsia-300/65 hover:bg-content/10 hover:text-fuchsia-200/90"
-                >
-                  <Share className="size-3" />
-                </button>
-              </div>
-            ) : null}
-          </span>
-        </span>
-      </div>
-      {orchestration && orchestrationTooltipOpen ? (
-        <Popover
-          anchor={orchestrationTooltipRootRef}
-          side="right"
-          align="end"
-          width={248}
-          maxHeight={320}
-          role="tooltip"
-          id={orchestrationTooltipId}
-          className="pointer-events-none overflow-y-auto p-2.5"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[11px] font-semibold text-content/85">
-              {uiT("Subagents")}
-            </span>
-            <span className="shrink-0 text-[10px] tabular-nums text-content/45">
-              {orchestrationDone}/{orchestration.tasks.length} {uiT("done")}
-            </span>
-          </div>
-          <div className="mt-1.5 flex flex-col gap-0.5">
-            {orchestration.tasks.map((task) => {
-              const label = orchestrationTaskLabel(task, orchestration);
-              return (
-                <div
-                  key={task.sessionId}
-                  className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-1"
-                >
-                  <HarnessIcon
-                    harness={task.harness}
-                    className="size-3.5 shrink-0 opacity-75"
-                  />
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-content/75">
-                    {task.title}
-                  </span>
-                  <span
-                    className={`shrink-0 text-[10px] ${
-                      task.needsInput ||
-                      task.status === "failed" ||
-                      task.status === "blocked" ||
-                      task.status === "interrupted"
-                        ? "text-amber-400"
-                        : label === "Working"
-                          ? "text-accent"
-                          : task.status === "completed"
-                            ? "text-emerald-400"
-                            : "text-content/45"
-                    }`}
-                  >
-                    {label}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </Popover>
-      ) : null}
-    </div>
-  );
-});
-
-function SessionRenameRow({
-  session,
-  isActive,
-  needsApproval,
-  onCommit,
-  onCancel,
-}: {
-  session: SessionSummary;
-  isActive: boolean;
-  needsApproval: boolean;
-  onCommit: (title: string) => void;
-  onCancel: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const finished = useRef(false);
-  const [value, setValue] = useState(() =>
-    sessionDisplayTitle(session.title, session.harness),
-  );
-
-  useEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-    input.focus();
-    input.select();
-  }, []);
-
-  const finish = (success: boolean) => {
-    if (finished.current) return;
-    if (success) {
-      const trimmed = value.trim();
-      if (!trimmed) {
-        onCancel();
-        return;
-      }
-      finished.current = true;
-      onCommit(trimmed);
-      return;
-    }
-    finished.current = true;
-    onCancel();
-  };
-
-  const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      finish(true);
-      return;
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      finish(false);
-    }
-  };
-
-  return (
-    <div
-      className={`flex w-full flex-col rounded-md px-2.5 py-2 ${
-        needsApproval
-          ? "bg-amber-400/10 text-content"
-          : isActive
-            ? "bg-selection text-content"
-            : "text-content/80"
-      }`}
-    >
-      <input
-        ref={inputRef}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={() => finish(true)}
-        onKeyDown={onKeyDown}
-        className="w-full rounded bg-content/10 px-2 py-1 text-[13px] font-semibold leading-snug text-content outline-none ring-1 ring-accent/40"
-      />
-    </div>
-  );
-}
 
 function DiffStat({
   additions,
@@ -3029,74 +1172,24 @@ function DiffStat({
   additions: number;
   deletions: number;
 }) {
-  const { t: uiT } = useTranslation();
-  if (additions <= 0 && deletions <= 0) return null;
-
+  const { t } = useTranslation();
   const label = [
     additions > 0 ? `+${formatInteger(additions)}` : "",
     deletions > 0 ? `-${formatInteger(deletions)}` : "",
   ]
     .filter(Boolean)
     .join(" ");
-
   return (
     <span
-      title={uiT("{value0} uncommitted", { value0: String(label) })}
+      title={t("{value0} uncommitted", { value0: label })}
       className="flex shrink-0 items-center gap-1.5 font-sans text-[11px] font-semibold tabular-nums"
     >
       {additions > 0 ? (
-        <span className="text-emerald-400">
-          +<TightDiffNumber value={additions} />
-        </span>
+        <span className="text-emerald-400">+{formatInteger(additions)}</span>
       ) : null}
       {deletions > 0 ? (
-        <span className="text-red-400">
-          -<TightDiffNumber value={deletions} />
-        </span>
+        <span className="text-red-400">-{formatInteger(deletions)}</span>
       ) : null}
     </span>
   );
-}
-
-function TightDiffNumber({ value }: { value: number }) {
-  const [first, ...rest] = formatInteger(value).split(",");
-  return (
-    <>
-      {first}
-      {rest.map((part, index) => (
-        <span key={index}>
-          <span className="-mr-px">,</span>
-          {part}
-        </span>
-      ))}
-    </>
-  );
-}
-
-function formatGitLabel(repo?: string, branch?: string): string {
-  if (repo && branch) return `${repo}/${branch}`;
-  return branch || repo || "";
-}
-
-function formatRelative(value: number, now: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "";
-  const seconds = Math.max(0, Math.round((now - value) / 1000));
-  if (seconds < 60) return "now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    const rest = minutes % 60;
-    return rest ? `${hours}h ${rest}m` : `${hours}h`;
-  }
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      day: "numeric",
-    }).format(new Date(value));
-  } catch {
-    return "";
-  }
 }

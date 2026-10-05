@@ -33,13 +33,83 @@ terminal docks, persisted snapshots and existing keyboard overrides.
    navigation can scroll independently. First-use lazy loading stays inside
    the pane; it does not clear the window or hide the surrounding shell.
 4. **Activity bar and single sidebar.** A 48px activity bar (Search, Inbox,
-   Notes, Automations, project avatars, all-projects pop-out, live agents,
+   Notes, Automations, project access, live agents,
    updates, Settings) replaces the 200px project rail. One sidebar keeps
    Sessions, Explorer and Changes; ⌘B toggles it and its width persists.
    Expanding and collapsing animate the width smoothly while dragging stays
    immediate; reduced-motion preferences skip the transition.
    Overrides for the removed "Toggle Session Sidebar" command migrate to
    "Toggle Sidebar".
+5. **Persistent multi-project tree.** Project names and avatars live in the
+   single sidebar, grouped and pinned using existing preferences. Several
+   projects can expand concurrently in Sessions; session rows are one line
+   with title and status, with metadata available on hover/focus. In multi-project
+   mode, Explorer and Changes replace the top Projects title with a searchable
+   project picker and a compact branch/worktree control for an available local
+   Git project. Quick-open/search and add remain at the right of that header;
+   the tabs sit immediately below, without separate project or worktree rows.
+   Picking a project switches the active working copy; only its file tree/search
+   or changes panel
+   fills the remaining sidebar height, without project-tree rows or a 420px cap.
+   Files scroll internally and Changes has a vertical scroll region. An empty
+   or `~` cwd keeps the switcher visible and shows the localized Choose project
+   hint. Single-project callers without recents keep their existing header,
+   worktree toolbar, ProjectList and bounded working-copy behavior and do not
+   show the project picker. Sessions also uses the header project picker, with
+   All projects as its default scope and a choice for any remembered project.
+   A concrete selection activates and expands that project, shows only its
+   sessions, and limits search/history reads to it. Returning to All projects
+   restores the multi-project tree. Show the compact worktree control only for
+   a concrete scope matching the active local project. Its expansion persists; clicking a collapsed project's
+   name activates and expands it, clicking an open one collapses it, and
+   disclosure clicks only expand/collapse. Rows slide open and closed. Per-project new chat
+   targets that project's remembered worktree. Projects remain until explicitly
+   archived/deleted, without the previous 20-project eviction.
+   Child rows indent their content to the project name; the project avatar
+   doubles as the disclosure, turning into a chevron on hover/focus. Each
+   project shows five ungrouped chats (plus the active one) with Show
+   more/Show less; search results are never truncated.
+
+   Project groups, project children, session folders, pins and reminders all
+   animate on expansion and collapse through the shared AnimatedCollapse
+   component, following the standing disclosure rule in AGENTS.md. Closing
+   content stays mounted and inert until motion completes; rapid reversal is
+   supported and reduced-motion preferences settle immediately.
+
+   Terminal docks follow the same standing motion rule: their grid tracks
+   expand/collapse smoothly, stay stable at zero size when closed, and disable
+   transitions during direct resizing. Hidden docks retain their running PTYs,
+   suppress focus/menus, and restore the committed size when shown again.
+
+   Sessions search matches project display names/paths and conversation titles
+   across projects in the selected scope. It fills missing summaries with at most four
+   concurrent reads, temporarily expands result ancestors, and restores saved
+   expansion after clearing. Summaries/errors are cached independently per
+   project; collapsed remote projects stop polling. Selection, folder drops and
+   batch actions remain project-scoped. Current-project keyboard navigation,
+   worktree behavior and existing session folders/reminders remain compatible.
+   Project and session rows share 32px height and the same horizontal row bounds,
+   including folder members. Rows and session groups use consistent 3px gaps;
+   project groups retain 8px separation. Model, branch, time and full title
+   remain available on hover and keyboard focus. Same-name projects expose
+   full paths and remote machine names. Existing rename/archive/delete,
+   orchestration details, folder/reminder/pin menus and workspace-pane drops
+   remain available. Folder membership is cleaned only after a complete,
+   successful project listing, never from filtered results or a failed read.
+
+6. **Session and project hover summaries.** Session rows reveal a structured
+   320px summary with full title, current status and optional model, branch,
+   worktree directory and last-update rows. Project rows reveal a matching card
+   with avatar/name, pin control, session/unread/opened counts, full path,
+   remote machine/connection when relevant and Edit project. Edit reuses the
+   existing project configuration menu. Pointer opening and leaving are
+   immediate, without timers or a card entrance animation. Direct pointer
+   transfer between the row and card retains the surface. Keyboard users
+   can reach the project actions, Escape restores focus, and row actions never
+   fire from summary controls. Search, filters and the five-row preview do not
+   affect counts. Unread means finished while unfocused and not yet viewed;
+   opened means distinct main conversations in this window's workspace tabs.
+   Unknown history is not zero; lazy reads retain cached summaries on failure.
 
 ## Acceptance
 
@@ -55,6 +125,38 @@ terminal docks, persisted snapshots and existing keyboard overrides.
   activity bar, sidebar, tab strip, footer and adjacent panes visible, with a
   loading fallback confined to that app pane.
 - No Rust change; the macOS native menu keeps working through the same events.
+- Several project trees can remain open; request deduplication and generation
+  checks prevent out-of-order or removed/relocated-project responses from
+  replacing current data. A failed project can retry while others remain usable.
+- In multi-project Explorer/Changes, the compact searchable project picker
+  replaces the top Projects title, shows the current project and calls the
+  existing project-switch handler on selection. An available local Git project
+  shows its compact branch/worktree control beside the picker. Quick-open/search
+  and add stay at the right; tabs follow the header with no standalone project
+  or worktree rows. The viewport renders one active working copy and no
+  project-tree rows and fills the remaining height. Header diff statistics
+  follow only the current project's git root.
+  Empty or `~` cwd shows Choose project (选择项目); callers without recents
+  show no picker and retain their previous header/worktree behavior. Switching
+  back to Sessions restores its project scope picker, search and project tree.
+- Equal remote session IDs in different projects open distinct chats; Shared
+  Host native rows use the existing local route only for a locally shared project.
+- Searching collapsed projects fills missing summaries at concurrency <=4,
+  preserves offline remote cache, reports unfinished/error state, and restores
+  project/group/folder expansion after clearing. Reminder and update badges do
+  not leak across projects with equal session IDs.
+- Adding 25 projects survives a storage reload, preserving the existing recent
+  format; archived/deleted projects and renamed paths update expansion keys.
+  Already-evicted projects require re-adding.
+- Summary title/branch/path values wrap without horizontal overflow in both
+  themes and UI languages. Optional metadata is hidden when unavailable.
+  Keyboard focus and pointer hover immediately open the same content, and
+  summary scrolling remains usable. Scroll/drag/outside/Escape/menu dismissal
+  and closing ancestors immediately hide the surface.
+- Project counts deduplicate within project identity, exclude archived/worker
+  history, include genuine open blank chats and exclude retained closed chats
+  from opened counts. Loaded empty projects show zero; loading, unavailable
+  and cached states remain distinct. Equal remote IDs do not leak counts.
 
 ## Terminal dock disclosure motion
 

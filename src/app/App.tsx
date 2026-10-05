@@ -5,6 +5,7 @@ import {
   type AppViewRenderer,
 } from "../features/workspace/ui/AppViewHost";
 import { ActivityBar } from "./shell/ActivityBar";
+import { createProjectHistoryLoader } from "./model/projectHistoryLoader";
 import { contentTabTarget } from "./model/appViewNavigation";
 import { SessionTitleCoordinator } from "../integrations/harness/core/titleCoordinator";
 import { readHarnessSessionTitle } from "../integrations/harness/core/registry";
@@ -591,6 +592,7 @@ import {
   OPEN_REMOTE_PROJECT_EVENT,
   REMOTE_HISTORY_UPDATED,
   cachedRemoteSessionSummary,
+  prefetchRemoteProjectSessions,
   rememberRemotePendingWorktree,
   rememberRemoteSession,
   remotePendingWorktree,
@@ -1149,15 +1151,53 @@ function Workspace({
     new Map<string, { sessionId: string; controller: AbortController }>(),
   );
   const [loadedProjects, setLoadedProjects] = useState<ReadonlySet<string>>(
-    () =>
-      bootHistoryCwd
-        ? new Set([normalizeProjectPath(bootHistoryCwd)])
-        : new Set(),
+    () => (bootHistoryCwd ? new Set([pathKey(bootHistoryCwd)]) : new Set()),
   );
-  const loadedProjectsRef = useRef(loadedProjects);
-  loadedProjectsRef.current = loadedProjects;
-  /** Project whose listing failed, so the error cannot leak to another one. */
-  const [historyErrorCwd, setHistoryErrorCwd] = useState<string | null>(null);
+  /** Failures stay with their project while other tree branches load. */
+  const [failedProjectPaths, setFailedProjectPaths] = useState<
+    ReadonlySet<string>
+  >(new Set());
+  const projectHistoryLoader = useRef<ReturnType<
+    typeof createProjectHistoryLoader<SessionSummary>
+  > | null>(null);
+  if (!projectHistoryLoader.current) {
+    projectHistoryLoader.current = createProjectHistoryLoader<SessionSummary>({
+      list: listSessionsByProject,
+      start: (cwd) =>
+        setFailedProjectPaths((previous) => {
+          const key = pathKey(cwd);
+          if (!previous.has(key)) return previous;
+          const next = new Set(previous);
+          next.delete(key);
+          return next;
+        }),
+      success: (cwd, rows, startedAt) => {
+        setHistory((current) => {
+          // A chat persisted during this read is newer than the fetched snapshot.
+          const changed = current.filter(
+            (entry) =>
+              sameProjectPath(entry.cwd, cwd) && entry.updatedAt >= startedAt,
+          );
+          let next = replaceProjectHistory(current, cwd, rows);
+          for (const entry of changed) {
+            const fetched = rows.find((row) => row.id === entry.id);
+            if (!fetched || fetched.updatedAt < entry.updatedAt)
+              next = mergeProjectHistorySummary(next, entry);
+          }
+          return next;
+        });
+        setLoadedProjects((previous) =>
+          previous.has(pathKey(cwd))
+            ? previous
+            : new Set(previous).add(pathKey(cwd)),
+        );
+      },
+      failure: (cwd) =>
+        setFailedProjectPaths((previous) =>
+          new Set(previous).add(pathKey(cwd)),
+        ),
+    });
+  }
 
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
@@ -1323,6 +1363,7 @@ function Workspace({
     inboxSessionId: inboxVisible ? inboxAskPortal?.sessionId : undefined,
   };
   const sessionNavigationIdsRef = useRef<readonly string[]>([]);
+  const sessionNavigationProjectRef = useRef<string | null>(null);
   const paletteOpenRef = useRef(paletteOpen);
   paletteOpenRef.current = paletteOpen;
   const whatsNewVersionRef = useRef(whatsNewVersion);
@@ -1698,9 +1739,9 @@ function Workspace({
     });
   }, []);
   const sidebarCwdKey =
-    sidebarCwd && sidebarCwd !== "~" ? normalizeProjectPath(sidebarCwd) : null;
+    sidebarCwd && sidebarCwd !== "~" ? pathKey(sidebarCwd) : null;
   const historyFailed =
-    sidebarCwdKey != null && historyErrorCwd === sidebarCwdKey;
+    sidebarCwdKey != null && failedProjectPaths.has(sidebarCwdKey);
   // True from the very first frame that shows a project we have never listed,
   // so the sidebar can stay blank instead of flashing "No sessions yet".
   const historyPending =
@@ -2009,29 +2050,9 @@ function Workspace({
     };
   }, [flushHarnessEvents, keepWorkspaceTab, readProjectReturnMemory]);
 
-  const refreshHistory = useCallback(async (cwd: string) => {
-    if (!cwd || cwd === "~") return;
-    // `history` holds every visited project's rows and the sidebar filters it
-    // by cwd, so a project loaded once paints from cache on the way back and
-    // revalidates quietly underneath the cards already on screen. Whether the
-    // first load is still pending is derived from `loadedProjects`, not
-    // tracked here — a status set from this effect lands a render too late to
-    // suppress the empty state.
-    const key = normalizeProjectPath(cwd);
-    setHistoryErrorCwd((prev) => (prev === key ? null : prev));
-    try {
-      const rows = await listSessionsByProject(cwd);
-      if (cwd !== sidebarCwdRef.current) return;
-      setHistory((current) => replaceProjectHistory(current, cwd, rows));
-      setLoadedProjects((prev) =>
-        prev.has(key) ? prev : new Set(prev).add(key),
-      );
-    } catch {
-      if (cwd !== sidebarCwdRef.current) return;
-      // A failed revalidate keeps the cached cards rather than replacing a
-      // good list with an error.
-      if (!loadedProjectsRef.current.has(key)) setHistoryErrorCwd(key);
-    }
+  const refreshHistory = useCallback((cwd: string, force = false) => {
+    if (isRemoteProjectPath(cwd)) return Promise.resolve();
+    return projectHistoryLoader.current!.load(cwd, force);
   }, []);
 
   useEffect(
@@ -2109,9 +2130,7 @@ function Workspace({
       .then((summary) => {
         if (!summary) return;
         lastPersisted.current.set(session.id, fingerprint);
-        if (summary.cwd === sidebarCwdRef.current) {
-          setHistory((current) => mergeProjectHistorySummary(current, summary));
-        }
+        setHistory((current) => mergeProjectHistorySummary(current, summary));
       })
       .catch(() => undefined);
   }, []);
@@ -2177,11 +2196,7 @@ function Workspace({
           const summary = await upsertSession(session).catch(() => null);
           if (!summary) return;
           lastPersisted.current.set(session.id, fingerprint);
-          if (summary.cwd === sidebarCwdRef.current) {
-            setHistory((current) =>
-              mergeProjectHistorySummary(current, summary),
-            );
-          }
+          setHistory((current) => mergeProjectHistorySummary(current, summary));
         }),
       );
     }, 650);
@@ -2451,28 +2466,40 @@ function Workspace({
     [appendTab, sessionDefaults?.runtimeMode],
   );
 
-  const onNew = useCallback(() => {
-    const cwd = active?.cwd ?? sessionDefaults?.cwd ?? projectCwd;
-    const focus = worktreeFocus(cwd);
-    const session = {
-      ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
-      ...(focus && pathKey(focus.path) !== pathKey(cwd)
-        ? { worktreeCwd: focus.path, branch: focus.branch ?? undefined }
-        : {}),
-    };
-    const tab = newTab(session.id);
-    setSessions((prev) => [...prev, session]);
-    appendTab(tab, cwd);
-    setActiveTabId(tab.id);
-    setComposerFocused(true);
-    return session.id;
-  }, [
-    active?.cwd,
-    appendTab,
-    sessionDefaults?.cwd,
-    sessionDefaults?.runtimeMode,
-    projectCwd,
-  ]);
+  const onNewInProject = useCallback(
+    (cwd: string) => {
+      workspaceNavigation.cancel();
+      const focus = worktreeFocus(cwd);
+      const session = {
+        ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+        ...(focus && pathKey(focus.path) !== pathKey(cwd)
+          ? { worktreeCwd: focus.path, branch: focus.branch ?? undefined }
+          : {}),
+      };
+      const tab = newTab(session.id);
+      setSessions((previous) => [...previous, session]);
+      appendTab(tab, cwd);
+      if (looksLikeProject(cwd)) {
+        setProjectCwd(normalizeProjectPath(cwd));
+        setRecents(rememberProject(cwd));
+      }
+      setSidebarTab("sessions", cwd);
+      setActiveTabId(tab.id);
+      setComposerFocused(true);
+      return session.id;
+    },
+    [
+      appendTab,
+      sessionDefaults?.runtimeMode,
+      setSidebarTab,
+      workspaceNavigation.cancel,
+    ],
+  );
+
+  const onNew = useCallback(
+    () => onNewInProject(active?.cwd ?? sessionDefaults?.cwd ?? projectCwd),
+    [active?.cwd, onNewInProject, sessionDefaults?.cwd, projectCwd],
+  );
 
   const ensureContentTab = useCallback(
     (cwd: string) => {
@@ -2499,11 +2526,21 @@ function Workspace({
 
   const onSelectRemoteSession = useCallback(
     (project: string, remoteSessionId: string) => {
+      workspaceNavigation.cancel();
+      setSidebarTab("sessions", project);
+      if (looksLikeProject(project))
+        setProjectCwd(normalizeProjectPath(project));
       const existing = tabsRef.current
         .map((tab) => ({
           tab,
           shellId: leafIds(tab.layout).find(
-            (shellId) => remoteSessionFor(shellId) === remoteSessionId,
+            (shellId) =>
+              remoteSessionFor(shellId) === remoteSessionId &&
+              sessionsRef.current.some(
+                (session) =>
+                  session.id === shellId &&
+                  sameProjectPath(session.cwd, project),
+              ),
           ),
         }))
         .find(({ shellId }) => shellId);
@@ -2520,7 +2557,13 @@ function Workspace({
       appendTab(tab, project);
       setActiveTabId(tab.id);
     },
-    [activateTab, appendTab, sessionDefaults?.runtimeMode],
+    [
+      activateTab,
+      appendTab,
+      sessionDefaults?.runtimeMode,
+      setSidebarTab,
+      workspaceNavigation.cancel,
+    ],
   );
 
   const onStartInboxItem = useCallback(
@@ -3422,10 +3465,17 @@ function Workspace({
   );
 
   const onRemoteSessionDeleted = useCallback(
-    (remoteSessionId: string) => {
+    (remoteSessionId: string, project?: string) => {
       const tab = tabsRef.current.find((entry) =>
         leafIds(entry.layout).some(
-          (shellId) => remoteSessionFor(shellId) === remoteSessionId,
+          (shellId) =>
+            remoteSessionFor(shellId) === remoteSessionId &&
+            (!project ||
+              sessionsRef.current.some(
+                (session) =>
+                  session.id === shellId &&
+                  sameProjectPath(session.cwd, project),
+              )),
         ),
       );
       if (!tab) return;
@@ -4377,9 +4427,11 @@ function Workspace({
   }, [inboxAskPortal, inboxVisible]);
 
   const onSelectHistorySession = useCallback(
-    async (sessionId: string) => {
+    async (sessionId: string, project?: string) => {
       workspaceNavigation.cancel();
       let session = await ensureOpenSession(sessionId);
+      if (project && session && !sameProjectPath(session.cwd, project)) return;
+      if (project) setSidebarTab("sessions", project);
       if (!session || session.inboxAsk) return;
       const parentId =
         session.orchestrationLeadId ??
@@ -4412,6 +4464,7 @@ function Workspace({
       focusOpenSession,
       replaceBlankPaneWithSession,
       revealLinkedSessionUpdate,
+      setSidebarTab,
     ],
   );
 
@@ -4565,6 +4618,10 @@ function Workspace({
 
   const onRenameHistorySession = useCallback(
     async (sessionId: string, displayTitle: string) => {
+      const editedCwd =
+        sessionsRef.current.find((session) => session.id === sessionId)?.cwd ??
+        history.find((entry) => entry.id === sessionId)?.cwd ??
+        sidebarCwd;
       const trimmed = displayTitle.trim();
       if (!trimmed) return;
       titleCoordinator.current!.cancel(sessionId);
@@ -4584,7 +4641,7 @@ function Workspace({
       } else {
         const restored = await getSession(sessionId).catch(() => null);
         if (!restored) {
-          void refreshHistory(sidebarCwd);
+          void refreshHistory(editedCwd, true);
           return;
         }
         const updated = {
@@ -4603,9 +4660,15 @@ function Workspace({
           lastPersisted.current.set(sessionId, persistFingerprint(updated));
         }
       }
-      void refreshHistory(sidebarCwd);
+      void refreshHistory(editedCwd, true);
     },
-    [invalidateLoadedSession, persistSession, refreshHistory, sidebarCwd],
+    [
+      history,
+      invalidateLoadedSession,
+      persistSession,
+      refreshHistory,
+      sidebarCwd,
+    ],
   );
 
   const checkOpenWorktreeFiles = useCallback((path: string) => {
@@ -4924,7 +4987,7 @@ function Workspace({
                 setHistory((current) =>
                   current.filter((entry) => entry.id !== sessionId),
                 );
-                void refreshHistory(sidebarCwd);
+                void refreshHistory(seed?.cwd ?? sidebarCwd, true);
               }
             },
           },
@@ -5058,6 +5121,10 @@ function Workspace({
 
   const onSetHistorySessionLinkedWorkItem = useCallback(
     (sessionId: string, linkedWorkItem: LinkedWorkItem | undefined) => {
+      const editedCwd =
+        sessionsRef.current.find((session) => session.id === sessionId)?.cwd ??
+        history.find((entry) => entry.id === sessionId)?.cwd ??
+        sidebarCwd;
       const previousLinkedWorkItem =
         sessionsRef.current.find((session) => session.id === sessionId)
           ?.linkedWorkItem ??
@@ -5121,7 +5188,7 @@ function Workspace({
                 )
               : current.filter((session) => session.id !== sessionId),
           );
-          void refreshHistory(sidebarCwd);
+          void refreshHistory(editedCwd, true);
           void message(
             `Could not update this conversation's GitHub link.\n\n${String(error)}`,
             { title: "MonoCode", kind: "error" },
@@ -5651,6 +5718,20 @@ function Workspace({
   const onRemoveProject = useCallback(
     (path: string, options: { purgeData: boolean }) => {
       const normalized = normalizeProjectPath(path);
+      projectHistoryLoader.current?.invalidate(normalized);
+      setHistory((current) =>
+        current.filter((session) => !sameProjectPath(session.cwd, normalized)),
+      );
+      setLoadedProjects((current) => {
+        const next = new Set(current);
+        next.delete(pathKey(normalized));
+        return next;
+      });
+      setFailedProjectPaths((current) => {
+        const next = new Set(current);
+        next.delete(pathKey(normalized));
+        return next;
+      });
       const wasCurrent = sameProjectPath(projectCwdRef.current, normalized);
       const remaining = options.purgeData
         ? forgetProject(normalized)
@@ -5804,7 +5885,11 @@ function Workspace({
 
   const applyProjectLocationChange = useCallback(
     async (from: string, to: string) => {
+      projectHistoryLoader.current?.invalidate(from);
+      projectHistoryLoader.current?.invalidate(to);
       await rebaseProjectSessions(from, to);
+      projectHistoryLoader.current?.invalidate(from);
+      projectHistoryLoader.current?.invalidate(to);
       rebaseCiRepairs(from, to);
 
       const nextSessions = sessionsRef.current.map((session) =>
@@ -5838,8 +5923,15 @@ function Workspace({
       );
       setLoadedProjects((current) => {
         const next = new Set(current);
-        next.delete(normalizeProjectPath(from));
-        next.add(normalizeProjectPath(to));
+        next.delete(pathKey(from));
+        next.delete(pathKey(to));
+        if (current.has(pathKey(from))) next.add(pathKey(to));
+        return next;
+      });
+      setFailedProjectPaths((current) => {
+        const next = new Set(current);
+        next.delete(pathKey(from));
+        next.delete(pathKey(to));
         return next;
       });
 
@@ -9883,6 +9975,22 @@ function Workspace({
       ),
     [history, projectBranches, sessions, sidebarCwd, orchestrationRuns],
   );
+  const treeHistory = useMemo(() => {
+    const paths = new Map<string, string>();
+    for (const row of [...history, ...sessions])
+      paths.set(pathKey(row.cwd), row.cwd);
+    return [...paths.values()].flatMap((cwd) =>
+      historyWithLiveSessions(
+        history,
+        sessions,
+        cwd,
+        sameProjectPath(cwd, sidebarCwd)
+          ? { branch: projectBranches?.current ?? undefined }
+          : undefined,
+        orchestrationRuns,
+      ),
+    );
+  }, [history, sessions, sidebarCwd, projectBranches, orchestrationRuns]);
   const {
     unseen: inboxUnseen,
     linkedSessionUpdateIds,
@@ -9927,19 +10035,15 @@ function Workspace({
   const openProjectSessions = useMemo(
     () =>
       sessions
-        .filter(
-          (session) =>
-            !session.inboxAsk &&
-            !session.orchestrationLeadId &&
-            sameProjectPath(session.cwd, sidebarCwd),
-        )
+        .filter((session) => !session.inboxAsk && !session.orchestrationLeadId)
         .map((session) =>
           summaryFromSession(session, {
-            ...(projectBranches?.current
+            ...(sameProjectPath(session.cwd, sidebarCwd) &&
+            projectBranches?.current
               ? { branch: projectBranches.current }
               : {}),
-            ...(sidebarCwd && sidebarCwd !== "~"
-              ? { repo: projectName(sidebarCwd) }
+            ...(session.cwd && session.cwd !== "~"
+              ? { repo: projectName(session.cwd) }
               : {}),
           }),
         ),
@@ -9953,6 +10057,13 @@ function Workspace({
       return next;
     });
   }, []);
+
+  const onShowProjects = useCallback(() => {
+    setSessionSidebarOpen(true);
+    saveSessionSidebarOpen(true);
+    setSidebarTab("sessions");
+    setSearchFocusToken((value) => value + 1);
+  }, [setSidebarTab]);
 
   /** Quick Open: files by default, `>` commands, `#` sessions, `@` projects. */
   const openPalette = useCallback((query: string) => {
@@ -10253,9 +10364,13 @@ function Workspace({
     );
   }, []);
 
-  const onSessionNavigationOrder = useCallback((ids: readonly string[]) => {
-    sessionNavigationIdsRef.current = ids;
-  }, []);
+  const onSessionNavigationOrder = useCallback(
+    (ids: readonly string[]) => {
+      sessionNavigationIdsRef.current = ids;
+      sessionNavigationProjectRef.current = pathKey(sidebarCwd);
+    },
+    [sidebarCwd],
+  );
 
   const onNavigateSessionList = useCallback(
     (delta: number, inCurrentTab = false) => {
@@ -10266,7 +10381,11 @@ function Workspace({
       const current = sessionsRef.current.find(
         (session) => session.id === activeWorkspace.focusedId,
       );
-      if (!current) return;
+      if (
+        !current ||
+        sessionNavigationProjectRef.current !== pathKey(current.cwd)
+      )
+        return;
       const remoteProject =
         isRemoteProjectPath(current.cwd) || !!sessionUsesHost(current);
       const navigationId = remoteProject
@@ -10899,6 +11018,7 @@ function Workspace({
             ) : null}
             <div className="flex min-h-0 min-w-0 flex-1">
               <ActivityBar
+                onShowProjects={onShowProjects}
                 chromeInMenuBar={menuBarPinned}
                 cwd={sidebarCwd}
                 recents={recents}
@@ -10929,6 +11049,17 @@ function Workspace({
                 onDismissUpdate={() => setUpdateNotice(null)}
               />
               <Sidebar
+                recents={recents}
+                onSelectProject={onSelectProject}
+                onOpenProject={pickProject}
+                onRemoveProject={onRemoveProject}
+                onOpenNotificationSettings={onOpenNotificationSettings}
+                projectHistory={treeHistory}
+                loadedProjectPaths={loadedProjects}
+                failedProjectPaths={failedProjectPaths}
+                onLoadProject={refreshHistory}
+                onPrefetchRemoteProject={prefetchRemoteProjectSessions}
+                onNewInProject={onNewInProject}
                 cwd={sidebarCwd}
                 gitCwd={gitCwd}
                 worktreeTabStats={worktreeTabStats}
@@ -10993,6 +11124,7 @@ function Workspace({
                 textHarness={pickTextHarness(active?.harness)}
                 onNew={onNew}
                 openSessions={openProjectSessions}
+                openSessionIds={openSessionIds(tabs)}
                 onOpenInboxItem={onOpenLinkedWorkItem}
                 onGoToFile={onGoToFile}
                 unseenFinishedIds={unseenFinishedIds}

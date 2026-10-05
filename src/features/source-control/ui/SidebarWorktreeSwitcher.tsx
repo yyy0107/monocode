@@ -8,25 +8,28 @@ import { basename } from "../../../platform/tauri/fs";
 import { Popover } from "../../../shared/ui/Popover";
 import {
   Check,
+  ChevronDown,
   ChevronsUpDown,
   FolderTree,
   GitBranch,
   Loader,
 } from "../../../shared/ui/icons";
 
-/** The sidebar project title opens the working-copy selector. Picking a
- * worktree narrows the sidebar and new sessions to that working copy. */
+/** Picking a worktree narrows the sidebar and new sessions to that working copy. */
 export function SidebarWorktreeSwitcher({
   cwd,
   tabStats,
   onSelect,
   pending = false,
   switchError,
+  compact = false,
 }: {
   cwd: string;
   onSelect?: (focus?: WorktreeFocus) => void;
   pending?: boolean;
   switchError?: string;
+  /** Show the branch beside a separate project picker in the sidebar header. */
+  compact?: boolean;
   /** Open tabs per worktree path key; hidden worktrees can still hold some. */
   tabStats?: ReadonlyMap<string, { tabs: number; busy: boolean }>;
 }) {
@@ -70,16 +73,31 @@ export function SidebarWorktreeSwitcher({
 
   const title = basename(cwd);
   if (
-    (!canListWorktrees || (data && worktrees.length === 0)) &&
+    (!canListWorktrees || (!compact && data && worktrees.length === 0)) &&
     !focus &&
     !switchError &&
     !pending
   )
-    return (
+    return compact ? null : (
       <span className="min-w-0 truncate text-sm font-medium leading-tight">
         {title}
       </span>
     );
+
+  const focusedTree = focus
+    ? data?.worktrees.find((tree) => pathKey(tree.path) === pathKey(focus.path))
+    : undefined;
+  const branchLabel = focus
+    ? (focus.branch ??
+      focusedTree?.branch ??
+      (focusedTree?.head
+        ? uiT("Detached {value0}", { value0: focusedTree.head.slice(0, 7) })
+        : uiT("Detached worktree")))
+    : (main?.branch ??
+      branches?.current ??
+      (main?.head
+        ? uiT("Detached {value0}", { value0: main.head.slice(0, 7) })
+        : uiT("Project folder")));
 
   const row = (
     key: string,
@@ -125,21 +143,26 @@ export function SidebarWorktreeSwitcher({
         aria-busy={pending}
         title={
           focus
-            ? `${focus.branch ?? "detached"}\n${prettyCwd(focus.path)}`
-            : (main?.branch ?? uiT("Project folder"))
+            ? `${compact ? branchLabel : (focus.branch ?? "detached")}\n${prettyCwd(focus.path)}`
+            : compact
+              ? branchLabel
+              : (main?.branch ?? uiT("Project folder"))
         }
         onClick={() => {
           if (!open) void refresh();
           setOpen(!open);
         }}
-        className="-ml-1.5 flex h-6.5 min-w-0 max-w-full items-center gap-2 rounded-md px-1.5 text-sm font-medium leading-tight hover:bg-content/8 aria-expanded:bg-content/8"
+        className={`flex min-w-0 max-w-full items-center rounded-md px-1.5 leading-tight hover:bg-content/8 aria-expanded:bg-content/8 ${compact ? "h-8 gap-1.5 text-[12px] text-content/60 hover:text-content" : "-ml-1.5 h-6.5 gap-2 text-sm font-medium"}`}
       >
-        <span className="min-w-0 truncate">{title}</span>
+        {compact ? <GitBranch className="size-3.5 shrink-0" /> : null}
+        <span className="min-w-0 truncate">{compact ? branchLabel : title}</span>
         {pending ? (
           <Loader
             aria-label={uiT("Switching working copy")}
             className="size-3.5 shrink-0 animate-spin text-content/45"
           />
+        ) : compact ? (
+          <ChevronDown className="size-3 shrink-0 text-content/45" />
         ) : (
           <ChevronsUpDown className="size-3.5 shrink-0 text-content/45" />
         )}

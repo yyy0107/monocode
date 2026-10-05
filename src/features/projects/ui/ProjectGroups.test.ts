@@ -122,6 +122,11 @@ it("renders assigned projects in persistent collapsible groups", async () => {
   expect(group.querySelector("[data-group-mascot]")).toBeNull();
 
   act(() => header.click());
+  const fold = group.querySelector<HTMLElement>(".zen-fold-item")!;
+  expect(fold.dataset.foldState).toBe("closing");
+  expect(fold.inert).toBe(true);
+  expect(document.querySelector('button[aria-label="client"]')).not.toBeNull();
+  act(() => fold.dispatchEvent(new Event("animationend", { bubbles: true })));
   expect(document.querySelector('button[aria-label="client"]')).toBeNull();
   expect(loadProjectGroups()[0].collapsed).toBe(true);
   const collapsedGroup = container.querySelector<HTMLElement>(

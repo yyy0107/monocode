@@ -125,6 +125,7 @@ vi.mock("./shell/MenuBar", async () => {
           "View: Search Everywhere",
           "Pane: Close",
           "Tab: Close All",
+          "Session: Next",
           "Terminal: Toggle Dock",
         ].map((id) =>
           el(
@@ -176,15 +177,127 @@ vi.mock("./shell/Sidebar", async () => {
       onOpenDiff,
       cwd,
       gitCwd,
+      projectHistory = [],
+      loadedProjectPaths = new Set(),
+      failedProjectPaths = new Set(),
+      onLoadProject,
+      onNewInProject,
+      onSelectSession,
+      onRenameSession,
+      onSelectRemoteSession,
+      onRemoteSessionDeleted,
+      onSessionNavigationOrder,
+      onRemoveProject,
     }: {
       onOpenFile: (path: string) => void;
       onOpenDiff: (path: string) => void;
       cwd: string;
       gitCwd: string;
+      projectHistory?: { id: string; cwd: string; title: string }[];
+      loadedProjectPaths?: ReadonlySet<string>;
+      failedProjectPaths?: ReadonlySet<string>;
+      onLoadProject: (cwd: string) => Promise<void>;
+      onNewInProject: (cwd: string) => void;
+      onSelectSession: (id: string, cwd?: string) => void;
+      onRenameSession: (id: string, title: string) => void;
+      onSelectRemoteSession: (cwd: string, id: string) => void;
+      onRemoteSessionDeleted: (id: string, cwd?: string) => void;
+      onSessionNavigationOrder: (ids: readonly string[]) => void;
+      onRemoveProject: (cwd: string, options: { purgeData: boolean }) => void;
     }) =>
       el(
         "aside",
-        { "data-sidebar": cwd, "data-git-cwd": gitCwd },
+        {
+          "data-sidebar": cwd,
+          "data-git-cwd": gitCwd,
+          "data-loaded-projects": [...loadedProjectPaths].join("|"),
+          "data-failed-projects": [...failedProjectPaths].join("|"),
+        },
+        el(
+          "button",
+          {
+            "data-publish-navigation": true,
+            onClick: () => onSessionNavigationOrder(["first", "recent"]),
+          },
+          "Publish navigation",
+        ),
+        ...["/project-a", "/project-b"].flatMap((path) => [
+          el(
+            "button",
+            {
+              key: `load-${path}`,
+              "data-load-project": path,
+              onClick: () => void onLoadProject(path),
+            },
+            "Load",
+          ),
+          el(
+            "button",
+            {
+              key: `new-${path}`,
+              "data-new-project-session": path,
+              onClick: () => onNewInProject(path),
+            },
+            "New",
+          ),
+          el(
+            "button",
+            {
+              key: `remove-${path}`,
+              "data-remove-project": path,
+              onClick: () => onRemoveProject(path, { purgeData: true }),
+            },
+            "Remove",
+          ),
+        ]),
+        ...["remote://host/project-a", "remote://host/project-b"].flatMap(
+          (path) => [
+            el(
+              "button",
+              {
+                key: `remote-${path}`,
+                "data-open-remote-project": path,
+                onClick: () => onSelectRemoteSession(path, "shared-id"),
+              },
+              "Open remote",
+            ),
+            el(
+              "button",
+              {
+                key: `delete-${path}`,
+                "data-delete-remote-project": path,
+                onClick: () => onRemoteSessionDeleted("shared-id", path),
+              },
+              "Delete remote",
+            ),
+          ],
+        ),
+        ...projectHistory.map((row) =>
+          el(
+            "div",
+            {
+              key: row.id,
+              "data-history-project": row.cwd,
+              "data-history-title": row.title,
+            },
+            el(
+              "button",
+              {
+                "data-open-history": row.id,
+                onClick: () => onSelectSession(row.id, row.cwd),
+              },
+              row.title,
+            ),
+            el(
+              "button",
+              {
+                "data-rename-history": row.id,
+                onClick: () => onRenameSession(row.id, "Renamed"),
+              },
+              "Rename",
+            ),
+          ),
+        ),
         el(
           "button",
           {
@@ -247,10 +360,21 @@ vi.mock("../features/terminal/ui/ProjectTerminalDock", async () => {
 vi.mock("../features/sessions/ui/SessionPane", async () => {
   const { createElement: el } = await import("react");
   return {
-    SessionPane: ({ session }: { session: { id: string; cwd: string } }) =>
+    SessionPane: ({
+      session,
+    }: {
+      session: {
+        id: string;
+        cwd: string;
+        worktreeCwd?: string;
+        branch?: string;
+      };
+    }) =>
       el("div", {
         "data-session": session.id,
         "data-session-cwd": session.cwd,
+        "data-session-worktree": session.worktreeCwd,
+        "data-session-branch": session.branch,
       }),
   };
 });
@@ -656,4 +780,230 @@ describe("App workspace app views", () => {
       expect(container.querySelector('[data-sidebar="/repo"]')).not.toBeNull();
     },
   );
+});
+
+describe("App multi-project history", () => {
+  it("discards a removed project's pending history and starts a fresh read when re-added", async () => {
+    let finishOld!: (rows: unknown[]) => void;
+    const oldRead = new Promise<unknown[]>((resolve) => {
+      finishOld = resolve;
+    });
+    let reads = 0;
+    const summary = (id: string) => ({
+      ...newSession("codex", "/project-a"),
+      id,
+      title: id,
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    mocks.invoke.mockImplementation(async (command, args) => {
+      if (command === "session_list_by_project" && args.cwd === "/project-a") {
+        reads++;
+        return reads === 1 ? oldRead : [summary("fresh-chat")];
+      }
+      return [];
+    });
+    await mount();
+    await click('[data-load-project="/project-a"]');
+    await click('[data-remove-project="/project-a"]');
+    await click('[data-load-project="/project-a"]');
+    await act(async () => finishOld([summary("stale-chat")]));
+    // Purging also lists stored chats; the reopened branch makes its own read.
+    expect(reads).toBe(3);
+    expect(
+      container.querySelector('[data-open-history="fresh-chat"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-open-history="stale-chat"]'),
+    ).toBeNull();
+    await click('[data-remove-project="/project-a"]');
+    expect(
+      container.querySelector('[data-history-project="/project-a"]'),
+    ).toBeNull();
+    expect(
+      container
+        .querySelector("[data-sidebar]")
+        ?.getAttribute("data-loaded-projects"),
+    ).not.toContain("/project-a");
+  });
+
+  it("loads inactive projects independently and retains both after out-of-order responses", async () => {
+    let finishA!: (rows: unknown[]) => void;
+    let finishB!: (rows: unknown[]) => void;
+    const a = new Promise<unknown[]>((resolve) => {
+      finishA = resolve;
+    });
+    const b = new Promise<unknown[]>((resolve) => {
+      finishB = resolve;
+    });
+    mocks.invoke.mockImplementation(async (command, args) => {
+      if (command === "session_list_by_project") {
+        if (args.cwd === "/project-a") return a;
+        if (args.cwd === "/project-b") return b;
+      }
+      return [];
+    });
+    await mount();
+    await click('[data-load-project="/project-a"]');
+    await click('[data-load-project="/project-a"]');
+    await click('[data-load-project="/project-b"]');
+    const summary = (id: string, cwd: string) => ({
+      ...newSession("codex", cwd),
+      id,
+      title: id,
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    await act(async () => finishB([summary("b", "/project-b")]));
+    await act(async () => finishA([summary("a", "/project-a")]));
+    expect(
+      container.querySelector('[data-history-project="/project-a"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-history-project="/project-b"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-sidebar]")?.getAttribute("data-sidebar"),
+    ).toBe("/repo");
+    expect(
+      mocks.invoke.mock.calls.filter(
+        ([command, args]) =>
+          command === "session_list_by_project" && args.cwd === "/project-a",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps a failed project isolated and clears its error after retry", async () => {
+    let fail = true;
+    mocks.invoke.mockImplementation(async (command, args) => {
+      if (
+        command === "session_list_by_project" &&
+        args.cwd === "/project-a" &&
+        fail
+      )
+        throw new Error("unavailable");
+      return [];
+    });
+    await mount();
+    await click('[data-load-project="/project-a"]');
+    await click('[data-load-project="/project-b"]');
+    expect(
+      container
+        .querySelector("[data-sidebar]")
+        ?.getAttribute("data-failed-projects"),
+    ).toBe("/project-a");
+    expect(
+      container
+        .querySelector("[data-sidebar]")
+        ?.getAttribute("data-loaded-projects"),
+    ).toContain("/project-b");
+    fail = false;
+    await click('[data-load-project="/project-a"]');
+    expect(
+      container
+        .querySelector("[data-sidebar]")
+        ?.getAttribute("data-failed-projects"),
+    ).toBe("");
+    expect(
+      container
+        .querySelector("[data-sidebar]")
+        ?.getAttribute("data-loaded-projects"),
+    ).toContain("/project-a");
+  });
+
+  it("renames and refreshes an inactive project's summary", async () => {
+    let row = {
+      ...newSession("codex", "/project-b"),
+      id: "inactive-chat",
+      blocks: [
+        { id: "prompt", role: "user" as const, text: "Work on this project" },
+      ],
+      title: "Original",
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    mocks.invoke.mockImplementation(async (command, args) => {
+      if (command === "session_list_by_project")
+        return args.cwd === "/project-b" ? [row] : [];
+      if (command === "session_get") return row;
+      if (command === "session_upsert") {
+        row = { ...row, ...args.session };
+        return row;
+      }
+      return [];
+    });
+    await mount();
+    await click('[data-load-project="/project-b"]');
+    await click('[data-rename-history="inactive-chat"]');
+    expect(
+      container
+        .querySelector('[data-history-project="/project-b"]')
+        ?.getAttribute("data-history-title"),
+    ).toContain("Renamed");
+    expect(container.querySelector('[data-sidebar="/repo"]')).not.toBeNull();
+    expect(
+      mocks.invoke.mock.calls.filter(
+        ([command, args]) =>
+          command === "session_list_by_project" && args.cwd === "/project-b",
+      ),
+    ).toHaveLength(2);
+    expect(
+      mocks.invoke.mock.calls.filter(
+        ([command, args]) =>
+          command === "session_list_by_project" && args.cwd === "/repo",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("creates a chat in an inactive project's remembered worktree", async () => {
+    const { setWorktreeFocus } =
+      await import("../features/source-control/model/worktreeFocus");
+    setWorktreeFocus("/project-b", {
+      path: "/project-b-worktree",
+      branch: "feature",
+    });
+    await mount();
+    await click('[data-new-project-session="/project-b"]');
+    expect(
+      container.querySelector('[data-sidebar="/project-b"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(
+        '[data-session-cwd="/project-b"][data-session-worktree="/project-b-worktree"][data-session-branch="feature"]',
+      ),
+    ).not.toBeNull();
+    await act(async () => setWorktreeFocus("/project-b", undefined));
+  });
+
+  it("does not reuse the previous project's keyboard order when the new branch is collapsed", async () => {
+    await mount();
+    await click("[data-publish-navigation]");
+    await click('[data-new-project-session="/project-b"]');
+    const activeTab = activeTitle().dataset.selectTab;
+    await click('[data-command="Session: Next"]');
+    expect(activeTitle().dataset.selectTab).toBe(activeTab);
+    expect(
+      container.querySelector('[data-sidebar="/project-b"]'),
+    ).not.toBeNull();
+  });
+
+  it("keeps equal remote session ids in different projects in separate tabs", async () => {
+    await mount();
+    await click('[data-open-remote-project="remote://host/project-a"]');
+    const aTab = activeTitle().dataset.selectTab;
+    await click('[data-open-remote-project="remote://host/project-b"]');
+    expect(activeTitle().dataset.selectTab).not.toBe(aTab);
+    expect(
+      container.querySelector('[data-session-cwd="remote://host/project-a"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-session-cwd="remote://host/project-b"]'),
+    ).not.toBeNull();
+    await click('[data-delete-remote-project="remote://host/project-b"]');
+    expect(
+      container.querySelector('[data-session-cwd="remote://host/project-a"]'),
+    ).not.toBeNull();
+    await click('[data-open-remote-project="remote://host/project-a"]');
+    expect(activeTitle().dataset.selectTab).toBe(aTab);
+  });
 });

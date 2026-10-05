@@ -450,3 +450,82 @@ The separator now uses content color at 22% opacity while keeping its 1px width,
 12px height and pointer-transparent behavior. Earlier browser/working-tree
 results remain separate from this isolated commit validation. No push or merge
 was requested.
+
+## Sessions project scope — follow-up (2026-10-05)
+
+- [x] Reuse the searchable header project picker in multi-project Sessions,
+  defaulting to All projects and offering every remembered/current project.
+- [x] Activate and expand a concrete selection, scope tree/search/history reads,
+  and restore the multi-project tree when All projects is selected.
+- [x] Preserve scope across sidebar tabs, reset it on project removal, temporarily
+  reveal matching groups without changing their collapse preferences, and retain
+  existing Files/Changes and standalone picker behavior.
+- [x] Localize the new action and verify selection, keyboard input, current/remote
+  projects, group state, navigation and scoped loading in regressions.
+- [x] Verify actual browser selection/restoration in zh-CN with production
+  Sidebar/picker/CSS, both themes and a narrow sidebar, using simulated IPC.
+- [x] Run Host tests and production build; record tool versions and web results.
+
+The affected consumer command initially passed six files; two newly added fixture
+errors in ProjectSessionSection were corrected and its 52-test rerun passed.
+Full web runs exposed a native-session desktop probe whose
+isTauri export was missing from test mocks; the sidebar fixture now explicitly
+models a browser environment. FilePaneNavigation also failed to load its editor
+in full-suite runs, but its isolated 11-test rerun passed. NativeSessions' isolated
+11-test rerun passed without changes from this follow-up. Final equivalent web
+validation (`LANG=en_US.UTF-8 npx vitest run --maxWorkers=2` followed by
+`npx tsc --noEmit`) passed: 487 files / 5141 tests, with two files / 13 tests
+skipped; TypeScript passed. The earlier `npm run check:web` attempts did not pass.
+
+`LANG=en_US.UTF-8 npm run test:host` passed, including the Host build/type check:
+34 files / 249 tests, with one file / five tests skipped. `npm run build` passed
+with existing CSS, mixed-import and large-chunk advisories. `git diff --check`
+passed. Actual tools: Node v24.16.0, npm 12.0.1, Vitest 3.2.7, TypeScript 5.8.3,
+Vite 7.3.6 and Tauri CLI 2.11.4.
+
+Browser selection of Android showed only its conversations; returning to All
+projects restored the other rows and retained the selected project's expansion.
+The selected header's clientWidth and scrollWidth were both 200px. Proof:
+`/tmp/monocode-session-project-picker.png` and
+`/tmp/monocode-session-project-picker-light.png`. Temporary fixture files, the
+created browser tab and preview server were removed. These checks do not verify
+native Tauri project/worktree switching or real remote connectivity. No Rust
+change, commit, push or merge belongs to this follow-up. Full-suite/build results
+include pre-existing unrelated working-tree changes.
+
+## Conversation/project row spacing — follow-up (2026-10-05)
+
+- [x] Reduce dense project/session row gaps and disclosure/member padding from
+  4px to 3px, including project groups, folders, pins and reminders.
+- [x] Retain the 32px row height, 8px separation between project groups, existing
+  standalone/compact spacing and shared two-way disclosure motion.
+- [x] Update current spacing requirements and run affected regressions.
+
+Final affected validation passed: `LANG=en_US.UTF-8 npx vitest run
+--maxWorkers=2 src/app/shell/ProjectSessionSection.test.ts
+src/app/shell/ProjectList.test.ts src/features/projects/ui/ProjectGroups.test.ts`
+— three files / 76 tests. `git diff --check` passed. `npm run build` was attempted
+and failed TypeScript checking at SettingsView.tsx:3264 (TS6133: unused
+onOpenSession in ProvidersPage), an unrelated working-tree edit preserved by
+this follow-up. No full web/Host/Rust suite or browser geometry check was run
+for this spacing-only change. Earlier successful build results do not establish
+that the current working tree builds.
+
+## Project scope and spacing — local commit verification (2026-10-05)
+
+The user authorized a local commit of the conversation project picker and 1px
+spacing reduction. The commit includes the necessary multi-project sidebar
+foundation, project history/cache loading, extracted session sections and their
+existing shared hover/disclosure dependencies. Mixed App, connection, translation
+and design records were staged selectively from HEAD. Host orchestration, native
+session upgrades, SettingsView, Rust, mobile edits and the active-feature pointer
+remain outside this commit, including the new ExternalSessions sidebar integration.
+
+An independent checkout containing only the proposed commit passed 18 affected
+test files / 298 tests. The full connection consumer directory additionally passed
+13 files / 85 tests; this overlaps the remote-project cache file from the affected
+group and the totals must not be added. `npm run build` passed, including TypeScript,
+with existing CSS, mixed-import and large-chunk advisories. The staged diff check
+passed. These results are separate from the earlier full working-tree runs and
+the settings-page TypeScript failure. Native/platform and real remote scenarios
+remain unverified. No push or merge was requested.
