@@ -86,7 +86,10 @@ import {
   type TurnMetrics,
 } from "../model/session";
 import { HarnessIcon } from "./HarnessIcon";
-import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
+import {
+  innerScrollerTakes,
+  useLockOverscroll,
+} from "../../../shared/hooks/useLockOverscroll";
 import { useTranscriptLayout } from "../hooks/useTranscriptLayout";
 import { useTranscriptAnchor } from "../hooks/useTranscriptAnchor";
 import { useTranscriptSelection } from "../hooks/useTranscriptSelection";
@@ -407,6 +410,25 @@ function AgentTranscriptComponent({
     [setShowJump],
   );
 
+  const rememberScroll = useCallback((el: HTMLElement) => {
+    distanceFromBottom.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight;
+    scrollGeometry.current = {
+      top: el.scrollTop,
+      height: el.scrollHeight,
+      viewport: el.clientHeight,
+    };
+  }, []);
+
+  const pinTranscript = useCallback(
+    (el: HTMLElement | null) => {
+      if (!el) return;
+      pinToBottom(el);
+      rememberScroll(el);
+    },
+    [rememberScroll],
+  );
+
   const syncPinned = useCallback(
     (el: HTMLElement) => {
       // The jump animation owns the offset until it lands or is interrupted.
@@ -436,16 +458,17 @@ function AgentTranscriptComponent({
         syncJumpVisibility(el);
         return;
       }
-      // Scrolling up inside the bottom margin is the reader leaving. Pinning
-      // again here would snap each streamed chunk back down under the wheel.
-      const leaving =
-        !stickToBottom.current && distance > distanceFromBottom.current;
-      const near = isNearBottom(el) && !leaving;
-      stickToBottom.current = near;
-      distanceFromBottom.current = distance;
+      const previousTop = scrollGeometry.current.top;
+      const movement = el.scrollTop - previousTop;
+      // Content growth can precede a queued event from the previous pin.
+      // Browser clamping after layout changes is not reading intent either.
+      if (movement !== 0 && !scrollClampedToBottom(el, previousTop)) {
+        stickToBottom.current = movement > 0 && isNearBottom(el);
+      }
+      rememberScroll(el);
       syncJumpVisibility(el);
     },
-    [syncJumpVisibility, touchScroll],
+    [rememberScroll, syncJumpVisibility, touchScroll],
   );
 
   const jumpToBottom = useCallback(() => {
@@ -457,16 +480,10 @@ function AgentTranscriptComponent({
     syncTranscriptViewport(el);
     animateToBottom(el, () => {
       if (!el) return;
-      distanceFromBottom.current =
-        el.scrollHeight - el.scrollTop - el.clientHeight;
-      scrollGeometry.current = {
-        top: el.scrollTop,
-        height: el.scrollHeight,
-        viewport: el.clientHeight,
-      };
+      rememberScroll(el);
       syncPinned(el);
     });
-  }, [setShowJump, syncPinned]);
+  }, [rememberScroll, setShowJump, syncPinned]);
 
   const setScroller = useCallback(
     (el: HTMLDivElement | null) => {
@@ -494,8 +511,12 @@ function AgentTranscriptComponent({
   useEffect(() => {
     if (!visible || !scrollerEl) return;
     syncPinned(scrollerEl);
-    const onScroll = () => syncPinned(scrollerEl);
+    const onScroll = () => {
+      if (scrollerEl.isConnected && scrollerEl.clientHeight > 0)
+        syncPinned(scrollerEl);
+    };
     const onWheel = (e: WheelEvent) => {
+      if (innerScrollerTakes(scrollerEl, e)) return;
       touchReadingUp.current = false;
       if (e.deltaY) scrollDirection.current = e.deltaY < 0 ? "up" : "down";
       if (e.deltaY < 0) {
@@ -564,8 +585,8 @@ function AgentTranscriptComponent({
     setShowJump(false);
     const el = scroller.current;
     syncTranscriptViewport(el);
-    pinToBottom(el);
-  }, [lastUserId, setShowJump]);
+    pinTranscript(el);
+  }, [lastUserId, pinTranscript, setShowJump]);
 
   // In the chat layout a sent prompt rises from the upper screen into its
   // anchored spot at the top. On mount this only plays for a session's first
@@ -607,21 +628,22 @@ function AgentTranscriptComponent({
     if (el.scrollHeight <= el.clientHeight + NEAR_BOTTOM_PX) {
       stickToBottom.current = true;
       setShowJump(false);
-      pinToBottom(el);
+      pinTranscript(el);
     } else if (restore && !stickToBottom.current) {
       el.scrollTop = Math.max(
         0,
         el.scrollHeight - el.clientHeight - distanceFromBottom.current,
       );
+      rememberScroll(el);
     }
-  }, [visible, setShowJump]);
+  }, [visible, pinTranscript, rememberScroll, setShowJump]);
 
   useLayoutEffect(() => {
     if (!visible || !stickToBottom.current) return;
     const el = scroller.current;
     syncTranscriptViewport(el);
-    pinToBottom(el);
-  }, [blocks, busy, visible]);
+    pinTranscript(el);
+  }, [blocks, busy, pinTranscript, visible]);
 
   useLayoutEffect(() => {
     const el = scrollerEl;
@@ -654,24 +676,12 @@ function AgentTranscriptComponent({
         );
         endObserver.observe(observedEnd);
       }
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (stickToBottom.current) {
-        pinToBottom(el);
-        scrollGeometry.current = {
-          top: el.scrollTop,
-          height: el.scrollHeight,
-          viewport: el.clientHeight,
-        };
-        distanceFromBottom.current = 0;
+        pinTranscript(el);
         syncJumpVisibility(el);
         return;
       }
-      distanceFromBottom.current = distance;
-      scrollGeometry.current = {
-        top: el.scrollTop,
-        height: el.scrollHeight,
-        viewport: el.clientHeight,
-      };
+      rememberScroll(el);
       syncJumpVisibility(el);
     };
     const observer = new ResizeObserver(onResize);
@@ -682,9 +692,16 @@ function AgentTranscriptComponent({
       observer.disconnect();
       endObserver?.disconnect();
     };
-  }, [scrollerEl, syncJumpVisibility, visible, lastUserId]);
+  }, [
+    scrollerEl,
+    pinTranscript,
+    rememberScroll,
+    syncJumpVisibility,
+    visible,
+    lastUserId,
+  ]);
 
-  useTurnScrollAnchor(scrollerEl, visible, stickToBottom);
+  useTurnScrollAnchor(scrollerEl, visible, stickToBottom, rememberScroll);
 
   const turns = groupTurns(blocks, managed);
   const firstVisibleTurn = Math.max(0, turns.length - visibleTurnCount);
@@ -704,18 +721,18 @@ function AgentTranscriptComponent({
       // the taller transcript first and unpin it partway up.
       if (stickToBottom.current) {
         syncTranscriptViewport(el);
-        pinToBottom(el);
+        pinTranscript(el);
       } else {
         el.scrollTop =
           el.scrollHeight - el.clientHeight - distanceFromBottom.current;
+        rememberScroll(el);
       }
       return;
     }
     prependHeight.current = null;
     el.scrollTop += el.scrollHeight - previousHeight;
-    distanceFromBottom.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight;
-  }, [visibleTurnCount]);
+    rememberScroll(el);
+  }, [visibleTurnCount, pinTranscript, rememberScroll]);
 
   // Short turns can leave the first paint with empty space above them, and
   // the rest of the window arriving later would then push everything down.
@@ -811,13 +828,16 @@ function AgentTranscriptComponent({
             ? wordRect.top
             : target.getBoundingClientRect().top;
         const delta = targetTop - el.getBoundingClientRect().top - 42;
-        if (Math.abs(delta) > 2) el.scrollTop += delta;
+        if (Math.abs(delta) > 2) {
+          el.scrollTop += delta;
+          rememberScroll(el);
+        }
       };
       align();
       requestAnimationFrame(align);
       return true;
     },
-    [revealBlock],
+    [revealBlock, rememberScroll],
   );
 
   useEffect(() => {
@@ -2331,6 +2351,7 @@ function useTurnScrollAnchor(
   el: HTMLDivElement | null,
   enabled: boolean,
   stickToBottom: RefObject<boolean>,
+  onAdjust: (el: HTMLElement) => void,
 ) {
   useLayoutEffect(() => {
     const inner = el?.firstElementChild;
@@ -2341,7 +2362,13 @@ function useTurnScrollAnchor(
       if (!el.isConnected) return;
       const viewportTop = el.getBoundingClientRect().top;
       let shift = 0;
-      for (const entry of entries) {
+      let precedingDelta = 0;
+      const byTurn = new Map(entries.map((entry) => [entry.target, entry]));
+      // The callback's entries can arrive out of order. Later turns already
+      // include earlier height corrections in their current layout position.
+      for (const turn of inner.children) {
+        const entry = byTurn.get(turn);
+        if (!entry) continue;
         const height =
           entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
         const previous = heights.get(entry.target);
@@ -2349,10 +2376,14 @@ function useTurnScrollAnchor(
         if (previous === undefined || stickToBottom.current) continue;
         // Only turns that sat wholly above the view. A turn the reader is
         // looking at grows downward from where they are reading.
-        const top = entry.target.getBoundingClientRect().top;
+        const top = entry.target.getBoundingClientRect().top - precedingDelta;
         if (top + previous <= viewportTop) shift += height - previous;
+        precedingDelta += height - previous;
       }
-      if (shift) el.scrollTop += shift;
+      if (shift) {
+        el.scrollTop += shift;
+        onAdjust(el);
+      }
     });
     let observed = new WeakSet<Element>();
     const observeTurns = () => {
@@ -2378,7 +2409,7 @@ function useTurnScrollAnchor(
       mutations.disconnect();
       resize.disconnect();
     };
-  }, [el, enabled, stickToBottom]);
+  }, [el, enabled, stickToBottom, onAdjust]);
 }
 
 /**
@@ -4252,6 +4283,11 @@ function riseIntoAnchor(
 
 function isNearBottom(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+}
+
+function scrollClampedToBottom(el: HTMLElement, previousTop: number): boolean {
+  const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
+  return previousTop > bottom && Math.abs(el.scrollTop - bottom) < 1;
 }
 
 /** Measure content rather than the anchored turn's blank space or padding. */

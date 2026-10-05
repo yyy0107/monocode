@@ -428,7 +428,8 @@ describe("transcript scrolling", () => {
     const observer = observers.find((item) => item.targets.includes(above))!;
     expect(observer).toBeDefined();
     above.getBoundingClientRect = () => ({ top: -800 }) as DOMRect;
-    reading.getBoundingClientRect = () => ({ top: -100 }) as DOMRect;
+    let readingTop = -100;
+    reading.getBoundingClientRect = () => ({ top: readingTop }) as DOMRect;
     const size = (target: Element, blockSize: number) => ({
       target,
       borderBoxSize: [{ blockSize }],
@@ -441,7 +442,210 @@ describe("transcript scrolling", () => {
     // Scrolling up lays them out. Only the turn wholly above the view moves
     // the reader; the one on screen grows below where they are reading.
     height = 4420;
+    readingTop += 900 - 240;
     act(() => observer.resize([size(above, 900), size(reading, 1000)]));
     expect(top).toBe(1660);
   });
 });
+
+describe.each([false, true])(
+  "transcript scroll stability (touch=%s)",
+  (touchScroll) => {
+    function mountScroller() {
+      const blocks: Block[] = [
+        { id: "user", role: "user", text: "Explain auth" },
+        { id: "reply", role: "assistant", text: "One", streaming: true },
+      ];
+      act(() =>
+        root.render(
+          createElement(AgentTranscript, { blocks, busy: true, touchScroll }),
+        ),
+      );
+      const scroller =
+        container.querySelector<HTMLDivElement>(".agent-transcript")!;
+      const geometry = { height: 1000, viewport: 400, top: 0 };
+      Object.defineProperties(scroller, {
+        scrollHeight: { get: () => geometry.height },
+        clientHeight: { get: () => geometry.viewport },
+        scrollTop: {
+          get: () => geometry.top,
+          set: (value: number) => {
+            geometry.top = Math.max(
+              0,
+              Math.min(value, geometry.height - geometry.viewport),
+            );
+          },
+        },
+      });
+      const observer = observers.find((item) =>
+        item.targets.includes(scroller),
+      )!;
+      act(() => observer.resize());
+      expect(geometry.top).toBe(600);
+      return { scroller, geometry, observer };
+    }
+
+    it("keeps following when a queued scroll event lands after content grows", () => {
+      const { scroller, geometry, observer } = mountScroller();
+      geometry.height = 1100;
+      act(() => scroller.dispatchEvent(new Event("scroll")));
+      act(() => observer.resize());
+      expect(geometry.top).toBe(700);
+    });
+
+    it("pauses following for a scrollbar move inside the bottom margin", () => {
+      const { scroller, geometry, observer } = mountScroller();
+      geometry.top = 596;
+      act(() => scroller.dispatchEvent(new Event("scroll")));
+      geometry.height = 1100;
+      act(() => observer.resize());
+      expect(geometry.top).toBe(596);
+    });
+
+    it.each(["viewport grows", "content shrinks"])(
+      "keeps following when the browser clamps to the bottom as %s",
+      (change) => {
+        const { scroller, geometry, observer } = mountScroller();
+        if (change === "viewport grows") geometry.viewport = 440;
+        else geometry.height = 960;
+        geometry.top = 560;
+        act(() => scroller.dispatchEvent(new Event("scroll")));
+        act(() => observer.resize());
+        geometry.viewport = 400;
+        geometry.height = 1000;
+        act(() => observer.resize());
+        expect(geometry.top).toBe(600);
+      },
+    );
+
+    it("keeps following paused when a resize clamps a reader to the bottom", () => {
+      const { scroller, geometry, observer } = mountScroller();
+      act(() => {
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -4 }));
+        geometry.top = 596;
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      geometry.viewport = 440;
+      geometry.top = 560;
+      act(() => scroller.dispatchEvent(new Event("scroll")));
+      act(() => observer.resize());
+      geometry.viewport = 400;
+      act(() => observer.resize());
+      expect(geometry.top).toBe(560);
+    });
+
+    it("does not resume following when a paused wheel's queued pin event arrives", () => {
+      const { scroller, geometry, observer } = mountScroller();
+      act(() => {
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -4 }));
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      geometry.height = 1100;
+      act(() => observer.resize());
+      expect(geometry.top).toBe(600);
+    });
+
+    it("keeps following when a wheel gesture is consumed by a code scroller", () => {
+      const { scroller, geometry, observer } = mountScroller();
+      const code = document.createElement("pre");
+      code.style.overflowY = "auto";
+      Object.defineProperties(code, {
+        scrollHeight: { value: 900 },
+        clientHeight: { value: 200 },
+        scrollTop: { value: 400, writable: true },
+      });
+      scroller.append(code);
+      act(() =>
+        code.dispatchEvent(
+          new WheelEvent("wheel", { deltaY: -100, bubbles: true }),
+        ),
+      );
+      geometry.height = 1100;
+      act(() => observer.resize());
+      expect(geometry.top).toBe(700);
+
+      code.scrollTop = 0;
+      act(() =>
+        code.dispatchEvent(
+          new WheelEvent("wheel", { deltaY: -100, bubbles: true }),
+        ),
+      );
+      geometry.height = 1200;
+      act(() => observer.resize());
+      expect(geometry.top).toBe(700);
+    });
+
+    function mountAnchorScroller(height: number, startTop: number) {
+      const blocks: Block[] = Array.from({ length: 3 }, (_, index) => [
+        {
+          id: `user-${index}`,
+          role: "user" as const,
+          text: `Question ${index}`,
+        },
+        { id: `reply-${index}`, role: "assistant" as const, text: "Answer" },
+      ]).flat();
+      act(() =>
+        root.render(createElement(AgentTranscript, { blocks, touchScroll })),
+      );
+      const scroller =
+        container.querySelector<HTMLDivElement>(".agent-transcript")!;
+      const geometry = { height, top: startTop };
+      Object.defineProperties(scroller, {
+        scrollHeight: { get: () => geometry.height },
+        clientHeight: { get: () => 400 },
+        scrollTop: {
+          get: () => geometry.top,
+          set: (value: number) => {
+            geometry.top = Math.max(0, Math.min(value, geometry.height - 400));
+          },
+        },
+      });
+      act(() => {
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      const [first, second] = scroller.querySelectorAll(".transcript-turn");
+      const observer = observers.find((item) => item.targets.includes(first))!;
+      const size = (target: Element, blockSize: number) => ({
+        target,
+        borderBoxSize: [{ blockSize }],
+        contentRect: { height: blockSize },
+      });
+      act(() => observer.resize([size(first, 240), size(second, 240)]));
+      return { scroller, geometry, first, second, observer, size };
+    }
+
+    it("anchors multiple turns using their position before an out-of-order resize batch", () => {
+      const { geometry, first, second, observer, size } = mountAnchorScroller(
+        4000,
+        1000,
+      );
+      first.getBoundingClientRect = () => ({ top: -1000 }) as DOMRect;
+      second.getBoundingClientRect = () => ({ top: -90 }) as DOMRect;
+      act(() => observer.resize([size(second, 500), size(first, 900)]));
+      expect(geometry.top).toBe(1920);
+    });
+
+    it("does not mistake a programmatic anchor adjustment for a scroll toward the end", () => {
+      const { scroller, geometry, first, observer, size } = mountAnchorScroller(
+        2000,
+        1328,
+      );
+      // Lazy turn expansion can fit inside the latest turn's reserved space,
+      // leaving the overall transcript height unchanged.
+      first.getBoundingClientRect = () => ({ top: -1000 }) as DOMRect;
+      act(() => {
+        scroller.dispatchEvent(new Event("touchend"));
+        observer.resize([size(first, 500)]);
+      });
+      expect(geometry.top).toBe(1588);
+      act(() => scroller.dispatchEvent(new Event("scroll")));
+      geometry.height = 2100;
+      const layoutObserver = observers.find((item) =>
+        item.targets.includes(scroller),
+      )!;
+      act(() => layoutObserver.resize());
+      expect(geometry.top).toBe(1588);
+    });
+  },
+);
