@@ -1,4 +1,6 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
+import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -545,6 +547,24 @@ function ChangedFiles({
     }
   };
 
+  const runFolder = async (relative: string, action: "stage" | "unstage") => {
+    if (busy) return;
+    setBusy(`${action}:${relative}`);
+    try {
+      if (action === "stage") await gitStageFile(cwd, relative);
+      else await gitUnstageFile(cwd, relative);
+      onMutated(
+        files
+          .filter((file) => file.relative.startsWith(`${relative}/`))
+          .map((file) => file.path),
+      );
+    } catch (error) {
+      fail(error);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const generate = async () => {
     if (!canGenerate || generateAbortRef.current) return;
     const controller = new AbortController();
@@ -886,6 +906,7 @@ function ChangedFiles({
                   busy={busy}
                   onOpenFile={onOpenFile}
                   onAction={run}
+                  onFolderAction={runFolder}
                 />
               </FileSection>
             ) : null}
@@ -927,6 +948,7 @@ function ChangedFiles({
                   busy={busy}
                   onOpenFile={onOpenFile}
                   onAction={run}
+                  onFolderAction={runFolder}
                 />
               </FileSection>
             ) : null}
@@ -1253,6 +1275,7 @@ type ChangeRowProps = {
     file: GitChangedFile,
     action: "stage" | "unstage" | "discard",
   ) => void;
+  onFolderAction: (relative: string, action: "stage" | "unstage") => void;
 };
 
 export function ChangeList({ files, view, ...rest }: ChangeRowProps) {
@@ -1267,7 +1290,7 @@ export function ChangeList({ files, view, ...rest }: ChangeRowProps) {
           key={`${rest.kind}:${file.relative}`}
           file={file}
           active={isActive(file, rest.selected, rest.selectedKind, rest.kind)}
-          busy={rest.busy === file.relative}
+          busy={rest.busy !== null}
           kind={rest.kind}
           onOpenFile={rest.onOpenFile}
           onAction={rest.onAction}
@@ -1286,6 +1309,7 @@ function ChangeDirChildren({
   busy,
   onOpenFile,
   onAction,
+  onFolderAction,
 }: Omit<ChangeRowProps, "files" | "view"> & {
   dir: ChangeDir;
   depth: number;
@@ -1303,6 +1327,7 @@ function ChangeDirChildren({
           busy={busy}
           onOpenFile={onOpenFile}
           onAction={onAction}
+          onFolderAction={onFolderAction}
         />
       ))}
       {dir.files.map((file) => (
@@ -1310,7 +1335,7 @@ function ChangeDirChildren({
           key={`${kind}:${file.relative}`}
           file={file}
           active={isActive(file, selected, selectedKind, kind)}
-          busy={busy === file.relative}
+          busy={busy !== null}
           kind={kind}
           depth={depth}
           onOpenFile={onOpenFile}
@@ -1330,34 +1355,69 @@ function ChangeDirRow({
   dir: ChangeDir;
   depth: number;
 }) {
+  const { t: uiT } = useTranslation();
+  const visible = useSurfaceVisibility();
   const key = `${kind}:${dir.path}`;
   const [open, setOpen] = useState(() => !collapsedDirs.has(key));
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const childrenRef = useRef<HTMLUListElement>(null);
   const toggle = () => {
+    if (open && childrenRef.current?.contains(document.activeElement))
+      toggleRef.current?.focus();
     if (open) collapsedDirs.add(key);
     else collapsedDirs.delete(key);
     setOpen(!open);
   };
   return (
     <li>
-      <button
-        type="button"
-        title={dir.path}
-        aria-expanded={open}
-        onClick={toggle}
+      <div
         style={{ paddingLeft: 8 + depth * 12 }}
-        className="flex h-7 w-full items-center gap-1.5 pr-2 text-left leading-none text-content hover:bg-content/5"
+        className="group flex h-7 w-full items-center gap-1 pr-2 leading-none text-content hover:bg-content/5"
       >
-        <span className="grid size-4 shrink-0 place-items-center text-content/50">
-          {open ? (
-            <ChevronDown className="size-3.5" strokeWidth={1.75} />
-          ) : (
-            <ChevronRight className="size-3.5" strokeWidth={1.75} />
-          )}
-        </span>
-        <FileTypeIcon name={dir.name} isDir isOpen={open} size={16} />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-          {dir.name}
-        </span>
+        <button
+          ref={toggleRef}
+          type="button"
+          title={dir.path}
+          aria-expanded={open}
+          disabled={!visible}
+          onClick={toggle}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        >
+          <span className="grid size-4 shrink-0 place-items-center text-content/50">
+            {open ? (
+              <ChevronDown className="size-3.5" strokeWidth={1.75} />
+            ) : (
+              <ChevronRight className="size-3.5" strokeWidth={1.75} />
+            )}
+          </span>
+          <FileTypeIcon name={dir.name} isDir isOpen={open} size={16} />
+          <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+            {dir.name}
+          </span>
+        </button>
+        <div className="hidden shrink-0 items-center group-focus-within:flex group-hover:flex">
+          <IconAction
+            title={uiT(
+              kind === "staged"
+                ? "Unstage Changes in {path}"
+                : "Stage Changes in {path}",
+              { path: dir.path },
+            )}
+            disabled={rest.busy !== null}
+            onClick={() =>
+              rest.onFolderAction(
+                dir.path,
+                kind === "staged" ? "unstage" : "stage",
+              )
+            }
+          >
+            {kind === "staged" ? (
+              <Minus className="size-3.5" strokeWidth={1.75} />
+            ) : (
+              <Plus className="size-3.5" strokeWidth={1.75} />
+            )}
+          </IconAction>
+        </div>
         <span
           className={`grid w-3.5 shrink-0 place-items-center ${
             dir.status ? statusColor(dir.status) : "text-content/40"
@@ -1366,9 +1426,9 @@ function ChangeDirRow({
         >
           <span className="size-1.5 rounded-full bg-current" />
         </span>
-      </button>
-      {open ? (
-        <ul>
+      </div>
+      <AnimatedCollapse expanded={open}>
+        <ul ref={childrenRef}>
           <ChangeDirChildren
             dir={dir}
             depth={depth + 1}
@@ -1376,7 +1436,7 @@ function ChangeDirRow({
             {...rest}
           />
         </ul>
-      ) : null}
+      </AnimatedCollapse>
     </li>
   );
 }
@@ -1458,6 +1518,7 @@ function ChangeRow({
   ) => void;
 }) {
   const { t: uiT } = useTranslation();
+  const visible = useSurfaceVisibility();
   const name = basename(file.relative);
   const tree = depth !== undefined;
   const dir = tree ? "" : dirname(file.relative);
@@ -1477,6 +1538,7 @@ function ChangeRow({
         <button
           type="button"
           title={file.relative}
+          disabled={!visible}
           onClick={() => {
             if (canOpen) onOpenFile(file.path, kind);
           }}
@@ -1547,12 +1609,13 @@ function IconAction({
   onClick: () => void;
   children: ReactNode;
 }) {
+  const visible = useSurfaceVisibility();
   return (
     <button
       type="button"
       title={title}
       aria-label={title}
-      disabled={disabled}
+      disabled={disabled || !visible}
       onClick={onClick}
       className="grid size-5 place-items-center rounded text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-40"
     >
