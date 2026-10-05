@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import {
+  anchoredTurnHeight,
   installKeyboardMotion,
   settledEasing,
   transcriptFollow,
@@ -40,6 +41,34 @@ describe("transcript keyboard follow", () => {
   });
 });
 
+describe("anchored turn under the keyboard", () => {
+  it("lets the keyboard cover a short reply's empty space without lifting it", () => {
+    // The turn fills an 800px viewport but its prompt and reply need 200px.
+    const turn = { height: 800, minHeight: 800, natural: 200 };
+    const after = anchoredTurnHeight(turn, 300);
+    expect(after).toBe(500);
+    // Pinned, 400px above: the content shrinks with the viewport.
+    expect(
+      transcriptFollow(scroller(400, 1200, 800), 1200 + after - turn.height, 300),
+    ).toBe(0);
+  });
+  it("follows only the part of the rise the reply fills", () => {
+    const turn = { height: 800, minHeight: 800, natural: 650 };
+    const after = anchoredTurnHeight(turn, 300);
+    expect(after).toBe(650);
+    expect(
+      transcriptFollow(scroller(400, 1200, 800), 1200 + after - turn.height, 300),
+    ).toBeCloseTo(0.5);
+  });
+  it("keeps a short reply in place while the keyboard lowers", () => {
+    const turn = { height: 500, minHeight: 500, natural: 200 };
+    const after = anchoredTurnHeight(turn, -300);
+    expect(after).toBe(800);
+    expect(
+      transcriptFollow(scroller(400, 900, 500), 900 + after - turn.height, -300),
+    ).toBe(0);
+  });
+});
 describe("keyboard easing", () => {
   it("clamps an overshooting keyboard spring so controls settle once", () => {
     expect(settledEasing("linear(0.0000,0.6000,1.0800,1.0200,1.0000)")).toBe(

@@ -62,6 +62,7 @@ function supportedEasing(easing: unknown) {
  * How much of the keyboard's travel the transcript content follows. The
  * transcript keeps its distance from the bottom while pinned; otherwise its
  * scroll offset only moves when the taller viewport runs out of content.
+ * `contentHeight` is the content's height once the viewport has resized.
  */
 export function transcriptFollow(
   scroller: Pick<HTMLElement, "scrollTop" | "scrollHeight" | "clientHeight">,
@@ -82,6 +83,33 @@ export function transcriptFollow(
   return Math.max(0, Math.min(1, shift / Math.abs(delta)));
 }
 
+/**
+ * Height of the turn anchored after a send once the viewport changes by
+ * `delta`. Its minimum height tracks the transcript viewport, so a short
+ * reply's empty space shrinks under a rising keyboard instead of pushing the
+ * conversation up.
+ */
+export function anchoredTurnHeight(
+  turn: { height: number; minHeight: number; natural: number },
+  delta: number,
+): number {
+  return Math.max(turn.natural, turn.minHeight - delta);
+}
+
+function anchoredTurnChange(scroller: HTMLElement, delta: number) {
+  const turn = scroller.querySelector<HTMLElement>(".transcript-turn-anchor");
+  if (!turn) return 0;
+  const minHeight = parseFloat(getComputedStyle(turn).minHeight) || 0;
+  if (minHeight <= 0) return 0;
+  const height = turn.offsetHeight;
+  // Measured once per keyboard motion, before the motion starts.
+  const previous = turn.style.minHeight;
+  turn.style.minHeight = "0px";
+  const natural = turn.offsetHeight;
+  turn.style.minHeight = previous;
+  return anchoredTurnHeight({ height, minHeight, natural }, delta) - height;
+}
+
 function contentRatio(delta: number) {
   const scroller = document.querySelector<HTMLElement>(
     ".mobile-desktop-transcript > .agent-transcript",
@@ -92,7 +120,8 @@ function contentRatio(delta: number) {
   const content =
     (inner?.offsetHeight ?? 0) +
     (parseFloat(style.paddingTop) || 0) +
-    (parseFloat(style.paddingBottom) || 0);
+    (parseFloat(style.paddingBottom) || 0) +
+    anchoredTurnChange(scroller, delta);
   return transcriptFollow(scroller, content, delta);
 }
 

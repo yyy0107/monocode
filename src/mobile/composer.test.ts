@@ -495,12 +495,21 @@ describe("compact mobile composer", () => {
     expect(area.value).toBe("Keep this draft");
   });
 
-  it("allows drafting and queueing while running, keeps Stop available and locks model settings", () => {
-    const { node, click, onSend, onStop, button } = render({ running: true, canStop: true, lockedAgent: true });
+  it("sends drafts while running, restores Stop when cleared and locks model settings", () => {
+    const { node, click, onSend, onStop, button, rerender } = render({ running: true, canStop: true, lockedAgent: true });
     expect(node.querySelector("textarea")!.disabled).toBe(false);
     expect(button("Model and reasoning").disabled).toBe(true);
-    click("Queue message");
+    expect(node.querySelector('[aria-label="Stop"]')).toBeNull();
+    click("Send message");
     expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onStop).not.toHaveBeenCalled();
+    click("Queue message");
+    expect(onSend).toHaveBeenCalledTimes(2);
+    rerender({ canSend: false });
+    expect(button("Send message").disabled).toBe(true);
+    expect(node.querySelector('[aria-label="Stop"]')).toBeNull();
+    rerender({ value: "", canSend: false });
+    expect(node.querySelector('[aria-label="Send message"]')).toBeNull();
     click("Stop");
     expect(onStop).toHaveBeenCalledTimes(1);
   });
@@ -558,11 +567,13 @@ describe("compact mobile composer", () => {
     click("Send message");
     expect(onSend).toHaveBeenCalledTimes(2);
   });
-  it("replaces send with Stop while running and locks all configuration controls", () => {
+  it("shows Stop with an empty draft while running and locks all configuration controls", () => {
     const onPlanModeChange = vi.fn();
     const { node, button, click, onStop } = render({
+      value: "",
       running: true,
       disabled: true,
+      canSend: false,
       canStop: true,
       planMode: true,
       onPlanModeChange,

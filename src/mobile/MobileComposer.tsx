@@ -601,7 +601,7 @@ export function MobileComposer(props: Props) {
                 </button>
               ) : null}
             </div>
-            {props.running ? (
+            {props.running && !props.value.trim() && !props.attachments.length ? (
               <button
                 type="button"
                 className="mobile-send"
