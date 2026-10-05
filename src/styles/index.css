@@ -2483,6 +2483,18 @@ header[data-tauri-drag-region] button {
   margin-block: 0.75rem;
 }
 
+.zen-fold-item,
+.animated-collapse-size {
+  --collapse-duration: 340ms;
+  --collapse-easing: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.animated-collapse-size {
+  transition:
+    grid-template-rows var(--collapse-duration) var(--collapse-easing),
+    grid-template-columns var(--collapse-duration) var(--collapse-easing);
+}
+
 .zen-fold-item[data-fold-state="closed"] {
   display: grid;
   grid-template-rows: 0fr;
@@ -2507,13 +2519,13 @@ header[data-tauri-drag-region] button {
 }
 
 .zen-fold-item[data-fold-state="opening"] {
-  animation: zen-fold-open 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: zen-fold-open var(--collapse-duration) var(--collapse-easing) both;
 }
 
 .zen-fold-item[data-fold-state="closing"] {
   pointer-events: none;
   user-select: none;
-  animation: zen-fold-close 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: zen-fold-close var(--collapse-duration) var(--collapse-easing) both;
 }
 
 .zen-fold-item:is([data-fold-state="opening"], [data-fold-state="closing"]) > *,
@@ -2727,6 +2739,10 @@ header[data-tauri-drag-region] button {
   .zen-fold-item[data-fold-state="opening"] {
     display: flow-root;
     animation: none;
+  }
+
+  .animated-collapse-size {
+    transition: none;
   }
 
   .zen-fold-item[data-fold-state="closing"] {

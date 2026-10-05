@@ -12,6 +12,7 @@ import {
 } from "../../../shared/ui/icons";
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -29,6 +30,7 @@ import {
 import { useShortcutLabel } from "../../../app/commands/useCommandShortcut";
 import type { TerminalMetaPatch } from "../model/terminalTab";
 import { lazySurface } from "../../../shared/ui/lazySurface";
+import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 
 const TerminalView = lazySurface(async () => {
   const module = await import("./TerminalView");
@@ -94,10 +96,16 @@ export function ProjectTerminalDock({
     "Terminal: Toggle Dock",
   );
   const vertical = isVerticalDock(dock.side);
+  const visible = useSurfaceVisibility();
   const [dragging, setDragging] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const sideButton = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ start: number; size: number } | null>(null);
+  const drag = useRef<{
+    start: number;
+    size: number;
+    pointerId: number;
+    target: HTMLDivElement;
+  } | null>(null);
   const sizeRef = useRef(dock.size);
   sizeRef.current = dock.size;
   const pending = useRef(dock.size);
@@ -150,6 +158,8 @@ export function ProjectTerminalDock({
     drag.current = {
       start: vertical ? event.clientY : event.clientX,
       size: sizeRef.current,
+      pointerId: event.pointerId,
+      target: event.currentTarget,
     };
     pending.current = sizeRef.current;
     setDragging(true);
@@ -164,15 +174,20 @@ export function ProjectTerminalDock({
     paint(clampDockSize(dock.side, drag.current.size + signed, viewport()));
   };
 
-  const onResizePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!drag.current) return;
+  const finishResize = () => {
+    const current = drag.current;
+    if (!current) return;
     drag.current = null;
     commit();
     setDragging(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
+    if (current.target.hasPointerCapture(current.pointerId)) {
+      current.target.releasePointerCapture(current.pointerId);
     }
   };
+
+  useLayoutEffect(() => {
+    if (!visible) finishResize();
+  }, [visible]);
 
   const sash =
     dock.side === "top"
@@ -195,7 +210,7 @@ export function ProjectTerminalDock({
               ? "border-r"
               : "border-l"
       } border-stroke`}
-      onMouseDown={onFocus}
+      onMouseDown={visible ? onFocus : undefined}
     >
       <div
         role="separator"
@@ -205,8 +220,8 @@ export function ProjectTerminalDock({
         className={`${sash} ${dragging ? "bg-content/15" : "hover:bg-content/10"}`}
         onPointerDown={onResizePointerDown}
         onPointerMove={onResizePointerMove}
-        onPointerUp={onResizePointerUp}
-        onPointerCancel={onResizePointerUp}
+        onPointerUp={finishResize}
+        onPointerCancel={finishResize}
         onDoubleClick={() => {
           pending.current = defaultDockSize(dock.side);
           commit();
@@ -224,10 +239,7 @@ export function ProjectTerminalDock({
         onReorder={onReorderTerminals}
         trailing={
           <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
-            <IconButton
-              label={newTerminalLabel}
-              onClick={onAddTerminal}
-            >
+            <IconButton label={newTerminalLabel} onClick={onAddTerminal}>
               <Plus className="size-3.5" strokeWidth={1.75} />
             </IconButton>
             <div ref={sideButton}>
@@ -242,10 +254,7 @@ export function ProjectTerminalDock({
                 <SideIcon className="size-3.5" strokeWidth={1.75} />
               </IconButton>
             </div>
-            <IconButton
-              label={hideTerminalLabel}
-              onClick={onHide}
-            >
+            <IconButton label={hideTerminalLabel} onClick={onHide}>
               <HideIcon className="size-3.5" strokeWidth={1.75} />
             </IconButton>
           </div>
@@ -265,7 +274,7 @@ export function ProjectTerminalDock({
             <TerminalView
               id={file.id}
               cwd={file.cwd}
-              active={focused && file.id === dock.pane.activeFileId}
+              active={visible && focused && file.id === dock.pane.activeFileId}
               onMetaChange={(patch) => onTerminalMetaChange?.(file.id, patch)}
             />
           </div>

@@ -42,3 +42,12 @@ quick open → app-view tabs → activity bar.
 Validation: affected vitest files during development; `npm run check:web` and
 `npm run build` per phase; `npm run test:host` at the end. Manual checks on
 Linux zh-CN via `npm run tauri dev`. macOS/Windows remain unverified.
+
+## Terminal dock disclosure motion
+
+Extract `useCollapseMotion` from shared AnimatedCollapse and use the shared 340ms
+duration/easing for `animated-collapse-size` grid transitions. Keep dock grid areas
+stable while closed; allow zero-sized layout tracks without changing saved dock
+sizes. Retain mounted terminal views, make closing surfaces inert and hide their
+portals. Disable transitions for drag painting, restore them on commit, finish
+an active drag before hiding, and settle reduced motion immediately.

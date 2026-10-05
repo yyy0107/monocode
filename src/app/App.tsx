@@ -580,6 +580,8 @@ import { PaneTree } from "../features/workspace/ui/PaneTree";
 import { SessionPane } from "../features/sessions/ui/SessionPane";
 import { SessionSurface } from "../features/sessions/ui/SessionSurface";
 import { ProjectTerminalDock } from "../features/terminal/ui/ProjectTerminalDock";
+import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
+import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 import { lazySurface } from "../shared/ui/lazySurface";
 import { preloadNavigationWhenIdle } from "./model/preloadNavigation";
 import { requestTranscriptJump } from "../features/sessions/model/transcriptJump";
@@ -10612,6 +10614,7 @@ function Workspace({
 
   const dockGridRef = useRef<HTMLDivElement>(null);
   const dockDragSize = useRef<number | null>(null);
+  const dockMotion = useCollapseMotion(dockVisible);
   const paintDockSize = useCallback((size: number) => {
     const dock = findProjectTerminal(
       projectTerminalsRef.current,
@@ -10620,25 +10623,29 @@ function Workspace({
     const el = dockGridRef.current;
     if (!dock || !el) return;
     dockDragSize.current = size;
+    el.style.transitionProperty = "none";
     applyDockGridStyle(el, dock.side, size);
   }, []);
   const commitDockSize = useCallback(
     (size: number) => {
       dockDragSize.current = null;
+      dockGridRef.current?.style.removeProperty("transition-property");
       onProjectTerminalSize(size);
     },
     [onProjectTerminalSize],
   );
   useLayoutEffect(() => {
+    if (!dockVisible) dockDragSize.current = null;
     if (dockDragSize.current != null) return;
     const el = dockGridRef.current;
     if (!el) return;
+    el.style.removeProperty("transition-property");
     applyDockGridStyle(
       el,
-      dockVisible && currentProjectDock ? currentProjectDock.side : null,
-      currentProjectDock?.size ?? 0,
+      currentProjectDock?.side ?? lastDockSide ?? "bottom",
+      dockVisible ? (currentProjectDock?.size ?? 0) : 0,
     );
-  }, [currentProjectDock, dockVisible]);
+  }, [currentProjectDock, dockVisible, lastDockSide]);
 
   const lastRemoteSnapshot = useRef(new Map<string, HostSession>());
   const onRemoteSnapshot = useCallback(
@@ -10999,40 +11006,56 @@ function Workspace({
                   <main className="relative flex min-h-0 min-w-0 flex-1">
                     <div
                       ref={dockGridRef}
-                      className="grid h-full min-h-0 min-w-0 flex-1"
+                      data-terminal-dock-layout
+                      data-fold-state={dockMotion.foldState}
+                      className="animated-collapse-size grid h-full min-h-0 min-w-0 flex-1"
+                      onTransitionEnd={(event) => {
+                        if (
+                          event.target === event.currentTarget &&
+                          (event.propertyName === "grid-template-rows" ||
+                            event.propertyName === "grid-template-columns")
+                        )
+                          dockMotion.finish();
+                      }}
                     >
                       {projectTerminals.map((dock) => {
                         const show =
                           dock.open &&
                           sameProjectPath(dock.projectPath, projectCwd);
+                        const present =
+                          sameProjectPath(dock.projectPath, projectCwd) &&
+                          (show || dockMotion.foldState === "closing");
                         return (
                           <div
                             key={dock.projectPath}
                             className={
-                              show
+                              present
                                 ? "h-full min-h-0 min-w-0 w-full overflow-hidden"
                                 : "hidden"
                             }
-                            style={show ? { gridArea: "dock" } : undefined}
+                            style={present ? { gridArea: "dock" } : undefined}
                             aria-hidden={!show}
+                            inert={!show || undefined}
                           >
-                            <ProjectTerminalDock
-                              dock={dock}
-                              focused={show && projectTerminalFocused}
-                              onFocus={focusProjectTerminal}
-                              onHide={onHideProjectTerminal}
-                              onSideChange={onProjectTerminalSide}
-                              onSizePaint={paintDockSize}
-                              onSizeCommit={commitDockSize}
-                              onAddTerminal={onNewTerminal}
-                              onSelectTerminal={onSelectProjectTerminal}
-                              onCloseTerminal={onCloseProjectTerminal}
-                              onCloseOtherTerminals={
-                                onCloseOtherProjectTerminals
-                              }
-                              onReorderTerminals={onReorderProjectTerminals}
-                              onTerminalMetaChange={onTerminalMetaChange}
-                            />
+                            <SurfaceVisibilityContext.Provider value={show}>
+                              <ProjectTerminalDock
+                                dock={dock}
+                                focused={show && projectTerminalFocused}
+                                onFocus={focusProjectTerminal}
+                                onHide={onHideProjectTerminal}
+                                onSideChange={onProjectTerminalSide}
+                                onSizePaint={paintDockSize}
+                                onSizeCommit={commitDockSize}
+                                onAddTerminal={onNewTerminal}
+                                onSelectTerminal={onSelectProjectTerminal}
+                                onCloseTerminal={onCloseProjectTerminal}
+                                onCloseOtherTerminals={
+                                  onCloseOtherProjectTerminals
+                                }
+                                onReorderTerminals={onReorderProjectTerminals}
+                                onTerminalMetaChange={onTerminalMetaChange}
+                              />
+                            </SurfaceVisibilityContext.Provider>
                           </div>
                         );
                       })}

@@ -249,7 +249,7 @@ export function dockGridStyle(
       gridTemplateAreas: '"main"',
     };
   }
-  const px = `${Math.max(1, Math.round(size))}px`;
+  const px = `${Math.max(0, Math.round(size))}px`;
   if (side === "top") {
     return {
       gridTemplateRows: `${px} minmax(0, 1fr)`,

@@ -127,3 +127,24 @@
   and the native Tauri window were not exercised; reduced fixture height only
   verifies a smaller pane. Native Linux zh-CN QA remains pending, and macOS
   and Windows remain unverified.
+
+## Terminal dock disclosure motion — scoped commit
+
+- [x] Share disclosure lifetime and grid-size motion; retain terminal instances
+  while hidden, support both directions and rapid reversal, suppress hidden
+  focus/menus, and respect reduced motion.
+- [x] Keep direct resizing immediate; commit pending size, cancel queued paint
+  and release pointer capture before hiding; restore the committed dimension.
+- [x] Verify the isolated staged implementation against HEAD, excluding other
+  unfinished project-tree, hover-summary and Host orchestration changes.
+
+Validation on 2026-10-05: the staged implementation was exported with git archive
+into an isolated temporary directory, using the repository's existing dependency
+installation. `LANG=en_US.UTF-8 npm run check:web` passed: 468 files/4858 tests
+(2 files/13 tests skipped), TypeScript clean. `npm run build` passed with existing
+CSS optimizer and bundle-size advisories. `LANG=en_US.UTF-8 npm run test:host`
+passed: 28 files/193 tests (1 file/5 tests skipped), including Host build/type
+checking. Versions: Node `v24.16.0`, npm `12.0.1`, Vitest `3.2.7`, TypeScript
+`5.8.3`. No Rust changes in this commit; Rust checks and browser/native animation
+visual QA were not run. The complete working tree still contains unrelated
+in-progress changes; these results apply to the staged implementation only.

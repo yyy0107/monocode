@@ -55,3 +55,12 @@ terminal docks, persisted snapshots and existing keyboard overrides.
   activity bar, sidebar, tab strip, footer and adjacent panes visible, with a
   loading fallback confined to that app pane.
 - No Rust change; the macOS native menu keeps working through the same events.
+
+## Terminal dock disclosure motion
+
+Terminal docks follow the standing expand/collapse rule in AGENTS.md. Grid tracks
+animate in both directions and keep the same areas at zero size when closed.
+Hidden docks retain their terminal instances and running PTYs, suppress focus and
+menus, and restore the committed size when reopened. Direct resizing is immediate;
+closing during a drag commits its pending size and releases pointer capture.
+Reduced-motion preferences skip the animation.

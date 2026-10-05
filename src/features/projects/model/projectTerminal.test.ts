@@ -167,6 +167,11 @@ describe("dockGridStyle", () => {
     expect(dockGridStyle("right", 360).gridTemplateAreas).toBe('"main dock"');
   });
 
+  it("allows a zero-sized track while retaining its docking area for motion", () => {
+    expect(dockGridStyle("bottom", 0).gridTemplateRows).toBe("minmax(0, 1fr) 0px");
+    expect(dockGridStyle("left", 0).gridTemplateColumns).toBe("0px minmax(0, 1fr)");
+  });
+
   it("writes the same template onto an element", () => {
     const el = { style: {} } as unknown as HTMLElement;
     applyDockGridStyle(el, "left", 300);

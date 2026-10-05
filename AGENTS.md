@@ -14,6 +14,16 @@ are not prerequisites for local work.
 - Desktop and headless Host reuse adapters, but runtime image persistence differs.
 - Keep optional question/image fields compatible with existing consumers and history.
 - Application-owned text follows `docs/localization.md`; preserve provider/user values.
+- Expand/collapse interactions MUST animate in both directions. Reuse
+  `src/shared/ui/AnimatedCollapse.tsx` for vertical disclosure content and the
+  exported `useCollapseMotion` plus `animated-collapse-size` styles for grid-sized
+  panels; do not reimplement fold state/timers per view. Grid panels keep stable
+  zero-sized tracks while closed and disable transitions during direct resizing.
+  Running terminals stay mounted while hidden so collapsing never kills a PTY.
+  Keep content mounted until closing finishes, disable hidden/closing interaction
+  and portals, handle rapid reversal, and respect `prefers-reduced-motion`.
+  Apply this rule to new or modified disclosure UI as a standing requirement;
+  it does not need to be restated in each feature request.
 
 ## Spec Kit
 

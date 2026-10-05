@@ -9,7 +9,10 @@ import {
   newTab,
   newTerminalFile,
 } from "../features/workspace/model/layout";
-import { createProjectTerminal } from "../features/projects/model/projectTerminal";
+import {
+  createProjectTerminal,
+  type DockSide,
+} from "../features/projects/model/projectTerminal";
 import { setUiLanguage } from "../shared/i18n/language";
 import { saveNotesEnabled } from "../features/settings/model/settings";
 
@@ -122,6 +125,7 @@ vi.mock("./shell/MenuBar", async () => {
           "View: Search Everywhere",
           "Pane: Close",
           "Tab: Close All",
+          "Terminal: Toggle Dock",
         ].map((id) =>
           el(
             "button",
@@ -207,9 +211,37 @@ vi.mock("./shell/UsageFooter", async () => {
 });
 vi.mock("../features/terminal/ui/ProjectTerminalDock", async () => {
   const { createElement: el } = await import("react");
+  const { useSurfaceVisibility } =
+    await import("../shared/ui/SurfaceVisibility");
   return {
-    ProjectTerminalDock: () =>
-      el("div", { "data-terminal-dock": true }, "Terminal"),
+    ProjectTerminalDock: ({
+      onHide,
+      onSizePaint,
+      onSizeCommit,
+    }: {
+      onHide: () => void;
+      onSizePaint: (size: number) => void;
+      onSizeCommit: (size: number) => void;
+    }) =>
+      el(
+        "div",
+        {
+          "data-terminal-dock": true,
+          "data-visible": useSurfaceVisibility(),
+        },
+        "Terminal",
+        el("button", { "data-terminal-hide": true, onClick: onHide }, "Hide"),
+        el(
+          "button",
+          { "data-terminal-paint": true, onClick: () => onSizePaint(280) },
+          "Resize",
+        ),
+        el(
+          "button",
+          { "data-terminal-commit": true, onClick: () => onSizeCommit(280) },
+          "Commit",
+        ),
+      ),
   };
 });
 vi.mock("../features/sessions/ui/SessionPane", async () => {
@@ -336,7 +368,7 @@ afterEach(async () => {
   localStorage.clear();
 });
 
-async function mount(onlyApp = false) {
+async function mount(onlyApp = false, side: DockSide = "bottom") {
   const first = { ...newSession("codex", "/repo"), id: "first" };
   const recent = { ...newSession("codex", "/repo"), id: "recent" };
   const firstTab = newTab(first.id);
@@ -355,7 +387,7 @@ async function mount(onlyApp = false) {
           projectCwd: "/repo",
           projectReturnMemory: new Map(),
           projectTerminals: [
-            createProjectTerminal("/repo", newTerminalFile("/repo")),
+            createProjectTerminal("/repo", newTerminalFile("/repo"), side),
           ],
         },
       }),
@@ -375,6 +407,86 @@ const activeTitle = () =>
   container.querySelector<HTMLButtonElement>(
     '[data-select-tab][data-active="true"]',
   )!;
+
+describe("terminal dock disclosure motion", () => {
+  const grid = () =>
+    container.querySelector<HTMLElement>("[data-terminal-dock-layout]")!;
+  const terminal = () =>
+    container.querySelector<HTMLElement>("[data-terminal-dock]")!;
+  const finish = () =>
+    act(() => {
+      const event = new Event("transitionend", { bubbles: true });
+      Object.defineProperty(event, "propertyName", {
+        value: "grid-template-rows",
+      });
+      grid().dispatchEvent(event);
+    });
+
+  it.each(["bottom", "top", "left", "right"] as const)(
+    "animates the %s dock with stable tracks while retaining its terminal instance",
+    async (side) => {
+      await mount(false, side);
+      const node = terminal();
+      const areas = grid().style.gridTemplateAreas;
+      expect(grid().dataset.foldState).toBe("open");
+      expect(grid().classList.contains("animated-collapse-size")).toBe(true);
+      await click("[data-terminal-hide]");
+      expect(grid().dataset.foldState).toBe("closing");
+      expect(grid().style.gridTemplateAreas).toBe(areas);
+      expect(
+        side === "bottom" || side === "top"
+          ? grid().style.gridTemplateRows
+          : grid().style.gridTemplateColumns,
+      ).toContain("0px");
+      expect(node.parentElement?.inert).toBe(true);
+      expect(node.dataset.visible).toBe("false");
+      expect(node.closest(".hidden")).toBeNull();
+      finish();
+      expect(grid().dataset.foldState).toBe("closed");
+      expect(node.closest(".hidden")).not.toBeNull();
+      await click('[data-command="Terminal: Toggle Dock"]');
+      expect(grid().dataset.foldState).toBe("opening");
+      expect(terminal()).toBe(node);
+      expect(node.dataset.visible).toBe("true");
+      expect(node.closest(".hidden")).toBeNull();
+      finish();
+      expect(grid().dataset.foldState).toBe("open");
+    },
+  );
+
+  it("disables motion while resizing and preserves the committed height through rapid reversal", async () => {
+    await mount();
+    await click("[data-terminal-paint]");
+    expect(grid().style.transitionProperty).toBe("none");
+    expect(grid().style.gridTemplateRows).toContain("280px");
+    await click("[data-terminal-commit]");
+    expect(grid().style.transitionProperty).toBe("");
+    await click("[data-terminal-hide]");
+    expect(grid().dataset.foldState).toBe("closing");
+    await click('[data-command="Terminal: Toggle Dock"]');
+    expect(grid().dataset.foldState).toBe("opening");
+    expect(grid().style.gridTemplateRows).toContain("280px");
+    finish();
+    expect(grid().dataset.foldState).toBe("open");
+  });
+
+  it("settles dock visibility immediately with reduced motion without destroying the terminal", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query) =>
+        ({
+          matches: query === "(prefers-reduced-motion: reduce)",
+        }) as MediaQueryList,
+    );
+    await mount();
+    const node = terminal();
+    await click("[data-terminal-hide]");
+    expect(grid().dataset.foldState).toBe("closed");
+    expect(node.closest(".hidden")).not.toBeNull();
+    await click('[data-command="Terminal: Toggle Dock"]');
+    expect(grid().dataset.foldState).toBe("open");
+    expect(terminal()).toBe(node);
+  });
+});
 
 describe("App workspace app views", () => {
   it("closes an existing Notes tab when Notes is disabled", async () => {
