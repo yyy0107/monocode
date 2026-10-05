@@ -64,7 +64,7 @@ function canDragFrom(target: EventTarget | null, area: string) {
 
 /** Whether a touch on the conversation may pull the drawer open. */
 export function canPullDrawerFrom(target: EventTarget | null): boolean {
-  return canDragFrom(target, ".mobile-chat");
+  return canDragFrom(target, ".mobile-chat, .mobile-home");
 }
 
 /**

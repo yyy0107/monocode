@@ -306,9 +306,13 @@ command id. Creating a conversation and sending its first message is journaled
 in two stages, including across an app restart. Commands are serialized. The
 client pins `environmentId` and will not replay pending work onto another Host.
 A definitive Host command rejection clears the pending request so the user can
-correct it. Disconnect removes the saved connection without stopping tasks or
-revoking the Host device token; use the Host's `revoke DEVICE_ID` command when
-revocation is needed.
+correct it. Turning off a connection retains its device row, address and token,
+stops polling/background reception, and stays off after restarting the app.
+Turn it on to reconnect with those saved credentials. Long-press the device row
+(or right-click/use its keyboard action) to edit its device-local display name
+and icon or delete the connection. Only Delete connection removes the saved
+credentials; neither action stops Host tasks or revokes the device token. Use the
+Host's `revoke DEVICE_ID` command when revocation is needed.
 
 ## Verify
 

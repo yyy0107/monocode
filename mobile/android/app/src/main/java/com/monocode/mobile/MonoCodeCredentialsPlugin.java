@@ -77,6 +77,8 @@ public class MonoCodeCredentialsPlugin extends Plugin {
             String stored = Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP) + ":" +
                 Base64.encodeToString(cipher.doFinal(value.getBytes(StandardCharsets.UTF_8)), Base64.NO_WRAP);
             if (!preferences().edit().putString(key, stored).commit()) throw new Exception("Storage write failed");
+            if ("connection".equals(key) && new org.json.JSONObject(value).optBoolean("disabled", false))
+                MonoCodeNotificationService.stop(getContext());
             call.resolve();
         } catch (Exception error) { call.reject("Unable to save secure storage", error); }
     }

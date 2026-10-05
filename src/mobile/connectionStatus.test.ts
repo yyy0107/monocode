@@ -33,6 +33,7 @@ function fixture() {
   );
   return {
     client,
+    values,
     request,
     connect: () => client.connect("http://test-computer:3774", "123"),
   };
@@ -58,6 +59,39 @@ afterEach(() => {
 });
 
 describe("mobile Host connection status", () => {
+  it("keeps switched-off credentials across restoration and reconnects only when explicitly enabled", async () => {
+    const { client, request, connect, values } = fixture();
+    await connect();
+    await client.suspend();
+    expect(client.connection).toMatchObject({ name: "Test computer", token: "123", disabled: true });
+    expect(JSON.parse(values.get("connection")!)).toMatchObject({ token: "123", disabled: true });
+    expect(client.getConnectionStatus().state).toBe("disconnected");
+    request.mockClear();
+    expect(await client.restore()).toBe(false);
+    await client.verify();
+    await expect(client.projects()).rejects.toThrow("Connect to a Host first");
+    expect(request).not.toHaveBeenCalled();
+    await client.reconnect();
+    expect(client.connection?.disabled).toBe(false);
+    expect(client.getConnectionStatus().state).toBe("connected");
+    await client.disconnect();
+    expect(client.connection).toBeUndefined();
+    expect(values.has("connection")).toBe(false);
+  });
+
+  it("ignores a late verification response after the switch is turned off", async () => {
+    const { client, request, connect } = fixture();
+    await connect();
+    const pending = deferred<unknown>();
+    request.mockImplementationOnce(() => pending.promise);
+    const verifying = client.verify();
+    await client.suspend();
+    pending.resolve(descriptor);
+    await verifying;
+    expect(client.connection?.disabled).toBe(true);
+    expect(client.getConnectionStatus().state).toBe("disconnected");
+  });
+
   it("reports request failure, stays reconnecting until verification finishes, and then recovers", async () => {
     const { client, request, connect } = fixture();
     await connect();

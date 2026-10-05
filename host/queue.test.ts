@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HostStore } from "./store";
-import { HostEngine } from "./engine";
+import { HostEngine, parseCommand } from "./engine";
 import { readAttachmentChunk, writeAttachmentChunk } from "./attachments";
 import type { HostProvider } from "./providers";
 import type { SendTurnInput } from "../src/integrations/harness/core/types";
@@ -49,8 +49,8 @@ function setup(harness: RemoteProvider = "pi", steer = true) {
     model: `${harness}:test`,
     runtimeMode: "supervised",
   });
-  const send = (commandId: string, text = commandId) =>
-    engine.command({ type: "send", commandId, text, sessionId: id });
+  const send = (commandId: string, text = commandId, fields: object = {}) =>
+    engine.command({ type: "send", commandId, text, sessionId: id, ...fields });
   const queue = (
     action: string,
     fields: object = {},
@@ -72,6 +72,101 @@ function setup(harness: RemoteProvider = "pi", steer = true) {
 }
 
 describe("Host owns the shared message queue", () => {
+  it("validates the optional follow-up preference without changing legacy command signatures", () => {
+    const command = { type: "send", commandId: "preference", sessionId: "session", text: "Later" };
+    expect(parseCommand(command)).toEqual(command);
+    for (const followUpBehavior of ["queue", "steer"]) {
+      expect(parseCommand({ ...command, followUpBehavior })).toEqual({ ...command, followUpBehavior });
+    }
+    for (const followUpBehavior of ["interrupt", null, ["steer"], {}]) {
+      expect(() => parseCommand({ ...command, followUpBehavior })).toThrow("follow-up behavior");
+    }
+  });
+
+  it.each(["pi", "omp"] as const)("steers a selected follow-up once through %s while keeping other queued work", async (harness) => {
+    const s = setup(harness);
+    s.send("first");
+    await vi.waitFor(() => expect(s.turns).toHaveLength(1));
+    s.send("queued", "Next turn", { followUpBehavior: "queue" });
+    const receipt = s.send("guidance", "Use this approach", { followUpBehavior: "steer" });
+    expect(s.send("guidance", "Use this approach", { followUpBehavior: "steer" })).toEqual(receipt);
+    await vi.waitFor(() => expect(s.store.session(s.id).queueSteeringId).toBeUndefined());
+    expect(s.provider.steer).toHaveBeenCalledTimes(1);
+    expect(s.provider.steer).toHaveBeenCalledWith(expect.objectContaining({ text: "Use this approach" }));
+    expect(s.store.session(s.id).session.queuedMessages?.map(row => row.id)).toEqual(["queued"]);
+    expect(s.store.session(s.id).session.blocks.filter(row => row.id === "guidance")).toHaveLength(1);
+    expect(s.turns).toHaveLength(1);
+    s.send("guidance", "Use this approach", { followUpBehavior: "steer" });
+    expect(s.provider.steer).toHaveBeenCalledTimes(1);
+    s.turns[0].finish();
+    await vi.waitFor(() => expect(s.turns).toHaveLength(2));
+    expect(s.turns[1].input.text).toBe("Next turn");
+  });
+
+  it.each(["unsupported", "paused", "editing"])("queues selected steering when it is %s", async (reason) => {
+    const s = setup("pi", reason !== "unsupported");
+    s.send("first");
+    await vi.waitFor(() => expect(s.turns).toHaveLength(1));
+    if (reason === "paused") s.turns[0].input.onEvent({ type: "usage.limited", resetsAt: Date.now() + 60_000 });
+    if (reason === "editing") {
+      s.send("held");
+      s.queue("hold", { messageId: "held", editor: "phone" });
+    }
+    s.send("later", "Keep this message", { followUpBehavior: "steer" });
+    if (s.provider.steer) expect(s.provider.steer).not.toHaveBeenCalled();
+    expect(s.store.session(s.id).queueSteeringId).toBeUndefined();
+    expect(s.store.session(s.id).session.queuedMessages?.at(-1)).toMatchObject({ id: "later", text: "Keep this message" });
+    s.turns[0].finish();
+    if (reason === "unsupported") {
+      await vi.waitFor(() => expect(s.turns).toHaveLength(2));
+      expect(s.turns[1].input.text).toBe("Keep this message");
+    } else {
+      await vi.waitFor(() => expect(s.store.session(s.id).status).toBe("idle"));
+      expect(s.turns).toHaveLength(1);
+    }
+  });
+
+  it("keeps a rejected automatic steering message in the paused queue without retrying the injection", async () => {
+    const s = setup();
+    s.send("first");
+    await vi.waitFor(() => expect(s.turns).toHaveLength(1));
+    s.provider.steer = vi.fn(async () => { throw new Error("Provider rejected guidance"); });
+    const receipt = s.send("rejected-guidance", "Preserve me", { followUpBehavior: "steer" });
+    await vi.waitFor(() => expect(s.store.session(s.id).session.queueStatus).toBe("paused"));
+    expect(s.store.session(s.id).session.queuedMessages?.[0]).toMatchObject({ id: "rejected-guidance", text: "Preserve me" });
+    expect(s.store.session(s.id).session.blocks.filter(row => row.role === "user")).toHaveLength(1);
+    expect(s.send("rejected-guidance", "Preserve me", { followUpBehavior: "steer" })).toEqual(receipt);
+    expect(s.provider.steer).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["queue", "steer"])("starts an idle turn normally with the %s preference", async (followUpBehavior) => {
+    const s = setup();
+    s.send("first", "Start here", { followUpBehavior });
+    await vi.waitFor(() => expect(s.turns).toHaveLength(1));
+    expect(s.turns[0].input.text).toBe("Start here");
+    expect(s.provider.steer).not.toHaveBeenCalled();
+    expect(s.store.session(s.id).session.queuedMessages).toBeUndefined();
+  });
+
+  it("queues another follow-up while an earlier steering request is awaiting acceptance", async () => {
+    const s = setup();
+    s.send("first");
+    await vi.waitFor(() => expect(s.turns).toHaveLength(1));
+    let accept!: () => void;
+    s.provider.steer = vi.fn(() => new Promise<void>(resolve => { accept = resolve; }));
+    s.send("guidance", "First guidance", { followUpBehavior: "steer" });
+    await vi.waitFor(() => expect(accept).toBeTypeOf("function"));
+    s.send("later", "Next turn", { followUpBehavior: "steer" });
+    expect(s.store.session(s.id).queueSteeringId).toBe("guidance");
+    expect(s.provider.steer).toHaveBeenCalledTimes(1);
+    accept();
+    await vi.waitFor(() => expect(s.store.session(s.id).queueSteeringId).toBeUndefined());
+    expect(s.store.session(s.id).session.queuedMessages?.map(row => row.id)).toEqual(["later"]);
+    s.turns[0].finish();
+    await vi.waitFor(() => expect(s.turns).toHaveLength(2));
+    expect(s.turns[1].input.text).toBe("Next turn");
+  });
+
   it("shows Resume when the first queued message arrives after a usage limit", async () => {
     const s = setup(); s.send("first");
     await vi.waitFor(() => expect(s.turns).toHaveLength(1));

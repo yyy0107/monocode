@@ -102,7 +102,8 @@ async function pick() {
   expect(host.openProject).toHaveBeenCalledExactlyOnceWith("/home/me/My app");
   expect(node.querySelector('[role="dialog"]')).toBeNull();
   expect(host.sessions).toHaveBeenCalledWith("new-project");
-  expect(host.models).toHaveBeenCalledWith("new-project");
+  expect(host.models).not.toHaveBeenCalled();
+  expect(node.querySelector(".mobile-app")?.getAttribute("data-view")).toBe("home");
   expect(node.querySelector("header")?.textContent).toContain("My app");
 }
 

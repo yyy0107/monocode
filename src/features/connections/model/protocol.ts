@@ -205,6 +205,8 @@ export type HostCommand =
       text: string;
       attachments?: RemoteAttachment[];
       intent?: "default" | "plan" | "build";
+      /** Active-turn delivery preference; omitted retains the existing queue behavior. */
+      followUpBehavior?: "queue" | "steer";
       draftBlockId?: string;
       planBlockId?: string;
       /** Host FIFO dispatch; callers cannot bypass a paused or edited head. */

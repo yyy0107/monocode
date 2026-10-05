@@ -1,4 +1,4 @@
-import { useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import {
   Archive,
   Copy,
@@ -19,6 +19,7 @@ import { mobileTranscriptPlatform } from "./transcriptPlatform";
 import type { MobileSessionPatch } from "./client";
 
 export function MobileSessionActions({
+  open = true,
   snapshot,
   summary,
   anchor,
@@ -29,6 +30,7 @@ export function MobileSessionActions({
   onMarkUnread,
   onClose,
 }: {
+  open?: boolean;
   snapshot?: HostSession;
   summary?: HostSessionSummary;
   anchor: RefObject<HTMLElement | null>;
@@ -47,6 +49,12 @@ export function MobileSessionActions({
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const inFlight = useRef(false);
+  useEffect(() => {
+    if (open) {
+      setPage("menu");
+      setError("");
+    }
+  }, [open]);
   const blocked = disabled || working;
   const session = summary ?? snapshot?.session;
   const pinned = summary?.pinned ?? snapshot?.pinned;
@@ -85,6 +93,7 @@ export function MobileSessionActions({
   return (
     <MobileSheet
       key={page}
+      open={open}
       title={
         page === "rename"
           ? "Rename"
@@ -107,6 +116,7 @@ export function MobileSessionActions({
       <div className={`mobile-session-actions${summary ? " mobile-sidebar-session-actions" : ""}`}>
         {page === "menu" ? (
           <>
+            {summary && <p className="mobile-session-menu-title">{sessionDisplayTitle(summary.title, summary.harness) || t("Untitled conversation")}</p>}
             {session && (
               <>
                 <button

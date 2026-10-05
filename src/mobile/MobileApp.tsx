@@ -1,3 +1,4 @@
+import { useConnectionAppearance, saveConnectionAppearance, removeConnectionAppearance } from "./connectionAppearance";
 import { useHostQueue } from "../features/connections/ui/useHostQueue";
 import { consumePlanCommand } from "../features/sessions/model/plan";
 import { isCompactCommand } from "../features/sessions/model/compact";
@@ -10,6 +11,7 @@ import {
   useState,
   type ReactNode,
   type MouseEvent,
+  type RefObject,
 } from "react";
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
@@ -17,12 +19,15 @@ import { StatusBar, Style } from "@capacitor/status-bar";
 import {
   ArrowLeft,
   Chatting,
+  ChevronDown,
   Computer,
   Folder,
   FolderPlus,
   LoaderCircle,
   PanelLeft,
   RefreshCw,
+  Search,
+  X,
 } from "../shared/ui/icons";
 import {
   sessionDisplayTitle,
@@ -60,6 +65,9 @@ import { MobileConnectionSheet } from "./MobileConnectionSheet";
 import type { MobileSheetPoint } from "./MobileSheet";
 import { MobileProjectPicker } from "./MobileProjectPicker";
 import { MobileDrawer } from "./MobileDrawer";
+import { MobileHome } from "./MobileHome";
+import { MobileHomeMenu } from "./MobileHomeMenu";
+import { MobileHeaderSearch } from "./MobileHeaderSearch";
 import {
   MobileSettings,
   mobileSettingsTitle,
@@ -74,6 +82,10 @@ import { useTranslation } from "../shared/i18n/useTranslation";
 import { setUiLanguage, translate } from "../shared/i18n/language";
 import { readMobileAttachments } from "./attachments";
 import { takeBackQueuedMessage } from "./queuedDraft";
+import {
+  loadFollowUpBehavior,
+  saveFollowUpBehavior,
+} from "../features/settings/model/settings";
 import { mobileStorage } from "./storage";
 import { useStableCallback } from "./useStableCallback";
 import {
@@ -88,11 +100,11 @@ import {
 } from "../features/settings/model/appearance";
 
 const client = new MobileClient(mobileStorage);
+
 const readHostImage = (path: string) => client.readBinaryFile(path);
 const browseHostDirectories = (path?: string) => client.browseDirectories(path);
-// The conversation is the home screen; projects and history live in the
-// drawer. Settings doubles as the connection screen before pairing.
-type View = "chat" | "settings";
+// Settings doubles as the connection screen before pairing.
+type View = "home" | "chat" | "settings";
 // The stock glyph packs its dots tightly; the header capsule reads better
 // with wider, slightly heavier dots.
 function HeaderMoreIcon() {
@@ -113,21 +125,28 @@ function IconButton({
   children,
   onClick,
   disabled,
+  inactive,
+  buttonRef,
 }: {
   label: string;
   children: ReactNode;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
+  inactive?: boolean;
+  buttonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const { t } = useTranslation();
   return (
     <button
+      ref={buttonRef}
       className="mobile-icon-button"
       type="button"
       aria-label={t(label)}
       title={t(label)}
       onClick={onClick}
       disabled={disabled}
+      inert={inactive}
+      aria-hidden={inactive || undefined}
     >
       {children}
     </button>
@@ -155,8 +174,19 @@ export function MobileApp() {
   const { language, t } = useTranslation();
   const appUpdates = useMobileAppUpdates();
   const [view, setView] = useState<View>("settings");
+  const [homeProjectId, setHomeProjectId] = useState<string>();
+  const [allProjectsPage, setAllProjectsPage] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchTrigger = useRef<HTMLButtonElement>(null);
+  const [homeMenuOpen, setHomeMenuOpen] = useState(false);
+  const homeMenuTrigger = useRef<HTMLButtonElement>(null);
+  const settingsReturnView = useRef<View>("home");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<MobileSettingsPage>("root");
+
+  const connectionAppearance = useConnectionAppearance(client.connection?.environmentId);
+  const connectionName = connectionAppearance.displayName || client.connection?.name || "MonoCode";
   const [connected, setConnected] = useState(false);
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
@@ -178,6 +208,7 @@ export function MobileApp() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [readingAttachments, setReadingAttachments] = useState(false);
   const [planMode, setPlanMode] = useState(false);
+  const [followUpBehavior, setFollowUpBehavior] = useState(loadFollowUpBehavior);
   const acceptedQueueAttachments = useRef<Attachment[]>([]);
   const parkedDrafts = useRef<Array<{
     text: string;
@@ -187,6 +218,8 @@ export function MobileApp() {
   }>>([]);
   const [composerPanel, setComposerPanel] = useState<MobileComposerPanel>(null);
   const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
+  const [homeActionSession, setHomeActionSession] = useState<HostSessionSummary>();
+  const [homeRefreshKey, setHomeRefreshKey] = useState(0);
   const [sessionActionsTarget, setSessionActionsTarget] = useState<string>();
   const [sessionActionsPoint, setSessionActionsPoint] = useState<MobileSheetPoint>();
   const [sessionStatusOpen, setSessionStatusOpen] = useState(false);
@@ -222,6 +255,11 @@ export function MobileApp() {
   const sessionActionsTrigger = useRef<HTMLButtonElement>(null);
   const sessionStatusTrigger = useRef<HTMLButtonElement>(null);
   const projectGeneration = useRef(0);
+
+  useEffect(() => {
+    if (!searchOpen || view !== "home") setSearchQuery("");
+    if (view !== "home") setSearchOpen(false);
+  }, [searchOpen, view]);
 
   useEffect(() => {
     const light =
@@ -295,14 +333,14 @@ export function MobileApp() {
   }, []);
 
   useEffect(() => {
-    if (!foreground || !drawerOpen) return;
+    if (!foreground || (!drawerOpen && view !== "home")) return;
     setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
-  }, [foreground, drawerOpen]);
+  }, [foreground, drawerOpen, view]);
 
   useEffect(() => {
-    if (!connected || !foreground || (view !== "chat" && !drawerOpen)) return;
+    if (!connected || !foreground || (view === "settings" && !drawerOpen)) return;
     let live = true;
     const turn = navigation.current;
     let timer: ReturnType<typeof setTimeout>;
@@ -312,10 +350,10 @@ export function MobileApp() {
       let running = false;
       try {
         let listRunning = false;
-        if (drawerOpen) {
+        if (drawerOpen || view === "home") {
           const [items, history] = await Promise.all([
             client.projects(),
-            project ? client.sessions(project.id) : undefined,
+            drawerOpen && project ? client.sessions(project.id) : undefined,
           ]);
           if (live && navigation.current === turn) {
             setProjects(items);
@@ -410,13 +448,13 @@ export function MobileApp() {
 
   useEffect(() => {
     const environmentId = client.connection?.environmentId;
-    if (!connected || !environmentId || !project) return;
+    if (!connected || !environmentId || !project || view !== "chat") return;
     saveLastLocation({
       environmentId,
       projectId: project.id,
       ...(sessionId ? { sessionId } : {}),
     });
-  }, [connected, project?.id, sessionId]);
+  }, [connected, project?.id, sessionId, view]);
 
   const connect = async () => {
     setBusy(true);
@@ -494,27 +532,17 @@ export function MobileApp() {
       if (projectGeneration.current === projectTurn) setHistoryLoading(false);
     }
   };
-  // Launch and reconnect return to the last project and conversation; a
-  // conversation deleted elsewhere falls back to a new one in that project.
+  // Launch opens Home. Remember the last project as the new-chat default.
   const restoreLocation = async (items: HostProject[]) => {
     const last = readLastLocation(client.connection?.environmentId);
     const target =
       items.find((item) => item.id === last?.projectId) ?? items[0];
-    setView("chat");
+    setView("home");
+    setHomeProjectId(undefined);
+    setAllProjectsPage(false);
+    setSearchOpen(false);
     setSettingsPage("root");
-    if (!target) return;
-    const historyRequest = openProject(target);
-    if (last?.sessionId && target.id === last.projectId) {
-      const turn = navigation.current + 1;
-      // History adds branch metadata with Git processes. Restore the pinned
-      // conversation directly while history is prepared for the drawer.
-      const sessionRequest = openSession(last.sessionId, target.id);
-      const history = await historyRequest;
-      if (navigation.current === turn && history &&
-          !history.some((item) => item.id === last.sessionId && !item.archived))
-        await openSession();
-      await sessionRequest;
-    } else await historyRequest;
+    setProject(target);
   };
   const openSession = async (id?: string, restoredProjectId?: string) => {
     const start = performance.now();
@@ -780,6 +808,7 @@ export function MobileApp() {
           type: "send",
           commandId: crypto.randomUUID(),
           sessionId,
+          followUpBehavior,
         });
       } else {
         await dispatch(
@@ -825,12 +854,14 @@ export function MobileApp() {
       setProjects(items);
       setAddingProject(false);
       setDrawerOpen(false);
-      await openProject(added);
+      openHome(added);
     } finally {
       setBusy(false);
     }
   };
   const navigate = (next: View) => {
+    setHomeMenuOpen(false);
+    if (next === "settings" && view !== "settings") settingsReturnView.current = view;
     navigation.current += 1;
     setLoading(false);
     setComposerPanel(null);
@@ -840,17 +871,26 @@ export function MobileApp() {
     setSettingsPage("root");
     setView(next);
   };
+  const openHome = (owner?: HostProject, allProjects = false) => {
+    setHomeProjectId(owner?.id);
+    setAllProjectsPage(allProjects);
+    setSearchOpen(false);
+    navigate("home");
+  };
   const updateSessionMetadata = async (
     patch: MobileSessionPatch,
     id = sessionId,
+    ownerId = project?.id,
   ) => {
-    if (!project || !id) return;
+    if (!ownerId || !id) return;
     const turn = navigation.current;
     setBusy(true);
     try {
-      const summary = await client.updateSession(project.id, id, patch);
-      const result = id === sessionId ? await client.session(id, summary.revision) : undefined;
+      const summary = await client.updateSession(ownerId, id, patch);
+      const result = view === "chat" && id === sessionId ? await client.session(id, summary.revision) : undefined;
       if (navigation.current === turn) {
+        setHomeRefreshKey((value) => value + 1);
+        setHomeActionSession((current) => current?.id === id ? summary : current);
         if (result) {
           setSnapshot((previous) =>
             previous && previous.revision > result.revision ? previous : result,
@@ -882,6 +922,30 @@ export function MobileApp() {
     } finally {
       setBusy(false);
     }
+  };
+  const disconnectConnection = async (remove: boolean) => {
+    navigation.current += 1;
+    projectGeneration.current += 1;
+    setBusy(true);
+    const environmentId = client.connection?.environmentId;
+    try {
+      if (remove) await client.disconnect();
+      else await client.suspend();
+      setConnected(false);
+      setProjects([]);
+      setProject(undefined);
+      setSessions([]);
+      setSnapshot(undefined);
+      setSessionConfirmed(false);
+      setHistoryLoading(false);
+      setSessionId(undefined);
+      setError("");
+      setPollError("");
+      if (remove && environmentId) removeConnectionAppearance(environmentId);
+    } catch (problem) {
+      setError(message(problem));
+      throw problem;
+    } finally { setBusy(false); }
   };
   const reconnect = async () => {
     setBusy(true);
@@ -915,9 +979,13 @@ export function MobileApp() {
       else if (addingProject) {
         if (!busy) setAddingProject(false);
       } else if (drawerOpen) setDrawerOpen(false);
+      else if (homeMenuOpen) setHomeMenuOpen(false);
+      else if (view === "home" && searchOpen) setSearchOpen(false);
       else if (view === "settings" && settingsPage !== "root")
         setSettingsPage("root");
-      else if (view === "settings" && connected) navigate("chat");
+      else if (view === "settings" && connected) navigate(settingsReturnView.current);
+      else if (view === "chat") openHome(project);
+      else if (view === "home" && homeProjectId) openHome();
       else void App.exitApp();
     });
     return () => {
@@ -935,10 +1003,14 @@ export function MobileApp() {
     drawerOpen,
     settingsPage,
     busy,
+    homeProjectId,
+    searchOpen,
+    homeMenuOpen,
+    project,
   ]);
 
   const running = snapshot?.status === "running";
-  const sessionActionsSummary = sessions.find(
+  const sessionActionsSummary = view === "home" ? homeActionSession : sessions.find(
     (item) => item.id === sessionActionsTarget,
   );
   const nativeReadOnly = !!snapshot?.session.nativeSession;
@@ -951,8 +1023,9 @@ export function MobileApp() {
   const contextRing = loading
     ? null
     : contextRatio(mobileContextUsage(snapshot?.session, catalog));
-  // Every view uses floating capsule controls; content scrolls beneath them.
+  // Controls float above scrolling content; Home uses a plain title menu.
   const floatingHeader = true;
+  const homeProject = projects.find((item) => item.id === homeProjectId);
   const title =
     view === "chat"
       ? (snapshot &&
@@ -961,29 +1034,39 @@ export function MobileApp() {
             snapshot.session.harness,
           )) ||
         t("New conversation")
-      : t(mobileSettingsTitle(settingsPage));
+      : view === "home"
+        ? homeProject?.name || (allProjectsPage ? t("All projects") : "MonoCode")
+        : t(mobileSettingsTitle(settingsPage));
   // Memoized children (transcript, drawer) get handlers that keep their
   // identity, so typing in the composer does not re-render them.
   const onTranscriptCommand = useStableCallback((command: HostCommand) => {
     void dispatch(command);
   });
   const onDrawerOpenChange = useStableCallback((open: boolean) => {
+    if (open) setHomeMenuOpen(false);
     if (open) setComposerPanel(null);
     setDrawerOpen(open);
-  });
-  const onDrawerProject = useStableCallback((item: HostProject) => {
-    void openProject(item);
   });
   const onDrawerAddProject = useStableCallback(() => {
     setError("");
     setAddingProject(true);
   });
-  const onDrawerSession = useStableCallback((id?: string) => {
-    void openSession(id);
+  const onDrawerLoadSessions = useStableCallback((projectId: string) =>
+    client.sessions(projectId),
+  );
+  // A conversation in another project opens that project with it, like a
+  // restored location: history loads for the drawer while the chat opens.
+  const onDrawerSession = useStableCallback((id: string, owner: HostProject) => {
+    void openProject(owner);
+    void openSession(id, owner.id);
   });
-  const onDrawerNewSession = useStableCallback(() => {
+  const onDrawerNewSession = useStableCallback((owner: HostProject) => {
+    void openProject(owner);
     void openSession();
   });
+  const onDrawerHome = useStableCallback(() => openHome());
+  const onDrawerAllProjects = useStableCallback(() => openHome(undefined, true));
+  const onDrawerProject = useStableCallback((owner: HostProject) => openHome(owner));
   const onDrawerSessionActions = useStableCallback(
     (id: string, trigger: HTMLButtonElement, point?: MobileSheetPoint) => {
       sessionActionsTrigger.current = trigger;
@@ -998,18 +1081,46 @@ export function MobileApp() {
     setError("");
     setAddingProject(true);
   };
+  const toggleHomeSearch = () => {
+    setHomeMenuOpen(false);
+    setSearchOpen((open) => !open);
+  };
+  const interceptSearchOutside = (event: MouseEvent, close: boolean) => {
+    if (
+      view !== "home" || !searchOpen ||
+      (event.target instanceof Element && event.target.closest(".mobile-header-search"))
+    ) return;
+    event.preventDefault();
+    event.stopPropagation();
+    // Keep search open through pointerdown so its matching click is consumed
+    // before any underlying row or toolbar action can run.
+    if (close) setSearchOpen(false);
+  };
   return (
-    <div ref={appRoot} className="mobile-app" data-view={view}>
-      <header className="mobile-header" data-floating={floatingHeader}>
-        {view === "chat" ? (
+    <div
+      ref={appRoot}
+      className="mobile-app"
+      data-view={view}
+      onPointerDownCapture={(event) => interceptSearchOutside(event, false)}
+      onClickCapture={(event) => interceptSearchOutside(event, true)}
+      onContextMenuCapture={(event) => interceptSearchOutside(event, true)}
+    >
+      <header className="mobile-header" data-floating={floatingHeader} data-project={view === "home" && !!homeProject} data-search={view === "home" && searchOpen} inert={drawerOpen}>
+        {view === "chat" || (view === "home" && !homeProject) ? (
           <IconButton
             label="Menu"
+            inactive={view === "home" && searchOpen}
             onClick={() => {
               setComposerPanel(null);
+              setHomeMenuOpen(false);
               setDrawerOpen(true);
             }}
           >
             <PanelLeft size={22} />
+          </IconButton>
+        ) : view === "home" ? (
+          <IconButton label="Back" inactive={searchOpen} onClick={() => openHome()}>
+            <ArrowLeft size={22} />
           </IconButton>
         ) : connected || settingsPage !== "root" ? (
           <IconButton
@@ -1017,7 +1128,7 @@ export function MobileApp() {
             onClick={() =>
               settingsPage !== "root"
                 ? setSettingsPage("root")
-                : navigate("chat")
+                : navigate(settingsReturnView.current)
             }
           >
             <ArrowLeft size={22} />
@@ -1027,8 +1138,43 @@ export function MobileApp() {
             <img className="mobile-logo" src="/monocode.png" alt="MonoCode" />
           </span>
         )}
-        <div className="mobile-header-title" data-capsule={floatingHeader}>
-          <strong>{title}</strong>
+        {view === "home" ? homeProject ? (
+          <div
+            className="mobile-header-title"
+            data-capsule="false"
+            inert={searchOpen}
+            aria-hidden={searchOpen || undefined}
+          >
+            <span className="mobile-project-header-text">
+              <span className="mobile-project-header-name">
+                <strong>{title}</strong>
+              </span>
+              <span className="mobile-header-host">
+                <Computer size={12} aria-hidden="true" />
+                <span className="mobile-project-header-host-name">{connectionName}</span>
+                <MobileHostStatus status={hostStatus} />
+                {hostStatus.state === "connected" && <span>{t("Connected")}</span>}
+              </span>
+            </span>
+          </div>
+        ) : (
+          <button
+            ref={homeMenuTrigger}
+            type="button"
+            className="mobile-header-title"
+            data-capsule="false"
+            inert={searchOpen}
+            aria-hidden={searchOpen || undefined}
+            aria-label={t("Home menu")}
+            aria-haspopup="dialog"
+            aria-expanded={homeMenuOpen}
+            onClick={() => setHomeMenuOpen((open) => !open)}
+          >
+            <strong>{title}</strong>
+            <ChevronDown size={14} aria-hidden="true" />
+          </button>
+        ) : <div className="mobile-header-title" data-capsule={view === "settings" ? false : floatingHeader}>
+          <strong>{view === "settings" && settingsPage === "root" ? "MonoCode" : title}</strong>
           {view === "chat" ? (
             <div className="mobile-header-context">
               {project?.name && (
@@ -1048,18 +1194,22 @@ export function MobileApp() {
               {client.connection?.name && (
                 <span className="mobile-header-context-item">
                   <Computer size={12} aria-hidden="true" />
-                  <span>{client.connection.name}</span>
+                  <span>{connectionName}</span>
                   <MobileHostStatus status={hostStatus} />
                 </span>
               )}
             </div>
-          ) : (
-            <span className="mobile-header-host">
-              <span>{client.connection?.name || "MonoCode"}</span>
-              {client.connection && <MobileHostStatus status={hostStatus} />}
-            </span>
-          )}
-        </div>
+          ) : null}
+        </div>}
+        {view === "home" && (
+          <MobileHeaderSearch
+            open={searchOpen}
+            query={searchQuery}
+            onQueryChange={setSearchQuery}
+            onClose={() => setSearchOpen(false)}
+            trigger={searchTrigger}
+          />
+        )}
         {/* A new conversation has nothing to act on until its first message. */}
         {view === "chat" && (snapshot || loading) ? (
           <div className="mobile-header-actions">
@@ -1097,6 +1247,10 @@ export function MobileApp() {
               <HeaderMoreIcon />
             </IconButton>
           </div>
+        ) : view === "home" && (!homeProject || searchOpen) ? (
+          <IconButton buttonRef={homeProject ? undefined : searchTrigger} label={searchOpen ? "Close search" : "Search conversations"} onClick={toggleHomeSearch}>
+            {searchOpen ? <X size={22} /> : <Search size={22} />}
+          </IconButton>
         ) : null}
       </header>
 
@@ -1135,12 +1289,13 @@ export function MobileApp() {
         <MobileSettings
           page={settingsPage}
           onPageChange={setSettingsPage}
-          connected={connected}
           connection={
             client.connection
               ? {
                   name: client.connection.name,
                   endpoint: client.connection.endpoint,
+                  environmentId: client.connection.environmentId,
+                  disabled: client.connection.disabled,
                 }
               : undefined
           }
@@ -1153,39 +1308,61 @@ export function MobileApp() {
             setError("");
             setAddingConnection(true);
           }}
-          onDisconnect={() => {
-            navigation.current += 1;
-            projectGeneration.current += 1;
-            setBusy(true);
-            void client
-              .disconnect()
-              .then(() => {
-                setConnected(false);
-                setProjects([]);
-                setProject(undefined);
-                setSessions([]);
-                setSnapshot(undefined);
-                setSessionConfirmed(false);
-                setHistoryLoading(false);
-                setSessionId(undefined);
-                setError("");
-              })
-              .catch((problem) => setError(message(problem)))
-              .finally(() => setBusy(false));
+          onDisconnect={() => disconnectConnection(false)}
+          onDeleteConnection={() => disconnectConnection(true)}
+          connectionAppearance={connectionAppearance}
+          onSaveConnectionAppearance={(value) => {
+            if (client.connection) saveConnectionAppearance(client.connection.environmentId, value);
           }}
+          onReconnect={() => void reconnect()}
           theme={theme}
           onThemeChange={setTheme}
           glass={glass}
           onGlassChange={setGlass}
           language={language}
           onLanguageChange={setUiLanguage}
+          followUpBehavior={followUpBehavior}
+          onFollowUpBehaviorChange={(behavior) => {
+            saveFollowUpBehavior(behavior);
+            setFollowUpBehavior(behavior);
+          }}
           preferencePanel={preferencePanel}
           onPreferencePanelChange={setPreferencePanel}
           activity={activity}
           appUpdates={appUpdates}
         />
+      ) : view === "home" ? (
+        <MobileHome
+          key={client.connection?.environmentId}
+          projects={projects}
+          project={homeProject}
+          hostName={connectionName}
+          hostStatus={hostStatus}
+          foreground={foreground}
+          inactive={drawerOpen || homeMenuOpen || addingConnection || sessionActionsOpen}
+          query={searchOpen ? searchQuery : ""}
+          now={now}
+          unreadIds={activity.unreadIds}
+          loadSessions={onDrawerLoadSessions}
+          onProject={onDrawerProject}
+          onSession={onDrawerSession}
+          refreshKey={homeRefreshKey}
+          sessionActionsId={sessionActionsOpen ? sessionActionsTarget : undefined}
+          onSessionActions={(summary, trigger, point) => {
+            setHomeActionSession(summary);
+            onDrawerSessionActions(summary.id, trigger, point);
+          }}
+          onSearch={toggleHomeSearch}
+          searchOpen={searchOpen}
+          searchTrigger={searchTrigger}
+          onNewSession={() => {
+            const owner = homeProject ?? projects.find((item) => item.id === project?.id) ?? projects[0];
+            if (owner) onDrawerNewSession(owner);
+          }}
+          onAddProject={openAddProject}
+        />
       ) : (
-        <main className="mobile-chat">
+        <main className="mobile-chat" inert={drawerOpen}>
           {snapshot ? (
             <MobileTranscript
               key={snapshot.session.id}
@@ -1237,7 +1414,7 @@ export function MobileApp() {
                 {...queue}
                 onOverlayChange={onQueueOverlayChange}
                 onRestore={restoreQueuedMessage}
-                disabled={!!snapshot?.session.nativeSession || busy || !!pending || loading || !sessionConfirmed}
+                disabled={nativeReadOnly || busy || !!pending || loading || !sessionConfirmed}
               />
             }
             value={draft}
@@ -1318,7 +1495,7 @@ export function MobileApp() {
         </main>
       )}
 
-      {connected && view === "chat" && (
+      {connected && view !== "settings" && (
         <MobileDrawer
           open={drawerOpen}
           onOpenChange={onDrawerOpenChange}
@@ -1329,11 +1506,14 @@ export function MobileApp() {
           loading={historyLoading}
           unreadIds={activity.unreadIds}
           now={now}
-          hostName={client.connection?.name || "MonoCode"}
+          hostName={connectionName}
           hostStatus={hostStatus}
           projectTrigger={projectTrigger}
-          onProject={onDrawerProject}
+          loadSessions={onDrawerLoadSessions}
           onAddProject={onDrawerAddProject}
+          onHome={onDrawerHome}
+          onAllProjects={onDrawerAllProjects}
+          onProject={onDrawerProject}
           onSession={onDrawerSession}
           sessionActionsId={sessionActionsOpen ? sessionActionsTarget : undefined}
           onSessionActions={onDrawerSessionActions}
@@ -1341,18 +1521,18 @@ export function MobileApp() {
           onSettings={onDrawerSettings}
         />
       )}
-      {sessionActionsOpen &&
-        view === "chat" &&
+      {(view === "chat" || view === "home") &&
         (sessionActionsTarget ? sessionActionsSummary : snapshot) && (
         <MobileSessionActions
           key={sessionActionsTarget ?? sessionId ?? "draft"}
+          open={sessionActionsOpen}
           snapshot={sessionActionsTarget ? undefined : snapshot}
           summary={sessionActionsSummary}
           anchor={sessionActionsTrigger}
           anchorPoint={sessionActionsPoint}
           disabled={busy || loading || !!pending}
           onUpdate={(patch) =>
-            updateSessionMetadata(patch, sessionActionsTarget ?? sessionId)
+            updateSessionMetadata(patch, sessionActionsTarget ?? sessionId, sessionActionsSummary?.projectId ?? project?.id)
           }
           onDelete={sessionActionsTarget ? undefined : deleteCurrentSession}
           onMarkUnread={
@@ -1367,8 +1547,6 @@ export function MobileApp() {
           }
           onClose={() => {
             setSessionActionsOpen(false);
-            setSessionActionsTarget(undefined);
-            setSessionActionsPoint(undefined);
           }}
         />
       )}
@@ -1376,12 +1554,24 @@ export function MobileApp() {
         <MobileSessionStatus
           snapshot={snapshot}
           catalog={catalog}
-          hostName={client.connection?.name || "MonoCode"}
+          hostName={connectionName}
           hostStatus={hostStatus}
           anchor={sessionStatusTrigger}
           onClose={() => setSessionStatusOpen(false)}
         />
       )}
+      <MobileHomeMenu
+        open={homeMenuOpen && view === "home" && !drawerOpen}
+        anchor={homeMenuTrigger}
+        onClose={() => setHomeMenuOpen(false)}
+        onAddConnection={() => {
+          connectionTrigger.current = homeMenuTrigger.current;
+          setHomeMenuOpen(false);
+          setError("");
+          setAddingConnection(true);
+        }}
+        onSettings={() => navigate("settings")}
+      />
       {addingConnection && (
         <MobileConnectionSheet
           anchor={connectionTrigger}
@@ -1403,7 +1593,7 @@ export function MobileApp() {
       )}
       {addingProject && (
         <MobileProjectPicker
-          hostName={client.connection?.name || "MonoCode"}
+          hostName={connectionName}
           anchor={projectTrigger}
           disabled={busy}
           browseDirectories={browseHostDirectories}

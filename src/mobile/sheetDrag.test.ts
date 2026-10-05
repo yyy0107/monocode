@@ -28,10 +28,11 @@ describe("MobileSheet drag", () => {
     act(() => root.unmount());
     node.remove();
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
-  function drag(distance: number) {
+  function drag(distance: number, settleMs = 300) {
     const onClose = vi.fn();
     act(() =>
       root.render(
@@ -55,8 +56,13 @@ describe("MobileSheet drag", () => {
     sheet.dispatchEvent(pointer("pointermove", 100 + distance));
     const moved = sheet.style.transform;
     sheet.dispatchEvent(pointer("pointerup", 100 + distance));
-    act(() => vi.advanceTimersByTime(300));
-    return { onClose, moved, rest: sheet.style.transform };
+    act(() => vi.advanceTimersByTime(settleMs));
+    return {
+      onClose,
+      moved,
+      rest: sheet.style.transform,
+      transition: sheet.style.transition,
+    };
   }
 
   it("follows the pointer and closes after a long pull", () => {
@@ -69,5 +75,22 @@ describe("MobileSheet drag", () => {
     const { onClose, rest } = drag(60);
     expect(onClose).not.toHaveBeenCalled();
     expect(rest).toBe("");
+  });
+
+  it("dismisses immediately after release with reduced motion", () => {
+    vi.spyOn(window, "matchMedia").mockReturnValue({
+      matches: true,
+    } as MediaQueryList);
+    const { onClose, transition } = drag(220, 0);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(transition).toBe("none");
+  });
+
+  it("cancels a pending dismissal when the sheet unmounts", () => {
+    const { onClose } = drag(220, 0);
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => root.render(null));
+    act(() => vi.advanceTimersByTime(200));
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

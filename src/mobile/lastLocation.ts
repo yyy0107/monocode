@@ -1,5 +1,5 @@
-// Remembers where the phone left off so launching returns to the same
-// conversation. Only identifiers are stored; credentials stay in mobileStorage.
+// Remembers the last conversation and the default project for a new chat.
+// Launch opens Home. Only identifiers are stored; credentials stay in mobileStorage.
 export interface MobileLocation {
   environmentId: string;
   projectId: string;

@@ -124,7 +124,8 @@ export function useMobileActivity(
     // Initial restoration and permission checks may run while a native service
     // from the previous activity is still receiving updates.
     if (!connected) {
-      if (hadConnection.current) void MobileNotifications.stop().catch(() => {});
+      if (hadConnection.current || client.connection?.disabled)
+        void MobileNotifications.stop().catch(() => {});
       hadConnection.current = false;
       return;
     }

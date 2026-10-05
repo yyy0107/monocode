@@ -77,6 +77,7 @@ public final class MonoCodeNotificationService extends Service {
         String value = MonoCodeCredentialsPlugin.read(context, "connection");
         if (value == null) return null;
         JSONObject connection = new JSONObject(value);
+        if (connection.optBoolean("disabled", false)) return null;
         if (!connection.getString("endpoint").equals(saved.getString(ENDPOINT, null))
             || !connection.getString("environmentId").equals(saved.getString(ENVIRONMENT, null))) return null;
         return new Intent(context, MonoCodeNotificationService.class)
@@ -103,6 +104,9 @@ public final class MonoCodeNotificationService extends Service {
     }
     private void configure(Intent intent, boolean restoring) throws Exception {
         Config next = new Config(intent);
+        String stored = MonoCodeCredentialsPlugin.read(this, "connection");
+        if (stored == null || new JSONObject(stored).optBoolean("disabled", false))
+            throw new IllegalStateException("Connection is disabled");
         if (!NotificationManagerCompat.from(this).areNotificationsEnabled())
             throw new IllegalStateException("Notifications are disabled");
         Config previous = config;

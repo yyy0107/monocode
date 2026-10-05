@@ -9,9 +9,10 @@ import {
   type RefObject,
 } from "react";
 import { ArrowLeft } from "../shared/ui/icons";
+import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { placePopover, type PopoverAlign } from "../shared/lib/popover";
-import { useSheetDrag } from "./sheetDrag";
+import { SHEET_CLOSE_MS, SHEET_MOTION_MS, useSheetDrag } from "./sheetDrag";
 import { preserveInputFocus } from "./inputFocus";
 
 // Reads the resolved system-bar insets so popovers stay clear of the status
@@ -47,6 +48,7 @@ export const SHEET_WIDTH = {
 export type MobileSheetPoint = { x: number; y: number };
 
 export function MobileSheet({
+  open = true,
   title,
   onClose,
   onBack,
@@ -57,8 +59,12 @@ export function MobileSheet({
   width = SHEET_WIDTH.form,
   align = "start",
   side = "bottom",
+  overlapAnchor = false,
+  constrainWidthToAnchor = false,
   children,
 }: {
+  /** Keep the sheet mounted to animate both directions when controlling it. */
+  open?: boolean;
   title: string;
   onClose: () => void;
   onBack?: () => void;
@@ -70,14 +76,23 @@ export function MobileSheet({
   width?: number;
   align?: PopoverAlign;
   side?: "top" | "bottom";
+  /** Cover the trigger while keeping the popup top aligned with it. */
+  overlapAnchor?: boolean;
+  /** Keep a title menu inside its trigger's space between adjacent controls. */
+  constrainWidthToAnchor?: boolean;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
+  const { foldState, finish } = useCollapseMotion(
+    open,
+    open ? SHEET_MOTION_MS : SHEET_CLOSE_MS,
+  );
+  const backdrop = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLElement>(null);
   const [position, setPosition] = useState<CSSProperties>();
-  useSheetDrag(dialog, placement === "bottom", onClose);
+  useSheetDrag(dialog, placement === "bottom" && open, onClose);
   useLayoutEffect(() => {
-    if (placement !== "anchor") return;
+    if (!open || placement !== "anchor") return;
     const element = dialog.current;
     const trigger = anchor?.current;
     if (!element || (!trigger && !anchorPoint)) return;
@@ -109,20 +124,36 @@ export function MobileSheet({
           left: rect.left - offsetLeft,
           right: rect.right - offsetLeft,
           top: clampY(rect.top),
-          bottom: clampY(rect.bottom),
+          bottom: clampY(overlapAnchor ? rect.top : rect.bottom),
           width: rect.width,
           height: rect.height,
         },
         { width: size.width, height: size.height },
         { width: viewportWidth, height },
-        { width, side, align, gap: anchorPoint ? 0 : 8, padding: 16 },
+        {
+          width:
+            constrainWidthToAnchor && !anchorPoint
+              ? Math.min(width, rect.width)
+              : width,
+          side,
+          align,
+          gap: anchorPoint || overlapAnchor ? 0 : 8,
+          padding: 16,
+        },
       );
       const style: CSSProperties = {
         position: "fixed",
         left: next.left + offsetLeft,
-        top: next.top == null ? undefined : next.top + offsetTop,
+        top: overlapAnchor
+          ? Math.max(
+              0,
+              Math.min(rect.top - offsetTop, height - size.height - 16),
+            ) + offsetTop
+          : next.top == null
+            ? undefined
+            : next.top + offsetTop,
         bottom:
-          next.bottom == null
+          overlapAnchor || next.bottom == null
             ? undefined
             : next.bottom + window.innerHeight - offsetTop - height,
         width: next.width,
@@ -164,19 +195,30 @@ export function MobileSheet({
       viewport?.removeEventListener("resize", place);
       viewport?.removeEventListener("scroll", place);
     };
-  }, [placement, anchor, anchorPoint, width, align, side]);
+  }, [
+    open,
+    placement,
+    anchor,
+    anchorPoint,
+    width,
+    align,
+    side,
+    overlapAnchor,
+    constrainWidthToAnchor,
+  ]);
   useEffect(() => {
+    if (!open) return;
     const input = preserveFocus?.current;
     const keepInput = !!input && document.activeElement === input;
     const trigger = keepInput
       ? input
-      : anchor?.current ?? (document.activeElement as HTMLElement | null);
+      : (anchor?.current ?? (document.activeElement as HTMLElement | null));
     if (!keepInput) dialog.current?.focus();
     return () => {
       if (trigger?.isConnected && document.activeElement !== trigger)
         trigger.focus({ preventScroll: true });
     };
-  }, [anchor, preserveFocus]);
+  }, [open, anchor, preserveFocus]);
   const onKeyDown = useCallback(
     (event: { key: string; shiftKey: boolean; preventDefault: () => void }) => {
       if (event.key === "Escape") {
@@ -212,17 +254,26 @@ export function MobileSheet({
     [onClose, preserveFocus],
   );
   useEffect(() => {
+    if (!open) return;
     const input = preserveFocus?.current;
     if (!input) return;
     // Pointer interaction keeps typing focus outside the sheet. Escape still
     // dismisses it, and an explicit Tab moves into its keyboard navigation.
     input.addEventListener("keydown", onKeyDown);
     return () => input.removeEventListener("keydown", onKeyDown);
-  }, [preserveFocus, onKeyDown]);
+  }, [open, preserveFocus, onKeyDown]);
+  if (!open && foldState === "closed") return null;
   return (
     <div
+      ref={backdrop}
       className="mobile-sheet-backdrop"
       data-placement={placement}
+      data-fold-state={foldState}
+      inert={!open}
+      aria-hidden={!open || undefined}
+      onAnimationEnd={(event) => {
+        if (event.target === event.currentTarget) finish();
+      }}
       onPointerDownCapture={(event) =>
         preserveInputFocus(event, preserveFocus?.current)
       }

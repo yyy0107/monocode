@@ -137,7 +137,7 @@ html.theme-light {
   --mobile-glass-edge-shade: rgb(0 0 0 / 0.08);
   --mobile-glass-shadow: 0 10px 32px #00000024, 0 2px 6px #00000014;
 }
-.mobile-header[data-floating="true"] > *,
+.mobile-header[data-floating="true"] > :not([data-capsule="false"]),
 .mobile-composer,
 .mobile-jump,
 .mobile-queue-pill,
@@ -197,13 +197,13 @@ html .popover-backdrop.popover-backdrop {
 html .popover-backdrop.popover-backdrop {
   border-color: transparent;
 }
-.mobile-header[data-floating="true"] > *,
+.mobile-header[data-floating="true"] > :not([data-capsule="false"]),
 .mobile-composer {
   border-radius: var(--mobile-capsule-radius, 999px);
 }
 /* Specular rim: a gradient ring over the border, brightest where light
    enters and exits the glass. */
-.mobile-header[data-floating="true"] > *::before,
+.mobile-header[data-floating="true"] > :not([data-capsule="false"])::before,
 .mobile-composer::before,
 .mobile-jump::before,
 .mobile-queue-pill::before,
@@ -235,7 +235,7 @@ html .popover-backdrop.popover-backdrop::before {
 }
 /* Solid restores opaque surfaces without paying for backdrop filters. */
 html[data-mobile-glass="solid"] :is(
-    .mobile-header[data-floating="true"] > *,
+    .mobile-header[data-floating="true"] > :not([data-capsule="false"]),
     .mobile-composer,
     .mobile-jump,
     .mobile-queue-pill,
@@ -248,7 +248,7 @@ html[data-mobile-glass="solid"] :is(
   backdrop-filter: none;
 }
 html[data-mobile-glass="solid"] :is(
-    .mobile-header[data-floating="true"] > *,
+    .mobile-header[data-floating="true"] > :not([data-capsule="false"]),
     .mobile-composer,
     .mobile-jump,
     .mobile-queue-pill,
@@ -279,6 +279,66 @@ html[data-mobile-glass="solid"] :is(
 }
 .mobile-header[data-floating="true"] > .mobile-header-title {
   inset-inline: 72px;
+}
+.mobile-header[data-search] > .mobile-icon-button:first-child,
+.mobile-header[data-search] > .mobile-header-title {
+  transition: opacity 340ms ease;
+}
+.mobile-header[data-search="true"] > .mobile-icon-button:first-child,
+.mobile-header[data-search="true"] > .mobile-header-title {
+  opacity: 0;
+  pointer-events: none;
+}
+.mobile-header[data-floating="true"] > .mobile-header-search {
+  inset-inline: 16px 72px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-inline: 14px;
+  transform-origin: left center;
+}
+.mobile-header-search > svg {
+  flex-shrink: 0;
+}
+.mobile-app .mobile-header[data-floating="true"] > .mobile-header-search input[type="search"] {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-content);
+  font-size: 16px;
+}
+.mobile-header-search input:focus-visible {
+  outline: none;
+}
+.mobile-header-search[data-fold-state="opening"] {
+  animation: mobile-header-search-in 340ms ease both;
+}
+.mobile-header-search[data-fold-state="closing"] {
+  animation: mobile-header-search-out 340ms ease both;
+  pointer-events: none;
+}
+@keyframes mobile-header-search-in {
+  from { opacity: 0; transform: scaleX(0.88); }
+  to { opacity: 1; transform: scaleX(1); }
+}
+@keyframes mobile-header-search-out {
+  from { opacity: 1; transform: scaleX(1); }
+  to { opacity: 0; transform: scaleX(0.88); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-header[data-search] > .mobile-icon-button:first-child,
+  .mobile-header[data-search] > .mobile-header-title {
+    transition: none;
+  }
+  .mobile-header-search[data-fold-state] {
+    animation: none;
+  }
 }
 /* Status and session actions share one capsule on the trailing side. */
 .mobile-header[data-floating="true"] > .mobile-header-actions {
@@ -359,6 +419,69 @@ html[data-mobile-glass="solid"] :is(
 }
 .mobile-header-title[data-capsule="true"] .mobile-header-host {
   justify-content: center;
+}
+.mobile-header-title[data-capsule="false"] {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 48px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-content);
+}
+.mobile-header-title[data-capsule="false"] strong {
+  font-size: 17px;
+  line-height: 24px;
+}
+.mobile-app[data-view="settings"] .mobile-header-title strong {
+  font-weight: 700;
+}
+.mobile-header-title[data-capsule="false"] > svg {
+  flex-shrink: 0;
+}
+.mobile-header[data-project="true"] > .mobile-header-title {
+  inset-inline-end: 16px;
+  justify-content: flex-start;
+  padding: 0;
+  text-align: left;
+}
+.mobile-project-header-text,
+.mobile-project-header-name {
+  display: flex;
+  min-width: 0;
+}
+.mobile-header-title .mobile-project-header-text {
+  flex-direction: column;
+  gap: 2px;
+  color: var(--color-content);
+}
+.mobile-header-title .mobile-project-header-name {
+  align-items: center;
+  gap: 6px;
+  color: var(--color-content);
+}
+.mobile-project-header-name > svg,
+.mobile-project-header-text .mobile-header-host > svg {
+  flex-shrink: 0;
+}
+.mobile-header[data-project="true"] .mobile-project-header-name strong {
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 26px;
+}
+.mobile-project-header-text .mobile-header-host,
+.mobile-project-header-text .mobile-header-host > span {
+  font-size: 13px;
+  line-height: 18px;
+}
+.mobile-project-header-host-name {
+  min-width: 0;
+}
+.mobile-project-header-text .mobile-header-host > span:last-child {
+  flex-shrink: 0;
 }
 .mobile-header-context {
   display: flex;
@@ -649,6 +772,306 @@ html[data-mobile-glass="solid"] :is(
 .mobile-empty p .mobile-button {
   display: flex;
   margin: 22px auto 0;
+}
+.mobile-home {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  touch-action: pan-y;
+}
+.mobile-home-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  padding: calc(var(--mobile-safe-top) + var(--mobile-header-height) + 18px)
+    18px calc(var(--mobile-safe-bottom) + 110px);
+}
+.mobile-home-host {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 9px 13px;
+  border-radius: 24px;
+  background: var(--mobile-fill);
+  margin-bottom: 28px;
+  font-size: 13px;
+}
+.mobile-home-host > span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-home h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.mobile-home section + section {
+  margin-top: 30px;
+}
+.mobile-home-projects > h2,
+.mobile-home-recent > h2 {
+  margin-bottom: 10px;
+}
+.mobile-home-project {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 54px;
+  padding: 10px 4px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-content);
+  text-align: left;
+}
+.mobile-home-project > svg {
+  flex-shrink: 0;
+}
+.mobile-home-project > span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.mobile-home-project strong {
+  font-size: 17px;
+  font-weight: 450;
+}
+.mobile-home-project small {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.mobile-home-project strong,
+.mobile-home-project small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-home-add {
+  color: var(--mobile-accent);
+}
+.mobile-list-more {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 4px;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+  font-size: 14px;
+  text-align: start;
+}
+.mobile-list-more:active {
+  color: var(--color-content);
+}
+.mobile-home-recent > .mobile-list-more {
+  text-align: center;
+}
+.mobile-home-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 4px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-content);
+  text-align: left;
+}
+.mobile-home-section-toggle > svg {
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  transition: transform 340ms ease;
+}
+.mobile-home-section-toggle[aria-expanded="false"] > svg {
+  transform: rotate(-90deg);
+}
+.mobile-home-session {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 66px;
+  padding: 10px 4px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-content);
+  text-align: left;
+}
+.mobile-home-session-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.mobile-home-session-text > strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 450;
+}
+.mobile-home-session-text > strong > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-home-session-text > small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.mobile-home-session-text small > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-home-session-text svg,
+.mobile-home-session time {
+  flex-shrink: 0;
+}
+.mobile-home-session time {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.mobile-home-empty,
+.mobile-home-error {
+  margin: 20px 0;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+  line-height: 1.6;
+}
+.mobile-home-error button {
+  padding: 4px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--mobile-accent);
+}
+.mobile-home-dock {
+  position: absolute;
+  bottom: calc(var(--mobile-safe-bottom) + 16px);
+  inset-inline: 24px;
+  display: flex;
+  justify-content: center;
+}
+.mobile-home-new {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(100%, 460px);
+  min-height: 56px;
+  padding: 12px 18px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 30px;
+  background: var(--mobile-card);
+  box-shadow: 0 6px 26px #0002;
+  color: var(--color-content);
+  text-align: left;
+}
+.mobile-home-new svg {
+  flex-shrink: 0;
+}
+.mobile-home-new small {
+  margin-inline-start: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.mobile-home-project:active,
+.mobile-home-session:active,
+.mobile-home-new:active {
+  background: var(--color-selection);
+}
+/* A selected project is a flat history list with its actions within thumb reach. */
+.mobile-home[data-project="true"] .mobile-home-scroll {
+  padding-top: calc(var(--mobile-safe-top) + var(--mobile-header-height) + 8px);
+}
+.mobile-home[data-project="true"] .mobile-home-session {
+  min-height: 54px;
+  padding-block: 12px;
+}
+.mobile-home[data-project="true"] .mobile-home-session-text > strong {
+  font-size: 18px;
+  line-height: 26px;
+}
+.mobile-home[data-project="true"] .mobile-home-session time {
+  font-size: 14px;
+}
+.mobile-home[data-project="true"] .mobile-home-dock {
+  isolation: isolate;
+  inset-inline: 0;
+  width: min(calc(100% - 48px), 460px);
+  margin-inline: auto;
+  gap: 10px;
+}
+.mobile-home[data-project="true"] .mobile-home-dock::before {
+  content: "";
+  position: absolute;
+  inset: -48px -24px calc(-16px - var(--mobile-safe-bottom));
+  z-index: -1;
+  background: linear-gradient(transparent, var(--color-background-base) 48%);
+  pointer-events: none;
+}
+.mobile-home-search,
+.mobile-home[data-project="true"] .mobile-home-new {
+  min-width: 0;
+  min-height: 54px;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 17px;
+  box-shadow: 0 6px 26px #0001;
+}
+.mobile-home-search {
+  display: flex;
+  align-items: center;
+  flex: 1.6;
+  background: var(--mobile-card);
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+  text-align: left;
+}
+.mobile-home-search > svg {
+  flex-shrink: 0;
+}
+.mobile-home-search > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-home-search:active {
+  background: var(--color-selection);
+}
+.mobile-home[data-project="true"] .mobile-home-new {
+  flex: 1;
+  width: auto;
+  justify-content: center;
+  background: var(--mobile-accent);
+  color: #fff;
+}
+.mobile-home[data-project="true"] .mobile-home-new:active {
+  background: color-mix(in srgb, var(--mobile-accent) 85%, #000);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-home-section-toggle > svg {
+    transition: none;
+  }
 }
 .mobile-chat {
   /* Horizontal pulls reach JavaScript to open the drawer; nested code
@@ -1062,10 +1485,10 @@ html[data-mobile-glass="solid"] :is(
 /* Bottom sheets rise in and can be pulled down by the grip (or by content
    that is scrolled to its top); see sheetDrag.ts. */
 .mobile-sheet-backdrop[data-placement="bottom"] {
-  animation: mobile-sheet-fade 220ms ease-out;
+  animation: mobile-sheet-fade 200ms ease-out;
 }
 .mobile-sheet-backdrop[data-placement="bottom"] .mobile-sheet {
-  animation: mobile-sheet-rise 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: mobile-sheet-rise 200ms cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
 .mobile-sheet-grip {
@@ -1112,6 +1535,39 @@ html[data-mobile-glass="solid"] :is(
   max-height: calc(100dvh - 32px);
   padding: 10px;
   border-radius: 20px;
+}
+.mobile-sheet-backdrop[data-fold-state="opening"] {
+  animation: mobile-sheet-fade 200ms ease both;
+}
+.mobile-sheet-backdrop[data-fold-state="closing"] {
+  pointer-events: none;
+  animation: mobile-sheet-fade 120ms ease reverse both;
+}
+.mobile-sheet-backdrop[data-placement="anchor"][data-fold-state="opening"] .mobile-sheet {
+  animation: mobile-sheet-drop 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.mobile-sheet-backdrop[data-placement="anchor"][data-fold-state="closing"] .mobile-sheet {
+  animation: mobile-sheet-drop 120ms ease reverse both;
+}
+@keyframes mobile-sheet-drop {
+  from { transform: translateY(-8px); }
+  to { transform: translateY(0); }
+}
+/* Shared floating menus and dialogs match the 200ms mobile sheet motion. */
+.popover-open {
+  animation-duration: 200ms;
+}
+.modal-backdrop {
+  animation-duration: 200ms;
+}
+.modal-panel {
+  animation-duration: 200ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-sheet-backdrop[data-fold-state],
+  .mobile-sheet-backdrop[data-fold-state] .mobile-sheet {
+    animation: none;
+  }
 }
 .mobile-sheet-content {
   overflow-y: auto;
@@ -2208,7 +2664,7 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   padding-bottom: 10px;
   border-bottom: 0.5px solid var(--mobile-separator);
 }
-.mobile-drawer-project,
+.mobile-drawer-project-link,
 .mobile-drawer-new,
 .mobile-drawer-item,
 .mobile-drawer-settings {
@@ -2225,21 +2681,91 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   font-size: 15px;
   text-align: left;
 }
-.mobile-drawer-project:active,
+.mobile-drawer-project-link:active,
+.mobile-drawer-group-toggle:active,
+.mobile-drawer-more:active,
 .mobile-drawer-new:active,
 .mobile-drawer-item:active,
 .mobile-drawer-settings:active {
   background: var(--color-selection);
 }
-/* The project reads as the sidebar's large title. */
-.mobile-drawer-project {
-  min-height: 52px;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.4px;
+/* Projects are tree headers; their conversations fold beneath them. */
+.mobile-drawer-group + .mobile-drawer-group {
+  margin-top: 4px;
 }
-.mobile-drawer-project > span,
-.mobile-drawer-item > span,
+.mobile-drawer-group-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.mobile-drawer-project-link {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 6px 6px;
+  font-weight: 600;
+}
+.mobile-drawer-group-title {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.mobile-drawer-group-title > strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 15px;
+  font-weight: 600;
+}
+.mobile-drawer-group-toggle > svg:last-child {
+  flex-shrink: 0;
+  opacity: 0.45;
+  transform: rotate(-90deg);
+  transition: transform 240ms var(--mobile-drawer-easing);
+}
+.mobile-drawer-group-toggle[aria-expanded="true"] > svg:last-child {
+  transform: none;
+}
+.mobile-drawer-group[data-current] .mobile-drawer-group-title > strong {
+  color: var(--mobile-accent);
+}
+.mobile-drawer-group-toggle {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+/* Conversations sit at the project-name edge, under the mascot slot. */
+.mobile-drawer-group .mobile-session-list {
+  padding-left: 22px;
+}
+.mobile-drawer-group-status {
+  margin: 4px 0 8px 28px;
+}
+button.mobile-drawer-group-status {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+}
+.mobile-drawer-more {
+  align-self: flex-start;
+  min-height: 34px;
+  padding: 6px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--mobile-accent);
+  font-size: 13px;
+}
+.mobile-drawer-item > span:not(.mobile-drawer-project-icon),
 .mobile-drawer-settings > span:first-of-type {
   flex: 1;
   min-width: 0;
@@ -2247,52 +2773,33 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.mobile-drawer-project > svg:last-child {
-  transition: transform 240ms var(--mobile-drawer-easing);
-}
-.mobile-drawer-project[aria-expanded="true"] > svg:last-child {
-  transform: rotate(180deg);
-}
-/* Keep the list mounted so height and opacity can transition in both directions. */
-.mobile-drawer-project-region {
+/* A fixed slot keeps names aligned whatever the mascot's shape. */
+.mobile-drawer-project-icon {
   display: grid;
-  grid-template-rows: 1fr;
-  opacity: 1;
-  visibility: visible;
-  transition:
-    grid-template-rows 240ms var(--mobile-drawer-easing),
-    opacity 160ms ease 40ms,
-    visibility 0s;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
 }
-.mobile-drawer-project-region[data-open="false"] {
-  grid-template-rows: 0fr;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition:
-    grid-template-rows 240ms var(--mobile-drawer-easing),
-    opacity 120ms ease,
-    visibility 0s 240ms;
-}
-.mobile-drawer-project-clip {
-  min-height: 0;
+/* Paths truncate from the start so the distinguishing tail stays visible. */
+.mobile-drawer-path {
+  display: block;
   overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
 }
-.mobile-drawer-projects {
-  display: flex;
-  flex-direction: column;
-  max-height: 40dvh;
-  overflow-y: auto;
-  margin: 4px 0;
-  padding: 4px;
-  border-radius: 20px;
-  background: var(--mobile-fill);
-}
-.mobile-drawer-item[aria-checked="true"] > svg {
-  color: var(--mobile-accent);
-}
-.mobile-drawer-item .mobile-row-text {
-  gap: 2px;
+.mobile-drawer-open-project {
+  margin-top: 8px;
+  min-height: 44px;
+  padding: 6px;
+  color: color-mix(in srgb, var(--color-content) 70%, transparent);
 }
 .mobile-drawer-new {
   margin-top: 4px;
@@ -2300,9 +2807,7 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   font-weight: 600;
 }
 @media (prefers-reduced-motion: reduce) {
-  .mobile-drawer-project > svg:last-child,
-  .mobile-drawer-project-region,
-  .mobile-drawer-project-region[data-open="false"] {
+  .mobile-drawer-group-toggle > svg:last-child {
     transition: none;
   }
 }
@@ -2324,9 +2829,6 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   display: inline-flex;
   align-items: center;
   gap: 4px;
-}
-.mobile-drawer-sessions .mobile-session-list + .mobile-section-label {
-  margin-top: 16px;
 }
 .mobile-session-row[aria-current="page"] {
   background: var(--mobile-selected);
@@ -2364,8 +2866,8 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 }
 
 /* Settings: grouped cards with rows that lead to sub-pages. */
-/* Settings follow the iOS grouped list: borderless inset cards, tinted icon
-   tiles, separators that start at the label, and quiet captions. */
+/* Settings follow the iOS grouped list: borderless inset cards, monochrome
+   icons, separators that start at the label, and quiet captions. */
 .mobile-settings {
   --mobile-settings-inset: 16px;
   --mobile-settings-icon: 30px;
@@ -2389,6 +2891,155 @@ html.theme-light .mobile-settings {
 }
 .mobile-settings-card > * {
   position: relative;
+}
+.mobile-connection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--mobile-card-radius);
+  overflow: hidden;
+}
+.mobile-connection-list > li {
+  background: var(--mobile-card);
+  border-radius: 4px;
+}
+.mobile-connection-row {
+  min-height: 86px;
+  gap: 18px;
+  padding: 16px 20px;
+  font-size: 18px;
+}
+.mobile-connection-row > svg {
+  color: var(--color-content);
+}
+.mobile-connection-row .mobile-settings-label {
+  gap: 2px;
+}
+.mobile-connection-row small {
+  font-size: 14px;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+}
+.mobile-connection-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-connection-device {
+  padding-block: 0;
+}
+.mobile-connection-details {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 1;
+  min-width: 0;
+  gap: 18px;
+  padding: 16px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.mobile-connection-details > svg { flex-shrink: 0; }
+.mobile-connection-details:active { opacity: 0.7; }
+.mobile-connection-details:focus-visible { outline: 2px solid var(--mobile-accent); outline-offset: 3px; }
+.mobile-connection-menu-name {
+  margin: 4px 12px 10px;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-connection-menu .mobile-sheet-row { min-height: 48px; }
+.mobile-connection-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 4px 14px 16px;
+}
+.mobile-connection-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mobile-connection-editor-header h2 { margin: 0; font-size: 22px; font-weight: 600; }
+.mobile-connection-name-field { position: relative; margin-top: 6px; }
+.mobile-connection-name-field > span {
+  position: absolute;
+  top: -10px;
+  left: 12px;
+  padding-inline: 5px;
+  background: var(--mobile-card);
+  font-size: 13px;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+}
+.mobile-connection-name-field input {
+  min-height: 58px;
+  padding: 16px;
+  font-size: 18px;
+}
+.mobile-connection-icons { display: flex; justify-content: space-between; gap: 12px; }
+.mobile-connection-icons button {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-width: 44px;
+  height: 58px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.mobile-connection-icons button[aria-pressed="true"] {
+  background: var(--mobile-card);
+  color: var(--color-content);
+}
+.mobile-connection-info { margin: 0; padding: 0 16px; border: 1px solid var(--mobile-separator); border-radius: 20px; }
+.mobile-connection-info > div { display: flex; justify-content: space-between; gap: 16px; padding-block: 16px; }
+.mobile-connection-info > div + div { border-top: 1px solid var(--mobile-separator); }
+.mobile-connection-info dt { flex-shrink: 0; }
+.mobile-connection-info dd { margin: 0; text-align: end; overflow-wrap: anywhere; min-width: 0; color: color-mix(in srgb, var(--color-content) 60%, transparent); }
+.mobile-connection-editor-action { width: 100%; min-height: 48px; border-radius: 999px; justify-content: center; }
+.mobile-button.mobile-connection-delete { border: 1px solid #d54a4a; color: #d54a4a; background: transparent; }
+.mobile-sheet-backdrop[data-placement="bottom"][data-fold-state="closing"] .mobile-sheet {
+  animation: mobile-sheet-rise 120ms ease reverse both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-sheet-backdrop[data-placement="bottom"][data-fold-state="closing"] .mobile-sheet { animation: none; }
+}
+.mobile-connection-row .mobile-host-status {
+  font: inherit;
+}
+.mobile-connection-row .mobile-host-status-dot {
+  display: none;
+}
+.mobile-connection-row .mobile-host-status-label {
+  max-width: none;
+  white-space: normal;
+  color: inherit;
+}
+.mobile-connection-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 52px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.mobile-connection-toggle input.mobile-switch:checked {
+  background: var(--color-content);
+}
+.mobile-connection-toggle input.mobile-switch:checked::after {
+  background: var(--color-background-base);
 }
 /* Inset separators begin at the label, as in iOS lists. */
 .mobile-settings-card > * + *::after {
@@ -2433,35 +3084,11 @@ button.mobile-settings-row:active {
   flex-shrink: 0;
   width: var(--mobile-settings-icon);
   height: var(--mobile-settings-icon);
-  border-radius: 8px;
-  color: #fff;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--mobile-settings-tone) 78%, #fff),
-    var(--mobile-settings-tone)
-  );
-  box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 0.35);
+  color: var(--color-content);
 }
-.mobile-settings-icon[data-tone="blue"] {
-  --mobile-settings-tone: #0a84ff;
-}
-.mobile-settings-icon[data-tone="gray"] {
-  --mobile-settings-tone: #8e8e93;
-}
-.mobile-settings-icon[data-tone="red"] {
-  --mobile-settings-tone: #ff453a;
-}
-.mobile-settings-icon[data-tone="green"] {
-  --mobile-settings-tone: #30d158;
-}
-.mobile-settings-icon[data-tone="orange"] {
-  --mobile-settings-tone: #ff9f0a;
-}
-.mobile-settings-icon[data-tone="cyan"] {
-  --mobile-settings-tone: #32ade6;
-}
-.mobile-settings-icon[data-tone="purple"] {
-  --mobile-settings-tone: #7d5cf6;
+.mobile-settings-icon > svg {
+  width: 24px;
+  height: 24px;
 }
 /* The current computer leads the page like the iOS account card. */
 .mobile-settings-hero {
@@ -2691,4 +3318,22 @@ button.mobile-settings-row:active {
   white-space: nowrap;
   color: var(--color-content);
   transform: translate(-50%, -50%);
+}
+
+.mobile-home-session {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: pan-y;
+}
+.mobile-home-session[aria-expanded="true"] {
+  background: var(--color-selection);
+}
+.mobile-session-menu-title {
+  margin: 4px 14px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+  font-size: 14px;
 }

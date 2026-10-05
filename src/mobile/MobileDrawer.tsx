@@ -1,3 +1,4 @@
+import { MobileListPreview } from "./MobileListPreview";
 import {
   memo,
   useEffect,
@@ -8,14 +9,19 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
-  Check,
   ChevronDown,
   Folder,
   FolderPlus,
+  Home,
   LoaderCircle,
   MessageSquarePlus,
+  Pin,
   Settings,
 } from "../shared/ui/icons";
+import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
+import { prettyParent, projectKey, projectName } from "../shared/lib/paths";
+import { ProjectMascot } from "../features/projects/ui/ProjectMascot";
+import { resolveTabGroupColor } from "../features/workspace/model/tabGroups";
 import type {
   HostProject,
   HostSessionSummary,
@@ -35,6 +41,32 @@ import {
   drawerIntent,
   settleDrawerOpen,
 } from "./drawerGesture";
+
+// Mobile has no desktop appearance overrides, so projects use the same seeded
+// mascot and colour desktop falls back to.
+function ProjectIcon({ cwd }: { cwd: string }) {
+  const seed = projectName(cwd);
+  return (
+    <span className="mobile-drawer-project-icon">
+      <ProjectMascot
+        project={seed}
+        color={resolveTabGroupColor(
+          projectKey(cwd),
+          undefined,
+          undefined,
+          seed,
+        )}
+        className="size-4"
+      />
+    </span>
+  );
+}
+
+interface ProjectHistory {
+  sessions?: HostSessionSummary[];
+  loading: boolean;
+  failed: boolean;
+}
 
 interface Swipe {
   id: number;
@@ -64,8 +96,11 @@ export const MobileDrawer = memo(function MobileDrawer({
   hostName,
   hostStatus,
   projectTrigger,
-  onProject,
   onAddProject,
+  onHome,
+  onAllProjects,
+  onProject,
+  loadSessions,
   onSession,
   onSessionActions,
   sessionActionsId,
@@ -84,20 +119,32 @@ export const MobileDrawer = memo(function MobileDrawer({
   hostName: string;
   hostStatus: HostConnectionStatus;
   projectTrigger: RefObject<HTMLButtonElement | null>;
-  onProject: (project: HostProject) => void;
   onAddProject: () => void;
-  onSession: (id: string) => void;
+  onHome: () => void;
+  onAllProjects: () => void;
+  onProject: (project: HostProject) => void;
+  /** Reads another project's conversations; the current one arrives as `sessions`. */
+  loadSessions: (projectId: string) => Promise<HostSessionSummary[]>;
+  onSession: (id: string, project: HostProject) => void;
   onSessionActions: (
     id: string,
     trigger: HTMLButtonElement,
     point?: MobileSheetPoint,
   ) => void;
   sessionActionsId?: string;
-  onNewSession: () => void;
+  onNewSession: (project: HostProject) => void;
   onSettings: () => void;
 }) {
   const { language, t } = useTranslation();
-  const [choosingProject, setChoosingProject] = useState(!project);
+  // The current project starts open; others open on demand and stay open
+  // while this drawer lives, like desktop project groups.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(
+    () => new Set(project ? [project.id] : []),
+  );
+  const [histories, setHistories] = useState<
+    Record<string, ProjectHistory | undefined>
+  >({});
+  const historyTurn = useRef<Record<string, number>>({});
   const panel = useRef<HTMLElement>(null);
   const backdrop = useRef<HTMLDivElement>(null);
   const swipe = useRef<Swipe>(undefined);
@@ -181,10 +228,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   const close = () => onOpenChange(false);
 
   useEffect(() => {
-    if (!open) {
-      setChoosingProject(!project);
-      return;
-    }
+    if (!open) return;
     const trigger = document.activeElement as HTMLElement | null;
     panel.current?.focus({ preventScroll: true });
     return () => {
@@ -196,8 +240,57 @@ export const MobileDrawer = memo(function MobileDrawer({
     };
   }, [open]);
   useEffect(() => {
-    if (!project) setChoosingProject(true);
-  }, [project]);
+    if (project)
+      setExpanded((current) =>
+        current.has(project.id) ? current : new Set(current).add(project.id),
+      );
+  }, [project?.id]);
+  const readHistory = (projectId: string) => {
+    const turn = (historyTurn.current[projectId] ?? 0) + 1;
+    historyTurn.current[projectId] = turn;
+    setHistories((current) => ({
+      ...current,
+      [projectId]: { ...current[projectId], loading: true, failed: false },
+    }));
+    loadSessions(projectId).then(
+      (sessions) => {
+        if (historyTurn.current[projectId] === turn)
+          setHistories((current) => ({
+            ...current,
+            [projectId]: { sessions, loading: false, failed: false },
+          }));
+      },
+      () => {
+        if (historyTurn.current[projectId] === turn)
+          setHistories((current) => ({
+            ...current,
+            [projectId]: {
+              ...current[projectId],
+              loading: false,
+              failed: true,
+            },
+          }));
+      },
+    );
+  };
+  // Other open projects refresh each time the drawer opens; the current
+  // project's list is kept fresh by the app's own polling.
+  useEffect(() => {
+    if (!open) return;
+    for (const id of expanded)
+      if (id !== project?.id && projects.some((item) => item.id === id))
+        readHistory(id);
+  }, [open, project?.id]);
+  const toggleProject = (item: HostProject) => {
+    const opening = !expanded.has(item.id);
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (opening) next.add(item.id);
+      else next.delete(item.id);
+      return next;
+    });
+    if (opening && item.id !== project?.id) readHistory(item.id);
+  };
 
   // One gesture pipeline: a pull on the conversation opens the drawer, a push
   // anywhere on screen closes it. The drawer follows the finger
@@ -253,7 +346,10 @@ export const MobileDrawer = memo(function MobileDrawer({
       if (elapsed > 0)
         current.velocity = (event.clientX - current.last.x) / elapsed;
       current.last = { x: event.clientX, t: event.timeStamp };
-      followRef.current(clampDrawer(current.origin + dx, current.width), current.width);
+      followRef.current(
+        clampDrawer(current.origin + dx, current.width),
+        current.width,
+      );
     };
     const end = (event: PointerEvent) => {
       const current = swipe.current;
@@ -304,87 +400,180 @@ export const MobileDrawer = memo(function MobileDrawer({
     };
   }, []);
 
-  const ordered = sortMobileSessions(sessions);
-  const pinned = ordered.filter((item) => item.pinned);
-  const recent = ordered.filter((item) => !item.pinned);
-  const row = (item: HostSessionSummary) => (
-    <button
-      type="button"
-      className="mobile-list-row mobile-session-row"
-      key={item.id}
-      data-session-id={item.id}
-      aria-current={item.id === sessionId ? "page" : undefined}
-      aria-haspopup="dialog"
-      aria-expanded={sessionActionsId === item.id}
-      onPointerDown={(event) => startHold(item.id, event)}
-      onPointerMove={(event) => {
-        const press = hold.current;
-        if (!press || press.pointerId !== event.pointerId) return;
-        if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) {
-          press.moved = true;
-          clearTimeout(press.timer);
-        }
-      }}
-      onPointerUp={(event) => {
-        const press = hold.current;
-        if (!press || press.pointerId !== event.pointerId) return;
-        if (press.moved || press.opened)
-          suppressClick.current = { id: item.id, until: Date.now() + 500 };
-        cancelHold();
-      }}
-      onPointerCancel={() => {
-        suppressClick.current = { id: item.id, until: Date.now() + 500 };
-        cancelHold();
-      }}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        suppressClick.current = { id: item.id, until: Date.now() + 500 };
-        const press = hold.current;
-        const point = press
-          ? { x: press.x, y: press.y }
-          : event.clientX || event.clientY
-            ? { x: event.clientX, y: event.clientY }
-            : undefined;
-        showSessionActions(item.id, event.currentTarget, point);
-      }}
-      onClick={(event) => {
-        if (
-          suppressClick.current.id === item.id &&
-          Date.now() < suppressClick.current.until
-        ) {
-          event.preventDefault();
-          return;
-        }
-        onSession(item.id);
-      }}
-    >
-      <span className="mobile-row-text">
-        <HarnessIcon
-          harness={item.harness}
-          className="size-3.5 shrink-0 self-center"
-        />
-        <strong>
-          {sessionDisplayTitle(item.title, item.harness) ||
-            t("Untitled conversation")}
-        </strong>
-        <small>
-          {item.status === "running" ? (
-            <LoaderCircle size={16} className="mobile-spin" />
-          ) : item.needsInput ? (
-            <span className="mobile-attention-dot" />
-          ) : null}
-          <span>{formatMobileRelativeTime(item.updatedAt, now, language)}</span>
-          {unreadIds.has(item.id) ? (
-            <span
-              className="mobile-unread-dot"
-              role="img"
-              aria-label={t("Unread reply")}
-            />
-          ) : null}
-        </small>
-      </span>
-    </button>
+  // Projects keep the Host's order so tapping one never moves the tree. A
+  // just-opened project can precede the next project list refresh.
+  const tree =
+    project && !projects.some((item) => item.id === project.id)
+      ? [project, ...projects]
+      : projects;
+  const duplicateNames = new Set(
+    tree
+      .map((item) => item.name)
+      .filter((name, index, names) => names.indexOf(name) !== index),
   );
+  const projectHistory = (item: HostProject): ProjectHistory =>
+    item.id === project?.id
+      ? { sessions, loading: loading && !sessions.length, failed: false }
+      : (histories[item.id] ?? { loading: true, failed: false });
+  const row = (item: HostSessionSummary, owner: HostProject) => {
+    // Actions edit through the current project's summary list.
+    const actionable = owner.id === project?.id;
+    return (
+      <button
+        type="button"
+        className="mobile-list-row mobile-session-row"
+        key={item.id}
+        data-session-id={item.id}
+        aria-current={item.id === sessionId ? "page" : undefined}
+        aria-haspopup={actionable ? "dialog" : undefined}
+        aria-expanded={actionable ? sessionActionsId === item.id : undefined}
+        onPointerDown={(event) => {
+          if (actionable) startHold(item.id, event);
+        }}
+        onPointerMove={(event) => {
+          const press = hold.current;
+          if (!press || press.pointerId !== event.pointerId) return;
+          if (
+            Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10
+          ) {
+            press.moved = true;
+            clearTimeout(press.timer);
+          }
+        }}
+        onPointerUp={(event) => {
+          const press = hold.current;
+          if (!press || press.pointerId !== event.pointerId) return;
+          if (press.moved || press.opened)
+            suppressClick.current = { id: item.id, until: Date.now() + 500 };
+          cancelHold();
+        }}
+        onPointerCancel={() => {
+          suppressClick.current = { id: item.id, until: Date.now() + 500 };
+          cancelHold();
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          if (!actionable) return;
+          suppressClick.current = { id: item.id, until: Date.now() + 500 };
+          const press = hold.current;
+          const point = press
+            ? { x: press.x, y: press.y }
+            : event.clientX || event.clientY
+              ? { x: event.clientX, y: event.clientY }
+              : undefined;
+          showSessionActions(item.id, event.currentTarget, point);
+        }}
+        onClick={(event) => {
+          if (
+            suppressClick.current.id === item.id &&
+            Date.now() < suppressClick.current.until
+          ) {
+            event.preventDefault();
+            return;
+          }
+          onSession(item.id, owner);
+        }}
+      >
+        <span className="mobile-row-text">
+          <HarnessIcon
+            harness={item.harness}
+            className="size-3.5 shrink-0 self-center"
+          />
+          <strong>
+            {sessionDisplayTitle(item.title, item.harness) ||
+              t("Untitled conversation")}
+          </strong>
+          <small>
+            {item.status === "running" ? (
+              <LoaderCircle size={16} className="mobile-spin" />
+            ) : item.needsInput ? (
+              <span className="mobile-attention-dot" />
+            ) : item.pinned ? (
+              <Pin size={12} aria-label={t("Pin")} />
+            ) : null}
+            <span>
+              {formatMobileRelativeTime(item.updatedAt, now, language)}
+            </span>
+            {unreadIds.has(item.id) ? (
+              <span
+                className="mobile-unread-dot"
+                role="img"
+                aria-label={t("Unread reply")}
+              />
+            ) : null}
+          </small>
+        </span>
+      </button>
+    );
+  };
+  const group = (item: HostProject) => {
+    const open = expanded.has(item.id);
+    const history = projectHistory(item);
+    const ordered = sortMobileSessions(history.sessions ?? []);
+    return (
+      <section
+        className="mobile-drawer-group"
+        key={item.id}
+        data-current={item.id === project?.id || undefined}
+      >
+        <div className="mobile-drawer-group-head">
+          <button
+            type="button"
+            className="mobile-drawer-project-link"
+            title={item.cwd}
+            onClick={() => onProject(item)}
+          >
+            <ProjectIcon cwd={item.cwd} />
+            <span className="mobile-drawer-group-title">
+              <strong>{item.name}</strong>
+              {duplicateNames.has(item.name) && (
+                <small className="mobile-drawer-path">
+                  <bdi>{prettyParent(item.cwd)}</bdi>
+                </small>
+              )}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="mobile-drawer-group-toggle"
+            aria-expanded={open}
+            aria-label={t("Conversations in {project}", {
+              project: item.name,
+            })}
+            onClick={() => toggleProject(item)}
+          >
+            <ChevronDown size={16} />
+          </button>
+        </div>
+        <AnimatedCollapse expanded={open}>
+          {history.loading && !history.sessions ? (
+            <div className="mobile-loading mobile-drawer-group-status">
+              <LoaderCircle className="mobile-spin" size={16} />
+              {t("Loading conversations…")}
+            </div>
+          ) : history.failed && !history.sessions ? (
+            <button
+              type="button"
+              className="mobile-drawer-empty mobile-drawer-group-status"
+              onClick={() => readHistory(item.id)}
+            >
+              {t("Couldn’t load sessions")} · {t("Retry")}
+            </button>
+          ) : ordered.length ? (
+            <div className="mobile-list mobile-session-list">
+              <MobileListPreview buttonClassName="mobile-drawer-more">
+                {ordered.map((session) => row(session, item))}
+              </MobileListPreview>
+            </div>
+          ) : (
+            <p className="mobile-drawer-empty mobile-drawer-group-status">
+              {t("No conversations yet")}
+            </p>
+          )}
+        </AnimatedCollapse>
+      </section>
+    );
+  };
   return (
     <div
       ref={backdrop}
@@ -409,91 +598,47 @@ export const MobileDrawer = memo(function MobileDrawer({
         <div className="mobile-drawer-top">
           <button
             type="button"
-            className="mobile-drawer-project"
-            aria-expanded={choosingProject}
-            onClick={() => setChoosingProject((open) => !open)}
+            className="mobile-drawer-item"
+            onClick={onHome}
           >
-            <Folder size={18} />
-            <span>{project?.name || t("Choose a project")}</span>
-            <ChevronDown size={16} />
+            <Home size={18} />
+            <span>{t("Home")}</span>
           </button>
-          <div
-            className="mobile-drawer-project-region"
-            data-open={choosingProject}
-            inert={!choosingProject}
-            aria-hidden={!choosingProject}
-          >
-            <div className="mobile-drawer-project-clip">
-              <div className="mobile-drawer-projects" role="radiogroup">
-                {projects.map((item) => (
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={item.id === project?.id}
-                    className="mobile-drawer-item"
-                    key={item.id}
-                    onClick={() => {
-                      setChoosingProject(false);
-                      if (item.id !== project?.id) onProject(item);
-                    }}
-                  >
-                    <span className="mobile-row-text">
-                      <strong>{item.name}</strong>
-                      <small>{item.cwd}</small>
-                    </span>
-                    {item.id === project?.id && <Check size={18} />}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  ref={projectTrigger}
-                  className="mobile-drawer-item"
-                  onClick={onAddProject}
-                >
-                  <FolderPlus size={18} />
-                  <span>{t("Open project")}</span>
-                </button>
-              </div>
-            </div>
-          </div>
           <button
             type="button"
             className="mobile-drawer-new"
             disabled={!project}
-            onClick={onNewSession}
+            onClick={() => project && onNewSession(project)}
           >
             <MessageSquarePlus size={18} />
             <span>{t("New conversation")}</span>
           </button>
         </div>
         <div className="mobile-drawer-sessions">
-          {loading && !sessions.length ? (
-            <div className="mobile-loading">
-              <LoaderCircle className="mobile-spin" size={18} />
-              {t("Loading conversations…")}
-            </div>
-          ) : !project ? null : ordered.length ? (
-            <>
-              {pinned.length > 0 && (
-                <>
-                  <p className="mobile-section-label">{t("Pin")}</p>
-                  <div className="mobile-list mobile-session-list">
-                    {pinned.map(row)}
-                  </div>
-                </>
-              )}
-              {recent.length > 0 && (
-                <>
-                  <p className="mobile-section-label">{t("Recent")}</p>
-                  <div className="mobile-list mobile-session-list">
-                    {recent.map(row)}
-                  </div>
-                </>
-              )}
-            </>
+          <button
+            type="button"
+            className="mobile-drawer-item mobile-drawer-all-projects"
+            onClick={onAllProjects}
+          >
+            <Folder size={18} />
+            <span>{t("All projects")}</span>
+          </button>
+          {tree.length ? (
+            <MobileListPreview buttonClassName="mobile-drawer-more">
+              {tree.map(group)}
+            </MobileListPreview>
           ) : (
-            <p className="mobile-drawer-empty">{t("No conversations yet")}</p>
+            <p className="mobile-drawer-empty">{t("Choose a project")}</p>
           )}
+          <button
+            type="button"
+            ref={projectTrigger}
+            className="mobile-drawer-item mobile-drawer-open-project"
+            onClick={onAddProject}
+          >
+            <FolderPlus size={18} />
+            <span>{t("Open project")}</span>
+          </button>
         </div>
         <button
           type="button"

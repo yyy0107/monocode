@@ -163,6 +163,11 @@ export function parseCommand(input: unknown): HostCommand {
     )
       throw new Error("Invalid turn intent");
     if (
+      v.followUpBehavior !== undefined &&
+      (v.type !== "send" || (v.followUpBehavior !== "queue" && v.followUpBehavior !== "steer"))
+    )
+      throw new Error("Invalid follow-up behavior");
+    if (
       v.planBlockId !== undefined &&
       (v.type !== "send" || v.intent !== "build")
     )
@@ -174,6 +179,9 @@ export function parseCommand(input: unknown): HostCommand {
       text: v.text,
       ...(attachments.length ? { attachments } : {}),
       ...(v.type === "send" && v.refreshTitle === true ? { refreshTitle: true } : {}),
+      ...(v.type === "send" && v.followUpBehavior !== undefined
+        ? { followUpBehavior: v.followUpBehavior as "queue" | "steer" }
+        : {}),
       ...(v.type === "send" && v.intent
         ? { intent: v.intent as "default" | "plan" | "build" }
         : {}),
@@ -614,8 +622,15 @@ export class HostEngine {
           );
           if ((value.session.queuedMessages?.length ?? 0) >= 100)
             throw new Error("Message queue is full");
+          const active = this.running.get(value.session.id);
+          const steer = command.followUpBehavior === "steer" &&
+            value.status === "running" && !!provider.steer && !!active &&
+            !active.finishing && !active.cancelled && !active.failed && !active.persistenceFailed &&
+            !value.queueSteeringId && !value.session.editingQueuedMessageId &&
+            value.session.queueStatus !== "paused";
           value = {
             ...value,
+            ...(steer ? { queueSteeringId: command.commandId } : {}),
             session: {
               ...value.session,
               queuedMessages: [
@@ -630,7 +645,10 @@ export class HostEngine {
               queueStatus: value.session.queueStatus ?? (value.session.usageLimit || this.running.get(value.session.id)?.failed ? "paused" : "active"),
             },
           };
-          effect = (saved) => this.dispatchQueue(saved.session.id);
+          effect = (saved) => {
+            if (steer) this.steerQueued(saved, command.commandId);
+            else this.dispatchQueue(saved.session.id);
+          };
         } else if (command.type === "draft") {
           if (
             value.status === "running" ||

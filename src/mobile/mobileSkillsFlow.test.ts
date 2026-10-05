@@ -115,6 +115,7 @@ afterEach(() => {
 });
 async function render() {
   await act(async () => root.render(createElement(MobileApp)));
+  await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home-session[data-session-id="session"]')!.click());
 }
 async function input(value: string) {
   await act(async () => {

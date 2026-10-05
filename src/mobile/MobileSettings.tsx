@@ -1,49 +1,32 @@
+import { MobileSettingsIcon as SettingsIcon, MobileSettingsGlyph } from "./MobileSettingsIcon";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import {
-  ArrowDownCircle,
   ChevronRight,
-  Computer,
-  Eye,
-  Gauge,
-  Globe,
-  Inbox,
-  Palette,
-  Plus,
   Sparkles,
 } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import type { HostConnectionStatus } from "./client";
 import type { GlassEffect, GlassSettings } from "./glassSettings";
 import { MobileAppUpdates, type useMobileAppUpdates } from "./MobileAppUpdates";
-import { MobileHostStatus } from "./MobileHostStatus";
+import { MobileConnections, type SettingsConnection } from "./MobileConnections";
+import type { ConnectionAppearance } from "./connectionAppearance";
 import { MobileSelect } from "./MobileSelect";
 import type { useMobileActivity } from "./useMobileActivity";
+import type { FollowUpBehavior } from "../features/settings/model/settings";
 
-export type MobileSettingsPage = "root" | "connections" | "updates";
-export type MobilePreferencePanel = "theme" | "language" | "glass" | null;
+export type MobileSettingsPage = "root" | "connections" | "updates" | "glass";
+export type MobilePreferencePanel =
+  "theme" | "language" | "glass" | "follow-up" |
+  "connection-menu" | "connection-edit" | "connection-delete" | null;
 
 export function mobileSettingsTitle(page: MobileSettingsPage) {
   return page === "connections"
     ? "Connections"
     : page === "updates"
       ? "App updates"
-      : "Settings";
-}
-
-/** iOS-style colored tile behind each row's glyph. */
-type IconTone = "blue" | "gray" | "red" | "green" | "orange" | "cyan" | "purple";
-function SettingsIcon({
-  tone,
-  children,
-}: {
-  tone: IconTone;
-  children: ReactNode;
-}) {
-  return (
-    <span className="mobile-settings-icon" data-tone={tone} aria-hidden="true">
-      {children}
-    </span>
-  );
+      : page === "glass"
+        ? "Glass"
+        : "Settings";
 }
 
 function GlassPreview({ label }: { label: string }) {
@@ -124,7 +107,6 @@ function Group({
 export function MobileSettings({
   page,
   onPageChange,
-  connected,
   connection,
   hostStatus,
   busy,
@@ -133,10 +115,16 @@ export function MobileSettings({
   connectionTrigger,
   onAddConnection,
   onDisconnect,
+  onReconnect,
+  onDeleteConnection,
+  connectionAppearance,
+  onSaveConnectionAppearance,
   theme,
   onThemeChange,
   language,
   onLanguageChange,
+  followUpBehavior,
+  onFollowUpBehaviorChange,
   glass,
   onGlassChange,
   preferencePanel,
@@ -146,19 +134,24 @@ export function MobileSettings({
 }: {
   page: MobileSettingsPage;
   onPageChange: (page: MobileSettingsPage) => void;
-  connected: boolean;
-  connection?: { name: string; endpoint: string };
+  connection?: SettingsConnection;
   hostStatus: HostConnectionStatus;
   busy: boolean;
   loading: boolean;
   addingConnection: boolean;
   connectionTrigger: RefObject<HTMLButtonElement | null>;
   onAddConnection: () => void;
-  onDisconnect: () => void;
+  onDisconnect: () => Promise<void>;
+  onReconnect: () => void;
+  onDeleteConnection: () => Promise<void>;
+  connectionAppearance: ConnectionAppearance;
+  onSaveConnectionAppearance: (value: ConnectionAppearance) => void;
   theme: string;
   onThemeChange: (theme: string) => void;
   language: string;
   onLanguageChange: (language: "en" | "zh-CN") => void;
+  followUpBehavior: FollowUpBehavior;
+  onFollowUpBehaviorChange: (behavior: FollowUpBehavior) => void;
   glass: GlassSettings;
   onGlassChange: (glass: GlassSettings) => void;
   preferencePanel: MobilePreferencePanel;
@@ -169,19 +162,36 @@ export function MobileSettings({
   const { t } = useTranslation();
   const addConnection = (
     <button
-      className="mobile-settings-row mobile-settings-action"
+      className="mobile-settings-row mobile-connection-row mobile-connection-add"
       ref={connectionTrigger}
       type="button"
+      aria-label={t("Add connection")}
       aria-haspopup="dialog"
       aria-expanded={addingConnection}
       disabled={busy || loading}
       onClick={onAddConnection}
     >
-      <SettingsIcon tone="green">
-        <Plus size={17} />
-      </SettingsIcon>
-      <span className="mobile-settings-label">{t("Add connection")}</span>
+      <MobileSettingsGlyph name="link" />
+      <span className="mobile-settings-label">
+        <span>{t("Add connection")}</span>
+        <small>{t("Connect using a Host URL and device token.")}</small>
+      </span>
     </button>
+  );
+  const connections = (
+    <MobileConnections
+      connection={connection}
+      appearance={connectionAppearance}
+      hostStatus={hostStatus}
+      disabled={busy || loading}
+      panel={preferencePanel}
+      onPanelChange={onPreferencePanelChange}
+      onSave={onSaveConnectionAppearance}
+      onDisconnect={onDisconnect}
+      onReconnect={onReconnect}
+      onDelete={onDeleteConnection}
+      addConnection={addConnection}
+    />
   );
 
   if (page === "updates")
@@ -194,67 +204,86 @@ export function MobileSettings({
   if (page === "connections")
     return (
       <main className="mobile-content mobile-settings">
-        {connection && (
-          <Group title="Current computer">
-            <div className="mobile-settings-row mobile-current-host">
-              <SettingsIcon tone="blue">
-                <Computer size={17} />
-              </SettingsIcon>
-              <div>
-                <strong className="mobile-current-host-name">
-                  <span>{connection.name}</span>
-                  <MobileHostStatus status={hostStatus} />
-                </strong>
-                <small>{connection.endpoint}</small>
-              </div>
-              <button
-                className="mobile-button"
-                disabled={busy}
-                onClick={onDisconnect}
-              >
-                {t("Disconnect")}
-              </button>
-            </div>
-          </Group>
-        )}
+        {connections}
+      </main>
+    );
+
+  if (page === "glass")
+    return (
+      <main key="glass" className="mobile-content mobile-settings">
         <Group
-          title="Connections"
-          footer={t("Continue your projects and conversations from your phone.")}
+          title="Glass"
+          footer={
+            glass.effect === "liquid"
+              ? t("Edge refraction is available on Android.")
+              : undefined
+          }
         >
-          {addConnection}
+          <GlassPreview
+            label={
+              glass.effect === "liquid"
+                ? t("Liquid glass")
+                : glass.effect === "frosted"
+                  ? t("Frosted glass")
+                  : t("Solid")
+            }
+          />
+          <div className="mobile-settings-row">
+            <SettingsIcon name="glass" />
+            <label
+              className="mobile-settings-label"
+              htmlFor="mobile-glass-effect"
+            >
+              {t("Effect")}
+            </label>
+            <MobileSelect
+              id="mobile-glass-effect"
+              label={t("Effect")}
+              value={glass.effect}
+              open={preferencePanel === "glass"}
+              onOpenChange={(open) =>
+                onPreferencePanelChange(open ? "glass" : null)
+              }
+              onChange={(effect) =>
+                onGlassChange({ ...glass, effect: effect as GlassEffect })
+              }
+              options={[
+                { value: "liquid", label: t("Liquid glass") },
+                { value: "frosted", label: t("Frosted glass") },
+                { value: "solid", label: t("Solid") },
+              ]}
+            />
+          </div>
+          <GlassSlider
+            id="mobile-glass-intensity"
+            icon={
+              <SettingsIcon name="intensity" />
+            }
+            label={t("Intensity")}
+            value={glass.intensity}
+            disabled={glass.effect === "solid"}
+            onChange={(intensity) => onGlassChange({ ...glass, intensity })}
+          />
+          <GlassSlider
+            id="mobile-glass-transparency"
+            icon={
+              <SettingsIcon name="transparency" />
+            }
+            label={t("Transparency")}
+            value={glass.transparency}
+            disabled={glass.effect === "solid"}
+            onChange={(transparency) => onGlassChange({ ...glass, transparency })}
+          />
         </Group>
       </main>
     );
 
   return (
     <main className="mobile-content mobile-settings">
-      <Group title="Connection">
-        {connection ? (
-          <button
-            type="button"
-            className="mobile-settings-row mobile-settings-hero"
-            onClick={() => onPageChange("connections")}
-          >
-            <SettingsIcon tone="blue">
-              <Computer size={26} />
-            </SettingsIcon>
-            <span className="mobile-settings-label">
-              <strong className="mobile-current-host-name">
-                <span>{connection.name}</span>
-                <MobileHostStatus status={hostStatus} />
-              </strong>
-              <small>{connection.endpoint}</small>
-            </span>
-            <ChevronRight size={18} />
-          </button>
-        ) : null}
-        {!connected && addConnection}
-      </Group>
+      {connections}
       <Group title="General">
         <div className="mobile-settings-row">
-          <SettingsIcon tone="blue">
-            <Palette size={17} />
-          </SettingsIcon>
+          <SettingsIcon name="appearance" />
           <label className="mobile-settings-label" htmlFor="mobile-theme">
             {t("Appearance")}
           </label>
@@ -263,7 +292,9 @@ export function MobileSettings({
             label={t("Appearance")}
             value={theme}
             open={preferencePanel === "theme"}
-            onOpenChange={(open) => onPreferencePanelChange(open ? "theme" : null)}
+            onOpenChange={(open) =>
+              onPreferencePanelChange(open ? "theme" : null)
+            }
             onChange={onThemeChange}
             options={[
               { value: "dark", label: t("Dark") },
@@ -273,9 +304,7 @@ export function MobileSettings({
           />
         </div>
         <div className="mobile-settings-row">
-          <SettingsIcon tone="gray">
-            <Globe size={17} />
-          </SettingsIcon>
+          <SettingsIcon name="language" />
           <label className="mobile-settings-label" htmlFor="mobile-language">
             {t("Language")}
           </label>
@@ -295,9 +324,7 @@ export function MobileSettings({
           />
         </div>
         <div className="mobile-settings-row mobile-settings-notifications">
-          <SettingsIcon tone="red">
-            <Inbox size={17} />
-          </SettingsIcon>
+          <SettingsIcon name="notifications" />
           <label className="mobile-settings-label">
             <span>{t("System notifications")}</span>
             <small>
@@ -323,10 +350,13 @@ export function MobileSettings({
         </div>
         {activity.canOpenSettings ? (
           <p className="mobile-settings-note">
-            {t("A Remote notification keeps your Host connection active after you leave the app. Disconnect to stop it.")}
+            {t(
+              "A Remote notification keeps your Host connection active after you leave the app. Disconnect to stop it.",
+            )}
           </p>
         ) : null}
-        {(activity.enabled || activity.canOpenSettings) && activity.permission === "prompt" ? (
+        {(activity.enabled || activity.canOpenSettings) &&
+        activity.permission === "prompt" ? (
           <div className="mobile-settings-row">
             <button
               className="mobile-button"
@@ -335,7 +365,8 @@ export function MobileSettings({
               {t("Allow notifications")}
             </button>
           </div>
-        ) : (activity.enabled || activity.canOpenSettings) && activity.permission === "denied" ? (
+        ) : (activity.enabled || activity.canOpenSettings) &&
+          activity.permission === "denied" ? (
           <div className="mobile-settings-row mobile-settings-note">
             <span className="mobile-muted">
               {t("Notifications are blocked in system settings.")}
@@ -368,80 +399,52 @@ export function MobileSettings({
           </p>
         ) : null}
       </Group>
-      <Group
-        title="Glass"
-        footer={
-          glass.effect === "liquid"
-            ? t("Edge refraction is available on Android.")
-            : undefined
-        }
-      >
-        <GlassPreview
-          label={
-            glass.effect === "liquid"
-              ? t("Liquid glass")
-              : glass.effect === "frosted"
-                ? t("Frosted glass")
-                : t("Solid")
-          }
-        />
+      <Group title="Message composer">
         <div className="mobile-settings-row">
-          <SettingsIcon tone="purple">
-            <Sparkles size={17} />
-          </SettingsIcon>
-          <label className="mobile-settings-label" htmlFor="mobile-glass-effect">
-            {t("Effect")}
+          <SettingsIcon name="followUp" />
+          <label className="mobile-settings-label" htmlFor="mobile-follow-up">
+            {t("Follow-up behavior")}
           </label>
           <MobileSelect
-            id="mobile-glass-effect"
-            label={t("Effect")}
-            value={glass.effect}
-            open={preferencePanel === "glass"}
-            onOpenChange={(open) => onPreferencePanelChange(open ? "glass" : null)}
-            onChange={(effect) =>
-              onGlassChange({ ...glass, effect: effect as GlassEffect })
+            id="mobile-follow-up"
+            label={t("Follow-up behavior")}
+            value={followUpBehavior}
+            open={preferencePanel === "follow-up"}
+            onOpenChange={(open) =>
+              onPreferencePanelChange(open ? "follow-up" : null)
             }
+            onChange={onFollowUpBehaviorChange}
             options={[
-              { value: "liquid", label: t("Liquid glass") },
-              { value: "frosted", label: t("Frosted glass") },
-              { value: "solid", label: t("Solid") },
+              { value: "queue", label: t("Queue") },
+              { value: "steer", label: t("Steer") },
             ]}
           />
         </div>
-        <GlassSlider
-          id="mobile-glass-intensity"
-          icon={
-            <SettingsIcon tone="orange">
-              <Gauge size={17} />
-            </SettingsIcon>
-          }
-          label={t("Intensity")}
-          value={glass.intensity}
-          disabled={glass.effect === "solid"}
-          onChange={(intensity) => onGlassChange({ ...glass, intensity })}
-        />
-        <GlassSlider
-          id="mobile-glass-transparency"
-          icon={
-            <SettingsIcon tone="cyan">
-              <Eye size={17} />
-            </SettingsIcon>
-          }
-          label={t("Transparency")}
-          value={glass.transparency}
-          disabled={glass.effect === "solid"}
-          onChange={(transparency) => onGlassChange({ ...glass, transparency })}
-        />
       </Group>
+      <section className="mobile-settings-group" aria-label={t("Glass")}>
+        <div className="mobile-settings-card">
+          <button
+            type="button"
+            className="mobile-settings-row"
+            aria-label={t("Glass")}
+            onClick={() => onPageChange("glass")}
+          >
+            <SettingsIcon name="glass" />
+            <span className="mobile-settings-label">{t("Glass")}</span>
+            <span className="mobile-settings-value">
+              {t(glass.effect === "liquid" ? "Liquid glass" : glass.effect === "frosted" ? "Frosted glass" : "Solid")}
+            </span>
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      </section>
       <Group title="About">
         <button
           type="button"
           className="mobile-settings-row"
           onClick={() => onPageChange("updates")}
         >
-          <SettingsIcon tone="gray">
-            <ArrowDownCircle size={17} />
-          </SettingsIcon>
+          <SettingsIcon name="updates" />
           <span className="mobile-settings-label">{t("App updates")}</span>
           <span className="mobile-settings-value">
             {appUpdates.available ? (

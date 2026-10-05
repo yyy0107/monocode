@@ -39,6 +39,8 @@ export type Connection = {
   token: string;
   environmentId: string;
   name: string;
+  /** Explicitly switched off on this device; retain credentials for reconnect. */
+  disabled?: boolean;
 };
 export type PendingCommand = {
   endpoint: string;
@@ -224,6 +226,10 @@ export class MobileClient {
     if (!saved) return false;
     const connection = JSON.parse(saved) as Connection;
     this.connection = connection;
+    if (connection.disabled) {
+      this.setConnectionStatus({ state: "disconnected" });
+      return false;
+    }
     this.setConnectionStatus({ state: "reconnecting" });
     await this.verify();
     return true;
@@ -268,6 +274,7 @@ export class MobileClient {
   }
   async verify(): Promise<void> {
     if (!this.connection) throw new Error("Connect to a Host first.");
+    if (this.connection.disabled) return;
     const connection = this.connection;
     const epoch = ++this.verificationEpoch;
     let changedIdentity = false;
@@ -303,8 +310,26 @@ export class MobileClient {
   }
   async reconnect(): Promise<void> {
     if (!this.connection) throw new Error("Connect to a Host first.");
+    if (this.connection.disabled) {
+      const connection = this.connection;
+      const enabled = { ...connection, disabled: false };
+      await this.storage.set("connection", JSON.stringify(enabled));
+      if (this.connection !== connection) return;
+      this.connection = enabled;
+    }
     this.setConnectionStatus({ state: "reconnecting" });
     await this.verify();
+  }
+  async suspend(): Promise<void> {
+    if (!this.connection) return;
+    const connection = this.connection;
+    const disabled = { ...connection, disabled: true };
+    await this.storage.set("connection", JSON.stringify(disabled));
+    if (this.connection !== connection) return;
+    this.verificationEpoch += 1;
+    this.connection = disabled;
+    this.setConnectionStatus({ state: "disconnected" });
+    this.clearCaches();
   }
   async disconnect(): Promise<void> {
     await this.storage.remove("connection");
@@ -349,7 +374,7 @@ export class MobileClient {
     }
   }
   rpc<T>(method: string, params: object = {}): Promise<T> {
-    if (!this.connection)
+    if (!this.connection || this.connection.disabled)
       return Promise.reject(new Error("Connect to a Host first."));
     return this.requestWith<T>(this.connection, method, params);
   }

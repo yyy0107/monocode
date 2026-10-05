@@ -43,35 +43,34 @@ export function MobileSelect<T extends string>({
         </span>
         <ChevronDown size={14} />
       </button>
-      {open && (
-        <MobileSheet
-          title={label}
-          placement="anchor"
-          anchor={trigger}
-          width={SHEET_WIDTH.menu}
-          align="end"
-          onClose={() => onOpenChange(false)}
-        >
-          <div role="radiogroup" aria-label={label}>
-            {options.map((option) => (
-              <button
-                type="button"
-                className="mobile-sheet-row"
-                role="radio"
-                key={option.value}
-                aria-checked={value === option.value}
-                onClick={() => {
-                  onOpenChange(false);
-                  onChange(option.value);
-                }}
-              >
-                <span>{option.label}</span>
-                {value === option.value && <Check size={20} />}
-              </button>
-            ))}
-          </div>
-        </MobileSheet>
-      )}
+      <MobileSheet
+        open={open}
+        title={label}
+        placement="anchor"
+        anchor={trigger}
+        width={SHEET_WIDTH.menu}
+        align="end"
+        onClose={() => onOpenChange(false)}
+      >
+        <div role="radiogroup" aria-label={label}>
+          {options.map((option) => (
+            <button
+              type="button"
+              className="mobile-sheet-row"
+              role="radio"
+              key={option.value}
+              aria-checked={value === option.value}
+              onClick={() => {
+                onOpenChange(false);
+                onChange(option.value);
+              }}
+            >
+              <span>{option.label}</span>
+              {value === option.value && <Check size={20} />}
+            </button>
+          ))}
+        </div>
+      </MobileSheet>
     </>
   );
 }

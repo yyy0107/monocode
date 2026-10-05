@@ -8,7 +8,7 @@
  */
 
 export const LIQUID_GLASS_SELECTOR = [
-  '.mobile-header[data-floating="true"] > *',
+  '.mobile-header[data-floating="true"] > :not([data-capsule="false"])',
   ".mobile-composer",
   ".mobile-jump",
   ".mobile-queue-pill",

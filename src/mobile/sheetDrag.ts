@@ -6,7 +6,9 @@ const DISMISS_SHARE = 0.28;
 const DISMISS_VELOCITY = 0.55;
 /** Movement before a press counts as a drag rather than a tap or scroll. */
 const SLOP_PX = 6;
-const SETTLE = "transform 240ms cubic-bezier(0.22, 1, 0.36, 1)";
+/** Keep in sync with mobile-sheet animations in mobile.css. */
+export const SHEET_MOTION_MS = 200;
+export const SHEET_CLOSE_MS = 120;
 
 /** Whether a release at `distance` px moving at `velocity` px/ms should close. */
 export function shouldDismiss(
@@ -41,6 +43,7 @@ export function useSheetDrag(
     let tracking = false;
     let dragging = false;
     let closing = false;
+    let closeTimer: number | undefined;
 
     const place = (offset: number) => {
       element.style.transform = offset > 0 ? `translateY(${offset}px)` : "";
@@ -94,13 +97,25 @@ export function useSheetDrag(
       if (!dragging) return;
       dragging = false;
       const height = element.offsetHeight;
-      element.style.transition = SETTLE;
-      if (backdrop) backdrop.style.transition = "opacity 240ms ease";
-      if (shouldDismiss(lastY - startY, velocity, height)) {
+      const reducedMotion = window.matchMedia?.(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      const dismiss = shouldDismiss(lastY - startY, velocity, height);
+      const duration = dismiss ? SHEET_CLOSE_MS : SHEET_MOTION_MS;
+      element.style.transition = reducedMotion
+        ? "none"
+        : `transform ${duration}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+      if (backdrop)
+        backdrop.style.transition = reducedMotion
+          ? "none"
+          : `opacity ${duration}ms ease`;
+      if (dismiss) {
         closing = true;
         element.style.transform = `translateY(${height + 24}px)`;
         if (backdrop) backdrop.style.opacity = "0";
-        window.setTimeout(() => close.current(), 200);
+        if (reducedMotion) close.current();
+        else
+          closeTimer = window.setTimeout(() => close.current(), SHEET_CLOSE_MS);
       } else {
         place(0);
       }
@@ -138,6 +153,7 @@ export function useSheetDrag(
     element.addEventListener("pointerup", pointerUp);
     element.addEventListener("pointercancel", pointerUp);
     return () => {
+      if (closeTimer !== undefined) window.clearTimeout(closeTimer);
       element.removeEventListener("touchstart", touchStart);
       element.removeEventListener("touchmove", touchMove);
       element.removeEventListener("touchend", end);

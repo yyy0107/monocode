@@ -11,7 +11,7 @@ import {
 } from "./SurfaceVisibility";
 
 /** Shared lifetime for disclosures and grid-sized panels. */
-export function useCollapseMotion(expanded: boolean) {
+export function useCollapseMotion(expanded: boolean, durationMs = 340) {
   const [foldState, setFoldState] = useState<
     "open" | "opening" | "closing" | "closed"
   >(expanded ? "open" : "closed");
@@ -32,13 +32,13 @@ export function useCollapseMotion(expanded: boolean) {
 
   useEffect(() => {
     if (foldState !== "opening" && foldState !== "closing") return;
-    // CSS runs for 340ms. Hidden windows may never fire animationend.
+    // Allow animationend a short grace period; hidden windows may never fire it.
     const timer = window.setTimeout(
       () => setFoldState(expanded ? "open" : "closed"),
-      350,
+      durationMs + 10,
     );
     return () => window.clearTimeout(timer);
-  }, [foldState, expanded]);
+  }, [foldState, expanded, durationMs]);
 
   const finish = useCallback(
     () => setFoldState(expanded ? "open" : "closed"),
