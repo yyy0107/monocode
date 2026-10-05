@@ -127,7 +127,7 @@ export function ActivityBar({
     <nav
       aria-label={t("Activity bar")}
       data-activity-bar
-      className="sidebar-glass flex h-full w-12 shrink-0 flex-col items-center border-r border-stroke pb-1.5"
+      className="shell-chrome sidebar-glass flex h-full w-12 shrink-0 flex-col items-center border-r border-stroke pb-1.5"
     >
       {!chromeInMenuBar ? (
         <div className="h-10 w-full shrink-0" data-tauri-drag-region="deep" />

@@ -190,7 +190,7 @@ export function MenuBar({
         closeMenu();
         setRevealed(false);
       }}
-      className={`flex shrink-0 select-none items-center gap-0.5 border-b border-stroke text-[12px] ${
+      className={`shell-chrome flex shrink-0 select-none items-center gap-0.5 border-b border-stroke text-[12px] ${
         visible ? "relative pl-2" : "sidebar-glass absolute z-30 px-2"
       }`}
       style={{

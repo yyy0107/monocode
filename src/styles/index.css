@@ -341,6 +341,11 @@ html.theme-light .sidebar-glass {
   background: var(--color-background-base);
 }
 
+/* Only the activity, menu and status bars opt into this surface. */
+html.theme-light .shell-chrome {
+  background: hsl(var(--theme-hue) var(--theme-saturation) 92%);
+}
+
 html.has-native-glass:not(.theme-light) .sidebar-glass {
   background: hsl(
     var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
