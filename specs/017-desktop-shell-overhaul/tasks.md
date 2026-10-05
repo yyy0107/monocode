@@ -148,3 +148,41 @@ checking. Versions: Node `v24.16.0`, npm `12.0.1`, Vitest `3.2.7`, TypeScript
 `5.8.3`. No Rust changes in this commit; Rust checks and browser/native animation
 visual QA were not run. The complete working tree still contains unrelated
 in-progress changes; these results apply to the staged implementation only.
+
+## Native window resize edges — validation (2026-10-05)
+
+- [x] Add transparent Linux/Windows outer-window targets: 10 CSS px edge strips,
+  16px corner squares and eight native resize directions. Mount through the
+  workspace bootstrap, including the boot failure surface, and grant the
+  existing Tauri start-resize-dragging command permission.
+- [x] Disable targets for maximized/fullscreen/fixed-size windows and macOS or
+  browser environments; handle stale state reads and late listener cleanup.
+- [x] Run focused behavioral regressions, browser geometry/dispatch checks and
+  the required web/Host/build checks.
+- [ ] Real native desktop QA: Linux/Windows edge and corner drags, minimum-size
+  constraints, maximize/restore, fullscreen, snapping and additional windows.
+
+Evidence: the 15 focused WindowResizeHandles tests passed. Final
+`LANG=en_US.UTF-8 npm run check:web` passed: 481 files / 5061 tests,
+2 files / 13 tests skipped, including TypeScript checking.
+`LANG=en_US.UTF-8 npm run test:host` passed: 34 files / 249 tests,
+1 file / 5 tests skipped, including Host build/type checking. `npm run build`
+passed with the existing CSS ::highlight optimizer, mixed static/dynamic import
+and bundle-size advisories. These results cover the current working tree with
+its unrelated pre-existing work; they do not establish native compatibility.
+
+A temporary real-component browser fixture with stubbed native IPC measured
+10px edges and 16x16px corners. All eight targets were hit at their centers and
+inner points, displayed the appropriate cursor and dispatched the corresponding
+native direction. Menu and all three window-button centers remained clickable.
+Maximized/fullscreen/fixed-size states removed all targets; restore brought back
+eight. The fixture and browser tab were removed; the existing dev server was
+retained. No actual native window drag, OS snapping or platform QA was performed.
+Internal sidebar/dock changes from the initial interpretation were fully reverted.
+
+Versions read from the installed tools: Node v24.16.0, npm 12.0.1,
+Vitest 3.2.7, TypeScript 5.8.3, Vite 7.3.6 and tauri-cli 2.11.4.
+No Rust source changes belong to this request; check:rust was not run.
+The added native capability requires restarting the desktop development process
+or rebuilding the desktop binary before it can be exercised. `git diff --check`
+passed.

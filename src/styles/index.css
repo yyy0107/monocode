@@ -1402,6 +1402,93 @@ html.theme-light .explorer-file-drag-preview {
   opacity: 1 !important;
 }
 
+/* Transparent native-window resize targets, independent of workspace panels. */
+[data-window-resize-handles] {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  --window-resize-edge: 10px;
+  --window-resize-corner: 16px;
+}
+
+[data-window-resize-direction] {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+}
+
+[data-window-resize-direction="North"],
+[data-window-resize-direction="South"] {
+  left: var(--window-resize-corner);
+  right: var(--window-resize-corner);
+  height: var(--window-resize-edge);
+  cursor: ns-resize;
+}
+
+[data-window-resize-direction="North"] {
+  top: 0;
+}
+
+[data-window-resize-direction="South"] {
+  bottom: 0;
+}
+
+[data-window-resize-direction="East"],
+[data-window-resize-direction="West"] {
+  top: var(--window-resize-corner);
+  bottom: var(--window-resize-corner);
+  width: var(--window-resize-edge);
+  cursor: ew-resize;
+}
+
+[data-window-resize-direction="East"] {
+  right: 0;
+}
+
+[data-window-resize-direction="West"] {
+  left: 0;
+}
+
+[data-window-resize-direction="NorthWest"],
+[data-window-resize-direction="NorthEast"],
+[data-window-resize-direction="SouthWest"],
+[data-window-resize-direction="SouthEast"] {
+  width: var(--window-resize-corner);
+  height: var(--window-resize-corner);
+}
+
+[data-window-resize-direction="NorthWest"],
+[data-window-resize-direction="NorthEast"] {
+  top: 0;
+}
+
+[data-window-resize-direction="SouthWest"],
+[data-window-resize-direction="SouthEast"] {
+  bottom: 0;
+}
+
+[data-window-resize-direction="NorthWest"],
+[data-window-resize-direction="SouthWest"] {
+  left: 0;
+}
+
+[data-window-resize-direction="NorthEast"],
+[data-window-resize-direction="SouthEast"] {
+  right: 0;
+}
+
+[data-window-resize-direction="NorthWest"],
+[data-window-resize-direction="SouthEast"] {
+  cursor: nwse-resize;
+}
+
+[data-window-resize-direction="NorthEast"],
+[data-window-resize-direction="SouthWest"] {
+  cursor: nesw-resize;
+}
+
 html.is-resizing,
 html.is-resizing * {
   cursor: col-resize !important;

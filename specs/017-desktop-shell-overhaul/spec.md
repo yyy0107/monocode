@@ -64,3 +64,20 @@ Hidden docks retain their terminal instances and running PTYs, suppress focus an
 menus, and restore the committed size when reopened. Direct resizing is immediate;
 closing during a drag commits its pending size and releases pointer capture.
 Reduced-motion preferences skip the animation.
+
+## Native window resize edges follow-up (2026-10-05)
+
+The outer edge of the whole desktop window is too difficult to grab for resizing.
+Linux and Windows workspace windows provide transparent resize hit areas extending
+10 CSS pixels inward from each edge, with 16px corner areas for diagonal resizing.
+All eight directions show the matching resize cursor and start the existing native
+window resize operation. Native size constraints and window-manager behavior stay
+under Tauri/OS control; the application does not calculate or set window sizes.
+
+The handles are mounted for every workspace window, including transferred and
+detached workspaces. They are inactive when maximized, fullscreen or non-resizable,
+and are absent on macOS and browser/Host clients. Changes to native window state
+update availability; unmounting releases listeners and ignores stale asynchronous
+results. Internal sidebar and terminal dock resizing retain their existing behavior.
+Acceptance requires directional/native-state regressions and an explicit record of
+which real desktop/platform resize scenarios were exercised.

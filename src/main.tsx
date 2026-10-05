@@ -24,6 +24,7 @@ import "./styles/index.css";
 import { initUiLanguage } from "./shared/i18n/languageSync";
 import { initializeSharedHost } from "./features/connections/model/sharedHost";
 import { useTranslation } from "./shared/i18n/useTranslation";
+import { WindowResizeHandles } from "./app/shell/WindowResizeHandles";
 
 performance.mark("monocode:bootstrap");
 // Let local boot IPC overlap loading/evaluating the workspace UI.
@@ -69,7 +70,12 @@ function BootGate({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     dismissBootSplash();
   }, []);
-  return children;
+  return (
+    <>
+      {children}
+      <WindowResizeHandles />
+    </>
+  );
 }
 
 void listen<number>("quit_poll", (event) => {
@@ -138,7 +144,11 @@ async function boot() {
       </React.StrictMode>,
     );
   } catch (error) {
-    root.render(<BootFailure error={error} />);
+    root.render(
+      <BootGate>
+        <BootFailure error={error} />
+      </BootGate>,
+    );
   }
 }
 void boot();

@@ -51,3 +51,22 @@ stable while closed; allow zero-sized layout tracks without changing saved dock
 sizes. Retain mounted terminal views, make closing surfaces inert and hide their
 portals. Disable transitions for drag painting, restore them on commit, finish
 an active drag before hiding, and settle reduced motion immediately.
+
+## Native window resize edges follow-up (2026-10-05)
+
+- Mount shared transparent window resize handles at the workspace bootstrap so
+  each primary, transferred or detached workspace window receives them. Limit
+  activation to native Linux/Windows windows; browser/Host and macOS paths remain
+  inactive. Use fixed 10 CSS pixel edge strips and 16px corner squares, with the
+  corners taking precedence and matching cursors for all eight directions.
+- Delegate a primary pointer press to Tauri `startResizeDragging(direction)`.
+  Keep native min/max sizes and window-manager constraints/snap behavior; do not
+  introduce manual size calculation or change internal sidebar/dock resizers.
+- Query maximized, fullscreen and resizable state before enabling the handles,
+  refresh after native window changes, and hide/disable them when any state
+  disallows resizing. Release listeners on unmount, including late registrations,
+  and discard obsolete asynchronous state responses.
+- Verify direction dispatch, hit-area geometry, platform/state gating and listener
+  cleanup with focused regressions, then run web/Host/build checks. Record native
+  Linux/Windows edge, corner, maximize/restore and fullscreen checks separately;
+  source inspection and mocked APIs do not establish native platform compatibility.
