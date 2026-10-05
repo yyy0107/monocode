@@ -228,10 +228,13 @@ describe("mobile client synchronization", () => {
       }),
     );
     await client.connect(endpoint, token);
-    expect(
-      (await client.session("session")).session.blocks[0].attachments![0].data,
-    ).toBe("QUJD");
     await client.session("session");
+    expect(imageRequests).toBe(0);
+    expect(
+      (await client.sessionPreviews("session"))!.session.blocks[0].attachments![0].data,
+    ).toBe("QUJD");
+    expect((await client.session("session")).session.blocks[0].attachments![0].data).toBe("QUJD");
+    await client.sessionPreviews("session");
     expect(imageRequests).toBe(1);
   });
   it("reads image bytes through the Host workspace protocol", async () => {

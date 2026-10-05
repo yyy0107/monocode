@@ -42,6 +42,9 @@ vi.mock("./client", () => ({
       sessions: mocked.summaries,
     });
     session = mocked.session;
+    cachedModels = () => undefined;
+    cachedSession = () => undefined;
+    sessionPreviews = async () => undefined;
     updateSession = mocked.updateSession;
   },
 }));
@@ -305,7 +308,7 @@ describe("mobile unread indicators and notification navigation", () => {
     await act(async () => {
       root.render(createElement(MobileApp));
     });
-    expect(mocked.session).not.toHaveBeenCalled();
+    expect(mocked.session).toHaveBeenCalledWith("deleted");
     expect(node.querySelector("header strong")?.textContent).toBe(
       "New conversation",
     );

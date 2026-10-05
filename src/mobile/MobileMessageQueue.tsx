@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { memo, useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   MessageQueue,
   type MessageQueueView,
@@ -24,7 +24,9 @@ type Props = Omit<ComponentProps<typeof MessageQueue>, "renderQueue"> & {
   canReorder?: boolean;
 };
 
-export function MobileMessageQueue({
+// Memoized: the composer re-renders on every keystroke while queued pills
+// only change with the session.
+export const MobileMessageQueue = memo(function MobileMessageQueue({
   onOverlayChange,
   onRestore,
   onReorder,
@@ -45,7 +47,7 @@ export function MobileMessageQueue({
       )}
     />
   );
-}
+});
 
 function MobileQueueView({
   view,
@@ -164,10 +166,13 @@ function MobileQueueView({
         <div
           className="mobile-queue-pill mobile-queue-drag-preview"
           aria-hidden="true"
+          // The pill follows the finger on the compositor: moving `top` would
+          // re-lay out and re-blur the glass on every frame.
           style={{
             left: sorting.drag.left,
-            top: sorting.drag.top,
+            top: 0,
             width: sorting.drag.width,
+            transform: `translateY(${sorting.drag.top}px) scale(1.03)`,
           }}
         >
           <ListEnd size={17} />

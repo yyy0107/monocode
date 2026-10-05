@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AgentTranscript } from "../features/sessions/ui/AgentTranscript";
 import { QuestionForm } from "../features/sessions/ui/QuestionForm";
 import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
 import { ArrowDownCircle } from "../shared/ui/icons";
 import type { Block } from "../features/sessions/model/session";
+import type { ApprovalDecision } from "../integrations/harness";
 import type { EditorNavigation } from "../features/search/model/search";
 import type {
   HostSession,
@@ -21,8 +22,10 @@ type Detail =
   | { kind: "tool"; block: Block }
   | { kind: "file"; path: string; line?: number; from?: Block };
 
-/** Host snapshots feed the same message renderer used by desktop sessions. */
-export function MobileTranscript({
+/** Host snapshots feed the same message renderer used by desktop sessions.
+ * Memoized: typing in the composer re-renders the app, and the transcript
+ * only needs to follow its snapshot. */
+export const MobileTranscript = memo(function MobileTranscript({
   snapshot,
   disabled,
   onCommand,
@@ -66,7 +69,29 @@ export function MobileTranscript({
   );
   const [jump, setJump] = useState<(() => void) | undefined>();
   const [showJump, setShowJump] = useState(false);
+  const onJumpReady = useCallback(
+    (callback: () => void) => setJump(() => callback),
+    [],
+  );
   const { session, runId } = snapshot;
+  const sessionId = session.id;
+  // Memoized transcript blocks compare this callback; a fresh one on every
+  // poll would re-render each block while a reply streams.
+  const onApproval = useMemo(
+    () =>
+      !disabled && runId
+        ? (requestId: number, decision: ApprovalDecision) =>
+            onCommand({
+              type: "approve",
+              commandId: crypto.randomUUID(),
+              sessionId,
+              runId,
+              requestId,
+              decision,
+            })
+        : undefined,
+    [disabled, runId, sessionId, onCommand],
+  );
   return (
     <TranscriptPlatformContext.Provider value={platform}>
       <div
@@ -90,20 +115,8 @@ export function MobileTranscript({
           onOpenFile={readBinaryFile ? openFile : undefined}
           onOpenDiff={readBinaryFile ? openFile : undefined}
           onJumpToBottomChange={setShowJump}
-          onJumpToBottomReady={(callback) => setJump(() => callback)}
-          onApproval={
-            !disabled && runId
-              ? (requestId, decision) =>
-                  onCommand({
-                    type: "approve",
-                    commandId: crypto.randomUUID(),
-                    sessionId: session.id,
-                    runId,
-                    requestId,
-                    decision,
-                  })
-              : undefined
-          }
+          onJumpToBottomReady={onJumpReady}
+          onApproval={onApproval}
         />
         {showJump && (
           <button
@@ -187,4 +200,4 @@ export function MobileTranscript({
         )}
     </TranscriptPlatformContext.Provider>
   );
-}
+});

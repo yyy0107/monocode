@@ -2093,5 +2093,8 @@
   "Could not display this image.": "无法显示此图片。",
   "Binary file ({size}) cannot be previewed.": "二进制文件（{size}）无法预览。",
   "File is too large to preview ({size}).": "文件过大，无法预览（{size}）。",
-  "Show {count} more lines": "再显示 {count} 行"
+  "Show {count} more lines": "再显示 {count} 行",
+  "Host connection changed.": "Host 连接已变更。",
+  "Conversation request is no longer current.": "对话加载请求已失效。",
+  "Host returned a different conversation.": "Host 返回了另一段对话。"
 }

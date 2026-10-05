@@ -5,6 +5,7 @@ import { MobileMessageQueue } from "./MobileMessageQueue";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -74,6 +75,7 @@ import { setUiLanguage, translate } from "../shared/i18n/language";
 import { readMobileAttachments } from "./attachments";
 import { takeBackQueuedMessage } from "./queuedDraft";
 import { mobileStorage } from "./storage";
+import { useStableCallback } from "./useStableCallback";
 import {
   applyGlassSettings,
   readGlassSettings,
@@ -163,6 +165,7 @@ export function MobileApp() {
   const [sessions, setSessions] = useState<HostSessionSummary[]>([]);
   const [sessionId, setSessionId] = useState<string>();
   const [snapshot, setSnapshot] = useState<HostSession>();
+  const [sessionConfirmed, setSessionConfirmed] = useState(false);
   const [animateFrom, setAnimateFrom] = useState<string>();
   const [catalog, setCatalog] = useState<HostModelCatalog>();
   const [configuration, setConfiguration] = useState<MobileConfiguration>({
@@ -193,6 +196,7 @@ export function MobileApp() {
     useState<MobilePreferencePanel>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
   const [pollError, setPollError] = useState("");
   const [pending, setPending] = useState<PendingCommand>();
@@ -204,6 +208,8 @@ export function MobileApp() {
   );
   const [glass, setGlass] = useState<GlassSettings>(readGlassSettings);
   const navigation = useRef(0);
+  const appRoot = useRef<HTMLDivElement>(null);
+  const loadTiming = useRef<{ turn: number; id: string; start: number; cached: boolean }>(undefined);
   const queueView = useRef({ view, sessionId });
   const queueOverlayClose = useRef<(() => void) | undefined>(undefined);
   const onQueueOverlayChange = useCallback((close?: () => void) => {
@@ -254,7 +260,9 @@ export function MobileApp() {
     let live = true;
     void (async () => {
       try {
-        if (await client.restore()) {
+        const [restored, pending] = await Promise.all([client.restore(), client.pending()]);
+        if (live) setPending(pending);
+        if (restored) {
           const items = await client.projects();
           if (live) {
             setConnected(true);
@@ -263,7 +271,6 @@ export function MobileApp() {
             await restoreLocation(items);
           }
         }
-        if (live) setPending(await client.pending());
       } catch (problem) {
         if (live) {
           setError(message(problem));
@@ -297,6 +304,7 @@ export function MobileApp() {
   useEffect(() => {
     if (!connected || !foreground || (view !== "chat" && !drawerOpen)) return;
     let live = true;
+    const turn = navigation.current;
     let timer: ReturnType<typeof setTimeout>;
     let failures = 0;
     setPollError("");
@@ -309,7 +317,7 @@ export function MobileApp() {
             client.projects(),
             project ? client.sessions(project.id) : undefined,
           ]);
-          if (live) {
+          if (live && navigation.current === turn) {
             setProjects(items);
             if (history) setSessions(history);
           }
@@ -317,7 +325,7 @@ export function MobileApp() {
         }
         if (view === "chat" && sessionId) {
           const result = await client.session(sessionId);
-          if (live)
+          if (live && navigation.current === turn) {
             setSnapshot((previous) =>
               previous &&
               previous.session.id === result.session.id &&
@@ -325,16 +333,19 @@ export function MobileApp() {
                 ? previous
                 : result,
             );
+            setSessionConfirmed(true);
+            setLoading(false);
+          }
           running = result.status === "running";
         }
         if (!running && listRunning) running = true;
-        if (live) {
+        if (live && navigation.current === turn) {
           failures = 0;
           setPollError("");
           setPending(await client.pending());
         }
       } catch (problem) {
-        if (live) {
+        if (live && navigation.current === turn) {
           failures += 1;
           setPollError(message(problem));
         }
@@ -366,6 +377,37 @@ export function MobileApp() {
     snapshot?.status,
   ]);
 
+  useLayoutEffect(() => {
+    const timing = loadTiming.current;
+    if (!snapshot || !timing || snapshot.session.id !== timing.id || navigation.current !== timing.turn)
+      return;
+    // Record committed text/layout without background-tab frame throttling.
+    // Keep only the latest measure per path for local browser diagnostics.
+    const name = timing.cached ? "monocode.mobile.session.cached" : "monocode.mobile.session.network";
+    const end = performance.now();
+    appRoot.current?.setAttribute("data-session-load-ms", (end - timing.start).toFixed(3));
+    appRoot.current?.setAttribute("data-session-load-source", timing.cached ? "cache" : "network");
+    appRoot.current?.setAttribute("data-session-load-stage", "commit");
+    try {
+      performance.clearMeasures(name);
+      performance.measure(name, { start: timing.start, end });
+    } catch { /* Timing support must not affect conversation rendering. */ }
+    loadTiming.current = undefined;
+  });
+
+  useEffect(() => {
+    if (!connected || !foreground || view !== "chat" || !snapshot) return;
+    let live = true;
+    void client.sessionPreviews(snapshot.session.id).then((result) => {
+      if (live && result)
+        setSnapshot((previous) =>
+          previous?.session.id === result.session.id && previous.revision <= result.revision
+            ? result : previous,
+        );
+    });
+    return () => { live = false; };
+  }, [connected, foreground, view, snapshot]);
+
   useEffect(() => {
     const environmentId = client.connection?.environmentId;
     if (!connected || !environmentId || !project) return;
@@ -387,6 +429,7 @@ export function MobileApp() {
       setProject(undefined);
       setSessionId(undefined);
       setSnapshot(undefined);
+      setSessionConfirmed(false);
       setCatalog(undefined);
       setAttachments([]);
       acceptedQueueAttachments.current = [];
@@ -413,37 +456,42 @@ export function MobileApp() {
     const projectTurn = ++projectGeneration.current;
     setProject(item);
     setSessions([]);
-    setCatalog(undefined);
+    const cachedCatalog = client.cachedModels(item.id);
+    setCatalog(cachedCatalog);
+    setConfiguration((cachedCatalog && firstConfiguration(cachedCatalog)) ?? {
+      harness: "codex", model: "", modelSettings: {}, runtimeMode: "supervised",
+    });
     setSessionId(undefined);
     setSnapshot(undefined);
+    setSessionConfirmed(false);
     setAnimateFrom(undefined);
     setComposerPanel(null);
     setSessionActionsOpen(false);
     setView(nextView);
-    setLoading(true);
+    setLoading(false);
+    setHistoryLoading(true);
     setError("");
-    try {
-      const [history, catalog] = await Promise.all([
-        client.sessions(item.id),
-        client.models(item.id),
-      ]);
+    // Provider discovery can launch CLIs; it is independent of history and
+    // must never hold the conversation's first paint behind the slowest CLI.
+    void client.models(item.id).then((catalog) => {
       if (projectGeneration.current !== projectTurn) return;
-      setSessions(history);
       setCatalog(catalog);
       const first = firstConfiguration(catalog);
-      setConfiguration(
-        first ?? {
-          harness: "codex",
-          model: "",
-          modelSettings: {},
-          runtimeMode: "supervised",
-        },
-      );
+      if (first) setConfiguration((current) => current.model ? current : {
+        ...first, runtimeMode: current.runtimeMode,
+      });
+    }).catch((problem) => {
+      if (projectGeneration.current === projectTurn) setError(message(problem));
+    });
+    try {
+      const history = await client.sessions(item.id);
+      if (projectGeneration.current !== projectTurn) return;
+      setSessions(history);
       return history;
     } catch (problem) {
       if (navigation.current === turn) setError(message(problem));
     } finally {
-      if (navigation.current === turn) setLoading(false);
+      if (projectGeneration.current === projectTurn) setHistoryLoading(false);
     }
   };
   // Launch and reconnect return to the last project and conversation; a
@@ -455,20 +503,32 @@ export function MobileApp() {
     setView("chat");
     setSettingsPage("root");
     if (!target) return;
-    const turn = navigation.current + 1;
-    const history = await openProject(target);
-    if (
-      navigation.current === turn &&
-      last?.sessionId &&
-      target.id === last.projectId &&
-      history?.some((item) => item.id === last.sessionId && !item.archived)
-    )
-      await openSession(last.sessionId);
+    const historyRequest = openProject(target);
+    if (last?.sessionId && target.id === last.projectId) {
+      const turn = navigation.current + 1;
+      // History adds branch metadata with Git processes. Restore the pinned
+      // conversation directly while history is prepared for the drawer.
+      const sessionRequest = openSession(last.sessionId, target.id);
+      const history = await historyRequest;
+      if (navigation.current === turn && history &&
+          !history.some((item) => item.id === last.sessionId && !item.archived))
+        await openSession();
+      await sessionRequest;
+    } else await historyRequest;
   };
-  const openSession = async (id?: string) => {
+  const openSession = async (id?: string, restoredProjectId?: string) => {
+    const start = performance.now();
+    appRoot.current?.removeAttribute("data-session-load-ms");
+    appRoot.current?.removeAttribute("data-session-load-source");
     const turn = ++navigation.current;
+    const known = id ? client.cachedSession(id) : undefined;
+    const cached = known && (!restoredProjectId ||
+      (known.projectId === restoredProjectId && !known.archived)) ? known : undefined;
+    loadTiming.current = id ? { turn, id, start, cached: !!cached } : undefined;
     setSessionId(id);
-    setSnapshot(undefined);
+    setSnapshot(cached);
+    setSessionConfirmed(false);
+    if (cached) setConfiguration(configurationForSession(cached));
     setAnimateFrom(undefined);
     setDraft("");
     setAttachments([]);
@@ -485,7 +545,13 @@ export function MobileApp() {
     try {
       const result = await client.session(id);
       if (navigation.current === turn) {
-        setSnapshot(result);
+        if (restoredProjectId && (result.projectId !== restoredProjectId || result.archived)) {
+          await openSession();
+          return;
+        }
+        setSnapshot((previous) => previous && previous.session.id === result.session.id &&
+          previous.revision > result.revision ? previous : result);
+        setSessionConfirmed(true);
         setConfiguration(configurationForSession(result));
       }
     } catch (problem) {
@@ -497,7 +563,7 @@ export function MobileApp() {
   const activity = useMobileActivity(client, {
     connected,
     foreground,
-    visibleSession: view === "chat" && !drawerOpen && !loading && snapshot && snapshot.session.id === sessionId
+    visibleSession: view === "chat" && !drawerOpen && !loading && sessionConfirmed && snapshot && snapshot.session.id === sessionId
       ? { id: snapshot.session.id, revision: snapshot.revision,
           lastCompletedRunId: snapshot.lastCompletedRunId, pendingInputKey: pendingSessionInputKey(snapshot.session, snapshot.runId) }
       : undefined,
@@ -528,7 +594,7 @@ export function MobileApp() {
         setPending(undefined);
         // A recovered create/send can belong to a different project than the
         // currently visible one. Navigate to its actual owning project.
-        const result = await client.session(receipt.sessionId);
+        const result = await client.session(receipt.sessionId, receipt.revision);
         if (
           completedCommand?.type === "send" ||
           completedCommand?.type === "create"
@@ -551,6 +617,7 @@ export function MobileApp() {
         }
         setSessionId(receipt.sessionId);
         setSnapshot(result);
+        setSessionConfirmed(true);
         setConfiguration(configurationForSession(result));
         setView("chat");
         if (
@@ -589,7 +656,7 @@ export function MobileApp() {
               import("../features/connections/model/protocol").CommandReceipt
             >("commands.dispatch", command)
           : await client.dispatch(command);
-        const result = await client.session(command.sessionId);
+        const result = await client.session(command.sessionId, receipt.revision);
         if (navigation.current === generation && queueView.current.view === "chat" && queueView.current.sessionId === command.sessionId) {
           setSnapshot((current) =>
             current &&
@@ -616,7 +683,7 @@ export function MobileApp() {
     [],
   );
   const queue = useHostQueue(snapshot, queueRequest);
-  const restoreQueuedMessage = async (queued: QueuedMessage) => {
+  const restoreQueuedMessage = useStableCallback(async (queued: QueuedMessage) => {
     if (!sessionId) return;
     const generation = navigation.current;
     setReadingAttachments(true);
@@ -652,7 +719,7 @@ export function MobileApp() {
     } finally {
       setReadingAttachments(false);
     }
-  };
+  });
   const send = async () => {
     if (
       !project ||
@@ -660,6 +727,7 @@ export function MobileApp() {
       busy ||
       pending ||
       readingAttachments ||
+      (!!sessionId && !sessionConfirmed) ||
       !!snapshot?.session.nativeSession ||
       (snapshot?.status === "running" && !snapshot.supportsQueue)
     )
@@ -781,7 +849,7 @@ export function MobileApp() {
     setBusy(true);
     try {
       const summary = await client.updateSession(project.id, id, patch);
-      const result = id === sessionId ? await client.session(id) : undefined;
+      const result = id === sessionId ? await client.session(id, summary.revision) : undefined;
       if (navigation.current === turn) {
         if (result) {
           setSnapshot((previous) =>
@@ -894,13 +962,44 @@ export function MobileApp() {
           )) ||
         t("New conversation")
       : t(mobileSettingsTitle(settingsPage));
+  // Memoized children (transcript, drawer) get handlers that keep their
+  // identity, so typing in the composer does not re-render them.
+  const onTranscriptCommand = useStableCallback((command: HostCommand) => {
+    void dispatch(command);
+  });
+  const onDrawerOpenChange = useStableCallback((open: boolean) => {
+    if (open) setComposerPanel(null);
+    setDrawerOpen(open);
+  });
+  const onDrawerProject = useStableCallback((item: HostProject) => {
+    void openProject(item);
+  });
+  const onDrawerAddProject = useStableCallback(() => {
+    setError("");
+    setAddingProject(true);
+  });
+  const onDrawerSession = useStableCallback((id?: string) => {
+    void openSession(id);
+  });
+  const onDrawerNewSession = useStableCallback(() => {
+    void openSession();
+  });
+  const onDrawerSessionActions = useStableCallback(
+    (id: string, trigger: HTMLButtonElement, point?: MobileSheetPoint) => {
+      sessionActionsTrigger.current = trigger;
+      setSessionActionsTarget(id);
+      setSessionActionsPoint(point);
+      setSessionActionsOpen(true);
+    },
+  );
+  const onDrawerSettings = useStableCallback(() => navigate("settings"));
   const openAddProject = (trigger: HTMLButtonElement) => {
     projectTrigger.current = trigger;
     setError("");
     setAddingProject(true);
   };
   return (
-    <div className="mobile-app" data-view={view}>
+    <div ref={appRoot} className="mobile-app" data-view={view}>
       <header className="mobile-header" data-floating={floatingHeader}>
         {view === "chat" ? (
           <IconButton
@@ -970,7 +1069,7 @@ export function MobileApp() {
               label="Status"
               onClick={(event) => {
                 // Keep the placeholder at full strength while loading.
-                if (!snapshot || loading) return;
+                if (!snapshot || loading || !sessionConfirmed) return;
                 sessionStatusTrigger.current = event.currentTarget;
                 setComposerPanel(null);
                 setSessionStatusOpen(true);
@@ -986,7 +1085,7 @@ export function MobileApp() {
               label="Session actions"
               onClick={(event) => {
                 // Like the status button, stay visible but inert while loading.
-                if (!snapshot || loading) return;
+                if (!snapshot || loading || !sessionConfirmed) return;
                 sessionActionsTrigger.current = event.currentTarget;
                 setSessionActionsTarget(undefined);
                 setSessionActionsPoint(undefined);
@@ -1066,6 +1165,8 @@ export function MobileApp() {
                 setProject(undefined);
                 setSessions([]);
                 setSnapshot(undefined);
+                setSessionConfirmed(false);
+                setHistoryLoading(false);
                 setSessionId(undefined);
                 setError("");
               })
@@ -1091,8 +1192,8 @@ export function MobileApp() {
               snapshot={snapshot}
               animateFrom={animateFrom}
               readBinaryFile={readHostImage}
-              disabled={busy || !!pending}
-              onCommand={(command) => void dispatch(command)}
+              disabled={busy || !!pending || !sessionConfirmed}
+              onCommand={onTranscriptCommand}
             />
           ) : loading ? (
             <div className="mobile-loading">
@@ -1136,7 +1237,7 @@ export function MobileApp() {
                 {...queue}
                 onOverlayChange={onQueueOverlayChange}
                 onRestore={restoreQueuedMessage}
-                disabled={!!snapshot?.session.nativeSession || busy || !!pending || loading}
+                disabled={!!snapshot?.session.nativeSession || busy || !!pending || loading || !sessionConfirmed}
               />
             }
             value={draft}
@@ -1156,6 +1257,7 @@ export function MobileApp() {
               (running && !snapshot?.supportsQueue) ||
               readingAttachments ||
               loading ||
+              (!!sessionId && !sessionConfirmed) ||
               (!!sessionId && !snapshot)
             }
             working={busy || readingAttachments}
@@ -1166,6 +1268,7 @@ export function MobileApp() {
               !pending &&
               !readingAttachments &&
               !loading &&
+              (!sessionId || sessionConfirmed) &&
               (!running || !!snapshot?.supportsQueue) &&
               (!!draft.trim() || attachments.length > 0) &&
               (sessionId
@@ -1174,7 +1277,7 @@ export function MobileApp() {
                     (model) => model.id === configuration.model,
                   ))
             }
-            canStop={!busy && !pending && !!snapshot?.runId}
+            canStop={!busy && !pending && sessionConfirmed && !!snapshot?.runId}
             onSend={() => void send()}
             onStop={() => {
               if (sessionId && snapshot?.runId)
@@ -1218,35 +1321,24 @@ export function MobileApp() {
       {connected && view === "chat" && (
         <MobileDrawer
           open={drawerOpen}
-          onOpenChange={(open) => {
-            if (open) setComposerPanel(null);
-            setDrawerOpen(open);
-          }}
+          onOpenChange={onDrawerOpenChange}
           projects={projects}
           project={project}
           sessions={sessions}
           sessionId={sessionId}
-          loading={loading}
+          loading={historyLoading}
           unreadIds={activity.unreadIds}
           now={now}
           hostName={client.connection?.name || "MonoCode"}
           hostStatus={hostStatus}
           projectTrigger={projectTrigger}
-          onProject={(item) => void openProject(item)}
-          onAddProject={() => {
-            setError("");
-            setAddingProject(true);
-          }}
-          onSession={(id) => void openSession(id)}
+          onProject={onDrawerProject}
+          onAddProject={onDrawerAddProject}
+          onSession={onDrawerSession}
           sessionActionsId={sessionActionsOpen ? sessionActionsTarget : undefined}
-          onSessionActions={(id, trigger, point) => {
-            sessionActionsTrigger.current = trigger;
-            setSessionActionsTarget(id);
-            setSessionActionsPoint(point);
-            setSessionActionsOpen(true);
-          }}
-          onNewSession={() => void openSession()}
-          onSettings={() => navigate("settings")}
+          onSessionActions={onDrawerSessionActions}
+          onNewSession={onDrawerNewSession}
+          onSettings={onDrawerSettings}
         />
       )}
       {sessionActionsOpen &&

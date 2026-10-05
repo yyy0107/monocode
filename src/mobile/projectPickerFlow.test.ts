@@ -21,6 +21,9 @@ const host = vi.hoisted(() => ({
   pending: vi.fn(async () => undefined),
   projects: vi.fn(async () => [...registered]),
   sessions: vi.fn(async () => []),
+  cachedModels: () => undefined,
+  cachedSession: () => undefined,
+  sessionPreviews: async () => undefined,
   models: vi.fn(async () => ({
     models: {
       codex: [{ id: "codex:test", name: "Test model", harness: "codex" }],

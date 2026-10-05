@@ -3,6 +3,38 @@ import type { HostSession } from "./protocol";
 type Chunk = { data: string; offset: number; size: number };
 const downloads = new Map<string, Promise<string>>();
 
+/** Carry already downloaded bytes without making text sync await image I/O.
+ * Only matching files in the current blocks are reused; old blocks/metadata
+ * never replace a newer revision. */
+export function reuseRemoteAttachmentPreviews(
+  snapshot: HostSession,
+  known: HostSession | undefined,
+): HostSession {
+  if (!known || known.session.id !== snapshot.session.id || snapshot === known)
+    return snapshot;
+  const previous = new Map(
+    known.session.blocks.flatMap((block) => block.attachments ?? [])
+      .filter((file) => file.data !== undefined)
+      .map((file) => [file.id, file]),
+  );
+  if (!previous.size) return snapshot;
+  let changed = false;
+  const blocks = snapshot.session.blocks.map((block) => {
+    let blockChanged = false;
+    const attachments = block.attachments?.map((file) => {
+      const before = previous.get(file.id);
+      if (file.kind !== "image" || file.data !== undefined || file.previewUrl ||
+          !before || before.kind !== file.kind || before.size !== file.size ||
+          before.mimeType !== file.mimeType || before.path !== file.path)
+        return file;
+      blockChanged = changed = true;
+      return { ...file, data: before.data };
+    });
+    return blockChanged ? { ...block, attachments } : block;
+  });
+  return changed ? { ...snapshot, session: { ...snapshot.session, blocks } } : snapshot;
+}
+
 /** Preview bytes live only in desktop snapshots, not in every host database
  * write. Unchanged attachments reuse their previous data across delta syncs. */
 export async function withRemoteAttachmentPreviews(

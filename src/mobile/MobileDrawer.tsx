@@ -1,8 +1,9 @@
 import {
+  memo,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
-  type CSSProperties,
   type RefObject,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -48,7 +49,9 @@ interface Swipe {
   velocity: number;
 }
 
-export function MobileDrawer({
+// Memoized: the drawer stays mounted under the conversation, and typing in
+// the composer must not re-render every session row.
+export const MobileDrawer = memo(function MobileDrawer({
   open,
   onOpenChange,
   projects,
@@ -96,6 +99,7 @@ export function MobileDrawer({
   const { language, t } = useTranslation();
   const [choosingProject, setChoosingProject] = useState(!project);
   const panel = useRef<HTMLElement>(null);
+  const backdrop = useRef<HTMLDivElement>(null);
   const swipe = useRef<Swipe>(undefined);
   const dragClickUntil = useRef(0);
   const hold = useRef<{
@@ -121,7 +125,7 @@ export function MobileDrawer({
       hold.current.opened = true;
     }
     swipe.current = undefined;
-    setDrag(undefined);
+    setDragging(false);
     onSessionActions(id, trigger, point);
   };
   useEffect(() => {
@@ -150,8 +154,28 @@ export function MobileDrawer({
     };
     hold.current = press;
   };
-  // Live translateX while a finger moves the drawer; undefined when settled.
-  const [drag, setDrag] = useState<number>();
+  // While a finger moves the drawer, its position is written straight to the
+  // DOM: a React render per pointer move would rebuild every session row.
+  const [dragging, setDragging] = useState(false);
+  const follow = (translate: number, width: number) => {
+    panel.current?.style.setProperty("transform", `translateX(${translate}px)`);
+    backdrop.current?.style.setProperty(
+      "--mobile-drawer-progress",
+      String(1 + translate / width),
+    );
+  };
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  // Settled positions come from the stylesheet; the commit that ends a drag
+  // also clears its inline position, so the transition starts from the finger.
+  useLayoutEffect(() => {
+    if (dragging) return;
+    panel.current?.style.removeProperty("transform");
+    backdrop.current?.style.setProperty(
+      "--mobile-drawer-progress",
+      open ? "1" : "0",
+    );
+  }, [open, dragging]);
   const latest = useRef({ open, onOpenChange });
   latest.current = { open, onOpenChange };
   const close = () => onOpenChange(false);
@@ -220,12 +244,16 @@ export function MobileDrawer({
         // pending long press on a session row.
         window.getSelection()?.removeAllRanges();
         cancelHold();
+        // Drop the settle transition before the first inline position lands,
+        // rather than when React next commits.
+        if (backdrop.current) backdrop.current.dataset.dragging = "true";
+        setDragging(true);
       }
       const elapsed = event.timeStamp - current.last.t;
       if (elapsed > 0)
         current.velocity = (event.clientX - current.last.x) / elapsed;
       current.last = { x: event.clientX, t: event.timeStamp };
-      setDrag(clampDrawer(current.origin + dx, current.width));
+      followRef.current(clampDrawer(current.origin + dx, current.width), current.width);
     };
     const end = (event: PointerEvent) => {
       const current = swipe.current;
@@ -242,7 +270,7 @@ export function MobileDrawer({
         event.type === "pointercancel"
           ? latest.current.open
           : settleDrawerOpen(translate, current.width, current.velocity);
-      setDrag(undefined);
+      setDragging(false);
       if (open !== latest.current.open) latest.current.onOpenChange(open);
     };
     const swallowClick = (event: MouseEvent) => {
@@ -276,9 +304,6 @@ export function MobileDrawer({
     };
   }, []);
 
-  const dragging = drag !== undefined;
-  const width = swipe.current?.width ?? panel.current?.offsetWidth ?? 320;
-  const progress = dragging ? 1 + drag / width : open ? 1 : 0;
   const ordered = sortMobileSessions(sessions);
   const pinned = ordered.filter((item) => item.pinned);
   const recent = ordered.filter((item) => !item.pinned);
@@ -362,12 +387,12 @@ export function MobileDrawer({
   );
   return (
     <div
+      ref={backdrop}
       className="mobile-drawer-backdrop"
       data-open={open}
       data-dragging={dragging || undefined}
       inert={!open && !dragging}
       aria-hidden={!open && !dragging}
-      style={{ "--mobile-drawer-progress": progress } as CSSProperties}
       onClick={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -377,7 +402,6 @@ export function MobileDrawer({
         className="mobile-drawer"
         aria-label={t("Menu")}
         tabIndex={-1}
-        style={dragging ? { transform: `translateX(${drag}px)` } : undefined}
         onKeyDown={(event) => {
           if (event.key === "Escape") close();
         }}
@@ -486,4 +510,4 @@ export function MobileDrawer({
       </nav>
     </div>
   );
-}
+});

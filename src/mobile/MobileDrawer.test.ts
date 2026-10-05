@@ -203,6 +203,28 @@ describe("mobile sidebar sessions", () => {
     touch("pointerup", 100, 230);
     expect(onOpenChange).not.toHaveBeenCalled();
   });
+  it("hands the settled position back to the stylesheet when a drag ends", () => {
+    render();
+    Object.defineProperty(node.querySelector(".mobile-drawer"), "offsetWidth", {
+      value: 300,
+    });
+    const panel = node.querySelector<HTMLElement>(".mobile-drawer")!;
+    const backdrop = node.querySelector<HTMLElement>(".mobile-drawer-backdrop")!;
+    const progress = () =>
+      backdrop.style.getPropertyValue("--mobile-drawer-progress");
+    expect(progress()).toBe("1");
+    touch("pointerdown", 100, 250);
+    touch("pointermove", 100, 200);
+    touch("pointermove", 100, 100);
+    expect(backdrop.dataset.dragging).toBe("true");
+    expect(progress()).toBe("0.5");
+    act(() => vi.advanceTimersByTime(100));
+    touch("pointermove", 100, 240);
+    touch("pointerup", 100, 240);
+    expect(backdrop.dataset.dragging).toBeUndefined();
+    expect(panel.style.transform).toBe("");
+    expect(progress()).toBe("1");
+  });
   it("keeps the browser from claiming a touch the drawer is dragging", () => {
     render();
     const move = () => {

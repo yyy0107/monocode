@@ -27,6 +27,9 @@ body,
   --mobile-separator: color-mix(in srgb, var(--color-content) 14%, transparent);
   --mobile-selected: color-mix(in srgb, var(--mobile-accent) 16%, transparent);
   --mobile-card-radius: 22px;
+  /* Controls draw their own :active states; the WebView's rectangular tap
+     flash ignores capsule corners and lands a frame late. */
+  -webkit-tap-highlight-color: transparent;
 }
 html.theme-light .mobile-app {
   --mobile-accent: #007aff;
@@ -2091,6 +2094,7 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   z-index: 40;
   pointer-events: none;
   transform: scale(1.03);
+  will-change: transform;
 }
 .mobile-queue-pill svg {
   flex-shrink: 0;
@@ -2132,6 +2136,13 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 }
 
 /* Drawer: projects and conversation history slide over the chat. */
+/* Written on every frame of a drawer drag. Not inherited, so each frame
+   restyles the backdrop alone instead of every row in the drawer. */
+@property --mobile-drawer-progress {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
 .mobile-drawer-backdrop {
   --mobile-drawer-easing: cubic-bezier(0.22, 1, 0.36, 1);
   position: fixed;
@@ -2174,6 +2185,9 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   touch-action: pan-y;
   transform: translateX(-100%);
   transition: transform 260ms var(--mobile-drawer-easing);
+  /* A drag writes the position on every frame without a running transition;
+     keep the glass panel on its own layer so it is moved, not repainted. */
+  will-change: transform;
 }
 .mobile-drawer-backdrop[data-open="true"] .mobile-drawer {
   transform: translateX(0);

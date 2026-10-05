@@ -69,8 +69,12 @@ export function useQueueDrag(
           distance = nextDistance;
         }
       });
-      order = moveItem(ids, from, to);
-      setPreview(order);
+      const next = moveItem(ids, from, to);
+      // Most moves stay within the same slot; only a new order re-renders.
+      if (next.some((entry, index) => entry !== order[index])) {
+        order = next;
+        setPreview(order);
+      }
       setDrag({ id, left: rect.left, top: y - grabOffset, width: rect.width });
     };
     const tick = () => {

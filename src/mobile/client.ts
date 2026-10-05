@@ -27,8 +27,12 @@ import {
   MOBILE_ATTACHMENT_BYTES,
   MOBILE_ATTACHMENT_LIMIT,
 } from "./attachments";
-import { withRemoteAttachmentPreviews } from "../features/connections/model/remoteAttachmentPreviews";
+import {
+  reuseRemoteAttachmentPreviews,
+  withRemoteAttachmentPreviews,
+} from "../features/connections/model/remoteAttachmentPreviews";
 import type { MobileStorage } from "./storage";
+import { translate } from "../shared/i18n/language";
 
 export type Connection = {
   endpoint: string;
@@ -185,6 +189,30 @@ export class MobileClient {
     });
   }
   private snapshots = new Map<string, HostSession>();
+  private sessionLoads = new Map<string, Promise<HostSession>>();
+  private previewLoads = new Map<string, Promise<HostSession | undefined>>();
+  private catalogs = new Map<string, { value: HostModelCatalog; expires: number }>();
+  private modelLoads = new Map<string, Promise<HostModelCatalog>>();
+  private cacheEpoch = 0;
+  private clearCaches() {
+    this.cacheEpoch += 1;
+    this.snapshots.clear();
+    this.sessionLoads.clear();
+    this.previewLoads.clear();
+    this.catalogs.clear();
+    this.modelLoads.clear();
+  }
+  private rememberSession(value: HostSession): HostSession {
+    this.snapshots.delete(value.session.id);
+    this.snapshots.set(value.session.id, value);
+    if (this.snapshots.size > 8)
+      this.snapshots.delete(this.snapshots.keys().next().value!);
+    return value;
+  }
+  cachedSession(sessionId: string): HostSession | undefined {
+    const value = this.snapshots.get(sessionId);
+    return value ? this.rememberSession(value) : undefined;
+  }
   private dispatching = false;
   constructor(
     private readonly storage: MobileStorage,
@@ -232,7 +260,7 @@ export class MobileClient {
       await this.storage.set("connection", JSON.stringify(connection));
       this.connection = connection;
       this.setConnectionStatus({ state: "connected" });
-      this.snapshots.clear();
+      this.clearCaches();
     } catch (error) {
       if (!this.connection) this.connectionFailed(error);
       throw error;
@@ -253,6 +281,7 @@ export class MobileClient {
         return;
       if (host.environmentId !== connection.environmentId) {
         changedIdentity = true;
+        this.clearCaches();
         const error = new Error(
           "Host identity changed. Connect to this machine again explicitly.",
         );
@@ -281,7 +310,7 @@ export class MobileClient {
     await this.storage.remove("connection");
     this.connection = undefined;
     this.setConnectionStatus({ state: "disconnected" });
-    this.snapshots.clear();
+    this.clearCaches();
   }
   private async requestWith<T>(
     connection: Pick<Connection, "endpoint" | "token"> & Partial<Connection>,
@@ -356,9 +385,40 @@ export class MobileClient {
   async deleteSession(projectId: string, sessionId: string): Promise<void> {
     await this.rpc("sessions.delete", { projectId, sessionId });
     this.snapshots.delete(sessionId);
+    this.sessionLoads.delete(sessionId);
+    this.previewLoads.delete(sessionId);
+  }
+  cachedModels(projectId: string): HostModelCatalog | undefined {
+    const cached = this.catalogs.get(projectId);
+    if (!cached) return undefined;
+    if (Date.now() >= cached.expires) {
+      this.catalogs.delete(projectId);
+      return undefined;
+    }
+    this.catalogs.delete(projectId);
+    this.catalogs.set(projectId, cached);
+    return cached.value;
   }
   models(projectId: string) {
-    return this.rpc<HostModelCatalog>("models.list", { projectId });
+    const cached = this.cachedModels(projectId);
+    if (cached) return Promise.resolve(cached);
+    const existing = this.modelLoads.get(projectId);
+    if (existing) return existing;
+    const epoch = this.cacheEpoch;
+    const pending = this.rpc<HostModelCatalog>("models.list", { projectId }).then((value) => {
+      if (epoch !== this.cacheEpoch) throw new Error(translate("Host connection changed."));
+      if (!Object.keys(value.errors).length) {
+        this.catalogs.delete(projectId);
+        this.catalogs.set(projectId, { value, expires: Date.now() + 60_000 });
+        if (this.catalogs.size > 8)
+          this.catalogs.delete(this.catalogs.keys().next().value!);
+      }
+      return value;
+    }).finally(() => {
+      if (this.modelLoads.get(projectId) === pending) this.modelLoads.delete(projectId);
+    });
+    this.modelLoads.set(projectId, pending);
+    return pending;
   }
   skills(projectId: string, harness: string, sessionId?: string, refresh = false) {
     return this.rpc<HostSkillCatalog>("skills.list", { projectId, harness,
@@ -376,10 +436,11 @@ export class MobileClient {
   }
 
   private async sync(
+    connection: Connection,
     sessionId: string,
     revision?: number,
   ): Promise<SessionSync> {
-    const result = await this.rpc<SessionSyncResponse>("sessions.sync", {
+    const result = await this.requestWith<SessionSyncResponse>(connection, "sessions.sync", {
       sessionId,
       revision,
     });
@@ -392,7 +453,7 @@ export class MobileClient {
       throw new Error("Conversation is too large to load on this device.");
     let serialized = "";
     while (serialized.length < result.length) {
-      const chunk = await this.rpc<SessionSyncChunk>("sessions.syncChunk", {
+      const chunk = await this.requestWith<SessionSyncChunk>(connection, "sessions.syncChunk", {
         sessionId,
         transfer: result.transfer,
         offset: serialized.length,
@@ -403,26 +464,62 @@ export class MobileClient {
     }
     return JSON.parse(serialized) as SessionSync;
   }
-  async session(sessionId: string): Promise<HostSession> {
-    const known = this.snapshots.get(sessionId);
-    const sync = await this.sync(sessionId, known?.revision);
-    let result: HostSession;
-    try {
-      result = applySessionSync(known, sync);
-    } catch {
-      result = applySessionSync(undefined, await this.sync(sessionId));
+  async session(sessionId: string, minimumRevision?: number): Promise<HostSession> {
+    const existing = this.sessionLoads.get(sessionId);
+    if (existing) {
+      const result = await existing;
+      // A command may settle while a pre-command poll is still in flight.
+      return minimumRevision !== undefined && result.revision < minimumRevision
+        ? this.session(sessionId, minimumRevision) : result;
     }
-    result = await withRemoteAttachmentPreviews(
-      this.connection!.environmentId,
-      result,
-      known,
-      (params) => this.rpc("attachments.read", params),
-    );
-    this.snapshots.delete(sessionId);
-    this.snapshots.set(sessionId, result);
-    if (this.snapshots.size > 8)
-      this.snapshots.delete(this.snapshots.keys().next().value!);
-    return result;
+    const connection = this.connection;
+    if (!connection) throw new Error("Connect to a Host first.");
+    const epoch = this.cacheEpoch;
+    const known = this.cachedSession(sessionId);
+    let pending!: Promise<HostSession>;
+    pending = (async () => {
+      const sync = await this.sync(connection, sessionId, known?.revision);
+      let result: HostSession;
+      try {
+        result = applySessionSync(known, sync);
+      } catch {
+        result = applySessionSync(undefined, await this.sync(connection, sessionId));
+      }
+      if (epoch !== this.cacheEpoch || this.sessionLoads.get(sessionId) !== pending)
+        throw new Error(translate("Conversation request is no longer current."));
+      if (result.session.id !== sessionId)
+        throw new Error(translate("Host returned a different conversation."));
+      return this.rememberSession(reuseRemoteAttachmentPreviews(result, this.snapshots.get(sessionId)));
+    })().finally(() => {
+      if (this.sessionLoads.get(sessionId) === pending) this.sessionLoads.delete(sessionId);
+    });
+    this.sessionLoads.set(sessionId, pending);
+    return pending;
+  }
+
+  async sessionPreviews(sessionId: string): Promise<HostSession | undefined> {
+    const existing = this.previewLoads.get(sessionId);
+    if (existing) return existing;
+    const known = this.snapshots.get(sessionId);
+    const connection = this.connection;
+    if (!known || !connection || !known.session.blocks.some((block) =>
+      block.attachments?.some((file) => file.kind === "image" &&
+        file.data === undefined && !file.previewUrl && file.size <= MOBILE_ATTACHMENT_BYTES)))
+      return known;
+    const epoch = this.cacheEpoch;
+    const pending = withRemoteAttachmentPreviews(
+      connection.environmentId, known, known,
+      (params) => this.requestWith(connection, "attachments.read", params),
+    ).then((hydrated) => {
+      const current = this.snapshots.get(sessionId);
+      if (!current || epoch !== this.cacheEpoch || this.previewLoads.get(sessionId) !== pending)
+        return undefined;
+      return this.rememberSession(reuseRemoteAttachmentPreviews(current, hydrated));
+    }).finally(() => {
+      if (this.previewLoads.get(sessionId) === pending) this.previewLoads.delete(sessionId);
+    });
+    this.previewLoads.set(sessionId, pending);
+    return pending;
   }
   async pending(): Promise<PendingCommand | undefined> {
     const value = await this.storage.get("pending");
