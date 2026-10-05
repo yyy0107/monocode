@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { setGrabbing, suppressTextSelection } from "../../../shared/lib/drag";
+import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
 import {
   paneDropFromPoint,
   setExternalTitleTabDrop,
@@ -200,6 +201,7 @@ type PaneDrag = {
 };
 
 const DRAG_THRESHOLD = 5;
+const PANE_BOUNDARY_EPSILON = 0.001;
 
 function PaneTreeComponent({
   visible,
@@ -468,6 +470,12 @@ function PaneTreeComponent({
                 rerender();
               }}
               className="flex min-h-0 min-w-0 flex-1 flex-col"
+              style={{
+                paddingLeft:
+                  leaf.rect.x > PANE_BOUNDARY_EPSILON ? 16 : undefined,
+                paddingTop:
+                  leaf.rect.y > PANE_BOUNDARY_EPSILON ? 16 : undefined,
+              }}
             >
               {editorPane ? (
                 <FilePane
@@ -650,6 +658,7 @@ function Sash({
   onCancel: () => void;
 }) {
   const row = sash.dir === "right";
+  const [dragging, setDragging] = useState(false);
   const boundary = sash.sizes
     .slice(0, sash.index + 1)
     .reduce((sum, size) => sum + size, 0);
@@ -679,26 +688,25 @@ function Sash({
             }
       }
     >
-      <div
-        className={
-          row
-            ? "absolute inset-y-0 -left-1.5 -right-1.5 cursor-col-resize touch-none"
-            : "absolute inset-x-0 -top-1.5 -bottom-1.5 cursor-row-resize touch-none"
-        }
+      <ResizeHandle
+        edge={row ? "left" : "top"}
+        role="presentation"
+        dragging={dragging}
+        style={row ? { left: "50%" } : { top: "50%" }}
         onPointerDown={(e) => {
+          if (e.button !== 0) return;
           e.preventDefault();
           e.stopPropagation();
           const handle = e.currentTarget;
           const parent = containerRef.current;
           if (!parent) return;
           handle.setPointerCapture(e.pointerId);
+          setDragging(true);
           const rect = parent.getBoundingClientRect();
           const restoreSelection = suppressTextSelection();
           const previousCursor = document.body.style.cursor;
           document.body.style.cursor = row ? "col-resize" : "row-resize";
-          const origin = row
-            ? rect.left + group.x * rect.width
-            : rect.top + group.y * rect.height;
+          const startPointer = row ? e.clientX : e.clientY;
           const span = row ? group.w * rect.width : group.h * rect.height;
           let nextBoundary = boundary;
           let moved = false;
@@ -708,7 +716,7 @@ function Sash({
             const pos = row ? ev.clientX : ev.clientY;
             if (span <= 0) return;
             moved = true;
-            nextBoundary = (pos - origin) / span;
+            nextBoundary = boundary + (pos - startPointer) / span;
             if (frame != null) return;
             frame = requestAnimationFrame(() => {
               frame = null;
@@ -729,6 +737,7 @@ function Sash({
             window.removeEventListener("keydown", keydown);
             restoreSelection();
             document.body.style.cursor = previousCursor;
+            setDragging(false);
             if (!moved) return;
             if (commit) onCommit(nextBoundary);
             else onCancel();

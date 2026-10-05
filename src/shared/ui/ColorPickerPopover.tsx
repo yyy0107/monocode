@@ -219,7 +219,7 @@ export function ColorPickerPopover({ value, onChange }: Props) {
         aria-valuemin={0}
         aria-valuemax={360}
         aria-valuenow={Math.round(hsv.h)}
-        className="relative mt-2 h-3 w-full cursor-ew-resize touch-none rounded-full"
+        className="relative mt-2 h-4 w-full cursor-ew-resize touch-none rounded-full"
         style={{
           background:
             "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)",

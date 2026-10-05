@@ -23,6 +23,7 @@ import { ProjectLogoIcon } from "../../projects/ui/ProjectLogoIcon";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
 import { SearchableProjectPicker } from "../../projects/ui/SearchableProjectPicker";
 import { useDragResize } from "../../../shared/hooks/useDragResize";
+import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { useTabGroupLogos } from "../../projects/hooks/useTabGroupLogos";
 import { formatRelativeTime } from "../../inbox/model/githubTasks";
@@ -320,13 +321,10 @@ export function NotesView({
           </ul>
         )}
       </div>
-      <div
-        role="separator"
-        aria-orientation="vertical"
+      <ResizeHandle
+        edge="right"
+        dragging={resize.dragging}
         aria-label={uiT("Resize notes list")}
-        className={`absolute inset-y-0 -right-px z-10 w-1.5 cursor-col-resize touch-none ${
-          resize.dragging ? "bg-content/15" : "hover:bg-content/10"
-        }`}
         onPointerDown={resize.onPointerDown}
         onDoubleClick={resize.onDoubleClick}
       />
@@ -351,14 +349,16 @@ export function NotesView({
       </div>
       <div className="flex min-h-0 min-w-0 flex-1">
         {list}
-        <NoteDetail
-          note={selected}
-          recents={recents}
-          activeCwd={cwd}
-          onSaved={onSaved}
-          onDelete={onDelete}
-          onAddToChat={onAddToChat}
-        />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col pl-4">
+          <NoteDetail
+            note={selected}
+            recents={recents}
+            activeCwd={cwd}
+            onSaved={onSaved}
+            onDelete={onDelete}
+            onAddToChat={onAddToChat}
+          />
+        </div>
       </div>
     </div>
   );

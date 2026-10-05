@@ -43,6 +43,7 @@ import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
 import { WindowControls } from "./WindowControls";
+import { startWindowDrag } from "./startWindowDrag";
 import { IS_MAC } from "../../platform/tauri/platform";
 import type { RecentProject } from "../../features/projects/model/recents";
 import {
@@ -927,6 +928,7 @@ function TitleBarComponent({
         compactRail ? " body-glass" : ""
       }`}
       data-tauri-drag-region="deep"
+      onMouseDownCapture={startWindowDrag}
     >
       {compactRail && !chromeInMenuBar ? (
         <div

@@ -151,6 +151,7 @@ import { prefetchGithubWorkItem } from "../../features/inbox/model/githubTasks";
 import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
 import { IconButton, WindowNavigationSpace } from "./TitleBar";
 import { SidebarTransition } from "./SidebarTransition";
+import { ResizeHandle } from "../../shared/ui/ResizeHandle";
 import { ProjectSearch } from "../../features/projects/ui/ProjectSearch";
 import { Popover } from "../../shared/ui/Popover";
 import { SessionFiltersMenu } from "../../features/sessions/ui/SessionFiltersMenu";
@@ -1948,19 +1949,6 @@ function SidebarComponent({
           onClose={() => setLinkingSession(null)}
         />
       ) : null}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={uiT("Resize sidebar")}
-        aria-valuenow={resize.width}
-        aria-valuemin={MIN_WIDTH}
-        aria-valuemax={MAX_WIDTH}
-        className={`absolute inset-y-0 -right-px z-10 w-1.5 cursor-col-resize touch-none ${
-          resize.dragging ? "bg-content/15" : "hover:bg-content/10"
-        }`}
-        onPointerDown={resize.onPointerDown}
-        onDoubleClick={resize.onDoubleClick}
-      />
     </aside>
   );
 
@@ -1971,6 +1959,18 @@ function SidebarComponent({
       dragging={resize.dragging}
       setPaneRef={resize.setPaneRef}
       finishDrag={resize.finishDrag}
+      resizeHandle={
+        <ResizeHandle
+          edge="right"
+          dragging={resize.dragging}
+          aria-label={uiT("Resize sidebar")}
+          aria-valuenow={resize.width}
+          aria-valuemin={MIN_WIDTH}
+          aria-valuemax={MAX_WIDTH}
+          onPointerDown={resize.onPointerDown}
+          onDoubleClick={resize.onDoubleClick}
+        />
+      }
     >
       {sidebarContent}
     </SidebarTransition>

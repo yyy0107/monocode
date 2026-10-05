@@ -16,6 +16,16 @@ const windowMock = vi.hoisted(() => ({
   minimize: vi.fn(async () => {}),
   toggleMaximize: vi.fn(async () => {}),
   close: vi.fn(async () => {}),
+  startDragging: vi.fn(async () => {}),
+}));
+
+vi.mock("@tauri-apps/api/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tauri-apps/api/core")>()),
+  isTauri: () => true,
+}));
+vi.mock("../../platform/tauri/platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../platform/tauri/platform")>()),
+  IS_LINUX: true,
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({
@@ -81,6 +91,52 @@ afterEach(() => {
 });
 
 describe("MenuBar", () => {
+  it("starts a blank-bar drag during capture and closes an open menu without waiting", () => {
+    render();
+    act(() => menuButton("File")!.click());
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    const nativeDocumentHandler = vi.fn();
+    document.addEventListener("mousedown", nativeDocumentHandler);
+    const event = new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      detail: 1,
+    });
+    try {
+      act(() => {
+        container.querySelector("[data-menu-bar]")!.dispatchEvent(event);
+        expect(windowMock.startDragging).toHaveBeenCalledOnce();
+      });
+      expect(event.defaultPrevented).toBe(true);
+      expect(nativeDocumentHandler).not.toHaveBeenCalled();
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+    } finally {
+      document.removeEventListener("mousedown", nativeDocumentHandler);
+    }
+  });
+
+  it("lets menu and window-control presses keep their own click behavior", () => {
+    render();
+    const targets = [
+      menuButton("File")!,
+      container.querySelector('button[aria-label="Maximize window"] svg')!,
+    ];
+    for (const target of targets) {
+      const event = new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        detail: 1,
+      });
+      act(() => target.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(windowMock.startDragging).not.toHaveBeenCalled();
+    act(() => menuButton("File")!.click());
+    expect(menuButton("File")!.getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("puts navigation before the menus and window controls at the end", () => {
     render({ canGoBack: true, canGoForward: false, sidebarOpen: true });
     const bar = container.querySelector("[data-menu-bar]")!;

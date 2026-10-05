@@ -81,3 +81,79 @@ update availability; unmounting releases listeners and ignores stale asynchronou
 results. Internal sidebar and terminal dock resizing retain their existing behavior.
 Acceptance requires directional/native-state regressions and an explicit record of
 which real desktop/platform resize scenarios were exercised.
+
+
+## Other draggable regions follow-up (2026-10-05)
+
+After enlarging the native window edges, the user requested larger targets for the
+other existing draggable regions. Internal panel dividers use a transparent 16 CSS
+pixel target on one side of the divider, with a thin 2px hover/drag feedback line.
+Vertical targets extend to the right and horizontal targets extend downward.
+This applies to the sidebar, workspace splits, graph panel, project/session
+terminal docks, Inbox and Notes lists, Inbox discussion and linked-item panels.
+Quick Composer's window drag strip is 20px high; the color picker's hue drag strip
+is 16px high. Existing thin visuals remain compact.
+
+Targets remain fully available on their designated side of the divider. Content
+clipping lives inside the target's container. Controls in that side's content have
+16px clearance, while preceding panes keep scrollbars next to their original edge.
+Preserve existing pointer capture, drag direction, size limits, double-click reset
+and saved dimensions wherever supported. Hidden,
+closing and disabled panels expose no active target. Responsive discussion-panel
+rules remain in force.
+
+Sidebar and terminal disclosure retain the shared two-way collapse motion, stable
+closed tracks, immediate direct resizing and reduced-motion behavior. Hidden
+terminals retain their mounted instances and PTYs. Acceptance requires focused
+behavioral regressions plus browser checks of actual target geometry, neighboring
+controls/scrollbars, drag/reset behavior and hidden/closing state. Real native
+desktop dragging is recorded separately from simulated/browser results.
+
+
+The user additionally requires the scrollbar's visible thumb to remain 1px from
+its edge without making the visible thumb thicker. Non-macOS horizontal and
+vertical tracks remain transparent and 12px wide; asymmetric transparent thumb
+borders preserve a 6px visible body with a 1px right/bottom gap. The default border
+is 1px, with 5px on the vertical thumb's left side and horizontal thumb's top side,
+using content-box background clipping. Deliberately hidden scrollbars stay hidden. Inbox/Notes lists have no extra right margin, and content
+before discussion or linked-item panels has no extra right padding.
+
+Protect controls on the target's side with 16px content clearance: Inbox/Notes
+details and discussion/linked-item panels use left padding outside their existing
+horizontal content padding. Workspace/main content reserves only left/top
+clearance for following panels, with no additional right/bottom spacing. The graph
+panel uses a real 16px divider track. The native resize layer introduces no 10px
+root inset, so workspace content and scrollbars keep their edge positions.
+
+Native edge resizing inspects the real event target from a window capture-phase
+`mousedown` handler. Buttons, inputs, links, custom drag rails and actual scrollbar
+tracks keep their existing pointer behavior; ordinary eligible edges still use
+10px bands and 16px corners. The eight transparent direction nodes do not take
+pointer hits. Pointer movement only supplies the resize cursor. Actual native
+resize behavior and native scrollbar/control access require desktop verification.
+
+
+## Menu/title-bar drag initiation follow-up (2026-10-05)
+
+The user reports a slow response after pressing the menu bar to drag the window.
+Eligible Linux/Windows native title/menu-bar presses dispatch the existing Tauri
+window move from React's capture-phase mouse handler. A shared `startWindowDrag`
+helper calls `startDragging()` during the initial handler without awaiting window
+state, a frame, or a timer. After the helper accepts a menu-bar press, the menu
+closes and its temporary Alt-reveal state resets.
+
+Only a primary press with `detail === 1` inside a deep drag region is eligible.
+Interactive controls, explicit `data-tauri-drag-region="false"` descendants and
+portal targets outside the region retain their existing behavior. Browser/Host
+and macOS clients use no new handler dispatch. The second press of a double click
+passes through to Tauri's existing maximize behavior. Native window edge capture
+keeps precedence over the title/menu-bar move handler.
+
+Local inspection of Tauri's 2.11.5 drag script found an immediate document-bubble
+`mousedown` invoke for a first press, and no application drag-delay timer was found.
+The change moves application dispatch earlier in event propagation; the source of
+any native queue delay and actual press-to-window-motion timing remain unmeasured.
+Acceptance requires capture-dispatch and exclusion regressions, menu closure and
+edge/double-click compatibility checks, then separate real native timing/drag
+observations. No OS latency improvement or performance figure is claimed without
+measurement.

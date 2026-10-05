@@ -13,6 +13,7 @@ type Props = {
   dragging: boolean;
   setPaneRef: (pane: HTMLElement | null) => void;
   finishDrag: () => void;
+  resizeHandle?: ReactNode;
   children: ReactNode;
 };
 
@@ -25,6 +26,7 @@ export function SidebarTransition({
   dragging,
   setPaneRef,
   finishDrag,
+  resizeHandle,
   children,
 }: Props) {
   const [present, setPresent] = useState(open);
@@ -64,7 +66,7 @@ export function SidebarTransition({
       data-sidebar-transition
       aria-hidden={!open || undefined}
       inert={!open || undefined}
-      className={`relative h-full min-h-0 shrink-0 overflow-hidden ${
+      className={`relative h-full min-h-0 shrink-0 ${
         dragging
           ? "transition-none"
           : "transition-[width] duration-200 ease-out motion-reduce:transition-none"
@@ -80,9 +82,12 @@ export function SidebarTransition({
         }
       }}
     >
-      <SurfaceVisibilityContext.Provider value={open}>
-        {open || present ? children : null}
-      </SurfaceVisibilityContext.Provider>
+      <div className="h-full min-h-0 overflow-hidden">
+        <SurfaceVisibilityContext.Provider value={open}>
+          {open || present ? children : null}
+        </SurfaceVisibilityContext.Provider>
+      </div>
+      {open ? resizeHandle : null}
     </div>
   );
 }

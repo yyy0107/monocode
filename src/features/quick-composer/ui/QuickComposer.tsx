@@ -500,7 +500,7 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
     >
       <div
         title={uiT("Drag to move")}
-        className="group absolute inset-x-0 top-0 z-10 flex h-3 cursor-grab items-start justify-center pt-1 active:cursor-grabbing"
+        className="group absolute inset-x-0 top-0 z-10 flex h-5 cursor-grab items-start justify-center pt-1 active:cursor-grabbing"
         onMouseDown={(event) => {
           if (event.button !== 0) return;
           event.preventDefault();
@@ -516,7 +516,7 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
         aria-label={uiT("Close composer")}
         title={uiT("Close (Esc)")}
         onClick={dismiss}
-        className="absolute right-2 top-3.5 z-20 grid size-5 place-items-center rounded text-content/35 hover:bg-selection-hover hover:text-content"
+        className="absolute right-2 top-5.5 z-20 grid size-5 place-items-center rounded text-content/35 hover:bg-selection-hover hover:text-content"
       >
         <X className="size-3" />
       </button>
@@ -525,7 +525,7 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
           {uiT("Drop to attach")}
         </div>
       ) : null}
-      <div className="flex shrink-0 items-center gap-2 px-5 pt-3 pr-8">
+      <div className="flex shrink-0 items-center gap-2 px-5 pt-5 pr-8">
         <QuickWorkspaceControls
           key={cwd}
           value={workspace}

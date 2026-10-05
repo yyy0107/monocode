@@ -80,13 +80,26 @@ async function resizeEvent() {
 }
 
 async function press(direction: string, button = 0) {
+  const coordinates: Record<string, [number, number]> = {
+    North: [window.innerWidth / 2, 5],
+    South: [window.innerWidth / 2, window.innerHeight - 5],
+    East: [window.innerWidth - 5, window.innerHeight / 2],
+    West: [5, window.innerHeight / 2],
+    NorthWest: [8, 8],
+    NorthEast: [window.innerWidth - 8, 8],
+    SouthWest: [8, window.innerHeight - 8],
+    SouthEast: [window.innerWidth - 8, window.innerHeight - 8],
+  };
+  const [clientX, clientY] = coordinates[direction];
   const event = new MouseEvent("mousedown", {
     button,
+    clientX,
+    clientY,
     bubbles: true,
     cancelable: true,
   });
   await act(async () => {
-    handle(direction).dispatchEvent(event);
+    container.dispatchEvent(event);
   });
   return event;
 }
@@ -107,10 +120,12 @@ beforeEach(() => {
   native.startResizeDragging.mockReset().mockResolvedValue(undefined);
   native.unlisten.mockReset();
   native.getCurrentWindow.mockReset().mockReturnValue(native);
-  native.onResized.mockReset().mockImplementation(async (callback: () => void) => {
-    onResized = callback;
-    return native.unlisten;
-  });
+  native.onResized
+    .mockReset()
+    .mockImplementation(async (callback: () => void) => {
+      onResized = callback;
+      return native.unlisten;
+    });
   onResized = undefined;
   unmounted = false;
   container = document.createElement("div");
@@ -132,7 +147,9 @@ describe("native window resize handles", () => {
       native.environment.windows = platform === "Windows";
       await render();
       expect(
-        handles().map((element) => element.dataset.windowResizeDirection).sort(),
+        handles()
+          .map((element) => element.dataset.windowResizeDirection)
+          .sort(),
       ).toEqual([...DIRECTIONS].sort());
       expect(
         container
@@ -178,12 +195,15 @@ describe("native window resize handles", () => {
     ["fixed size", "isResizable", false],
     ["maximized", "isMaximized", true],
     ["fullscreen", "isFullscreen", true],
-  ] as const)("has no pointer targets while %s", async (_state, query, value) => {
-    native[query].mockResolvedValue(value);
-    await render();
-    expect(handles()).toHaveLength(0);
-    expect(native.startResizeDragging).not.toHaveBeenCalled();
-  });
+  ] as const)(
+    "has no pointer targets while %s",
+    async (_state, query, value) => {
+      native[query].mockResolvedValue(value);
+      await render();
+      expect(handles()).toHaveLength(0);
+      expect(native.startResizeDragging).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(["browser", "macOS"])(
     "leaves native borders and app controls unobstructed in %s",
@@ -263,5 +283,204 @@ describe("native window resize handles", () => {
       ["SouthWest"],
       ["East"],
     ]);
+  });
+
+  it("lets actual edge controls receive presses without a preceding pointermove", async () => {
+    await render();
+    for (const tag of ["button", "input", "select", "textarea", "a", "div"]) {
+      const control = document.createElement(tag);
+      if (tag === "a") control.setAttribute("href", "#test");
+      if (tag === "div") control.setAttribute("contenteditable", "true");
+      container.append(control);
+      const received = vi.fn();
+      control.addEventListener("mousedown", received);
+      const event = new MouseEvent("mousedown", {
+        clientX: window.innerWidth - 2,
+        clientY: 12,
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => control.dispatchEvent(event));
+      expect(received).toHaveBeenCalledOnce();
+      expect(event.defaultPrevented).toBe(false);
+      control.remove();
+    }
+    expect(native.startResizeDragging).not.toHaveBeenCalled();
+  });
+
+  it.each(["vertical", "horizontal"])(
+    "passes a %s native scrollbar track press through",
+    async (axis) => {
+      await render();
+      const scroller = document.createElement("div");
+      const vertical = axis === "vertical";
+      scroller.style[vertical ? "overflowY" : "overflowX"] = "auto";
+      const width = vertical ? 199 : window.innerWidth;
+      const height = vertical ? window.innerHeight : 199;
+      const left = vertical ? window.innerWidth - 200 : 0;
+      const top = vertical ? 0 : window.innerHeight - 200;
+      for (const [property, value] of Object.entries({
+        offsetWidth: width,
+        offsetHeight: height,
+        clientWidth: width - (vertical ? 12 : 0),
+        clientHeight: height - (vertical ? 0 : 12),
+        clientLeft: 0,
+        clientTop: 0,
+        scrollWidth: 2000,
+        scrollHeight: 2000,
+      }))
+        Object.defineProperty(scroller, property, { value });
+      scroller.getBoundingClientRect = () =>
+        new DOMRect(left, top, width, height);
+      container.append(scroller);
+      const received = vi.fn();
+      scroller.addEventListener("mousedown", received);
+      const event = new MouseEvent("mousedown", {
+        clientX: vertical ? window.innerWidth - 5 : 100,
+        clientY: vertical ? 100 : window.innerHeight - 5,
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => scroller.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(false);
+      expect(received).toHaveBeenCalledOnce();
+      expect(native.startResizeDragging).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["cm-editorScrollbar", "xterm"])(
+    "preserves the %s custom scrollbar",
+    async (kind) => {
+      await render();
+      const wrapper = document.createElement("div");
+      wrapper.className = kind;
+      const thumb = document.createElement("div");
+      if (kind === "xterm") {
+        const track = document.createElement("div");
+        track.className = "scrollbar";
+        wrapper.append(track);
+        track.append(thumb);
+      } else wrapper.append(thumb);
+      container.append(wrapper);
+      const received = vi.fn();
+      thumb.addEventListener("mousedown", received);
+      act(() =>
+        thumb.dispatchEvent(
+          new MouseEvent("mousedown", {
+            clientX: window.innerWidth - 2,
+            clientY: 100,
+            bubbles: true,
+          }),
+        ),
+      );
+      expect(received).toHaveBeenCalledOnce();
+      expect(native.startResizeDragging).not.toHaveBeenCalled();
+    },
+  );
+
+  it("leaves ordinary content presses outside the edge unchanged", async () => {
+    await render();
+    const event = new MouseEvent("mousedown", {
+      clientX: 100,
+      clientY: 100,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => container.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(false);
+    expect(native.startResizeDragging).not.toHaveBeenCalled();
+  });
+
+  it("lets internal panel resize endpoints retain their own drag gesture at the window edge", async () => {
+    await render();
+    for (const attribute of ["class", "data-resize-edge", "role"]) {
+      const sash = document.createElement("div");
+      sash.setAttribute(
+        attribute,
+        attribute === "class"
+          ? "resize-handle"
+          : attribute === "role"
+            ? "separator"
+            : "right",
+      );
+      const child = document.createElement("span");
+      sash.append(child);
+      container.append(sash);
+      const internalResize = vi.fn();
+      sash.addEventListener("mousedown", internalResize);
+      act(() =>
+        child.dispatchEvent(
+          new MouseEvent("mousedown", {
+            clientX: window.innerWidth - 2,
+            clientY: 100,
+            bubbles: true,
+          }),
+        ),
+      );
+      expect(internalResize).toHaveBeenCalledOnce();
+      sash.remove();
+    }
+    expect(native.startResizeDragging).not.toHaveBeenCalled();
+  });
+
+  it("restores hover cursors on leaving the edge and removes capture handlers on maximize", async () => {
+    await render();
+    container.style.cursor = "crosshair";
+    act(() =>
+      container.dispatchEvent(
+        new PointerEvent("pointermove", {
+          clientX: 5,
+          clientY: 100,
+          buttons: 0,
+          bubbles: true,
+        }),
+      ),
+    );
+    expect(container.style.cursor).toBe("ew-resize");
+    act(() =>
+      container.dispatchEvent(
+        new PointerEvent("pointermove", {
+          clientX: 100,
+          clientY: 100,
+          buttons: 0,
+          bubbles: true,
+        }),
+      ),
+    );
+    expect(container.style.cursor).toBe("crosshair");
+    act(() =>
+      container.dispatchEvent(
+        new PointerEvent("pointermove", {
+          clientX: 5,
+          clientY: 100,
+          buttons: 0,
+          bubbles: true,
+        }),
+      ),
+    );
+    native.isMaximized.mockResolvedValue(true);
+    await resizeEvent();
+    expect(container.style.cursor).toBe("crosshair");
+    await press("West");
+    expect(native.startResizeDragging).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite another drag's cursor when unmounting", async () => {
+    await render();
+    act(() =>
+      container.dispatchEvent(
+        new PointerEvent("pointermove", {
+          clientX: 5,
+          clientY: 100,
+          buttons: 0,
+          bubbles: true,
+        }),
+      ),
+    );
+    container.style.cursor = "grabbing";
+    unmount();
+    expect(container.style.cursor).toBe("grabbing");
+    await press("West");
+    expect(native.startResizeDragging).not.toHaveBeenCalled();
   });
 });

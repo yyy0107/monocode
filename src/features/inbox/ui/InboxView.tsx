@@ -45,6 +45,7 @@ import { Popover } from "../../../shared/ui/Popover";
 import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 import { IconButton } from "../../../app/shell/TitleBar";
 import { useDragResize } from "../../../shared/hooks/useDragResize";
+import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { useTabGroupLogos } from "../../projects/hooks/useTabGroupLogos";
 import {
@@ -1095,13 +1096,10 @@ export function InboxView({
           </ul>
         )}
       </div>
-      <div
-        role="separator"
-        aria-orientation="vertical"
+      <ResizeHandle
+        edge="right"
+        dragging={resize.dragging}
         aria-label={uiT("Resize inbox list")}
-        className={`absolute inset-y-0 -right-px z-10 w-1.5 cursor-col-resize touch-none ${
-          resize.dragging ? "bg-content/15" : "hover:bg-content/10"
-        }`}
         onPointerDown={resize.onPointerDown}
         onDoubleClick={resize.onDoubleClick}
       />
@@ -1157,7 +1155,7 @@ export function InboxView({
       <div className="flex min-h-0 min-w-0 flex-1">
         {list}
         <div className="relative flex min-h-0 min-w-0 flex-1">
-          <div className="min-h-0 min-w-0 flex-1">
+          <div className="min-h-0 min-w-0 flex-1 pl-4">
             <InboxDetailBody
               item={selected}
               cwd={cwd}
@@ -1323,84 +1321,87 @@ export function LinkedWorkItemPanel({
       }}
       className={`relative min-h-0 max-w-full shrink-0 flex-col text-content max-[950px]:absolute max-[950px]:inset-y-0 max-[950px]:right-0 max-[950px]:z-30 max-[950px]:shadow-2xl ${
         visible ? "flex" : "hidden"
-      } ${opening ? "overflow-hidden" : ""}`}
+      }`}
     >
-      <div
-        role="separator"
+      <ResizeHandle
+        edge="left"
+        dragging={resize.dragging}
         aria-label={uiT("Resize linked {value0} panel", {
           value0: String(kindLabel.toLowerCase()),
         })}
-        aria-orientation="vertical"
         onPointerDown={resize.onPointerDown}
         onDoubleClick={resize.onDoubleClick}
-        className={`absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize touch-none ${
-          resize.dragging ? "bg-content/15" : "hover:bg-content/10"
-        }`}
       />
       <div
-        className={`relative flex min-h-0 flex-1 flex-col border-l border-stroke ${
-          opening ? "linked-panel-slide" : ""
+        className={`flex min-h-0 min-w-0 flex-1 flex-col ${
+          opening ? "overflow-hidden" : ""
         }`}
       >
-        <div className="absolute top-[5px] right-2 z-30">
-          <IconButton
-            label={uiT("Close {value0} panel", {
-              value0: String(kindLabel.toLowerCase()),
-            })}
-            onClick={onClose}
-          >
-            <PanelLeft className="size-3.5" strokeWidth={1.75} />
-          </IconButton>
-        </div>
         <div
-          key={contentKey}
-          onAnimationEnd={(event) => {
-            if (event.animationName === "linked-panel-reveal") {
-              setRevealedKey(contentKey);
-            }
-          }}
-          className={`@container/linked min-h-0 min-w-0 flex-1 ${
-            revealedKey === contentKey ? "" : "linked-panel-reveal"
+          className={`relative flex min-h-0 flex-1 flex-col border-l border-stroke pl-4 ${
+            opening ? "linked-panel-slide" : ""
           }`}
         >
-          {item ? (
-            <InboxDetail
-              key={inboxItemKey(item)}
-              item={item}
-              cwd={cwd}
-              projects={projectOptions}
-              revision={0}
-              relatedSessions={[]}
-              mode="panel"
-              visible={visible}
-              repairSessions={repairSessions}
-              onRepairChecks={onRepairChecks}
-              onOpenSession={onOpenSession}
-              onItemChange={setItem}
-            />
-          ) : error ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
-              <CircleX className="size-5 text-rose-400/90" strokeWidth={1.75} />
-              <p role="alert" className="max-w-sm text-[12px] text-content/55">
-                {error}
-              </p>
-              <button
-                type="button"
-                onClick={() => void openUrl(target.url)}
-                className={ACTION_OUTLINE}
-              >
-                <ExternalLink className="size-3.5" strokeWidth={1.75} />
-                {uiT("Open on GitHub")}
-              </button>
-            </div>
-          ) : (
-            <div className="flex h-full items-center justify-center text-content/40">
-              <LoaderCircle
-                className="size-4 animate-spin"
-                strokeWidth={1.75}
+          <div className="absolute top-[5px] right-2 z-30">
+            <IconButton
+              label={uiT("Close {value0} panel", {
+                value0: String(kindLabel.toLowerCase()),
+              })}
+              onClick={onClose}
+            >
+              <PanelLeft className="size-3.5" strokeWidth={1.75} />
+            </IconButton>
+          </div>
+          <div
+            key={contentKey}
+            onAnimationEnd={(event) => {
+              if (event.animationName === "linked-panel-reveal") {
+                setRevealedKey(contentKey);
+              }
+            }}
+            className={`@container/linked min-h-0 min-w-0 flex-1 ${
+              revealedKey === contentKey ? "" : "linked-panel-reveal"
+            }`}
+          >
+            {item ? (
+              <InboxDetail
+                key={inboxItemKey(item)}
+                item={item}
+                cwd={cwd}
+                projects={projectOptions}
+                revision={0}
+                relatedSessions={[]}
+                mode="panel"
+                visible={visible}
+                repairSessions={repairSessions}
+                onRepairChecks={onRepairChecks}
+                onOpenSession={onOpenSession}
+                onItemChange={setItem}
               />
-            </div>
-          )}
+            ) : error ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
+                <CircleX className="size-5 text-rose-400/90" strokeWidth={1.75} />
+                <p role="alert" className="max-w-sm text-[12px] text-content/55">
+                  {error}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void openUrl(target.url)}
+                  className={ACTION_OUTLINE}
+                >
+                  <ExternalLink className="size-3.5" strokeWidth={1.75} />
+                  {uiT("Open on GitHub")}
+                </button>
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center text-content/40">
+                <LoaderCircle
+                  className="size-4 animate-spin"
+                  strokeWidth={1.75}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </aside>

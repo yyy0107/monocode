@@ -10,6 +10,7 @@ import {
 import { ChevronDown, ChevronRight, GitBranch } from "../../../shared/ui/icons";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { suppressTextSelection } from "../../../shared/lib/drag";
+import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
 import {
   gitHistory,
   subscribeGitChanged,
@@ -335,6 +336,12 @@ export function GraphResizeSash({
     const restoreSelection = suppressTextSelection();
     const previousCursor = document.body.style.cursor;
     document.body.style.cursor = "row-resize";
+    const resizeStyle = document.documentElement.style;
+    const previousResizeCursor =
+      resizeStyle.getPropertyValue("--resize-cursor");
+    const previousResizePriority =
+      resizeStyle.getPropertyPriority("--resize-cursor");
+    resizeStyle.setProperty("--resize-cursor", "row-resize");
     document.documentElement.classList.add("is-resizing");
 
     const onMove = (ev: PointerEvent) => {
@@ -350,6 +357,15 @@ export function GraphResizeSash({
       window.removeEventListener("pointercancel", onUp);
       restoreSelection();
       document.body.style.cursor = previousCursor;
+      if (previousResizeCursor) {
+        resizeStyle.setProperty(
+          "--resize-cursor",
+          previousResizeCursor,
+          previousResizePriority,
+        );
+      } else {
+        resizeStyle.removeProperty("--resize-cursor");
+      }
       document.documentElement.classList.remove("is-resizing");
       setDragging(false);
       drag.current = null;
@@ -372,16 +388,17 @@ export function GraphResizeSash({
   };
 
   return (
-    <div
-      role="separator"
-      aria-orientation="horizontal"
-      aria-label={uiT("Resize graph")}
-      aria-valuenow={height}
-      className={`z-10 h-1.5 shrink-0 cursor-row-resize touch-none ${
-        dragging ? "bg-content/15" : "hover:bg-content/10"
-      }`}
-      onPointerDown={onPointerDown}
-      onDoubleClick={() => commitRef.current(clamp(GRAPH_PANEL_DEFAULT))}
-    />
+    <div className="relative z-10 h-4 shrink-0">
+      <ResizeHandle
+        edge="top"
+        dragging={dragging}
+        className="resize-handle-centered"
+        style={{ top: 0 }}
+        aria-label={uiT("Resize graph")}
+        aria-valuenow={height}
+        onPointerDown={onPointerDown}
+        onDoubleClick={() => commitRef.current(clamp(GRAPH_PANEL_DEFAULT))}
+      />
+    </div>
   );
 }

@@ -31,6 +31,7 @@ import { useShortcutLabel } from "../../../app/commands/useCommandShortcut";
 import type { TerminalMetaPatch } from "../model/terminalTab";
 import { lazySurface } from "../../../shared/ui/lazySurface";
 import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
+import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
 
 const TerminalView = lazySurface(async () => {
   const module = await import("./TerminalView");
@@ -152,6 +153,7 @@ export function ProjectTerminalDock({
   };
 
   const onResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !visible) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -189,14 +191,14 @@ export function ProjectTerminalDock({
     if (!visible) finishResize();
   }, [visible]);
 
-  const sash =
+  const resizeEdge =
     dock.side === "top"
-      ? "absolute inset-x-0 -bottom-px z-10 h-1.5 cursor-row-resize touch-none"
+      ? "bottom"
       : dock.side === "bottom"
-        ? "absolute inset-x-0 -top-px z-10 h-1.5 cursor-row-resize touch-none"
+        ? "top"
         : dock.side === "left"
-          ? "absolute inset-y-0 -right-px z-10 w-1.5 cursor-col-resize touch-none"
-          : "absolute inset-y-0 -left-px z-10 w-1.5 cursor-col-resize touch-none";
+          ? "right"
+          : "left";
 
   return (
     <section
@@ -212,12 +214,12 @@ export function ProjectTerminalDock({
       } border-stroke`}
       onMouseDown={visible ? onFocus : undefined}
     >
-      <div
-        role="separator"
-        aria-orientation={vertical ? "horizontal" : "vertical"}
+      <ResizeHandle
+        edge={resizeEdge}
+        dragging={dragging}
+        disabled={!visible}
         aria-label={uiT("Resize terminal")}
         aria-valuenow={dock.size}
-        className={`${sash} ${dragging ? "bg-content/15" : "hover:bg-content/10"}`}
         onPointerDown={onResizePointerDown}
         onPointerMove={onResizePointerMove}
         onPointerUp={finishResize}
@@ -227,58 +229,68 @@ export function ProjectTerminalDock({
           commit();
         }}
       />
-      <SurfaceTabs
-        files={dock.pane.files}
-        activeFileId={dock.pane.activeFileId}
-        dirtyFileIds={EMPTY_IDS}
-        fileErrorCounts={EMPTY_ERRORS}
-        label={uiT("Terminals")}
-        onSelectFile={onSelectTerminal}
-        onCloseFile={onCloseTerminal}
-        onCloseOtherFiles={onCloseOtherTerminals}
-        onReorder={onReorderTerminals}
-        trailing={
-          <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
-            <IconButton label={newTerminalLabel} onClick={onAddTerminal}>
-              <Plus className="size-3.5" strokeWidth={1.75} />
-            </IconButton>
-            <div ref={sideButton}>
-              <IconButton
-                label={uiT("Move Terminal")}
-                onClick={() => {
-                  const rect = sideButton.current?.getBoundingClientRect();
-                  if (!rect) return;
-                  setMenu({ x: rect.left, y: rect.bottom + 4 });
-                }}
-              >
-                <SideIcon className="size-3.5" strokeWidth={1.75} />
+      <div
+        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+        style={{
+          paddingTop: dock.side === "bottom" ? 16 : undefined,
+          paddingLeft: dock.side === "right" ? 16 : undefined,
+        }}
+      >
+        <SurfaceTabs
+          files={dock.pane.files}
+          activeFileId={dock.pane.activeFileId}
+          dirtyFileIds={EMPTY_IDS}
+          fileErrorCounts={EMPTY_ERRORS}
+          label={uiT("Terminals")}
+          onSelectFile={onSelectTerminal}
+          onCloseFile={onCloseTerminal}
+          onCloseOtherFiles={onCloseOtherTerminals}
+          onReorder={onReorderTerminals}
+          trailing={
+            <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
+              <IconButton label={newTerminalLabel} onClick={onAddTerminal}>
+                <Plus className="size-3.5" strokeWidth={1.75} />
+              </IconButton>
+              <div ref={sideButton}>
+                <IconButton
+                  label={uiT("Move Terminal")}
+                  onClick={() => {
+                    const rect = sideButton.current?.getBoundingClientRect();
+                    if (!rect) return;
+                    setMenu({ x: rect.left, y: rect.bottom + 4 });
+                  }}
+                >
+                  <SideIcon className="size-3.5" strokeWidth={1.75} />
+                </IconButton>
+              </div>
+              <IconButton label={hideTerminalLabel} onClick={onHide}>
+                <HideIcon className="size-3.5" strokeWidth={1.75} />
               </IconButton>
             </div>
-            <IconButton label={hideTerminalLabel} onClick={onHide}>
-              <HideIcon className="size-3.5" strokeWidth={1.75} />
-            </IconButton>
-          </div>
-        }
-      />
-      <div className="relative min-h-0 min-w-0 flex-1">
-        {dock.pane.files.map((file) => (
-          <div
-            key={file.id}
-            aria-hidden={file.id !== dock.pane.activeFileId}
-            className={
-              file.id === dock.pane.activeFileId
-                ? "absolute inset-0 h-full"
-                : "hidden"
-            }
-          >
-            <TerminalView
-              id={file.id}
-              cwd={file.cwd}
-              active={visible && focused && file.id === dock.pane.activeFileId}
-              onMetaChange={(patch) => onTerminalMetaChange?.(file.id, patch)}
-            />
-          </div>
-        ))}
+          }
+        />
+        <div className="relative min-h-0 min-w-0 flex-1">
+          {dock.pane.files.map((file) => (
+            <div
+              key={file.id}
+              aria-hidden={file.id !== dock.pane.activeFileId}
+              className={
+                file.id === dock.pane.activeFileId
+                  ? "absolute inset-0 h-full"
+                  : "hidden"
+              }
+            >
+              <TerminalView
+                id={file.id}
+                cwd={file.cwd}
+                active={
+                  visible && focused && file.id === dock.pane.activeFileId
+                }
+                onMetaChange={(patch) => onTerminalMetaChange?.(file.id, patch)}
+              />
+            </div>
+          ))}
+        </div>
       </div>
       {menu ? (
         <ExplorerMenu

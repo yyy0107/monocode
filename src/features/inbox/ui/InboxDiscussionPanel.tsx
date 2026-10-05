@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { PanelLeft, RotateCcw } from "../../../shared/ui/icons";
 import { IconButton } from "../../../app/shell/TitleBar";
 import { useDragResize } from "../../../shared/hooks/useDragResize";
+import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
 import { inboxItemRef, type InboxItem } from "../model/githubTasks";
 import { inboxAskKey } from "../model/inboxAsk";
 
@@ -66,15 +67,15 @@ export function InboxDiscussionPanel({
       aria-label={uiT("Ask about {value0}", {
         value0: String(inboxItemRef(item)),
       })}
-      className="relative flex min-h-0 shrink-0 flex-col border-l border-stroke max-[1100px]:absolute max-[1100px]:inset-0 max-[1100px]:z-10 max-[1100px]:!w-auto"
+      className="relative flex min-h-0 shrink-0 flex-col border-l border-stroke pl-4 max-[1100px]:absolute max-[1100px]:inset-0 max-[1100px]:z-10 max-[1100px]:!w-auto max-[1100px]:pl-0"
     >
-      <div
-        role="separator"
+      <ResizeHandle
+        edge="left"
+        dragging={resize.dragging}
         aria-label={uiT("Resize discussion")}
-        aria-orientation="vertical"
         onPointerDown={resize.onPointerDown}
         onDoubleClick={resize.onDoubleClick}
-        className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize max-[1100px]:hidden"
+        className="max-[1100px]:hidden"
       />
       <header className="flex h-11 shrink-0 items-center border-b border-stroke px-3">
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">

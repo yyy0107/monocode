@@ -70,3 +70,70 @@ an active drag before hiding, and settle reduced motion immediately.
   cleanup with focused regressions, then run web/Host/build checks. Record native
   Linux/Windows edge, corner, maximize/restore and fullscreen checks separately;
   source inspection and mocked APIs do not establish native platform compatibility.
+
+
+## Other draggable regions follow-up (2026-10-05)
+
+- Add shared `ResizeHandle` with left/right/top/bottom edges and 16px one-sided
+  transparent targets: vertical strips extend right and horizontal strips down.
+  Centralize placement/cursors and 2px hover/active feedback in shared CSS, and suppress interaction through disabled state and existing
+  `SurfaceVisibility` when a parent closes or hides.
+- Reuse existing handlers across sidebar, workspace splits, graph panel,
+  project/session terminal docks, Inbox/Notes list dividers, discussion and
+  linked-item panels. Keep capture, min/max clamps, double-click resets and
+  dimension persistence owned by their current controllers.
+- Keep clipping inside the handle's surrounding container. Reserve 16px for
+  controls only on the side containing the target, without shifting the preceding
+  pane's scrollbar away from its edge. Move linked-panel opening clipping to an
+  inner wrapper and retain the discussion panel's narrow-screen handle hiding.
+- Preserve shared sidebar/terminal disclosure motion in both directions, inert
+  closing content, stable zero-sized dock tracks, retained PTYs and immediate
+  direct resizing. No view-specific fold timers or alternate collapse mechanism.
+- Enlarge Quick Composer's existing native drag strip to 20px and the color
+  picker's existing hue slider to 16px without replacing their interaction logic.
+- Follow `contracts/drag-targets.md`. Run focused affected tests, then full web,
+  Host and build checks; record actual browser/native QA and CLI versions when
+  performed. Preserve unrelated local work and the active-feature pointer.
+
+- Enlarge the non-macOS horizontal/vertical scrollbar tracks to 12px while
+  retaining a 6px visible thumb. Use a transparent 1px default thumb border, 5px
+  vertical left border and 5px horizontal top border, with content-box background
+  clipping. The visible thumb remains 1px from the right/bottom edge; deliberately
+  hidden scrollbars remain hidden.
+- Remove Inbox/Notes list `mr-2` and discussion/linked-panel preceding content's
+  right padding. Protect controls with 16px left-side content padding in the
+  detail/discussion/linked panels without overriding their existing horizontal
+  padding. Workspace/main content reserves only left/top clearance for following
+  panels, with no added right/bottom spacing; give Graph a real 16px divider track.
+- Remove the native layer's proposed 10px root padding and the proposed 8px
+  two-sided content insets. Keep scrollbars at their original edges.
+- Use window capture-phase `mousedown` for native resizing, inspecting the real
+  target and actual scrollbar track before delegating. Pass through buttons,
+  inputs, links and custom drag rails. Keep the ordinary 10px edge/16px corner
+  geometry; all eight transparent direction nodes have no pointer hit behavior.
+  Pointer movement updates the resize cursor only. Verify target pass-through
+  with native-state/direction regressions and separate actual desktop QA.
+- Record browser geometry and controller exercises independently from native
+  verification; final full-suite results remain pending.
+
+
+## Menu/title-bar drag initiation follow-up (2026-10-05)
+
+- Share `app/shell/startWindowDrag` between MenuBar and TitleBar and attach it via
+  `onMouseDownCapture` to their deep native drag regions. Call Tauri
+  `getCurrentWindow().startDragging()` immediately for eligible first primary
+  presses, without awaiting state, requesting a frame or adding a timer.
+- Require native Linux/Windows, an unconsumed event, `detail === 1`, the deep-region
+  marker and actual DOM containment. Exclude controls, explicit non-drag
+  descendants and React portal targets outside the region. Consume only an
+  accepted move request so Tauri's document handler does not duplicate it.
+- After MenuBar dispatch is accepted, close its menu and clear Alt-reveal state.
+  Preserve control actions, tab/pane dragging and the existing double-click
+  maximize route; native edge capture runs first and keeps resize precedence.
+- Follow `contracts/window-drag.md`. Cover immediate invocation/order, exclusions,
+  menu cleanup, platforms, double clicks and edge precedence with focused tests,
+  then run full web/Host/build checks. Record actual native drag/timing observations
+  independently from mocked dispatch and source inspection.
+- Preserve existing dirty work and the active-feature pointer. Tauri 2.11.5 script
+  inspection establishes the existing synchronous document-bubble dispatch path,
+  not the source of OS/native queue delay or a measured speedup.

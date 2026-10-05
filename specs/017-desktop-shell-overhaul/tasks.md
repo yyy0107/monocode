@@ -186,3 +186,189 @@ No Rust source changes belong to this request; check:rust was not run.
 The added native capability requires restarting the desktop development process
 or rebuilding the desktop binary before it can be exercised. `git diff --check`
 passed.
+
+
+## Other draggable regions — follow-up validation (2026-10-05)
+
+- [x] Share 16px transparent panel resize targets and thin 2px hover/drag feedback
+  across sidebar, workspace splits, graph panel, terminal docks and Inbox/Notes
+  panel dividers, retaining their existing controllers.
+- [x] Keep full one-sided targets outside content clipping; protect controls on
+  the target's side and preserve responsive discussion-panel behavior. Keep
+  scrollbars at their original edges.
+- [x] Enlarge the Quick Composer drag strip to 20px and hue slider to 16px.
+- [x] Preserve capture, reset and saved dimensions; keep hidden/closing targets
+  inactive and retain shared sidebar/terminal two-way collapse motion and PTYs.
+- [x] Run focused affected regressions and record their actual results below.
+- [x] Run final `npm run check:web`, `npm run test:host` and `npm run build` for
+  this follow-up and record results plus installed CLI versions.
+- [ ] Browser geometry/interaction QA: verify full 16px targets on their assigned
+  side, scrollbars 1px from the edge and neighboring button centers, drag/reset, closing
+  and hidden state, both themes, narrow layouts and reduced motion.
+- [ ] Real native desktop QA: internal panel and Quick Composer dragging,
+  terminal lifetime while folding, and applicable Linux/Windows/macOS scenarios.
+
+Focused results for this follow-up (not final full-suite validation):
+
+- Sidebar, terminal docks, shared fold motion, App composition and useDragResize:
+  5 files / 79 tests passed.
+- Workspace split/graph regressions and existing pane drag/layout behavior:
+  6 files / 82 tests passed, including PaneTree, TitleBarPaneDrop,
+  PaneTreeTitleDrop, SurfaceTabsPaneDrag and layout coverage.
+- Quick Composer, controls and color picker: 4 files / 20 tests passed.
+- `LANG=en_US.UTF-8 npx vitest run src/features/inbox/ui/InboxView.test.ts
+  src/features/inbox/ui/InboxViewWorkspace.test.ts
+  src/features/inbox/ui/LinkedWorkItemPanel.test.ts
+  src/features/notes/ui/NotesView.test.ts src/shared/hooks/useDragResize.test.ts`
+  passed: 5 files / 39 tests. Vitest reported `3.2.7`. Scoped `git diff --check`
+  passed for the Inbox/Notes implementation.
+
+These groups were run independently and their totals can overlap. The browser
+checks recorded below cover only their stated scenarios; real native dragging
+remains unverified. Final full-suite results are recorded below. This scope changes no Rust source;
+`check:rust` was not run. The existing dirty content and active-feature pointer
+were retained.
+
+
+Final user adjustment: the visible scrollbar remains thin and 1px from its edge.
+Non-macOS scrollbar tracks are transparent and 12px on both axes, with a 6px
+visible thumb: default transparent border 1px, vertical left border 5px and
+horizontal top border 5px, using content-box background clipping. Panel targets
+remain 16px on one side: right of vertical dividers and below horizontal ones;
+Graph uses a real 16px track. The earlier proposed 8px two-sided clearances and
+10px native root inset are removed. Inbox/Notes list right margins and preceding
+discussion/linked-panel right padding are removed. Controls in the target's side
+receive 16px content clearance, including detail/discussion/linked-panel left
+padding; root/main reserves only left/top padding for following panels and no
+additional right/bottom spacing.
+
+Native resizing moves to window capture-phase `mousedown`, inspecting the real
+target and passing through buttons, inputs, links, custom drag rails and actual
+scrollbar tracks. Ordinary edges keep 10px bands and 16px corners. The eight
+transparent direction nodes do not participate in pointer hit testing; pointer
+movement only sets the resize cursor. This behavior still requires separate native
+verification; no earlier mocked result establishes real desktop dragging.
+
+No earlier focused result above is extended to this final geometry/native-event
+adjustment. Final full-suite validation and remaining browser/native acceptance
+stay open, including native target pass-through and applicable platform scenarios.
+
+Inbox/Notes focused regressions were rerun after removing list right margins and
+preceding discussion padding and adding one-sided left content clearance: the
+same 5-file command above passed all 39 tests (Vitest `3.2.7`). Scoped
+`git diff --check` passed for these products and the five updated design records.
+This rerun does not establish final browser geometry or native interactions.
+
+Browser checks for the final one-sided geometry (native IPC simulated):
+
+- A 16px strip was hit 15px past the divider and was not hit 17px past it.
+- Sidebar dragging, folding, saved-width restoration and double-click reset
+  worked in the browser fixture.
+- Project terminal dock resizing changed 150px to 190px on all four sides.
+- Scrollbar tracks sat directly at the view boundary (0px track gap), with the
+  visible thumb 1px from the right/bottom edge.
+
+These exercises do not verify native window dragging, OS constraints/snapping or
+platform behavior, and do not complete every theme/responsive/reduced-motion item
+in the broader browser acceptance task.
+
+Final verification (2026-10-05):
+
+- `npm run check:web` passed: 483 files / 5085 tests, with 2 files / 13 tests
+  skipped; TypeScript passed. This includes the native-target pass-through and
+  initial split-drag displacement regressions.
+- `npm run test:host` passed, including the Host build: 34 files / 249 tests,
+  with 1 file / 5 tests skipped.
+- `npm run build` passed. Vite reported its existing large-chunk warning.
+- Actual CLI versions: Node `24.16.0`, npm `12.0.1`, Vitest `3.2.7`,
+  TypeScript `5.8.3`, Vite `7.3.6`, Tauri CLI `2.11.4`.
+- The native edge capture focused suite passed 24 tests. Split/graph focused
+  suites passed 84 tests after adding horizontal/vertical 15px-offset initial
+  drag regressions. Editor/terminal focused suites passed 11 tests.
+- Additional browser checks used actual CodeMirror and xterm components,
+  without a PTY: editor rail 18px, terminal rail 14px, both visible thumbs 6px
+  and exactly 1px from the right boundary. Both rails ended at the view boundary.
+  Dragging their transparent target area scrolled the editor and terminal.
+- With simulated native IPC active, dragging the native scrollbar at the
+  window's right edge changed its scroll position to 476.8px and made no native
+  resize call; a separate ordinary left-edge click dispatched `West`.
+  Split drags starting 15px beyond the divider and moving 1px changed only the
+  corresponding 1px ratio; the graph drag changed 140px to 180px.
+- Browser proof: `/tmp/monocode-scrollbar-qa.png`. Temporary fixtures and browser
+  tabs were removed; existing development servers and unrelated work retained.
+- `git diff --check` passed. Real OS window resizing, constraints/snapping,
+  cross-platform QA and native Quick Composer/PTY lifecycle remain unverified.
+
+
+## Menu/title-bar drag initiation — follow-up validation (2026-10-05)
+
+- [x] Inspect the existing path: the local Tauri 2.11.5 script immediately invokes
+  native dragging from document-bubble `mousedown` on a first press; no application
+  drag-delay timer was found. This script version is separate from the earlier
+  recorded Tauri CLI version.
+- [x] Add shared `startWindowDrag` and capture handlers for eligible Linux/Windows
+  native first primary presses, dispatching before menu cleanup and without state
+  awaits, frames or timers.
+- [x] Preserve interactive/non-drag/portal exclusions, second-click maximize and
+  window-edge resize precedence; close MenuBar's menu/Alt-reveal after acceptance.
+- [x] Run focused capture-dispatch/order, control/portal/platform exclusion,
+  menu-cleanup, double-click and edge-precedence regressions and record results.
+- [x] Run final `npm run check:web`, `npm run test:host` and `npm run build` for
+  this follow-up and record actual results and installed CLI versions.
+- [ ] Real native Linux/Windows QA: record press-to-move observations/timing,
+  ordinary menu/title dragging, control actions, double-click maximize and
+  edge/corner resize precedence.
+
+Focused validation (2026-10-05):
+
+- `npx vitest run src/features/quick-composer/ui/useQuickAttachments.test.ts
+  src/app/shell/startWindowDrag.test.ts src/app/shell/MenuBar.test.ts
+  src/app/shell/TitleBar.test.ts src/app/shell/TitleBarMenu.test.ts
+  src/app/shell/TitleBarPaneDrop.test.ts src/app/shell/WindowResizeHandles.test.ts`
+  passed 7 files / 84 tests, including all 71 shell regressions and 13 attachment
+  tests. Immediate invocation while the promise is pending, duplicate prevention,
+  controls/SVG/portal exclusions, platform gating and menu cleanup passed.
+- Browser checks mounted the actual MenuBar and WindowResizeHandles with simulated
+  native IPC and the local Tauri 2.11.5 drag script. Opening File made no move
+  request; dragging blank menu-bar space issued exactly one component API request
+  during capture and closed the menu. Double-clicking blank space issued one
+  capture move and one original document-fallback maximize; the Maximize button
+  issued its own command without a move. A top-edge press dispatched `North`
+  resize without adding a move request. Proof: `/tmp/monocode-menu-drag-qa.png`.
+- Temporary browser fixtures and the created tab were removed. Existing servers,
+  dirty work and the active-feature pointer were retained.
+
+Final full verification (2026-10-05):
+
+- `npm run check:web` passed on the standalone rerun: 484 files / 5100 tests,
+  with 2 files / 13 tests skipped; TypeScript passed. The first concurrent full
+  check had one failure in the unrelated pasted-image disk-error test (a fixed
+  30ms wait), with 5099 other tests passing. Its 13-test file and the full suite
+  passed on rerun without source changes.
+- `npm run test:host` passed, including the Host build: 34 files / 249 tests,
+  with 1 file / 5 tests skipped.
+- `npm run build` passed; Vite reported the existing large-chunk warning.
+- Actual CLI versions: Node `24.16.0`, npm `12.0.1`, Vitest `3.2.7`,
+  TypeScript `5.8.3`, Vite `7.3.6`, Tauri CLI `2.11.4`.
+- Scoped `git diff --check` passed.
+
+Actual native timing remains unverified. Earlier resize-target/scrollbar results
+do not establish this handler's native behavior. No OS-delay resolution, measured
+speedup or latency number is claimed. No Rust source changes belong to this scope;
+Rust checks are not required for this implementation. The user has now authorized
+a focused local commit for this follow-up.
+
+
+## Focused local commit verification (2026-10-05)
+
+The requested local commit contains only the drag-target, scrollbar placement and
+menu/title-bar initiation changes. Mixed App, Sidebar and design records were
+staged from HEAD with focused patches; unrelated Host/project-tree changes and
+the active-feature pointer remain outside this commit.
+
+An isolated checkout of the index, without the other dirty work, passed 20 affected
+test files / 201 tests and `npm run build` (including TypeScript). The application
+build retained existing CSS, mixed-import and large-chunk advisories. The earlier
+5100-test web and 249-test Host results were from the full working tree; these
+separate results establish that the focused staged source also builds and passes
+its affected regressions independently. Real native drag latency remains untested.

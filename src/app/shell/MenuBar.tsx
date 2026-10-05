@@ -24,6 +24,7 @@ import {
 import type { CommandDispatch } from "../commands/useCommandDispatcher";
 import { TabVisitNav, WINDOW_NAVIGATION_END } from "./TitleBar";
 import { WindowControls } from "./WindowControls";
+import { startWindowDrag } from "./startWindowDrag";
 
 type Props = {
   handlers: CommandHandlers;
@@ -184,6 +185,11 @@ export function MenuBar({
       ref={bar}
       data-menu-bar
       data-tauri-drag-region="deep"
+      onMouseDownCapture={(event) => {
+        if (!startWindowDrag(event)) return;
+        closeMenu();
+        setRevealed(false);
+      }}
       className={`flex shrink-0 select-none items-center gap-0.5 border-b border-stroke text-[12px] ${
         visible ? "relative pl-2" : "sidebar-glass absolute z-30 px-2"
       }`}

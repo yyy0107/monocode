@@ -10999,7 +10999,9 @@ function Workspace({
                 linkedSessionUpdateIds={linkedSessionUpdateIds}
               />
 
-              <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
+              <div
+                className={`body-glass flex min-h-0 min-w-0 flex-1 flex-col ${sessionSidebarOpen ? "pl-4" : ""}`}
+              >
                 <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                   {workspaceTitleBar}
 
@@ -11030,7 +11032,7 @@ function Workspace({
                             key={dock.projectPath}
                             className={
                               present
-                                ? "h-full min-h-0 min-w-0 w-full overflow-hidden"
+                                ? `h-full min-h-0 min-w-0 w-full ${show ? "" : "overflow-hidden"}`
                                 : "hidden"
                             }
                             style={present ? { gridArea: "dock" } : undefined}
@@ -11061,7 +11063,17 @@ function Workspace({
                       })}
                       <div
                         className="relative flex min-h-0 min-w-0 flex-row"
-                        style={{ gridArea: "main" }}
+                        style={{
+                          gridArea: "main",
+                          paddingTop:
+                            dockVisible && currentProjectDock?.side === "top"
+                              ? 16
+                              : undefined,
+                          paddingLeft:
+                            dockVisible && currentProjectDock?.side === "left"
+                              ? 16
+                              : undefined,
+                        }}
                       >
                         <div className="relative min-h-0 min-w-0 flex-1">
                           {tabs.map((tab) => (
