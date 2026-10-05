@@ -1,3 +1,6 @@
+# Hidden directories at any depth
+.*/
+
 .env
 .env.*
 *.key
