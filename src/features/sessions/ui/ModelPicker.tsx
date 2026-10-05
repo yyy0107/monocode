@@ -1608,11 +1608,7 @@ function ProviderTabButton({
       onMouseDown={(event) => event.preventDefault()}
       onMouseEnter={selected ? undefined : onSelect}
       onClick={onSelect}
-      className={`grid size-8 shrink-0 place-items-center rounded-md ${
-        selected
-          ? "bg-selection-strong text-content"
-          : "text-content/45 hover:bg-content/8 hover:text-content"
-      }`}
+      className="surface-tab grid size-8 shrink-0 place-items-center"
     >
       <span className="shrink-0">{children}</span>
     </button>

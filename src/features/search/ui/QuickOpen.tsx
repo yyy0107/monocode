@@ -362,7 +362,7 @@ export function QuickOpen({
           <div
             role="tablist"
             aria-label={uiT("Quick open modes")}
-            className="flex items-center gap-1 px-2 pt-1.5"
+            className="flex items-center gap-1 px-2 py-1.5"
           >
             {MODES.filter(
               ({ mode: entry }) =>
@@ -376,11 +376,7 @@ export function QuickOpen({
                 aria-selected={entry === mode}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setMode(entry)}
-                className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] ${
-                  entry === mode
-                    ? "bg-selection text-content"
-                    : "text-content/50 hover:bg-content/10 hover:text-content"
-                }`}
+                className="surface-tab flex h-6 items-center gap-1 px-2 text-[11px]"
               >
                 {uiT(label)}
                 {prefix ? (

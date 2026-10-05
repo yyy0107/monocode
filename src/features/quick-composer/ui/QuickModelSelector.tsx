@@ -208,7 +208,7 @@ export function QuickModelSelector({
                   ?.querySelectorAll<HTMLButtonElement>("button")
                   [next]?.focus({ preventScroll: true });
               }}
-              className={`flex h-8 w-full min-w-0 items-center justify-center rounded-lg transition-colors ${visibleTab === id ? "bg-selection-emphasis text-content" : "text-content/40 hover:text-content hover:bg-selection-hover"}`}
+              className="surface-tab flex h-8 w-full min-w-0 items-center justify-center"
             >
               {id === "favorites" ? (
                 <Star

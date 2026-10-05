@@ -24,6 +24,13 @@ existing horizontal padding. Root/main workspace content reserves only left/top
 padding toward following panels, with no added right/bottom spacing. Responsive
 hidden discussion handles reserve no unused target space.
 
+The compact bottom project-terminal dock is an exception to the 16px top content
+clearance: tabs retain equal top/bottom gaps. Raised tab slots match the 30px
+pill height and raised trailing actions fit their controls, rather than covering
+the whole row. The clearance above both groups belongs to the resize target,
+leaving the horizontal boundary draggable across the dock's full width while
+the pills and buttons remain clickable. Blank portions retain the 16px hit area.
+
 Disabled and hidden/closing surfaces expose no active handle. Reuse the existing
 `SurfaceVisibility` contract to suppress hidden interaction. Sidebar keeps its
 shared `SidebarTransition`; terminal grid panels keep `useCollapseMotion` and

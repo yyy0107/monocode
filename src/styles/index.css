@@ -194,11 +194,62 @@ html.has-native-glass:not(.theme-light) #root {
 }
 
 .tab-motion,
-.tab-motion > button {
+.tab-motion > button,
+.surface-tab {
   transition:
     background-color var(--motion-feedback-duration) var(--motion-ease-out),
+    border-color var(--motion-feedback-duration) var(--motion-ease-out),
+    box-shadow var(--motion-feedback-duration) var(--motion-ease-out),
     color var(--motion-feedback-duration) var(--motion-ease-out),
     opacity var(--motion-feedback-duration) var(--motion-ease-out);
+}
+
+/* Shared chrome for workspace, document and navigation tabs. */
+.surface-tab {
+  align-self: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+
+.surface-tab:hover {
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  color: var(--color-content);
+}
+
+.surface-tab:is(
+  [aria-selected="true"],
+  [data-selected="true"]
+) {
+  border-color: color-mix(in srgb, var(--color-content) 12%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) 94%,
+    var(--color-content)
+  );
+  color: var(--color-content);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-content) 5%, transparent);
+}
+
+html.theme-light .surface-tab:is(
+  [aria-selected="true"],
+  [data-selected="true"]
+) {
+  background: color-mix(in srgb, var(--color-background-base) 25%, white);
+}
+
+[data-tab-slot-id]:has(
+  .surface-tab[aria-selected="false"]
+)::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: calc(50% - 6px);
+  height: 12px;
+  width: 1px;
+  background: color-mix(in srgb, var(--color-content) 22%, transparent);
+  pointer-events: none;
 }
 
 .tab-motion[data-reordering] [data-no-drag] {
@@ -239,7 +290,8 @@ html.has-native-glass:not(.theme-light) #root {
 
 @media (prefers-reduced-motion: reduce) {
   .tab-motion,
-  .tab-motion > button {
+  .tab-motion > button,
+  .surface-tab {
     transition: none;
   }
 
@@ -1571,6 +1623,13 @@ html.theme-light .explorer-file-drag-preview {
 
 .resize-handle.resize-handle-centered::after {
   top: 7px;
+}
+
+/* Raise only the pills: the row's top clearance remains a continuous resize strip. */
+[data-project-terminal-dock="bottom"] .tab-motion {
+  height: calc(var(--spacing) * 7.5);
+  align-self: center;
+  z-index: 21;
 }
 
 html.is-resizing,

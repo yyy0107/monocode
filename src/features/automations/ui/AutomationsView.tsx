@@ -1627,14 +1627,9 @@ function PageTab({
       aria-selected={selected}
       aria-controls={controls}
       onClick={onSelect}
-      className={`relative flex h-9 items-center text-[12px] leading-none ${
-        selected ? "text-content" : "text-content/50 hover:text-content"
-      }`}
+      className="surface-tab relative flex h-7.5 items-center px-2 text-[12px] leading-none"
     >
       {label}
-      {selected ? (
-        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-content" />
-      ) : null}
     </button>
   );
 }

@@ -381,11 +381,7 @@ export function SurfaceTabs({
                   onSelectFile(file.id);
                 }}
                 onDoubleClick={() => onPinFile?.(file.id)}
-                className={`relative flex h-7.5 min-w-0 flex-1 cursor-default items-center gap-1.5 self-center rounded-md px-2 pr-7 text-left text-[13px] ${
-                  active
-                    ? "bg-selection text-content"
-                    : "text-content/50 hover:bg-content/5 hover:text-content"
-                }`}
+                className="surface-tab relative flex h-7.5 min-w-0 flex-1 cursor-default items-center gap-1.5 self-center px-2 pr-7 text-left text-[13px]"
               >
                 {terminal ? (
                   <Terminal className="size-3.5 shrink-0" strokeWidth={1.75} />

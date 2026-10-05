@@ -310,11 +310,7 @@ function InboxSourceTab({
       role="tab"
       aria-selected={selected}
       onClick={() => onSelect(source)}
-      className={`flex h-6 min-w-0 flex-1 items-center justify-center rounded-md px-2 text-[12px] leading-none ${
-        selected
-          ? "bg-selection text-content"
-          : "text-content/50 hover:bg-content/5 hover:text-content"
-      }`}
+      className="surface-tab flex h-6 min-w-0 flex-1 items-center justify-center px-2 text-[12px] leading-none"
     >
       <span className="flex items-center gap-1.5">
         <InboxProviderMark
@@ -344,18 +340,13 @@ function InboxDetailTab({
       role="tab"
       aria-selected={selected}
       onClick={onSelect}
-      className={`relative flex h-9 items-center text-[12px] leading-none ${
-        selected ? "text-content" : "text-content/50 hover:text-content"
-      }`}
+      className="surface-tab relative flex h-7.5 items-center px-2 text-[12px] leading-none"
     >
       {label}
       {count ? (
         <span className="ml-1.5 rounded-full bg-content/10 px-1.5 py-0.5 text-[10px] tabular-nums text-content/60">
           {count}
         </span>
-      ) : null}
-      {selected ? (
-        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-content" />
       ) : null}
     </button>
   );

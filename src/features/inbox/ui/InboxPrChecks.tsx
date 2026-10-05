@@ -42,7 +42,7 @@ import {
 } from "../model/githubPrChecks";
 
 const TAB =
-  "relative flex h-9 items-center gap-1.5 text-[12px] leading-none select-none";
+  "surface-tab relative flex h-7.5 items-center gap-1.5 px-2 text-[12px] leading-none select-none";
 
 function overallMark(overall: GithubPrChecksOverall): {
   Icon: IconComponent;
@@ -110,7 +110,7 @@ export function PrChecksTab({
       aria-label={label}
       title={label}
       onClick={onSelect}
-      className={`${TAB} ${selected ? "text-content" : "text-content/50 hover:text-content"}`}
+      className={TAB}
     >
       <span className="leading-none">{uiT("Checks")}</span>
       <mark.Icon
@@ -121,9 +121,6 @@ export function PrChecksTab({
         <span className={`tabular-nums leading-none ${failClass}`}>
           {overall.failed}
         </span>
-      ) : null}
-      {selected ? (
-        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-content" />
       ) : null}
     </button>
   );

@@ -372,3 +372,81 @@ build retained existing CSS, mixed-import and large-chunk advisories. The earlie
 5100-test web and 249-test Host results were from the full working tree; these
 separate results establish that the focused staged source also builds and passes
 its affected regressions independently. Real native drag latency remains untested.
+
+## Shared tab appearance — follow-up validation (2026-10-05)
+
+- [x] Apply one theme-aware bordered/rounded active-tab style to workspace,
+  file/terminal, sidebar, app-page and mode/provider navigation tabs.
+- [x] Center pills within their rows, retain 30px document tabs and existing
+  compact sizes, add decorative inactive document separators and expose the
+  selected workspace close action.
+- [x] Run affected consumer suites and TypeScript checks; measure actual
+  browser spacing and verify selection/actions in light and dark themes.
+
+Affected consumer validation covered 18 files / 285 distinct tests. The first
+model-picker run failed its old `rounded-md` class assertion after the appearance
+moved to `.surface-tab`; the assertion was updated for the shared class. The
+final affected rerun passed 8 files / 91 tests, including all changed workspace
+and provider-picker consumers. The other affected consumer files passed on the
+initial run. `npx tsc --noEmit` passed. Existing React act warnings occurred in
+sidebar/project-tree tests. No unrun full web or Host suite is claimed here.
+
+The browser fixture mounted actual TitleBar and SurfaceTabs with production CSS:
+document pills remained 30px with 8px corners; workspace top/bottom gaps both
+measured 4.6px and file/terminal gaps both measured 2.6px at the browser's scale.
+Light selected surfaces measured RGB 0.9925 and dark selected surfaces 0.1398,
+with theme-aware border/text colors. Workspace/terminal selection, the add action
+and the selected workspace close callback worked. Proof is saved at
+`/tmp/monocode-global-tabs-light.jpg`. The fixture and created browser tab were
+removed. Native OS window dragging, real PTY lifecycle and every navigation
+surface were not exercised in this browser fixture.
+
+Read tool versions: Node `v24.16.0`, npm `12.0.1`, Vitest `3.2.7`,
+TypeScript `5.8.3`, Vite `7.3.6`. No provider/Host/Rust implementation change,
+commit, push or merge belongs to this request.
+
+The final `npm run build` passed with the existing CSS optimization, mixed-import
+and large-chunk advisories. `git diff --check` passed. Validation included the
+pre-existing unrelated working-tree changes; no Rust check was run for this UI
+appearance change.
+
+## Compact terminal divider hit area — follow-up validation (2026-10-05)
+
+- [x] Reproduce the full-height raised tab/action wrappers intercepting the
+  terminal dock's top boundary.
+- [x] Limit raised tab slots to pill height and trailing actions to their
+  controls, preserving the shared appearance and equal vertical clearance.
+- [x] Verify boundary cursor/hit testing, a drag above a tab, control actions,
+  affected tests, TypeScript and production build.
+
+Browser hit testing before the fix returned full-height tab slots above inactive
+and active tabs, and the full-height action wrapper above trailing controls,
+with cursor `auto`; only blank space returned the separator. After the fix,
+all five sampled boundary positions returned the separator with `row-resize`.
+Dragging above a tab changed dock height from 220px to 240px. Pills stayed 30px,
+with 2.6px top/bottom clearance at the browser's scale. Upper pill hit testing,
+selection and the add action remained available. The fixture used the actual
+ProjectTerminalDock with production CSS, without native PTY access; it does not
+establish real native PTY/window behavior. Proof is saved at
+`/tmp/monocode-terminal-divider-fixed.jpg`; the fixture and created tab were removed.
+
+The affected terminal/dock/tab consumer command passed 4 files / 34 tests.
+`npx tsc --noEmit`, `npm run build` and `git diff --check` passed; the build
+retained existing CSS, mixed-import and large-chunk advisories. No full web,
+Host or Rust suite was run for this CSS/hit-region fix. The running desktop's
+Vite log recorded HMR updates for ProjectTerminalDock and the shared stylesheet.
+
+## Focused tab commit verification (2026-10-05)
+
+The user authorized a local commit of the tab appearance, equal spacing,
+stronger separators and terminal boundary fix. The sidebar and design records
+were staged from HEAD with only these changes; unrelated project-tree, Host,
+native-session and mobile work remains outside the commit.
+
+An isolated checkout of the staged source passed 16 affected test files / 207
+tests and `npm run build` (including TypeScript), with existing CSS optimization,
+mixed-import and large-chunk advisories. `git diff --cached --check` passed.
+The separator now uses content color at 22% opacity while keeping its 1px width,
+12px height and pointer-transparent behavior. Earlier browser/working-tree
+results remain separate from this isolated commit validation. No push or merge
+was requested.

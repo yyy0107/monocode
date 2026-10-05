@@ -269,7 +269,7 @@ describe("model picker", () => {
     const grokTab = container.querySelector<HTMLButtonElement>(
       '[role="tab"][aria-label="Grok Build"]',
     )!;
-    expect(grokTab.className).toContain("rounded-md");
+    expect(grokTab.className).toContain("surface-tab");
     expect(grokTab.className).not.toContain("transition");
     hover(grokTab);
     expect(grokTab.getAttribute("aria-selected")).toBe("true");

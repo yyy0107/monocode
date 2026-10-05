@@ -157,3 +157,19 @@ Acceptance requires capture-dispatch and exclusion regressions, menu closure and
 edge/double-click compatibility checks, then separate real native timing/drag
 observations. No OS latency improvement or performance figure is claimed without
 measurement.
+
+## Shared tab appearance — follow-up (2026-10-05)
+
+Workspace, file/terminal, sidebar, app-page and picker navigation tabs share the
+reference image's appearance: the active tab has a subtle surface, thin border,
+8px rounded corners and a small shadow; inactive document tabs have clear
+separators. Keep existing document-tab heights and compact navigation sizing.
+Center tabs vertically so top and bottom clearance match within each row.
+Active workspace tabs expose their close button. Preserve tab selection, menus,
+sorting, opening/closing motion, native window drag exclusions and dock resizing.
+The earlier bottom terminal dock adjustment removes its extra 16px top padding;
+its tabs/actions stay above the overlapping resize hit target.
+
+The dock's raised tab/action wrappers must fit their visible controls. Its full
+top boundary, including positions above tabs and trailing buttons, exposes the
+resize cursor and drag gesture. A full-row wrapper must not block that boundary.

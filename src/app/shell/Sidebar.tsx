@@ -1449,9 +1449,7 @@ function SidebarComponent({
             if (sortable.consumeClick()) return;
             onTabPick(itemId);
           }}
-          className={`flex h-6 min-w-0 flex-1 items-center justify-center self-center rounded-md px-2 text-[12px] leading-none ${
-            active ? "bg-selection text-content" : "text-content/50"
-          }`}
+          className="surface-tab flex h-6 min-w-0 flex-1 items-center justify-center self-center px-2 text-[12px] leading-none"
         >
           {isChangesTab && hasChangeStats ? (
             <DiffStat additions={changeAdditions} deletions={changeDeletions} />

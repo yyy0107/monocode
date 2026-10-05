@@ -137,3 +137,23 @@ an active drag before hiding, and settle reduced motion immediately.
 - Preserve existing dirty work and the active-feature pointer. Tauri 2.11.5 script
   inspection establishes the existing synchronous document-bubble dispatch path,
   not the source of OS/native queue delay or a measured speedup.
+
+## Shared tab appearance — follow-up (2026-10-05)
+
+- Define `.surface-tab` once in the shared stylesheet with theme-aware active
+  surfaces, borders, corners, feedback transitions and reduced-motion handling.
+  Use existing `aria-selected`, plus a grouped-tab data state for side questions.
+- Apply the shared appearance to shell/document tabs, sidebar/app-page navigation
+  and mode/provider pickers. Replace full-height underline tabs with centered
+  30px pills; preserve 30px document tabs and smaller compact controls.
+- Workspace tabs use tab/tablist semantics. Keep inactive document separators
+  decorative and pointer-transparent, and show the selected workspace close action.
+- Verify actual browser spacing, both themes and tab/close actions; run affected
+  consumer suites and build/type checks. No provider, Host or Rust code belongs
+  to this appearance change. Preserve other dirty work and the feature pointer.
+
+- Compact bottom dock tab slots match the pill's 30px height and center within
+  the row. Trailing controls also self-center with intrinsic height. Their raised
+  hit regions protect only the controls, leaving the top boundary continuously
+  available to ResizeHandle. Verify hit testing above inactive/active tabs,
+  blank space and trailing actions, plus an actual drag from above a tab.

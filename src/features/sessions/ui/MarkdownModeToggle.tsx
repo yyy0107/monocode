@@ -67,11 +67,7 @@ function ModeTab({
       type="button"
       role="tab"
       aria-selected={selected}
-      className={`rounded px-2 py-0.5 font-sans text-[11px] ${
-        selected
-          ? "bg-selection-strong text-content"
-          : "text-content/45 hover:text-content/80"
-      }`}
+      className="surface-tab px-2 py-0.5 font-sans text-[11px]"
       onClick={onSelect}
     >
       {label}

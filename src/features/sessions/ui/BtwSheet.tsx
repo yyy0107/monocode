@@ -720,11 +720,8 @@ export function BtwSheet({
                 return (
                   <div
                     key={tab.id}
-                    className={`group flex h-7 max-w-[15rem] shrink-0 items-center rounded-md transition-colors ${
-                      selected
-                        ? "bg-content/10 text-content"
-                        : "text-content/50 hover:bg-content/5 hover:text-content/80"
-                    }`}
+                    data-selected={selected}
+                    className="surface-tab group flex h-7 max-w-[15rem] shrink-0 items-center"
                   >
                     <button
                       type="button"

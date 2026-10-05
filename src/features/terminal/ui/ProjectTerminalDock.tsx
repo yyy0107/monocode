@@ -202,7 +202,7 @@ export function ProjectTerminalDock({
 
   return (
     <section
-      data-project-terminal-dock=""
+      data-project-terminal-dock={dock.side}
       className={`relative flex h-full min-h-0 min-w-0 flex-col bg-transparent ${
         dock.side === "top"
           ? "border-b"
@@ -232,7 +232,6 @@ export function ProjectTerminalDock({
       <div
         className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
         style={{
-          paddingTop: dock.side === "bottom" ? 16 : undefined,
           paddingLeft: dock.side === "right" ? 16 : undefined,
         }}
       >
@@ -247,7 +246,7 @@ export function ProjectTerminalDock({
           onCloseOtherFiles={onCloseOtherTerminals}
           onReorder={onReorderTerminals}
           trailing={
-            <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
+            <div className="relative z-21 flex shrink-0 items-center self-center gap-0.5 pr-1.5">
               <IconButton label={newTerminalLabel} onClick={onAddTerminal}>
                 <Plus className="size-3.5" strokeWidth={1.75} />
               </IconButton>
