@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -11,6 +12,7 @@ import { ArrowLeft } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { placePopover, type PopoverAlign } from "../shared/lib/popover";
 import { useSheetDrag } from "./sheetDrag";
+import { preserveInputFocus } from "./inputFocus";
 
 // Reads the resolved system-bar insets so popovers stay clear of the status
 // bar, gesture area and display cutouts on edge-to-edge screens.
@@ -50,6 +52,7 @@ export function MobileSheet({
   onBack,
   placement = "bottom",
   anchor,
+  preserveFocus,
   anchorPoint,
   width = SHEET_WIDTH.form,
   align = "start",
@@ -61,6 +64,8 @@ export function MobileSheet({
   onBack?: () => void;
   placement?: "bottom" | "anchor";
   anchor?: RefObject<HTMLElement | null>;
+  /** Input to retain when a pointer opens this sheet while typing. */
+  preserveFocus?: RefObject<HTMLElement | null>;
   anchorPoint?: MobileSheetPoint;
   width?: number;
   align?: PopoverAlign;
@@ -137,34 +142,93 @@ export function MobileSheet({
       insets = safeInsets(element);
       place();
     };
+    // Scrolling the sheet's own list cannot move its anchor; skip measuring
+    // on each of those frames.
+    const scroll = (event: Event) => {
+      if (event.target instanceof Node && element.contains(event.target))
+        return;
+      place();
+    };
     place();
     const observer = new ResizeObserver(place);
     observer.observe(element);
     if (trigger) observer.observe(trigger);
     window.addEventListener("resize", resize);
-    window.addEventListener("scroll", place, true);
+    window.addEventListener("scroll", scroll, true);
     viewport?.addEventListener("resize", place);
     viewport?.addEventListener("scroll", place);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", resize);
-      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("scroll", scroll, true);
       viewport?.removeEventListener("resize", place);
       viewport?.removeEventListener("scroll", place);
     };
   }, [placement, anchor, anchorPoint, width, align, side]);
   useEffect(() => {
-    const trigger =
-      anchor?.current ?? (document.activeElement as HTMLElement | null);
-    dialog.current?.focus();
+    const input = preserveFocus?.current;
+    const keepInput = !!input && document.activeElement === input;
+    const trigger = keepInput
+      ? input
+      : anchor?.current ?? (document.activeElement as HTMLElement | null);
+    if (!keepInput) dialog.current?.focus();
     return () => {
-      if (trigger?.isConnected) trigger.focus();
+      if (trigger?.isConnected && document.activeElement !== trigger)
+        trigger.focus({ preventScroll: true });
     };
-  }, [anchor]);
+  }, [anchor, preserveFocus]);
+  const onKeyDown = useCallback(
+    (event: { key: string; shiftKey: boolean; preventDefault: () => void }) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [
+        ...(dialog.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), [tabindex="0"]',
+        ) ?? []),
+      ];
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first) {
+        event.preventDefault();
+        return;
+      }
+      const entering =
+        document.activeElement === dialog.current ||
+        document.activeElement === preserveFocus?.current;
+      if (event.shiftKey && (document.activeElement === first || entering)) {
+        event.preventDefault();
+        last?.focus();
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last || entering)
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    [onClose, preserveFocus],
+  );
+  useEffect(() => {
+    const input = preserveFocus?.current;
+    if (!input) return;
+    // Pointer interaction keeps typing focus outside the sheet. Escape still
+    // dismisses it, and an explicit Tab moves into its keyboard navigation.
+    input.addEventListener("keydown", onKeyDown);
+    return () => input.removeEventListener("keydown", onKeyDown);
+  }, [preserveFocus, onKeyDown]);
   return (
     <div
       className="mobile-sheet-backdrop"
       data-placement={placement}
+      onPointerDownCapture={(event) =>
+        preserveInputFocus(event, preserveFocus?.current)
+      }
+      onMouseDownCapture={(event) =>
+        preserveInputFocus(event, preserveFocus?.current)
+      }
       onClick={onClose}
     >
       <section
@@ -176,43 +240,11 @@ export function MobileSheet({
             : undefined
         }
         role="dialog"
-        aria-modal="true"
+        aria-modal={preserveFocus ? undefined : true}
         aria-label={t(title)}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onClose();
-          }
-          if (event.key !== "Tab") return;
-          const focusable = [
-            ...(dialog.current?.querySelectorAll<HTMLElement>(
-              'button:not(:disabled), input:not(:disabled), [tabindex="0"]',
-            ) ?? []),
-          ];
-          const first = focusable[0];
-          const last = focusable[focusable.length - 1];
-          if (!first) {
-            event.preventDefault();
-            return;
-          }
-          if (
-            event.shiftKey &&
-            (document.activeElement === first ||
-              document.activeElement === dialog.current)
-          ) {
-            event.preventDefault();
-            last?.focus();
-          } else if (
-            !event.shiftKey &&
-            (document.activeElement === last ||
-              document.activeElement === dialog.current)
-          ) {
-            event.preventDefault();
-            first.focus();
-          }
-        }}
+        onKeyDown={onKeyDown}
       >
         {placement === "bottom" && (
           <div className="mobile-sheet-grip" aria-hidden="true" />

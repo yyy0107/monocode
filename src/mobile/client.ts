@@ -11,6 +11,7 @@ import {
   type HostSessionSummary,
   type HostSessionActivity,
   type HostModelCatalog,
+  type HostSkillCatalog,
   type HostCommand,
   type CommandReceipt,
   type SessionSync,
@@ -358,6 +359,10 @@ export class MobileClient {
   }
   models(projectId: string) {
     return this.rpc<HostModelCatalog>("models.list", { projectId });
+  }
+  skills(projectId: string, harness: string, sessionId?: string, refresh = false) {
+    return this.rpc<HostSkillCatalog>("skills.list", { projectId, harness,
+      ...(sessionId ? { sessionId } : {}), ...(refresh ? { refresh: true } : {}) });
   }
 
   async readBinaryFile(path: string): Promise<Uint8Array> {

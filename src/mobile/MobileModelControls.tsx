@@ -104,6 +104,7 @@ export function MobileModelControls({
   onChange,
   onClose,
   anchor,
+  preserveFocus,
 }: {
   catalog?: HostModelCatalog;
   configuration: MobileConfiguration;
@@ -112,6 +113,7 @@ export function MobileModelControls({
   onChange: (configuration: MobileConfiguration) => void;
   onClose: () => void;
   anchor?: RefObject<HTMLElement | null>;
+  preserveFocus?: RefObject<HTMLElement | null>;
 }) {
   const { t } = useTranslation();
   const [page, setPage] = useState<
@@ -145,6 +147,7 @@ export function MobileModelControls({
     <MobileSheet
       placement={anchor ? "anchor" : "bottom"}
       anchor={anchor}
+      preserveFocus={preserveFocus}
       width={SHEET_WIDTH.settings}
       align="end"
       title={

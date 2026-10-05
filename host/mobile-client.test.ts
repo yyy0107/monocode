@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { HostEngine } from "./engine";
+import { HostSkills } from "./skills";
 import { HostStore } from "./store";
 import { createHostServer } from "./server";
 import type { HostProvider } from "./providers";
@@ -38,7 +39,8 @@ async function setup() {
     approve: vi.fn(),
     answer: vi.fn(),
   };
-  const engine = new HostEngine(store, { codex: provider });
+  const skillCatalog = new HostSkills(join(directory, "skill-home"), join(directory, "managed"));
+  const engine = new HostEngine(store, { codex: provider }, skillCatalog);
   const project = await engine.openProject(directory);
   const server = createHostServer(engine, ["codex"]);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -95,6 +97,7 @@ async function setup() {
     project,
     client,
     provider,
+    skillCatalog,
     device,
     endpoint,
     transport,
@@ -107,6 +110,52 @@ async function setup() {
 }
 
 describe("mobile client against the real MonoCode Host", () => {
+  it("loads Host skills, expands them once for execution and preserves original text across queue, steering and a lost receipt", async () => {
+    const s = await setup();
+    s.provider.steer = vi.fn(async () => {});
+    const path = join(s.directory, ".agents/skills/review/SKILL.md");
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, "---\nname: review\ndescription: Review 中文\n---\nSecret fixture review instructions");
+    const catalog = await s.client.skills(s.project.id, "codex");
+    expect(catalog.skills).toContainEqual(expect.objectContaining({ name: "review", invocation: "review", description: "Review 中文", scope: "project" }));
+    expect(JSON.stringify(catalog)).not.toContain("Secret fixture review instructions");
+    s.loseNextReceipt();
+    await expect(s.client.dispatch({ type: "create", commandId: "skills-first-create", projectId: s.project.id,
+      harness: "codex", model: "codex:test", runtimeMode: "supervised" }, "/review first")).rejects.toThrow("lost response");
+    const receipt = await s.client.retryPending();
+    await vi.waitFor(() => expect(s.provider.send).toHaveBeenCalledTimes(1));
+    expect(s.turn().text).toContain("Secret fixture review instructions");
+    expect(s.turn().text.endsWith("/review first")).toBe(true);
+    expect((await s.client.session(receipt.sessionId)).session.blocks.find(block => block.role === "user")?.text).toBe("/review first");
+    await s.client.dispatch({ type: "send", commandId: "skills-queued", sessionId: receipt.sessionId, text: "/review queued" });
+    expect((await s.client.session(receipt.sessionId)).session.queuedMessages?.[0].text).toBe("/review queued");
+    s.finish();
+    await vi.waitFor(() => expect(s.provider.send).toHaveBeenCalledTimes(2));
+    expect(s.turn().text.endsWith("/review queued")).toBe(true);
+    expect(s.turn().text).toContain("Secret fixture review instructions");
+    await s.client.dispatch({ type: "send", commandId: "skills-to-steer", sessionId: receipt.sessionId, text: "/review interrupt" });
+    await s.client.dispatch({ type: "queue", action: "steer", commandId: "skills-steer", sessionId: receipt.sessionId, messageId: "skills-to-steer", runId: s.store.session(receipt.sessionId).runId });
+    await vi.waitFor(() => expect(s.provider.steer).toHaveBeenCalledOnce());
+    expect(vi.mocked(s.provider.steer).mock.calls[0][0].text).toContain("Secret fixture review instructions");
+    expect((await s.client.session(receipt.sessionId)).session.blocks.some(block => block.role === "user" && block.text === "/review interrupt")).toBe(true);
+    await expect(s.client.skills(s.project.id, "pi", receipt.sessionId)).rejects.toThrow("another project or Agent");
+    const other = await s.client.openProject(join(s.directory, ".agents"));
+    await expect(s.client.skills(other.id, "codex", receipt.sessionId)).rejects.toThrow("another project or Agent");
+  });
+
+  it("does not launch a provider after cancelling asynchronous skill preparation", async () => {
+    const s = await setup();
+    let complete!: (text: string) => void;
+    vi.spyOn(s.skillCatalog, "prepare").mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+    const receipt = await s.client.dispatch({ type: "create", commandId: "cancel-skill-create", projectId: s.project.id,
+      harness: "codex", model: "codex:test", runtimeMode: "supervised" }, "/review waiting");
+    await vi.waitFor(() => expect(s.skillCatalog.prepare).toHaveBeenCalledOnce());
+    const current = await s.client.session(receipt.sessionId);
+    await s.client.dispatch({ type: "cancel", commandId: "cancel-skill", sessionId: receipt.sessionId, runId: current.runId! });
+    complete("Prepared too late");
+    await vi.waitFor(() => expect(s.store.session(receipt.sessionId).status).toBe("idle"));
+    expect(s.provider.send).not.toHaveBeenCalled();
+  });
   it("reads temporary image files outside registered projects through authenticated mobile RPC", async () => {
     const s = await setup();
     const outside = mkdtempSync(join(tmpdir(), "monocode-mobile-image-preview-"));

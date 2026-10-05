@@ -1,4 +1,6 @@
 import { useHostQueue } from "../features/connections/ui/useHostQueue";
+import { consumePlanCommand } from "../features/sessions/model/plan";
+import { isCompactCommand } from "../features/sessions/model/compact";
 import { MobileMessageQueue } from "./MobileMessageQueue";
 import {
   useCallback,
@@ -561,6 +563,7 @@ export function MobileApp() {
           acceptedQueueAttachments.current = previousDraft?.accepted ?? [];
           if (previousDraft) setPlanMode(previousDraft.planMode);
         }
+        return receipt;
       } catch (problem) {
         setError(message(problem));
         setPending(await client.pending());
@@ -661,6 +664,26 @@ export function MobileApp() {
       (snapshot?.status === "running" && !snapshot.supportsQueue)
     )
       return;
+    if (isCompactCommand(draft)) {
+      if (attachments.length) {
+        setError(t("Remove attachments before compacting context."));
+        return;
+      }
+      if (!snapshot || snapshot.status !== "idle" || !["codex", "claude", "grok", "opencode", "pi", "omp"].includes(snapshot.session.harness)) {
+        setError(t("Context compaction is unavailable for this conversation."));
+        return;
+      }
+      const generation = navigation.current;
+      const receipt = await dispatch({ type: "compact", sessionId: snapshot.session.id, commandId: crypto.randomUUID() });
+      if (receipt && navigation.current === generation) setDraft("");
+      return;
+    }
+    const parsed = consumePlanCommand(draft);
+    if (parsed.planning && !parsed.text.trim() && !attachments.length) {
+      setPlanMode(true);
+      setDraft("");
+      return;
+    }
     if (
       !sessionId &&
       !catalog?.models[configuration.harness]?.some(
@@ -679,9 +702,9 @@ export function MobileApp() {
     try {
       const uploaded = await client.uploadAttachments(attachments, acceptedQueueAttachments.current);
       const prompt: MobileFirstMessage = {
-        text: draft,
+        text: parsed.text,
         ...(uploaded.length ? { attachments: uploaded } : {}),
-        ...(planMode ? { intent: "plan" } : {}),
+        ...(planMode || parsed.planning ? { intent: "plan" } : {}),
       };
       if (sessionId) {
         await dispatch({
@@ -851,6 +874,12 @@ export function MobileApp() {
     (item) => item.id === sessionActionsTarget,
   );
   const nativeReadOnly = !!snapshot?.session.nativeSession;
+  const skillHarness = snapshot?.session.harness ?? configuration.harness;
+  const skillContextKey = `${client.connection?.environmentId ?? ""}\0${project?.id ?? ""}\0${skillHarness}\0${sessionId ?? ""}\0${snapshot?.session.worktreeCwd || snapshot?.session.cwd || project?.cwd || ""}`;
+  const loadSkillCatalog = useCallback((refresh = false) => {
+    if (!project) return Promise.reject(new Error("Open a project first."));
+    return client.skills(project.id, skillHarness, sessionId, refresh);
+  }, [project?.id, skillHarness, sessionId]);
   const contextRing = loading
     ? null
     : contextRatio(mobileContextUsage(snapshot?.session, catalog));
@@ -1111,6 +1140,9 @@ export function MobileApp() {
               />
             }
             value={draft}
+            skillsContextKey={skillContextKey}
+            loadSkills={loadSkillCatalog}
+            canCompact={!!snapshot && snapshot.status === "idle" && !nativeReadOnly && ["codex", "claude", "grok", "opencode", "pi", "omp"].includes(snapshot.session.harness)}
             onChange={setDraft}
             configuration={
               snapshot ? configurationForSession(snapshot) : configuration

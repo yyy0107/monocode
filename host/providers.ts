@@ -18,6 +18,9 @@ import type {
 } from "../src/integrations/harness/core/types";
 import type { UserQuestionReply } from "../src/features/sessions/model/userQuestion";
 import type { RemoteProvider } from "../src/features/connections/model/protocol";
+import type { NativeCommandProvider } from "../src/integrations/harness/core/nativeCommands";
+import { discoverPiCommands } from "../src/integrations/harness/providers/pi/piSkills";
+import { ompCommandProvider } from "../src/integrations/harness/providers/pi/piFamily";
 import type { GeneratedSessionTitle } from "../src/features/sessions/model/sessionTitle";
 import { generateCodexSessionTitle } from "../src/integrations/harness/providers/codex/codexTitle";
 import { generateClaudeSessionTitle } from "../src/integrations/harness/providers/claude/claudeTitle";
@@ -37,6 +40,7 @@ import {
 import { respondQuestion as respondPiQuestion } from "../src/integrations/harness/providers/pi/piFamily";
 
 export interface HostProvider {
+  commands?: NativeCommandProvider;
   readSessionTitle?(input: NativeTitleInput): Promise<string | null>;
   send(input: SendTurnInput): Promise<void>;
   compact?(input: CompactContextInput): Promise<void>;
@@ -117,6 +121,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     generateTitle: generateOpenCodeSessionTitle,
   },
   pi: {
+    commands: { rawSlashCommands: true, discover: ({ cwd }) => discoverPiCommands(cwd) },
     readSessionTitle: (input) => readFamilySessionTitle(PI_FLAVOR, input),
     send: pi.sendPiTurn,
     steer: pi.steerPiTurn,
@@ -130,6 +135,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     generateTitle: generatePiSessionTitle,
   },
   omp: {
+    commands: ompCommandProvider,
     readSessionTitle: (input) => readFamilySessionTitle(OMP_FLAVOR, input),
     send: omp.sendOmpTurn,
     steer: omp.steerOmpTurn,

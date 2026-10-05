@@ -94,6 +94,114 @@ function keyboard(height: number, duration = 285) {
     ),
   );
 }
+function tapKeepingFocus(target: HTMLElement) {
+  act(() => {
+    for (const event of [
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        pointerType: "touch",
+      }),
+      new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    ]) {
+      target.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    }
+    target.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    target.click();
+  });
+}
+describe("mobile composer popup focus", () => {
+  it.each([
+    "Add to message",
+    "Model and reasoning",
+    "Permissions: Supervised",
+    "Plan mode",
+  ])("keeps typing focus and the caret when opening and dismissing %s", (label) => {
+    const { node, button } = render({ planMode: true });
+    const area = node.querySelector("textarea")!;
+    act(() => {
+      area.focus();
+      area.setSelectionRange(5, 9);
+    });
+    const blur = vi.fn();
+    area.addEventListener("blur", blur);
+    tapKeepingFocus(button(label));
+    const sheet = node.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(sheet).not.toBeNull();
+    expect(document.activeElement).toBe(area);
+    expect(sheet.getAttribute("aria-modal")).not.toBe("true");
+    tapKeepingFocus(node.querySelector<HTMLElement>(".mobile-sheet-backdrop")!);
+    expect(node.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(area);
+    expect([area.selectionStart, area.selectionEnd]).toEqual([5, 9]);
+    expect(area.value).toBe("Keep this draft");
+    expect(blur).not.toHaveBeenCalled();
+  });
+
+  it("keeps typing focus through model and reasoning submenus and option changes", () => {
+    const onConfigurationChange = vi.fn();
+    const { node, button } = render({
+      onConfigurationChange,
+      catalog: {
+        models: {
+          codex: [{
+            id: "codex:test",
+            name: "Test model",
+            harness: "codex",
+            settings: [{
+              id: "reasoningEffort",
+              label: "Reasoning",
+              kind: "select",
+              value: "high",
+              options: [
+                { value: "low", label: "Low" },
+                { value: "high", label: "High" },
+              ],
+            }],
+          }],
+        },
+        errors: {},
+      },
+    });
+    const area = node.querySelector("textarea")!;
+    act(() => area.focus());
+    const blur = vi.fn();
+    area.addEventListener("blur", blur);
+    const row = (text: string) => [...node.querySelectorAll<HTMLButtonElement>(".mobile-sheet-row")]
+      .find((element) => element.querySelector("strong")?.textContent === text)!;
+    tapKeepingFocus(button("Model and reasoning"));
+    tapKeepingFocus(row("Model"));
+    tapKeepingFocus(row("Test model"));
+    tapKeepingFocus(row("Reasoning effort"));
+    tapKeepingFocus(row("Low"));
+    expect(onConfigurationChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      modelSettings: { reasoningEffort: "low" },
+    }));
+    expect(document.activeElement).toBe(area);
+    expect(blur).not.toHaveBeenCalled();
+  });
+
+  it("closes with Escape from the input and allows Tab to enter popup navigation", () => {
+    const { node, button } = render();
+    const area = node.querySelector("textarea")!;
+    act(() => area.focus());
+    tapKeepingFocus(button("Add to message"));
+    act(() => area.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(node.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(area);
+
+    tapKeepingFocus(button("Add to message"));
+    const rows = [...node.querySelectorAll<HTMLButtonElement>(".mobile-sheet-row:not(:disabled)")];
+    act(() => area.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true })));
+    expect(document.activeElement).toBe(rows[0]);
+    act(() => rows[0].dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true })));
+    expect(document.activeElement).toBe(rows.at(-1));
+    act(() => rows.at(-1)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(node.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(area);
+  });
+});
 describe("mobile composer with the Android keyboard", () => {
   it("changes shape when the keyboard starts moving, on the keyboard's timing", () => {
     vi.useFakeTimers();

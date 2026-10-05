@@ -277,6 +277,7 @@ export function createHostServer(
                 "sessions",
                 "projects.browse",
                 "models.list",
+                "skills.list",
                 "approvals",
                 "questions",
                 "diff",
@@ -316,6 +317,9 @@ export function createHostServer(
             break;
           case "models.list":
             result = await models(params.projectId);
+            break;
+          case "skills.list":
+            result = await engine.listSkills(params.projectId, params.harness, params.sessionId, params.refresh === true);
             break;
           case "sessions.activity":
             result = {

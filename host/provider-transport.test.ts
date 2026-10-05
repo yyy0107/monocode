@@ -106,6 +106,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
   if (request.type === 'get_available_thinking_levels') send({type: 'response', id: request.id, command: request.type, success: true, data: {levels: ['off', 'high']}});
   if (request.type === 'set_thinking_level') { piThinking = request.level; send({type: 'response', id: request.id, command: request.type, success: true}); }
   if (request.type === 'get_commands') send({type: 'response', id: request.id, command: request.type, success: true, data: {commands: [{name:'fixture-handled', source:'extension'}, {name:'fixture-template', source:'prompt'}, {name:'skill:fixture', source:'skill'}]}});
+  if (request.type === 'get_available_commands') send({type: 'response', id: request.id, command: request.type, success: true, data: {commands: [{name:'audit', description:'Native audit', source:'skill', aliases:['review'], input:{hint:'<path>'}}, {name:'plan', source:'builtin'}]}});
   if (request.type === 'abort') { pendingPiDialog = undefined; send({type:'response', id:request.id, command:request.type, success:true}); }
   if (request.type === 'extension_ui_response' && pendingPiDialog === request.id) {
     record({piReply: request}); pendingPiDialog = undefined; completePi();
@@ -190,6 +191,19 @@ describe("existing providers over headless process I/O", () => {
       reopened.close();
     }
   }
+
+  it.each(["pi", "omp"] as const)("discovers %s native skill commands over the real Host child backend", async (harness) => {
+    const project = await engine.openProject(directory);
+    const catalog = await engine.listSkills(project.id, harness);
+    expect(catalog.native).toBe(true);
+    if (harness === "pi") {
+      expect(catalog.skills).toContainEqual(expect.objectContaining({ kind: "native", name: "fixture", invocation: "skill:fixture", source: "pi" }));
+      expect(catalog.skills).toContainEqual(expect.objectContaining({ invocation: "fixture-handled" }));
+    } else {
+      expect(catalog.skills).toContainEqual(expect.objectContaining({ kind: "native", name: "audit", aliases: ["review"], inputHint: "<path>", source: "omp" }));
+      expect(catalog.skills).toContainEqual(expect.objectContaining({ invocation: "omp:plan" }));
+    }
+  });
 
   it("discovers host models in parallel without probe process collisions", async () => {
     const [codexA, codexB, claudeA, claudeB, piA, piB, ompA, ompB] = await Promise.all([

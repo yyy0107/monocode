@@ -130,6 +130,26 @@ notifications are unavailable in this Android change and the settings say so.
 
 ## Agent, models, and reasoning
 
+**Skills and commands** is available from the composer's plus menu. Search the
+connected Host's project/personal skills or type `/` in the message to see
+matching suggestions. Selecting an item inserts its invocation at the caret and
+returns focus to the message; write any arguments, then send. Skill names,
+descriptions and native command arguments keep their original values.
+
+The Host discovers the same skill folders and Claude plugin namespaces used by
+desktop. It reads selected file-skill instructions when executing the turn;
+history and queued messages keep the original `/name` text. Pi and OMP use their
+provider-owned command catalogs, including aliases and argument hints. Plan is
+available as `/plan request`; `/plan` alone enables Plan mode. Standalone
+`/compact` uses the existing Host compaction command for an idle supported
+conversation. Provider-prefixed commands such as `/omp:plan` remain native.
+
+This feature requires a Host advertising `skills.list` as well as the updated
+mobile app. Catalog failures offer Retry while preserving the draft. Changing
+projects, Agents or conversations clears previous suggestions before loading
+their replacements. Skills are selected and executed on the Host; the phone does
+not copy provider credentials or skill bodies.
+
 The composer has separate Agent and Model selectors. Models and settings come
 from the connected Host's catalog, so reasoning levels are shown only when that
 model supports them. Changing models preserves compatible settings and resets

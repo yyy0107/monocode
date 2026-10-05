@@ -35,6 +35,7 @@ import {
 } from "../src/features/connections/model/protocol";
 import type { HostProvider } from "./providers";
 import { HostStore } from "./store";
+import { HostSkills } from "./skills";
 import { parseRemoteAttachments, resolveAttachments, saveGeneratedImageAttachment } from "./attachments";
 import type { Attachment } from "../src/features/sessions/model/session";
 
@@ -304,6 +305,7 @@ export class HostEngine {
   constructor(
     readonly store: HostStore,
     private readonly providers: Partial<Record<RemoteProvider, HostProvider>>,
+    private readonly skills = new HostSkills(),
   ) {
     this.titles = new SessionTitleCoordinator({
       get: (id) => { try { return this.store.session(id).session; } catch { return undefined; } },
@@ -391,6 +393,16 @@ export class HostEngine {
     if (!(await stat(cwd)).isDirectory())
       throw new Error("Project path is not a directory");
     return this.store.addProject(cwd, basename(cwd));
+  }
+
+  async listSkills(projectId: unknown, harness: unknown, sessionId?: unknown, refresh = false) {
+    const project = this.store.project(text(projectId, "project ID"));
+    if (!isRemoteProvider(harness)) throw new Error("Unsupported provider");
+    const value = sessionId === undefined ? undefined : this.store.session(text(sessionId, "session ID"));
+    if (value && (value.projectId !== project.id || value.session.harness !== harness))
+      throw new Error("The skill catalog belongs to another project or Agent");
+    return this.skills.list({ harness, cwd: value?.session.worktreeCwd || value?.session.cwd || project.cwd,
+      ...(value ? { sessionId: value.session.id } : {}) }, this.provider(harness), refresh);
   }
 
   async withIdleProject<T>(
@@ -1070,12 +1082,15 @@ export class HostEngine {
     const active = this.running.get(session.id)!;
     active.controls = active.controls.then(async () => {
       try {
-        await this.provider(session.harness).steer!({
+        const provider = this.provider(session.harness);
+        const prepared = await this.skills.prepare(row.text, { harness: session.harness as RemoteProvider, cwd: session.worktreeCwd || session.cwd, sessionId: session.id }, provider);
+        if (active.cancelled || active.finishing || this.closing) throw new Error("Turn stopped before the queued message could be steered");
+        await provider.steer!({
           sessionId: session.id,
           cwd: session.cwd,
           model: session.model,
           modelSettings: session.modelSettings,
-          text: row.text,
+          text: prepared,
           attachments: this.providerAttachments(row.attachments),
         });
         this.flush(session.id);
@@ -1211,10 +1226,11 @@ export class HostEngine {
               onEvent: (event) => this.event(session.id, runId!, event, session.harness, session.providerAccountId),
             };
             if (prompt === null) await provider.compact!(input);
-            else
-              await provider.send({
+            else {
+              const prepared = await this.skills.prepare(prompt, { harness: session.harness as RemoteProvider, cwd: session.worktreeCwd || session.cwd, sessionId: session.id }, provider);
+              if (!this.closing && !active.cancelled) await provider.send({
                 ...input,
-                text: prompt,
+                text: prepared,
                 attachments: attachments?.map((file) =>
                   session.harness !== "codex" &&
                   isVisionImage(file.mimeType) &&
@@ -1227,6 +1243,7 @@ export class HostEngine {
                     : file,
                 ),
               });
+            }
           }
         } catch (reason) {
           error = reason instanceof Error ? reason.message : String(reason);
@@ -1417,6 +1434,7 @@ export class HostEngine {
   async close(): Promise<void> {
     this.closing = true;
     this.titles.close();
+    this.skills.close();
     await Promise.all([...this.parked.entries()].map(async ([id, entry]) => { clearTimeout(entry.timer); await this.provider(entry.harness).stop(id); }));
     this.parked.clear();
     for (const editor of this.editors.values()) clearTimeout(editor.timer);

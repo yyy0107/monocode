@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUp,
   AiIdea,
@@ -11,6 +11,7 @@ import {
   ListEnd,
   Plus,
   Square,
+  Sparkles,
   X,
 } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
@@ -19,6 +20,12 @@ import { AttachmentChip } from "../features/sessions/ui/AttachmentChip";
 import { RuntimeModeIcon } from "../features/sessions/ui/RuntimeModeIcon";
 import { MODE_COMMAND_STYLES } from "../features/sessions/ui/modeCommands";
 import { PLAN_COMMAND } from "../features/sessions/model/plan";
+import { COMPACT_COMMAND } from "../features/sessions/model/compact";
+import { rankSkills, slashTokenAt, type SlashToken } from "../features/skills/model/slashCommands";
+import type { Skill } from "../features/skills/model/skillTypes";
+import { insertMobileSkill } from "./skillCommands";
+import { useMobileSkills, type MobileSkillsLoader } from "./useMobileSkills";
+import { MobileSkillList } from "./MobileSkillList";
 import {
   HARNESS_TITLE,
   RUNTIME_MODES,
@@ -36,6 +43,7 @@ import {
   type MobileConfiguration,
 } from "./MobileModelControls";
 import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
+import { preserveInputFocus } from "./inputFocus";
 import {
   keyboardHeight,
   keyboardTracked,
@@ -54,6 +62,7 @@ export type MobileComposerPanel =
   | "model"
   | "projects"
   | "plan"
+  | "skills"
   | null;
 const planStyle = MODE_COMMAND_STYLES[PLAN_COMMAND.name];
 type Props = {
@@ -81,6 +90,9 @@ type Props = {
   onRemoveAttachment: (id: string) => void;
   planMode: boolean;
   onPlanModeChange: (enabled: boolean) => void;
+  skillsContextKey?: string;
+  loadSkills?: MobileSkillsLoader;
+  canCompact?: boolean;
 };
 
 export function MobileComposer(props: Props) {
@@ -105,6 +117,54 @@ export function MobileComposer(props: Props) {
   const photos = useRef<HTMLInputElement>(null);
   const files = useRef<HTMLInputElement>(null);
   const panelAnchor = useRef<HTMLButtonElement>(null);
+  const skillListId = useId();
+  const [slash, setSlash] = useState<SlashToken | null>(null);
+  const [skillQuery, setSkillQuery] = useState("");
+  const [skillActive, setSkillActive] = useState(0);
+  const dismissedSlash = useRef<string | null>(null);
+  const insertion = useRef({ start: props.value.length, end: props.value.length });
+  const skillsKey = props.skillsContextKey ?? `${props.project?.id ?? ""}\0${props.configuration.harness}`;
+  const nativeGuess = props.configuration.harness === "pi" || props.configuration.harness === "omp";
+  const inlineOpen = !!slash && props.panel === null && !props.disabled;
+  const skillsState = useMobileSkills(skillsKey, props.loadSkills, inlineOpen || props.panel === "skills", nativeGuess);
+  const native = skillsState.catalog?.native ?? nativeGuess;
+  const commands = useMemo(() => [PLAN_COMMAND,
+    ...(props.canCompact && (skillsState.catalog?.canCompact ?? true) ? [COMPACT_COMMAND] : []),
+    ...(skillsState.catalog?.skills ?? []).filter(skill => !["operator", "mono", "monocode"].includes(skill.name) &&
+      (skill.kind === "native" || !["plan", "compact", "orchestrator", "draft", "btw", "mcp", "add-to-folder"].includes(skill.name))),
+  ], [props.canCompact, skillsState.catalog]);
+  const options = rankSkills(commands, props.panel === "skills" ? skillQuery : slash?.query ?? "");
+  useEffect(() => { setSlash(null); setSkillQuery(""); setSkillActive(0); }, [skillsKey]);
+  useEffect(() => { setSkillActive(0); }, [slash?.query, skillQuery]);
+  useEffect(() => {
+    if (props.disabled) setSlash(null);
+  }, [props.disabled]);
+  const syncSkillToken = (element: HTMLTextAreaElement) => {
+    insertion.current = { start: element.selectionStart, end: element.selectionEnd };
+    if (dismissedSlash.current === `${element.value}\0${element.selectionStart}\0${element.selectionEnd}`) return;
+    dismissedSlash.current = null;
+    setSlash(slashTokenAt(element.value, element.selectionStart, native));
+  };
+  const dismissSkills = () => {
+    const element = area.current;
+    if (element) dismissedSlash.current = `${element.value}\0${element.selectionStart}\0${element.selectionEnd}`;
+    setSlash(null);
+  };
+  const pickSkill = (skill: Skill) => {
+    if (props.disabled || !area.current) return;
+    const point = slash ? { start: slash.start + 1 + slash.query.length, end: slash.end } : insertion.current;
+    const result = insertMobileSkill(props.value, point.start, point.end, skill);
+    setSlash(null);
+    props.onPanelChange(null);
+    props.onChange(result.text);
+    requestAnimationFrame(() => {
+      const element = area.current;
+      if (!element) return;
+      element.focus();
+      element.setSelectionRange(result.cursor, result.cursor);
+      insertion.current = { start: result.cursor, end: result.cursor };
+    });
+  };
   const { modelName, effort } = configurationLabels(
     props.catalog,
     props.configuration,
@@ -317,6 +377,14 @@ export function MobileComposer(props: Props) {
   return (
     <>
       <div ref={dock} className="mobile-composer-dock">
+        {inlineOpen && <div className="mobile-sheet mobile-command-suggestions">
+          <div className="mobile-skill-heading"><strong>{t("Skills and commands")}</strong>
+            <button type="button" className="mobile-icon-button" aria-label={t("Close suggestions")}
+              onPointerDown={event => event.preventDefault()} onClick={dismissSkills}><X size={18} /></button>
+          </div>
+          <MobileSkillList skills={options} loading={skillsState.loading} failed={!!skillsState.failed} error={skillsState.error}
+            active={skillActive} id={skillListId} onPick={pickSkill} onActive={setSkillActive} onRetry={() => void skillsState.reload(true)} />
+        </div>}
         {props.queue ? <div className="mobile-message-queue">{props.queue}</div> : null}
         <form
           ref={form}
@@ -333,6 +401,11 @@ export function MobileComposer(props: Props) {
           }}
           onPointerDownCapture={(event) => {
             pressingAction.current = !!(event.target as Element).closest("button");
+            if (pressingAction.current) preserveInputFocus(event, area.current);
+          }}
+          onMouseDownCapture={(event) => {
+            if ((event.target as Element).closest("button"))
+              preserveInputFocus(event, area.current);
           }}
           onPointerUpCapture={() => {
             // Touch browsers can focus a button between pointerup and click.
@@ -402,9 +475,26 @@ export function MobileComposer(props: Props) {
             )}
             rows={1}
             value={props.value}
-            onChange={(event) => props.onChange(event.target.value)}
+            onChange={(event) => { dismissedSlash.current = null; props.onChange(event.target.value); syncSkillToken(event.currentTarget); }}
+            onSelect={(event) => syncSkillToken(event.currentTarget)}
+            aria-autocomplete="list"
+            aria-expanded={inlineOpen}
+            aria-controls={inlineOpen ? skillListId : undefined}
+            aria-activedescendant={inlineOpen && options.length ? `${skillListId}-${Math.min(skillActive, options.length - 1)}` : undefined}
             disabled={props.disabled}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
+              if (inlineOpen && !event.metaKey && !event.ctrlKey) {
+                if (event.key === "Escape") { event.preventDefault(); dismissSkills(); return; }
+                if ((event.key === "ArrowDown" || event.key === "ArrowUp") && options.length) {
+                  event.preventDefault();
+                  setSkillActive(index => (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length);
+                  return;
+                }
+                if ((event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) && options.length) {
+                  event.preventDefault(); pickSkill(options[Math.min(skillActive, options.length - 1)]!); return;
+                }
+              }
               if (
                 event.key === "Enter" &&
                 (event.metaKey || event.ctrlKey) &&
@@ -558,6 +648,7 @@ export function MobileComposer(props: Props) {
       {props.panel === "model" && (
         <MobileModelControls
           anchor={panelAnchor}
+          preserveFocus={area}
           catalog={props.catalog}
           configuration={props.configuration}
           lockedAgent={props.lockedAgent}
@@ -571,6 +662,7 @@ export function MobileComposer(props: Props) {
           title="Plan mode"
           placement="anchor"
           anchor={panelAnchor}
+          preserveFocus={area}
           width={SHEET_WIDTH.menu}
           side="top"
           onClose={close}
@@ -595,6 +687,7 @@ export function MobileComposer(props: Props) {
           title="Permissions"
           placement="anchor"
           anchor={panelAnchor}
+          preserveFocus={area}
           width={SHEET_WIDTH.list}
           onClose={close}
         >
@@ -641,9 +734,19 @@ export function MobileComposer(props: Props) {
           title="Add to message"
           placement="anchor"
           anchor={panelAnchor}
+          preserveFocus={area}
           width={SHEET_WIDTH.menu}
           onClose={close}
         >
+          <button
+            type="button"
+            className="mobile-sheet-row"
+            disabled={props.disabled || !props.loadSkills}
+            onClick={() => { setSkillQuery(""); setSkillActive(0); props.onPanelChange("skills"); }}
+          >
+            <Sparkles size={22} />
+            <span>{t("Skills and commands")}</span>
+          </button>
           <button
             type="button"
             className="mobile-sheet-row"
@@ -685,11 +788,23 @@ export function MobileComposer(props: Props) {
           </button>
         </MobileSheet>
       )}
+      {props.panel === "skills" && <MobileSheet title="Skills and commands" anchor={panelAnchor} preserveFocus={area} onClose={close}>
+        <div className="mobile-skill-picker">
+          <div className="mobile-skill-heading"><h2>{t("Skills and commands")}</h2>
+            <button type="button" className="mobile-icon-button" aria-label={t("Close")} onClick={close}><X size={20} /></button>
+          </div>
+          <input type="search" aria-label={t("Search skills and commands")} placeholder={t("Search skills and commands")}
+            value={skillQuery} onChange={event => setSkillQuery(event.currentTarget.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
+          <MobileSkillList skills={options} loading={skillsState.loading} failed={!!skillsState.failed} error={skillsState.error}
+            active={skillActive} id={skillListId} onPick={pickSkill} onActive={setSkillActive} onRetry={() => void skillsState.reload(true)} />
+        </div>
+      </MobileSheet>}
       {props.panel === "projects" && (
         <MobileSheet
           title="Choose project"
           placement="anchor"
           anchor={panelAnchor}
+          preserveFocus={area}
           width={SHEET_WIDTH.list}
           side="top"
           onClose={close}

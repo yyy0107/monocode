@@ -2,6 +2,7 @@ import type { Block, Session, RuntimeMode } from "../../sessions/model/session";
 import type { UserQuestionReply } from "../../sessions/model/userQuestion";
 import type { AgentModel } from "../../sessions/model/models";
 import type { LinkedWorkItem } from "../../sessions/model/session";
+import type { Skill } from "../../skills/model/skillTypes";
 
 export const HOST_PROTOCOL_VERSION = 1;
 export const REMOTE_PROVIDERS = [
@@ -34,6 +35,11 @@ export type HostDirectory = {
 export type HostModelCatalog = {
   models: Partial<Record<RemoteProvider, AgentModel[]>>;
   errors: Partial<Record<RemoteProvider, string>>;
+};
+export type HostSkillCatalog = {
+  skills: Skill[];
+  native: boolean;
+  canCompact: boolean;
 };
 export type HostWorktree = {
   path: string;

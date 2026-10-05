@@ -1217,6 +1217,89 @@ html[data-mobile-glass="solid"] :is(
   margin: 6px -4px 0;
   padding: 6px 4px 0;
 }
+.mobile-command-suggestions {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  inset-inline: 8px;
+  width: auto;
+  max-width: none;
+  max-height: max(92px, min(35dvh, 280px, calc(100dvh - var(--mobile-keyboard-offset, 0px) - var(--mobile-dock-height, 120px) - var(--mobile-safe-top, 0px) - 20px)));
+  border-radius: 20px;
+  padding: 8px;
+  z-index: 3;
+}
+.mobile-skill-picker {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 8px;
+}
+.mobile-skill-heading {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mobile-skill-heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.mobile-skill-heading > strong {
+  padding-left: 12px;
+  font-size: 13px;
+}
+.mobile-skill-options {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mobile-skill-picker .mobile-skill-options {
+  max-height: min(40dvh, 360px);
+}
+.mobile-skill-options .mobile-sheet-row {
+  align-items: flex-start;
+}
+.mobile-skill-options .mobile-sheet-row[aria-selected="true"] {
+  background: var(--mobile-selected);
+}
+.mobile-skill-options .mobile-sheet-row > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.mobile-skill-options .mobile-sheet-row-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mobile-skill-options .mobile-sheet-row-text strong {
+  white-space: normal;
+}
+.mobile-skill-origin {
+  flex-shrink: 0;
+  padding-top: 2px;
+  max-width: 70px;
+  font-size: 11px;
+  opacity: 0.55;
+}
+.mobile-skill-status {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.6;
+}
+.mobile-skill-error {
+  max-height: 100px;
+  overflow-y: auto;
+  padding: 0 12px 8px;
+}
+.mobile-skill-input-hint {
+  font-family: var(--font-mono);
+}
 .mobile-sheet-group h3 {
   font-size: 13px;
   font-weight: 400;
