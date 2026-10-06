@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -43,7 +43,7 @@ function setup(options: { autoSync?: boolean } = {}) {
     answer: vi.fn(),
     readSessionTitle: vi.fn(async () => null),
   };
-  const engine = new HostEngine(store, { claude: provider }, undefined, {
+  const engine = new HostEngine(store, { claude: provider, pi: provider, omp: provider }, undefined, {
     native: {
       environment: { home: join(directory, "home"), env: {} },
       pollMs: 40,
@@ -127,6 +127,105 @@ describe.runIf(linux)("Host-managed native sessions", () => {
     const before = context.store.session(id).revision;
     await context.engine.nativeSessions.refresh(id, { force: true });
     expect(context.store.session(id).revision).toBe(before);
+  });
+
+  it("keeps conversation order through opening, metadata sync and sync errors", async () => {
+    const context = setup({ autoSync: false });
+    const { id, path, nativeId } = imported(context);
+    const before = context.store.session(id).updatedAt;
+    context.engine.nativeSessions.touch(id);
+    await context.engine.nativeSessions.refresh(id, { force: true });
+    expect(context.store.session(id).updatedAt).toBe(before);
+    appendFileSync(path, JSON.stringify({ type: "custom-title", sessionId: nativeId, customTitle: "Native title" }) + "\n");
+    await context.engine.nativeSessions.refresh(id, { force: true });
+    expect(context.store.session(id).session.title).toContain("Native title");
+    expect(context.store.session(id).updatedAt).toBe(before);
+    rmSync(path);
+    await context.engine.nativeSessions.refresh(id, { force: true });
+    expect(context.store.session(id).nativeStatus?.state).toBe("error");
+    expect(context.store.session(id).updatedAt).toBe(before);
+  });
+
+  it("uses the source activity time when an external conversation is continued", async () => {
+    const context = setup({ autoSync: false });
+    const { id, path, row } = imported(context);
+    await context.engine.nativeSessions.refresh(id, { force: true });
+    const current = context.store.session(id);
+    context.store.save({ ...current, revision: current.revision + 1, updatedAt: 1_000 }, { type: "test" });
+    appendFileSync(path, row("u2", "a1", "user", "External question"));
+    utimesSync(path, 2_000, 2_000);
+    await context.engine.nativeSessions.refresh(id, { force: true });
+    expect(texts(context, id)).toContain("External question");
+    expect(context.store.session(id).updatedAt).toBe(statSync(path).mtimeMs);
+  });
+
+  it("restores maintenance-only Pi and omp imports on restart while keeping Host activity", async () => {
+    const context = setup({ autoSync: false });
+    const { id } = imported(context);
+    await context.engine.nativeSessions.refresh(id, { force: true });
+    const base = context.store.session(id);
+    for (const harness of ["pi", "omp"] as const) {
+      const imported = {
+        ...base,
+        revision: 1,
+        createdAt: 1_000,
+        updatedAt: 2_000,
+        supportsQueue: false,
+        session: {
+          ...base.session,
+          id: `import-${harness}`,
+          harness,
+          nativeSession: { ...base.session.nativeSession!, provider: harness, updatedAt: 2_000 },
+        },
+      };
+      context.store.save(imported, { type: "desktop.import" });
+      context.store.save({ ...imported, revision: 2, updatedAt: 9_000 }, { type: "queue.recovered" });
+      context.store.save({ ...imported, revision: 3, updatedAt: 10_000 }, { type: "native.synced", hostTurn: false });
+      const continued = { ...imported, session: { ...imported.session, id: `continued-${harness}` } };
+      context.store.save(continued, { type: "desktop.import" });
+      context.store.save({ ...continued, revision: 2, updatedAt: 11_000 }, { type: "send" });
+      const missing = { ...imported, session: { ...imported.session, id: `missing-${harness}` } };
+      context.store.save(missing, { type: "desktop.import" });
+      context.store.save({ ...missing, revision: 3, updatedAt: 12_000 }, { type: "queue.recovered" });
+      const unknown = { ...imported, session: { ...imported.session, id: `unknown-${harness}` } };
+      context.store.save(unknown, { type: "desktop.import" });
+      context.store.save({ ...unknown, revision: 2, updatedAt: 13_000 }, { type: "unknown" });
+    }
+    await context.engine.close();
+    const restarted = new HostEngine(context.store, { claude: context.provider, pi: context.provider, omp: context.provider }, undefined, {
+      native: { environment: { home: join(context.directory, "home"), env: {} } },
+    });
+    try {
+      for (const harness of ["pi", "omp"] as const) {
+        expect(context.store.session(`import-${harness}`).updatedAt).toBe(2_000);
+        expect(context.store.session(`continued-${harness}`).updatedAt).toBe(11_000);
+        expect(context.store.session(`missing-${harness}`).updatedAt).toBe(12_000);
+        expect(context.store.session(`unknown-${harness}`).updatedAt).toBe(13_000);
+        expect(context.store.summaries().find((row) => row.id === `import-${harness}`)).toMatchObject({ harness, updatedAt: 2_000 });
+      }
+    } finally {
+      await restarted.close();
+    }
+  });
+
+  it.each(["pi", "omp"] as const)("imports %s with its source dates", async (harness) => {
+    const context = setup({ autoSync: false });
+    const nativeId = randomUUID();
+    const directory = join(context.directory, "home", harness === "pi" ? ".pi/agent/sessions/fixture" : ".omp/agent/sessions/fixture");
+    mkdirSync(directory, { recursive: true });
+    const path = join(directory, `fixture_${nativeId}.jsonl`);
+    writeFileSync(path, [
+      { type: "session", version: 3, id: nativeId, cwd: context.directory, timestamp: new Date(1_000).toISOString() },
+      { type: "message", id: "u1", parentId: null, timestamp: new Date(2_000).toISOString(), message: { role: "user", content: "Original question" } },
+    ].map((row) => JSON.stringify(row)).join("\n") + "\n");
+    utimesSync(path, 3_000, 3_000);
+    const listing = await context.engine.nativeSessions.list(true);
+    const source = listing.sources.find((row) => row.provider === harness && row.providerSessionId === nativeId)!;
+    expect(source).toBeDefined();
+    const value = await context.engine.nativeSessions.importSource(source.sourceId);
+    expect(value).toMatchObject({ createdAt: 1_000, updatedAt: 3_000_000, session: { harness } });
+    await context.engine.nativeSessions.refresh(value.session.id, { force: true });
+    expect(context.store.session(value.session.id).updatedAt).toBe(3_000_000);
   });
 
   it("takes over, catches up before sending and absorbs the turn's own records", async () => {
@@ -283,6 +382,8 @@ describe.runIf(linux)("Host-managed native sessions", () => {
     const source = listing.sources.find((item) => item.providerSessionId === nativeId)!;
     expect(source.boundSessionId).toBeUndefined();
     const value = await context.engine.nativeSessions.importSource(source.sourceId);
+    expect(value.createdAt).toBe(1_000);
+    expect(value.updatedAt).toBe(Math.trunc(statSync(path).mtimeMs));
     expect(value.session.nativeSession).toMatchObject({ mode: "managed", path, providerSessionId: nativeId });
     expect(value.nativeStatus).toMatchObject({ state: "ready" });
     expect(value.session.blocks.map((block) => block.text)).toEqual(["Listed question"]);

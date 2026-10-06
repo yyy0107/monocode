@@ -33,6 +33,7 @@ import {
   nativeSessionSnapshot,
   nativeSessionReadOnly,
   nativeSessionAccessHint,
+  nativeSessionAccess,
   pollNativeSessionAccess,
   externalNativeSessions,
   refreshNativeDiscovery,
@@ -147,7 +148,11 @@ it("keeps 39 panes quiet on lease renewals, but redraws a changed owner", async 
   }
 });
 
-it("disables the composer when the latest ownership check expires", async () => {
+it("releases the composer when an owner seen by a stopped poller ages out", async () => {
+  native.access.mockImplementation(async () => ({
+    state: "external", reason: "externalProcess", checkedAt: Date.now(), path: file.path,
+    holder: { pid: 42, provider: "pi", command: "pi" },
+  }));
   await pollNativeSessionAccess();
   let renders = 0;
   let view: ReturnType<typeof useNativeSessionAccess>;
@@ -161,12 +166,12 @@ it("disables the composer when the latest ownership check expires", async () => 
   try {
     act(() => root.render(createElement(Pane)));
     const initial = renders;
-    expect(view!.readOnly).toBe(false);
-    // A stopped poller cannot keep the composer writable forever.
+    expect(view!.readOnly).toBe(true);
+    // The Host rechecks ownership under its lock before writing, so a stale owner does not lock the composer.
     cleanup();
     await act(async () => vi.advanceTimersByTimeAsync(15_001));
-    expect(view!.readOnly).toBe(true);
-    expect(view!.hint).toContain("Checking session status");
+    expect(view!.readOnly).toBe(false);
+    expect(view!.hint).toBeUndefined();
     expect(renders).toBe(initial + 1);
   } finally {
     act(() => root.unmount());
@@ -184,10 +189,16 @@ it("reads ownership of a native conversation on another machine from that machin
   expect(mocks.remoteRequest).toHaveBeenCalledWith("machine-2", "sessions.nativeAccess", { sessionId: "host-far" });
   expect(native.access).not.toHaveBeenCalled();
   expect(nativeSessionReadOnly(far)).toBe(false);
+  // A failed probe keeps the last confirmed state, then stays writable without a notice.
   mocks.remoteMachineFor.mockResolvedValue(undefined);
-  vi.setSystemTime(Date.now() + 16_000);
+  vi.setSystemTime(Date.now() + 5_000);
   await pollNativeSessionAccess();
-  expect(nativeSessionAccessHint(far)).toContain("Session status unavailable");
+  expect(nativeSessionAccess(far)?.state).toBe("idle");
+  vi.setSystemTime(Date.now() + 11_000);
+  await pollNativeSessionAccess();
+  expect(nativeSessionAccess(far)?.state).toBe("unknown");
+  expect(nativeSessionReadOnly(far)).toBe(false);
+  expect(nativeSessionAccessHint(far)).toBeUndefined();
 });
 
 describe("native discovery scheduling", () => {

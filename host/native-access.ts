@@ -240,6 +240,12 @@ export function nativeProcessAccess(
   root = process.pid,
 ): NativeSessionAccess {
   if (process.platform !== "linux") return access(link, "unknown", "unsupportedPlatform");
+  const result = scanAccess(link, cwd, root);
+  // A process starting or exiting mid-scan is usually settled by a second look.
+  return result.state === "unknown" && result.reason === "unavailable" ? scanAccess(link, cwd, root) : result;
+}
+
+function scanAccess(link: NativeSessionLink, cwd: string, root: number): NativeSessionAccess {
   const scan = processes();
   if (!scan) return access(link, "unknown", "unavailable");
   let uncertain = scan.uncertain;

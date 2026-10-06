@@ -295,8 +295,8 @@ export class NativeSessionManager {
         status: "idle",
         supportsQueue: true,
         canSteer: this.host.canSteer(current.provider),
-        createdAt: now,
-        updatedAt: now,
+        createdAt: transcript.createdAt,
+        updatedAt: current.modifiedAt,
         nativeStatus: { state: "ready", revision: read.revision, checkedAt: now },
         session,
       });
@@ -466,7 +466,12 @@ export class NativeSessionManager {
         )
           return current;
         const session: Session = { ...titled, blocks: [...titled.blocks.filter((block) => !block.draft), ...turn, ...drafts] };
-        return this.status({ ...current, session }, next);
+        // Opening, ownership checks and title/link updates are not conversation
+        // activity. External messages use their source time, not the sync time.
+        const knownIds = new Set(current.session.blocks.map((block) => block.id));
+        const addedHistory = !hostTurn && titled.blocks.some((block) => !block.draft && !knownIds.has(block.id));
+        const updatedAt = addedHistory ? Math.max(current.updatedAt, read.modifiedAt) : current.updatedAt;
+        return this.status({ ...current, session, updatedAt }, next);
       }, { type: "native.synced", revision: read.revision, hostTurn });
       this.clearRetry(id);
       this.track(id);

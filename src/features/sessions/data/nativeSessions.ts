@@ -75,15 +75,19 @@ export function nativeSessionAccess(
   const access = state.access[session.id];
   return access?.path === session.nativeSession?.path ? access : undefined;
 }
+/** Only a confirmed, recent owner blocks the composer; the Host rechecks under its lock before every write. */
+function accessBlocked(access: NativeSessionAccess | undefined): boolean {
+  return (
+    !!access &&
+    access.state !== "idle" &&
+    !(access.state === "unknown" && access.reason === "unavailable") &&
+    Date.now() - access.checkedAt <= ACCESS_MAX_AGE
+  );
+}
 export function nativeSessionReadOnly(session: Session): boolean {
   if (!session.nativeSession) return false;
   if (syncBlocked(session)) return true;
-  const access = nativeSessionAccess(session);
-  return (
-    !access ||
-    access.state !== "idle" ||
-    (!session.busy && Date.now() - access.checkedAt > ACCESS_MAX_AGE)
-  );
+  return accessBlocked(nativeSessionAccess(session));
 }
 
 /** Composer-visible access state; an unchanged ownership check only renews its lease. */
@@ -107,7 +111,7 @@ function scheduleAccessExpiry(id: string): void {
   if (timer !== undefined) clearTimeout(timer);
   accessExpiryTimers.delete(id);
   const access = state.access[id];
-  if (!accessListeners.has(id) || access?.state !== "idle") return;
+  if (!accessListeners.has(id) || !access || !accessBlocked(access)) return;
   const remaining = access.checkedAt + ACCESS_MAX_AGE + 1 - Date.now();
   if (remaining <= 0) return;
   accessExpiryTimers.set(id, setTimeout(() => {
@@ -116,7 +120,7 @@ function scheduleAccessExpiry(id: string): void {
   }, remaining));
 }
 
-/** Notify only this conversation; freshness expiration must still disable its composer. */
+/** Notify only this conversation; an owner seen by a stopped poller must not lock it forever. */
 export function subscribeNativeSessionAccess(id: string, listener: () => void): () => void {
   let subscribers = accessListeners.get(id);
   if (!subscribers) accessListeners.set(id, subscribers = new Set());
@@ -164,10 +168,6 @@ export function nativeSessionAccessHint(session: Session): string | undefined {
   if (access?.reason === "unsupportedPlatform")
     return translate(
       "Native session ownership cannot be verified on this platform. Imported history is read-only.",
-    );
-  if (access?.state === "unknown")
-    return translate(
-      "Session status unavailable. Read-only for now.",
     );
   return translate("Checking session status…");
 }
@@ -410,6 +410,9 @@ export function pollNativeSessionAccess(): Promise<void> {
         const access = await hostAccess(current);
         if (access && runtime === owner) publishAccess(current.id, access);
       } catch {
+        // A transient probe failure keeps the last confirmed state until it ages out.
+        const previous = nativeSessionAccess(current);
+        if (previous && Date.now() - previous.checkedAt <= ACCESS_MAX_AGE) continue;
         publishAccess(current.id, {
           state: "unknown",
           reason: "unavailable",

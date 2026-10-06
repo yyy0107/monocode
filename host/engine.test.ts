@@ -66,6 +66,22 @@ function setup(harness: "codex" | "claude" = "codex") {
 }
 
 describe("headless session ownership", () => {
+  it("preserves activity time when restoring queue capabilities at startup", async () => {
+    const { engine, store, provider, directory, id } = setup();
+    const current = store.session(id);
+    store.save({ ...current, revision: current.revision + 1, updatedAt: 1_000, supportsQueue: false }, { type: "test" });
+    await engine.close();
+    const restarted = new HostEngine(store, { codex: provider }, undefined, {
+      native: { environment: { home: join(directory, "home"), env: {} } },
+    });
+    try {
+      expect(store.session(id)).toMatchObject({ updatedAt: 1_000, supportsQueue: true });
+      expect(store.summaries()[0].updatedAt).toBe(1_000);
+    } finally {
+      await restarted.close();
+    }
+  });
+
   it("reads one session for orchestration without enumerating history and preserves unflushed output", async () => {
     const { engine, store, turns, id } = setup();
     await engine.ready;

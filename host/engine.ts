@@ -44,7 +44,7 @@ import { HostStore } from "./store";
 import { HostSkills } from "./skills";
 import { NativeSessionGuard, nativeAccessMessage, type NativeLease } from "./native-access";
 import { NativeSessionManager, nativeHolding, type NativeManagerOptions } from "./native/manager";
-import { migrateNativeLink } from "./native/migrate";
+import { migrateNativeLink, restoreImportedNativeActivity } from "./native/migrate";
 import { parseRemoteAttachments, resolveAttachments, saveGeneratedImageAttachment } from "./attachments";
 import type { Attachment } from "../src/features/sessions/model/session";
 
@@ -367,7 +367,7 @@ export class HostEngine {
       store,
       guard: this.native,
       desktopDirectory: () => this.desktopDirectory(),
-      mutate: (id, change, event) => this.mutateManaged(id, change, event),
+      mutate: (id, change, event) => this.mutateManaged(id, change, event, false),
       create: (value) => this.store.transaction(() => this.store.save(value, { type: "native.imported" })),
       openProject: (cwd) => this.openProject(cwd),
       canSteer: (provider) => !!this.providers[provider as RemoteProvider]?.steer,
@@ -409,11 +409,18 @@ export class HostEngine {
     // Provider dispatch is not transactional with SQLite. Never replay a send
     // automatically after a crash; its external effects may already exist.
     for (const stored of store.sessions()) {
+      const restoredActivity = stored.session.nativeSession &&
+        stored.updatedAt > stored.session.nativeSession.updatedAt
+        ? restoreImportedNativeActivity(stored, store.events(stored.session.id, 0).events)
+        : undefined;
+      const current = restoredActivity
+        ? store.save({ ...restoredActivity, revision: stored.revision + 1 }, { type: "native.activityRestored" })
+        : stored;
       // Native links from older clients become managed once; sync has no fallbacks.
-      const migrated = migrateNativeLink(stored);
+      const migrated = migrateNativeLink(current);
       const value = migrated
         ? store.transaction(() => store.save({ ...migrated, revision: migrated.revision + 1 }, { type: "native.migrated" }))
-        : stored;
+        : current;
       const interrupted = value.status === "running";
       const recovered = interrupted
         ? this.settled(
@@ -446,6 +453,7 @@ export class HostEngine {
             },
           },
           { type: "queue.recovered" },
+          false,
         );
       }
       // Native conversations bind under the writer lease when a turn starts.
@@ -520,13 +528,13 @@ export class HostEngine {
     return this.store.sessions().map((value) => this.live.get(value.session.id)?.value ?? value);
   }
 
-  private mutateManaged(id: string, change: (value: HostSession) => HostSession, event: unknown): HostSession {
+  private mutateManaged(id: string, change: (value: HostSession) => HostSession, event: unknown, touchActivity = true): HostSession {
     this.flush(id);
     const current = this.store.session(id);
     const next = change(current);
     // An unchanged value is not a new revision.
     if (next === current) return current;
-    const saved = this.save(next, event);
+    const saved = this.save(next, event, touchActivity);
     const live = this.live.get(id); if (live) live.value = saved;
     return saved;
   }
@@ -717,10 +725,10 @@ export class HostEngine {
     return provider;
   }
 
-  private save(value: HostSession, event: unknown): HostSession {
+  private save(value: HostSession, event: unknown, touchActivity = true): HostSession {
     return this.store.transaction(() =>
       this.store.save(
-        { ...value, revision: value.revision + 1, updatedAt: Date.now() },
+        { ...value, revision: value.revision + 1, updatedAt: touchActivity ? Date.now() : value.updatedAt },
         event,
       ),
     );
