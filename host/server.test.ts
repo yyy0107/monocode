@@ -824,6 +824,19 @@ describe("remote host API", () => {
     expect((await run("git_commit_file_diff", {
       cwd: root, sha: history.head, relative: "src/app.ts",
     })).result).toMatchObject({ original: "", current: "after\n", status: "added" });
+    writeFileSync(join(root, "src", "new.ts"), "a\nb\n");
+    expect((await run("git_base_diff_files", { cwd: root, base: "head" })).result).toMatchObject({
+      base: "HEAD",
+      files: [
+        expect.objectContaining({ relative: "src/app.ts", status: "modified", additions: 1, deletions: 1 }),
+        expect.objectContaining({ relative: "src/new.ts", status: "untracked", additions: 2 }),
+      ],
+    });
+    expect((await run("git_base_file_diff", { cwd: root, base: "head", relative: "src/app.ts" })).result)
+      .toMatchObject({ original: "after\n", current: "changed\n", status: "modified" });
+    expect((await run("git_base_file_diff", { cwd: root, base: "head", relative: "src/new.ts" })).result)
+      .toMatchObject({ original: "", current: "a\nb\n", status: "added" });
+    expect((await run("git_base_diff_files", { cwd: root, base: "nope" })).error).toBeTruthy();
     expect((await run("git_worktrees", { cwd: root })).result.worktrees)
       .toContainEqual(expect.objectContaining({ path: project.cwd, isMain: true }));
 

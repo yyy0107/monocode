@@ -38,6 +38,8 @@ const HOST_COMMANDS = new Set([
   "git_history",
   "git_commit_files",
   "git_commit_file_diff",
+  "git_base_diff_files",
+  "git_base_file_diff",
   "git_staged_context",
   "git_range_context",
   "git_branches",
@@ -139,7 +141,19 @@ export async function runRemoteCommand(
       path: fromHost(`${root}/${file.path}`),
     }));
   }
-  if (command === "git_commit_file_diff" && result && typeof result === "object") {
+  if (command === "git_base_diff_files" && result && typeof result === "object") {
+    const diff = result as { files: { path: string }[] };
+    const root = String(hostArgs.cwd).replace(/[\\/]+$/, "");
+    return {
+      ...diff,
+      files: diff.files.map((file) => ({ ...file, path: fromHost(`${root}/${file.path}`) })),
+    };
+  }
+  if (
+    (command === "git_commit_file_diff" || command === "git_base_file_diff") &&
+    result &&
+    typeof result === "object"
+  ) {
     const diff = result as { path: string };
     const root = String(hostArgs.cwd).replace(/[\\/]+$/, "");
     return { ...diff, path: fromHost(`${root}/${diff.path}`) };

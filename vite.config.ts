@@ -10,6 +10,8 @@ export default defineConfig(async ({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    // Pierre's highlighting worker imports Shiki's WASM engine dynamically.
+    worker: { format: "es" },
     clearScreen: false,
     build: {
       rollupOptions: {

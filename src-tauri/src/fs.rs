@@ -978,6 +978,38 @@ pub async fn git_commit_file_diff(
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Serialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitBaseDiff {
+    /// Display name of the comparison base (`HEAD` or the default branch).
+    pub base: Option<String>,
+    pub files: Vec<GitChangedFile>,
+}
+
+/// Files that differ between a base and the working tree, including untracked
+/// files. `base` is `head` (uncommitted) or `branch` (merge-base with the
+/// default branch).
+#[tauri::command]
+pub async fn git_base_diff_files(cwd: String, base: String) -> Result<GitBaseDiff, String> {
+    tauri::async_runtime::spawn_blocking(move || git_base_diff_files_for(&expand_home(&cwd), &base))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Base vs working tree contents for one path; see `git_base_diff_files`.
+#[tauri::command]
+pub async fn git_base_file_diff(
+    cwd: String,
+    base: String,
+    relative: String,
+) -> Result<GitFileDiff, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        git_base_file_diff_for(&expand_home(&cwd), &base, &relative)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Stage a changed file (`git add`).
 #[tauri::command]
 pub async fn git_stage_file(cwd: String, relative: String) -> Result<(), String> {
@@ -2446,6 +2478,130 @@ fn git_commit_file_diff_for(root: &Path, sha: &str, relative: &str) -> Result<Gi
         status: status.to_string(),
         original,
         current,
+        binary,
+        too_large,
+    })
+}
+
+/// Resolves a review base to `(commit, display name)`.
+fn git_review_base(root: &Path, base: &str) -> Result<(String, String), String> {
+    if !git_is_work_tree(root) {
+        return Err("Not a git repository".into());
+    }
+    let head = git_stdout(root, &["rev-parse", "--verify", "HEAD^{commit}"])
+        .ok_or_else(|| "No commits yet".to_string())?;
+    match base {
+        "head" => Ok((head, "HEAD".into())),
+        "branch" => {
+            let remote = git_remote_name(root);
+            let default_branch = git_default_branch(root, remote.as_deref())
+                .ok_or_else(|| "Could not resolve the default branch".to_string())?;
+            let base_ref = match &remote {
+                Some(remote)
+                    if git_ref_exists(root, &format!("refs/remotes/{remote}/{default_branch}")) =>
+                {
+                    format!("{remote}/{default_branch}")
+                }
+                _ => default_branch.clone(),
+            };
+            let merge_base = git_stdout(root, &["merge-base", &base_ref, "HEAD"])
+                .ok_or_else(|| format!("No common history with {base_ref}"))?;
+            Ok((merge_base, base_ref))
+        }
+        _ => Err("Invalid review base".into()),
+    }
+}
+
+fn git_base_diff_files_for(root: &Path, base: &str) -> Result<GitBaseDiff, String> {
+    let (commit, name) = git_review_base(root, base)?;
+    let mut files: HashMap<String, FileAcc> = HashMap::new();
+    let mut statuses: HashMap<String, &'static str> = HashMap::new();
+    let diff = |kind: &str| {
+        git_run(
+            root,
+            &[
+                "diff",
+                "--relative",
+                "--no-ext-diff",
+                kind,
+                "--no-renames",
+                &commit,
+                "--",
+                ".",
+            ],
+        )
+    };
+    if let Some(text) = diff("--numstat") {
+        add_numstat_map(&text, &mut files);
+    }
+    if let Some(names) = diff("--name-status") {
+        add_name_status(&names, &mut statuses);
+    }
+    add_untracked_map(root, &mut files);
+    let mut out = Vec::with_capacity(files.len());
+    for (relative, acc) in files {
+        let abs = root.join(&relative);
+        let status = if acc.untracked {
+            "untracked"
+        } else if let Some(status) = statuses.get(&relative) {
+            *status
+        } else if !abs.exists() {
+            "deleted"
+        } else {
+            "modified"
+        };
+        out.push(GitChangedFile {
+            path: path_to_js(&abs),
+            relative,
+            status: status.to_string(),
+            additions: acc.additions,
+            deletions: acc.deletions,
+            staged: false,
+            unstaged: false,
+        });
+    }
+    out.sort_by(|a, b| a.relative.cmp(&b.relative));
+    Ok(GitBaseDiff {
+        base: Some(name),
+        files: out,
+    })
+}
+
+fn git_base_file_diff_for(root: &Path, base: &str, relative: &str) -> Result<GitFileDiff, String> {
+    let relative = resolve_repo_path(root, relative)?;
+    let (commit, _) = git_review_base(root, base)?;
+    let prefix = git_stdout(root, &["rev-parse", "--show-prefix"]).unwrap_or_default();
+    let abs = root.join(&relative);
+    let original = git_blob(root, &format!("{commit}:{prefix}{relative}"));
+    let current = if abs.is_file() {
+        Some(std::fs::read(&abs).unwrap_or_default())
+    } else {
+        None
+    };
+    let status = match (&original, &current) {
+        (None, Some(_)) => "added",
+        (Some(_), None) => "deleted",
+        _ => "modified",
+    };
+    let original = original.unwrap_or_default();
+    let current = current.unwrap_or_default();
+    let binary = original.contains(&0) || current.contains(&0);
+    let too_large =
+        original.len() as u64 > MAX_TEXT_FILE_BYTES || current.len() as u64 > MAX_TEXT_FILE_BYTES;
+    let (original_text, current_text) = if binary || too_large {
+        (String::new(), String::new())
+    } else {
+        (
+            String::from_utf8_lossy(&original).into_owned(),
+            String::from_utf8_lossy(&current).into_owned(),
+        )
+    };
+    Ok(GitFileDiff {
+        path: path_to_js(&abs),
+        relative,
+        status: status.to_string(),
+        original: original_text,
+        current: current_text,
         binary,
         too_large,
     })

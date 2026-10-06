@@ -280,6 +280,30 @@ export function gitCommitFileDiff(
   return invoke<GitFileDiff>("git_commit_file_diff", { cwd, sha, relative });
 }
 
+/** `head`: uncommitted work; `branch`: everything since the default branch. */
+export type GitReviewBase = "head" | "branch";
+
+export type GitBaseDiff = {
+  base: string | null;
+  files: GitChangedFile[];
+};
+
+/** Files that differ between a base and the working tree, untracked included. */
+export function gitBaseDiffFiles(
+  cwd: string,
+  base: GitReviewBase,
+): Promise<GitBaseDiff> {
+  return invoke<GitBaseDiff>("git_base_diff_files", { cwd, base });
+}
+
+export function gitBaseFileDiff(
+  cwd: string,
+  base: GitReviewBase,
+  relative: string,
+): Promise<GitFileDiff> {
+  return invoke<GitFileDiff>("git_base_file_diff", { cwd, base, relative });
+}
+
 export function gitStageContents(
   cwd: string,
   relative: string,

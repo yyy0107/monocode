@@ -153,6 +153,7 @@ function FilePaneComponent({
         {sessionReview ? (
           <div className="absolute inset-0 h-full">
             <SessionChangesDiff
+              key={sessionReview.id}
               cwd={sessionReview.cwd}
               sessionId={sessionReview.sessionChanges.sessionId}
               focusPath={sessionReview.path}
@@ -165,6 +166,7 @@ function FilePaneComponent({
         ) : unifiedReview && activeFile ? (
           <div className="absolute inset-0 h-full">
             <WorkingTreeDiff
+              key={activeFile.id}
               cwd={activeFile.cwd}
               focusPath={activeFile.path}
               focusKind={activeFile.changeKind}

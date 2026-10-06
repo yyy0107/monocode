@@ -70,6 +70,8 @@ export const WORKSPACE_COMMANDS = [
   "git_history",
   "git_commit_files",
   "git_commit_file_diff",
+  "git_base_diff_files",
+  "git_base_file_diff",
   "git_staged_context",
   "git_range_context",
   "git_branches",
@@ -237,6 +239,10 @@ export class WorkspaceCommands {
         return this.gitCommitFiles(input.cwd, input.sha);
       case "git_commit_file_diff":
         return this.gitCommitFileDiff(input.cwd, input.sha, input.relative);
+      case "git_base_diff_files":
+        return this.gitBaseDiffFiles(input.cwd, input.base);
+      case "git_base_file_diff":
+        return this.gitBaseFileDiff(input.cwd, input.base, input.relative);
       case "git_staged_context":
         return this.gitStagedContext(input.cwd);
       case "git_range_context":
@@ -683,6 +689,80 @@ export class WorkspaceCommands {
       original.bytes.length > MAX_TEXT_FILE || current.bytes.length > MAX_TEXT_FILE;
     const status = !original.bytes.length && current.bytes.length ? "added"
       : original.bytes.length && !current.bytes.length ? "deleted" : "modified";
+    return { path, relative: path, status,
+      original: binary || tooLarge ? "" : original.bytes.toString("utf8"),
+      current: binary || tooLarge ? "" : current.bytes.toString("utf8"),
+      binary, tooLarge };
+  }
+
+  /** `head` compares with HEAD; `branch` with the merge-base of the default branch. */
+  private async gitReviewBase(cwd: unknown, base: unknown) {
+    const head = (await this.gitCommand(cwd, ["rev-parse", "--verify", "HEAD^{commit}"])
+      .catch(() => "")).trim();
+    if (!head) throw new Error("No commits yet");
+    if (base === "head") return { commit: head, name: "HEAD" };
+    if (base !== "branch") throw new Error("Invalid review base");
+    const index = await this.gitIndex(cwd);
+    if (!index.defaultBranch) throw new Error("Could not resolve the default branch");
+    const remote = `origin/${index.defaultBranch}`;
+    const name = await this.gitCommand(cwd, ["rev-parse", "--verify", `refs/remotes/${remote}`])
+      .then(() => remote, () => index.defaultBranch!);
+    const commit = (await this.gitCommand(cwd, ["merge-base", name, "HEAD"]).catch(() => "")).trim();
+    if (!commit) throw new Error(`No common history with ${name}`);
+    return { commit, name };
+  }
+
+  private async gitBaseDiffFiles(cwd: unknown, base: unknown) {
+    const { commit, name } = await this.gitReviewBase(cwd, base);
+    const root = await this.gitRoot(cwd);
+    const diff = (kind: string) =>
+      this.gitCommand(cwd, ["diff", "--relative", "--no-ext-diff", kind, "--no-renames", commit, "--", "."]);
+    const [names, stats, untracked] = await Promise.all([
+      diff("--name-status"),
+      diff("--numstat"),
+      this.gitCommand(cwd, ["ls-files", "-o", "--exclude-standard", "-z", "--", "."]),
+    ]);
+    const counts = new Map(stats.split("\n").filter(Boolean).map((line) => {
+      const [added, removed, path] = line.split("\t");
+      return [path, { additions: Number(added) || 0, deletions: Number(removed) || 0 }] as const;
+    }));
+    const files = names.split("\n").filter(Boolean).map((line) => {
+      const [code, path] = line.split("\t");
+      return { path, relative: path,
+        status: code === "A" ? "added" : code === "D" ? "deleted" : "modified",
+        ...(counts.get(path) ?? { additions: 0, deletions: 0 }),
+        staged: false, unstaged: false };
+    });
+    for (const path of untracked.split("\0").filter(Boolean)) {
+      const text = await readFile(resolve(root, path), "utf8").catch(() => "");
+      files.push({ path, relative: path, status: "untracked",
+        additions: text.includes("\0") ? 0 : text.split("\n").length - (text.endsWith("\n") ? 1 : 0),
+        deletions: 0, staged: false, unstaged: false });
+    }
+    files.sort((a, b) => a.relative.localeCompare(b.relative));
+    return { base: name, files };
+  }
+
+  private async gitBaseFileDiff(cwd: unknown, base: unknown, input: unknown) {
+    const { commit } = await this.gitReviewBase(cwd, base);
+    const root = await this.gitRoot(cwd);
+    const absolute = workspacePath(root, input);
+    const path = relative(root, absolute).replace(/\\/g, "/");
+    const prefix = (await this.gitCommand(cwd, ["rev-parse", "--show-prefix"]).catch(() => "")).trim();
+    const [original, current] = await Promise.all([
+      this.gitBlob(root, `${commit}:${prefix}${path}`),
+      stat(absolute).then(
+        async (info) => info.size > MAX_TEXT_FILE
+          ? { bytes: Buffer.alloc(0), tooLarge: true, exists: true }
+          : { bytes: await readFile(absolute), tooLarge: false, exists: true },
+        () => ({ bytes: Buffer.alloc(0), tooLarge: false, exists: false }),
+      ),
+    ]);
+    const binary = original.bytes.includes(0) || current.bytes.includes(0);
+    const tooLarge = original.tooLarge || current.tooLarge ||
+      original.bytes.length > MAX_TEXT_FILE || current.bytes.length > MAX_TEXT_FILE;
+    const status = !original.bytes.length && current.exists ? "added"
+      : !current.exists ? "deleted" : "modified";
     return { path, relative: path, status,
       original: binary || tooLarge ? "" : original.bytes.toString("utf8"),
       current: binary || tooLarge ? "" : current.bytes.toString("utf8"),
