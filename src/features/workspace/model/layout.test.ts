@@ -544,7 +544,7 @@ describe("openTerminalTab", () => {
     expect(next.terminalPanes[0]?.files).toEqual([file]);
   });
 
-  it("splits a terminal pane below the session when no terminal pane exists", () => {
+  it("opens a terminal card beside the session when no terminal pane exists", () => {
     const tab = newTab("session-a");
     const file = newTerminalFile("/repo");
     const next = openTerminalTab(tab, file);
@@ -553,10 +553,24 @@ describe("openTerminalTab", () => {
       "session-a",
       next.terminalPanes[0]?.id,
     ]);
-    expect(leaves[0]?.rect).toEqual({ x: 0, y: 0, w: 1, h: 0.5 });
-    expect(leaves[1]?.rect).toEqual({ x: 0, y: 0.5, w: 1, h: 0.5 });
+    expect(leaves[0]?.rect).toEqual({ x: 0, y: 0, w: 0.5, h: 1 });
+    expect(leaves[1]?.rect).toEqual({ x: 0.5, y: 0, w: 0.5, h: 1 });
     expect(next.editorPanes).toEqual([]);
     expect(next.terminalPanes[0]?.files).toEqual([file]);
+  });
+
+  it("stacks a terminal card under the document card", () => {
+    const withFile = openEditorTab(
+      newTab("session-a"),
+      newFileTab("/repo/App.tsx", "/repo"),
+    );
+    const next = openTerminalTab(withFile, newTerminalFile("/repo"));
+    const leaves = layoutLeaves(next.layout);
+    expect(leaves.map((pane) => pane.rect)).toEqual([
+      { x: 0, y: 0, w: 0.5, h: 1 },
+      { x: 0.5, y: 0, w: 0.5, h: 0.5 },
+      { x: 0.5, y: 0.5, w: 0.5, h: 0.5 },
+    ]);
   });
 
   it("keeps terminals out of the file pane tab strip", () => {

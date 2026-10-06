@@ -775,15 +775,27 @@ export function openEditorTab(
   }
 
   const editorPane = newEditorPane(file);
+  // Documents join the card stack beside chat: above an open terminal card.
+  const terminalCard = tab.terminalPanes.find((pane) =>
+    leafIds(tab.layout).includes(pane.id),
+  );
   return {
     ...tab,
-    layout: splitPaneRelative(
-      tab.layout,
-      tab.focusedId,
-      "right",
-      editorPane.id,
-      options.split === "left",
-    ),
+    layout: terminalCard
+      ? splitPaneRelative(
+          tab.layout,
+          terminalCard.id,
+          "down",
+          editorPane.id,
+          true,
+        )
+      : splitPaneRelative(
+          tab.layout,
+          tab.focusedId,
+          "right",
+          editorPane.id,
+          options.split === "left",
+        ),
     focusedId: editorPane.id,
     diffFocused: false,
     editorPanes: [...tab.editorPanes, editorPane],
@@ -954,9 +966,16 @@ export function openTerminalTab(
   }
 
   const pane = newEditorPane(file);
+  // Terminals stack under the last document card, or open a card column
+  // beside chat.
+  const ids = leafIds(tab.layout);
+  const cards = tab.editorPanes.filter((entry) => ids.includes(entry.id));
+  const lastCard = cards[cards.length - 1];
   return {
     ...tab,
-    layout: splitPane(tab.layout, tab.focusedId, "down", pane.id),
+    layout: lastCard
+      ? splitPane(tab.layout, lastCard.id, "down", pane.id)
+      : splitPane(tab.layout, tab.focusedId, "right", pane.id),
     focusedId: pane.id,
     diffFocused: false,
     terminalPanes: [pane],
@@ -1536,19 +1555,4 @@ export function placeLayout(
     return insertBeside(node, toId, incoming, place);
   }
   return wrapBeside(node, toId, incoming, dir, place);
-}
-
-/** Replace one pane with an intact layout tree. */
-export function replacePaneWithLayout(
-  node: LayoutNode,
-  targetId: string,
-  incoming: LayoutNode,
-): LayoutNode {
-  if (node.type === "leaf") return node.id === targetId ? incoming : node;
-  return {
-    ...node,
-    children: node.children.map((child) =>
-      replacePaneWithLayout(child, targetId, incoming),
-    ),
-  };
 }

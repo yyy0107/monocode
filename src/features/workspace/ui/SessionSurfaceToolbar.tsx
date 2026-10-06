@@ -1,9 +1,11 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import {
+  GitCompare,
   Maximize2,
   MessageSquare,
   PanelRight,
+  Terminal,
   X,
 } from "../../../shared/ui/icons";
 import {
@@ -14,7 +16,10 @@ import { useShortcutLabel } from "../../../app/commands/useCommandShortcut";
 import type { EditorPane, FilePaneTab } from "../model/layout";
 import { SurfaceTabs } from "./SurfaceTabs";
 import { startWindowDrag } from "../../../app/shell/startWindowDrag";
-import { WindowNavigationSpace } from "../../../app/shell/TitleBar";
+import { WindowNavigationSpace } from "../../../app/shell/WindowChrome";
+import { projectName } from "../../../shared/lib/paths";
+import { SessionTitleMenu } from "./SessionTitleMenu";
+import { useSessionHeaderActions } from "./SessionHeaderActions";
 
 export type SessionSurfaceMode = "split" | "unified";
 
@@ -111,6 +116,7 @@ export function SessionSurfaceToolbar({
     panes.find((pane) => pane.id === focusedId)?.activeFileId ?? "";
   const chatActive = !showTools || focusedId === session.id;
   const title = sessionDisplayTitle(session.title, session.harness).trim();
+  const project = projectName(session.cwd);
 
   return (
     <div
@@ -140,7 +146,10 @@ export function SessionSurfaceToolbar({
                 onClick={() => onFocus(session.id)}
                 className={`surface-tab flex h-7.5 min-w-0 flex-1 items-center gap-1.5 self-center px-2 text-[13px] ${onClosePane ? "pr-7" : ""}`}
               >
-                <MessageSquare className="size-3.5 shrink-0" strokeWidth={1.75} />
+                <MessageSquare
+                  className="size-3.5 shrink-0"
+                  strokeWidth={1.75}
+                />
                 {paneFocused !== undefined ? (
                   <span
                     className={`size-2 shrink-0 rounded-full ${paneFocused ? "bg-accent" : "bg-transparent"}`}
@@ -154,7 +163,9 @@ export function SessionSurfaceToolbar({
                   data-no-drag
                   data-tauri-drag-region="false"
                   title={closePaneLabel}
-                  aria-label={t("Close {value0}", { value0: title || t("Chat") })}
+                  aria-label={t("Close {value0}", {
+                    value0: title || t("Chat"),
+                  })}
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -166,6 +177,16 @@ export function SessionSurfaceToolbar({
                 </button>
               ) : null}
             </div>
+            <SessionTitleMenu sessionId={session.id} title={title} />
+            {project && project !== "~" ? (
+              <span
+                data-session-project-chip
+                title={session.cwd}
+                className="ml-1 max-w-32 shrink-0 self-center truncate rounded-md bg-content/6 px-1.5 py-0.5 text-[12px] text-content/55"
+              >
+                {project}
+              </span>
+            ) : null}
           </>
         }
         onSelectFile={(fileId) => withOwner(fileId, onSelectFile)}
@@ -189,6 +210,7 @@ export function SessionSurfaceToolbar({
         }}
         trailing={
           <>
+            <SessionToolToggles />
             <SessionSurfaceActions
               mode={mode}
               onModeChange={panes.length > 0 ? onModeChange : undefined}
@@ -197,6 +219,47 @@ export function SessionSurfaceToolbar({
           </>
         }
       />
+    </div>
+  );
+}
+
+/** Claude Desktop style terminal / changes switches in the chat header. */
+function SessionToolToggles() {
+  const { t } = useTranslation();
+  const actions = useSessionHeaderActions();
+  if (!actions) return null;
+  const button = (active: boolean) =>
+    `mr-1 grid size-7.5 shrink-0 self-center place-items-center rounded-md hover:bg-content/5 hover:text-content ${
+      active ? "bg-content/8 text-content" : "text-content/60"
+    }`;
+  return (
+    <div className="flex shrink-0 items-stretch">
+      {actions.terminalAvailable ? (
+        <button
+          type="button"
+          data-session-tool-toggle="terminal"
+          data-tauri-drag-region="false"
+          aria-label={t("Terminal")}
+          aria-pressed={actions.terminalOpen}
+          title={t("Terminal")}
+          onClick={actions.toggleTerminal}
+          className={button(actions.terminalOpen)}
+        >
+          <Terminal className="size-4" strokeWidth={1.75} />
+        </button>
+      ) : null}
+      <button
+        type="button"
+        data-session-tool-toggle="changes"
+        data-tauri-drag-region="false"
+        aria-label={t("Changes")}
+        aria-pressed={actions.changesOpen}
+        title={t("Changes")}
+        onClick={actions.toggleChanges}
+        className={button(actions.changesOpen)}
+      >
+        <GitCompare className="size-4" strokeWidth={1.75} />
+      </button>
     </div>
   );
 }

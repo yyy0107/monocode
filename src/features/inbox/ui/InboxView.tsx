@@ -43,7 +43,7 @@ import { ProjectLogoIcon } from "../../projects/ui/ProjectLogoIcon";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
 import { Popover } from "../../../shared/ui/Popover";
 import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
-import { IconButton } from "../../../app/shell/TitleBar";
+import { IconButton } from "../../../app/shell/WindowChrome";
 import { useDragResize } from "../../../shared/hooks/useDragResize";
 import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";

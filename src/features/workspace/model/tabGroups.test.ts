@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Tab } from "../../../app/shell/TitleBar";
 import {
   addTabToGroup,
   addTabsToNewGroup,
@@ -10,7 +9,6 @@ import {
   insertTabInGroup,
   joinTabOnto,
   removeTabFromGroup,
-  reorderTabSegments,
   loadTabGroupColors,
   loadTabGroupLabels,
   resolveTabGroupColor,
@@ -18,55 +16,21 @@ import {
   resolveTabGroupLogo,
   saveTabGroupColor,
   saveTabGroupLabel,
-  segmentTabs,
   sharedGroupProject,
   ungroupTabs,
 } from "./tabGroups";
 import { projectKey, projectName } from "../../../shared/lib/paths";
 
+type Tab = { id: string; project: string; groupId?: string };
+
 function tab(id: string, project: string, groupId?: string): Tab {
-  return {
-    id,
-    project,
-    title: "",
-    more: [],
-    sessionCount: 1,
-    harnesses: [],
-    busyHarnesses: [],
-    files: [],
-    ...(groupId ? { groupId } : {}),
-  };
+  return { id, project, ...(groupId ? { groupId } : {}) };
 }
 
 /** Projects live on the title tab, so callers pass this lookup explicitly. */
 function projectOf(tabs: Tab[]) {
   return (id: string) => tabs.find((entry) => entry.id === id)?.project;
 }
-
-describe("segmentTabs", () => {
-  it("leaves ungrouped tabs as singles even when they share a project", () => {
-    const segments = segmentTabs([tab("a", "foo"), tab("b", "foo")]);
-    expect(segments.map((segment) => segment.kind)).toEqual(["single", "single"]);
-  });
-
-  it("groups contiguous tabs that share a group id, including a single tab", () => {
-    const segments = segmentTabs([
-      tab("a", "foo", "g1"),
-      tab("b", "foo", "g1"),
-      tab("c", "bar"),
-    ]);
-    expect(segments[0]).toMatchObject({
-      kind: "group",
-      key: "g1",
-      project: "foo",
-    });
-    expect(segments[0].kind === "group" && segments[0].tabs.map((entry) => entry.id)).toEqual([
-      "a",
-      "b",
-    ]);
-    expect(segments[1]).toMatchObject({ kind: "single", tab: { id: "c" } });
-  });
-});
 
 describe("sharedGroupProject", () => {
   it("returns the project when every tab matches", () => {
@@ -223,33 +187,6 @@ describe("tab group logos", () => {
     const logos = { foo: "/tmp/foo.png" };
     expect(resolveTabGroupLogo("foo", logos)).toBe("/tmp/foo.png");
     expect(resolveTabGroupLogo("bar", logos)).toBeNull();
-  });
-});
-
-describe("reorderTabSegments", () => {
-  it("moves a whole group before another segment", () => {
-    const tabs = [
-      tab("a", "foo", "g1"),
-      tab("b", "foo", "g1"),
-      tab("c", "bar"),
-      tab("d", "baz"),
-    ];
-    expect(reorderTabSegments(tabs, 0, 1)).toEqual(["c", "a", "b", "d"]);
-  });
-
-  it("moves a group after ungrouped tabs", () => {
-    const tabs = [tab("a", "foo", "g1"), tab("b", "foo", "g1"), tab("c", "bar")];
-    expect(reorderTabSegments(tabs, 0, 1)).toEqual(["c", "a", "b"]);
-  });
-
-  it("swaps two groups", () => {
-    const tabs = [
-      tab("a", "foo", "g1"),
-      tab("b", "foo", "g1"),
-      tab("c", "bar", "g2"),
-      tab("d", "bar", "g2"),
-    ];
-    expect(reorderTabSegments(tabs, 0, 1)).toEqual(["c", "d", "a", "b"]);
   });
 });
 

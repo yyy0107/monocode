@@ -170,7 +170,6 @@ beforeEach(() => {
     onUpdatePlan: noop,
     onBuildPlan: noop,
     onMovePane: noop,
-    onDetachPane: noop,
     onNewTerminal: noop,
   };
 });
@@ -471,7 +470,7 @@ describe("session surface layout", () => {
     expect(props.onRatio).toHaveBeenCalledWith("split", 0, 0.65);
   });
 
-  it("keeps one native controls group and navigation clearance in the owning header", () => {
+  it("keeps one native controls group and navigation clearance in the owning top bar", () => {
     const minimize = vi.fn();
     const controls = createElement(
       "div",
@@ -494,17 +493,11 @@ describe("session surface layout", () => {
     expect(container.querySelectorAll("[data-native-controls]")).toHaveLength(
       1,
     );
-    const nativeControls = container.querySelector("[data-native-controls]")!;
-    expect(
-      nativeControls.closest("[data-pane-id]")?.getAttribute("data-pane-id"),
-    ).toBe("tools");
-    expect(
-      container
-        .querySelector("[data-surface-mode-toggle]")
-        ?.closest("[data-pane-id]")
-        ?.getAttribute("data-pane-id"),
-    ).toBe("tools");
-    expect(header.querySelector("[data-native-controls]")).toBeNull();
+    // The owning chat's full-width top bar carries the window controls.
+    const nativeControls = header.querySelector("[data-native-controls]")!;
+    expect(nativeControls).not.toBeNull();
+    expect(header.querySelector("[data-surface-mode-toggle]")).not.toBeNull();
+    expect(nativeControls.closest("[data-pane-id]")).toBeNull();
     click(nativeControls.querySelector('[aria-label="Minimize window"]')!);
     expect(minimize).toHaveBeenCalledOnce();
     render({ surfaceMode: "unified" });

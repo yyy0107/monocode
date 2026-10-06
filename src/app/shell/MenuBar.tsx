@@ -22,7 +22,7 @@ import {
   type MenuId,
 } from "../commands/registry";
 import type { CommandDispatch } from "../commands/useCommandDispatcher";
-import { TabVisitNav, WINDOW_NAVIGATION_END } from "./TitleBar";
+import { TabVisitNav, WINDOW_NAVIGATION_END } from "./WindowChrome";
 import { WindowControls } from "./WindowControls";
 import { startWindowDrag } from "./startWindowDrag";
 

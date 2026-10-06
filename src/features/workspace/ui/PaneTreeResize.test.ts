@@ -120,7 +120,6 @@ function render(
     onUpdatePlan: noop,
     onBuildPlan: noop,
     onMovePane: noop,
-    onDetachPane: noop,
     onNewTerminal: noop,
     ...patch,
   };

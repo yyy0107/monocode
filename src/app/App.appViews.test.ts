@@ -153,7 +153,7 @@ vi.mock("./shell/MenuBar", async () => {
       ),
   };
 });
-vi.mock("./shell/TitleBar", async () => {
+vi.mock("./shell/WindowChrome", async () => {
   const { createElement: el } = await import("react");
   return {
     WindowNavigation: () => null,
@@ -371,11 +371,22 @@ vi.mock("./shell/Sidebar", async () => {
 vi.mock("./shell/ActivityBar", async () => {
   const { createElement: el } = await import("react");
   return {
-    ActivityBar: ({ onOpenSettings }: { onOpenSettings: () => void }) =>
+    ActivityBar: ({
+      onOpenSettings,
+      onOpenNotes,
+    }: {
+      onOpenSettings: () => void;
+      onOpenNotes?: () => void;
+    }) =>
       el(
-        "button",
-        { "data-open-settings": true, onClick: onOpenSettings },
-        "Settings",
+        "div",
+        null,
+        el(
+          "button",
+          { "data-open-settings": true, onClick: onOpenSettings },
+          "Settings",
+        ),
+        el("button", { "data-open-notes": true, onClick: onOpenNotes }, "Notes"),
       ),
   };
 });
@@ -543,9 +554,26 @@ vi.mock("../features/inbox/ui/InboxView", async () => {
   };
 });
 vi.mock("../features/notes/ui/NotesView", async () => {
-  const { createElement: el } = await import("react");
+  const { createElement: el, useEffect, useState } = await import("react");
   return {
-    NotesView: () => el("section", { "data-app-view": "notes" }, "Notes"),
+    NotesView: () => {
+      const [count, setCount] = useState(0);
+      useEffect(() => {
+        mocks.viewMounted("notes");
+      }, []);
+      return el(
+        "section",
+        { "data-app-view": "notes" },
+        el(
+          "button",
+          {
+            "data-view-state": true,
+            onClick: () => setCount((value) => value + 1),
+          },
+          String(count),
+        ),
+      );
+    },
   };
 });
 
@@ -796,23 +824,39 @@ describe("App workspace app views", () => {
       workspace().querySelector(`[data-file-tab-id="${notesId}"]`),
     ).toBeNull();
     expect(
-      container.querySelector('[data-app-view="settings"]'),
+      document.querySelector('[data-app-view-dialog] [data-app-view="settings"]'),
     ).not.toBeNull();
   });
 
   it("updates a session tool title in zh-CN without losing its owner or view state", async () => {
     await mount();
-    await click('[data-command="App: Settings"]');
+    await click('[data-command="View: Notes"]');
     const appId = ownedFileTabs()[0].dataset.fileTabId;
     await clickInWorkspace("[data-view-state]");
     await act(async () => setUiLanguage("zh-CN"));
-    expect(ownedFileTabs()[0].textContent).toBe("设置");
+    expect(ownedFileTabs()[0].textContent).toBe("笔记");
     expect(ownedFileTabs()[0].dataset.fileTabId).toBe(appId);
     expect(activeTabId()).toBe(firstId);
     expect(container.querySelector("[data-view-state]")?.textContent).toBe("1");
     expect(
-      mocks.viewMounted.mock.calls.filter(([kind]) => kind === "settings"),
+      mocks.viewMounted.mock.calls.filter(([kind]) => kind === "notes"),
     ).toHaveLength(1);
+  });
+
+  it("opens Settings as a dialog over the chat and closes it without a tool tab", async () => {
+    await mount();
+    await click('[data-command="App: Settings"]');
+    const dialog = document.querySelector("[data-app-view-dialog]");
+    expect(dialog?.querySelector('[data-app-view="settings"]')).not.toBeNull();
+    expect(ownedFileTabs()).toHaveLength(0);
+    expect(activeTabId()).toBe(firstId);
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>("[data-leave-view]")!.click(),
+    );
+    expect(document.querySelector("[data-app-view-dialog]")).toBeNull();
+    expect(
+      workspace(firstId).querySelector('[data-session="first"]'),
+    ).not.toBeNull();
   });
 
   it("mounts Inbox in a pane and keeps the sidebar, footer and terminal dock visible", async () => {
@@ -842,11 +886,11 @@ describe("App workspace app views", () => {
       localStorage.setItem("monocode.fileTabMode", legacyMode);
       await mount();
       await selectSession("recent");
-      await click('[data-command="App: Settings"]');
+      await click('[data-command="View: Notes"]');
       await click("[data-open-file]");
       expect(activeTabId()).toBe(recentId);
       expect(ownedFileTabs().map((tab) => tab.textContent)).toEqual([
-        "Settings",
+        "Notes",
         "file.ts",
       ]);
       const editor = workspace(recentId).querySelector(
@@ -1050,13 +1094,13 @@ describe("App workspace app views", () => {
     },
   );
 
-  it("owns a separate Settings instance in each chat and retains their local state", async () => {
+  it("owns a separate Notes instance in each chat and retains their local state", async () => {
     await mount();
-    await click("[data-open-settings]");
+    await click("[data-open-notes]");
     const firstAppId = ownedFileTabs()[0].dataset.fileTabId;
     await clickInWorkspace("[data-view-state]");
     await selectSession("recent");
-    await click("[data-open-settings]");
+    await click("[data-open-notes]");
     expect(activeTabId()).toBe(recentId);
     expect(ownedFileTabs()[0].dataset.fileTabId).not.toBe(firstAppId);
     expect(
@@ -1065,14 +1109,14 @@ describe("App workspace app views", () => {
     await clickInWorkspace("[data-view-state]");
     await clickInWorkspace("[data-view-state]");
     await selectSession("first");
-    await click("[data-open-settings]");
+    await click("[data-open-notes]");
     expect(
       workspace(firstId).querySelector("[data-view-state]")?.textContent,
     ).toBe("1");
     expect(ownedFileTabs()).toHaveLength(1);
     expect(ownedFileTabs()[0].dataset.fileTabId).toBe(firstAppId);
     expect(
-      mocks.viewMounted.mock.calls.filter(([kind]) => kind === "settings"),
+      mocks.viewMounted.mock.calls.filter(([kind]) => kind === "notes"),
     ).toHaveLength(2);
     await selectSession("recent");
     expect(
@@ -1084,12 +1128,12 @@ describe("App workspace app views", () => {
     "closes the focused %s tool with Ctrl+W and retains its owning chat",
     async (mode) => {
       await mount();
-      await click('[data-command="App: Settings"]');
+      await click('[data-command="View: Notes"]');
       if (mode === "unified")
         await clickInWorkspace("[data-surface-mode-toggle]");
       await pressKey("w", true);
       expect(
-        workspace(firstId).querySelector('[data-app-view="settings"]'),
+        workspace(firstId).querySelector('[data-app-view="notes"]'),
       ).toBeNull();
       expect(activeTabId()).toBe(firstId);
       expect(ownedFileTabs()).toHaveLength(0);
@@ -1104,17 +1148,17 @@ describe("App workspace app views", () => {
     },
   );
 
-  it("Escape leaves the real Search view and retains the tool in its owning chat", async () => {
+  it("Escape closes the real Search dialog and returns to the owning chat", async () => {
     await mount();
     await selectSession("recent");
     await click('[data-command="View: Search Everywhere"]');
-    const appId = ownedFileTabs()[0].dataset.fileTabId;
-    expect(container.querySelector("[data-app-search]")).not.toBeNull();
-    await pressKey("Escape");
-    expect(activeTabId()).toBe(recentId);
     expect(
-      workspace().querySelector(`[data-file-tab-id="${appId}"]`),
+      document.querySelector("[data-app-view-dialog] [data-app-search]"),
     ).not.toBeNull();
+    expect(ownedFileTabs()).toHaveLength(0);
+    await pressKey("Escape");
+    expect(document.querySelector("[data-app-view-dialog]")).toBeNull();
+    expect(activeTabId()).toBe(recentId);
     expect(
       ownedTabs()
         .querySelector('[data-session-chat-tab="recent"]')
@@ -1124,7 +1168,7 @@ describe("App workspace app views", () => {
 
   it("restores each chat's view mode and selected tool when switching chats", async () => {
     await mount();
-    await click('[data-command="App: Settings"]');
+    await click('[data-command="View: Notes"]');
     expect(
       workspace()
         .querySelector("[data-surface-mode-toggle]")
@@ -1152,7 +1196,7 @@ describe("App workspace app views", () => {
     expect(
       workspace().querySelector('[data-file-tab-id] [aria-selected="true"]')
         ?.textContent,
-    ).toBe("Settings");
+    ).toBe("Notes");
     await selectSession("recent");
     expect(
       workspace()
@@ -1167,7 +1211,7 @@ describe("App workspace app views", () => {
 
   it("closes a conversation together with its owned tool pages", async () => {
     await mount();
-    await click('[data-command="App: Settings"]');
+    await click('[data-command="View: Notes"]');
     await click("[data-open-file]");
     expect(ownedFileTabs()).toHaveLength(2);
     await clickInWorkspace('[data-session-chat-tab="first"]');
@@ -1175,7 +1219,7 @@ describe("App workspace app views", () => {
     expect(workspace(firstId)).toBeNull();
     expect(activeTabId()).toBe(recentId);
     expect(ownedFileTabs()).toHaveLength(0);
-    expect(container.querySelector('[data-app-view="settings"]')).toBeNull();
+    expect(container.querySelector('[data-app-view="notes"]')).toBeNull();
     expect(container.querySelector("[data-file-editor]")).toBeNull();
     expect(
       workspace(recentId).querySelector('[data-session="recent"]'),

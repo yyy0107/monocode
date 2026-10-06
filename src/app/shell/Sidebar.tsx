@@ -82,7 +82,7 @@ import {
 import { formatInteger } from "../../shared/lib/numbers";
 import type { SessionSummary } from "../../features/sessions/data/sessionStore";
 import { SessionFiltersMenu } from "../../features/sessions/ui/SessionFiltersMenu";
-import { IconButton, WindowNavigationSpace } from "./TitleBar";
+import { IconButton, WindowNavigationSpace } from "./WindowChrome";
 import { SidebarTransition } from "./SidebarTransition";
 import { ResizeHandle } from "../../shared/ui/ResizeHandle";
 import { ProjectList, AddProjectButton } from "./ProjectList";
@@ -824,10 +824,20 @@ function SidebarComponent(props: SidebarProps) {
     const current = sameProjectPath(path, cwd);
     const key = pathKey(path);
     const remote = isRemoteProjectPath(path) || !!remoteProjectFor(path);
-    const openSession = (id: string) =>
-      props.recents === undefined
-        ? props.onSelectSession(id)
-        : props.onSelectSession(id, path);
+    const openSession = (
+      id: string,
+      _project?: string,
+      opts?: { newColumn?: boolean },
+    ) =>
+      opts
+        ? props.onSelectSession(
+            id,
+            props.recents === undefined ? undefined : path,
+            opts,
+          )
+        : props.recents === undefined
+          ? props.onSelectSession(id)
+          : props.onSelectSession(id, path);
     return (
       <Fragment key={key}>
       <ProjectSessionSection

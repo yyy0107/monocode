@@ -1,4 +1,3 @@
-import type { Tab } from "../../../app/shell/TitleBar";
 import { projectKey, projectName } from "../../../shared/lib/paths";
 import { knownProjectPaths, notifyProjectPathsChanged } from "../../projects/model/recents";
 
@@ -362,17 +361,6 @@ export function resolveTabGroupColorIndex(
   return null;
 }
 
-export type TabGroupSegment =
-  | { kind: "single"; tab: Tab; index: number }
-  | {
-      kind: "group";
-      project: string;
-      tabs: Tab[];
-      startIndex: number;
-      color: string;
-      key: string;
-    };
-
 export type GroupedTab = { id: string; groupId?: string };
 
 /**
@@ -464,66 +452,6 @@ function withGroup<T extends GroupedTab>(tab: T, groupId: string | undefined): T
   }
   if (tab.groupId === groupId) return tab;
   return { ...tab, groupId };
-}
-
-export function segmentTabs(tabs: Tab[]): TabGroupSegment[] {
-  const segments: TabGroupSegment[] = [];
-  let i = 0;
-
-  while (i < tabs.length) {
-    const tab = tabs[i];
-    const groupId = tab.groupId?.trim();
-    if (!groupId) {
-      segments.push({ kind: "single", tab, index: i });
-      i += 1;
-      continue;
-    }
-
-    let j = i + 1;
-    while (j < tabs.length && tabs[j].groupId === groupId) j += 1;
-    const run = tabs.slice(i, j);
-    segments.push({
-      kind: "group",
-      project: sharedGroupProject(run) ?? "",
-      tabs: run,
-      startIndex: i,
-      color: tabGroupColor(groupId),
-      key: groupId,
-    });
-    i = j;
-  }
-
-  return segments;
-}
-
-/** Move a whole segment (group or single tab) to a new position. */
-export function reorderTabSegments(
-  tabs: Tab[],
-  fromSegmentIndex: number,
-  toSegmentIndex: number,
-): string[] | null {
-  const segments = segmentTabs(tabs);
-  if (
-    fromSegmentIndex < 0 ||
-    toSegmentIndex < 0 ||
-    fromSegmentIndex >= segments.length ||
-    toSegmentIndex >= segments.length
-  ) {
-    return null;
-  }
-  if (fromSegmentIndex === toSegmentIndex) {
-    return tabs.map((tab) => tab.id);
-  }
-
-  const nextSegments = segments.slice();
-  const [moved] = nextSegments.splice(fromSegmentIndex, 1);
-  nextSegments.splice(toSegmentIndex, 0, moved);
-
-  return nextSegments.flatMap((segment) =>
-    segment.kind === "group"
-      ? segment.tabs.map((tab) => tab.id)
-      : [segment.tab.id],
-  );
 }
 
 function permutationOf<T extends GroupedTab>(

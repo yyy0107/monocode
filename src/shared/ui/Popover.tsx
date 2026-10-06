@@ -82,6 +82,14 @@ function anchorElement(anchor: PopoverAnchor): HTMLElement | null {
   return "current" in anchor ? anchor.current : null;
 }
 
+/** Menus anchored inside a modal dialog must float above that dialog. */
+function dialogLayer(anchor: PopoverAnchor, layer: number): number {
+  if (layer >= LAYER.dialogPopover) return layer;
+  return anchorElement(anchor)?.closest('[role="dialog"]')
+    ? layer + (LAYER.dialogPopover - LAYER.popover)
+    : layer;
+}
+
 function toRect(rect: DOMRect | AnchorRect): AnchorRect {
   return {
     left: rect.left,
@@ -363,7 +371,7 @@ function WebPopover({
         else if (frameProps?.ref) frameProps.ref.current = el;
       }}
       data-popover-side={position?.side ?? side}
-      style={{ ...placed, zIndex: layer }}
+      style={{ ...placed, zIndex: dialogLayer(anchor, layer) }}
       className={bare ? undefined : FRAME}
     >
       {bare ? null : <GlassBackdrop />}

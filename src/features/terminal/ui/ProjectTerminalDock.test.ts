@@ -17,7 +17,7 @@ vi.mock("./TerminalView", () => ({
     return createElement("div", { "data-terminal-active": active });
   },
 }));
-vi.mock("../../../app/shell/TitleBar", () => ({
+vi.mock("../../../app/shell/WindowChrome", () => ({
   IconButton: ({ label, onClick }: { label: string; onClick: () => void }) =>
     createElement("button", { "aria-label": label, onClick }, label),
 }));

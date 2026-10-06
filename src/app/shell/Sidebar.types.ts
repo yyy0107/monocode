@@ -52,7 +52,12 @@ export type SidebarProps = {
   status: "idle" | "error";
   /** First listing for this project has not arrived yet. */
   pending: boolean;
-  onSelectSession: (sessionId: string, project?: string) => void;
+  /** `newColumn` opens the chat beside the focused column instead of in it. */
+  onSelectSession: (
+    sessionId: string,
+    project?: string,
+    opts?: { newColumn?: boolean },
+  ) => void;
   onSelectRemoteSession?: (project: string, sessionId: string) => void;
   onRemoteSessionDeleted?: (sessionId: string, project?: string) => void;
   onSessionNavigationOrder?: (ids: readonly string[]) => void;

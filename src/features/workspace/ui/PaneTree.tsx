@@ -12,12 +12,11 @@ import {
 } from "react";
 import { setGrabbing, suppressTextSelection } from "../../../shared/lib/drag";
 import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
+import { Maximize2 } from "../../../shared/ui/icons";
+import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   paneDropFromPoint,
-  setExternalTitleTabDrop,
-  titleTabDropFromPoint,
   useExternalPaneDrop,
-  type TitleTabDropPosition,
 } from "../model/paneDrop";
 import type {
   ApprovalDecision,
@@ -58,7 +57,6 @@ import type { TranscriptPool } from "../../sessions/ui/TranscriptPool";
 import type { Worktree } from "../../source-control/model/worktrees";
 import {
   SessionSurfaceToolbar,
-  SessionSurfaceActions,
   type SessionSurfaceMode,
 } from "./SessionSurfaceToolbar";
 import { SessionSurfacePane } from "./SessionSurfacePane";
@@ -191,11 +189,6 @@ type Shared = {
     modelSettings: Record<string, string>,
   ) => void;
   onMovePane: (fromId: string, toId: string, edge: PaneEdge) => void;
-  onDetachPane: (
-    paneId: string,
-    targetTabId: string,
-    position: TitleTabDropPosition,
-  ) => void;
   onNewTerminal: (sessionId: string) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
   transcriptPool?: TranscriptPool;
@@ -211,6 +204,9 @@ type PaneDrag = {
 
 const DRAG_THRESHOLD = 5;
 const PANE_BOUNDARY_EPSILON = 0.001;
+
+// The owning chat's heading lives in the full-width top bar.
+const emptyHeader = () => null;
 
 function PaneTreeComponent({
   visible,
@@ -287,7 +283,6 @@ function PaneTreeComponent({
   onBtwModelChange,
   onHandoff,
   onMovePane,
-  onDetachPane,
   onNewTerminal,
   onTerminalMetaChange,
   transcriptPool,
@@ -298,12 +293,12 @@ function PaneTreeComponent({
   const [draft, setDraft] = useState<LayoutNode | null>(null);
   const [resizing, setResizing] = useState(false);
   const [paneDrag, setPaneDrag] = useState<PaneDrag | null>(null);
+  // A card can temporarily fill the chat area; the rest stay mounted.
+  const [maximizedId, setMaximizedId] = useState<string | null>(null);
   const externalDrop = useExternalPaneDrop(visible);
   const drop = paneDrag ?? externalDrop;
   const onMovePaneRef = useRef(onMovePane);
   onMovePaneRef.current = onMovePane;
-  const onDetachPaneRef = useRef(onDetachPane);
-  onDetachPaneRef.current = onDetachPane;
   const onFocusRef = useRef(onFocus);
   onFocusRef.current = onFocus;
   // Callers pass a fresh arrow per render. Reading it through a ref keeps the
@@ -347,16 +342,6 @@ function PaneTreeComponent({
     sessionFileHandlers.current.set(sessionId, handler);
     return handler;
   };
-  const splitSurfaceActions = useMemo(
-    () => (
-      <SessionSurfaceActions
-        mode="split"
-        onModeChange={surfaceModeChange}
-        windowControls={windowControls}
-      />
-    ),
-    [surfaceModeChange, windowControls],
-  );
 
   useEffect(() => {
     setDraft(null);
@@ -367,6 +352,24 @@ function PaneTreeComponent({
   const dragHandlers = useRef(
     new Map<string, (event: ReactPointerEvent<HTMLElement>) => void>(),
   );
+  // Stable per card so a sash drag never re-renders memoized file panes.
+  const cardMaximize = useRef(
+    new Map<string, { maximized: boolean; node: ReactNode }>(),
+  );
+  const cardMaximizeFor = (paneId: string, isMaximized: boolean) => {
+    const cached = cardMaximize.current.get(paneId);
+    if (cached?.maximized === isMaximized) return cached.node;
+    const node = (
+      <CardMaximizeButton
+        maximized={isMaximized}
+        onToggle={() =>
+          setMaximizedId((current) => (current === paneId ? null : paneId))
+        }
+      />
+    );
+    cardMaximize.current.set(paneId, { maximized: isMaximized, node });
+    return node;
+  };
   const paneDragStartFor = (paneId: string) => {
     const cached = dragHandlers.current.get(paneId);
     if (cached) return cached;
@@ -403,19 +406,30 @@ function PaneTreeComponent({
       : undefined;
   const hasOwnerSession = !!ownerSession;
   const unified = hasOwnerSession && surfaceMode === "unified";
-  const splitToolHost =
-    ownerSession &&
-    leaves.find(
-      (leaf) =>
-        ownedPanes.some((pane) => pane.id === leaf.id) &&
-        leaf.rect.y < PANE_BOUNDARY_EPSILON &&
-        leaf.rect.x + leaf.rect.w > 1 - PANE_BOUNDARY_EPSILON,
-    );
+  // A single chat owns a full-width top bar (title, tools, window controls);
+  // its documents sit beside it as cards.
+  const ownerTopBar = hasOwnerSession;
+  // Without a window tab strip, the top corners of the layout carry the
+  // window chrome: navigation space on the left, window controls on the right.
+  const topLeftId = leaves.find(
+    (leaf) =>
+      leaf.rect.x < PANE_BOUNDARY_EPSILON &&
+      leaf.rect.y < PANE_BOUNDARY_EPSILON,
+  )?.id;
+  const topRightId = leaves.find(
+    (leaf) =>
+      leaf.rect.y < PANE_BOUNDARY_EPSILON &&
+      leaf.rect.x + leaf.rect.w > 1 - PANE_BOUNDARY_EPSILON,
+  )?.id;
   const selectedId = leaves.some((leaf) => leaf.id === focusedId)
     ? focusedId
     : (ownerSession?.id ?? leaves[0]?.id);
+  const maximized =
+    !unified && ownerSession && leaves.some((leaf) => leaf.id === maximizedId)
+      ? (maximizedId ?? undefined)
+      : undefined;
   const surfaceGrid = ownerSession
-    ? sessionSurfaceGrid(leaves, unified ? selectedId : undefined)
+    ? sessionSurfaceGrid(leaves, unified ? selectedId : maximized)
     : undefined;
   const toolbarProps = useMemo(
     () => ({
@@ -431,10 +445,7 @@ function PaneTreeComponent({
       onPinFile,
       onReorderFiles,
       onModeChange: surfaceModeChange,
-      windowControls:
-        hasOwnerSession && (unified || !splitToolHost)
-          ? windowControls
-          : undefined,
+      windowControls: hasOwnerSession ? windowControls : undefined,
       reserveWindowNavigationSpace:
         hasOwnerSession && reserveWindowNavigationSpace,
     }),
@@ -452,7 +463,6 @@ function PaneTreeComponent({
       onReorderFiles,
       surfaceModeChange,
       hasOwnerSession,
-      splitToolHost?.id,
       windowControls,
       reserveWindowNavigationSpace,
     ],
@@ -508,12 +518,6 @@ function PaneTreeComponent({
           onFocusRef.current(fromId);
           setPaneDrag({ fromId, overId: null, edge: "left" });
         }
-        const titleTab = titleTabDropFromPoint(ev.clientX, ev.clientY);
-        setExternalTitleTabDrop(titleTab ? { fromId, ...titleTab } : null);
-        if (titleTab) {
-          setPaneDrag({ fromId, overId: null, edge: "left" });
-          return;
-        }
         const over = paneDropFromPoint(ev.clientX, ev.clientY);
         if (!over || over.id === fromId) {
           setPaneDrag({
@@ -541,22 +545,12 @@ function PaneTreeComponent({
         restoreSelection();
         setGrabbing(false);
         setPaneDrag(null);
-        setExternalTitleTabDrop(null);
         try {
           handle.releasePointerCapture(pointerId);
         } catch {
           /* already released */
         }
         if (!active || !commit) return;
-        const titleTab = titleTabDropFromPoint(lastX, lastY);
-        if (titleTab) {
-          onDetachPaneRef.current(
-            fromId,
-            titleTab.targetTabId,
-            titleTab.position,
-          );
-          return;
-        }
         const over = paneDropFromPoint(lastX, lastY);
         if (over && over.id !== fromId) {
           onMovePaneRef.current(fromId, over.id, over.edge);
@@ -583,32 +577,43 @@ function PaneTreeComponent({
           sessionId,
           unified
             ? undefined
-            : (resolvedSession: Session) => {
-                const session =
-                  sessionsRef.current.find((entry) => entry.id === sessionId) ??
-                  resolvedSession;
-                return (
-                  <SessionSurfaceToolbar
-                    {...toolbarProps}
-                    session={{
-                      ...session,
-                      title: resolvedSession.title,
-                      harness: resolvedSession.harness,
-                    }}
-                    showTools={false}
-                    onModeChange={
-                      hasOwnerSession && !splitToolHost
-                        ? surfaceModeChange
-                        : undefined
-                    }
-                    onPaneDragStart={
-                      inSplit ? paneDragStartFor(sessionId) : undefined
-                    }
-                    onClosePane={() => onClose(sessionId)}
-                    paneFocused={inSplit ? focusedId === sessionId : undefined}
-                  />
-                );
-              },
+            : ownerTopBar
+              ? emptyHeader
+              : (resolvedSession: Session) => {
+                  const session =
+                    sessionsRef.current.find(
+                      (entry) => entry.id === sessionId,
+                    ) ?? resolvedSession;
+                  return (
+                    <SessionSurfaceToolbar
+                      {...toolbarProps}
+                      session={{
+                        ...session,
+                        title: resolvedSession.title,
+                        harness: resolvedSession.harness,
+                      }}
+                      showTools={false}
+                      {...(hasOwnerSession
+                        ? {}
+                        : {
+                            windowControls:
+                              sessionId === topRightId
+                                ? windowControls
+                                : undefined,
+                            reserveWindowNavigationSpace:
+                              !!reserveWindowNavigationSpace &&
+                              sessionId === topLeftId,
+                          })}
+                      onPaneDragStart={
+                        inSplit ? paneDragStartFor(sessionId) : undefined
+                      }
+                      onClosePane={() => onClose(sessionId)}
+                      paneFocused={
+                        inSplit ? focusedId === sessionId : undefined
+                      }
+                    />
+                  );
+                },
         ]),
       ),
     [
@@ -616,21 +621,27 @@ function PaneTreeComponent({
       unified,
       toolbarProps,
       hasOwnerSession,
-      splitToolHost?.id,
-      surfaceModeChange,
+      ownerTopBar,
       inSplit,
       onClose,
       focusedId,
+      topLeftId,
+      topRightId,
+      windowControls,
+      reserveWindowNavigationSpace,
     ],
   );
 
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col">
-      {unified && ownerSession ? (
+      {ownerTopBar && ownerSession ? (
         <SessionSurfaceToolbar
           {...toolbarProps}
           session={ownerSession}
-          showTools
+          showTools={unified}
+          onPaneDragStart={
+            inSplit && !unified ? paneDragStartFor(ownerSession.id) : undefined
+          }
           onClosePane={() => onClose(ownerSession.id)}
         />
       ) : null}
@@ -643,8 +654,16 @@ function PaneTreeComponent({
       >
         {leaves.map((leaf) => {
           const editorPane = editorPanes.find((pane) => pane.id === leaf.id);
+          // Documents beside a chat render as cards, like Claude Desktop.
+          const asCard =
+            !!editorPane &&
+            !unified &&
+            sessionLeaves.length > 0 &&
+            !editorPane.files.some((file) => file.appView);
           const session = sessions.find((entry) => entry.id === leaf.id);
-          const expanded = !unified || selectedId === leaf.id;
+          const expanded = unified
+            ? selectedId === leaf.id
+            : !maximized || maximized === leaf.id;
           const paneVisible = visible && expanded;
           const dragging = drop?.fromId === leaf.id;
           const onPaneDragStart =
@@ -715,39 +734,53 @@ function PaneTreeComponent({
                 }}
               >
                 {editorPane ? (
-                  <FilePane
-                    pane={editorPane}
-                    visible={paneVisible}
-                    focused={paneVisible && focusedId === editorPane.id}
-                    showTabs={
-                      !unified &&
-                      (inSplit ||
-                        editorPane.files.length > 1 ||
-                        splitToolHost?.id === editorPane.id)
+                  <div
+                    data-pane-card={asCard ? "" : undefined}
+                    className={
+                      asCard
+                        ? "mb-2 mr-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-content/10 bg-background-base"
+                        : "flex min-h-0 min-w-0 flex-1 flex-col"
                     }
-                    tabsTrailing={
-                      !unified && splitToolHost?.id === editorPane.id
-                        ? splitSurfaceActions
-                        : undefined
-                    }
-                    dirtyFileIds={dirtyFileIds}
-                    fileErrorCounts={fileErrorCounts}
-                    sessions={sessions}
-                    onFocus={onFocus}
-                    onSelectFile={onSelectFile}
-                    onCloseFile={onCloseFile}
-                    onCloseOtherFiles={onCloseOtherFiles}
-                    onPinFile={onPinFile}
-                    onReorderFiles={onReorderFiles}
-                    onDirtyChange={onFileDirtyChange}
-                    onErrorCountChange={onFileErrorCountChange}
-                    onOpenFile={onOpenFile}
-                    onUpdatePlan={onUpdatePlan}
-                    onBuildPlan={onBuildPlan}
-                    editorNavigation={editorNavigation}
-                    onPaneDragStart={onPaneDragStart}
-                    onTerminalMetaChange={onTerminalMetaChange}
-                  />
+                  >
+                    <FilePane
+                      pane={editorPane}
+                      visible={paneVisible}
+                      focused={paneVisible && focusedId === editorPane.id}
+                      showTabs={
+                        !unified &&
+                        (inSplit ||
+                          editorPane.files.length > 1 ||
+                          (!hasOwnerSession && topRightId === editorPane.id))
+                      }
+                      tabsTrailing={
+                        asCard && ownerSession
+                          ? cardMaximizeFor(
+                              editorPane.id,
+                              maximized === editorPane.id,
+                            )
+                          : !hasOwnerSession && topRightId === editorPane.id
+                            ? windowControls
+                            : undefined
+                      }
+                      dirtyFileIds={dirtyFileIds}
+                      fileErrorCounts={fileErrorCounts}
+                      sessions={sessions}
+                      onFocus={onFocus}
+                      onSelectFile={onSelectFile}
+                      onCloseFile={onCloseFile}
+                      onCloseOtherFiles={onCloseOtherFiles}
+                      onPinFile={onPinFile}
+                      onReorderFiles={onReorderFiles}
+                      onDirtyChange={onFileDirtyChange}
+                      onErrorCountChange={onFileErrorCountChange}
+                      onOpenFile={onOpenFile}
+                      onUpdatePlan={onUpdatePlan}
+                      onBuildPlan={onBuildPlan}
+                      editorNavigation={editorNavigation}
+                      onPaneDragStart={onPaneDragStart}
+                      onTerminalMetaChange={onTerminalMetaChange}
+                    />
+                  </div>
                 ) : session ? (
                   <SessionPane
                     session={session}
@@ -1015,5 +1048,34 @@ function Sash({
         }}
       />
     </div>
+  );
+}
+
+/** Card header control: fill the chat area with this card, or restore it. */
+function CardMaximizeButton({
+  maximized,
+  onToggle,
+}: {
+  maximized: boolean;
+  onToggle: () => void;
+}) {
+  const { t } = useTranslation();
+  const label = maximized ? t("Restore") : t("Maximize");
+  return (
+    <button
+      type="button"
+      data-card-maximize
+      data-tauri-drag-region="false"
+      aria-label={label}
+      aria-pressed={maximized}
+      title={label}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={onToggle}
+      className={`mr-1 grid size-7 shrink-0 self-center place-items-center rounded-md hover:bg-content/5 hover:text-content ${
+        maximized ? "bg-content/8 text-content" : "text-content/55"
+      }`}
+    >
+      <Maximize2 className="size-3.5" strokeWidth={1.75} />
+    </button>
   );
 }

@@ -1,7 +1,7 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useRef, useState } from "react";
 import { PanelLeft, RotateCcw } from "../../../shared/ui/icons";
-import { IconButton } from "../../../app/shell/TitleBar";
+import { IconButton } from "../../../app/shell/WindowChrome";
 import { useDragResize } from "../../../shared/hooks/useDragResize";
 import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
 import { inboxItemRef, type InboxItem } from "../model/githubTasks";

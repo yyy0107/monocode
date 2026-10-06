@@ -875,7 +875,12 @@ function ProjectSessionSectionComponent({
 
   const onSessionCardSelect = (
     sessionId: string,
-    event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+    event: {
+      shiftKey: boolean;
+      ctrlKey: boolean;
+      metaKey: boolean;
+      altKey?: boolean;
+    },
   ) => {
     announceProjectSelection();
     contextSelectionRef.current = false;
@@ -916,6 +921,11 @@ function ProjectSessionSectionComponent({
       return;
     }
     setSelectedSessionIds(new Set());
+    // Alt-click opens the chat in a new column beside the focused one.
+    if (event.altKey && !remoteProject) {
+      onSelectLocalSession(sessionId, undefined, { newColumn: true });
+      return;
+    }
     onSelectSession(sessionId);
   };
 
@@ -945,7 +955,12 @@ function ProjectSessionSectionComponent({
     () => ({
       select: (
         sessionId: string,
-        event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+        event: {
+          shiftKey: boolean;
+          ctrlKey: boolean;
+          metaKey: boolean;
+          altKey?: boolean;
+        },
       ) => cardHandlers.current.onSessionCardSelect(sessionId, event),
       openWorkItem: (item: LinkedWorkItem, sessionId: string) =>
         cardHandlers.current.onOpenInboxItem?.(item, sessionId),
@@ -1511,7 +1526,12 @@ const SessionCard = memo(function SessionCard({
   now: number;
   onSelect: (
     sessionId: string,
-    event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+    event: {
+      shiftKey: boolean;
+      ctrlKey: boolean;
+      metaKey: boolean;
+      altKey?: boolean;
+    },
   ) => void;
   onOpenWorkItem?: (item: LinkedWorkItem, sessionId: string) => void;
   onPrefetch?: (sessionId: string) => void;

@@ -6,9 +6,17 @@ and cwd `~` and carries no other virtual-tab field. `editorTabKey` is
 `app:<kind>`. App views are virtual documents, never previews.
 
 A window holds at most one tab per kind. Opening an existing kind focuses it.
-A workspace tab whose panes contain only app views belongs to no project and
-is shown in every project's tab strip. Files, diffs and plans never open into
-a pane whose active file is an app view.
+Files, diffs and plans never open into a pane whose active file is an app view.
+
+The desktop window has no workspace tab strip (Claude Desktop style). Each
+chat keeps its own hidden workspace tab with its tools; choosing a chat in the
+sidebar shows that workspace. Inside it, chats sit side by side as columns
+(Alt-click in the sidebar or the title menu's Split Right) and documents and
+terminals stack as cards beside them. A single chat's header spans the window
+top with its title menu, project chip, terminal and changes toggles and the
+window controls. Settings, search and automations open in `AppViewDialog`
+over the workspace instead of a pane; the view's own close or Escape closes the
+dialog, as does opening a chat or file from inside it.
 
 `FilePane` and `AppViewHost` provide a bounded-height flex chain to the view.
 The host fills the available pane, including when split beside a session or
