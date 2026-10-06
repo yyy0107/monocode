@@ -1,3 +1,4 @@
+import { AppPageHeader } from "../../workspace/ui/AppPageHeader";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   LoaderCircle,
@@ -337,14 +338,7 @@ export function NotesView({
       data-app-notes
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
-      <div className="flex h-10 shrink-0 select-none items-center border-b border-stroke">
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
-          <File
-            className="size-3.5 shrink-0 text-content/45"
-          />
-          <span className="min-w-0 truncate text-content">{uiT("Notes")}</span>
-        </div>
-      </div>
+      <AppPageHeader title={uiT("Notes")} icon={File} onBack={onClose} />
       <div className="flex min-h-0 min-w-0 flex-1">
         {list}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col pl-4">
