@@ -10,7 +10,7 @@ import {
 } from "../features/workflows/model/workflowActivity";
 import { WorkflowSidebarSection } from "../features/workflows/ui/WorkflowSidebarSection";
 import { WorkflowsView } from "../features/workflows/ui/WorkflowsView";
-import { WorkflowProjectsContext } from "../features/workflows/zcode/store/TabStoreProvider";
+import { WorkflowProjectsContext } from "../features/workflows/kit/store/TabStoreProvider";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { DesktopAssistant } from "../features/assistant/ui/DesktopAssistant";
 import {

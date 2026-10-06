@@ -1,4 +1,3 @@
-<!-- Adapted from ZCode (Apache-2.0) bundled-skills/dynamic-workflows. -->
 # Worked dynamic-workflow examples
 
 Five complete scripts, end to end. Each is a whole arc — world read, topology, loop or

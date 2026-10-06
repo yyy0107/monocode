@@ -1,6 +1,6 @@
-// A workflow run's card in its launching conversation: ZCode's run digest
+// A workflow run's card in its launching conversation: the run digest
 // (horizontal phase timeline, agent pills, artifacts) over the Host's live run
-// state, or — while an agent-launched run waits — ZCode's approval view with
+// state, or — while an agent-launched run waits — the approval view with
 // Run / Discard.
 import { useMemo, useState } from "react";
 import type { Block, Session } from "../../sessions/model/session";
@@ -11,14 +11,19 @@ export type WorkflowRunParent = Pick<Session, "id" | "harness" | "model" | "mode
   cwd: string;
 };
 import { useTranslation } from "../../../shared/i18n/useTranslation";
-import { WorkflowRunDigest } from "../zcode/components/workflow-timeline/WorkflowRunDigest";
-import type { WorkflowRunSettingsHost } from "../zcode/components/workflow-timeline/WorkflowRunSettingsPopover";
-import { isWorkflowRunConfigurable } from "../zcode/components/workflow-timeline/workflowRunSettings";
-import { WorkflowPermissionBlock } from "../zcode/WorkflowPermissionBlock";
-import { Button } from "../zcode/components/ui/button";
-import { TooltipProvider } from "../zcode/components/ui/tooltip";
-import { V4PaneConversationProvider } from "../zcode/v4/V4ConversationContext";
-import { buildWorkflowRunByRunId } from "../zcode/v4/workflowRunCardJoin";
+import { WorkflowRunDigest } from "../kit/components/workflow-timeline/WorkflowRunDigest";
+import {
+  WorkflowRunSettingsForm,
+  type WorkflowRunSettingsHost,
+} from "../kit/components/workflow-timeline/WorkflowRunSettingsPopover";
+import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
+import { ChevronRight } from "../../../shared/ui/icons";
+import { isWorkflowRunConfigurable } from "../kit/components/workflow-timeline/workflowRunSettings";
+import { WorkflowPermissionBlock } from "../kit/WorkflowPermissionBlock";
+import { Button } from "../kit/components/ui/button";
+import { TooltipProvider } from "../kit/components/ui/tooltip";
+import { V4PaneConversationProvider } from "../kit/v4/V4ConversationContext";
+import { buildWorkflowRunByRunId } from "../kit/v4/workflowRunCardJoin";
 import { workflowActions } from "../model/workflowClient";
 import { useWorkflowApp } from "./workflowAppContext";
 
@@ -32,6 +37,11 @@ export function WorkflowRunCard({ block, parent: session }: { block: Block; pare
   const summary = useMemo(() => buildWorkflowRunByRunId(session.workflowRuns?.runs).get(meta.runId), [meta.runId, session.workflowRuns]);
   const scope = useMemo(() => ({ workspacePath: cwd }), [cwd]);
   const run = summary?.run;
+  const [configuring, setConfiguring] = useState(false);
+  const agentNames = useMemo(
+    () => [...new Set((meta.graph?.lanes ?? []).map((lane) => lane.name).filter((name): name is string => !!name))],
+    [meta.graph],
+  );
 
   const act = (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -40,6 +50,16 @@ export function WorkflowRunCard({ block, parent: session }: { block: Block; pare
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)))
       .finally(() => setBusy(false));
   };
+
+  const settingsHostFor = (): WorkflowRunSettingsHost => ({
+    workspacePath: cwd,
+    settings: meta.settings,
+    sessionRuntime: { harness: session.harness, model: session.model, modelSettings: session.modelSettings ?? {} },
+    apply: async (change) => {
+      await workflowActions.retune(cwd, meta.runId, change);
+      return { status: "accepted" };
+    },
+  });
 
   if (meta.approval === "pending") {
     const request = {
@@ -65,6 +85,31 @@ export function WorkflowRunCard({ block, parent: session }: { block: Block; pare
               {t("Commands this workflow may run: {commands}", { commands: meta.commands.join(", ") })}
             </p>
           ) : null}
+          {app ? (
+            <div className="flex flex-col gap-2 border-t border-border pt-2">
+              <button
+                type="button"
+                aria-expanded={configuring}
+                className="flex w-fit items-center gap-1 text-ui-sm text-foreground-subtle hover:text-foreground"
+                onClick={() => setConfiguring((value) => !value)}
+              >
+                <ChevronRight className={`size-3.5 transition-transform ${configuring ? "rotate-90" : ""}`} aria-hidden="true" />
+                {t("Adjust configuration")}
+              </button>
+              <AnimatedCollapse expanded={configuring} motion="height">
+                {() => (
+                  <WorkflowRunSettingsForm
+                    // Remount on each settings change so the form starts from what is saved.
+                    key={JSON.stringify(meta.settings)}
+                    host={settingsHostFor()}
+                    subject={{ agentNames, ceiling: undefined, stage: "pending" }}
+                    applyLabel={t("Save configuration")}
+                    onClose={() => setConfiguring(false)}
+                  />
+                )}
+              </AnimatedCollapse>
+            </div>
+          ) : null}
           {error ? <p className="text-ui-xs text-destructive" role="alert">{error}</p> : null}
           {app ? (
             <div className="flex justify-end gap-2">
@@ -84,17 +129,7 @@ export function WorkflowRunCard({ block, parent: session }: { block: Block; pare
     return <p className="px-1 text-ui-sm text-foreground-subtle">{t("Workflow “{name}” was discarded.", { name: meta.name })}</p>;
   }
 
-  const settingsHost: WorkflowRunSettingsHost | undefined = app && isWorkflowRunConfigurable(run)
-    ? {
-        workspacePath: cwd,
-        settings: meta.settings,
-        sessionRuntime: { harness: session.harness, model: session.model, modelSettings: session.modelSettings ?? {} },
-        apply: async (change) => {
-          await workflowActions.retune(cwd, meta.runId, change);
-          return { status: "accepted" };
-        },
-      }
-    : undefined;
+  const settingsHost: WorkflowRunSettingsHost | undefined = app && isWorkflowRunConfigurable(run) ? settingsHostFor() : undefined;
 
   return (
     <TooltipProvider delayDuration={300}>

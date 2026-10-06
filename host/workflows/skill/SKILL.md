@@ -3,7 +3,6 @@ name: dynamic-workflows
 description: "Use when writing, debugging, or resubmitting a MonoCode dynamic-workflow script: choosing subagent topology and each subagent's provider/model/thinking/speed, typing subagent results, fanning out over files or git, gating loops on world.run commands, testing pieces with `workflow snippet`, planner-reviewer loops, confirming findings before reporting them, report() salvage, the report shape a run returns, publishing artifacts the user opens, and handling a background run."
 ---
 
-<!-- Adapted from ZCode (Apache-2.0) bundled-skills/dynamic-workflows. -->
 
 # Writing dynamic workflows
 
