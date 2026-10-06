@@ -166,6 +166,7 @@ export type HostSessionSummary = Omit<
   nativeSession?: Session["nativeSession"];
   nativeStatus?: HostSession["nativeStatus"];
   orchestrationLeadId?: string;
+  workflowParentId?: string;
   assistantOwnerId?: string;
 };
 

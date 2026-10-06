@@ -352,6 +352,8 @@ export type Block = {
   taskList?: TaskListMeta;
   plan?: PlanBlockMeta;
   orchestration?: OrchestrationProposal;
+  /** A dynamic workflow run launched from this conversation (rendered as its run card). */
+  workflowRun?: import("../../../integrations/workflow/sessionTypes").WorkflowRunBlock;
   /** Parent conversation for an internal orchestration worker. */
   orchestrationLeadId?: string;
   /**
@@ -446,6 +448,12 @@ export type Session = {
   quickLaunchAccepted?: boolean;
   /** Internal worker: displayed in its lead's panel rather than a workspace tab. */
   orchestrationLeadId?: string;
+  /** Dynamic workflow subagent: hidden from session lists, shown in its run's views. */
+  workflowParentId?: string;
+  /** The workflow run a subagent session belongs to. */
+  workflowRunId?: string;
+  /** Live and recent dynamic workflow runs launched from this conversation. */
+  workflowRuns?: import("../../../integrations/workflow/protocol/workflow-runs").WorkflowRunsState;
   /** Temporary Inbox conversation: shares the runtime, never saved as a session. */
   inboxAsk?: InboxAskContext;
   id: string;
@@ -694,6 +702,7 @@ export function isReusableDraftSession(session: Session): boolean {
   if (session.nativeSession) return false;
   if (session.assistantOwnerId) return false;
   if (session.orchestrationLeadId) return false;
+  if (session.workflowParentId) return false;
   if (session.inboxAsk) return false;
   if (session.composerSeed) return false;
   if (session.inboxCard) return false;

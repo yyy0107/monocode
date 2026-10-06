@@ -31,6 +31,33 @@ Host owns execution; exiting this CLI or closing desktop does not cancel work.
 MONOCODE_CONTROL_ENDPOINT and MONOCODE_CONTROL_TOKEN are supplied only to the
 lead process. Never print credentials.`;
 
+export const WORKFLOW_ACTIONS = ["create", "amend", "resume", "cancel", "get", "list", "wait", "save", "saved", "snippet", "providers"];
+export const WORKFLOW_HELP = `MonoCode dynamic workflows — run multi-agent workflow scripts from this conversation.
+Usage: "$MONOCODE_WORKFLOW_CLI" workflow ACTION [--json JSON | --input FILE|-] [--request-id ID]
+Actions:
+  create {name?,script|saved{name,args?,scope?}|path,args?,maxConcurrency?,defaults?,agents?} — start a run
+  amend {runId,script?|path?,name?,maxConcurrency?,defaults?,agents?} — revise a run, reusing finished work
+  resume {runId} — continue a stopped run
+  cancel {runId} — stop a running run
+  get {runId} — snapshot a run
+  list {} — runs launched from this conversation
+  wait {runId,timeoutSeconds?:0-25} — wait for a change or settlement
+  save {name,description,whenToUse?,scope,script|scriptPath,args?} — save a reusable workflow
+  saved {} — list saved workflows
+  snippet {code|path,args?,timeoutMs?} — run a world-read snippet synchronously
+  providers {} — installed providers, models, thinking levels and speeds
+defaults/agents entries are {provider?,model?,thinking?,speed?}. Read the authoring guide at
+$MONOCODE_WORKFLOW_SKILL_DIR/SKILL.md before writing a script.
+Output is one JSON line; exit status 0 means ok:true. Retry an uncertain call with the same
+--request-id. Never print MONOCODE_WORKFLOW_TOKEN.`;
+
+const NAMESPACE_ENV = {
+  control: { endpoint: "MONOCODE_CONTROL_ENDPOINT", token: "MONOCODE_CONTROL_TOKEN" },
+  assistant: { endpoint: "MONOCODE_CONTROL_ENDPOINT", token: "MONOCODE_CONTROL_TOKEN" },
+  workflow: { endpoint: "MONOCODE_WORKFLOW_ENDPOINT", token: "MONOCODE_WORKFLOW_TOKEN" },
+} as const;
+type ControlNamespace = keyof typeof NAMESPACE_ENV;
+
 /** Credentials are ephemeral, lead-scoped and never accepted by device RPC. */
 export class HostControl {
   private grants = new Map<string, string>();
@@ -38,7 +65,7 @@ export class HostControl {
   private server: Server;
   private endpoint = "";
   readonly ready: Promise<void>;
-  constructor(private handle: (leadId: string, requestId: string, action: string, input: Record<string, unknown>, authorize: () => boolean) => Promise<unknown>, private options: { namespace?: "control" | "assistant"; actions?: readonly string[] } = {}) {
+  constructor(private handle: (leadId: string, requestId: string, action: string, input: Record<string, unknown>, authorize: () => boolean) => Promise<unknown>, private options: { namespace?: ControlNamespace; actions?: readonly string[] } = {}) {
     this.server = createServer((socket) => {
       this.sockets.add(socket);
       socket.on("close", () => this.sockets.delete(socket));
@@ -84,7 +111,8 @@ export class HostControl {
   disable(id: string) { this.grants.delete(id); }
   environment(id: string): Record<string, string> {
     const token = this.grants.get(id);
-    return token ? { MONOCODE_CONTROL_ENDPOINT: this.endpoint, MONOCODE_CONTROL_TOKEN: token } : {};
+    const names = NAMESPACE_ENV[this.options.namespace ?? "control"];
+    return token ? { [names.endpoint]: this.endpoint, [names.token]: token } : {};
   }
   async launcher(directory: string, entry: string, node = process.execPath): Promise<string> {
     await this.ready;
@@ -106,8 +134,8 @@ export class HostControl {
   }
 }
 
-export async function runControlCli(args: string[], namespace: "control" | "assistant" = "control"): Promise<number> {
-  if (args[0] === "--help" || !args[0]) { process.stdout.write(namespace === "control" ? `${CONTROL_HELP}\n` : "MonoCode assistant control: assistant ACTION --input FILE|- --request-id ID. Discover agents/projects/sessions, create and manage conversations, or call workspace.run. Retry uncertain calls with the same request ID.\n"); return 0; }
+export async function runControlCli(args: string[], namespace: ControlNamespace = "control"): Promise<number> {
+  if (args[0] === "--help" || !args[0]) { process.stdout.write(namespace === "control" ? `${CONTROL_HELP}\n` : namespace === "workflow" ? `${WORKFLOW_HELP}\n` : "MonoCode assistant control: assistant ACTION --input FILE|- --request-id ID. Discover agents/projects/sessions, create and manage conversations, or call workspace.run. Retry uncertain calls with the same request ID.\n"); return 0; }
   let requestId: string = randomUUID();
   try {
     const known = new Set(["--json", "--input", "--request-id"]);
@@ -119,13 +147,13 @@ export async function runControlCli(args: string[], namespace: "control" | "assi
     const option = (key: string) => { const i = args.indexOf(key); if (i < 0) return undefined; if (!args[i + 1]) throw new Error(`Missing ${key} value`); return args[i + 1]; };
     requestId = option("--request-id") ?? requestId;
     if (!requestId || requestId.length > 128 || requestId.includes("\0")) throw new Error("Invalid request ID");
-    if (namespace === "control" ? !ACTIONS.includes(args[0]) : !/^[a-z]+\.[a-zA-Z]+$/.test(args[0])) throw new Error("Unknown control action; run control --help");
+    if (namespace === "control" ? !ACTIONS.includes(args[0]) : namespace === "workflow" ? !WORKFLOW_ACTIONS.includes(args[0]) : !/^[a-z]+\.[a-zA-Z]+$/.test(args[0])) throw new Error(`Unknown ${namespace} action; run ${namespace} --help`);
     const json = option("--json"), file = option("--input");
     if (json && file) throw new Error("Use either --json or --input");
     const input = JSON.parse(json ?? (file ? readFileSync(file === "-" ? 0 : file, "utf8") : "{}"));
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Control input must be an object");
-    const endpoint = process.env.MONOCODE_CONTROL_ENDPOINT?.match(/^127\.0\.0\.1:(\d+)$/);
-    const token = process.env.MONOCODE_CONTROL_TOKEN;
+    const endpoint = process.env[NAMESPACE_ENV[namespace].endpoint]?.match(/^127\.0\.0\.1:(\d+)$/);
+    const token = process.env[NAMESPACE_ENV[namespace].token];
     if (!endpoint || !token) throw new Error("Host control access is unavailable for this process");
     const reply = await new Promise<Record<string, unknown>>((resolve, reject) => {
       const socket = connect(Number(endpoint[1]), "127.0.0.1");

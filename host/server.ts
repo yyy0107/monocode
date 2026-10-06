@@ -213,6 +213,7 @@ export function createHostServer(
       (entries ?? []).map((model) => ({ harness: harness as RemoteProvider, model: model.id, name: model.name })));
   });
   engine.assistant.setCatalog(availableProviders, models);
+  engine.workflows.setModelSource((cwd, harness) => providerModels(cwd, harness as RemoteProvider));
   const resourceId = (token: string, value: unknown) => {
     if (typeof value !== "string" || !/^[A-Za-z0-9_:-]{1,200}$/.test(value)) throw new Error("Invalid editor resource identity");
     return `device:${createHash("sha256").update(token).digest("hex")}:${value}`;
@@ -341,6 +342,7 @@ export function createHostServer(
                 "assistant.v1",
                 "assistant.persona",
                 "resources",
+                "workflows.v1",
               ],
             };
             break;
@@ -365,13 +367,13 @@ export function createHostServer(
           case "sessions.activity":
             result = {
               environmentId: engine.store.environmentId,
-              sessions: engine.store.summaries().filter((session) => !session.orchestrationLeadId && !session.assistantOwnerId),
+              sessions: engine.store.summaries().filter((session) => !session.orchestrationLeadId && !session.workflowParentId && !session.assistantOwnerId),
             };
             break;
           case "sessions.list": {
             const projectId = String(params.projectId ?? "");
             const project = engine.store.project(projectId);
-            const summaries = engine.store.summaries(projectId).filter((session) => !session.orchestrationLeadId && !session.assistantOwnerId);
+            const summaries = engine.store.summaries(projectId).filter((session) => !session.orchestrationLeadId && !session.workflowParentId && !session.assistantOwnerId);
             const paths = [...new Set(summaries.map((session) => session.cwd ?? project.cwd))];
             const branches = new Map(await Promise.all(paths.map(async (cwd) => {
               const branch = await exec("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
@@ -502,6 +504,9 @@ export function createHostServer(
           }
           case "commands.dispatch":
             result = engine.command(params);
+            break;
+          case "workflows.request":
+            result = await engine.workflows.rpc(params, (projectId) => engine.store.project(projectId).cwd);
             break;
           case "assistant.get":
           case "assistant.configure":

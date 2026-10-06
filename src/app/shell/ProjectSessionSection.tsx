@@ -417,6 +417,7 @@ function ProjectSessionSectionComponent({
   ].filter(
     (session) =>
       !session.orchestrationLeadId &&
+      !session.workflowParentId &&
       (shortcutId || searchActive || inWorktreeFocus(session, focusedWorktree)),
   );
   const visibleSessions = [

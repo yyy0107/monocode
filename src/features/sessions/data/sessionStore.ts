@@ -50,6 +50,7 @@ import type { OrchestrationSummary } from "../../orchestration/model/orchestrati
 export type SessionSummary = {
   titleState?: Session["titleState"];
   orchestrationLeadId?: string;
+  workflowParentId?: string;
   orchestration?: OrchestrationSummary;
   id: string;
   cwd: string;

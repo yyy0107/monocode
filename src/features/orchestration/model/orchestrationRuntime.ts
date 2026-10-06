@@ -40,6 +40,10 @@ export type ControlOutcome = {
   status: "completed" | "failed" | "cancelled";
   text: string;
   error?: string;
+  /** Provider token metrics recorded on this turn's user block, when reported. */
+  metrics?: import("../../sessions/model/session").TurnMetrics;
+  /** Tool calls the agent made during this turn. */
+  toolCalls?: number;
 };
 export type WorkerPreparation = {
   scratchDir?: string;
