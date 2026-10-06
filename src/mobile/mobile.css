@@ -1226,6 +1226,7 @@ html[data-mobile-glass="solid"] :is(
   initial-value: 0px;
 }
 .mobile-composer-dock,
+.mobile-shared-question,
 .mobile-desktop-transcript,
 .mobile-sheet-backdrop,
 .mobile-modal-backdrop {
@@ -1274,6 +1275,21 @@ html[data-mobile-glass="solid"] :is(
 }
 .mobile-chat > :not(.mobile-desktop-transcript):has(+ .mobile-composer-dock) {
   margin-bottom: var(--mobile-dock-height, 0px);
+}
+/* Answering a question lifts the question card, while the unused composer
+   stays at the full viewport bottom behind the keyboard. Keep this layout
+   between question fields and buttons, until the composer itself is focused. */
+.mobile-chat:has(> .mobile-shared-question) > .mobile-composer-dock:not(:focus-within),
+.mobile-chat:has(.question-history [data-question-form]) > .mobile-composer-dock:not(:focus-within) {
+  bottom: calc(0px - max(0px, var(--mobile-viewport-full, 100dvh) - 100dvh));
+}
+.mobile-chat:not(:has(> .mobile-composer-dock :focus)) > .mobile-shared-question {
+  margin-bottom: max(
+    8px,
+    calc(var(--mobile-dock-height, 0px) - max(0px, var(--mobile-viewport-full, 100dvh) - 100dvh)),
+    calc(var(--mobile-keyboard-offset) + 8px)
+  );
+  transition: --mobile-keyboard var(--mobile-keyboard-duration, 0ms) var(--mobile-keyboard-easing, linear);
 }
 .mobile-composer {
   position: relative;
@@ -2586,10 +2602,27 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   font-size: 13px;
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
-.mobile-shared-question [data-question-header] > span:not([data-question-title]),
+.mobile-shared-question [data-question-navigation] > span,
 .mobile-shared-question [data-question-hint] {
   font-size: 13px;
   color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.mobile-shared-question [data-question-navigation] {
+  gap: 0;
+}
+.mobile-shared-question [data-question-navigation] > button {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  color: var(--mobile-accent);
+  touch-action: manipulation;
+}
+.mobile-shared-question [data-question-navigation] > button > svg {
+  width: 18px;
+  height: 18px;
+}
+.mobile-shared-question [data-question-navigation] > button:active:not(:disabled) {
+  background: var(--color-selection);
 }
 .mobile-shared-question [data-question-secondary] {
   height: auto;
@@ -2665,6 +2698,9 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 .mobile-shared-question [data-question-options] input,
 .mobile-shared-question [data-question-body] > fieldset > :is(input, textarea) {
   margin-top: 6px;
+}
+.mobile-shared-question :is(input, textarea):focus-visible {
+  outline: none;
 }
 .mobile-shared-question [data-question-footer] {
   margin-top: 10px;
