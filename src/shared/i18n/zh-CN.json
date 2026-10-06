@@ -2021,8 +2021,6 @@
   "{value0} details": "{value0} 详情",
   "{value0} does not support attachments": "{value0} 不支持附件",
   "{value0} effort": "{value0}推理强度",
-  "{value0} error details for MonoCode: {value1}": "{value0} 的 MonoCode 错误详情：{value1}",
-  "{value0} error details for {value1}": "{value0} 的错误详情：{value1}",
   "{value0} events": "{value0} 个事件",
   "{value0} failed checks": "{value0} 个失败检查",
   "{value0} files": "{value0} 个文件",
@@ -2590,5 +2588,14 @@
   "Background": "后台",
   "{count} running": "{count} 个运行中",
   "+{count} more": "另外 {count} 项",
-  "Show fewer": "收起部分"
+  "Show fewer": "收起部分",
+  "Thinking for {value0}": "思考中 · {value0}",
+  "Thought for {value0}": "思考 · 持续了 {value0}",
+  "Hide error details for {value0}": "隐藏 {value0} 的错误详情",
+  "Show error details for {value0}": "显示 {value0} 的错误详情",
+  "Hide details for {value0}": "隐藏 {value0} 的详情",
+  "Show details for {value0}": "显示 {value0} 的详情",
+  "Hide error details for MonoCode: {value0}": "隐藏 MonoCode 错误详情：{value0}",
+  "Show error details for MonoCode: {value0}": "显示 MonoCode 错误详情：{value0}",
+  "Asked a question": "已询问问题"
 }

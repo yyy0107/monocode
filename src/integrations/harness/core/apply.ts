@@ -680,7 +680,7 @@ export function promoteLastAssistantToPlan(
 }
 
 function stopBlockProgress(block: Block): Block {
-  let stopped = block.streaming ? { ...block, streaming: false } : block;
+  let stopped = block.streaming ? sealStream(block) : block;
   if (stopped.orchestration?.status === "planning") {
     stopped = {
       ...stopped,
@@ -860,6 +860,8 @@ function patchStreaming(
     role,
     text: typeof input === "string" ? input : input.reduce(joinStreamText, ""),
     streaming,
+    // A thought is timed from its first token so the row can say how long it ran.
+    ...(role === "reasoning" ? { startedAt: Date.now() } : {}),
   });
   return { ...session, blocks };
 }
@@ -1237,8 +1239,24 @@ function sealLastStream(blocks: Block[]): Block[] {
     return blocks.slice();
   }
   const next = blocks.slice();
-  next[index] = { ...last, streaming: false };
+  next[index] = sealStream(last);
   return next;
+}
+
+/** Close a prose stream; a timed thought also records how long it ran. */
+function sealStream(block: Block): Block {
+  if (
+    block.role === "reasoning" &&
+    block.startedAt != null &&
+    block.durationMs == null
+  ) {
+    return {
+      ...block,
+      streaming: false,
+      durationMs: Math.max(0, Date.now() - block.startedAt),
+    };
+  }
+  return { ...block, streaming: false };
 }
 
 function displayLabel(
@@ -1344,9 +1362,7 @@ function finishRole(session: Session, role: Block["role"]): Session {
   return {
     ...session,
     blocks: session.blocks.map((block) =>
-      block.role === role && block.streaming
-        ? { ...block, streaming: false }
-        : block,
+      block.role === role && block.streaming ? sealStream(block) : block,
     ),
   };
 }

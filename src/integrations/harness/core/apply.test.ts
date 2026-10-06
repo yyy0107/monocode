@@ -1371,3 +1371,27 @@ it("clears the native source only when the provider binding changes", () => {
   expect(applyHarnessEvent(session, { type: "session.providerBound", providerSessionId: "original" }).nativeSession).toEqual(session.nativeSession);
   expect(applyHarnessEvent(session, { type: "session.providerBound", providerSessionId: "fork" }).nativeSession).toBeUndefined();
 });
+
+describe("reasoning timing", () => {
+  it("times a thought from its first token to the moment it is sealed", () => {
+    let session = newSession("omp", "/tmp");
+    now = 1_000;
+    session = applyHarnessEvent(session, { type: "reasoning.delta", text: "Think" });
+    now = 2_500;
+    session = applyHarnessEvent(session, { type: "reasoning.delta", text: " more" });
+    expect(session.blocks[0]).toMatchObject({ startedAt: 1_000, streaming: true });
+    expect(session.blocks[0].durationMs).toBeUndefined();
+    now = 4_000;
+    session = applyHarnessEvent(session, { type: "tool.started", callId: "call", title: "Read" });
+    expect(session.blocks[0]).toMatchObject({ streaming: false, durationMs: 3_000 });
+  });
+
+  it("records the duration when the provider completes the thought", () => {
+    let session = newSession("pi", "/tmp");
+    now = 10;
+    session = applyHarnessEvent(session, { type: "reasoning.delta", text: "Think" });
+    now = 710;
+    session = applyHarnessEvent(session, { type: "reasoning.completed" });
+    expect(session.blocks[0]).toMatchObject({ streaming: false, durationMs: 700 });
+  });
+});

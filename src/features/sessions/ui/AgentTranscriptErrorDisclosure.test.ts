@@ -17,6 +17,7 @@ beforeEach(() => {
       disconnect() {}
     },
   );
+  vi.useFakeTimers();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -25,6 +26,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -80,6 +82,61 @@ describe("tool error disclosure", () => {
     act(() => trigger?.click());
     act(() => closing?.dispatchEvent(new Event("animationend", { bubbles: true })));
     expect(container.textContent).not.toContain("Server.setupListenHandle");
+  });
+});
+
+describe("tool row bodies", () => {
+  it("opens a finished command onto its output", () => {
+    const blocks: Block[] = [
+      { id: "user", role: "user", text: "Check git" },
+      {
+        id: "git",
+        role: "tool",
+        text: "git status",
+        tool: {
+          kind: "execute",
+          status: "completed",
+          preview: { kind: "shell", output: "On branch main" },
+        },
+      },
+    ];
+    act(() =>
+      root.render(createElement(AgentTranscript, { blocks, busy: true })),
+    );
+    expect(
+      container.querySelector('[data-tool-renderer="execute"]'),
+    ).not.toBeNull();
+    expect(container.textContent).not.toContain("On branch main");
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Show details for git status"]',
+    );
+    act(() => trigger?.click());
+    expect(container.textContent).toContain("On branch main");
+  });
+
+  it("says how long a settled thought ran", () => {
+    const blocks: Block[] = [
+      { id: "user", role: "user", text: "Plan it" },
+      {
+        id: "think",
+        role: "reasoning",
+        text: "Weighing the options",
+        startedAt: 1_000,
+        durationMs: 12_000,
+      },
+      {
+        id: "read",
+        role: "tool",
+        text: "Read src/a.ts",
+        tool: { kind: "read", status: "completed" },
+      },
+    ];
+    act(() =>
+      root.render(createElement(AgentTranscript, { blocks, busy: true })),
+    );
+    expect(container.textContent).toContain(
+      "Thought for 12s · Weighing the options",
+    );
   });
 });
 
