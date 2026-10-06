@@ -1273,3 +1273,73 @@ it("clears the native source only when the provider binding changes", () => {
   expect(applyHarnessEvent(session, { type: "session.providerBound", providerSessionId: "original" }).nativeSession).toEqual(session.nativeSession);
   expect(applyHarnessEvent(session, { type: "session.providerBound", providerSessionId: "fork" }).nativeSession).toBeUndefined();
 });
+
+describe("reasoning timing", () => {
+  it("times a thought from its first token to the moment it is sealed", () => {
+    let session = newSession("omp", "/tmp");
+    now = 1_000;
+    session = applyHarnessEvent(session, { type: "reasoning.delta", text: "Think" });
+    now = 2_500;
+    session = applyHarnessEvent(session, { type: "reasoning.delta", text: " more" });
+    expect(session.blocks[0]).toMatchObject({ startedAt: 1_000, streaming: true });
+    expect(session.blocks[0].durationMs).toBeUndefined();
+    now = 4_000;
+    session = applyHarnessEvent(session, { type: "tool.started", callId: "call", title: "Read" });
+    expect(session.blocks[0]).toMatchObject({ streaming: false, durationMs: 3_000 });
+  });
+
+  it("records the duration when the provider completes the thought", () => {
+    let session = newSession("pi", "/tmp");
+    now = 10;
+    session = applyHarnessEvent(session, { type: "reasoning.delta", text: "Think" });
+    now = 710;
+    session = applyHarnessEvent(session, { type: "reasoning.completed" });
+    expect(session.blocks[0]).toMatchObject({ streaming: false, durationMs: 700 });
+  });
+});
+
+describe("tool questions", () => {
+  const questions = [
+    {
+      id: "q1",
+      prompt: "Which database?",
+      multiSelect: false,
+      allowCustom: true,
+      options: [{ id: "pg", label: "Postgres" }],
+    },
+  ];
+
+  it("keeps the questions and the reply on the asking tool call", () => {
+    let session = newSession("claude", "/tmp");
+    session = applyHarnessEvent(session, {
+      type: "tool.started", callId: "ask", title: "AskUserQuestion", kind: "AskUserQuestion",
+    });
+    session = applyHarnessEvent(session, {
+      type: "question.asked", requestId: 7, questions, callId: "ask",
+    });
+    expect(session.pendingQuestion?.requestId).toBe(7);
+    expect(session.blocks[0].tool?.questions).toEqual({ requestId: 7, items: questions });
+    session = applyHarnessEvent(session, {
+      type: "question.resolved", requestId: 7, decision: "answered",
+      reply: { kind: "answered", answers: { q1: ["pg"] } },
+    });
+    expect(session.pendingQuestion).toBeUndefined();
+    expect(session.blocks[0].tool?.questions).toEqual({
+      items: questions,
+      reply: { kind: "answered", answers: { q1: ["pg"] } },
+    });
+    expect(sanitizeSessionForPersist(session).blocks[0]?.tool?.questions?.reply).toEqual({
+      kind: "answered", answers: { q1: ["pg"] },
+    });
+  });
+
+  it("records a cancelled question and ignores one with no matching call", () => {
+    let session = newSession("claude", "/tmp");
+    session = applyHarnessEvent(session, { type: "tool.started", callId: "ask", title: "AskUserQuestion" });
+    session = applyHarnessEvent(session, { type: "question.asked", requestId: 1, questions, callId: "other" });
+    expect(session.blocks[0].tool?.questions).toBeUndefined();
+    session = applyHarnessEvent(session, { type: "question.asked", requestId: 2, questions, callId: "ask" });
+    session = applyHarnessEvent(session, { type: "question.resolved", requestId: 2, decision: "cancelled" });
+    expect(session.blocks[0].tool?.questions?.reply).toEqual({ kind: "cancelled" });
+  });
+});

@@ -1083,11 +1083,13 @@ describe("codex live turn sequence", () => {
       expect(parse().find((m) => m.id === "question_rpc")?.result).toEqual({
         answers: { permission: { answers: ["Decline"] } },
       });
-      expect(events).toContainEqual({
-        type: "question.resolved",
-        requestId: request.requestId,
-        decision: "answered",
-      });
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "question.resolved",
+          requestId: request.requestId,
+          decision: "answered",
+        }),
+      );
       notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
       await turn;
     },
@@ -1149,11 +1151,13 @@ describe("codex live turn sequence", () => {
         () => events.some((e) => e.type === "question.resolved"),
         "question cleanup",
       );
-      expect(events).toContainEqual({
-        type: "question.resolved",
-        requestId: request.requestId,
-        decision: action === "skip" ? "skipped" : "cancelled",
-      });
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "question.resolved",
+          requestId: request.requestId,
+          decision: action === "skip" ? "skipped" : "cancelled",
+        }),
+      );
       if (action === "skip")
         expect(parse().find((m) => m.id === 91)?.result).toEqual({
           answers: {},
@@ -1382,11 +1386,13 @@ describe("codex live turn sequence", () => {
         expect(parse().find((m) => m.id === 91)?.result).toEqual({
           answers: {},
         });
-        expect(events).toContainEqual({
-          type: "question.resolved",
-          requestId: question.requestId,
-          decision: "skipped",
-        });
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "question.resolved",
+            requestId: question.requestId,
+            decision: "skipped",
+          }),
+        );
       } else {
         expect(parse().some((m) => m.id === 91)).toBe(false);
       }

@@ -17,6 +17,7 @@ beforeEach(() => {
       disconnect() {}
     },
   );
+  vi.useFakeTimers();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -25,6 +26,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -69,7 +71,108 @@ describe("tool error disclosure", () => {
 
     act(() => trigger?.click());
     expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    // The output stays mounted, inert, while the fold animates closed.
+    expect(
+      container.querySelector("[data-tool-output]")?.closest("[inert]"),
+    ).not.toBeNull();
+    act(() => vi.advanceTimersByTime(400));
     expect(container.textContent).not.toContain("Server.setupListenHandle");
+  });
+});
+
+describe("tool row bodies", () => {
+  it("opens a finished command onto its output", () => {
+    const blocks: Block[] = [
+      { id: "user", role: "user", text: "Check git" },
+      {
+        id: "git",
+        role: "tool",
+        text: "git status",
+        tool: {
+          kind: "execute",
+          status: "completed",
+          preview: { kind: "shell", output: "On branch main" },
+        },
+      },
+    ];
+    act(() =>
+      root.render(createElement(AgentTranscript, { blocks, busy: true })),
+    );
+    expect(
+      container.querySelector('[data-tool-renderer="execute"]'),
+    ).not.toBeNull();
+    expect(container.textContent).not.toContain("On branch main");
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Show details for git status"]',
+    );
+    act(() => trigger?.click());
+    expect(container.textContent).toContain("On branch main");
+  });
+
+  it("summarizes asked questions and shows the answers when opened", () => {
+    const blocks: Block[] = [
+      { id: "user", role: "user", text: "Set it up" },
+      {
+        id: "ask",
+        role: "tool",
+        text: "AskUserQuestion",
+        tool: {
+          kind: "AskUserQuestion",
+          status: "completed",
+          questions: {
+            items: [
+              {
+                id: "q1",
+                prompt: "Which database?",
+                multiSelect: false,
+                allowCustom: false,
+                options: [{ id: "pg", label: "Postgres" }],
+              },
+            ],
+            reply: { kind: "answered", answers: { q1: ["pg"] } },
+          },
+        },
+      },
+    ];
+    act(() =>
+      root.render(createElement(AgentTranscript, { blocks, busy: true })),
+    );
+    expect(container.textContent).toContain("Asked 1 question");
+    expect(container.textContent).not.toContain("Postgres");
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label^="Show details for"]',
+        )
+        ?.click(),
+    );
+    expect(container.textContent).toContain("Which database?");
+    expect(container.textContent).toContain("Postgres");
+  });
+
+  it("says how long a settled thought ran", () => {
+    const blocks: Block[] = [
+      { id: "user", role: "user", text: "Plan it" },
+      {
+        id: "think",
+        role: "reasoning",
+        text: "Weighing the options",
+        startedAt: 1_000,
+        durationMs: 12_000,
+      },
+      {
+        id: "read",
+        role: "tool",
+        text: "Read src/a.ts",
+        tool: { kind: "read", status: "completed" },
+      },
+    ];
+    act(() =>
+      root.render(createElement(AgentTranscript, { blocks, busy: true })),
+    );
+    expect(container.textContent).toContain(
+      "Thought for 12s · Weighing the options",
+    );
   });
 });
 

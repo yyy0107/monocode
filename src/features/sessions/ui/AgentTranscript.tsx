@@ -17,7 +17,6 @@ import {
   Terminal,
   Trash2,
   Wrench,
-  X,
 } from "../../../shared/ui/icons";
 import {
   memo,
@@ -41,8 +40,6 @@ import { MonocodeSparkles } from "./MonocodeSparkles";
 import { OrchestratorConstellation } from "./OrchestratorConstellation";
 import { PlanStepsBurst } from "./PlanStepsBurst";
 import { FilePreview } from "../../files/ui/FilePreview";
-import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
-import { ToolDiffPreview } from "./ToolDiffPreview";
 import { PlanPreview } from "./PlanPreview";
 import { OrchestrationPreview } from "../../orchestration/ui/OrchestrationPreview";
 import { localizeOrchestrationMessage } from "../../orchestration/ui/orchestrationMessages";
@@ -61,11 +58,16 @@ import {
 } from "../../../integrations/harness/core/authSupport";
 import {
   isEditTool,
-  isReadTool,
-  isSearchTool,
   stubFilePreview,
 } from "../../../integrations/harness/core/preview";
 import { TranscriptPlatformContext } from "./TranscriptPlatform";
+import { ToolRow } from "./transcript/tools/ToolRow";
+import {
+  ApprovalControls,
+  ToolCallStatusIcon,
+} from "./transcript/tools/ToolCallParts";
+import { useLivePhaseScroll } from "./transcript/useLivePhaseScroll";
+import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { useTranscriptRenderingPlatform } from "./useTranscriptRenderingPlatform";
 import { visibleUserPrompt } from "../../orchestration/model/orchestration";
 import { playCue } from "../../settings/model/sounds";
@@ -82,7 +84,6 @@ import {
   type InterjectionMeta,
   type ModelTarget,
   type PlanBuildTarget,
-  type ToolPreview,
   type TurnMetrics,
 } from "../model/session";
 import { HarnessIcon } from "./HarnessIcon";
@@ -117,9 +118,7 @@ import {
   lastActivityIndex,
   isProseBlock,
   needsApproval,
-  nestedScrollAbsorbsWheel,
   proseSummary,
-  resolveToolCallDisplay,
   subagentBrief,
   subagentModelName,
   subagentName,
@@ -2327,67 +2326,6 @@ function useTurnScrollAnchor(
 }
 
 /**
- * Keep a live phase body on its newest step. Pinning happens in layout
- * before paint so the window follows without a visible hitch; only a real
- * wheel away from the bottom pauses that.
- */
-function useLivePhaseScroll(
-  el: HTMLDivElement | null,
-  enabled: boolean,
-  steps: Block[],
-) {
-  const stickToBottom = useRef(true);
-  const wasEnabled = useRef(false);
-
-  useLayoutEffect(() => {
-    if (!enabled) {
-      wasEnabled.current = false;
-      return;
-    }
-    if (!wasEnabled.current) {
-      stickToBottom.current = true;
-      wasEnabled.current = true;
-    }
-    if (!el || !stickToBottom.current) return;
-    el.scrollTop = el.scrollHeight;
-  }, [el, enabled, steps]);
-
-  useEffect(() => {
-    if (!el || !enabled) return;
-
-    const pin = () => {
-      if (stickToBottom.current) el.scrollTop = el.scrollHeight;
-    };
-    let lastDistance = 0;
-    const onScroll = () => {
-      // Only a scroll toward the end re-pins; one leaving it must not.
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      if (isNearBottom(el) && distance <= lastDistance) {
-        stickToBottom.current = true;
-      }
-      lastDistance = distance;
-    };
-    const onWheel = (e: WheelEvent) => {
-      if (!nestedScrollAbsorbsWheel(el, e.deltaY)) return;
-      if (e.deltaY < 0) stickToBottom.current = false;
-      e.stopPropagation();
-    };
-
-    el.addEventListener("scroll", onScroll, { passive: true });
-    el.addEventListener("wheel", onWheel, { passive: true });
-    const inner = el.firstElementChild;
-    const observer = new ResizeObserver(pin);
-    if (inner) observer.observe(inner);
-    pin();
-    return () => {
-      el.removeEventListener("scroll", onScroll);
-      el.removeEventListener("wheel", onWheel);
-      observer.disconnect();
-    };
-  }, [el, enabled]);
-}
-
-/**
  * One phase: a header the whole group hangs off, and the steps under it on a
  * rail. Folding is automatic — the group opens while it is the live one and
  * closes when the agent moves on — until you click, after which it stays where
@@ -3130,19 +3068,21 @@ function ActivityInterjectionRow({ block }: { block: Block }) {
       >
         {label}
       </button>
-      {open ? (
+      <AnimatedCollapse expanded={open}>
         <div className="min-w-0 pb-2">
           <pre className={INTERJECTION_BODY}>{block.text}</pre>
         </div>
-      ) : null}
+      </AnimatedCollapse>
     </div>
   );
 }
 
 /**
- * The line that keeps a long think from reading as a stall. Opening the fold
- * around it does not open the thought itself — reasoning is only ever read on
- * purpose, one line until you ask for it.
+ * The line that keeps a long think from reading as a stall: how long the
+ * agent has been thinking, or thought, and the thought's first line. Opening
+ * the fold around it does not open the thought itself — reasoning is only ever
+ * read on purpose, one line until you ask for it. Opened while it streams, the
+ * thought scrolls in a short window pinned to its newest line.
  */
 function ActivityThinkingRow({
   block,
@@ -3159,24 +3099,47 @@ function ActivityThinkingRow({
 }) {
   const { t: uiT } = useTranslation();
   const [open, setOpen] = useState(false);
-  const text = proseSummary(block.text) || "Thinking";
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  const streaming = !!block.streaming;
+  useLivePhaseScroll(scroller, open && streaming, block.text);
+  const elapsed = useElapsedFrom(block.startedAt, !streaming);
+  const summary = proseSummary(block.text);
+  // Thoughts from before timing was recorded keep their one-line summary.
+  const timing = streaming
+    ? block.startedAt != null
+      ? uiT("Thinking for {value0}", { value0: formatElapsed(elapsed) ?? "" })
+      : uiT("Thinking")
+    : block.durationMs != null
+      ? uiT("Thought for {value0}", {
+          value0: formatElapsed(block.durationMs) ?? "",
+        })
+      : undefined;
+  const text = timing
+    ? summary
+      ? `${timing} · ${summary}`
+      : timing
+    : summary || uiT("Thinking");
   // In a group the rail is the bullet, so there is nothing to breathe while
   // reasoning streams in — the line itself does.
-  const pulse = block.streaming ? "zen-thinking-pulse" : "";
+  const pulse = streaming ? "zen-thinking-pulse" : "";
   const icon = bare ? null : (
     <Minus
       className={`size-3.5 shrink-0 text-content/40 ${pulse}`}
       strokeWidth={1.75}
     />
   );
-  const label = (
-    <span
-      className={`min-w-0 flex-1 truncate font-sans text-sm text-content/50 ${
-        bare ? pulse : ""
-      }`}
-    >
-      {text}
-    </span>
+  const content = timing ? (
+    <>
+      <span className="text-content/60">{timing}</span>
+      {summary ? (
+        <span>
+          {" · "}
+          {summary}
+        </span>
+      ) : null}
+    </>
+  ) : (
+    text
   );
 
   if (!expandable) {
@@ -3186,7 +3149,13 @@ function ActivityThinkingRow({
         className="flex min-w-0 items-center gap-1.5 py-1"
       >
         {icon}
-        {label}
+        <span
+          className={`min-w-0 flex-1 truncate font-sans text-sm text-content/50 ${
+            bare ? pulse : ""
+          }`}
+        >
+          {content}
+        </span>
       </div>
     );
   }
@@ -3210,19 +3179,26 @@ function ActivityThinkingRow({
             bare ? pulse : ""
           }`}
         >
-          {text}
+          {content}
         </span>
       </button>
-      {open ? (
-        <div className={`min-w-0 pb-2 ${bare ? "" : "pl-5"}`}>
-          <AgentMarkdown
-            className="agent-reasoning"
-            text={block.text}
-            cwd={cwd}
-            onOpenFile={onOpenFile}
-          />
-        </div>
-      ) : null}
+      <AnimatedCollapse expanded={open}>
+        {() => (
+          <div
+            ref={setScroller}
+            className={`min-w-0 pb-2 ${bare ? "" : "pl-5"} ${
+              streaming ? "max-h-60 overflow-auto" : ""
+            }`}
+          >
+            <AgentMarkdown
+              className="agent-reasoning"
+              text={block.text}
+              cwd={cwd}
+              onOpenFile={onOpenFile}
+            />
+          </div>
+        )}
+      </AnimatedCollapse>
     </div>
   );
 }
@@ -3283,11 +3259,13 @@ function ActivityNoteRow({
           {text}
         </span>
       </button>
-      {open ? (
-        <div className="min-w-0 pb-2">
-          <AgentMarkdown text={block.text} cwd={cwd} onOpenFile={onOpenFile} />
-        </div>
-      ) : null}
+      <AnimatedCollapse expanded={open}>
+        {() => (
+          <div className="min-w-0 pb-2">
+            <AgentMarkdown text={block.text} cwd={cwd} onOpenFile={onOpenFile} />
+          </div>
+        )}
+      </AnimatedCollapse>
     </div>
   );
 }
@@ -3309,110 +3287,23 @@ function ActivityToolRow({
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
-  const { t: uiT } = useTranslation();
-  const { openTool } = useContext(TranscriptPlatformContext);
-  const [errorOpen, setErrorOpen] = useState(false);
   const appCall = monoCodeToolCall(block);
   if (appCall) {
     return (
       <MonoCodeCallRow block={block} call={appCall} onApproval={onApproval} />
     );
   }
-  const label = toolCallLabel(block, cwd);
-  const state = toolCallState(block);
-  const pending = needsApproval(block);
-  if (openTool && !pending) {
-    return (
-      <ToolOpenRow
-        block={block}
-        label={label}
-        className="flex min-w-0 items-center gap-1.5 py-1"
-        onOpen={openTool}
-      >
-        {bare ? null : <ActivityToolIcon state={state} live={live} />}
-        <ToolCallSummary
-          label={label}
-          preview={block.tool?.preview}
-          cwd={cwd}
-          chip={bare}
-          failed={state === "rejected"}
-          status={state}
-          onOpenFile={onOpenFile}
-          onOpenDiff={onOpenDiff}
-        />
-        <ToolCallStatusIcon state={state} />
-      </ToolOpenRow>
-    );
-  }
-  const errorDetail =
-    !pending && state === "rejected" ? block.tool?.detail?.trim() : undefined;
-  const summary = (
-    <ToolCallSummary
-      label={label}
-      preview={block.tool?.preview}
+  return (
+    <ToolRow
+      block={block}
       cwd={cwd}
-      chip={bare}
-      failed={state === "rejected"}
-      status={state}
+      live={live}
+      variant="activity"
+      bare={bare}
+      onApproval={onApproval}
       onOpenFile={onOpenFile}
       onOpenDiff={onOpenDiff}
     />
-  );
-
-  return (
-    <div className="flex min-w-0 flex-col">
-      {errorDetail ? (
-        <div
-          aria-label={uiT("Failed tool call: {value0}", {
-            value0: String(label),
-          })}
-          className="group flex min-w-0 items-center gap-1.5 py-1"
-        >
-          {bare ? null : <ActivityToolIcon state={state} live={live} />}
-          <div
-            className="flex min-w-0 flex-1 cursor-pointer"
-            onClick={() => setErrorOpen((value) => !value)}
-          >
-            {summary}
-          </div>
-          <ToolCallStatusIcon state={state} />
-          <button
-            type="button"
-            aria-expanded={errorOpen}
-            aria-label={uiT("{value0} error details for {value1}", {
-              value0: String(errorOpen ? "Hide" : "Show"),
-              value1: String(label),
-            })}
-            onClick={() => setErrorOpen((value) => !value)}
-            className="-m-1 shrink-0 rounded p-1"
-          >
-            <ChevronRight
-              className={`size-3.5 text-red-400/60 transition-transform ${errorOpen ? "rotate-90" : ""}`}
-              strokeWidth={1.75}
-            />
-          </button>
-        </div>
-      ) : (
-        <div
-          aria-label={uiT("Tool call: {value0}", { value0: String(label) })}
-          className="flex min-w-0 items-center gap-1.5 py-1"
-        >
-          {bare ? null : <ActivityToolIcon state={state} live={live} />}
-          {summary}
-          {pending ? null : <ToolCallStatusIcon state={state} />}
-        </div>
-      )}
-      {pending ? (
-        <ApprovalControls block={block} onApproval={onApproval} />
-      ) : null}
-      {errorOpen && errorDetail ? (
-        <pre
-          className={`min-w-0 whitespace-pre-wrap break-words py-1 font-mono text-[12px] leading-5 text-red-400/80 ${bare ? "" : "pl-5"}`}
-        >
-          {errorDetail}
-        </pre>
-      ) : null}
-    </div>
   );
 }
 
@@ -3472,10 +3363,15 @@ function MonoCodeCallRow({
         <button
           type="button"
           aria-expanded={errorOpen}
-          aria-label={uiT("{value0} error details for MonoCode: {value1}", {
-            value0: String(errorOpen ? "Hide" : "Show"),
-            value1: String(call.label),
-          })}
+          aria-label={
+            errorOpen
+              ? uiT("Hide error details for MonoCode: {value0}", {
+                  value0: call.label,
+                })
+              : uiT("Show error details for MonoCode: {value0}", {
+                  value0: call.label,
+                })
+          }
           onClick={() => setErrorOpen((value) => !value)}
           className="flex w-full min-w-0 items-center gap-1.5 py-1 text-left"
         >
@@ -3484,10 +3380,12 @@ function MonoCodeCallRow({
       ) : (
         <div className="flex min-w-0 items-center gap-1.5 py-1">{summary}</div>
       )}
-      {errorOpen && hasError ? (
-        <pre className="min-w-0 whitespace-pre-wrap break-words py-1 pl-5 font-mono text-[12px] leading-5 text-red-400/80">
-          {output}
-        </pre>
+      {hasError ? (
+        <AnimatedCollapse expanded={errorOpen}>
+          <pre className="min-w-0 whitespace-pre-wrap break-words py-1 pl-5 font-mono text-[12px] leading-5 text-red-400/80">
+            {output}
+          </pre>
+        </AnimatedCollapse>
       ) : null}
       {pendingApproval ? (
         <pre className="max-h-32 min-w-0 overflow-auto whitespace-pre-wrap break-all py-1 pl-5 font-mono text-[12px] leading-5 text-content/70">
@@ -3497,35 +3395,6 @@ function MonoCodeCallRow({
       <ApprovalControls block={block} onApproval={onApproval} />
     </div>
   );
-}
-
-function ActivityToolIcon({
-  state,
-  live = false,
-}: {
-  state: ToolCallState;
-  live?: boolean;
-}) {
-  if (state === "pending") {
-    return (
-      <CircleDashed
-        className={`size-3.5 shrink-0 text-content/40 ${live ? "zen-tool-spin" : ""}`}
-        strokeWidth={1.75}
-      />
-    );
-  }
-
-  return (
-    <Minus className="size-3.5 shrink-0 text-content/50" strokeWidth={1.75} />
-  );
-}
-
-/** Failure stays marked. Running and success do not get a trailing icon. */
-function ToolCallStatusIcon({ state }: { state: ToolCallState }) {
-  if (state === "rejected") {
-    return <X className="size-3.5 shrink-0 text-red-400" strokeWidth={2} />;
-  }
-  return null;
 }
 
 function useElapsedFrom(
@@ -3608,30 +3477,9 @@ function ToolCall({
   onOpenDiff?: (path: string) => void;
   embedded?: boolean;
 }) {
-  const { t: uiT } = useTranslation();
-  const { openTool } = useContext(TranscriptPlatformContext);
-  const [open, setOpen] = useState(false);
   const preview = block.tool?.preview;
   const label = toolCallLabel(block, cwd);
-  const detail = block.tool?.detail?.trim();
-  const expanded = detail && detail !== label ? detail : label;
   const state = toolCallState(block);
-  const stateLabel =
-    state === "accepted"
-      ? "Accepted"
-      : state === "rejected"
-        ? "Rejected"
-        : "Pending";
-  const editTool = isEditTool(
-    block.tool?.kind,
-    block.text || block.tool?.title,
-    preview,
-  );
-  const compact =
-    isReadTool(block.tool?.kind, label, preview) ||
-    isSearchTool(block.tool?.kind, label, preview);
-  const expandable = !compact && !!detail && detail !== label;
-
   const frame = embedded ? "py-0.5" : "px-4 py-1";
 
   const appCall = monoCodeToolCall(block);
@@ -3643,55 +3491,19 @@ function ToolCall({
     );
   }
 
-  if (openTool && !needsApproval(block)) {
-    if (isIncompleteTool(block, label, state)) return null;
+  // An edit waiting on you shows the change itself, so you approve what it does.
+  if (
+    needsApproval(block) &&
+    isEditTool(block.tool?.kind, block.text || block.tool?.title, preview)
+  ) {
     return (
       <div className={frame}>
-        <ToolOpenRow
-          block={block}
-          label={label}
-          className="flex w-full min-w-0 items-center gap-2 py-1"
-          onOpen={openTool}
-        >
-          <ToolCallIcon state={state} />
-          <ToolCallSummary
-            label={label}
-            preview={preview}
-            cwd={cwd}
-            failed={state === "rejected"}
-            status={state}
-            onOpenFile={onOpenFile}
-            onOpenDiff={onOpenDiff}
-          />
-        </ToolOpenRow>
-      </div>
-    );
-  }
-
-  if (editTool) {
-    return (
-      <div className={frame}>
-        {needsApproval(block) ? (
-          <FilePreview
-            preview={preview ?? stubFilePreview(block.tool?.kind, label)}
-            status={state}
-            cwd={cwd}
-            onOpenFile={onOpenDiff ?? onOpenFile}
-          />
-        ) : (
-          <div className="flex min-w-0 items-center gap-2 py-1">
-            <ToolCallIcon state={state} />
-            <ToolCallSummary
-              label={label}
-              preview={preview}
-              cwd={cwd}
-              failed={state === "rejected"}
-              status={state}
-              onOpenFile={onOpenFile}
-              onOpenDiff={onOpenDiff}
-            />
-          </div>
-        )}
+        <FilePreview
+          preview={preview ?? stubFilePreview(block.tool?.kind, label)}
+          status={state}
+          cwd={cwd}
+          onOpenFile={onOpenDiff ?? onOpenFile}
+        />
         <ApprovalControls block={block} onApproval={onApproval} />
       </div>
     );
@@ -3701,260 +3513,14 @@ function ToolCall({
 
   return (
     <div className={frame}>
-      {expandable ? (
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-label={uiT("{value0} tool call: {value1}", {
-            value0: String(stateLabel),
-            value1: String(label),
-          })}
-          onClick={() => setOpen((value) => !value)}
-          className="flex w-full min-w-0 items-center gap-2 rounded-lg py-1.5 text-left"
-        >
-          <ToolCallIcon state={state} />
-          <ToolCallSummary
-            label={label}
-            preview={preview}
-            cwd={cwd}
-            failed={state === "rejected"}
-            onOpenFile={onOpenFile}
-          />
-          <ChevronRight
-            className={`size-3.5 shrink-0 text-content/35 transition-transform ${open ? "rotate-90" : ""}`}
-            strokeWidth={1.75}
-          />
-        </button>
-      ) : (
-        <div
-          aria-label={uiT("{value0} tool call: {value1}", {
-            value0: String(stateLabel),
-            value1: String(label),
-          })}
-          className="flex w-full min-w-0 items-center gap-2"
-        >
-          <ToolCallIcon state={state} />
-          <ToolCallSummary
-            label={label}
-            preview={preview}
-            cwd={cwd}
-            failed={state === "rejected"}
-            onOpenFile={onOpenFile}
-          />
-        </div>
-      )}
-      {open && expandable ? (
-        <pre className="mt-1.5 min-w-0 whitespace-pre-wrap break-words px-2.5 font-mono text-[12px] leading-5 text-content/55">
-          {expanded}
-        </pre>
-      ) : null}
-      <ApprovalControls block={block} onApproval={onApproval} />
-    </div>
-  );
-}
-
-/**
- * A tool row that opens the client's detail view. File targets inside keep
- * their own buttons, so this is a role=button wrapper rather than a <button>.
- */
-function ToolOpenRow({
-  block,
-  label,
-  className,
-  onOpen,
-  children,
-}: {
-  block: Block;
-  label: string;
-  className: string;
-  onOpen: (block: Block) => void;
-  children: ReactNode;
-}) {
-  const { t: uiT } = useTranslation();
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-label={uiT("Show tool details: {value0}", { value0: label })}
-      data-tool-open-row=""
-      className={`${className} cursor-pointer`}
-      onClick={() => onOpen(block)}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        onOpen(block);
-      }}
-    >
-      {children}
-      <ChevronRight
-        className="size-3.5 shrink-0 text-content/30"
-        strokeWidth={1.75}
+      <ToolRow
+        block={block}
+        cwd={cwd}
+        variant="standalone"
+        onApproval={onApproval}
+        onOpenFile={onOpenFile}
+        onOpenDiff={onOpenDiff}
       />
-    </div>
-  );
-}
-
-function ToolCallSummary({
-  label,
-  preview,
-  cwd,
-  onOpenFile,
-  onOpenDiff,
-  interactive = true,
-  chip = false,
-  failed = false,
-  status = "accepted",
-}: {
-  label: string;
-  preview?: ToolPreview;
-  cwd?: string;
-  onOpenFile?: (path: string) => void;
-  onOpenDiff?: (path: string) => void;
-  interactive?: boolean;
-  /** Sets the file off in a chip, for rows that lean on a rail for structure. */
-  chip?: boolean;
-  failed?: boolean;
-  status?: ToolCallState;
-}) {
-  const { action, target, fileName, filePath, isFile, previewMatchesFile } =
-    resolveToolCallDisplay(label, preview, cwd);
-  if (!action || !target) {
-    return (
-      <span
-        className={`min-w-0 flex-1 truncate font-mono text-[13px] ${
-          failed ? "text-red-400" : chip ? "text-content/65" : "text-content/80"
-        }`}
-        title={label}
-      >
-        {label}
-      </span>
-    );
-  }
-  const openFile =
-    action === "Edit" || action === "Write"
-      ? (onOpenDiff ?? onOpenFile)
-      : onOpenFile;
-  const canOpen = interactive && !!openFile && !!filePath;
-  const canPreview =
-    interactive &&
-    preview?.kind === "write" &&
-    previewMatchesFile &&
-    (preview.contentOnly ||
-      preview.lines?.some((line) => line.kind !== "context"));
-  const actionTone = failed ? "text-red-400" : "text-content/50";
-  const targetTone = failed
-    ? "text-red-400"
-    : chip
-      ? "text-content/70"
-      : "text-content/85";
-
-  return (
-    <span className="flex min-w-0 flex-1 items-center gap-1.5 font-mono text-[13px]">
-      <span className={`shrink-0 font-sans text-sm ${actionTone}`}>
-        {action}
-      </span>
-      {isFile ? (
-        canPreview ? (
-          <ToolDiffPreview
-            preview={preview}
-            label={target}
-            status={status}
-            cwd={cwd}
-            onOpen={openFile && filePath ? () => openFile(filePath) : undefined}
-            onOpenFile={onOpenFile}
-            className={`-my-0.5 flex min-w-0 cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-left hover:text-sky-300 ${
-              chip
-                ? `max-w-full bg-content/6 hover:bg-content/10 ${targetTone}`
-                : `flex-1 hover:bg-content/6 ${targetTone}`
-            }`}
-          >
-            <FileTypeIcon name={fileName} isDir={false} />
-            <span className="min-w-0 truncate">{target}</span>
-          </ToolDiffPreview>
-        ) : canOpen ? (
-          <button
-            type="button"
-            className={`-my-0.5 flex min-w-0 cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-left hover:text-sky-300 ${
-              chip
-                ? `max-w-full bg-content/6 hover:bg-content/10 ${targetTone}`
-                : `flex-1 hover:underline ${targetTone}`
-            }`}
-            title={target}
-            onClick={(event) => {
-              event.stopPropagation();
-              openFile?.(filePath);
-            }}
-          >
-            <FileTypeIcon name={fileName} isDir={action === "List"} />
-            <span className="min-w-0 truncate">{target}</span>
-          </button>
-        ) : (
-          <span
-            className={`flex min-w-0 items-center gap-1 rounded px-1 ${
-              chip
-                ? `max-w-full bg-content/6 ${targetTone}`
-                : `flex-1 ${targetTone}`
-            }`}
-            title={target}
-          >
-            <FileTypeIcon name={fileName} isDir={action === "List"} />
-            <span className="min-w-0 truncate">{target}</span>
-          </span>
-        )
-      ) : (
-        <span
-          className={`flex min-w-0 flex-1 items-center gap-1.5 pl-1 ${targetTone}`}
-          title={target}
-        >
-          <span className="min-w-0 truncate">{target}</span>
-        </span>
-      )}
-    </span>
-  );
-}
-
-function ToolCallIcon({ state }: { state: ToolCallState }) {
-  if (state === "rejected") {
-    return <X className="size-3.5 shrink-0 text-red-400" strokeWidth={2} />;
-  }
-  if (state === "pending") {
-    return (
-      <CircleDashed
-        className="size-3.5 shrink-0 text-content/40"
-        strokeWidth={1.75}
-      />
-    );
-  }
-  return null;
-}
-
-function ApprovalControls({
-  block,
-  onApproval,
-}: {
-  block: Block;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
-}) {
-  const { t: uiT } = useTranslation();
-  const approval = block.approval;
-  if (!approval || approval.decided || !onApproval) return null;
-  return (
-    <div className="mt-1.5 flex gap-2">
-      <button
-        type="button"
-        className="rounded-md bg-content px-2.5 py-0.5 text-[11px] hover:bg-content/80     text-background-base"
-        onClick={() => onApproval(approval.requestId, "allow")}
-      >
-        {uiT("Allow")}
-      </button>
-      <button
-        type="button"
-        className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/70 hover:bg-content/20"
-        onClick={() => onApproval(approval.requestId, "deny")}
-      >
-        {uiT("Deny")}
-      </button>
     </div>
   );
 }

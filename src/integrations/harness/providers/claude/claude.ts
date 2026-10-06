@@ -1112,7 +1112,12 @@ async function handleControlRequest(
         : outcome.kind === "answered"
           ? "answered"
           : "skipped";
-    live.onEvent({ type: "question.resolved", requestId: uiId, decision });
+    live.onEvent({
+      type: "question.resolved",
+      requestId: uiId,
+      decision,
+      ...(outcome !== "cancelled" ? { reply: outcome } : {}),
+    });
     showNextQuestion(live);
     if (outcome === "cancelled") return;
     const response =

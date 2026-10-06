@@ -1218,6 +1218,7 @@ async function handleServerRequest(
           : reply.kind === "answered"
             ? "answered"
             : "skipped",
+      ...(reply !== "cancelled" ? { reply } : {}),
     });
     showNextQuestion(live);
     if (reply !== "cancelled")

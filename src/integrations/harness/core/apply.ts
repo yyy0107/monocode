@@ -111,7 +111,7 @@ export function applyHarnessEvent(
     }
     case "question.asked":
       return {
-        ...session,
+        ...recordToolQuestions(session, event),
         pendingQuestion: {
           requestId: event.requestId,
           questions: event.questions,
@@ -131,10 +131,12 @@ export function applyHarnessEvent(
             },
           }
         : session;
-    case "question.resolved":
-      return session.pendingQuestion?.requestId === event.requestId
-        ? { ...session, pendingQuestion: undefined }
-        : session;
+    case "question.resolved": {
+      const recorded = recordToolQuestionReply(session, event);
+      return recorded.pendingQuestion?.requestId === event.requestId
+        ? { ...recorded, pendingQuestion: undefined }
+        : recorded;
+    }
     case "context":
       return {
         ...session,
@@ -646,7 +648,7 @@ export function promoteLastAssistantToPlan(
 }
 
 function stopBlockProgress(block: Block): Block {
-  let stopped = block.streaming ? { ...block, streaming: false } : block;
+  let stopped = block.streaming ? sealStream(block) : block;
   if (stopped.orchestration?.status === "planning") {
     stopped = {
       ...stopped,
@@ -796,6 +798,8 @@ function patchStreaming(
     role,
     text: typeof input === "string" ? input : input.reduce(joinStreamText, ""),
     streaming,
+    // A thought is timed from its first token so the row can say how long it ran.
+    ...(role === "reasoning" ? { startedAt: Date.now() } : {}),
   });
   return { ...session, blocks };
 }
@@ -1173,8 +1177,24 @@ function sealLastStream(blocks: Block[]): Block[] {
     return blocks.slice();
   }
   const next = blocks.slice();
-  next[index] = { ...last, streaming: false };
+  next[index] = sealStream(last);
   return next;
+}
+
+/** Close a prose stream; a timed thought also records how long it ran. */
+function sealStream(block: Block): Block {
+  if (
+    block.role === "reasoning" &&
+    block.startedAt != null &&
+    block.durationMs == null
+  ) {
+    return {
+      ...block,
+      streaming: false,
+      durationMs: Math.max(0, Date.now() - block.startedAt),
+    };
+  }
+  return { ...block, streaming: false };
 }
 
 function displayLabel(
@@ -1276,13 +1296,71 @@ function isCallId(value: string): boolean {
   );
 }
 
+/** Keep a question on the tool call that asked it, so history can show it. */
+function recordToolQuestions(
+  session: Session,
+  event: Extract<HarnessEvent, { type: "question.asked" }>,
+): Session {
+  if (!event.callId || event.questions.length === 0) return session;
+  const index = lastBlockIndex(session.blocks, 
+    (block) => block.role === "tool" && block.tool?.callId === event.callId,
+  );
+  const block = session.blocks[index];
+  if (!block?.tool || block.tool.questions?.requestId === event.requestId)
+    return session;
+  const blocks = session.blocks.slice();
+  blocks[index] = {
+    ...block,
+    tool: {
+      ...block.tool,
+      questions: { requestId: event.requestId, items: event.questions },
+    },
+  };
+  return { ...session, blocks };
+}
+
+function lastBlockIndex(blocks: Block[], match: (block: Block) => boolean) {
+  for (let index = blocks.length - 1; index >= 0; index--) {
+    if (match(blocks[index])) return index;
+  }
+  return -1;
+}
+
+function recordToolQuestionReply(
+  session: Session,
+  event: Extract<HarnessEvent, { type: "question.resolved" }>,
+): Session {
+  const index = lastBlockIndex(session.blocks, 
+    (block) =>
+      block.tool?.questions?.requestId === event.requestId &&
+      !block.tool.questions.reply,
+  );
+  const block = session.blocks[index];
+  const questions = block?.tool?.questions;
+  if (!block?.tool || !questions) return session;
+  const reply =
+    event.decision === "cancelled"
+      ? ({ kind: "cancelled" } as const)
+      : (event.reply ??
+        (event.decision === "skipped"
+          ? ({ kind: "skipped" } as const)
+          : undefined));
+  const blocks = session.blocks.slice();
+  blocks[index] = {
+    ...block,
+    tool: {
+      ...block.tool,
+      questions: { items: questions.items, ...(reply ? { reply } : {}) },
+    },
+  };
+  return { ...session, blocks };
+}
+
 function finishRole(session: Session, role: Block["role"]): Session {
   return {
     ...session,
     blocks: session.blocks.map((block) =>
-      block.role === role && block.streaming
-        ? { ...block, streaming: false }
-        : block,
+      block.role === role && block.streaming ? sealStream(block) : block,
     ),
   };
 }

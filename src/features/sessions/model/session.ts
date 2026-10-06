@@ -1,6 +1,10 @@
 import { translate } from "../../../shared/i18n/language";
 import { dropContextWindow, type ContextUsage } from "./contextUsage";
-import type { UserQuestionPrompt } from "./userQuestion";
+import type {
+  UserQuestion,
+  UserQuestionPrompt,
+  UserQuestionReply,
+} from "./userQuestion";
 import type { HandoffComposerCard } from "./handoff";
 import type { InboxComposerCard } from "../../inbox/model/githubTasks";
 import type { InboxAskContext } from "../../inbox/model/inboxAsk";
@@ -199,6 +203,14 @@ export type ToolPreview = {
   output?: string;
 };
 
+/** A clarifying-question tool call's questions and the user's reply. */
+export type ToolQuestionRecord = {
+  /** Live prompt id; only meaningful while the question is open. */
+  requestId?: number;
+  items: UserQuestion[];
+  reply?: UserQuestionReply | { kind: "cancelled" };
+};
+
 /** One thing a subagent did, mirrored into the parent transcript. */
 export type AgentStepKind = "tool" | "message" | "reasoning";
 
@@ -310,11 +322,11 @@ export type Block = {
   image?: GeneratedImageMeta;
   attachments?: Attachment[];
   streaming?: boolean;
-  /** Epoch ms when this user turn started. */
+  /** Epoch ms when this user turn, or this streamed thought, started. */
   startedAt?: number;
   /** Epoch ms when a user message was sent during an existing turn. */
   sentAt?: number;
-  /** How long the agent worked on this user turn, in ms. */
+  /** How long the agent worked on this user turn, or thought for, in ms. */
   durationMs?: number;
   /** Stable model label for this turn. Present on newly created user blocks. */
   turnModel?: TurnModel;
@@ -339,6 +351,8 @@ export type Block = {
     preview?: ToolPreview;
     /** Left running by the agent when it yielded; the turn waits on it. */
     background?: boolean;
+    /** Questions this call asked the user, and how they were answered. */
+    questions?: ToolQuestionRecord;
   };
   approval?: {
     requestId: number;
