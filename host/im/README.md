@@ -66,7 +66,7 @@ npm 包和加载函数，尚未建立 ImChannel 实现。
 
 使用 Node 24 原生加载 TypeScript；本次环境为 Node.js v24.16.0、npm 12.0.1。
 依赖安装在此目录 node_modules，由仓库原有规则忽略。原上游源码已移出仓库。
-MonoCode 根目录依赖、Host 启动路径和活动 Spec Kit 指针均未修改。
+MonoCode 根目录依赖和 Host 启动路径均未修改。
 
 从仓库根目录安装和运行骨架测试：
 

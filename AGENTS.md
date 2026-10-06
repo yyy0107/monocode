@@ -6,7 +6,6 @@ are not prerequisites for local work.
 
 ## Project Rules
 
-- Read `.specify/memory/constitution.md` before planned feature implementation.
 - Preserve unrelated work and use focused changes; avoid unsolicited refactors.
 - Provider protocols live under `src/integrations/harness/providers/`; shared
   contracts live under `src/integrations/harness/core/`.
@@ -25,27 +24,12 @@ are not prerequisites for local work.
   Apply this rule to new or modified disclosure UI as a standing requirement;
   it does not need to be restated in each feature request.
 
-## Spec Kit
+## Development Workflow
 
-The active feature is recorded in `.specify/feature.json`. Read spec.md, plan.md,
-contracts and tasks.md together from that directory. The Host orchestration
-record lives in `specs/019-host-orchestration/`; the desktop shell record remains
-in `specs/017-desktop-shell-overhaul/`.
-The multi-agent native session sync record (Claude Code, Codex, Pi, omp, OpenCode)
-lives in `specs/021-multi-agent-session-sync/`.
-The Host-owned native session lifecycle record lives in
-`specs/030-host-native-sessions/`; history mapping (031) and the cross-platform
-`native-guard` (032) follow it.
-The Host assistant record lives in `specs/022-host-assistant/`; its human-like
-conversation follow-up (persona, local time, reminders, steering) lives in
-`specs/027-assistant-humanlike/`.
-The native session titles record remains in `specs/004-native-session-titles/`.
-The completed native session synchronization record remains in
-`specs/002-native-session-sync/`.
-The completed Pi upgrade record remains in `specs/001-pi-1-0-1-upgrade/`.
-Codex skills use `$speckit-constitution`, `$speckit-specify`, `$speckit-plan`,
-`$speckit-tasks`, `$speckit-analyze`, `$speckit-implement` and `$speckit-converge`.
-Toolkit initialization or artifact quality checks do not prove product implementation.
+Implement directly from the user's requirements and the existing code. Use a
+concise plan when useful, and keep documentation proportional to the change.
+Existing records under `specs/` are historical references. Maintain them only
+when the user requests it; they are not prerequisites for development.
 
 ## Verification
 
@@ -67,6 +51,3 @@ Keep verification proportional to the change and minimize unnecessary testing.
 
 Never mark tasks complete or claim compatibility for an unrun scenario.
 Publishing, pushing and merging into main are separate scoped operations.
-
-The installed Spec Kit release does not bundle an agent-context update script;
-this file provides the project context directly without inventing a legacy command.
