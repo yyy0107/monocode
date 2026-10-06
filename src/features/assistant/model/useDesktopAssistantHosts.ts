@@ -1,0 +1,22 @@
+import { useRemoteMachines } from "../../connections/model/connections";
+import {
+  sharedHostEnvironment,
+  sharedHostMachineId,
+} from "../../connections/model/remoteProjects";
+import { useTranslation } from "../../../shared/i18n/useTranslation";
+
+export function useDesktopAssistantHosts() {
+  const { t } = useTranslation();
+  const { machines } = useRemoteMachines();
+  const localId = sharedHostMachineId();
+  const environmentId = sharedHostEnvironment();
+  const choices = [...machines];
+  if (localId && environmentId && !choices.some((m) => m.id === localId))
+    choices.unshift({
+      id: localId,
+      environmentId,
+      name: t("Local"),
+      endpoint: "",
+    });
+  return choices;
+}

@@ -1,3 +1,4 @@
+import { DesktopAssistantButton } from "../features/assistant/ui/DesktopAssistantButton";
 import { translate } from "../shared/i18n/language";
 import {
   WorkflowAppContext,
@@ -13,6 +14,7 @@ import { WorkflowProjectsContext } from "../features/workflows/zcode/store/TabSt
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { DesktopAssistant } from "../features/assistant/ui/DesktopAssistant";
 import {
+  AppViewHost,
   AppViewRendererContext,
   type AppViewRenderer,
 } from "../features/workspace/ui/AppViewHost";
@@ -99,6 +101,10 @@ import {
   type CSSProperties,
 } from "react";
 import { Sidebar } from "./shell/Sidebar";
+import {
+  SIDEBAR_MOTION_STYLE,
+  SIDEBAR_TRANSITION_MS,
+} from "./shell/SidebarTransition";
 import { ApprovalToasts } from "../features/sessions/ui/ApprovalToasts";
 import { HarnessUpdateNotice } from "../features/providers/ui/HarnessUpdateNotice";
 import { WhatsNewDialog } from "./shell/WhatsNewDialog";
@@ -191,7 +197,9 @@ import {
   focusedFileTab,
   isolateTerminalPanes,
   appViewTitle,
-  findAppViewTab,
+  APP_PAGE_KINDS,
+  isAppPageKind,
+  type AppPageKind,
   isAppViewOnlyTab,
   openSessionAppView,
   openAppViewTab,
@@ -584,7 +592,7 @@ import { SessionSurfaceActions } from "../features/workspace/ui/SessionSurfaceTo
 import { SessionPane } from "../features/sessions/ui/SessionPane";
 import { SessionSurface } from "../features/sessions/ui/SessionSurface";
 import { ProjectTerminalDock } from "../features/terminal/ui/ProjectTerminalDock";
-import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
+import { AnimatedCollapse, useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 import { lazySurface } from "../shared/ui/lazySurface";
 import { preloadNavigationWhenIdle } from "./model/preloadNavigation";
@@ -920,8 +928,6 @@ function withPlanBuildTarget(
 const DIALOG_APP_VIEWS: ReadonlySet<AppViewKind> = new Set<AppViewKind>([
   "settings",
   "search",
-  "inbox",
-  "automations",
 ]);
 
 function openSessionIds(tabs: WorkspaceTab[]): Set<string> {
@@ -1045,12 +1051,22 @@ function Workspace({
   const [sessionSidebarOpen, setSessionSidebarOpen] = useState(
     loadSessionSidebarOpen,
   );
+  const [navigationExpanded, setNavigationExpanded] = useState(true);
+  const onToggleNavigation = useCallback(
+    () => setNavigationExpanded((expanded) => !expanded),
+    [],
+  );
   const tabCloseScope = "project" as const;
   const currentProjectDock = findProjectTerminal(projectTerminals, projectCwd);
   const dockVisible = !!currentProjectDock?.open;
   const [filesSearchOpen, setFilesSearchOpen] = useState(false);
   const [searchFocusToken, setSearchFocusToken] = useState(0);
   const [searchViewFocusToken, setSearchViewFocusToken] = useState(0);
+  const [appPage, setAppPage] = useState<AppPageKind | null>(null);
+  const closeAppPage = useCallback(() => {
+    setAppPage(null);
+    setComposerFocused(true);
+  }, []);
   const [linkedWorkItemPanels, setLinkedWorkItemPanels] = useState<
     ReadonlyMap<string, LinkedWorkItemPanelState>
   >(() => new Map());
@@ -1195,11 +1211,14 @@ function Workspace({
           return next;
         }),
       success: (cwd, rows, startedAt) => {
+        const fetchedIds = new Set(rows.map((row) => row.id));
         setHistory((current) => {
           // A chat persisted during this read is newer than the fetched snapshot.
+          // Alias reads can return the same chat under its canonical project path.
           const changed = current.filter(
             (entry) =>
-              sameProjectPath(entry.cwd, cwd) && entry.updatedAt >= startedAt,
+              (sameProjectPath(entry.cwd, cwd) || fetchedIds.has(entry.id)) &&
+              entry.updatedAt >= startedAt,
           );
           let next = replaceProjectHistory(current, cwd, rows);
           for (const entry of changed) {
@@ -1359,6 +1378,7 @@ function Workspace({
   const setActiveTabId = useCallback(
     (id: string) => {
       workspaceNavigation.cancel();
+      setAppPage(null);
       setActiveTabIdState(id);
     },
     [workspaceNavigation.cancel],
@@ -1367,9 +1387,11 @@ function Workspace({
   const projectCwdRef = useRef(projectCwd);
   projectCwdRef.current = projectCwd;
   const focusedAppView = tabs.find((tab) => tab.id === activeTabId);
-  const activeAppView = focusedAppView
-    ? focusedFileTab(focusedAppView)?.appView?.kind
-    : undefined;
+  const activeAppView =
+    appPage ??
+    (focusedAppView
+      ? focusedFileTab(focusedAppView)?.appView?.kind
+      : undefined);
   const appViewFocusedRef = useRef(activeAppView);
   appViewFocusedRef.current = activeAppView;
   // Settings-like views open as a dialog over the workspace.
@@ -1377,14 +1399,25 @@ function Workspace({
   const appDialogRef = useRef(appDialog);
   appDialogRef.current = appDialog;
   const closeAppDialog = useCallback(() => setAppDialog(null), []);
+  const appPageHostRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (
+      appPage &&
+      !appDialog &&
+      !appPageHostRef.current?.contains(document.activeElement)
+    ) {
+      appPageHostRef.current?.focus({ preventScroll: true });
+    }
+  }, [appPage, appDialog]);
 
-  const inboxVisible = appDialog === "inbox";
+  const workspaceVisible = appPage === null;
+  const inboxVisible = appPage === "inbox" && appDialog === null;
   const foregroundSurfaceRef = useRef<{
     workspaceVisible: boolean;
     inboxSessionId?: string;
   }>({ workspaceVisible: true });
   foregroundSurfaceRef.current = {
-    workspaceVisible: true,
+    workspaceVisible,
     inboxSessionId: inboxVisible ? inboxAskPortal?.sessionId : undefined,
   };
   const sessionNavigationIdsRef = useRef<readonly string[]>([]);
@@ -1878,8 +1911,14 @@ function Workspace({
   );
 
   const hiddenApprovalToasts = useMemo(
-    () => hiddenApprovalNotices(sessions, activeTabId, tabs, composerFocused),
-    [sessions, activeTabId, tabs, composerFocused],
+    () =>
+      hiddenApprovalNotices(
+        sessions,
+        workspaceVisible ? activeTabId : "",
+        tabs,
+        workspaceVisible && composerFocused,
+      ),
+    [sessions, activeTabId, tabs, composerFocused, workspaceVisible],
   );
   const [reminderNoticesHeight, setReminderNoticesHeight] = useState(0);
   const [harnessUpdateHeight, setHarnessUpdateHeight] = useState(0);
@@ -2252,6 +2291,7 @@ function Workspace({
       paneId?: string,
       reason: "session" | "workspace" = "session",
     ) => {
+      setAppPage(null);
       const tab = tabsRef.current.find((entry) => entry.id === id);
       const nextFocusedId =
         tab &&
@@ -3226,10 +3266,8 @@ function Workspace({
   );
 
   useEffect(() => {
-    if (notesEnabled) return;
-    const view = findAppViewTab(tabs, "notes");
-    if (view) onCloseFile(view.pane.id, view.file.id);
-  }, [notesEnabled, tabs, onCloseFile]);
+    if (!notesEnabled && appPage === "notes") closeAppPage();
+  }, [notesEnabled, appPage, closeAppPage]);
 
   const onCloseOtherFiles = useCallback((paneId: string, fileId: string) => {
     const tab = tabsRef.current.find((entry) => findSurfacePane(entry, paneId));
@@ -4401,6 +4439,7 @@ function Workspace({
       if (project && session && !sameProjectPath(session.cwd, project)) return;
       if (project) setSidebarTab("sessions", project);
       if (!session || session.inboxAsk) return;
+      setAppPage(null);
       const parentId =
         session.orchestrationLeadId ??
         orchestrator.forSession(sessionId)?.leadId;
@@ -5991,7 +6030,10 @@ function Workspace({
   );
 
   const onOpenFile = useCallback<OpenFileFn>(
-    (path, navigation, options) => openOwnedFile(path, navigation, options),
+    (path, navigation, options) => {
+      setAppPage(null);
+      openOwnedFile(path, navigation, options);
+    },
     [openOwnedFile],
   );
   const onOpenSessionFile = useCallback(
@@ -10056,6 +10098,13 @@ function Workspace({
     (kind: AppViewKind) => {
       workspaceNavigation.cancel();
       setPaletteOpen(false);
+      if (isAppPageKind(kind)) {
+        setAppDialog(null);
+        setAppPage(kind);
+        setProjectTerminalFocused(false);
+        setComposerFocused(false);
+        return;
+      }
       if (DIALOG_APP_VIEWS.has(kind)) {
         setAppDialog(kind);
         return;
@@ -10162,10 +10211,7 @@ function Workspace({
     [history, onSelectHistorySession, sidebarCwd],
   );
 
-  const onLeaveInbox = useCallback(() => {
-    if (appDialogRef.current) closeAppDialog();
-    else leaveAppView();
-  }, [closeAppDialog, leaveAppView]);
+  const onLeaveInbox = closeAppPage;
 
   const onOpenInboxSession = useCallback(
     (sessionId: string) => {
@@ -10235,7 +10281,7 @@ function Workspace({
     openAppView("notes");
   }, [openAppView]);
 
-  const onLeaveNotes = leaveAppView;
+  const onLeaveNotes = closeAppPage;
 
   const onOpenAutomations = useCallback(() => {
     openAppView("automations");
@@ -10245,10 +10291,7 @@ function Workspace({
     openAppView("workflows");
   }, [openAppView]);
 
-  const onLeaveAutomations = useCallback(() => {
-    if (appDialogRef.current) closeAppDialog();
-    else leaveAppView();
-  }, [closeAppDialog, leaveAppView]);
+  const onLeaveAutomations = closeAppPage;
 
   const onOpenAutomationSession = useCallback(
     async (sessionId: string) => {
@@ -10450,12 +10493,18 @@ function Workspace({
     "App: New Window": () => void invoke("open_new_window").catch(() => {}),
     "App: Open Project": () => void pickProject(),
     "File: Autosave": toggleAutosave,
-    "Pane: Close": () => onClosePane(),
-    "Tab: Close": activeTabId ? () => onCloseTitleTab(activeTabId) : undefined,
+    "Pane: Close": appPage ? closeAppPage : () => onClosePane(),
+    "Tab: Close": appPage
+      ? closeAppPage
+      : activeTabId
+        ? () => onCloseTitleTab(activeTabId)
+        : undefined,
     "Tab: Close Others": onCloseOtherTabs,
     "Tab: Close All": onCloseAllTabs,
-    "Editor: Find": () => void openFindInActiveEditor(),
-    "Editor: Replace": () => void openReplaceInActiveEditor(),
+    "Editor: Find": appPage ? undefined : () => void openFindInActiveEditor(),
+    "Editor: Replace": appPage
+      ? undefined
+      : () => void openReplaceInActiveEditor(),
     "App: Find in Files": onFindInProject,
     "App: Command Palette": onOpenCommandPalette,
     "App: Search": onGoToFile,
@@ -10466,15 +10515,16 @@ function Workspace({
     "View: Toggle Menu Bar": IS_MAC
       ? undefined
       : () => void saveMenuBarVisible(!loadMenuBarVisible()),
-    "Pane: Split Right": () => onSplit("right"),
-    "Pane: Split Down": () => onSplit("down"),
+    "Pane: Split Right": appPage ? undefined : () => onSplit("right"),
+    "Pane: Split Down": appPage ? undefined : () => onSplit("down"),
     "View: Inbox": onOpenInbox,
     "View: Notes": notesEnabled ? onOpenNotes : undefined,
     "View: Automations": onOpenAutomations,
     "View: Workflows": onOpenWorkflows,
     "App: Settings": () => openSettings(),
-    "App: Switch Model": () =>
-      window.dispatchEvent(new Event("open_model_picker")),
+    "App: Switch Model": appPage
+      ? undefined
+      : () => window.dispatchEvent(new Event("open_model_picker")),
     "View: Zoom In": () => zoom("in"),
     "View: Zoom Out": () => zoom("out"),
     "View: Reset Zoom": () => zoom("reset"),
@@ -10494,10 +10544,10 @@ function Workspace({
     "Session: Next in Current Tab": () => onNavigateSessionList(1, true),
     "Project: Previous": () => onNavigateProjectList(-1),
     "Project: Next": () => onNavigateProjectList(1),
-    "Pane: Focus Left": () => onFocusDir("left"),
-    "Pane: Focus Right": () => onFocusDir("right"),
-    "Pane: Focus Up": () => onFocusDir("up"),
-    "Pane: Focus Down": () => onFocusDir("down"),
+    "Pane: Focus Left": appPage ? undefined : () => onFocusDir("left"),
+    "Pane: Focus Right": appPage ? undefined : () => onFocusDir("right"),
+    "Pane: Focus Up": appPage ? undefined : () => onFocusDir("up"),
+    "Pane: Focus Down": appPage ? undefined : () => onFocusDir("down"),
     "Terminal: New Tab": onNewTerminalTab,
     "Help: Keyboard Shortcuts": () => openSettings("keybindings"),
     "Help: What's New": () =>
@@ -10773,7 +10823,9 @@ function Workspace({
     [openSettings],
   );
 
-  const onOpenAssistant = useCallback(() => {
+  const [assistantMachineId, setAssistantMachineId] = useState<string>();
+  const onOpenAssistant = useCallback((machineId?: string) => {
+    if (machineId) setAssistantMachineId(machineId);
     workspaceNavigation.cancel();
     setPaletteOpen(false);
     const next = openAppViewTab(tabsRef.current, "assistant");
@@ -10914,6 +10966,8 @@ function Workspace({
       case "assistant":
         return (
           <DesktopAssistant
+            selectedMachineId={assistantMachineId}
+            onSelectMachine={setAssistantMachineId}
             onLocalSession={onSelectHistorySession}
             onRemoteSession={onSelectRemoteSession}
           />
@@ -10952,7 +11006,7 @@ function Workspace({
             recents={recents}
             onClose={onLeaveInbox}
             onStart={(...args: Parameters<typeof onStartInboxItem>) =>
-              onStartInboxItem(...args).then(closeAppDialog)
+              onStartInboxItem(...args).then(closeAppPage)
             }
             onAsk={onAskInboxItem}
             onAskRestart={onRestartInboxAsk}
@@ -10960,10 +11014,10 @@ function Workspace({
             sessions={inboxRelatedSessions}
             repairSessions={repairSessions}
             onRepairChecks={(...args: Parameters<typeof onRepairChecks>) =>
-              onRepairChecks(...args).then(closeAppDialog)
+              onRepairChecks(...args).then(closeAppPage)
             }
             onOpenSession={(sessionId: string) => {
-              closeAppDialog();
+              closeAppPage();
               onOpenInboxSession(sessionId);
             }}
             onOpenIntegrations={onOpenInboxIntegrations}
@@ -10986,13 +11040,13 @@ function Workspace({
             recents={recents}
             onClose={onLeaveAutomations}
             onLaunch={(automation, run) => {
-              closeAppDialog();
+              closeAppPage();
               return launchAutomation(automation, run, true);
             }}
             onOpenSession={(
               ...args: Parameters<typeof onOpenAutomationSession>
             ) => {
-              closeAppDialog();
+              closeAppPage();
               return onOpenAutomationSession(...args);
             }}
           />
@@ -11039,7 +11093,10 @@ function Workspace({
     sessions.some((session) => session.id === id),
   ).length;
   const surfaceModeToggle =
-    activeTab && activeSessionLeafCount === 1 && activeLeafIds.length > 1 ? (
+    workspaceVisible &&
+    activeTab &&
+    activeSessionLeafCount === 1 &&
+    activeLeafIds.length > 1 ? (
       <SessionSurfaceActions
         mode={activeTab.surfaceMode ?? "split"}
         onModeChange={(surfaceMode) =>
@@ -11051,6 +11108,13 @@ function Workspace({
         }
       />
     ) : null;
+
+  const windowCenter = (
+    <DesktopAssistantButton
+      active={activeAppView === "assistant"}
+      onOpen={onOpenAssistant}
+    />
+  );
 
   const updateStatus = useUpdateStatus();
   const activityBarProps = {
@@ -11074,7 +11138,7 @@ function Workspace({
     onOpenAutomations,
     onOpenWorkflows,
     searchActive: activeAppView === "search",
-    inboxActive: appDialog === "inbox",
+    inboxActive: appPage === "inbox",
     notesActive: activeAppView === "notes",
     automationsActive: activeAppView === "automations",
     workflowsActive: activeAppView === "workflows",
@@ -11086,7 +11150,7 @@ function Workspace({
     onOpenWhatsNew,
     onDismissUpdate: () => setUpdateNotice(null),
   } satisfies ActivityBarProps;
-  const railMotion = useCollapseMotion(!sessionSidebarOpen, 200);
+  const railMotion = useCollapseMotion(!sessionSidebarOpen, SIDEBAR_TRANSITION_MS);
 
   return (
     <WorkflowAppContext.Provider value={workflowApp}>
@@ -11122,6 +11186,11 @@ function Workspace({
                     canGoBack={tabVisitNav.canBack}
                     canGoForward={tabVisitNav.canForward}
                     sidebarOpen={sessionSidebarOpen}
+                    navigationExpanded={navigationExpanded}
+                    onToggleNavigation={
+                      sessionSidebarOpen ? onToggleNavigation : undefined
+                    }
+                    windowCenter={windowCenter}
                     windowActions={surfaceModeToggle}
                   />
                 ) : null}
@@ -11133,6 +11202,11 @@ function Workspace({
                     onGoForward={onRailForward}
                     onTogglePanel={onToggleSidebar}
                     panelActive={sessionSidebarOpen}
+                    navigationExpanded={navigationExpanded}
+                    onToggleNavigation={
+                      sessionSidebarOpen ? onToggleNavigation : undefined
+                    }
+                    windowCenter={windowCenter}
                     windowActions={surfaceModeToggle}
                   />
                 ) : null}
@@ -11150,7 +11224,7 @@ function Workspace({
                   className="animated-collapse-size grid h-full min-h-0 shrink-0"
                   style={
                     {
-                      "--collapse-duration": "200ms",
+                      ...SIDEBAR_MOTION_STYLE,
                       gridTemplateColumns: sessionSidebarOpen ? "0px" : "48px",
                     } as CSSProperties
                   }
@@ -11179,7 +11253,11 @@ function Workspace({
                 </div>
                 <Sidebar
                   navigation={
-                    <ActivityBar layout="sidebar-top" {...activityBarProps} />
+                    <div id="sidebar-navigation-menu" className="shrink-0">
+                      <AnimatedCollapse expanded={navigationExpanded}>
+                        <ActivityBar layout="sidebar-top" {...activityBarProps} />
+                      </AnimatedCollapse>
+                    </div>
                   }
                   footer={
                     <ActivityBar
@@ -11187,8 +11265,6 @@ function Workspace({
                       {...activityBarProps}
                     />
                   }
-                  onOpenAssistant={onOpenAssistant}
-                  assistantActive={activeAppView === "assistant"}
                   workflowsSection={
                     <WorkflowSidebarSection
                       activeSessionId={active?.id}
@@ -11286,178 +11362,239 @@ function Workspace({
                 <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
                   <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                     <main className="relative flex min-h-0 min-w-0 flex-1">
-                      <div
-                        ref={dockGridRef}
-                        data-terminal-dock-layout
-                        data-fold-state={dockMotion.foldState}
-                        className="animated-collapse-size pane-card-gutter grid h-full min-h-0 min-w-0 flex-1"
-                        onTransitionEnd={(event) => {
-                          if (
-                            event.target === event.currentTarget &&
-                            (event.propertyName === "grid-template-rows" ||
-                              event.propertyName === "grid-template-columns")
-                          )
-                            dockMotion.finish();
-                        }}
-                      >
-                        {projectTerminals.map((dock) => {
-                          const show =
-                            dock.open &&
-                            sameProjectPath(dock.projectPath, projectCwd);
-                          const present =
-                            sameProjectPath(dock.projectPath, projectCwd) &&
-                            (show || dockMotion.foldState === "closing");
-                          return (
-                            <div
-                              key={dock.projectPath}
-                              className={
-                                present
-                                  ? `h-full min-h-0 min-w-0 w-full ${show ? "" : "overflow-hidden"}`
-                                  : "hidden"
-                              }
-                              style={present ? { gridArea: "dock" } : undefined}
-                              aria-hidden={!show}
-                              inert={!show || undefined}
-                            >
-                              <SurfaceVisibilityContext.Provider value={show}>
-                                <ProjectTerminalDock
-                                  dock={dock}
-                                  focused={show && projectTerminalFocused}
-                                  onFocus={focusProjectTerminal}
-                                  onHide={onHideProjectTerminal}
-                                  onSideChange={onProjectTerminalSide}
-                                  onSizePaint={paintDockSize}
-                                  onSizeCommit={commitDockSize}
-                                  onAddTerminal={onNewTerminal}
-                                  onSelectTerminal={onSelectProjectTerminal}
-                                  onCloseTerminal={onCloseProjectTerminal}
-                                  onCloseOtherTerminals={
-                                    onCloseOtherProjectTerminals
-                                  }
-                                  onReorderTerminals={onReorderProjectTerminals}
-                                  onTerminalMetaChange={onTerminalMetaChange}
-                                  onMoveToPane={onMoveDockToPane}
-                                />
-                              </SurfaceVisibilityContext.Provider>
-                            </div>
-                          );
-                        })}
+                      {APP_PAGE_KINDS.filter(
+                        (kind) => kind !== "notes" || notesEnabled,
+                      ).map((kind) => (
                         <div
-                          className="relative flex min-h-0 min-w-0 flex-row"
-                          style={{
-                            gridArea: "main",
-                          }}
+                          key={kind}
+                          data-app-page={kind}
+                          ref={appPage === kind ? appPageHostRef : undefined}
+                          tabIndex={-1}
+                          hidden={appPage !== kind}
+                          aria-hidden={appPage !== kind}
+                          inert={
+                            appPage !== kind || appDialog !== null || undefined
+                          }
+                          className={
+                            appPage === kind
+                              ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden outline-none"
+                              : "hidden"
+                          }
                         >
-                          <div className="relative min-h-0 min-w-0 flex-1">
-                            {tabs.map((tab) => (
-                              <div
-                                key={tab.id}
-                                data-workspace-tab={tab.id}
-                                data-active={String(tab.id === activeTabId)}
-                                aria-hidden={tab.id !== activeTabId}
-                                className={
-                                  tab.id === activeTabId
-                                    ? "absolute inset-0 flex h-full min-h-0 flex-col"
-                                    : "hidden"
-                                }
-                              >
-                                <div
-                                  className={`flex min-h-0 min-w-0 flex-1 flex-col ${
-                                    leafIds(tab.layout).filter((id) =>
-                                      sessions.some(
-                                        (session) => session.id === id,
-                                      ),
-                                    ).length <= 1
-                                      ? "pane-card mb-1 mr-1"
-                                      : "h-full"
-                                  }`}
-                                >
-                                  <PaneTree
-                                    {...sessionPaneProps}
-                                    visible={tab.id === activeTabId}
-                                    surfaceMode={tab.surfaceMode ?? "split"}
-                                    onOpenSessionFile={onOpenSessionFile}
-                                    layout={tab.layout}
-                                    sessions={sessions}
-                                    editorPanes={[
-                                      ...tab.editorPanes,
-                                      ...(tab.terminalPanes ?? []),
-                                    ]}
-                                    dirtyFileIds={dirtyFiles}
-                                    fileErrorCounts={fileErrorCounts}
-                                    focusedId={
-                                      tab.id === activeTabId &&
-                                      !tab.diffFocused &&
-                                      !projectTerminalFocused
-                                        ? tab.focusedId
-                                        : ""
-                                    }
-                                    addToChatSessionId={
-                                      tab.id === activeTabId
-                                        ? active?.id
-                                        : undefined
-                                    }
-                                    composerFocused={
-                                      composerFocused && !projectTerminalFocused
-                                    }
-                                    composerFocusToken={composerFocusToken}
-                                    onSelectFile={onSelectFileSurface}
-                                    onCloseFile={onCloseFile}
-                                    onCloseOtherFiles={onCloseOtherFiles}
-                                    onPinFile={onPinFile}
-                                    onReorderFiles={onReorderFiles}
-                                    onFileDirtyChange={onFileDirtyChange}
-                                    onFileErrorCountChange={
-                                      onFileErrorCountChange
-                                    }
-                                    transcriptPool={transcriptPool}
-                                    onRatio={(splitId, index, ratio) =>
-                                      onRatio(tab.id, splitId, index, ratio)
-                                    }
-                                    editorNavigation={
-                                      editorNavigations[tab.id] &&
-                                      (!editorNavigations[tab.id]
-                                        .ownerSessionId ||
-                                        leafIds(tab.layout).includes(
-                                          editorNavigations[tab.id]
-                                            .ownerSessionId!,
-                                        ))
-                                        ? editorNavigations[tab.id].target
-                                        : null
-                                    }
-                                    onUpdatePlan={onUpdatePlan}
-                                    onMovePane={onMovePane}
-                                    onMovePaneToDock={onMovePaneToDock}
-                                    onTerminalMetaChange={onTerminalMetaChange}
-                                  />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                          <AppViewHost
+                            kind={kind}
+                            visible={appPage === kind && appDialog === null}
+                            focused={appPage === kind && appDialog === null}
+                          />
                         </div>
-                      </div>
-                      {[...linkedWorkItemPanels.values()].map((panel) => (
-                        <LinkedWorkItemPanel
-                          repairSessions={repairSessions}
-                          onRepairChecks={onRepairChecks}
-                          onOpenSession={(sessionId) => {
-                            closeLinkedWorkItemPanel(panel.sessionId);
-                            onOpenInboxSession(sessionId);
-                          }}
-                          key={panel.sessionId}
-                          target={panel.item}
-                          cwd={panel.cwd}
-                          recents={recents}
-                          visible={
-                            !activeAppView &&
-                            activeLinkedWorkItemPanel?.sessionId ===
-                              panel.sessionId
-                          }
-                          onClose={() =>
-                            closeLinkedWorkItemPanel(panel.sessionId)
-                          }
-                        />
                       ))}
+                      <div
+                        data-workspace-content
+                        hidden={!workspaceVisible}
+                        aria-hidden={!workspaceVisible}
+                        inert={!workspaceVisible || undefined}
+                        className={
+                          workspaceVisible
+                            ? "relative flex min-h-0 min-w-0 flex-1"
+                            : "hidden"
+                        }
+                      >
+                        <SurfaceVisibilityContext.Provider
+                          value={workspaceVisible}
+                        >
+                          <div
+                            ref={dockGridRef}
+                            data-terminal-dock-layout
+                            data-fold-state={dockMotion.foldState}
+                            className="animated-collapse-size pane-card-gutter grid h-full min-h-0 min-w-0 flex-1"
+                            onTransitionEnd={(event) => {
+                              if (
+                                event.target === event.currentTarget &&
+                                (event.propertyName === "grid-template-rows" ||
+                                  event.propertyName ===
+                                    "grid-template-columns")
+                              )
+                                dockMotion.finish();
+                            }}
+                          >
+                            {projectTerminals.map((dock) => {
+                              const show =
+                                workspaceVisible &&
+                                dock.open &&
+                                sameProjectPath(dock.projectPath, projectCwd);
+                              const present =
+                                workspaceVisible &&
+                                sameProjectPath(dock.projectPath, projectCwd) &&
+                                (show || dockMotion.foldState === "closing");
+                              return (
+                                <div
+                                  key={dock.projectPath}
+                                  className={
+                                    present
+                                      ? `h-full min-h-0 min-w-0 w-full ${show ? "" : "overflow-hidden"}`
+                                      : "hidden"
+                                  }
+                                  style={
+                                    present ? { gridArea: "dock" } : undefined
+                                  }
+                                  aria-hidden={!show}
+                                  inert={!show || undefined}
+                                >
+                                  <SurfaceVisibilityContext.Provider
+                                    value={show}
+                                  >
+                                    <ProjectTerminalDock
+                                      dock={dock}
+                                      focused={show && projectTerminalFocused}
+                                      onFocus={focusProjectTerminal}
+                                      onHide={onHideProjectTerminal}
+                                      onSideChange={onProjectTerminalSide}
+                                      onSizePaint={paintDockSize}
+                                      onSizeCommit={commitDockSize}
+                                      onAddTerminal={onNewTerminal}
+                                      onSelectTerminal={onSelectProjectTerminal}
+                                      onCloseTerminal={onCloseProjectTerminal}
+                                      onCloseOtherTerminals={
+                                        onCloseOtherProjectTerminals
+                                      }
+                                      onReorderTerminals={
+                                        onReorderProjectTerminals
+                                      }
+                                      onTerminalMetaChange={
+                                        onTerminalMetaChange
+                                      }
+                                      onMoveToPane={onMoveDockToPane}
+                                    />
+                                  </SurfaceVisibilityContext.Provider>
+                                </div>
+                              );
+                            })}
+                            <div
+                              className="relative flex min-h-0 min-w-0 flex-row"
+                              style={{
+                                gridArea: "main",
+                              }}
+                            >
+                              <div className="relative min-h-0 min-w-0 flex-1">
+                                {tabs.map((tab) => (
+                                  <div
+                                    key={tab.id}
+                                    data-workspace-tab={tab.id}
+                                    data-active={String(tab.id === activeTabId)}
+                                    aria-hidden={tab.id !== activeTabId}
+                                    className={
+                                      tab.id === activeTabId
+                                        ? "absolute inset-0 flex h-full min-h-0 flex-col"
+                                        : "hidden"
+                                    }
+                                  >
+                                    <div
+                                      className={`flex min-h-0 min-w-0 flex-1 flex-col ${
+                                        leafIds(tab.layout).filter((id) =>
+                                          sessions.some(
+                                            (session) => session.id === id,
+                                          ),
+                                        ).length <= 1
+                                          ? "pane-card mb-1 mr-1"
+                                          : "h-full"
+                                      }`}
+                                    >
+                                      <PaneTree
+                                        {...sessionPaneProps}
+                                        visible={
+                                          workspaceVisible &&
+                                          tab.id === activeTabId
+                                        }
+                                        surfaceMode={tab.surfaceMode ?? "split"}
+                                        onOpenSessionFile={onOpenSessionFile}
+                                        layout={tab.layout}
+                                        sessions={sessions}
+                                        editorPanes={[
+                                          ...tab.editorPanes,
+                                          ...(tab.terminalPanes ?? []),
+                                        ]}
+                                        dirtyFileIds={dirtyFiles}
+                                        fileErrorCounts={fileErrorCounts}
+                                        focusedId={
+                                          workspaceVisible &&
+                                          tab.id === activeTabId &&
+                                          !tab.diffFocused &&
+                                          !projectTerminalFocused
+                                            ? tab.focusedId
+                                            : ""
+                                        }
+                                        addToChatSessionId={
+                                          tab.id === activeTabId
+                                            ? active?.id
+                                            : undefined
+                                        }
+                                        composerFocused={
+                                          workspaceVisible &&
+                                          composerFocused &&
+                                          !projectTerminalFocused
+                                        }
+                                        composerFocusToken={composerFocusToken}
+                                        onSelectFile={onSelectFileSurface}
+                                        onCloseFile={onCloseFile}
+                                        onCloseOtherFiles={onCloseOtherFiles}
+                                        onPinFile={onPinFile}
+                                        onReorderFiles={onReorderFiles}
+                                        onFileDirtyChange={onFileDirtyChange}
+                                        onFileErrorCountChange={
+                                          onFileErrorCountChange
+                                        }
+                                        transcriptPool={transcriptPool}
+                                        onRatio={(splitId, index, ratio) =>
+                                          onRatio(tab.id, splitId, index, ratio)
+                                        }
+                                        editorNavigation={
+                                          editorNavigations[tab.id] &&
+                                          (!editorNavigations[tab.id]
+                                            .ownerSessionId ||
+                                            leafIds(tab.layout).includes(
+                                              editorNavigations[tab.id]
+                                                .ownerSessionId!,
+                                            ))
+                                            ? editorNavigations[tab.id].target
+                                            : null
+                                        }
+                                        onUpdatePlan={onUpdatePlan}
+                                        onMovePane={onMovePane}
+                                        onMovePaneToDock={onMovePaneToDock}
+                                        onTerminalMetaChange={
+                                          onTerminalMetaChange
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          {[...linkedWorkItemPanels.values()].map((panel) => (
+                            <LinkedWorkItemPanel
+                              repairSessions={repairSessions}
+                              onRepairChecks={onRepairChecks}
+                              onOpenSession={(sessionId) => {
+                                closeLinkedWorkItemPanel(panel.sessionId);
+                                onOpenInboxSession(sessionId);
+                              }}
+                              key={panel.sessionId}
+                              target={panel.item}
+                              cwd={panel.cwd}
+                              recents={recents}
+                              visible={
+                                !activeAppView &&
+                                activeLinkedWorkItemPanel?.sessionId ===
+                                  panel.sessionId
+                              }
+                              onClose={() =>
+                                closeLinkedWorkItemPanel(panel.sessionId)
+                              }
+                            />
+                          ))}
+                        </SurfaceVisibilityContext.Provider>
+                      </div>
                     </main>
                   </div>
                   <div className="hidden" aria-hidden>
@@ -11472,15 +11609,17 @@ function Workspace({
                             key={session.id}
                             host={visible ? inboxAskPortal.host : undefined}
                           >
-                            <SessionPane
-                              {...sessionPaneProps}
-                              session={session}
-                              visible={visible}
-                              focused={visible}
-                              inSplit={false}
-                              composerFocused={composerFocused}
-                              composerFocusToken={composerFocusToken}
-                            />
+                            <SurfaceVisibilityContext.Provider value={visible}>
+                              <SessionPane
+                                {...sessionPaneProps}
+                                session={session}
+                                visible={visible}
+                                focused={visible}
+                                inSplit={false}
+                                composerFocused={visible && composerFocused}
+                                composerFocusToken={composerFocusToken}
+                              />
+                            </SurfaceVisibilityContext.Provider>
                           </SessionSurface>
                         );
                       })}

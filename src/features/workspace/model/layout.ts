@@ -84,6 +84,13 @@ export const APP_VIEW_KINDS = [
 
 export type AppViewKind = (typeof APP_VIEW_KINDS)[number];
 
+/** These destinations replace the workspace instead of becoming documents. */
+export const APP_PAGE_KINDS = ["notes", "inbox", "automations", "workflows"] as const;
+export type AppPageKind = (typeof APP_PAGE_KINDS)[number];
+export function isAppPageKind(kind: AppViewKind): kind is AppPageKind {
+  return (APP_PAGE_KINDS as readonly AppViewKind[]).includes(kind);
+}
+
 export function appViewTitle(kind: AppViewKind): string {
   return {
     settings: "Settings",

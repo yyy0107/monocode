@@ -73,7 +73,7 @@ describe("looksLikeProject", () => {
 });
 
 describe("projectRailSections", () => {
-  it("orders ordinary projects by recency despite an older saved drag order", () => {
+  it("retains the manual order of ordinary projects when one is reopened", () => {
     const recents = [
       { path: "/tmp/older", openedAt: 1 },
       { path: "/tmp/current", openedAt: 2 },
@@ -85,8 +85,8 @@ describe("projectRailSections", () => {
       [],
     );
     expect([...pinned, ...projects].map((item) => item.path)).toEqual([
-      "/tmp/current",
       "/tmp/older",
+      "/tmp/current",
     ]);
   });
 
@@ -103,7 +103,7 @@ describe("projectRailSections", () => {
       ["/tmp/b"],
     );
     expect(pinned.map((item) => item.path)).toEqual(["/tmp/b"]);
-    expect(projects.map((item) => item.path)).toEqual(["/tmp/c", "/tmp/a"]);
+    expect(projects.map((item) => item.path)).toEqual(["/tmp/a", "/tmp/c"]);
   });
 
   it("retains manual pin order and places a newly opened project first", () => {
@@ -129,19 +129,78 @@ describe("projectRailSections", () => {
     ]);
   });
 
-  it("appends new projects without reordering existing entries", () => {
-    const recents = [
-      { path: "/tmp/older", openedAt: 1 },
-      { path: "/tmp/new", openedAt: 3 },
-    ];
+  it("prepends new projects by recency without reordering existing entries", () => {
     const projects = new Map([
       ["/tmp/older", { path: "/tmp/older", openedAt: 1 }],
       ["/tmp/new", { path: "/tmp/new", openedAt: 3 }],
+      ["/tmp/current", { path: "/tmp/current", openedAt: 5 }],
+      ["/tmp/newest", { path: "/tmp/newest", openedAt: 4 }],
     ]);
-    expect(syncProjectRailOrder(["/tmp/older"], projects)).toEqual([
+    expect(
+      syncProjectRailOrder(["/tmp/older", "/tmp/current"], projects),
+    ).toEqual(["/tmp/newest", "/tmp/new", "/tmp/older", "/tmp/current"]);
+  });
+});
+
+describe("project rail order migration", () => {
+  beforeEach(mockLocalStorage);
+
+  it("migrates legacy recency order once while retaining the saved pin order", () => {
+    localStorage.setItem(
+      "monocode.recentProjects",
+      JSON.stringify([
+        { path: "/tmp/old-pin", openedAt: 1 },
+        { path: "/tmp/new-pin", openedAt: 10 },
+        { path: "/tmp/older", openedAt: 2 },
+        { path: "/tmp/current", openedAt: 6 },
+        { path: "/tmp/unsaved", openedAt: 4 },
+      ]),
+    );
+    localStorage.setItem(
+      "monocode.projectRailOrder",
+      JSON.stringify([
+        "/tmp/older",
+        "/tmp/new-pin",
+        "/tmp/current",
+        "/tmp/old-pin",
+        "/tmp/saved-only",
+      ]),
+    );
+    savePinnedProjects(["/tmp/old-pin", "/tmp/new-pin"]);
+
+    const migrated = [
+      "/tmp/new-pin",
+      "/tmp/old-pin",
+      "/tmp/current",
+      "/tmp/unsaved",
       "/tmp/older",
-      "/tmp/new",
-    ]);
+      "/tmp/saved-only",
+    ];
+    expect(loadProjectRailOrder()).toEqual(migrated);
+    expect(
+      JSON.parse(localStorage.getItem("monocode.projectRailOrder")!),
+    ).toEqual(migrated);
+    expect(localStorage.getItem("monocode.projectRailOrderVersion")).toBe("1");
+
+    rememberProject("/tmp/older");
+    expect(loadProjectRailOrder()).toEqual(migrated);
+
+    const manualOrder = [
+      "/tmp/older",
+      ...migrated.filter((path) => path !== "/tmp/older"),
+    ];
+    saveProjectRailOrder(manualOrder);
+    expect(loadProjectRailOrder()).toEqual(manualOrder);
+  });
+
+  it("treats an explicitly saved order as manual without a legacy migration", () => {
+    rememberProject("/tmp/older");
+    rememberProject("/tmp/current");
+
+    saveProjectRailOrder(["/tmp/older", "/tmp/current"]);
+
+    expect(loadProjectRailOrder()).toEqual(["/tmp/older", "/tmp/current"]);
+    expect(localStorage.getItem("monocode.projectRailOrderVersion")).toBe("1");
   });
 });
 

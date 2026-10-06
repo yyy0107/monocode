@@ -48,7 +48,7 @@ function render(props: Partial<ComponentProps<typeof MenuBar>> = {}) {
 
 function menuButton(label: string) {
   return Array.from(
-    container.querySelectorAll<HTMLButtonElement>("[data-menu-bar] > button"),
+    container.querySelectorAll<HTMLButtonElement>('[data-menu-bar] button[aria-haspopup="menu"]'),
   ).find((button) => button.textContent === label);
 }
 
@@ -145,9 +145,9 @@ describe("MenuBar", () => {
     const controls = bar.querySelector(
       '[role="group"][aria-label="Window controls"]',
     )!;
-    expect(bar.firstElementChild).toBe(navigation);
+    expect(bar.firstElementChild?.firstElementChild).toBe(navigation);
     expect(navigation.nextElementSibling).toBe(menuButton("File"));
-    expect(bar.lastElementChild).toBe(controls);
+    expect(bar.lastElementChild?.lastElementChild).toBe(controls);
     const [back, forward, toggle] =
       navigation.querySelectorAll<HTMLButtonElement>("button");
     expect(back.getAttribute("aria-label")).toMatch(/^Back/);
@@ -174,6 +174,20 @@ describe("MenuBar", () => {
     });
     expect(dispatch).toHaveBeenLastCalledWith("Tab: Forward");
     expect(dispatch).toHaveBeenCalledTimes(3);
+  });
+
+  it("routes the navigation disclosure independently of the sidebar command", async () => {
+    const onToggleNavigation = vi.fn();
+    await act(async () => render({ sidebarOpen: true, navigationExpanded: true, onToggleNavigation }));
+    const toggle = container.querySelector<HTMLButtonElement>('[aria-controls="sidebar-navigation-menu"]')!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    act(() => toggle.click());
+    expect(onToggleNavigation).toHaveBeenCalledOnce();
+    expect(dispatch).not.toHaveBeenCalled();
+    render({ sidebarOpen: true, navigationExpanded: false, onToggleNavigation });
+    act(() => setUiLanguage("zh-CN"));
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.getAttribute("aria-label")).toBe("展开导航菜单");
   });
 
   it("keeps native window actions and the maximized state in the menu row", async () => {
@@ -223,7 +237,7 @@ describe("MenuBar", () => {
   it("stays visible with every menu when pinned", () => {
     render();
     const labels = Array.from(
-      container.querySelectorAll("[data-menu-bar] > button"),
+      container.querySelectorAll('[data-menu-bar] button[aria-haspopup="menu"]'),
     ).map((button) => button.textContent);
     expect(labels).toEqual(["File", "Edit", "View", "Go", "Terminal", "Help"]);
   });

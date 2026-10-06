@@ -4,22 +4,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   useAnimatedReorder,
   type ReorderExternalDrop,
+  type ReorderOptions,
 } from "./useAnimatedReorder";
 
 const ids = ["sessions", "changes", "explorer"];
 
-function tabAt(left: number, top: number, parentElement: HTMLElement) {
+function tabAt(
+  left: number,
+  top: number,
+  parentElement: HTMLElement,
+  height = 32,
+) {
   const captured = new Set<number>();
   return {
     parentElement,
-    getBoundingClientRect: () => ({
+    getBoundingClientRect: vi.fn(() => ({
       left,
       right: left + 100,
       width: 100,
       top,
-      bottom: top + 32,
-      height: 32,
-    }),
+      bottom: top + height,
+      height,
+    })),
     style: {
       transform: "",
       transition: "",
@@ -46,6 +52,12 @@ function setup(
   reducedMotion = false,
   axis: "x" | "y" = "x",
   externalDrop?: ReorderExternalDrop<string>,
+  options?: ReorderOptions<string>,
+  verticalLayout = [
+    { top: 0, height: 32 },
+    { top: 33, height: 32 },
+    { top: 66, height: 32 },
+  ],
 ) {
   Object.assign(browser, { matchMedia: () => ({ matches: reducedMotion }) });
   const onReorder = vi.fn();
@@ -53,16 +65,14 @@ function setup(
   // Render the real hook to obtain its gesture interface without mocking React.
   // Mount/unmount effects and native click targeting need a browser check.
   function Probe() {
-    reorder = useAnimatedReorder(ids, onReorder, axis, externalDrop);
+    reorder = useAnimatedReorder(ids, onReorder, axis, externalDrop, options);
     return null;
   }
   renderToString(createElement(Probe));
   const scroller = { scrollLeft: 0, scrollTop: 0, parentElement: null };
-  const tabs = [
-    [0, 0],
-    [100, 33],
-    [200, 66],
-  ].map(([left, top]) => tabAt(left, top, scroller as unknown as HTMLElement));
+  const tabs = verticalLayout.map(({ top, height }, index) =>
+    tabAt(index * 100, top, scroller as unknown as HTMLElement, height),
+  );
   tabs.forEach((tab, index) =>
     reorder.setItemRef(ids[index], tab as unknown as HTMLElement),
   );
@@ -70,7 +80,7 @@ function setup(
     reorder.onItemPointerDown(ids[index], {
       button: 0,
       clientX: index * 100 + 50,
-      clientY: index * 33 + 16,
+      clientY: verticalLayout[index].top + 16,
       pointerId,
     } as ReactPointerEvent);
   return { reorder, tabs, onReorder, press, scroller };
@@ -168,6 +178,75 @@ describe("workspace tab gestures", () => {
       "sessions",
     );
   });
+
+  it.each([
+    {
+      direction: "down",
+      from: 0,
+      verticalLayout: [
+        { top: 0, height: 144 },
+        { top: 145, height: 80 },
+        { top: 226, height: 56 },
+      ],
+      position: 200,
+      siblingOffset: -33,
+      finalOffset: 138,
+      order: ["changes", "explorer", "sessions"],
+    },
+    {
+      direction: "up",
+      from: 2,
+      verticalLayout: [
+        { top: 0, height: 80 },
+        { top: 81, height: 120 },
+        { top: 202, height: 144 },
+      ],
+      position: 0,
+      siblingOffset: 33,
+      finalOffset: -202,
+      order: ["explorer", "sessions", "changes"],
+    },
+  ])(
+    "activates at 8px and shifts expanded siblings by the collapsed header plus gap when moving $direction",
+    ({ from, verticalLayout, position, siblingOffset, finalOffset, order }) => {
+      const collapsedSize = vi.fn(() => 32);
+      const { press, tabs, onReorder } = setup(
+        false,
+        "y",
+        undefined,
+        { activationDistance: 8, collapsedSize },
+        verticalLayout,
+      );
+      const start = verticalLayout[from].top + 16;
+      press(from);
+      pointer("pointermove", start + 7);
+      vi.advanceTimersByTime(16);
+      expect(tabs[from].hasPointerCapture(1)).toBe(false);
+      expect(collapsedSize).not.toHaveBeenCalled();
+
+      pointer("pointermove", start + 8);
+      expect(tabs[from].hasPointerCapture(1)).toBe(true);
+      expect(collapsedSize).toHaveBeenCalledExactlyOnceWith(
+        ids[from],
+        tabs[from],
+      );
+      pointer("pointermove", position);
+      vi.advanceTimersByTime(16);
+      for (const [index, tab] of tabs.entries()) {
+        expect(tab.getBoundingClientRect).toHaveBeenCalledTimes(1);
+        if (index !== from)
+          expect(tab.style.transform).toBe(
+            `translate3d(0, ${siblingOffset}px, 0)`,
+          );
+      }
+      pointer("pointerup", position);
+      expect(tabs[from].style.transform).toBe(
+        `translate3d(0, ${finalOffset}px, 0)`,
+      );
+      vi.runAllTimers();
+      expect(onReorder).toHaveBeenCalledExactlyOnceWith(order, ids[from]);
+    },
+  );
 
   it("preserves button clicks below the drag threshold", () => {
     const { press, tabs, reorder, onReorder } = setup();

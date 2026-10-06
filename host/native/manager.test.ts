@@ -8,6 +8,7 @@ import { HostStore } from "../store";
 import type { HostProvider } from "../providers";
 import type { SendTurnInput } from "../../src/integrations/harness/core/types";
 import { acquireNativeLease, IN_USE_BY_MONOCODE, nativeLockPath } from "../native-access";
+import { NativeReader } from "./read";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -127,6 +128,53 @@ describe.runIf(linux)("Host-managed native sessions", () => {
     const before = context.store.session(id).revision;
     await context.engine.nativeSessions.refresh(id, { force: true });
     expect(context.store.session(id).revision).toBe(before);
+  });
+
+  it.each([false, true])("ignores an outgoing native read after detach (failure: %s)", async (fail) => {
+    const context = setup({ autoSync: false });
+    const { id, path, row } = imported(context);
+    await context.engine.nativeSessions.refresh(id, { force: true });
+    appendFileSync(path, row("u2", "a1", "user", "Outgoing provider update"));
+    let started!: () => void;
+    const reading = new Promise<void>((resolve) => { started = resolve; });
+    let finish!: () => void;
+    const release = new Promise<void>((resolve) => { finish = resolve; });
+    const original = NativeReader.prototype.read;
+    const read = vi.spyOn(NativeReader.prototype, "read").mockImplementationOnce(async function (this: NativeReader, source, file) {
+      const result = await original.call(this, source, file);
+      started();
+      await release;
+      if (fail) throw new Error("Outgoing source became unavailable");
+      return result;
+    });
+    try {
+      const pending = context.engine.nativeSessions.refresh(id, { force: true });
+      await reading;
+      // Another queued refresh also belongs to the source being detached.
+      const queued = context.engine.nativeSessions.refresh(id, { force: true });
+      const current = context.store.session(id);
+      const switched = context.store.save({
+        ...current,
+        revision: current.revision + 1,
+        nativeStatus: undefined,
+        nativeBinding: undefined,
+        session: {
+          ...current.session,
+          harness: "pi",
+          model: "pi:test",
+          providerSessionId: undefined,
+          nativeSession: undefined,
+        },
+      }, { type: "test.switch" });
+      context.engine.nativeSessions.detach(id);
+      finish();
+      await Promise.all([pending, queued]);
+      expect(context.store.session(id)).toEqual(switched);
+      expect(texts(context, id)).not.toContain("Outgoing provider update");
+    } finally {
+      finish();
+      read.mockRestore();
+    }
   });
 
   it("keeps conversation order through opening, metadata sync and sync errors", async () => {
@@ -405,6 +453,50 @@ describe.runIf(linux)("lazy identity for MonoCode-started conversations", () => 
       claudeRow(nativeId, context.directory, uuid, parent, type, text);
     return { id: created.sessionId, nativeId, path, row };
   }
+
+  it("looks up a new native identity after the previous provider was detached", () => {
+    const context = setup({ autoSync: false });
+    const { id, nativeId, path, row } = started(context);
+    const initial = context.store.session(id);
+    context.store.save({ ...initial, revision: initial.revision + 1, session: { ...initial.session, providerSessionId: "old-missing-source" } }, { type: "test" });
+    context.engine.nativeSessions.recordLazy(id);
+    expect(context.store.session(id).nativeBinding?.path).toBeUndefined();
+    writeFileSync(path, row("u1", null, "user", "New provider question"));
+    const current = context.store.session(id);
+    context.store.save({ ...current, revision: current.revision + 1, nativeBinding: undefined, session: { ...current.session, providerSessionId: nativeId } }, { type: "test.switch" });
+    context.engine.nativeSessions.detach(id);
+    context.engine.nativeSessions.recordLazy(id);
+    expect(context.store.session(id).nativeBinding).toMatchObject({ providerSessionId: nativeId, path });
+  });
+
+  it("preserves earlier provider history and the handoff when the incoming source is promoted", async () => {
+    const context = setup({ autoSync: false });
+    const { id, nativeId, path, row } = started(context);
+    const initial = context.store.session(id);
+    const earlier = [
+      { id: "old-user", role: "user" as const, text: "Previous provider request" },
+      { id: "old-answer", role: "assistant" as const, text: "Previous provider answer" },
+      { id: "handoff", role: "handoff" as const, text: "Previous provider recap", handoff: { from: "pi" as const, to: "claude" as const, status: "ready" as const, pending: false } },
+    ];
+    context.store.save({ ...initial, revision: initial.revision + 1, session: { ...initial.session, blocks: earlier } }, { type: "test.switch" });
+    context.writes.push((input) => {
+      input.onEvent({ type: "session.providerBound", providerSessionId: nativeId });
+      writeFileSync(path, row("u1", null, "user", "Continue after handoff") + row("a1", "u1", "assistant", "Incoming answer"));
+    });
+    context.engine.command({ type: "send", commandId: "switched-1", sessionId: id, text: "Continue after handoff" });
+    await vi.waitFor(() => expect(context.turns).toHaveLength(1));
+    context.turns[0].input.onEvent({ type: "message.delta", text: "Incoming answer" });
+    context.turns[0].finish();
+    await vi.waitFor(() => expect(context.store.session(id).nativeBinding?.hostRevision).toBeTruthy());
+    appendFileSync(path, row("u2", "a1", "user", "External incoming update"));
+    context.engine.command({ type: "send", commandId: "switched-2", sessionId: id, text: "Back in MonoCode" });
+    await vi.waitFor(() => expect(context.turns).toHaveLength(2));
+    expect(context.store.session(id).session.blocks.slice(0, earlier.length)).toEqual(earlier);
+    expect(texts(context, id)).toEqual(["Previous provider request", "Previous provider answer", "Continue after handoff", "Incoming answer", "External incoming update", "Back in MonoCode"]);
+    context.turns[1].finish();
+    await vi.waitFor(() => expect(context.store.session(id).status).toBe("idle"));
+    expect(context.store.session(id).session.blocks.slice(0, earlier.length)).toEqual(earlier);
+  });
 
   it("keeps warm reuse until another writer continues the conversation, then takes it over", async () => {
     const context = setup();

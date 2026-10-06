@@ -60,16 +60,19 @@ export function mergeHistorySummary(
 
 /**
  * Swap in one project's freshly fetched rows while leaving every other
- * project's cached rows alone. `history` is keyed only by the `cwd` on each
- * row, so holding several projects at once costs nothing and lets a revisit
- * paint from cache instead of from an empty list.
+ * project's cached rows alone. The Host may return a canonical cwd when the
+ * requested project is a symlink, so incoming session IDs also replace their
+ * cached copies regardless of the requested path.
  */
 export function replaceProjectHistory(
   current: SessionSummary[],
   cwd: string,
   rows: SessionSummary[],
 ): SessionSummary[] {
-  const others = current.filter((entry) => !sameProjectPath(entry.cwd, cwd));
+  const incomingIds = new Set(rows.map((row) => row.id));
+  const others = current.filter(
+    (entry) => !sameProjectPath(entry.cwd, cwd) && !incomingIds.has(entry.id),
+  );
   return [...others, ...rows];
 }
 

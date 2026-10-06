@@ -22,6 +22,7 @@ import {
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   viewMounted: vi.fn(),
+  notificationFocus: vi.fn(),
   fileOpen: vi.fn(),
   diffOpen: vi.fn(),
   windowMinimize: vi.fn(async () => {}),
@@ -77,6 +78,9 @@ vi.mock("../features/inbox/hooks/useInboxUnseen", () => ({
     linkedSessionUpdates: new Map(),
   }),
 }));
+vi.mock("../features/notifications/hooks/useInputNotifications", () => ({
+  useInputNotifications: (_sessions: Session[], activeId?: string) => mocks.notificationFocus(activeId),
+}));
 vi.mock("../features/notifications/hooks/useSessionReminders", () => ({
   useSessionReminders: () => ({
     reminders: [],
@@ -131,9 +135,11 @@ vi.mock("./shell/MenuBar", async () => {
     MENU_BAR_HEIGHT: 36,
     MenuBar: ({
       dispatch,
+      windowCenter,
       windowActions,
     }: {
       dispatch: (id: string) => void;
+      windowCenter?: ReactNode;
       windowActions?: ReactNode;
     }) =>
       el(
@@ -143,6 +149,7 @@ vi.mock("./shell/MenuBar", async () => {
           "App: Settings",
           "View: Inbox",
           "View: Notes",
+          "View: Automations",
           "View: Search Everywhere",
           "Pane: Close",
           "Tab: Close All",
@@ -155,6 +162,7 @@ vi.mock("./shell/MenuBar", async () => {
             id,
           ),
         ),
+        loadMenuBarVisible() ? el("div", { "data-window-center": true }, windowCenter) : null,
         loadMenuBarVisible() ? windowActions : null,
         loadMenuBarVisible() ? el(WindowControls) : null,
       ),
@@ -200,7 +208,6 @@ vi.mock("./shell/Sidebar", async () => {
     Sidebar: ({
       navigation,
       footer,
-      onOpenAssistant,
       onOpenFile,
       onOpenDiff,
       cwd,
@@ -221,7 +228,6 @@ vi.mock("./shell/Sidebar", async () => {
     }: {
       navigation?: import("react").ReactNode;
       footer?: import("react").ReactNode;
-      onOpenAssistant: () => void;
       onOpenFile: (
         path: string,
         navigation?: { line: number; column?: number },
@@ -255,11 +261,6 @@ vi.mock("./shell/Sidebar", async () => {
         },
         navigation,
         footer,
-        el(
-          "button",
-          { "data-open-assistant": true, onClick: onOpenAssistant },
-          "Assistant",
-        ),
         ...["first", "recent", "replacement"].map((id) =>
           el(
             "button",
@@ -390,15 +391,17 @@ vi.mock("./shell/ActivityBar", async () => {
   const { createElement: el } = await import("react");
   return {
     ActivityBar: ({
+      layout,
       onOpenSettings,
       onOpenNotes,
     }: {
+      layout?: string;
       onOpenSettings: () => void;
       onOpenNotes?: () => void;
     }) =>
       el(
         "div",
-        null,
+        { "data-activity-bar": layout },
         el(
           "button",
           { "data-open-settings": true, onClick: onOpenSettings },
@@ -449,15 +452,18 @@ vi.mock("../features/terminal/ui/ProjectTerminalDock", async () => {
 });
 vi.mock("../features/sessions/ui/SessionPane", async () => {
   const { createElement: el } = await import("react");
+  const { useSurfaceVisibility } = await import("../shared/ui/SurfaceVisibility");
   return {
     SessionPane: ({
       session,
       composerFocused,
+      visible,
       onClose,
       renderHeader,
     }: {
       session: Session;
       composerFocused: boolean;
+      visible: boolean;
       onClose: (sessionId: string) => void;
       renderHeader?: (session: Session) => ReactNode;
     }) =>
@@ -465,6 +471,8 @@ vi.mock("../features/sessions/ui/SessionPane", async () => {
         "div",
         {
           "data-session": session.id,
+          "data-visible": visible,
+          "data-surface-visible": useSurfaceVisibility(),
           "data-session-cwd": session.cwd,
           "data-session-worktree": session.worktreeCwd,
           "data-session-branch": session.branch,
@@ -482,9 +490,6 @@ vi.mock("../features/sessions/ui/SessionPane", async () => {
       ),
   };
 });
-vi.mock("../features/sessions/ui/SessionSurface", () => ({
-  SessionSurface: () => null,
-}));
 vi.mock("../features/files/ui/FileEditor", async () => {
   const { createElement: el } = await import("react");
   return {
@@ -561,15 +566,24 @@ vi.mock("../features/settings/ui/SettingsView", async () => {
   };
 });
 vi.mock("../features/inbox/ui/InboxView", async () => {
-  const { createElement: el, useEffect } = await import("react");
+  const { createElement: el, useEffect, useRef } = await import("react");
   return {
     InboxView: ({
       active,
       onClose,
+      onOpenSession,
+      onAsk,
+      onAskMount,
     }: {
       active: boolean;
       onClose: () => void;
+      onOpenSession: (id: string) => void;
+      onAsk: (
+        item: import("../features/inbox/model/githubTasks").InboxItem,
+      ) => Promise<string>;
+      onAskMount: (portal: { sessionId: string; host: HTMLElement }) => void;
     }) => {
+      const host = useRef<HTMLDivElement>(null);
       useEffect(() => {
         mocks.viewMounted("inbox");
       }, []);
@@ -578,6 +592,31 @@ vi.mock("../features/inbox/ui/InboxView", async () => {
         { "data-app-view": "inbox", "data-focused": active },
         "Inbox",
         el("button", { "data-leave-view": true, onClick: onClose }),
+        el("button", {
+          "data-inbox-open-session": true,
+          onClick: () => onOpenSession("recent"),
+        }),
+        el("div", { ref: host, "data-inbox-discussion-host": true }),
+        el("button", {
+          "data-inbox-ask": true,
+          onClick: async () => {
+            const sessionId = await onAsk({
+              kind: "issue",
+              provider: "github",
+              repo: "acme/web",
+              number: 1,
+              title: "Test issue",
+              url: "https://github.com/acme/web/issues/1",
+              state: "open",
+              updatedAt: "2026-01-01",
+              labels: [],
+              assignees: [],
+              draft: false,
+              projectPath: "/repo",
+            });
+            onAskMount({ sessionId, host: host.current! });
+          },
+        }),
       );
     },
     LinkedWorkItemPanel: () => null,
@@ -585,15 +624,20 @@ vi.mock("../features/inbox/ui/InboxView", async () => {
 });
 vi.mock("../features/notes/ui/NotesView", async () => {
   const { createElement: el, useEffect, useState } = await import("react");
+  const { AppPageHeader } = await import("../features/workspace/ui/AppPageHeader");
+  const { File } = await import("../shared/ui/icons");
+  const { useTranslation } = await import("../shared/i18n/useTranslation");
   return {
-    NotesView: () => {
+    NotesView: ({ active, onClose }: { active: boolean; onClose: () => void }) => {
+      const { t } = useTranslation();
       const [count, setCount] = useState(0);
       useEffect(() => {
         mocks.viewMounted("notes");
       }, []);
       return el(
         "section",
-        { "data-app-view": "notes" },
+        { "data-app-view": "notes", "data-focused": active },
+        el(AppPageHeader, { title: t("Notes"), icon: File, onBack: onClose }),
         el(
           "button",
           {
@@ -802,6 +846,8 @@ describe("terminal dock disclosure motion", () => {
 describe("App workspace app views", () => {
   it("opens Assistant as a reusable workspace page and retains its draft across chat switches", async () => {
     await mount();
+    expect(container.querySelector('[data-sidebar] [data-open-assistant]')).toBeNull();
+    expect(container.querySelector('[data-window-center] [data-open-assistant]')).not.toBeNull();
     await click("[data-open-assistant]");
     const assistantTab = activeTabId();
     expect(assistantTab).not.toBe(firstId);
@@ -809,6 +855,7 @@ describe("App workspace app views", () => {
       workspace().querySelector('[data-app-view="assistant"]'),
     ).not.toBeNull();
     expect(container.querySelector(".assistant-overlay")).toBeNull();
+    expect(workspace().querySelector('[role="tablist"]')).toBeNull();
     const draft = container.querySelector<HTMLTextAreaElement>(
       '[aria-label="Assistant draft"]',
     )!;
@@ -850,7 +897,7 @@ describe("App workspace app views", () => {
         chrome.querySelector('[aria-label="Window controls"]'),
       ).not.toBeNull();
       const sidebarToggle = dragBar.querySelector<HTMLButtonElement>(
-        "[data-window-navigation] button:last-child",
+        '[data-window-navigation] button[aria-label^="Toggle Sidebar"]',
       )!;
       expect(sidebarToggle.getAttribute("aria-pressed")).toBe("true");
       await act(async () => sidebarToggle.click());
@@ -888,40 +935,60 @@ describe("App workspace app views", () => {
     },
   );
 
-  it("closes a session's Notes tool when Notes is disabled", async () => {
+  it("folds only the navigation menu and supports reversing before the animation ends", async () => {
+    saveMenuBarVisible(false);
     await mount();
-    await click('[data-command="View: Notes"]');
-    const notesId = ownedFileTabs()[0].dataset.fileTabId;
-    expect(activeTabId()).toBe(firstId);
-    expect(container.querySelector('[data-app-view="notes"]')).not.toBeNull();
-    await click('[data-command="App: Settings"]');
-    await act(async () => {
-      saveNotesEnabled(false);
-    });
-    expect(container.querySelector('[data-app-view="notes"]')).toBeNull();
-    expect(
-      workspace().querySelector(`[data-file-tab-id="${notesId}"]`),
-    ).toBeNull();
-    expect(
-      document.querySelector(
-        '[data-app-view-dialog] [data-app-view="settings"]',
-      ),
-    ).not.toBeNull();
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[aria-controls="sidebar-navigation-menu"]',
+    )!;
+    const fold = () => container.querySelector<HTMLElement>("#sidebar-navigation-menu .zen-fold-item");
+    const menu = container.querySelector('[data-activity-bar="sidebar-top"]');
+    const footer = container.querySelector('[data-activity-bar="sidebar-footer"]');
+    const sidebarToggle = container.querySelector('[data-window-navigation] [aria-label^="Toggle Sidebar"]')!;
+    expect(container.querySelector('[data-window-navigation] img[alt="MonoCode"]')).not.toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(fold()?.dataset.foldState).toBe("closing");
+    expect(fold()?.inert).toBe(true);
+    expect(container.querySelector('[data-activity-bar="sidebar-top"]')).toBe(menu);
+    expect(container.querySelector('[data-activity-bar="sidebar-footer"]')).toBe(footer);
+    expect(sidebarToggle.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => toggle.click());
+    expect(fold()?.dataset.foldState).toBe("opening");
+    expect(fold()?.inert).toBe(false);
+    expect(container.querySelector('[data-activity-bar="sidebar-top"]')).toBe(menu);
+    await act(async () => toggle.click());
+    act(() => fold()!.dispatchEvent(new Event("animationend", { bubbles: true })));
+    expect(fold()).toBeNull();
+    expect(container.querySelector('[data-activity-bar="sidebar-top"]')).toBeNull();
+    await act(async () => toggle.click());
+    expect(fold()?.dataset.foldState).toBe("opening");
+    expect(container.querySelector('[data-activity-bar="sidebar-top"]')).not.toBeNull();
   });
 
-  it("updates a session tool title in zh-CN without losing its owner or view state", async () => {
+  it("closes and unmounts Notes when it is disabled, without disturbing Settings", async () => {
     await mount();
     await click('[data-command="View: Notes"]');
-    const appId = ownedFileTabs()[0].dataset.fileTabId;
-    await clickInWorkspace("[data-view-state]");
+    expect(ownedFileTabs()).toHaveLength(0);
+    await click('[data-command="App: Settings"]');
+    await act(async () => saveNotesEnabled(false));
+    expect(container.querySelector('[data-app-view="notes"]')).toBeNull();
+    expect(container.querySelector('[data-workspace-content]')?.getAttribute("aria-hidden")).toBe("false");
+    expect(document.querySelector('[data-app-view-dialog] [data-app-view="settings"]')).not.toBeNull();
+  });
+
+  it("updates the page header in zh-CN without losing view state", async () => {
+    await mount();
+    await click('[data-command="View: Notes"]');
+    await click('[data-app-page="notes"] [data-view-state]');
     await act(async () => setUiLanguage("zh-CN"));
-    expect(ownedFileTabs()[0].textContent).toBe("笔记");
-    expect(ownedFileTabs()[0].dataset.fileTabId).toBe(appId);
+    expect(container.querySelector('[data-app-page="notes"]')?.textContent).toContain("笔记");
+    expect(container.querySelector('[aria-label="返回会话"]')).not.toBeNull();
+    expect(ownedFileTabs()).toHaveLength(0);
     expect(activeTabId()).toBe(firstId);
     expect(container.querySelector("[data-view-state]")?.textContent).toBe("1");
-    expect(
-      mocks.viewMounted.mock.calls.filter(([kind]) => kind === "notes"),
-    ).toHaveLength(1);
+    expect(mocks.viewMounted.mock.calls.filter(([kind]) => kind === "notes")).toHaveLength(1);
   });
 
   it("opens Settings as a dialog over the chat and closes it without a tool tab", async () => {
@@ -940,22 +1007,29 @@ describe("App workspace app views", () => {
     ).not.toBeNull();
   });
 
-  it("opens Inbox as a dialog over the chat and closes it without a tool tab", async () => {
+  it.each(["Notes", "Inbox", "Automations"])("opens %s as a full-area page and preserves the hidden workspace", async (title) => {
     await mount();
-    await click('[data-command="View: Inbox"]');
-    const dialog = document.querySelector("[data-app-view-dialog]");
-    const inbox = dialog?.querySelector('[data-app-view="inbox"]');
-    expect(inbox?.getAttribute("data-focused")).toBe("true");
-    expect(container.querySelector('[data-app-view="inbox"]')).toBeNull();
+    const chat = workspace(firstId);
+    const terminal = container.querySelector('[data-terminal-dock]');
+    await click(`[data-command="View: ${title}"]`);
+    const kind = title.toLowerCase();
+    const page = container.querySelector(`[data-app-page="${kind}"]`)!;
+    expect(page.getAttribute("aria-hidden")).toBe("false");
+    expect(document.querySelector("[data-app-view-dialog]")).toBeNull();
+    expect(document.querySelector("[data-window-chrome-backdrop]")).toBeNull();
     expect(ownedFileTabs()).toHaveLength(0);
     expect(activeTabId()).toBe(firstId);
-    await act(async () =>
-      document.querySelector<HTMLButtonElement>("[data-leave-view]")!.click(),
-    );
-    expect(document.querySelector("[data-app-view-dialog]")).toBeNull();
-    expect(
-      workspace(firstId).querySelector('[data-session="first"]'),
-    ).not.toBeNull();
+    expect(mocks.notificationFocus).toHaveBeenLastCalledWith(undefined);
+    expect(workspace(firstId)).toBe(chat);
+    expect(container.querySelector('[data-terminal-dock]')).toBe(terminal);
+    expect(terminal?.getAttribute("data-visible")).toBe("false");
+    expect(chat.closest('[data-workspace-content]')?.getAttribute("aria-hidden")).toBe("true");
+    expect(chat.closest('[data-workspace-content]')?.hasAttribute("inert")).toBe(true);
+    const back = page.querySelector<HTMLButtonElement>('[aria-label="Back to chat"], [data-leave-view]')!;
+    await act(async () => back.click());
+    expect(page.getAttribute("aria-hidden")).toBe("true");
+    expect(chat.closest('[data-workspace-content]')?.getAttribute("aria-hidden")).toBe("false");
+    expect(container.querySelector('[data-terminal-dock]')).toBe(terminal);
   });
 
   it.each(["pane", "workspace"])(
@@ -967,10 +1041,8 @@ describe("App workspace app views", () => {
       await click('[data-command="View: Notes"]');
       await click("[data-open-file]");
       expect(activeTabId()).toBe(recentId);
-      expect(ownedFileTabs().map((tab) => tab.textContent)).toEqual([
-        "Notes",
-        "file.ts",
-      ]);
+      expect(ownedFileTabs().map((tab) => tab.textContent)).toEqual(["file.ts"]);
+      expect(container.querySelector('[data-app-page="notes"]')?.getAttribute("aria-hidden")).toBe("true");
       const editor = workspace(recentId).querySelector(
         '[data-file-editor="/repo/file.ts"]',
       );
@@ -1172,59 +1244,57 @@ describe("App workspace app views", () => {
     },
   );
 
-  it("owns a separate Notes instance in each chat and retains their local state", async () => {
+  it("retains one Notes page across feature and chat switches, including selecting the current chat", async () => {
     await mount();
     await click("[data-open-notes]");
-    const firstAppId = ownedFileTabs()[0].dataset.fileTabId;
-    await clickInWorkspace("[data-view-state]");
+    await click('[data-app-page="notes"] [data-view-state]');
+    await click('[data-command="View: Inbox"]');
+    expect(container.querySelector('[data-app-view="notes"]')?.getAttribute("data-focused")).toBe("false");
+    await click("[data-open-notes]");
+    await selectSession("first");
+    expect(container.querySelector('[data-app-page="notes"]')?.getAttribute("aria-hidden")).toBe("true");
     await selectSession("recent");
     await click("[data-open-notes]");
     expect(activeTabId()).toBe(recentId);
-    expect(ownedFileTabs()[0].dataset.fileTabId).not.toBe(firstAppId);
-    expect(
-      workspace(recentId).querySelector("[data-view-state]")?.textContent,
-    ).toBe("0");
-    await clickInWorkspace("[data-view-state]");
-    await clickInWorkspace("[data-view-state]");
-    await selectSession("first");
-    await click("[data-open-notes]");
-    expect(
-      workspace(firstId).querySelector("[data-view-state]")?.textContent,
-    ).toBe("1");
-    expect(ownedFileTabs()).toHaveLength(1);
-    expect(ownedFileTabs()[0].dataset.fileTabId).toBe(firstAppId);
-    expect(
-      mocks.viewMounted.mock.calls.filter(([kind]) => kind === "notes"),
-    ).toHaveLength(2);
-    await selectSession("recent");
-    expect(
-      workspace(recentId).querySelector("[data-view-state]")?.textContent,
-    ).toBe("2");
+    expect(ownedFileTabs()).toHaveLength(0);
+    expect(container.querySelector('[data-app-page="notes"] [data-view-state]')?.textContent).toBe("1");
+    expect(mocks.viewMounted.mock.calls.filter(([kind]) => kind === "notes")).toHaveLength(1);
+    await click('[aria-label="Back to chat"]');
+    expect(activeTabId()).toBe(recentId);
   });
 
-  it.each(["split", "unified"])(
-    "closes the focused %s tool with Ctrl+W and retains its owning chat",
-    async (mode) => {
-      await mount();
-      await click('[data-command="View: Notes"]');
-      if (mode === "unified")
-        await click("[data-window-chrome] [data-surface-mode-toggle]");
-      await pressKey("w", true);
-      expect(
-        workspace(firstId).querySelector('[data-app-view="notes"]'),
-      ).toBeNull();
-      expect(activeTabId()).toBe(firstId);
-      expect(ownedFileTabs()).toHaveLength(0);
-      expect(
-        workspace(firstId).querySelector('[data-session="first"]'),
-      ).not.toBeNull();
-      expect(
-        ownedTabs()
-          .querySelector('[data-session-chat-tab="first"]')
-          ?.getAttribute("aria-selected"),
-      ).toBe("true");
-    },
-  );
+  it("keeps Inbox discussions mounted and updates their visibility across page switches", async () => {
+    await mount();
+    await click('[data-command="View: Inbox"]');
+    await click('[data-inbox-ask]');
+    const discussion = container.querySelector<HTMLElement>('[data-inbox-discussion-host] [data-session]')!;
+    expect(discussion).not.toBeNull();
+    expect(discussion.dataset.visible).toBe("true");
+    expect(mocks.notificationFocus).toHaveBeenLastCalledWith(discussion.dataset.session);
+    await click('[data-command="View: Notes"]');
+    expect(container.contains(discussion)).toBe(true);
+    expect(discussion.dataset.visible).toBe("false");
+    expect(discussion.dataset.surfaceVisible).toBe("false");
+    expect(discussion.dataset.composerFocused).toBe("false");
+    expect(mocks.notificationFocus).toHaveBeenLastCalledWith(undefined);
+    await click('[data-command="View: Inbox"]');
+    expect(container.querySelector('[data-inbox-discussion-host] [data-session]')).toBe(discussion);
+    expect(discussion.dataset.surfaceVisible).toBe("true");
+    await click('[data-inbox-open-session]');
+    expect(activeTabId()).toBe(recentId);
+    expect(container.querySelector('[data-app-page="inbox"]')?.getAttribute("aria-hidden")).toBe("true");
+    expect(mocks.notificationFocus).toHaveBeenLastCalledWith("recent");
+  });
+
+  it("Ctrl+W returns from a page without closing its underlying chat", async () => {
+    await mount();
+    await click('[data-command="View: Notes"]');
+    await pressKey("w", true);
+    expect(container.querySelector('[data-app-page="notes"]')?.getAttribute("aria-hidden")).toBe("true");
+    expect(activeTabId()).toBe(firstId);
+    expect(ownedFileTabs()).toHaveLength(0);
+    expect(workspace(firstId).querySelector('[data-session="first"]')).not.toBeNull();
+  });
 
   it("Escape closes the real Search dialog and returns to the owning chat", async () => {
     await mount();
@@ -1249,7 +1319,7 @@ describe("App workspace app views", () => {
       .querySelector('[data-file-editor][data-file-active="true"]')
       ?.getAttribute("data-file-editor");
     await mount();
-    await click('[data-command="View: Notes"]');
+    await click("[data-open-file]");
     expect(
       container
         .querySelector("[data-window-chrome] [data-surface-mode-toggle]")
@@ -1262,7 +1332,6 @@ describe("App workspace app views", () => {
         ?.getAttribute("aria-label"),
     ).toBe("Use split view");
     await selectSession("recent");
-    await click('[data-command="View: Notes"]');
     await click("[data-open-file]");
     expect(activeEditorPath()).toBe("/repo/file.ts");
     expect(
@@ -1279,7 +1348,7 @@ describe("App workspace app views", () => {
     expect(
       workspace().querySelector('[data-file-tab-id] [aria-selected="true"]')
         ?.textContent,
-    ).toBe("Notes");
+    ).toBe("file.ts");
     await selectSession("recent");
     expect(
       container
@@ -1291,9 +1360,8 @@ describe("App workspace app views", () => {
 
   it("closes a conversation together with its owned tool pages", async () => {
     await mount();
-    await click('[data-command="View: Notes"]');
     await click("[data-open-file]");
-    expect(ownedFileTabs()).toHaveLength(2);
+    expect(ownedFileTabs()).toHaveLength(1);
     await clickInWorkspace('[data-session-chat-tab="first"]');
     await pressKey("w", true);
     expect(workspace(firstId)).toBeNull();
@@ -1509,6 +1577,54 @@ describe("App multi-project history", () => {
           command === "session_list_by_project" && args.cwd === "/repo",
       ),
     ).toHaveLength(1);
+  });
+
+  it("preserves a newer canonical rename when an alias history read finishes", async () => {
+    let finishAlias!: (rows: unknown[]) => void;
+    const aliasRead = new Promise<unknown[]>((resolve) => {
+      finishAlias = resolve;
+    });
+    let row = {
+      ...newSession("codex", "/project-b"),
+      id: "inactive-chat",
+      blocks: [
+        { id: "prompt", role: "user" as const, text: "Work on this project" },
+      ],
+      title: "Original",
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const staleRow = { ...row };
+    mocks.invoke.mockImplementation(async (command, args) => {
+      if (command === "session_list_by_project") {
+        if (args.cwd === "/project-a") return aliasRead;
+        if (args.cwd === "/project-b") return [row];
+      }
+      if (command === "session_get") return row;
+      if (command === "session_upsert") {
+        row = { ...row, ...args.session, updatedAt: Date.now() };
+        return row;
+      }
+      return [];
+    });
+    await mount();
+    await click('[data-load-project="/project-b"]');
+    await click('[data-load-project="/project-a"]');
+    await click('[data-rename-history="inactive-chat"]');
+    expect(row.title).toContain("Renamed");
+    expect(
+      mocks.invoke.mock.calls.filter(
+        ([command, args]) =>
+          command === "session_list_by_project" && args.cwd === "/project-b",
+      ),
+    ).toHaveLength(2);
+
+    await act(async () => finishAlias([staleRow]));
+    const historyRows = container.querySelectorAll(
+      '[data-open-history="inactive-chat"]',
+    );
+    expect(historyRows).toHaveLength(1);
+    expect(historyRows[0].textContent).toBe(row.title);
   });
 
   it("creates a chat in an inactive project's remembered worktree", async () => {

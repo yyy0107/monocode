@@ -138,6 +138,59 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("sidebar session filters", () => {
+  function filterButton() {
+    return container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Filter sessions"]',
+    )!;
+  }
+
+  function filterMenu() {
+    return document.querySelector('[role="menu"][aria-label="Filter sessions"]');
+  }
+
+  function clickFilter() {
+    const icon = filterButton().querySelector("svg")!;
+    // A real pointerdown commits outside dismissal before the later click.
+    act(() =>
+      icon.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })),
+    );
+    act(() => {
+      icon.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+      icon.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  }
+
+  it("closes on a second pointer click on the filter trigger and can reopen", async () => {
+    await act(async () => render());
+    clickFilter();
+    expect(filterMenu()).not.toBeNull();
+    expect(filterButton().getAttribute("aria-expanded")).toBe("true");
+    clickFilter();
+    expect(filterMenu()).toBeNull();
+    expect(filterButton().getAttribute("aria-expanded")).toBe("false");
+    clickFilter();
+    expect(filterMenu()).not.toBeNull();
+  });
+
+  it("keeps filter changes open while outside clicks and Escape still dismiss", async () => {
+    await act(async () => render());
+    clickFilter();
+    const today = [...filterMenu()!.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Today")!;
+    act(() => today.click());
+    expect(filterMenu()).not.toBeNull();
+    expect(today.getAttribute("aria-checked")).toBe("true");
+    act(() =>
+      document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })),
+    );
+    expect(filterMenu()).toBeNull();
+    clickFilter();
+    expect(pressKey(filterButton(), "Escape").defaultPrevented).toBe(true);
+    expect(filterMenu()).toBeNull();
+  });
+});
+
 describe("sidebar session multiselection", () => {
   it.each(["ctrlKey", "metaKey"] as const)(
     "resets the %s anchor after acting on another session's context menu",
@@ -1458,7 +1511,7 @@ describe("single sidebar layout and width", () => {
     act(() => frame?.(0));
     const shell = container.querySelector<HTMLElement>("[data-sidebar-transition]")!;
     expect(shell.style.width).toBe(`${resizedWidth}px`);
-    expect(shell.classList.contains("transition-none")).toBe(true);
+    expect(shell.dataset.resizing).toBe("true");
     props.open = false;
     act(render);
     expect(shell.style.width).toBe("0px");

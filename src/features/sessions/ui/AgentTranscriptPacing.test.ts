@@ -47,9 +47,9 @@ function tool(id: string): Block {
   };
 }
 
-function render(blocks: Block[]) {
+function render(blocks: Block[], busy = true) {
   act(() =>
-    root.render(createElement(AgentTranscript, { blocks, busy: true })),
+    root.render(createElement(AgentTranscript, { blocks, busy })),
   );
 }
 
@@ -120,13 +120,21 @@ it("keeps a closing phase inert until motion ends and supports rapid reopening",
   act(() => toggle.click());
   expect(content.dataset.foldState).toBe("closing");
   expect(body.contains(steps[0])).toBe(true);
-  act(() => content.dispatchEvent(new Event("animationend", { bubbles: true })));
+  act(() =>
+    content.dispatchEvent(new Event("animationend", { bubbles: true })),
+  );
   expect(body.querySelector(".zen-fold-item")).toBeNull();
   expect(body.querySelector(".zen-phase-step")).toBeNull();
 });
 
 it("reveals the desktop's Chinese reply character by character through the shared renderer", () => {
-  const user: Block = { id: "user", role: "user", text: "Reply in Chinese" };
+  const user: Block = {
+    id: "user",
+    role: "user",
+    text: "Reply in Chinese",
+    durationMs: 1000,
+  };
+  const actions = () => container.querySelector('[aria-label="Copy response"]');
   const text =
     "手机端和桌面端现在都会逐字展示中文输出，已经显示的文字不会随着后续消息重新播放。";
   render([user, { id: "reply", role: "assistant", text: "", streaming: true }]);
@@ -137,7 +145,70 @@ it("reveals the desktop's Chinese reply character by character through the share
   expect(partial.length).toBeGreaterThan(0);
   expect(partial.length).toBeLessThan(text.length);
   expect(text.startsWith(partial)).toBe(true);
-  render([user, { id: "reply", role: "assistant", text, streaming: false }]);
+  expect(actions()).toBeNull();
+  render(
+    [user, { id: "reply", role: "assistant", text, streaming: false }],
+    false,
+  );
+  expect(actions()).toBeNull();
   act(() => vi.advanceTimersByTime(2000));
   expect(container.querySelector(".agent-markdown")?.textContent).toBe(text);
+  expect(actions()).not.toBeNull();
+  render(
+    [user, { id: "reply", role: "assistant", text, streaming: true }],
+    false,
+  );
+  expect(actions()).toBeNull();
+  render(
+    [user, { id: "reply", role: "assistant", text, streaming: false }],
+    false,
+  );
+  expect(actions()).not.toBeNull();
+});
+
+it("queues short replies behind longer replies received in the same batch", () => {
+  const user: Block = { id: "user", role: "user", text: "Review" };
+  const long = "这是一段较长的回复，需要先显示完毕。".repeat(20);
+  render([user]);
+  render([
+    user,
+    { id: "first", role: "assistant", text: long },
+    { id: "second", role: "assistant", text: "完成" },
+  ]);
+  const replies = () =>
+    [...container.querySelectorAll(".agent-markdown")].map(
+      (node) => node.textContent,
+    );
+  act(() => vi.advanceTimersByTime(100));
+  expect(replies()[0]!.length).toBeGreaterThan(0);
+  expect(replies()[0]!.length).toBeLessThan(long.length);
+  expect(replies()[1]).toBe("");
+  for (let step = 0; step < 60; step++) {
+    act(() => vi.advanceTimersByTime(100));
+    const [first, second] = replies();
+    if (second) expect(first).toBe(long);
+  }
+  expect(replies()).toEqual([long, "完成"]);
+});
+
+it("releases waiting replies when the earlier message leaves the transcript", () => {
+  const user: Block = { id: "user", role: "user", text: "Review" };
+  const second: Block = {
+    id: "second",
+    role: "assistant",
+    text: "后面的消息现在可以继续显示。",
+  };
+  render([user]);
+  render([
+    user,
+    { id: "first", role: "assistant", text: "很长的回复。".repeat(100) },
+    second,
+  ]);
+  act(() => vi.advanceTimersByTime(100));
+  expect(container.querySelectorAll(".agent-markdown")[1].textContent).toBe("");
+  render([user, second]);
+  act(() => vi.advanceTimersByTime(2000));
+  expect(container.querySelector(".agent-markdown")?.textContent).toBe(
+    second.text,
+  );
 });

@@ -1,8 +1,15 @@
 import { useTranslation } from "../../../../../shared/i18n/useTranslation";
 import {
+  Bot,
   ChevronRight,
-  CircleDashed,
-  Minus,
+  CircleHelp,
+  File,
+  Globe,
+  PenLine,
+  Search,
+  Terminal,
+  WandSparkles,
+  Wrench,
   X,
 } from "../../../../../shared/ui/icons";
 import type { ReactNode } from "react";
@@ -14,25 +21,38 @@ import {
   type ToolCallState,
 } from "../../../model/transcriptActivity";
 import { ToolDiffPreview } from "../../ToolDiffPreview";
+import type { ToolRendererKind } from "../../../model/toolRenderer";
 
 /** The pieces every tool row is built from: icons, the summary line, approval. */
 
-export function ActivityToolIcon({
+export function ToolKindIcon({
+  renderer,
   state,
   live = false,
 }: {
+  renderer: ToolRendererKind;
   state: ToolCallState;
   live?: boolean;
 }) {
-  if (state === "pending") {
-    return (
-      <CircleDashed
-        className={`size-3.5 shrink-0 text-content/40 ${live ? "zen-tool-spin" : ""}`}
-      />
-    );
-  }
-
-  return <Minus className="size-3.5 shrink-0 text-foreground-subtlest" />;
+  const Icon = {
+    monocode: Terminal,
+    agent: Bot,
+    question: CircleHelp,
+    skill: WandSparkles,
+    edit: PenLine,
+    read: File,
+    search: Search,
+    execute: Terminal,
+    mcp: Globe,
+    generic: Wrench,
+  }[renderer];
+  return (
+    <Icon
+      aria-hidden="true"
+      strokeWidth={1.75}
+      className={`size-3.5 shrink-0 ${state === "rejected" ? "text-red-400" : "text-content/45"} ${live && state === "pending" ? "zen-thinking-pulse" : ""}`}
+    />
+  );
 }
 
 /** Failure stays marked. Running and success do not get a trailing icon. */
@@ -199,16 +219,6 @@ export function ToolCallSummary({
       )}
     </span>
   );
-}
-
-export function ToolCallIcon({ state }: { state: ToolCallState }) {
-  if (state === "rejected") {
-    return <X className="size-3.5 shrink-0 text-red-400" strokeWidth={2} />;
-  }
-  if (state === "pending") {
-    return <CircleDashed className="size-3.5 shrink-0 text-content/40" />;
-  }
-  return null;
 }
 
 export function ApprovalControls({

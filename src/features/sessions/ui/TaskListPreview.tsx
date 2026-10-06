@@ -25,7 +25,7 @@ export function TaskListPreview({ items, explanation }: Props) {
               {uiT("Tasks")}
             </h3>
             <span className="shrink-0 rounded-full bg-content/7 px-2 py-0.5 font-mono text-[10px] text-content/50">
-              {taskListProgressLabel(items)}
+              {taskListProgressLabel(items, uiT)}
             </span>
           </div>
           {explanation ? (

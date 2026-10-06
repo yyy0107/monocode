@@ -90,6 +90,12 @@ type Configuration = {
   mode: RuntimeMode;
 };
 
+const sameConfiguration = (a: Configuration, b: Configuration) =>
+  a.harness === b.harness &&
+  a.model === b.model &&
+  a.mode === b.mode &&
+  sameModelSettings(a.settings, b.settings);
+
 type OptimisticTurn = {
   questionAnswer?: ComposerTurnOptions["questionAnswer"];
   refreshTitle?: boolean;
@@ -246,6 +252,7 @@ function ConnectedRemoteSession({
   const parentWorkers = useContext(OrchestrationWorkers);
   const source = useMemo(() => ({ machineId: machine.id, project }), [machine.id, project]);
   const orchestrationEnabled = !!descriptor?.capabilities.includes("sessions.orchestration");
+  const handoffEnabled = !!descriptor?.capabilities.includes("sessions.handoff");
   const [proposalEdits, setProposalEdits] = useState<ReadonlyMap<string, { proposal: OrchestrationProposal; revision: number }>>(() => new Map());
   const [online, setOnline] = useState(false);
   const [error, setError] = useState("");
@@ -604,6 +611,14 @@ function ConnectedRemoteSession({
   ): Promise<CommandReceipt | undefined> => {
     if (sendingRef.current) return undefined;
     const version = bindingVersion.current;
+    const commandConfiguration: Configuration | undefined = command.type === "configure"
+      ? {
+          harness: command.harness ?? saved?.harness ?? configuration.harness,
+          model: command.model,
+          settings: command.modelSettings,
+          mode: command.runtimeMode,
+        }
+      : undefined;
     sendingRef.current = true;
     setSending(true);
     setError("");
@@ -666,6 +681,11 @@ function ConnectedRemoteSession({
         command.commandId,
       );
       if (!alive.current || version !== bindingVersion.current) return receipt;
+      if (commandConfiguration) {
+        // Retry receipts need the same protection as the first response: a
+        // snapshot may still describe the previous provider for a moment.
+        applied.current = commandConfiguration;
+      }
       if (command.type === "draft") {
         // Accepted drafts are actionable before the next snapshot arrives.
         setSnapshot((current) => ({
@@ -722,6 +742,12 @@ function ConnectedRemoteSession({
         return undefined;
       const message = String(reason);
       if (message.includes("Host rejected request:")) {
+        if (commandConfiguration) {
+          // A definitive refusal must not loop the auto-apply effect. Preserve
+          // any newer choice the user made while this request was in flight.
+          setChanges(current => current && sameConfiguration(current, commandConfiguration) ? undefined : current);
+          setRefresh(value => value + 1);
+        }
         if (command.type === "send" || command.type === "compact")
           setUnseenSend((current) =>
             current?.commandId === command.commandId ? undefined : current,
@@ -789,37 +815,34 @@ function ConnectedRemoteSession({
     setSessionId(id);
   };
 
-  // Model, effort and permission changes apply directly, as locally. A
+  // Provider, model, effort and permission changes apply directly, as locally. A
   // running turn keeps its settings; the change is sent once it finishes.
   const applying = useRef(false);
   // The last change the host accepted, until a sync reflects it.
   const applied = useRef<Configuration>(undefined);
   useEffect(() => {
     if (!changes || !saved || !hostSession) return;
-    const same = (a: Configuration, b: Configuration) =>
-      a.model === b.model &&
-      a.mode === b.mode &&
-      sameModelSettings(a.settings, b.settings);
-    if (same(changes, saved)) {
+    if (
+      sameConfiguration(changes, saved) &&
+      !applying.current &&
+      (!applied.current || sameConfiguration(applied.current, saved))
+    ) {
       applied.current = undefined;
       setChanges(undefined);
       return;
     }
-    if (applied.current && same(changes, applied.current)) return;
-    if (busy || !online || pending || applying.current) return;
+    if (applied.current && sameConfiguration(changes, applied.current)) return;
+    if (busy || snapshot?.orchestration?.status === "active" || !online || pending || applying.current) return;
     applying.current = true;
-    const sent = changes;
     void run({
       type: "configure",
       commandId: crypto.randomUUID(),
       sessionId: hostSession.id,
+      ...(handoffEnabled ? { harness: changes.harness } : {}),
       model: changes.model,
       modelSettings: changes.settings,
       runtimeMode: changes.mode,
     })
-      .then((receipt) => {
-        if (receipt) applied.current = sent;
-      })
       .finally(() => {
         applying.current = false;
       });
@@ -1068,12 +1091,13 @@ function ConnectedRemoteSession({
         const provider = harness as RemoteProvider;
         // Keep the saved model's effort visible even when the host catalog is
         // loading, failed, or no longer lists it.
+        const sameHarness = provider === hostSession?.harness;
         const controls = remoteModelControls(
           catalog,
           provider,
           id,
-          id === savedModel ? savedSettings : {},
-          savedModel,
+          sameHarness && id === savedModel ? savedSettings : {},
+          sameHarness ? savedModel : undefined,
         );
         const listed = controls.model;
         return {
@@ -1092,7 +1116,7 @@ function ConnectedRemoteSession({
           .find((m) => m.id === id),
       available: (harness) =>
         providers.includes(harness as RemoteProvider) &&
-        (!hostSession || hostSession.harness === harness),
+        (!hostSession || handoffEnabled || hostSession.harness === harness),
       probed: () => !!descriptor,
       // The host re-probes when a provider CLI changes or its catalog ages,
       // so each picker opening asks again.
@@ -1102,6 +1126,7 @@ function ConnectedRemoteSession({
     catalog,
     catalogError,
     descriptor,
+    handoffEnabled,
     providers,
     machine.environmentId,
     hostSession?.harness,
@@ -1457,7 +1482,9 @@ function ConnectedRemoteSession({
     remoteSessionLoading: !!sessionId && !hostSession && !session.blocks.length,
     remoteSessionStarted: !!sessionId,
     allowedModelHarnesses: hostSession
-      ? [hostSession.harness]
+      ? handoffEnabled
+        ? [...new Set([hostSession.harness, ...providers])]
+        : [hostSession.harness]
       : providers.length
         ? providers
         : ["codex", "claude"],
@@ -1469,6 +1496,7 @@ function ConnectedRemoteSession({
     onCompactContext: compact,
     onModelChange: (_, harness, model) => {
       if (!isRemoteProvider(harness)) return;
+      if (hostSession && !handoffEnabled && harness !== hostSession.harness) return;
       updateConfiguration((current) => ({
         ...current,
         harness,

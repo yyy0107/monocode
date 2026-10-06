@@ -9,6 +9,8 @@ import {
   leaf,
   leafIds,
   APP_VIEW_KINDS,
+  APP_PAGE_KINDS,
+  isAppPageKind,
   newAppViewWorkspaceTab,
   newAgentTab,
   newChangesTab,
@@ -32,7 +34,43 @@ import {
 } from "./workspaceSnapshot";
 
 describe("app view snapshots", () => {
-  it.each(APP_VIEW_KINDS)("round-trips %s by kind without transient view data", (kind) => {
+  it.each(APP_PAGE_KINDS)("removes legacy %s pages while preserving chat, file and terminal panes", (kind) => {
+    const session = chat("chat", "/repo");
+    const tab = openSessionAppView(newTab(session.id), kind);
+    const file = newFileTab("/repo/a.ts", "/repo");
+    tab.editorPanes[0].files.push(file);
+    const emptyPage = newAppViewWorkspaceTab(kind).editorPanes[0];
+    tab.editorPanes.push(emptyPage);
+    tab.layout = splitPane(tab.layout, tab.focusedId, "down", emptyPage.id);
+    tab.focusedId = emptyPage.id;
+    const terminal = newTerminalFile("/repo");
+    const dock = createProjectTerminal("/repo", terminal);
+    const standalone = newAppViewWorkspaceTab(kind);
+    const raw = { tabs: [standalone, tab], sessions: [session], activeTabId: standalone.id, projectCwd: "/repo", projectTerminals: [dock] };
+    for (const parsed of [parseWorkspaceSnapshot(raw)!, collectWorkspaceSnapshot(raw.tabs, raw.sessions, raw.activeTabId, raw.projectCwd, new Map(), raw.projectTerminals)]) {
+      expect(parsed.tabs).toHaveLength(1);
+      expect(parsed.activeTabId).toBe(tab.id);
+      expect(leafIds(parsed.tabs[0].layout)).toContain(session.id);
+      expect(leafIds(parsed.tabs[0].layout)).not.toContain(emptyPage.id);
+      expect(parsed.tabs[0].focusedId).not.toBe(emptyPage.id);
+      expect(parsed.tabs[0].editorPanes).toHaveLength(1);
+      expect(parsed.tabs[0].editorPanes[0].files).toEqual([file]);
+      expect(parsed.tabs[0].editorPanes[0].activeFileId).toBe(file.id);
+      expect(parsed.projectTerminals[0].pane.files[0].id).toBe(terminal.id);
+    }
+  });
+
+  it("restores a chat in the same project when the only saved tab was a page", () => {
+    const tab = newAppViewWorkspaceTab("notes");
+    const dock = createProjectTerminal("/repo", newTerminalFile("/repo"));
+    const restored = hydrateWorkspaceSnapshot({ tabs: [tab], sessions: [], activeTabId: tab.id, projectCwd: "/repo", projectTerminals: [dock] }, new Map())!;
+    expect(restored.tabs).toHaveLength(1);
+    expect(restored.tabs[0].editorPanes).toEqual([]);
+    expect(restored.sessions[0].cwd).toBe("/repo");
+    expect(restored.projectTerminals).toEqual([dock]);
+  });
+
+  it.each(APP_VIEW_KINDS.filter((kind) => !isAppPageKind(kind)))("round-trips %s by kind without transient view data", (kind) => {
     const tab = newAppViewWorkspaceTab(kind);
     const original = tab.editorPanes[0].files[0];
     const file = {
@@ -89,7 +127,7 @@ describe("app view snapshots", () => {
   it("keeps chat-owned views while removing duplicate legacy standalone views", () => {
     const first = newAppViewWorkspaceTab("settings");
     const duplicate = newAppViewWorkspaceTab("settings");
-    const notes = newAppViewWorkspaceTab("notes");
+    const search = newAppViewWorkspaceTab("search");
     const chatTab = {
       ...newTab("chat"),
       layout: splitPane(leaf("chat"), "chat", "right", duplicate.focusedId),
@@ -97,13 +135,13 @@ describe("app view snapshots", () => {
       editorPanes: duplicate.editorPanes,
     };
     const raw = {
-      tabs: [first, chatTab, duplicate, notes],
+      tabs: [first, chatTab, duplicate, search],
       sessions: [chat("chat", "/repo")],
       activeTabId: duplicate.id,
       projectCwd: "/repo",
     };
     const parsed = parseWorkspaceSnapshot(raw)!;
-    expect(parsed.tabs.map((tab) => tab.id)).toEqual([first.id, chatTab.id, notes.id]);
+    expect(parsed.tabs.map((tab) => tab.id)).toEqual([first.id, chatTab.id, search.id]);
     expect(parsed.tabs[1].layout).toEqual(chatTab.layout);
     expect(parsed.tabs[1].focusedId).toBe(duplicate.focusedId);
     expect(parsed.tabs[1].editorPanes).toEqual(duplicate.editorPanes);
@@ -114,8 +152,8 @@ describe("app view snapshots", () => {
   });
 
   it("retains the other files when removing a duplicate within one pane", () => {
-    const first = newAppViewWorkspaceTab("notes");
-    const duplicate = { ...first.editorPanes[0].files[0], id: "duplicate-notes" };
+    const first = newAppViewWorkspaceTab("search");
+    const duplicate = { ...first.editorPanes[0].files[0], id: "duplicate-search" };
     const file = newFileTab("/repo/a.ts", "/repo");
     first.editorPanes[0].files.push(duplicate, file);
     first.editorPanes[0].activeFileId = duplicate.id;
@@ -131,8 +169,8 @@ describe("app view snapshots", () => {
   it("round-trips independent app views and active documents for two chats", () => {
     const firstSession = chat("first", "/repo");
     const secondSession = chat("second", "/repo");
-    const first = openSessionAppView(newTab(firstSession.id), "notes");
-    const second = openSessionAppView(newTab(secondSession.id), "notes");
+    const first = openSessionAppView(newTab(firstSession.id), "search");
+    const second = openSessionAppView(newTab(secondSession.id), "search");
     const firstFile = first.editorPanes[0].files[0];
     const secondFile = second.editorPanes[0].files[0];
     const snapshot = collectWorkspaceSnapshot(
@@ -181,9 +219,9 @@ describe("app view snapshots", () => {
   );
 
   it("prunes duplicate app-view panes within one chat without affecting other chats", () => {
-    const first = openSessionAppView(newTab("first-chat"), "notes");
-    const second = openSessionAppView(newTab("second-chat"), "notes");
-    const duplicate = newAppViewWorkspaceTab("notes").editorPanes[0];
+    const first = openSessionAppView(newTab("first-chat"), "search");
+    const second = openSessionAppView(newTab("second-chat"), "search");
+    const duplicate = newAppViewWorkspaceTab("search").editorPanes[0];
     first.layout = splitPane(first.layout, first.focusedId, "right", duplicate.id);
     first.editorPanes.push(duplicate);
     first.focusedId = duplicate.id;

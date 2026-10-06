@@ -558,6 +558,29 @@ describe("replaceProjectHistory", () => {
     const next = replaceProjectHistory(current, "/tmp/project-a", []);
     expect(next.map((row) => row.id)).toEqual(["b1"]);
   });
+
+  it("replaces canonical sessions loaded through a project alias without accumulating copies", () => {
+    const alias = "/home/user/project-a";
+    const canonical = "/mnt/data/project-a";
+    const old = summary("a1", canonical, 1);
+    const unrelated = summary("b1", "/tmp/project-b", 2);
+    const fresh = { ...old, updatedAt: 5, pinned: true };
+    // Also recover copies already accumulated by earlier alias refreshes.
+    const current = [old, unrelated, old, old];
+    const next = replaceProjectHistory(current, alias, [fresh]);
+    expect(next).toEqual([unrelated, fresh]);
+    expect(replaceProjectHistory(next, alias, [fresh])).toEqual(next);
+    expect(replaceProjectHistory(next, canonical, [fresh])).toEqual(next);
+    expect(current).toEqual([old, unrelated, old, old]);
+  });
+
+  it("replaces a moved session by id while retaining distinct conversations with the same title", () => {
+    const old = summary("a1", "/tmp/project-a", 1);
+    const sameTitle = { ...summary("b1", "/tmp/project-b", 2), title: old.title };
+    const moved = { ...old, cwd: "/tmp/project-c", updatedAt: 5 };
+    expect(replaceProjectHistory([old, sameTitle], moved.cwd, [moved]))
+      .toEqual([sameTitle, moved]);
+  });
 });
 
 describe("mergeProjectHistorySummary", () => {

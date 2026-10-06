@@ -1,3 +1,4 @@
+import { AppPageHeader } from "../../workspace/ui/AppPageHeader";
 import { translate as translateUi } from "../../../shared/i18n/language";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
@@ -168,16 +169,7 @@ export function AutomationsView({
       data-app-automations
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
-      <div className="flex h-10 shrink-0 select-none items-center border-b border-stroke">
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
-          <Zap
-            className="size-3.5 shrink-0 text-content/45"
-          />
-          <span className="min-w-0 truncate text-content">
-            {uiT("Automations")}
-          </span>
-        </div>
-      </div>
+      <AppPageHeader title={uiT("Automations")} icon={Zap} onBack={onClose} />
       <AutomationsContent
         cwd={cwd}
         recents={recents}

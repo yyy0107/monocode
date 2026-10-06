@@ -79,11 +79,20 @@ export function legacyTaskListFromText(text: string): TaskListItem[] | null {
     : null;
 }
 
-export function taskListProgressLabel(items: TaskListItem[]): string {
+export function taskListProgressLabel(
+  items: TaskListItem[],
+  t?: (text: string, values?: Record<string, string>) => string,
+): string {
   const completed = items.filter((item) => item.status === "completed").length;
   const actionable = items.filter((item) => item.status !== "cancelled").length;
-  if (actionable > 0 && completed === actionable) return "Complete";
-  return `${completed} of ${actionable || items.length}`;
+  if (actionable > 0 && completed === actionable) {
+    return t?.("Complete") ?? "Complete";
+  }
+  const total = actionable || items.length;
+  return t?.("{value0} of {value1}", {
+    value0: String(completed),
+    value1: String(total),
+  }) ?? `${completed} of ${total}`;
 }
 
 function taskListMark(status: TaskListItemStatus): string {

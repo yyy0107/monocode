@@ -2,9 +2,10 @@ import {
   useCallback,
   useLayoutEffect,
   useRef,
-  useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
+import { useCollapseMotion } from "../../shared/ui/AnimatedCollapse";
 import { SurfaceVisibilityContext } from "../../shared/ui/SurfaceVisibility";
 
 type Props = {
@@ -17,8 +18,12 @@ type Props = {
   children: ReactNode;
 };
 
-// Keep the fallback unmount timer in sync with duration-200 below.
-const TRANSITION_MS = 200;
+// The sidebar and its replacement rail must move with the same timing.
+export const SIDEBAR_TRANSITION_MS = 280;
+export const SIDEBAR_MOTION_STYLE = {
+  "--collapse-duration": `${SIDEBAR_TRANSITION_MS}ms`,
+  "--collapse-easing": "cubic-bezier(0.2, 0.65, 0.3, 1)",
+} as CSSProperties;
 
 export function SidebarTransition({
   open,
@@ -29,7 +34,7 @@ export function SidebarTransition({
   resizeHandle,
   children,
 }: Props) {
-  const [present, setPresent] = useState(open);
+  const { foldState, finish } = useCollapseMotion(open, SIDEBAR_TRANSITION_MS);
   const shell = useRef<HTMLDivElement>(null);
   const openRef = useRef(open);
   openRef.current = open;
@@ -43,49 +48,38 @@ export function SidebarTransition({
   );
 
   useLayoutEffect(() => {
-    if (open) {
-      setPresent(true);
-      return;
-    }
+    if (open) return;
     finishDrag();
     // Completing a drag commits its real width; the closed shell stays at zero.
     if (shell.current) shell.current.style.width = "0px";
-    if (!present) return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
-      setPresent(false);
-      return;
-    }
-    // Give transitionend a frame of slack before the fallback removes content.
-    const timer = window.setTimeout(() => setPresent(false), TRANSITION_MS + 50);
-    return () => window.clearTimeout(timer);
-  }, [open, present, finishDrag]);
+  }, [open, finishDrag]);
 
   return (
     <div
       ref={attach}
       data-sidebar-transition
+      data-fold-state={foldState}
+      data-expanded={open}
+      data-resizing={dragging || undefined}
       aria-hidden={!open || undefined}
       inert={!open || undefined}
-      className={`relative h-full min-h-0 shrink-0 ${
-        dragging
-          ? "transition-none"
-          : "transition-[width] duration-200 ease-out motion-reduce:transition-none"
-      } ${!open ? "pointer-events-none" : ""}`}
-      style={{ width: open ? width : 0 }}
+      className="animated-collapse-size sidebar-transition relative h-full min-h-0 shrink-0"
+      style={{ ...SIDEBAR_MOTION_STYLE, width: open ? width : 0 }}
       onTransitionEnd={(event) => {
         if (
-          !open &&
           event.target === event.currentTarget &&
           event.propertyName === "width"
         ) {
-          setPresent(false);
+          finish();
         }
       }}
     >
-      <div className="h-full min-h-0 overflow-hidden">
-        <SurfaceVisibilityContext.Provider value={open}>
-          {open || present ? children : null}
-        </SurfaceVisibilityContext.Provider>
+      <div className="sidebar-transition-clip h-full min-h-0 overflow-hidden">
+        <div className="sidebar-transition-content h-full min-h-0">
+          <SurfaceVisibilityContext.Provider value={open}>
+            {open || foldState !== "closed" ? children : null}
+          </SurfaceVisibilityContext.Provider>
+        </div>
       </div>
       {open ? resizeHandle : null}
     </div>

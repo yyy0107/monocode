@@ -1,3 +1,4 @@
+import "./AgentTranscript.css";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { localizeChildExitError } from "../../../integrations/harness/core/childErrors";
 import { providerSessionAccessIssue } from "../../../integrations/harness/providers/sessionAccessErrors";
@@ -5,12 +6,14 @@ import { SessionAccessNotice } from "./SessionAccessNotice";
 import { QuestionHistoryCard } from "./QuestionHistoryCard";
 import type { QuestionAnswer } from "../model/userQuestion";
 import {
+  AiIdea,
   ArrowUp,
   Check,
   ChevronRight,
   CircleDashed,
+  CircleAlert,
   FilePlusCorner,
-  Minus,
+  MessageSquare,
   Pencil,
   PenLine,
   Bot,
@@ -74,7 +77,10 @@ import {
   followsAfterScroll,
   useLivePhaseScroll,
 } from "./transcript/useLivePhaseScroll";
-import { useTranscriptRenderingPlatform } from "./useTranscriptRenderingPlatform";
+import {
+  AfterTextReveal,
+  useTranscriptRenderingPlatform,
+} from "./useTranscriptRenderingPlatform";
 import { visibleUserPrompt } from "../../orchestration/model/orchestration";
 import { playCue } from "../../settings/model/sounds";
 import { legacyTaskListFromText } from "../model/taskList";
@@ -1173,28 +1179,30 @@ function AgentTranscriptComponent({
                 ? latestTurnAccessory
                 : null}
               {durationMs != null && settled ? (
-                <TurnDuration
-                  elapsedMs={durationMs}
-                  metrics={userBlock?.turnMetrics}
-                  labelHidden={showFoldLine}
-                  modelName={turnModelName}
-                  completedAt={
-                    startedAt != null ? startedAt + durationMs : undefined
-                  }
-                  copyText={turnCopyText(turn)}
-                  onSaveNote={onSaveNote}
-                  harness={turnHarness}
-                  fromHarness={turnHarness}
-                  fromModel={turnModel?.id}
-                  onSecondOpinion={
-                    onSecondOpinion
-                      ? (target) => onSecondOpinion(target, turn)
-                      : undefined
-                  }
-                  onHandoff={
-                    onHandoff ? (target) => onHandoff(target, turn) : undefined
-                  }
-                />
+                <AfterTextReveal entries={turn}>
+                  <TurnDuration
+                    elapsedMs={durationMs}
+                    metrics={userBlock?.turnMetrics}
+                    labelHidden={showFoldLine}
+                    modelName={turnModelName}
+                    completedAt={
+                      startedAt != null ? startedAt + durationMs : undefined
+                    }
+                    copyText={turnCopyText(turn)}
+                    onSaveNote={onSaveNote}
+                    harness={turnHarness}
+                    fromHarness={turnHarness}
+                    fromModel={turnModel?.id}
+                    onSecondOpinion={
+                      onSecondOpinion
+                        ? (target) => onSecondOpinion(target, turn)
+                        : undefined
+                    }
+                    onHandoff={
+                      onHandoff ? (target) => onHandoff(target, turn) : undefined
+                    }
+                  />
+                </AfterTextReveal>
               ) : null}
               {isLastTurn ? (
                 <div ref={transcriptEnd} data-transcript-end aria-hidden="true" />
@@ -1232,8 +1240,9 @@ function InitialThinking({
   const { t: uiT } = useTranslation();
   return (
     <div
-      className={`min-w-0 pt-3 pb-1 font-sans text-sm text-content/50 ${embedded ? "" : "px-4 @md:px-6"}`}
+      className={`flex min-w-0 items-center gap-1.5 pt-3 pb-1 font-sans text-sm text-content/50 ${embedded ? "" : "px-4 @md:px-6"}`}
     >
+      <ActivityPhaseIcon kind="think" />
       {live ? (
         <Shimmer duration={1.6}>{uiT("Thinking…")}</Shimmer>
       ) : (
@@ -2374,21 +2383,14 @@ function ActivityPhaseGroup({
   // the single row under it says nothing twice.
   if (!phase.headline && phase.steps.length === 1) {
     return (
-      <div className="flex min-w-0 items-start gap-1.5">
-        {monoCodePhase ? null : (
-          <ActivityPhaseIcon kind={phase.kind} className="mt-[7px]" />
-        )}
-        <div className="min-w-0 flex-1">
-          <ActivityRow
-            block={phase.steps[0]}
-            cwd={cwd}
-            live={active}
-            onApproval={onApproval}
-            onOpenFile={onOpenFile}
-            onOpenDiff={onOpenDiff}
-          />
-        </div>
-      </div>
+      <ActivityRow
+        block={phase.steps[0]}
+        cwd={cwd}
+        live={active}
+        onApproval={onApproval}
+        onOpenFile={onOpenFile}
+        onOpenDiff={onOpenDiff}
+      />
     );
   }
 
@@ -2914,6 +2916,7 @@ function ActivityPhaseIcon({
   className?: string;
 }) {
   const props = {
+    "aria-hidden": true as const,
     className: `size-3.5 shrink-0 text-content/45 ${className}`,
     strokeWidth: 1.75,
   };
@@ -2921,15 +2924,14 @@ function ActivityPhaseIcon({
   if (kind === "research") return <Search {...props} />;
   if (kind === "run") return <Terminal {...props} />;
   if (kind === "agent") return <Bot {...props} />;
-  if (kind === "think") return null;
+  if (kind === "think") return <AiIdea {...props} />;
   if (kind === "other") return <Wrench {...props} />;
-  return <Minus {...props} />;
+  return <MessageSquare {...props} />;
 }
 
 /**
  * One step of the agent's work, whatever that step was: a tool call, a thought,
- * a paragraph. In a phase the rail draws the bullet, so the row drops its own
- * leading icon and leans on the rail instead.
+ * a paragraph. Each row keeps a type icon beside the phase rail.
  */
 function ActivityRow({
   block,
@@ -2952,7 +2954,6 @@ function ActivityRow({
         block={block}
         cwd={cwd}
         expandable
-        bare
         onOpenFile={onOpenFile}
       />
     );
@@ -2968,7 +2969,6 @@ function ActivityRow({
       <ActivityNoteRow
         block={block}
         cwd={cwd}
-        bare
         expandable
         onOpenFile={onOpenFile}
       />
@@ -2993,7 +2993,6 @@ function ActivityRow({
       block={block}
       cwd={cwd}
       live={live}
-      bare
       onApproval={onApproval}
       onOpenFile={onOpenFile}
       onOpenDiff={onOpenDiff}
@@ -3010,6 +3009,11 @@ function ActivityStatusRow({ block }: { block: Block }) {
   );
   return (
     <div className="flex min-w-0 items-center gap-1.5 py-1">
+      <CircleAlert
+        aria-hidden="true"
+        className="size-3.5 shrink-0 text-content/45"
+        strokeWidth={1.75}
+      />
       <span
         title={text}
         className="min-w-0 flex-1 truncate font-sans text-sm text-foreground-subtlest"
@@ -3056,6 +3060,7 @@ function ActivityInterjectionRow({ block }: { block: Block }) {
         aria-label={uiT("{value0} note", { value0: String(chrome.label) })}
         className="flex min-w-0 items-center gap-1.5 py-1"
       >
+        <ActivityPhaseIcon kind="note" />
         {label}
       </div>
     );
@@ -3074,6 +3079,7 @@ function ActivityInterjectionRow({ block }: { block: Block }) {
         onClick={() => setOpen((value) => !value)}
         className="group flex min-w-0 items-center gap-1.5 py-1 text-left"
       >
+        <ActivityPhaseIcon kind="note" />
         {label}
       </button>
       <AnimatedCollapse expanded={open}>
@@ -3096,13 +3102,11 @@ function ActivityThinkingRow({
   block,
   cwd,
   expandable = false,
-  bare = false,
   onOpenFile,
 }: {
   block: Block;
   cwd?: string;
   expandable?: boolean;
-  bare?: boolean;
   onOpenFile?: (path: string) => void;
 }) {
   const { t: uiT } = useTranslation();
@@ -3140,17 +3144,11 @@ function ActivityThinkingRow({
   ) : (
     text
   );
-  // In a group the rail is the bullet, so there is nothing to breathe while
-  // reasoning streams in — the line itself does.
   const pulse = streaming ? "zen-thinking-pulse" : "";
-  const icon = bare ? null : (
-    <Minus className={`size-3.5 shrink-0 text-content/40 ${pulse}`} />
-  );
+  const icon = <ActivityPhaseIcon kind="think" className={pulse} />;
   const label = (
     <span
-      className={`min-w-0 flex-1 truncate font-sans text-sm text-foreground-subtlest ${
-        bare ? pulse : ""
-      }`}
+      className="min-w-0 flex-1 truncate font-sans text-sm text-foreground-subtlest"
     >
       {content}
     </span>
@@ -3183,9 +3181,7 @@ function ActivityThinkingRow({
       >
         {icon}
         <span
-          className={`min-w-0 flex-1 truncate font-sans text-sm text-foreground-subtlest transition-colors duration-200 group-hover:text-content/75 ${
-            bare ? pulse : ""
-          }`}
+          className="min-w-0 flex-1 truncate font-sans text-sm text-foreground-subtlest transition-colors duration-200 group-hover:text-content/75"
         >
           {content}
         </span>
@@ -3221,22 +3217,18 @@ function ActivityThinkingRow({
 function ActivityNoteRow({
   block,
   cwd,
-  bare = false,
   expandable = false,
   onOpenFile,
 }: {
   block: Block;
   cwd?: string;
-  bare?: boolean;
   expandable?: boolean;
   onOpenFile?: (path: string) => void;
 }) {
   const { t: uiT } = useTranslation();
   const [open, setOpen] = useState(false);
   const text = proseSummary(block.text);
-  const icon = bare ? null : (
-    <Minus className="size-3.5 shrink-0 text-foreground-subtlest" />
-  );
+  const icon = <ActivityPhaseIcon kind="note" />;
 
   if (!expandable) {
     return (
@@ -3285,7 +3277,6 @@ function ActivityToolRow({
   block,
   cwd,
   live = false,
-  bare = false,
   onApproval,
   onOpenFile,
   onOpenDiff,
@@ -3293,7 +3284,6 @@ function ActivityToolRow({
   block: Block;
   cwd?: string;
   live?: boolean;
-  bare?: boolean;
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
@@ -3310,7 +3300,7 @@ function ActivityToolRow({
       cwd={cwd}
       live={live}
       variant="activity"
-      bare={bare}
+      compact
       onApproval={onApproval}
       onOpenFile={onOpenFile}
       onOpenDiff={onOpenDiff}
@@ -3347,6 +3337,7 @@ function MonoCodeCallRow({
       : "Ran";
   const summary = (
     <>
+      <MonoCodeMark className="size-3.5" />
       <span
         className={`shrink-0 font-sans text-sm ${state === "rejected" ? "text-red-400" : "text-foreground-subtlest"}`}
       >
@@ -3356,7 +3347,6 @@ function MonoCodeCallRow({
         className={`flex min-w-0 max-w-full items-center gap-1 rounded bg-content/6 px-1 font-mono text-ui-caption ${state === "rejected" ? "text-red-400" : "text-content/70"}`}
         title={command}
       >
-        <MonoCodeMark className="size-3.5" />
         <span className="min-w-0 truncate">{command}</span>
       </span>
       <ToolCallStatusIcon state={state} />

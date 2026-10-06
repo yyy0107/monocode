@@ -6,6 +6,7 @@ import {
   closeLeaf,
   APP_VIEW_KINDS,
   isAgentTab as isWorkerTab,
+  isAppPageKind,
   isWorkflowAgentTab,
   isWorkflowRunTab,
   isAppViewTab,
@@ -99,7 +100,7 @@ export function collectWorkspaceSnapshot(
       .filter((id) => !keptIds.has(id)),
   );
   const snapshot = withoutInboxSessions({
-    tabs: withoutDuplicateAppViews(
+    tabs: withoutObsoleteOrDuplicateAppViews(
       withoutAgentTabs(kept)
         .map(sanitizeTab)
         .filter((tab): tab is WorkspaceTab => tab != null),
@@ -202,8 +203,8 @@ function withoutAgentTabs(tabs: WorkspaceTab[]): WorkspaceTab[] {
   });
 }
 
-/** Views belong to their chat workspace. Legacy standalone views stay unique. */
-function withoutDuplicateAppViews(tabs: WorkspaceTab[]): WorkspaceTab[] {
+/** Full-area pages no longer occupy saved panes; remaining views stay unique. */
+function withoutObsoleteOrDuplicateAppViews(tabs: WorkspaceTab[]): WorkspaceTab[] {
   const standaloneSeen = new Set<AppViewKind>();
   return tabs.flatMap((tab) => {
     const seen = isAppViewOnlyTab(tab)
@@ -214,6 +215,7 @@ function withoutDuplicateAppViews(tabs: WorkspaceTab[]): WorkspaceTab[] {
     for (const pane of tab.editorPanes) {
       const files = pane.files.filter((file) => {
         if (!isAppViewTab(file)) return true;
+        if (isAppPageKind(file.appView.kind)) return false;
         if (seen.has(file.appView.kind)) return false;
         seen.add(file.appView.kind);
         return true;
@@ -274,17 +276,21 @@ export function parseWorkspaceSnapshot(raw: unknown): WorkspaceSnapshot | null {
   if (!Array.isArray(value.tabs) || typeof value.activeTabId !== "string") {
     return null;
   }
-  const tabs = withoutDuplicateAppViews(
-    value.tabs
-      .map(sanitizeTab)
-      .filter((tab): tab is WorkspaceTab => tab != null),
-  );
-  if (tabs.length === 0) return null;
+  const validTabs = value.tabs
+    .map(sanitizeTab)
+    .filter((tab): tab is WorkspaceTab => tab != null);
+  if (validTabs.length === 0) return null;
+  const tabs = withoutObsoleteOrDuplicateAppViews(validTabs);
   const sessions = Array.isArray(value.sessions)
     ? value.sessions
         .map(sanitizeStub)
         .filter((stub): stub is WorkspaceSessionStub => stub != null)
     : [];
+  if (tabs.length === 0) {
+    const sessionId =
+      sessions.find((session) => !session.inboxAsk)?.id ?? crypto.randomUUID();
+    tabs.push(newTab(sessionId));
+  }
   const activeTabId = tabs.some((tab) => tab.id === value.activeTabId)
     ? value.activeTabId
     : tabs[0].id;

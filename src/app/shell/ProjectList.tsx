@@ -128,6 +128,10 @@ export type ProjectListProps = {
 
 const PROJECT_COLLAPSE_DURATION_MS = 280;
 
+function collapsedProjectHeaderSize(_id: string, node: HTMLElement) {
+  return node.querySelector<HTMLElement>("[data-project-header]")?.offsetHeight;
+}
+
 function updateScrollMask(element: HTMLDivElement) {
   const fade = Math.min(32, element.clientHeight / 2);
   const top = element.scrollTop > 0 ? fade : 0;
@@ -429,7 +433,7 @@ export function ProjectList({
     return next;
   };
 
-  const onReorderPinned = (ids: string[]) => {
+  const onReorderProjects = (ids: string[]) => {
     const subset = new Set(ids);
     const next = reorderSubset(railOrder, ids, subset);
     setRailOrder(next);
@@ -481,7 +485,7 @@ export function ProjectList({
               busy={busy}
               statsEnabled={statsEnabled ?? !compact}
               tree={tree}
-              onReorder={onReorderPinned}
+              onReorder={onReorderProjects}
               pinned
               searchActive={searchActive}
               onSelect={onSelectProject}
@@ -519,7 +523,7 @@ export function ProjectList({
               busy={busy}
               statsEnabled={false}
               tree={tree}
-              onReorder={onReorderPinned}
+              onReorder={onReorderProjects}
               pinned={false}
               searchActive={searchActive}
               onSelect={onSelectProject}
@@ -592,6 +596,7 @@ export function ProjectList({
                       busy={busy}
                       statsEnabled={statsEnabled ?? !compact}
                       tree={tree}
+                      onReorder={onReorderProjects}
                       searchActive={searchActive}
                       onSelect={onSelectProject}
                       onTogglePin={toggleProjectPin}
@@ -639,7 +644,7 @@ export function ProjectList({
             busy={busy}
             statsEnabled={statsEnabled ?? !compact}
             tree={tree}
-            onReorder={onReorderPinned}
+            onReorder={onReorderProjects}
             pinned={false}
             searchActive={searchActive}
             onSelect={onSelectProject}
@@ -751,6 +756,11 @@ function ProjectSection({
       .map((item) => item.path),
     onReorder,
     "y",
+    undefined,
+    {
+      activationDistance: 8,
+      collapsedSize: tree ? collapsedProjectHeaderSize : undefined,
+    },
   );
   return (
     <div
@@ -809,7 +819,7 @@ function ProjectSection({
                   }
                   tree={tree}
                   pinned={pinned}
-                  sortable={pinned ? sortable : undefined}
+                  sortable={sortable}
                   onSelect={onSelect}
                   onTogglePin={onTogglePin}
                   onContextMenu={onContextMenu}
@@ -889,6 +899,7 @@ function ProjectGroupSection({
   busy,
   statsEnabled,
   tree,
+  onReorder,
   searchActive,
   onSelect,
   onTogglePin,
@@ -910,6 +921,7 @@ function ProjectGroupSection({
   busy: Set<string>;
   statsEnabled: boolean;
   tree?: ProjectTree;
+  onReorder: (ids: string[]) => void;
   searchActive: boolean;
   onSelect: (path: string) => void;
   onTogglePin: (path: string) => void;
@@ -933,6 +945,16 @@ function ProjectGroupSection({
     items.length,
     String(searchActive),
     searchActive,
+  );
+  const sortable = useAnimatedReorder(
+    items.slice(0, preview.count).map((item) => item.path),
+    onReorder,
+    "y",
+    undefined,
+    {
+      activationDistance: 8,
+      collapsedSize: tree ? collapsedProjectHeaderSize : undefined,
+    },
   );
   const countLabel = uiT(
     items.length === 1 ? "{count} project" : "{count} projects",
@@ -1047,6 +1069,7 @@ function ProjectGroupSection({
                 }
                 tree={tree}
                 pinned={false}
+                sortable={sortable}
                 onSelect={onSelect}
                 onTogglePin={onTogglePin}
                 onContextMenu={onContextMenu}
@@ -1611,11 +1634,11 @@ function ProjectCard({
     <div
       ref={(el) => sortable?.setItemRef(item.path, el)}
       data-project-path={pathKey(item.path)}
-      className="reorder-item shrink-0"
+      className="reorder-item relative shrink-0"
     >
       {header}
       <AnimatedCollapse
-        expanded={expanded}
+        expanded={expanded && sortable?.draggingId !== item.path}
         motion="height"
         className="project-tree-collapse"
         durationMs={PROJECT_COLLAPSE_DURATION_MS}

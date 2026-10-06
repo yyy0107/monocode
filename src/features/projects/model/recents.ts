@@ -7,6 +7,7 @@ import {
 
 const KEY = "monocode.recentProjects";
 const RAIL_ORDER_KEY = "monocode.projectRailOrder";
+const RAIL_ORDER_VERSION_KEY = "monocode.projectRailOrderVersion";
 const RAIL_PINNED_KEY = "monocode.projectRailPinned";
 const ARCHIVED_KEY = "monocode.archivedProjects";
 const ARCHIVED_CHANGED = "monocode:archived-projects-changed";
@@ -274,11 +275,45 @@ function savePathList(key: string, paths: string[]) {
 }
 
 export function loadProjectRailOrder(): string[] {
-  return readPathList(RAIL_ORDER_KEY);
+  const order = readPathList(RAIL_ORDER_KEY);
+  try {
+    if (localStorage.getItem(RAIL_ORDER_VERSION_KEY)) return order;
+
+    // Preserve the order users saw before ordinary projects became sortable.
+    const projects = collectRailProjects(loadRecents(), "");
+    const saved = new Set(order.map(pathKey));
+    const previousOrder = [
+      ...order,
+      ...[...projects.values()]
+        .filter((project) => !saved.has(pathKey(project.path)))
+        .sort((a, b) => b.openedAt - a.openedAt)
+        .map((project) => project.path),
+    ];
+    const pinned = new Set(loadPinnedProjects().map(pathKey));
+    previousOrder.sort((a, b) => {
+      const aKey = pathKey(a);
+      const bKey = pathKey(b);
+      const aPinned = pinned.has(aKey);
+      const bPinned = pinned.has(bKey);
+      if (aPinned || bPinned) return Number(bPinned) - Number(aPinned);
+      return (
+        (projects.get(bKey)?.openedAt ?? 0) - (projects.get(aKey)?.openedAt ?? 0)
+      );
+    });
+    saveProjectRailOrder(previousOrder);
+    return previousOrder;
+  } catch {
+    return order;
+  }
 }
 
 export function saveProjectRailOrder(order: string[]) {
-  savePathList(RAIL_ORDER_KEY, order.map(normalize));
+  try {
+    localStorage.setItem(RAIL_ORDER_KEY, JSON.stringify(order.map(normalize)));
+    localStorage.setItem(RAIL_ORDER_VERSION_KEY, "1");
+  } catch {
+    // private mode / quota
+  }
 }
 
 export function loadPinnedProjects(): string[] {
@@ -339,7 +374,7 @@ export function collectRailProjects(
   return map;
 }
 
-/** Append new projects to the saved order without moving existing entries. */
+/** Prepend new projects by recency without moving existing entries. */
 export function syncProjectRailOrder(
   order: string[],
   projects: Map<string, RecentProject>,
@@ -357,7 +392,7 @@ export function syncProjectRailOrder(
     .filter(([key]) => !seen.has(key))
     .sort(([, a], [, b]) => b.openedAt - a.openedAt)
     .map(([, project]) => project.path);
-  return [...next, ...newcomers];
+  return [...newcomers, ...next];
 }
 
 export function projectRailSections(
@@ -378,8 +413,6 @@ export function projectRailSections(
     if (pinnedSet.has(key)) pinned.push(item);
     else unpinned.push(item);
   }
-  // Pins retain their manual order; ordinary projects always follow recency.
-  unpinned.sort((a, b) => b.openedAt - a.openedAt);
   return { pinned, projects: unpinned };
 }
 
