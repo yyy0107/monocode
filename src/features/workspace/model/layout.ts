@@ -61,6 +61,7 @@ export const APP_VIEW_KINDS = [
   "inbox",
   "notes",
   "automations",
+  "assistant",
 ] as const;
 
 export type AppViewKind = (typeof APP_VIEW_KINDS)[number];
@@ -72,6 +73,7 @@ export function appViewTitle(kind: AppViewKind): string {
     inbox: "Inbox",
     notes: "Notes",
     automations: "Automations",
+    assistant: "Assistant",
   }[kind];
 }
 
@@ -81,7 +83,7 @@ export type FilePaneTab = {
   cwd: string;
   /** Owning project when cwd points at one of its linked worktrees. */
   projectCwd?: string;
-  /** Application-owned view, unique by kind within a window. */
+  /** Application-owned view, unique by kind within its chat workspace. */
   appView?: { kind: AppViewKind };
   plan?: PlanTabSource;
   releaseNotes?: ReleaseNotesTabSource;
@@ -120,6 +122,8 @@ export type WorkspaceTab = {
   terminalPanes: EditorPane[];
   diffOpen?: boolean;
   diffFocused?: boolean;
+  /** Show documents beside chat, or use one tab strip for chat and documents. */
+  surfaceMode?: "split" | "unified";
   /** Explicit tab group; absent means ungrouped. */
   groupId?: string;
 };
@@ -146,8 +150,9 @@ export function resetTabToSession(
   tab: WorkspaceTab,
   sessionId: string,
 ): WorkspaceTab {
+  const { surfaceMode: _surfaceMode, ...rest } = tab;
   return {
-    ...tab,
+    ...rest,
     layout: leaf(sessionId),
     focusedId: sessionId,
     editorPanes: [],
@@ -275,6 +280,23 @@ export function newAppViewWorkspaceTab(kind: AppViewKind): WorkspaceTab {
     cwd: "~",
     appView: { kind },
   });
+}
+
+/** Open a permanent app view owned by this chat, reusing only its own view. */
+export function openSessionAppView(
+  tab: WorkspaceTab,
+  kind: AppViewKind,
+): WorkspaceTab {
+  return openEditorTab(
+    tab,
+    {
+      id: crypto.randomUUID(),
+      path: `app:${kind}`,
+      cwd: "~",
+      appView: { kind },
+    },
+    { pin: true },
+  );
 }
 
 /** Locate a view across all projects, tabs and panes in this window. */

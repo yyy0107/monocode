@@ -6,20 +6,34 @@ import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 export function MobileListPreview({
   children,
   initialLimit = 5,
+  minimumVisibleCount = initialLimit,
   batchSize = 5,
   buttonClassName = "mobile-list-more",
 }: {
   children: ReactNode[];
   initialLimit?: number;
+  /** Keep expanded project groups visible even when activity moves them down. */
+  minimumVisibleCount?: number;
   batchSize?: number;
   buttonClassName?: string;
 }) {
   const { t } = useTranslation();
   const [visibleCount, setVisibleCount] = useState(initialLimit);
   const id = useId();
-  const hasMore = visibleCount < children.length;
+  // Reveal whole existing batches so required rows use the same opening and
+  // closing lifetime as Show more / Show less, without moving between parents.
+  const previewLimit =
+    initialLimit +
+    Math.ceil(Math.max(0, minimumVisibleCount - initialLimit) / batchSize) *
+      batchSize;
+  const visibleLimit = Math.max(visibleCount, previewLimit);
+  const hasMore = visibleLimit < children.length;
   const batches = Array.from(
-    { length: Math.ceil(Math.max(0, children.length - initialLimit) / batchSize) },
+    {
+      length: Math.ceil(
+        Math.max(0, children.length - initialLimit) / batchSize,
+      ),
+    },
     (_, index) => {
       const start = initialLimit + index * batchSize;
       return { start, rows: children.slice(start, start + batchSize) };
@@ -32,20 +46,26 @@ export function MobileListPreview({
         <>
           <div id={id}>
             {batches.map(({ start, rows }) => (
-              <AnimatedCollapse key={start} expanded={start < visibleCount}>
+              <AnimatedCollapse key={start} expanded={start < visibleLimit}>
                 {rows}
               </AnimatedCollapse>
             ))}
           </div>
-          <button
-            type="button"
-            className={buttonClassName}
-            aria-expanded={visibleCount > initialLimit}
-            aria-controls={id}
-            onClick={() => setVisibleCount((current) => hasMore ? current + batchSize : initialLimit)}
-          >
-            {t(hasMore ? "Show more items" : "Show less")}
-          </button>
+          {(hasMore || visibleLimit > previewLimit) && (
+            <button
+              type="button"
+              className={buttonClassName}
+              aria-expanded={visibleLimit > previewLimit}
+              aria-controls={id}
+              onClick={() =>
+                setVisibleCount(
+                  hasMore ? visibleLimit + batchSize : previewLimit,
+                )
+              }
+            >
+              {t(hasMore ? "Show more items" : "Show less")}
+            </button>
+          )}
         </>
       )}
     </>

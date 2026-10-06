@@ -7,7 +7,6 @@ import {
   Check,
   ChevronRight,
   CircleDashed,
-  Copy,
   FilePlusCorner,
   Minus,
   Pencil,
@@ -46,6 +45,7 @@ import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
 import { ToolDiffPreview } from "./ToolDiffPreview";
 import { PlanPreview } from "./PlanPreview";
 import { OrchestrationPreview } from "../../orchestration/ui/OrchestrationPreview";
+import { localizeOrchestrationMessage } from "../../orchestration/ui/orchestrationMessages";
 import { TaskListPreview } from "./TaskListPreview";
 import { HandoffButton, SecondOpinionButton } from "./SecondOpinionButton";
 import { SecondOpinionCard } from "./SecondOpinionCard";
@@ -66,7 +66,7 @@ import {
   stubFilePreview,
 } from "../../../integrations/harness/core/preview";
 import { TranscriptPlatformContext } from "./TranscriptPlatform";
-import type { Attachment } from "../model/session";
+import { useTranscriptRenderingPlatform } from "./useTranscriptRenderingPlatform";
 import { visibleUserPrompt } from "../../orchestration/model/orchestration";
 import { playCue } from "../../settings/model/sounds";
 import { legacyTaskListFromText } from "../model/taskList";
@@ -95,6 +95,7 @@ import { useTranscriptAnchor } from "../hooks/useTranscriptAnchor";
 import { useTranscriptSelection } from "../hooks/useTranscriptSelection";
 import type { TranscriptLayout } from "../../settings/model/appearance";
 import { AgentMarkdown } from "./AgentMarkdown";
+import { CopyTurnButton } from "./CopyTurnButton";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
 import { parseUserMessageLink } from "../model/linkPreview";
 import { attachmentPreviewSrc } from "../model/attachments";
@@ -259,38 +260,9 @@ function AgentTranscriptComponent({
   animateFrom,
   promptMotion,
 }: Props) {
-  const platform = useContext(TranscriptPlatformContext);
-  const lengths = useMemo(
-    () => new Map(sourceBlocks.map((block) => [block.id, block.text.length])),
-    [sourceBlocks],
-  );
-  const currentLengths = useRef(lengths);
-  currentLengths.current = lengths;
-  const seenLengths = useRef(new Map<string, number>());
-  const seededReveal = useRef(false);
-  if (!seededReveal.current && sourceBlocks.length) {
-    const start = animateFrom
-      ? sourceBlocks.findIndex((block) => block.id === animateFrom)
-      : -1;
-    seenLengths.current = new Map(
-      sourceBlocks.map((block, index) => [
-        block.id,
-        start >= 0 && index > start ? 0 : block.text.length,
-      ]),
-    );
-    seededReveal.current = true;
-  }
-  const revealText = useCallback((blockId?: string) => {
-    if (!blockId) return { unit: "character" as const };
-    const initialLength = seenLengths.current.get(blockId) ?? 0;
-    // A folded/reopened reply has already been presented and must not replay.
-    seenLengths.current.set(blockId, currentLengths.current.get(blockId) ?? 0);
-    return { unit: "character" as const, initialLength };
-  }, []);
-  const renderingPlatform = useMemo(
-    () => ({ ...platform, textReveal: revealText }),
-    [platform, revealText],
-  );
+  const renderingPlatform = useTranscriptRenderingPlatform(sourceBlocks, {
+    animateFrom,
+  });
   const { t: uiT } = useTranslation();
   const blocks = useMemo(() => {
     let turnHarness = harness;
@@ -1502,73 +1474,6 @@ function formatClockTime(epochMs: number): string {
   });
 }
 
-function CopyTurnButton({
-  text,
-  attachments,
-  label = "Copy response",
-}: {
-  text: string;
-  attachments?: Attachment[];
-  label?: string;
-}) {
-  const { copyMessage } = useContext(TranscriptPlatformContext);
-  const { t: uiT } = useTranslation();
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<number | null>(null);
-
-  useEffect(() => {
-    setCopied(false);
-    setError(null);
-    return () => {
-      if (timer.current != null) window.clearTimeout(timer.current);
-    };
-  }, [text, attachments]);
-
-  return (
-    <>
-      <button
-        type="button"
-        disabled={pending}
-        title={copied ? uiT("Copied") : label}
-        aria-label={copied ? uiT("Copied") : label}
-        className="-ml-1 rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70"
-        onClick={(event) => {
-          event.stopPropagation();
-          setError(null);
-          setCopied(false);
-          setPending(true);
-          playCue("copy");
-          void copyMessage(text, attachments).then(
-            () => {
-              setPending(false);
-              setCopied(true);
-              if (timer.current != null) window.clearTimeout(timer.current);
-              timer.current = window.setTimeout(() => setCopied(false), 2000);
-            },
-            (error: unknown) => {
-              setPending(false);
-              setError(error instanceof Error ? error.message : String(error));
-            },
-          );
-        }}
-      >
-        {copied ? (
-          <Check className="size-3.5" strokeWidth={1.75} />
-        ) : (
-          <Copy className="size-3.5" strokeWidth={1.75} />
-        )}
-      </button>
-      {error && (
-        <span role="alert" className="max-w-xs text-xs text-content/70">
-          {uiT("Copy failed. ")}
-          {error}
-        </span>
-      )}
-    </>
-  );
-}
 
 function SaveNoteButton({
   text,
@@ -1835,7 +1740,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
     return (
       <div className={`${embedded ? "" : "px-4"} py-2 text-content/50`}>
         <pre className="min-w-0 whitespace-pre-wrap break-words">
-          {localizeChildExitError(block.text, uiT)}
+          {localizeOrchestrationMessage(localizeChildExitError(block.text, uiT), uiT)}
         </pre>
       </div>
     );
@@ -1948,6 +1853,15 @@ function UserMessageBlock({
       className="user-message-row group/usermsg flex flex-col items-end overflow-visible pt-1 pr-4 pb-5 pl-[18%]"
     >
       <div className="user-message-hover-zone flex w-fit max-w-full min-w-0 flex-col items-end overflow-visible">
+        {block.origin?.kind === "assistant" && (
+          <div
+            className="mb-1 inline-flex items-center gap-1.5 px-3 text-xs text-content/60"
+            data-assistant-origin={block.origin.assistantId}
+          >
+            <Bot className="size-3.5" aria-hidden="true" />
+            <span>{uiT("From {value0}", { value0: block.origin.assistantName || uiT("Assistant") })}</span>
+          </div>
+        )}
         {mediaAttachments.length ? (
           <div
             className={`user-message-media flex max-w-[min(100%,36rem)] flex-wrap justify-end gap-1.5 ${hasBubble ? "mb-1.5" : ""}`}
@@ -3147,7 +3061,7 @@ function ActivityRow({
 /** A status row folded into the trail: one muted line, nothing to open. */
 function ActivityStatusRow({ block }: { block: Block }) {
   const { t } = useTranslation();
-  const text = localizeChildExitError(block.text, t);
+  const text = localizeOrchestrationMessage(localizeChildExitError(block.text, t), t);
   return (
     <div className="flex min-w-0 items-center gap-1.5 py-1">
       <span

@@ -57,6 +57,8 @@ type Props = {
   onReorder: (ids: string[]) => void;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   label?: string;
+  /** Persistent surface selector, such as the owning session's Chat tab. */
+  leading?: ReactNode;
   trailing?: ReactNode;
 };
 
@@ -220,6 +222,7 @@ export function SurfaceTabs({
   onReorder,
   onPaneDragStart,
   label = "Open files",
+  leading,
   trailing,
 }: Props) {
   const { t: uiT } = useTranslation();
@@ -309,6 +312,7 @@ export function SurfaceTabs({
             <GripVertical className="size-3.5" strokeWidth={1.75} />
           </div>
         ) : null}
+        {leading}
         {displayed.map((entry) => {
           const file = entry.item;
           const closing = entry.closing;
@@ -336,6 +340,8 @@ export function SurfaceTabs({
                   : "reorder-item tab-motion group relative flex h-full w-56 min-w-28 shrink touch-none items-center"
               }
               data-tab-slot-id={closing ? undefined : file.id}
+              data-file-tab-id={closing ? undefined : file.id}
+              data-tauri-drag-region="false"
               onMouseDownCapture={(event) => {
                 if (closing) return;
                 if (event.button === 1) event.preventDefault();

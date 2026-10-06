@@ -1,6 +1,6 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { lazySurface } from "../../../shared/ui/lazySurface";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { memo, useSyncExternalStore } from "react";
 import {
   MarkdownViewShell,
@@ -65,6 +65,8 @@ type Props = {
   visible?: boolean;
   /** The title bar already names a standalone file, so avoid repeating it. */
   showTabs?: boolean;
+  /** Shell actions attached to this pane's tab row. */
+  tabsTrailing?: ReactNode;
   dirtyFileIds: Set<string>;
   fileErrorCounts: Map<string, number>;
   sessions: Session[];
@@ -93,6 +95,7 @@ function FilePaneComponent({
   focused,
   visible = true,
   showTabs = true,
+  tabsTrailing,
   dirtyFileIds,
   fileErrorCounts,
   sessions,
@@ -131,7 +134,7 @@ function FilePaneComponent({
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
       onMouseDown={() => onFocus(pane.id)}
     >
-      {showTabs ? (
+      {showTabs || tabsTrailing ? (
         <SurfaceTabs
           files={pane.files}
           activeFileId={pane.activeFileId}
@@ -143,6 +146,7 @@ function FilePaneComponent({
           onPinFile={onPinFile}
           onReorder={(ids) => onReorderFiles(pane.id, ids)}
           onPaneDragStart={onPaneDragStart}
+          trailing={tabsTrailing}
         />
       ) : null}
       <div className="relative min-h-0 flex-1">
@@ -197,7 +201,7 @@ function FilePaneComponent({
                   session={sessions.find(
                     (entry) => entry.id === file.agent.sessionId,
                   )}
-                  visible={file.id === pane.activeFileId}
+                  visible={visible && file.id === pane.activeFileId}
                   focused={focused && file.id === pane.activeFileId}
                   onOpenFile={onOpenFile}
                 />
@@ -257,6 +261,7 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
     previous.focused !== next.focused ||
     previous.visible !== next.visible ||
     previous.showTabs !== next.showTabs ||
+    previous.tabsTrailing !== next.tabsTrailing ||
     previous.dirtyFileIds !== next.dirtyFileIds ||
     previous.fileErrorCounts !== next.fileErrorCounts ||
     previous.onFocus !== next.onFocus ||

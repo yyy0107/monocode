@@ -82,7 +82,7 @@ const ACTIONS: [&str; 12] = [
     "list", "delegate", "get", "steer", "message", "retry", "cancel", "wait", "review", "finish",
     "respond", "answer",
 ];
-const APP_ACTIONS: [&str; 13] = [
+const APP_ACTIONS: [&str; 11] = [
     "models.list",
     "sessions.list",
     "sessions.read",
@@ -91,8 +91,6 @@ const APP_ACTIONS: [&str; 13] = [
     "sessions.start",
     "worktrees.list",
     "worktrees.create",
-    "folders.list",
-    "folders.move",
     "notes.list",
     "notes.read",
     "notes.write",
@@ -128,7 +126,7 @@ Actions:
                   draft:true to save the prompt unsent; no agent turn runs.
                   Otherwise the turn is submitted.
                   Returns after creation/acceptance, not agent completion;
-                  use its ID with folders.move immediately. Optional model,
+                  use its ID for follow-up actions. Optional model,
                   effort, modelSettings, permission mode and workspace choice
                   use composer values. Set worktreeCwd to a path from
                   worktrees.list to choose a specific existing checkout, or
@@ -143,9 +141,6 @@ Actions:
                   or ref). Set existing:true and omit base to use an existing
                   local branch. Pass the returned path as sessions.start's
                   worktreeCwd to start there.
-  folders.list   {}  Folders in your current project.
-  folders.move   {"sessionId":"...","folderId":"..."}
-                  Or use "newFolderName":"Research" to create a folder.
   notes.list     {"limit":30,"offset":0}  Titles and short previews only.
   notes.read     {"id":"..."}  Full body of one note.
   notes.write    {"title":"Plan","body":"Markdown","tags":["work"]}
@@ -531,6 +526,10 @@ mod tests {
                 Ok(Parsed::Call(_, _, _))
             ));
             assert!(app_help().contains(action));
+        }
+        for action in ["folders.list", "folders.move"] {
+            assert!(parse_args_for(&args(&[action]), true).is_err());
+            assert!(!app_help().contains(action));
         }
         assert!(app_help().contains("draft:true"));
         assert!(app_help().contains("inherit this"));

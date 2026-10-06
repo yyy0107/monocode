@@ -31,6 +31,8 @@ import { connectionInfo, installService, uninstallService } from "./service";
 import { version } from "../package.json";
 import { protectWindowsDirectory } from "./windows";
 import { prepareDesktopHost } from "./desktop";
+import { runControlCli } from "./control";
+import type { LegacyRetirementManifest } from "./legacy-orchestration";
 
 process.umask(0o077);
 // npm-based providers can launch Node subprocesses without a separate Node
@@ -71,6 +73,14 @@ const lifecycle = async (state: Running, action: "status" | "stop") => {
 };
 
 async function main() {
+  if (command === "control") {
+    process.exitCode = await runControlCli(args.slice(1));
+    return;
+  }
+  if (command === "assistant") {
+    process.exitCode = await runControlCli(args.slice(1), "assistant");
+    return;
+  }
   if (command === "--version") {
     console.log(version);
     return;
@@ -103,7 +113,7 @@ Connect another computer using an SSH forward to the loopback port.`);
     const desktopDirectory = option("desktop-data-dir", "");
     if (!desktopDirectory) throw new Error("Provide --desktop-data-dir");
     console.log(JSON.stringify(await prepareDesktopHost(directory, resolve(desktopDirectory),
-      fileURLToPath(import.meta.url), port)));
+      fileURLToPath(import.meta.url), port, option("legacy-orchestration-manifest", "") || undefined)));
     return;
   }
   if (command === "connection-info") {
@@ -233,7 +243,7 @@ Connect another computer using an SSH forward to the loopback port.`);
     throw new Error("Unknown command; run with --help");
   }
   const releaseOwner = await acquireHostOwner(directory);
-  const backend = new HostChildBackend({}, join(directory, "desktop-owner.json"));
+  const backend = new HostChildBackend({}, join(directory, "desktop-owner.json"), store);
   let cleanup = () => {
     rmSync(statePath, { force: true });
     store.close();
@@ -258,7 +268,9 @@ Connect another computer using an SSH forward to the loopback port.`);
       );
     };
     const available = await discoverAvailableProviders();
-    const engine = new HostEngine(store, hostProviders);
+    const engine = new HostEngine(store, hostProviders, undefined, { entry: fileURLToPath(import.meta.url) });
+    backend.configureSessionEnvironment((id) => ({ ...engine.orchestration.environment(id), ...engine.assistant.environment(id) }));
+    await engine.ready;
     const secret = randomBytes(32).toString("base64url");
     let stopping = false;
     let stop: () => Promise<void>;
@@ -276,16 +288,22 @@ Connect another computer using an SSH forward to the loopback port.`);
       let body = "";
       request.on("data", (chunk) => {
         body += String(chunk);
-        if (body.length > 128) request.destroy();
+        if (body.length > 4 * 1024 * 1024) request.destroy();
       });
-      request.on("end", () => {
+      request.on("end", async () => {
         try {
-          const action = JSON.parse(body).action;
+          const input = JSON.parse(body);
+          const action = input.action;
+          if (action === "retireLegacyOrchestration") {
+            await engine.retireLegacyOrchestration(input.manifest as LegacyRetirementManifest);
+            response.end(JSON.stringify({ retired: true }));
+            return;
+          }
           if (action !== "status" && action !== "stop") {
             response.writeHead(400).end();
             return;
           }
-          response.end(JSON.stringify({ sharedDesktop: 2 }));
+          response.end(JSON.stringify({ sharedDesktop: 2, orchestrationHost: 1, nativeSessionAccess: 1, nativeSessionManager: 1, orchestrationActive: engine.orchestration.hasActiveWork() }));
           if (action === "stop") void stop();
         } catch {
           response.writeHead(400).end();

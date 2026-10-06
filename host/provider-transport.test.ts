@@ -102,9 +102,9 @@ readline.createInterface({input: process.stdin}).on('line', line => {
   }, 30);
   if (request.type === 'get_state') send({type: 'response', id: request.id, command: 'get_state', success: true, data: {sessionId: 'fixture_pi', model: {provider: 'openai', id: 'fixture-model', contextWindow: 100000}, thinkingLevel: piThinking}});
   if (request.type === 'get_session_stats') send({type: 'response', id: request.id, command: 'get_session_stats', success: true, data: {contextUsage: {tokens: 25000, contextWindow: 100000}}});
-  if (request.type === 'get_available_models') send({type: 'response', id: request.id, command: 'get_available_models', success: true, data: {models: [{provider: 'openai', id: 'fixture-model', name: 'Fixture model'}]}});
+  if (request.type === 'get_available_models') send({type: 'response', id: request.id, command: 'get_available_models', success: true, data: {models: [{provider: 'openai', id: 'fixture-model', name: 'Fixture model', reasoning: true, thinkingLevelMap: {minimal: null, low: null, medium: null, high: 'high'}}]}});
   if (request.type === 'get_available_thinking_levels') send({type: 'response', id: request.id, command: request.type, success: true, data: {levels: ['off', 'high']}});
-  if (request.type === 'set_thinking_level') { piThinking = request.level; send({type: 'response', id: request.id, command: request.type, success: true}); }
+  if (request.type === 'set_thinking_level') { piThinking = request.level === 'off' ? 'off' : 'high'; send({type: 'response', id: request.id, command: request.type, success: true}); }
   if (request.type === 'get_commands') send({type: 'response', id: request.id, command: request.type, success: true, data: {commands: [{name:'fixture-handled', source:'extension'}, {name:'fixture-template', source:'prompt'}, {name:'skill:fixture', source:'skill'}]}});
   if (request.type === 'get_available_commands') send({type: 'response', id: request.id, command: request.type, success: true, data: {commands: [{name:'audit', description:'Native audit', source:'skill', aliases:['review'], input:{hint:'<path>'}}, {name:'plan', source:'builtin'}]}});
   if (request.type === 'abort') { pendingPiDialog = undefined; send({type:'response', id:request.id, command:request.type, success:true}); }
@@ -117,6 +117,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
     setTimeout(completePi, 30);
   }
   if (request.type === 'prompt') {
+    record({piPrompt: request.message, piThinking});
     if (request.message === '/fixture-handled') {
       send({type:'response', id:request.id, command:'prompt', success:true, data:{disposition:'handled'}});
       return;
@@ -222,8 +223,12 @@ describe("existing providers over headless process I/O", () => {
     expect(claudeA[0]).toMatchObject({ nativeId: "claude-fixture-model" });
     expect(piA).toEqual(piB);
     expect(piA[0]).toMatchObject({ id: "pi:openai/fixture-model" });
+    expect(piA[0].settings?.[0]).toMatchObject({ value: "high", options: [
+      { value: "off", label: "Off" }, { value: "high", label: "High" },
+    ] });
     expect(ompA).toEqual(ompB);
     expect(ompA[0]).toMatchObject({ id: "omp:openai/fixture-model" });
+    expect(ompA[0].settings?.[0].value).toBe("medium");
   });
 
   it.each([
@@ -383,6 +388,31 @@ describe("existing providers over headless process I/O", () => {
     expect(store.session(sessionId).session.blocks.filter(row => row.role === "user" && row.text === `Steer from ${harness}`)).toHaveLength(1);
     const calls = readFileSync(join(directory, "calls.log"), "utf8").trim().split("\n").map(line => JSON.parse(line));
     expect(calls.filter(call => call.piSteer === `Steer from ${harness}`)).toHaveLength(1);
+  });
+
+  it("persists Pi's effective thinking level and completes messages with a stale default", async () => {
+    const project = await engine.openProject(directory);
+    const { sessionId } = engine.command({ type: "create", commandId: "create-pi-thinking",
+      projectId: project.id, harness: "pi", model: "pi:default", runtimeMode: "supervised",
+      modelSettings: { thinking: "medium" } });
+    for (let turn = 0; turn < 2; turn++) {
+      engine.command({ type: "send", commandId: `pi-thinking-${turn}`, sessionId, text: `pi-thinking-${turn}` });
+      await vi.waitFor(() => expect(store.session(sessionId).status).toBe("idle"), { timeout: 4_000 });
+      const state = store.session(sessionId).session;
+      expect(state.blocks.at(-1)?.text).toBe("Headless Pi completed");
+      expect(state.blocks.some(block => block.notice === "error")).toBe(false);
+      expect(state.modelSettings?.thinking).toBe("high");
+      const reopened = new HostStore(join(directory, "host.db"));
+      try {
+        const sync = JSON.parse(JSON.stringify(reopened.sync(sessionId)));
+        expect(applySessionSync(undefined, sync).session.modelSettings?.thinking).toBe("high");
+      } finally { reopened.close(); }
+    }
+    const calls = readFileSync(join(directory, "calls.log"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(calls.filter(call => call.piPrompt?.startsWith("pi-thinking-"))).toEqual([
+      { piPrompt: "pi-thinking-0", piThinking: "high" },
+      { piPrompt: "pi-thinking-1", piThinking: "high" },
+    ]);
   });
 
   it("finishes a handled Pi command and accepts the next message", async () => {

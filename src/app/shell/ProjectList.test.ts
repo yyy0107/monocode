@@ -18,7 +18,7 @@ import {
   saveProjectGroups,
   setProjectGroupAssignment,
 } from "../../features/projects/model/projectGroups";
-import { loadPinnedProjects } from "../../features/projects/model/recents";
+import { loadPinnedProjects, savePinnedProjects } from "../../features/projects/model/recents";
 
 const { reorderPointerDown, reorderState } = vi.hoisted(() => ({
   reorderPointerDown: vi.fn(),
@@ -251,10 +251,7 @@ it("keeps expand, select, new session and child actions independent", async () =
         new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
       ),
   );
-  expect(reorderPointerDown).toHaveBeenCalledWith(
-    "/work/beta",
-    expect.anything(),
-  );
+  expect(reorderPointerDown).not.toHaveBeenCalled();
 });
 
 it("keeps unavailable project disclosures aligned while their names remain selectable", async () => {
@@ -588,6 +585,7 @@ it.each(["loading", "error"] as const)(
 );
 
 it("suppresses pointer-origin focus and hides summaries during project drag", async () => {
+  savePinnedProjects(["/work/beta"]);
   const props = await renderTree();
   const beta = projectNameButton("/work/beta");
   act(() => {
@@ -614,6 +612,24 @@ it("suppresses pointer-origin focus and hides summaries during project drag", as
     beta.focus();
   });
   expect(projectSummary("/work/beta")).toBeNull();
+});
+
+it("updates recent project order after a project is reopened", async () => {
+  localStorage.setItem("monocode.projectRailOrder", JSON.stringify([
+    "/work/gamma", "/work/beta", "/work/alpha",
+  ]));
+  const props = await renderTree();
+  const paths = () => [...container.querySelectorAll<HTMLElement>(
+    '[data-project-section="projects"] [data-project-path]',
+  )].map((row) => row.dataset.projectPath);
+  expect(paths()).toEqual(["/work/alpha", "/work/beta", "/work/gamma"]);
+  await renderTree({
+    ...props,
+    recents: props.recents.map((row) => row.path === "/work/gamma"
+      ? { ...row, openedAt: 4 }
+      : row),
+  });
+  expect(paths()).toEqual(["/work/gamma", "/work/alpha", "/work/beta"]);
 });
 
 it("supports summary hover for compact project avatars and projects inside groups", async () => {
@@ -675,4 +691,47 @@ it("shows a remote project's host path and machine connection in its summary", a
   expect(summary.textContent).toContain("wy-ubuntu");
   expect(summary.textContent).toContain("Connected");
   expect(summary.textContent).not.toContain(remote.key);
+});
+
+
+it("reveals projects in batches of five independently for pins, groups and loose projects", async () => {
+  const recents = Array.from({ length: 36 }, (_, index) => ({
+    path: `/work/project-${index}`,
+    openedAt: 100 - index,
+  }));
+  savePinnedProjects(recents.slice(0, 12).map((row) => row.path));
+  saveProjectGroups([{ id: "group", name: "Group", collapsed: false }]);
+  for (const row of recents.slice(12, 24))
+    setProjectGroupAssignment(row.path, "group");
+  await renderTree({ cwd: recents[0].path, recents });
+  const headers = () => container.querySelectorAll("[data-project-header]");
+  const toggles = () =>
+    container.querySelectorAll<HTMLButtonElement>("[data-sidebar-list-toggle]");
+  expect(headers()).toHaveLength(15);
+  expect(toggles()).toHaveLength(3);
+  await act(async () => toggles()[0].click());
+  expect(headers()).toHaveLength(20);
+  await act(async () => toggles()[0].click());
+  expect(headers()).toHaveLength(22);
+  await act(async () => toggles()[0].click());
+  const closing = container.querySelector<HTMLElement>(
+    '[data-fold-state="closing"]',
+  )!;
+  expect(closing.inert).toBe(true);
+  await act(async () => {
+    container
+      .querySelectorAll('[data-fold-state="closing"]')
+      .forEach((node) =>
+        node.dispatchEvent(new Event("animationend", { bubbles: true })),
+      );
+  });
+  expect(headers()).toHaveLength(15);
+  await renderTree({
+    cwd: recents[0].path,
+    recents,
+    query: "project-35",
+    searchActive: true,
+  });
+  expect(headers()).toHaveLength(1);
+  expect(container.textContent).toContain("project-35");
 });

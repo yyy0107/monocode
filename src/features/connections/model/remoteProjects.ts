@@ -5,8 +5,9 @@ import {
 import type { HostProject } from "./protocol";
 import type { Session } from "../../sessions/model/session";
 
-export const sessionUsesHost = (session: Pick<Session, "cwd" | "inboxAsk" | "nativeSession">) =>
-  !session.inboxAsk && !session.nativeSession && !!remoteProjectFor(session.cwd);
+/** Every conversation in a Host project runs there, including imported native ones. */
+export const sessionUsesHost = (session: Pick<Session, "cwd" | "inboxAsk">) =>
+  !session.inboxAsk && !!remoteProjectFor(session.cwd);
 
 /** A rail project whose folder lives on another machine. */
 export type RemoteProject = {

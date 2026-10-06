@@ -18,6 +18,7 @@ import {
   layoutLeaves,
   layoutSashes,
   leaf,
+  leafIds,
   newChangesTab,
   newCommitTab,
   newEditorWorkspaceTab,
@@ -37,6 +38,7 @@ import {
   openCommitTab,
   openEditorTab,
   openAppViewTab,
+  openSessionAppView,
   openSessionChangesTab,
   pinEditorFile,
   openWorkspaceFile,
@@ -82,6 +84,26 @@ describe("app view tabs", () => {
     expect(reopened.tabs[1].diffFocused).toBe(false);
     expect(reopened.tabs[1].editorPanes[0].files).toEqual(settings.editorPanes[0].files);
     expect(isAppViewOnlyTab(mixed)).toBe(false);
+  });
+
+  it("keeps the same app view independent in each chat and reuses it locally", () => {
+    const first = openSessionAppView(newTab("first-chat"), "notes");
+    const second = openSessionAppView(newTab("second-chat"), "notes");
+    const firstNotes = first.editorPanes[0];
+    const secondNotes = second.editorPanes[0];
+    expect(firstNotes.id).not.toBe(secondNotes.id);
+    expect(firstNotes.files[0].id).not.toBe(secondNotes.files[0].id);
+    expect(leafIds(first.layout)).toContain("first-chat");
+    expect(leafIds(second.layout)).toContain("second-chat");
+
+    const withSettings = openSessionAppView(first, "settings");
+    const reopened = openSessionAppView(withSettings, "notes");
+    expect(reopened.id).toBe(first.id);
+    expect(reopened.editorPanes).toHaveLength(withSettings.editorPanes.length);
+    expect(reopened.focusedId).toBe(firstNotes.id);
+    expect(reopened.editorPanes[0].activeFileId).toBe(firstNotes.files[0].id);
+    expect(reopened.editorPanes[0].files[0].preview).toBeUndefined();
+    expect(second.editorPanes[0]).toBe(secondNotes);
   });
 
   it("recognizes split app-only tabs and excludes sessions, files and terminals", () => {
@@ -643,6 +665,7 @@ describe("resetTabToSession", () => {
       groupId: "group-1",
       diffOpen: true,
       diffFocused: true,
+      surfaceMode: "unified" as const,
     };
     const next = resetTabToSession(tab, "session-b");
     expect(next.id).toBe(tab.id);
@@ -653,6 +676,7 @@ describe("resetTabToSession", () => {
     expect(next.terminalPanes).toEqual([]);
     expect(next.diffOpen).toBe(false);
     expect(next.diffFocused).toBe(false);
+    expect(next.surfaceMode).toBeUndefined();
   });
 });
 

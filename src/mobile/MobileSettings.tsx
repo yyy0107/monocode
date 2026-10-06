@@ -13,10 +13,17 @@ import type { ConnectionAppearance } from "./connectionAppearance";
 import { MobileSelect } from "./MobileSelect";
 import type { useMobileActivity } from "./useMobileActivity";
 import type { FollowUpBehavior } from "../features/settings/model/settings";
+import {
+  ACCENT_COLOR_PRESET_LABELS,
+  ACCENT_COLOR_PRESETS,
+  type TranscriptLayout,
+} from "../features/settings/model/appearance";
 
-export type MobileSettingsPage = "root" | "connections" | "updates" | "glass";
+export type MobileSettingsPage =
+  "root" | "connections" | "updates" | "glass" | "archive";
 export type MobilePreferencePanel =
-  "theme" | "language" | "glass" | "follow-up" |
+  "theme" | "accent" | "language" | "glass" | "follow-up" | "transcript-layout" |
+  "agent-defaults" | "account-claude" | "account-codex" |
   "connection-menu" | "connection-edit" | "connection-delete" | null;
 
 export function mobileSettingsTitle(page: MobileSettingsPage) {
@@ -26,7 +33,9 @@ export function mobileSettingsTitle(page: MobileSettingsPage) {
       ? "App updates"
       : page === "glass"
         ? "Glass"
-        : "Settings";
+        : page === "archive"
+          ? "Archived conversations"
+          : "Settings";
 }
 
 function GlassPreview({ label }: { label: string }) {
@@ -85,6 +94,51 @@ function GlassSlider({
   );
 }
 
+function AccentSelect({
+  value,
+  onChange,
+  open,
+  onOpenChange,
+}: {
+  value: string | null;
+  onChange: (value: string | null) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  const options: { color: string | null; label: string }[] = [
+    { color: null, label: "Default" },
+    ...ACCENT_COLOR_PRESETS.map((color, index) => ({
+      color,
+      label: ACCENT_COLOR_PRESET_LABELS[index],
+    })),
+  ];
+  if (value && !options.some((option) => option.color === value)) {
+    options.push({ color: value, label: value });
+  }
+  return (
+    <MobileSelect
+      id="mobile-accent"
+      label={t("Accent color")}
+      value={value ?? "default"}
+      open={open}
+      onOpenChange={onOpenChange}
+      onChange={(color) => onChange(color === "default" ? null : color)}
+      options={options.map(({ color, label }) => ({
+        value: color ?? "default",
+        label: t(label),
+        icon: (
+          <span
+            className="mobile-accent-preview"
+            aria-hidden="true"
+            style={{ background: color ?? "var(--color-content)" }}
+          />
+        ),
+      }))}
+    />
+  );
+}
+
 function Group({
   title,
   footer,
@@ -125,6 +179,14 @@ export function MobileSettings({
   onLanguageChange,
   followUpBehavior,
   onFollowUpBehaviorChange,
+  transcriptLayout,
+  onTranscriptLayoutChange,
+  accentColor,
+  onAccentColorChange,
+  soundsEnabled,
+  onSoundsEnabledChange,
+  archive,
+  agentDefaults,
   glass,
   onGlassChange,
   preferencePanel,
@@ -152,6 +214,14 @@ export function MobileSettings({
   onLanguageChange: (language: "en" | "zh-CN") => void;
   followUpBehavior: FollowUpBehavior;
   onFollowUpBehaviorChange: (behavior: FollowUpBehavior) => void;
+  transcriptLayout: TranscriptLayout;
+  onTranscriptLayoutChange: (layout: TranscriptLayout) => void;
+  accentColor: string | null;
+  onAccentColorChange: (color: string | null) => void;
+  soundsEnabled: boolean;
+  onSoundsEnabledChange: (enabled: boolean) => void;
+  archive: ReactNode;
+  agentDefaults?: ReactNode;
   glass: GlassSettings;
   onGlassChange: (glass: GlassSettings) => void;
   preferencePanel: MobilePreferencePanel;
@@ -198,6 +268,13 @@ export function MobileSettings({
     return (
       <main className="mobile-content mobile-settings">
         <MobileAppUpdates state={appUpdates} />
+      </main>
+    );
+
+  if (page === "archive")
+    return (
+      <main key="archive" className="mobile-content mobile-settings">
+        {archive}
       </main>
     );
 
@@ -281,6 +358,7 @@ export function MobileSettings({
   return (
     <main className="mobile-content mobile-settings">
       {connections}
+      {agentDefaults}
       <Group title="General">
         <div className="mobile-settings-row">
           <SettingsIcon name="appearance" />
@@ -304,6 +382,20 @@ export function MobileSettings({
           />
         </div>
         <div className="mobile-settings-row">
+          <SettingsIcon name="accent" />
+          <label className="mobile-settings-label" htmlFor="mobile-accent">
+            {t("Accent color")}
+          </label>
+          <AccentSelect
+            value={accentColor}
+            onChange={onAccentColorChange}
+            open={preferencePanel === "accent"}
+            onOpenChange={(open) =>
+              onPreferencePanelChange(open ? "accent" : null)
+            }
+          />
+        </div>
+        <div className="mobile-settings-row">
           <SettingsIcon name="language" />
           <label className="mobile-settings-label" htmlFor="mobile-language">
             {t("Language")}
@@ -322,6 +414,26 @@ export function MobileSettings({
               { value: "zh-CN", label: "简体中文" },
             ]}
           />
+        </div>
+        <div className="mobile-settings-row mobile-settings-notifications">
+          <SettingsIcon name="sounds" />
+          <label className="mobile-settings-label">
+            <span>{t("Sounds")}</span>
+            <small>
+              {t(
+                "Play a sound when a reply finishes or a conversation needs your input while the app is open.",
+              )}
+            </small>
+            <input
+              type="checkbox"
+              role="switch"
+              className="mobile-switch"
+              checked={soundsEnabled}
+              onChange={(event) =>
+                onSoundsEnabledChange(event.currentTarget.checked)
+              }
+            />
+          </label>
         </div>
         <div className="mobile-settings-row mobile-settings-notifications">
           <SettingsIcon name="notifications" />
@@ -348,13 +460,6 @@ export function MobileSettings({
             />
           </label>
         </div>
-        {activity.canOpenSettings ? (
-          <p className="mobile-settings-note">
-            {t(
-              "A Remote notification keeps your Host connection active after you leave the app. Disconnect to stop it.",
-            )}
-          </p>
-        ) : null}
         {(activity.enabled || activity.canOpenSettings) &&
         activity.permission === "prompt" ? (
           <div className="mobile-settings-row">
@@ -420,6 +525,29 @@ export function MobileSettings({
             ]}
           />
         </div>
+        <div className="mobile-settings-row">
+          <SettingsIcon name="layout" />
+          <label
+            className="mobile-settings-label"
+            htmlFor="mobile-transcript-layout"
+          >
+            {t("Transcript layout")}
+          </label>
+          <MobileSelect
+            id="mobile-transcript-layout"
+            label={t("Transcript layout")}
+            value={transcriptLayout}
+            open={preferencePanel === "transcript-layout"}
+            onOpenChange={(open) =>
+              onPreferencePanelChange(open ? "transcript-layout" : null)
+            }
+            onChange={onTranscriptLayoutChange}
+            options={[
+              { value: "full", label: t("Full width") },
+              { value: "chat", label: t("Chat") },
+            ]}
+          />
+        </div>
       </Group>
       <section className="mobile-settings-group" aria-label={t("Glass")}>
         <div className="mobile-settings-card">
@@ -433,6 +561,24 @@ export function MobileSettings({
             <span className="mobile-settings-label">{t("Glass")}</span>
             <span className="mobile-settings-value">
               {t(glass.effect === "liquid" ? "Liquid glass" : glass.effect === "frosted" ? "Frosted glass" : "Solid")}
+            </span>
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      </section>
+      <section
+        className="mobile-settings-group"
+        aria-label={t("Archived conversations")}
+      >
+        <div className="mobile-settings-card">
+          <button
+            type="button"
+            className="mobile-settings-row"
+            onClick={() => onPageChange("archive")}
+          >
+            <SettingsIcon name="archive" />
+            <span className="mobile-settings-label">
+              {t("Archived conversations")}
             </span>
             <ChevronRight size={18} />
           </button>

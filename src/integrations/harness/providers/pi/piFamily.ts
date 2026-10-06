@@ -617,7 +617,7 @@ async function startLive(
       INIT_TIMEOUT_MS,
     );
     if (expectedSessionId && providerSessionIdFromState(stateFrame.data) !== expectedSessionId)
-      throw new Error("Pi did not resume the imported session");
+      throw new Error(`${flavor.label} did not resume the imported session`);
     bindState(flavor, input.sessionId, live, stateFrame.data);
     await applyModel(flavor, live, input);
     if (live.providerSessionId) {
@@ -1193,23 +1193,34 @@ async function applyModel(
         ? model.contextWindow
         : undefined;
     if (window && window > 0) live.contextWindow = window;
+    if (flavor.id === "pi") {
+      // Model selection can also change the native thinking level.
+      const state = await live.rpc.request({ type: "get_state" }, STATS_TIMEOUT_MS);
+      bindState(flavor, input.sessionId, live, state.data);
+    }
   } else if (ref) {
     live.nativeModel = native;
   }
 
   if (flavor.id === "pi") await refreshPiThinking(live);
   const thinking = input.modelSettings?.thinking;
-  if (isPiThinkingLevel(thinking) && thinking !== live.thinking) {
-    if (flavor.id === "pi" && live.thinkingLevels?.length && !live.thinkingLevels.includes(thinking)) {
-      publishPiThinking(live);
-      throw new Error(`Thinking level ${thinking} is unavailable for the current Pi model`);
-    }
+  if (isPiThinkingLevel(thinking) && thinking !== live.thinking &&
+      (flavor.id !== "pi" || live.thinkingLevels?.length)) {
     const update = live.rpc.request({ type: "set_thinking_level", level: thinking });
     if (flavor.id === "pi") {
-      try { await update; }
+      try {
+        await update;
+        // Pi clamps stale/default choices to the active model's capabilities.
+        // Its response is only an acknowledgement, so read the effective value
+        // instead of overwriting a native thinking_level_changed event.
+        const state = await live.rpc.request({ type: "get_state" }, STATS_TIMEOUT_MS);
+        bindState(flavor, input.sessionId, live, state.data);
+      }
       catch (error) { publishPiThinking(live); throw error; }
-    } else await update.catch(() => undefined);
-    live.thinking = thinking;
+    } else {
+      await update.catch(() => undefined);
+      live.thinking = thinking;
+    }
     if (flavor.id === "pi") publishPiThinking(live);
   }
 

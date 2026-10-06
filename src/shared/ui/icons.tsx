@@ -9,6 +9,7 @@ import AddSquareIcon from "@hugeicons/core-free-icons/AddSquareIcon";
 import AlertCircleIcon from "@hugeicons/core-free-icons/AlertCircleIcon";
 import AppWindowIcon from "@hugeicons/core-free-icons/AppWindowIcon";
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon";
+import FileImportIcon from "@hugeicons/core-free-icons/FileImportIcon";
 import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon";
 import ArrowExpand01Icon from "@hugeicons/core-free-icons/ArrowExpand01Icon";
 import ArrowLeft01Icon from "@hugeicons/core-free-icons/ArrowLeft01Icon";
@@ -33,8 +34,8 @@ import Clock01Icon from "@hugeicons/core-free-icons/Clock01Icon";
 import ColorPickerIcon from "@hugeicons/core-free-icons/ColorPickerIcon";
 import Comment01Icon from "@hugeicons/core-free-icons/Comment01Icon";
 import CommentAdd01Icon from "@hugeicons/core-free-icons/CommentAdd01Icon";
-import Home01Icon from "@hugeicons/core-free-icons/Home01Icon";
 import ComputerIcon from "@hugeicons/core-free-icons/ComputerIcon";
+import Home01Icon from "@hugeicons/core-free-icons/Home01Icon";
 import ComputerTerminal01Icon from "@hugeicons/core-free-icons/ComputerTerminal01Icon";
 import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon";
 import CursorMagicSelection04Icon from "@hugeicons/core-free-icons/CursorMagicSelection04Icon";
@@ -72,6 +73,9 @@ import LayoutTopIcon from "@hugeicons/core-free-icons/LayoutTopIcon";
 import LeftToRightListBulletIcon from "@hugeicons/core-free-icons/LeftToRightListBulletIcon";
 import ListEndIcon from "@hugeicons/core-free-icons/ListEndIcon";
 import LinkSquare02Icon from "@hugeicons/core-free-icons/LinkSquare02Icon";
+import Link01Icon from "@hugeicons/core-free-icons/Link01Icon";
+import LaptopIcon from "@hugeicons/core-free-icons/LaptopIcon";
+import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon";
 import Loading03Icon from "@hugeicons/core-free-icons/Loading03Icon";
 import MagicWand01Icon from "@hugeicons/core-free-icons/MagicWand01Icon";
 import MessageMultiple01Icon from "@hugeicons/core-free-icons/MessageMultiple01Icon";
@@ -107,7 +111,7 @@ import UngroupItemsIcon from "@hugeicons/core-free-icons/UngroupItemsIcon";
 import ViewIcon from "@hugeicons/core-free-icons/ViewIcon";
 import WholeWordIcon from "@hugeicons/core-free-icons/WholeWordIcon";
 import Wrench01Icon from "@hugeicons/core-free-icons/Wrench01Icon";
-import { forwardRef, type Ref } from "react";
+import { forwardRef, type CSSProperties, type Ref } from "react";
 
 /** Props shared by every chrome icon. `icon` is filled in by the named wrappers. */
 export type IconProps = Omit<HugeiconsIconProps, "icon">;
@@ -116,7 +120,7 @@ export type IconComponent = ReturnType<typeof wrap>;
 
 function wrap(icon: IconSvgElement, name: string) {
   const Component = forwardRef(function Icon(
-    { strokeWidth = 1.75, ...props }: IconProps,
+    { strokeWidth = 1.75, style, ...props }: IconProps,
     ref: Ref<SVGSVGElement>,
   ) {
     return (
@@ -125,6 +129,13 @@ function wrap(icon: IconSvgElement, name: string) {
         icon={icon}
         strokeWidth={strokeWidth}
         {...props}
+        data-ui-icon={name}
+        style={{
+          "--ui-icon-stroke-width": props.absoluteStrokeWidth
+            ? (strokeWidth * 24) / Number(props.size ?? 24)
+            : strokeWidth,
+          ...style,
+        } as CSSProperties}
       />
     );
   });
@@ -162,6 +173,7 @@ const UnfoldVerticalIcon: IconSvgElement = [
 export const AlertCircle = wrap(AlertCircleIcon, "AlertCircle");
 export const AppWindow = wrap(AppWindowIcon, "AppWindow");
 export const Archive = wrap(Archive02Icon, "Archive");
+export const FileImport = wrap(FileImportIcon, "FileImport");
 export const ArrowDownCircle = wrap(CircleArrowDown01Icon, "ArrowDownCircle");
 export const ArrowLeft = wrap(ArrowLeft01Icon, "ArrowLeft");
 export const MoveLeft = wrap(ArrowLeft02Icon, "MoveLeft");
@@ -195,14 +207,17 @@ export const CursorMagicSelection = wrap(
 );
 export const DashboardSquare = wrap(DashboardSquare01Icon, "DashboardSquare");
 export const ExternalLink = wrap(LinkSquare02Icon, "ExternalLink");
+export const Link = wrap(Link01Icon, "Link");
+export const Laptop = wrap(LaptopIcon, "Laptop");
+export const Code = wrap(SourceCodeIcon, "Code");
 export const File = wrap(File01Icon, "File");
 export const FileDiff = wrap(FileDiffIcon, "FileDiff");
 export const FilePlus = wrap(FileAddIcon, "FilePlus");
 export const FilePlusCorner = wrap(FilePlusCornerIcon, "FilePlusCorner");
 export const FileScript = wrap(FileScriptIcon, "FileScript");
 export const FoldVertical = wrap(FoldVerticalIcon, "FoldVertical");
-export const Home = wrap(Home01Icon, "Home");
 export const Folder = wrap(Folder01Icon, "Folder");
+export const Home = wrap(Home01Icon, "Home");
 export const FolderOpen = wrap(FolderOpenIcon, "FolderOpen");
 export const Eye = wrap(ViewIcon, "Eye");
 export const FolderPlus = wrap(FolderAddIcon, "FolderPlus");

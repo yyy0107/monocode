@@ -54,6 +54,7 @@ export function useSheetDrag(
     };
     const canStart = (target: EventTarget | null) => {
       if (closing || !(target instanceof Element)) return false;
+      if (target.closest(".mobile-sheet") !== element) return false;
       if (target.closest(".mobile-sheet-grip")) return true;
       if (target.closest("input, textarea, select, [contenteditable]"))
         return false;
@@ -133,6 +134,7 @@ export function useSheetDrag(
     const pointerDown = (event: PointerEvent) => {
       if (event.pointerType === "touch" || event.button !== 0) return;
       if (!(event.target instanceof Element)) return;
+      if (event.target.closest(".mobile-sheet") !== element) return;
       if (!event.target.closest(".mobile-sheet-grip") || closing) return;
       element.setPointerCapture?.(event.pointerId);
       begin(event.clientY);

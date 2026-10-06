@@ -774,8 +774,15 @@ export function modelsFromRpcData(
     seen.add(nativeId);
     const name = stringField(model, "name") || modelId;
     const contextWindow = numberField(model, "contextWindow");
+    const thinkingLevelMap = asRecord(model.thinkingLevelMap);
+    // Pi's catalog carries the same capability map used by its live session.
+    // null disables a level; xhigh/max require an explicit mapping.
+    const levels = flavor.id === "pi" ? PI_THINKING_LEVELS.filter(level => {
+      const mapped = thinkingLevelMap?.[level];
+      return mapped !== null && ((level !== "xhigh" && level !== "max") || mapped !== undefined);
+    }) : PI_THINKING_LEVELS;
     const settings = [
-      thinkingSetting(model.reasoning === true),
+      thinkingSetting(model.reasoning === true, levels),
       flavor.id === "omp" ? fastModeSetting() : undefined,
     ].filter((setting): setting is ModelSetting => setting != null);
     models.push({
@@ -791,14 +798,19 @@ export function modelsFromRpcData(
   return models.sort((left, right) => left.name.localeCompare(right.name));
 }
 
-export function thinkingSetting(reasoning: boolean): ModelSetting | undefined {
-  if (!reasoning) return undefined;
+export function thinkingSetting(
+  reasoning: boolean,
+  levels: readonly PiThinkingLevel[] = PI_THINKING_LEVELS,
+): ModelSetting | undefined {
+  if (!reasoning || !levels.length) return undefined;
+  const value = levels.find(level => PI_THINKING_LEVELS.indexOf(level) >= PI_THINKING_LEVELS.indexOf("medium"))
+    ?? levels[levels.length - 1]!;
   return {
     id: "thinking",
     label: "Thinking",
     kind: "select",
-    value: "medium",
-    options: PI_THINKING_LEVELS.map((value) => ({
+    value,
+    options: levels.map((value) => ({
       value,
       label: thinkingLabel(value),
     })),

@@ -1,7 +1,7 @@
-import type { OrchestrationRun } from "../../orchestration/model/orchestration";
+import type { OrchestrationReadRun } from "../../orchestration/model/orchestrationClient";
 import { summarizeOrchestration } from "../../orchestration/model/orchestrationSummary";
 import { fuzzyMatch } from "../../../shared/lib/fuzzy";
-import { projectName } from "../../../shared/lib/paths";
+import { pathKey, projectName } from "../../../shared/lib/paths";
 import { sameProjectPath } from "../../projects/model/recents";
 import {
   sessionDisplayTitle,
@@ -151,13 +151,18 @@ function gitOverlayForCwd(cwd: string, git?: SessionGitHint): SessionGitHint {
   return { ...git, repo: name };
 }
 
-export function historyWithLiveSessions(
+type HistoryOverlayContext = {
+  workerIds: Set<string>;
+  inboxIds: Set<string>;
+  byLead: Map<string, OrchestrationReadRun>;
+  sessions: Session[];
+};
+
+function historyOverlayContext(
   history: SessionSummary[],
   sessions: Session[],
-  cwd: string,
-  git?: SessionGitHint,
-  runs: readonly OrchestrationRun[] = [],
-): SessionSummary[] {
+  runs: readonly OrchestrationReadRun[],
+): HistoryOverlayContext {
   const workerIds = new Set([
     ...sessions
       .filter((session) => session.orchestrationLeadId)
@@ -170,17 +175,106 @@ export function historyWithLiveSessions(
   const inboxIds = new Set(
     sessions.filter((session) => session.inboxAsk).map((session) => session.id),
   );
-  let rows = history.filter(
-    (entry) =>
-      !inboxIds.has(entry.id) &&
-      !entry.orchestrationLeadId &&
-      !workerIds.has(entry.id) &&
-      sameProjectPath(entry.cwd, cwd),
+  return {
+    workerIds,
+    inboxIds,
+    byLead: new Map(runs.map((run) => [run.leadId, run])),
+    sessions,
+  };
+}
+
+function visibleHistoryRow(
+  entry: SessionSummary,
+  context: HistoryOverlayContext,
+) {
+  return (
+    !context.inboxIds.has(entry.id) &&
+    !entry.orchestrationLeadId &&
+    !context.workerIds.has(entry.id)
   );
+}
+
+function visibleLiveSession(session: Session, context: HistoryOverlayContext) {
+  return !session.inboxAsk && !context.workerIds.has(session.id);
+}
+
+export function historyWithLiveSessions(
+  history: SessionSummary[],
+  sessions: Session[],
+  cwd: string,
+  git?: SessionGitHint,
+  runs: readonly OrchestrationReadRun[] = [],
+): SessionSummary[] {
+  const context = historyOverlayContext(history, sessions, runs);
+  const rows = history.filter(
+    (entry) =>
+      visibleHistoryRow(entry, context) && sameProjectPath(entry.cwd, cwd),
+  );
+  const liveSessions = sessions.filter(
+    (session) =>
+      visibleLiveSession(session, context) && sameProjectPath(session.cwd, cwd),
+  );
+  return overlayProjectHistory(rows, liveSessions, cwd, git, context);
+}
+
+/** Group once instead of rescanning every project for each session update. */
+export function allProjectHistoryWithLiveSessions(
+  history: SessionSummary[],
+  sessions: Session[],
+  gitForProject?: (cwd: string) => SessionGitHint | undefined,
+  runs: readonly OrchestrationReadRun[] = [],
+): SessionSummary[] {
+  // Ownership is global: a lead can own a worker in another checkout/project.
+  const context = historyOverlayContext(history, sessions, runs);
+  const projects = new Map<
+    string,
+    { cwd: string; rows: SessionSummary[]; sessions: Session[] }
+  >();
+  const project = (cwd: string) => {
+    const key = pathKey(cwd);
+    const previous = projects.get(key);
+    if (previous) {
+      previous.cwd = cwd;
+      return previous;
+    }
+    const next = {
+      cwd,
+      rows: [] as SessionSummary[],
+      sessions: [] as Session[],
+    };
+    projects.set(key, next);
+    return next;
+  };
+  for (const row of history) {
+    const bucket = project(row.cwd);
+    if (visibleHistoryRow(row, context)) bucket.rows.push(row);
+  }
+  for (const session of sessions) {
+    const bucket = project(session.cwd);
+    if (visibleLiveSession(session, context)) bucket.sessions.push(session);
+  }
+  return [...projects.values()].flatMap(
+    ({ cwd, rows, sessions: liveSessions }) =>
+      overlayProjectHistory(
+        rows,
+        liveSessions,
+        cwd,
+        gitForProject?.(cwd),
+        context,
+      ),
+  );
+}
+
+function overlayProjectHistory(
+  initialRows: SessionSummary[],
+  sessions: Session[],
+  cwd: string,
+  git: SessionGitHint | undefined,
+  context: HistoryOverlayContext,
+): SessionSummary[] {
+  let rows = initialRows;
   const hint = projectGitHint(rows, gitOverlayForCwd(cwd, git));
   for (const session of sessions) {
-    if (session.inboxAsk || workerIds.has(session.id)) continue;
-    if (!sameProjectPath(session.cwd, cwd)) continue;
     const live = session.busy || sessionNeedsInput(session);
     if (!shouldPersistSession(session) && !live) continue;
     const storedIndex = rows.findIndex((row) => row.id === session.id);
@@ -217,12 +311,14 @@ export function historyWithLiveSessions(
     };
     rows = mergeHistorySummary(rows, summaryFromSession(session, sessionHint));
   }
-  const byLead = new Map(runs.map((run) => [run.leadId, run]));
   return rows
     .map((row) => {
-      const run = byLead.get(row.id);
+      const run = context.byLead.get(row.id);
       return run
-        ? { ...row, orchestration: summarizeOrchestration(run, sessions) }
+        ? {
+            ...row,
+            orchestration: summarizeOrchestration(run, context.sessions),
+          }
         : row;
     })
     .sort(compareSessionSummaries);

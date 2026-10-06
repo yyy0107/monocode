@@ -98,6 +98,11 @@ saved conversations and supported remote interactions.
 - Dialog expiration while editing; styled option values, whitespace and newlines.
 - Duplicate/malformed commands and reserved names.
 - A model supports only thinking off; a query/set fails or the model changes.
+- A saved/catalog default such as medium is absent from the active model's
+  choices: Pi resolves the requested level, the turn continues, and the effective
+  native setting is synchronized and persisted instead of reporting a local error.
+- Before the first turn, the picker excludes thinking levels disabled by Pi's
+  model capability metadata; users are not offered known unsupported choices.
 - Repeated progress and final image content; invalid or oversized images.
 - Concurrent provider sessions, reconnect and attachment access isolation.
 

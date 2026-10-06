@@ -2,10 +2,12 @@ import {
   memo,
   useCallback,
   useEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { setGrabbing, suppressTextSelection } from "../../../shared/lib/drag";
@@ -53,8 +55,14 @@ import {
 import { FilePane } from "../../files/ui/FilePane";
 import { SessionPane } from "../../sessions/ui/SessionPane";
 import type { TranscriptPool } from "../../sessions/ui/TranscriptPool";
-import type { SessionFolderTarget } from "../../sessions/model/sessionFolders";
 import type { Worktree } from "../../source-control/model/worktrees";
+import {
+  SessionSurfaceToolbar,
+  SessionSurfaceActions,
+  type SessionSurfaceMode,
+} from "./SessionSurfaceToolbar";
+import { SessionSurfacePane } from "./SessionSurfacePane";
+import { sessionSurfaceGrid } from "./sessionSurfaceGrid";
 
 type Shared = {
   workspaceSwitchingSessionId?: string;
@@ -64,6 +72,10 @@ type Shared = {
   dirtyFileIds: Set<string>;
   fileErrorCounts: Map<string, number>;
   focusedId: string;
+  surfaceMode?: SessionSurfaceMode;
+  onSurfaceModeChange?: (mode: SessionSurfaceMode) => void;
+  windowControls?: ReactNode;
+  reserveWindowNavigationSpace?: boolean;
   addToChatSessionId?: string;
   composerFocused: boolean;
   composerFocusToken?: number;
@@ -109,10 +121,6 @@ type Shared = {
   onRemoveDraft: (sessionId: string, draftBlockId: string) => boolean | void;
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
-  onPlaceSessionInFolder: (
-    sessionId: string,
-    target: SessionFolderTarget,
-  ) => void;
   onDeleteQueuedMessage: (sessionId: string, messageId: string) => void;
   onEditQueuedMessage: (
     sessionId: string,
@@ -144,6 +152,7 @@ type Shared = {
   ) => void;
   onQuestionInteraction?: (sessionId: string, requestId: number) => void;
   onOpenFile: (path: string) => void;
+  onOpenSessionFile?: (path: string, sessionId: string) => void;
   editorNavigation?: EditorNavigationTarget | null;
   onOpenDiff: (
     path?: string,
@@ -211,6 +220,10 @@ function PaneTreeComponent({
   dirtyFileIds,
   fileErrorCounts,
   focusedId,
+  surfaceMode = "split",
+  onSurfaceModeChange,
+  windowControls,
+  reserveWindowNavigationSpace = false,
   addToChatSessionId,
   composerFocused,
   composerFocusToken,
@@ -241,7 +254,6 @@ function PaneTreeComponent({
   onSubmit,
   onStop,
   onCompactContext,
-  onPlaceSessionInFolder,
   onDeleteQueuedMessage,
   onEditQueuedMessage,
   onQueuedMessageEditingChange,
@@ -261,6 +273,7 @@ function PaneTreeComponent({
   onQuestionReply,
   onQuestionInteraction,
   onOpenFile,
+  onOpenSessionFile,
   editorNavigation,
   onOpenDiff,
   onOpenPlan,
@@ -283,6 +296,7 @@ function PaneTreeComponent({
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   const [draft, setDraft] = useState<LayoutNode | null>(null);
+  const [resizing, setResizing] = useState(false);
   const [paneDrag, setPaneDrag] = useState<PaneDrag | null>(null);
   const externalDrop = useExternalPaneDrop(visible);
   const drop = paneDrag ?? externalDrop;
@@ -292,14 +306,64 @@ function PaneTreeComponent({
   onDetachPaneRef.current = onDetachPane;
   const onFocusRef = useRef(onFocus);
   onFocusRef.current = onFocus;
+  // Callers pass a fresh arrow per render. Reading it through a ref keeps the
+  // toolbar props and session headers stable, so `SessionPane`'s shallow memo
+  // can skip renders driven by another session's stream.
+  const surfaceModeChangeRef = useRef(onSurfaceModeChange);
+  surfaceModeChangeRef.current = onSurfaceModeChange;
+  const stableSurfaceModeChange = useCallback(
+    (mode: SessionSurfaceMode) => surfaceModeChangeRef.current?.(mode),
+    [],
+  );
+  const surfaceModeChange = onSurfaceModeChange
+    ? stableSurfaceModeChange
+    : undefined;
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const fileActionsRef = useRef({ onOpenFile, onOpenSessionFile });
+  fileActionsRef.current = { onOpenFile, onOpenSessionFile };
+  const sessionFileHandlers = useRef(new Map<string, (path: string) => void>());
+
+  useEffect(() => {
+    const paneIds = new Set(layoutLeaves(layout).map((leaf) => leaf.id));
+    for (const sessionId of sessionFileHandlers.current.keys()) {
+      if (
+        !paneIds.has(sessionId) ||
+        !sessions.some((session) => session.id === sessionId)
+      ) {
+        sessionFileHandlers.current.delete(sessionId);
+      }
+    }
+  }, [layout, sessions]);
+
+  const openSessionFileFor = (sessionId: string) => {
+    const cached = sessionFileHandlers.current.get(sessionId);
+    if (cached) return cached;
+    const handler = (path: string) => {
+      const actions = fileActionsRef.current;
+      if (actions.onOpenSessionFile) actions.onOpenSessionFile(path, sessionId);
+      else actions.onOpenFile(path);
+    };
+    sessionFileHandlers.current.set(sessionId, handler);
+    return handler;
+  };
+  const splitSurfaceActions = useMemo(
+    () => (
+      <SessionSurfaceActions
+        mode="split"
+        onModeChange={surfaceModeChange}
+        windowControls={windowControls}
+      />
+    ),
+    [surfaceModeChange, windowControls],
+  );
 
   useEffect(() => {
     setDraft(null);
   }, [layout]);
 
-  // A sash drag re-renders this tree every frame. `SessionPane` compares props
-  // shallowly, so handing it a fresh drag handler each frame would re-render
-  // the whole session subtree (transcript, composer, picker) per frame.
+  // A sash drag re-renders this tree every frame. Keep session callbacks and
+  // file-pane controls stable so memoized transcript/editor subtrees can skip it.
   const dragHandlers = useRef(
     new Map<string, (event: ReactPointerEvent<HTMLElement>) => void>(),
   );
@@ -316,6 +380,89 @@ function PaneTreeComponent({
   const leaves = layoutLeaves(tree);
   const sashes = layoutSashes(tree);
   const inSplit = leaves.length > 1;
+  const sessionLeaves = leaves.filter((leaf) =>
+    sessions.some((session) => session.id === leaf.id),
+  );
+  // `editorPanes` is rebuilt by the caller every render; keep the previous
+  // array while its panes are the same so `toolbarProps` stays stable.
+  const ownedPanesRef = useRef<EditorPane[]>([]);
+  const ownedPanes = useMemo(() => {
+    const paneIds = new Set(layoutLeaves(layout).map((leaf) => leaf.id));
+    const next = editorPanes.filter((pane) => paneIds.has(pane.id));
+    const previous = ownedPanesRef.current;
+    return next.length === previous.length &&
+      next.every((pane, index) => pane === previous[index])
+      ? previous
+      : next;
+  }, [editorPanes, layout]);
+  ownedPanesRef.current = ownedPanes;
+  // Multi-chat split layouts retain their existing pane and sash behavior.
+  const ownerSession =
+    sessionLeaves.length === 1
+      ? sessions.find((session) => session.id === sessionLeaves[0].id)
+      : undefined;
+  const hasOwnerSession = !!ownerSession;
+  const unified = hasOwnerSession && surfaceMode === "unified";
+  const splitToolHost =
+    ownerSession &&
+    leaves.find(
+      (leaf) =>
+        ownedPanes.some((pane) => pane.id === leaf.id) &&
+        leaf.rect.y < PANE_BOUNDARY_EPSILON &&
+        leaf.rect.x + leaf.rect.w > 1 - PANE_BOUNDARY_EPSILON,
+    );
+  const selectedId = leaves.some((leaf) => leaf.id === focusedId)
+    ? focusedId
+    : (ownerSession?.id ?? leaves[0]?.id);
+  const surfaceGrid = ownerSession
+    ? sessionSurfaceGrid(leaves, unified ? selectedId : undefined)
+    : undefined;
+  const toolbarProps = useMemo(
+    () => ({
+      panes: ownedPanes,
+      focusedId: selectedId ?? "",
+      mode: unified ? ("unified" as const) : ("split" as const),
+      dirtyFileIds,
+      fileErrorCounts,
+      onFocus,
+      onSelectFile,
+      onCloseFile,
+      onCloseOtherFiles,
+      onPinFile,
+      onReorderFiles,
+      onModeChange: surfaceModeChange,
+      windowControls:
+        hasOwnerSession && (unified || !splitToolHost)
+          ? windowControls
+          : undefined,
+      reserveWindowNavigationSpace:
+        hasOwnerSession && reserveWindowNavigationSpace,
+    }),
+    [
+      ownedPanes,
+      selectedId,
+      unified,
+      dirtyFileIds,
+      fileErrorCounts,
+      onFocus,
+      onSelectFile,
+      onCloseFile,
+      onCloseOtherFiles,
+      onPinFile,
+      onReorderFiles,
+      surfaceModeChange,
+      hasOwnerSession,
+      splitToolHost?.id,
+      windowControls,
+      reserveWindowNavigationSpace,
+    ],
+  );
+  const gridStyle: CSSProperties | undefined = surfaceGrid
+    ? {
+        ...surfaceGrid.style,
+        transitionProperty: resizing ? "none" : undefined,
+      }
+    : undefined;
 
   // A pane split into an existing layout slides in from the edge it was added
   // on, like the linked work item panel. The neighbours reflow once up front;
@@ -424,178 +571,286 @@ function PaneTreeComponent({
     [],
   );
 
+  // Keyed by the session ids only: a streamed token replaces a `Session`
+  // object every frame, and a new header function would defeat the memo on
+  // every visible `SessionPane`. The header reads the latest session at call
+  // time, which is during that pane's own render.
+  const sessionIdsKey = sessions.map((session) => session.id).join("\n");
+  const sessionHeaders = useMemo(
+    () =>
+      new Map(
+        (sessionIdsKey ? sessionIdsKey.split("\n") : []).map((sessionId) => [
+          sessionId,
+          unified
+            ? undefined
+            : (resolvedSession: Session) => {
+                const session =
+                  sessionsRef.current.find((entry) => entry.id === sessionId) ??
+                  resolvedSession;
+                return (
+                  <SessionSurfaceToolbar
+                    {...toolbarProps}
+                    session={{
+                      ...session,
+                      title: resolvedSession.title,
+                      harness: resolvedSession.harness,
+                    }}
+                    showTools={false}
+                    onModeChange={
+                      hasOwnerSession && !splitToolHost
+                        ? surfaceModeChange
+                        : undefined
+                    }
+                    onPaneDragStart={
+                      inSplit ? paneDragStartFor(sessionId) : undefined
+                    }
+                    onClosePane={() => onClose(sessionId)}
+                    paneFocused={inSplit ? focusedId === sessionId : undefined}
+                  />
+                );
+              },
+        ]),
+      ),
+    [
+      sessionIdsKey,
+      unified,
+      toolbarProps,
+      hasOwnerSession,
+      splitToolHost?.id,
+      surfaceModeChange,
+      inSplit,
+      onClose,
+      focusedId,
+    ],
+  );
+
   return (
-    <div ref={treeRef} className="relative h-full min-h-0 min-w-0">
-      {leaves.map((leaf) => {
-        const editorPane = editorPanes.find((pane) => pane.id === leaf.id);
-        const session = sessions.find((entry) => entry.id === leaf.id);
-        const dragging = drop?.fromId === leaf.id;
-        const onPaneDragStart = inSplit ? paneDragStartFor(leaf.id) : undefined;
-        const backgroundStyle = {
-          "--chat-background-left": `${(-leaf.rect.x / leaf.rect.w) * 100}%`,
-          "--chat-background-top": `${(-leaf.rect.y / leaf.rect.h) * 100}%`,
-          "--chat-background-width": `${100 / leaf.rect.w}%`,
-          "--chat-background-height": `${100 / leaf.rect.h}%`,
-        } as CSSProperties;
-        return (
-          <div
-            key={leaf.id}
-            data-pane-id={leaf.id}
-            className={`absolute flex min-h-0 min-w-0 flex-col overflow-hidden ${dragging ? "opacity-40" : ""}`}
-            // The new pane focuses its composer or editor while it is still
-            // offscreen, and focus scrolls this clip box to reveal it, which
-            // fights the slide. Scroll events land before paint, so undoing
-            // it here never shows.
-            onScroll={(event) => {
-              if (!enteringPanes.current.has(leaf.id)) return;
-              event.currentTarget.scrollLeft = 0;
-              event.currentTarget.scrollTop = 0;
-            }}
-            style={{
-              left: `${leaf.rect.x * 100}%`,
-              top: `${leaf.rect.y * 100}%`,
-              width: `${leaf.rect.w * 100}%`,
-              height: `${leaf.rect.h * 100}%`,
-              ...backgroundStyle,
-            }}
-          >
-            {drop && drop.overId === leaf.id && drop.fromId !== leaf.id ? (
-              <PaneDropHint edge={drop.edge} />
-            ) : null}
-            <div
-              data-pane-enter={enteringPanes.current.get(leaf.id)}
-              onAnimationEnd={(event) => {
-                if (event.animationName !== "pane-enter") return;
-                enteringPanes.current.delete(leaf.id);
-                rerender();
-              }}
-              className="flex min-h-0 min-w-0 flex-1 flex-col"
-              style={{
-                paddingLeft:
-                  leaf.rect.x > PANE_BOUNDARY_EPSILON ? 16 : undefined,
-                paddingTop:
-                  leaf.rect.y > PANE_BOUNDARY_EPSILON ? 16 : undefined,
-              }}
-            >
-              {editorPane ? (
-                <FilePane
-                  pane={editorPane}
-                  visible={visible}
-                  focused={focusedId === editorPane.id}
-                  showTabs={inSplit || editorPane.files.length > 1}
-                  dirtyFileIds={dirtyFileIds}
-                  fileErrorCounts={fileErrorCounts}
-                  sessions={sessions}
-                  onFocus={onFocus}
-                  onSelectFile={onSelectFile}
-                  onCloseFile={onCloseFile}
-                  onCloseOtherFiles={onCloseOtherFiles}
-                  onPinFile={onPinFile}
-                  onReorderFiles={onReorderFiles}
-                  onDirtyChange={onFileDirtyChange}
-                  onErrorCountChange={onFileErrorCountChange}
-                  onOpenFile={onOpenFile}
-                  onUpdatePlan={onUpdatePlan}
-                  onBuildPlan={onBuildPlan}
-                  editorNavigation={editorNavigation}
-                  onPaneDragStart={onPaneDragStart}
-                  onTerminalMetaChange={onTerminalMetaChange}
-                />
-              ) : session ? (
-                <SessionPane
-                  session={session}
-                  workspaceSwitchingSessionId={workspaceSwitchingSessionId}
-                  reviewUndoLocked={sessions.some(
-                    (other) =>
-                      other.id !== session.id &&
-                      other.busy &&
-                      sameProjectPath(
-                        sessionWorkCwd(other),
-                        sessionWorkCwd(session),
-                      ),
-                  )}
-                  visible={visible}
-                  focused={focusedId === session.id}
-                  addToChatTarget={addToChatSessionId === session.id}
-                  inSplit={inSplit}
-                  composerFocused={composerFocused}
-                  composerFocusToken={composerFocusToken}
-                  recents={recents}
-                  hideProjectPicker={hideProjectPicker}
-                  onFocus={onFocus}
-                  onClose={onClose}
-                  onCwdChange={onCwdChange}
-                  onBranchChange={onBranchChange}
-                  onWorktreeChange={onWorktreeChange}
-                  onWorkspaceModeChange={onWorkspaceModeChange}
-                  onWorktreeBaseChange={onWorktreeBaseChange}
-                  onManageWorktrees={onManageWorktrees}
-                  onModelChange={onModelChange}
-                  onModelSettingsChange={onModelSettingsChange}
-                  onRuntimeModeChange={onRuntimeModeChange}
-                  onSaveDraft={onSaveDraft}
-                  onRemoveDraft={onRemoveDraft}
-                  onSubmit={onSubmit}
-                  onStop={onStop}
-                  onCompactContext={onCompactContext}
-                  onPlaceSessionInFolder={onPlaceSessionInFolder}
-                  onDeleteQueuedMessage={onDeleteQueuedMessage}
-                  onEditQueuedMessage={onEditQueuedMessage}
-                  onQueuedMessageEditingChange={onQueuedMessageEditingChange}
-                  onSteerQueuedMessage={onSteerQueuedMessage}
-                  onResumeQueue={onResumeQueue}
-                  onUsageLimitResume={onUsageLimitResume}
-                  onUsageLimitResumeAtReset={onUsageLimitResumeAtReset}
-                  onUsageLimitDismiss={onUsageLimitDismiss}
-                  onInboxCardDismiss={onInboxCardDismiss}
-                  onLinkedWorkItemUpdateCardDismiss={
-                    onLinkedWorkItemUpdateCardDismiss
-                  }
-                  onNoteCardDismiss={onNoteCardDismiss}
-                  onHandoffCardDismiss={onHandoffCardDismiss}
-                  onOpenLinkedWorkItem={onOpenLinkedWorkItem}
-                  onArchiveSession={onArchiveSession}
-                  onDeleteSession={onDeleteSession}
-                  onApproval={onApproval}
-                  onQuestionReply={onQuestionReply}
-                  onQuestionInteraction={onQuestionInteraction}
-                  onOpenFile={onOpenFile}
-                  onOpenDiff={onOpenDiff}
-                  onOpenPlan={onOpenPlan}
-                  onBuildPlan={onBuildPlan}
-                  onSecondOpinion={onSecondOpinion}
-                  onHandoff={onHandoff}
-                  onBtwSubmit={onBtwSubmit}
-                  onBtwRetry={onBtwRetry}
-                  onBtwDelete={onBtwDelete}
-                  onBtwStop={onBtwStop}
-                  onBtwModelChange={onBtwModelChange}
-                  onNewTerminal={onNewTerminal}
-                  onPaneDragStart={onPaneDragStart}
-                  transcriptPool={transcriptPool}
-                />
-              ) : null}
-            </div>
-          </div>
-        );
-      })}
-      {sashes.map((sash) => (
-        <Sash
-          key={`${sash.splitId}:${sash.index}`}
-          sash={sash}
-          containerRef={treeRef}
-          onPreview={(ratio) =>
-            setDraft(
-              setSplitRatio(layoutRef.current, sash.splitId, sash.index, ratio),
-            )
-          }
-          onCommit={(ratio) => {
-            setDraft(null);
-            onRatio(sash.splitId, sash.index, ratio);
-          }}
-          onCancel={() => setDraft(null)}
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col">
+      {unified && ownerSession ? (
+        <SessionSurfaceToolbar
+          {...toolbarProps}
+          session={ownerSession}
+          showTools
+          onClosePane={() => onClose(ownerSession.id)}
         />
-      ))}
+      ) : null}
+      <div
+        ref={treeRef}
+        data-pane-tree-layout
+        data-surface-mode={unified ? "unified" : "split"}
+        className={`relative min-h-0 min-w-0 flex-1 ${surfaceGrid ? "animated-collapse-size grid" : ""}`}
+        style={gridStyle}
+      >
+        {leaves.map((leaf) => {
+          const editorPane = editorPanes.find((pane) => pane.id === leaf.id);
+          const session = sessions.find((entry) => entry.id === leaf.id);
+          const expanded = !unified || selectedId === leaf.id;
+          const paneVisible = visible && expanded;
+          const dragging = drop?.fromId === leaf.id;
+          const onPaneDragStart =
+            inSplit && !unified ? paneDragStartFor(leaf.id) : undefined;
+          const backgroundStyle = {
+            "--chat-background-left": `${unified ? 0 : (-leaf.rect.x / leaf.rect.w) * 100}%`,
+            "--chat-background-top": `${unified ? 0 : (-leaf.rect.y / leaf.rect.h) * 100}%`,
+            "--chat-background-width": `${unified ? 100 : 100 / leaf.rect.w}%`,
+            "--chat-background-height": `${unified ? 100 : 100 / leaf.rect.h}%`,
+          } as CSSProperties;
+          return (
+            <SessionSurfacePane
+              key={leaf.id}
+              id={leaf.id}
+              grid={!!surfaceGrid}
+              expanded={expanded}
+              visible={visible}
+              dragging={dragging}
+              // The new pane focuses its composer or editor while it is still
+              // offscreen, and focus scrolls this clip box to reveal it, which
+              // fights the slide. Scroll events land before paint, so undoing
+              // it here never shows.
+              onScroll={(event) => {
+                if (!enteringPanes.current.has(leaf.id)) return;
+                event.currentTarget.scrollLeft = 0;
+                event.currentTarget.scrollTop = 0;
+              }}
+              style={
+                surfaceGrid
+                  ? {
+                      ...surfaceGrid.placements.get(leaf.id),
+                      ...backgroundStyle,
+                    }
+                  : unified
+                    ? {
+                        inset: 0,
+                        ...backgroundStyle,
+                      }
+                    : {
+                        left: `${leaf.rect.x * 100}%`,
+                        top: `${leaf.rect.y * 100}%`,
+                        width: `${leaf.rect.w * 100}%`,
+                        height: `${leaf.rect.h * 100}%`,
+                        ...backgroundStyle,
+                      }
+              }
+            >
+              {drop && drop.overId === leaf.id && drop.fromId !== leaf.id ? (
+                <PaneDropHint edge={drop.edge} />
+              ) : null}
+              <div
+                data-pane-enter={enteringPanes.current.get(leaf.id)}
+                onAnimationEnd={(event) => {
+                  if (event.animationName !== "pane-enter") return;
+                  enteringPanes.current.delete(leaf.id);
+                  rerender();
+                }}
+                className="flex min-h-0 min-w-0 flex-1 flex-col"
+                style={{
+                  paddingLeft:
+                    !unified && leaf.rect.x > PANE_BOUNDARY_EPSILON
+                      ? 16
+                      : undefined,
+                  paddingTop:
+                    !unified && leaf.rect.y > PANE_BOUNDARY_EPSILON
+                      ? 16
+                      : undefined,
+                }}
+              >
+                {editorPane ? (
+                  <FilePane
+                    pane={editorPane}
+                    visible={paneVisible}
+                    focused={paneVisible && focusedId === editorPane.id}
+                    showTabs={
+                      !unified &&
+                      (inSplit ||
+                        editorPane.files.length > 1 ||
+                        splitToolHost?.id === editorPane.id)
+                    }
+                    tabsTrailing={
+                      !unified && splitToolHost?.id === editorPane.id
+                        ? splitSurfaceActions
+                        : undefined
+                    }
+                    dirtyFileIds={dirtyFileIds}
+                    fileErrorCounts={fileErrorCounts}
+                    sessions={sessions}
+                    onFocus={onFocus}
+                    onSelectFile={onSelectFile}
+                    onCloseFile={onCloseFile}
+                    onCloseOtherFiles={onCloseOtherFiles}
+                    onPinFile={onPinFile}
+                    onReorderFiles={onReorderFiles}
+                    onDirtyChange={onFileDirtyChange}
+                    onErrorCountChange={onFileErrorCountChange}
+                    onOpenFile={onOpenFile}
+                    onUpdatePlan={onUpdatePlan}
+                    onBuildPlan={onBuildPlan}
+                    editorNavigation={editorNavigation}
+                    onPaneDragStart={onPaneDragStart}
+                    onTerminalMetaChange={onTerminalMetaChange}
+                  />
+                ) : session ? (
+                  <SessionPane
+                    session={session}
+                    renderHeader={sessionHeaders.get(session.id)}
+                    workspaceSwitchingSessionId={workspaceSwitchingSessionId}
+                    reviewUndoLocked={sessions.some(
+                      (other) =>
+                        other.id !== session.id &&
+                        other.busy &&
+                        sameProjectPath(
+                          sessionWorkCwd(other),
+                          sessionWorkCwd(session),
+                        ),
+                    )}
+                    visible={paneVisible}
+                    focused={paneVisible && focusedId === session.id}
+                    addToChatTarget={addToChatSessionId === session.id}
+                    inSplit={inSplit && !unified}
+                    composerFocused={paneVisible && composerFocused}
+                    composerFocusToken={composerFocusToken}
+                    recents={recents}
+                    hideProjectPicker={hideProjectPicker}
+                    onFocus={onFocus}
+                    onClose={onClose}
+                    onCwdChange={onCwdChange}
+                    onBranchChange={onBranchChange}
+                    onWorktreeChange={onWorktreeChange}
+                    onWorkspaceModeChange={onWorkspaceModeChange}
+                    onWorktreeBaseChange={onWorktreeBaseChange}
+                    onManageWorktrees={onManageWorktrees}
+                    onModelChange={onModelChange}
+                    onModelSettingsChange={onModelSettingsChange}
+                    onRuntimeModeChange={onRuntimeModeChange}
+                    onSaveDraft={onSaveDraft}
+                    onRemoveDraft={onRemoveDraft}
+                    onSubmit={onSubmit}
+                    onStop={onStop}
+                    onCompactContext={onCompactContext}
+                    onDeleteQueuedMessage={onDeleteQueuedMessage}
+                    onEditQueuedMessage={onEditQueuedMessage}
+                    onQueuedMessageEditingChange={onQueuedMessageEditingChange}
+                    onSteerQueuedMessage={onSteerQueuedMessage}
+                    onResumeQueue={onResumeQueue}
+                    onUsageLimitResume={onUsageLimitResume}
+                    onUsageLimitResumeAtReset={onUsageLimitResumeAtReset}
+                    onUsageLimitDismiss={onUsageLimitDismiss}
+                    onInboxCardDismiss={onInboxCardDismiss}
+                    onLinkedWorkItemUpdateCardDismiss={
+                      onLinkedWorkItemUpdateCardDismiss
+                    }
+                    onNoteCardDismiss={onNoteCardDismiss}
+                    onHandoffCardDismiss={onHandoffCardDismiss}
+                    onOpenLinkedWorkItem={onOpenLinkedWorkItem}
+                    onArchiveSession={onArchiveSession}
+                    onDeleteSession={onDeleteSession}
+                    onApproval={onApproval}
+                    onQuestionReply={onQuestionReply}
+                    onQuestionInteraction={onQuestionInteraction}
+                    onOpenFile={openSessionFileFor(session.id)}
+                    onOpenDiff={onOpenDiff}
+                    onOpenPlan={onOpenPlan}
+                    onBuildPlan={onBuildPlan}
+                    onSecondOpinion={onSecondOpinion}
+                    onHandoff={onHandoff}
+                    onBtwSubmit={onBtwSubmit}
+                    onBtwRetry={onBtwRetry}
+                    onBtwDelete={onBtwDelete}
+                    onBtwStop={onBtwStop}
+                    onBtwModelChange={onBtwModelChange}
+                    onNewTerminal={onNewTerminal}
+                    onPaneDragStart={onPaneDragStart}
+                    transcriptPool={transcriptPool}
+                  />
+                ) : null}
+              </div>
+            </SessionSurfacePane>
+          );
+        })}
+        {!unified &&
+          sashes.map((sash) => (
+            <Sash
+              key={`${sash.splitId}:${sash.index}`}
+              sash={sash}
+              containerRef={treeRef}
+              onResizingChange={setResizing}
+              onPreview={(ratio) =>
+                setDraft(
+                  setSplitRatio(
+                    layoutRef.current,
+                    sash.splitId,
+                    sash.index,
+                    ratio,
+                  ),
+                )
+              }
+              onCommit={(ratio) => {
+                setDraft(null);
+                onRatio(sash.splitId, sash.index, ratio);
+              }}
+              onCancel={() => setDraft(null)}
+            />
+          ))}
+      </div>
     </div>
   );
 }
@@ -650,12 +905,14 @@ function Sash({
   onPreview,
   onCommit,
   onCancel,
+  onResizingChange,
 }: {
   sash: LayoutSash;
   containerRef: { current: HTMLDivElement | null };
   onPreview: (ratio: number) => void;
   onCommit: (ratio: number) => void;
   onCancel: () => void;
+  onResizingChange: (resizing: boolean) => void;
 }) {
   const row = sash.dir === "right";
   const [dragging, setDragging] = useState(false);
@@ -702,6 +959,7 @@ function Sash({
           if (!parent) return;
           handle.setPointerCapture(e.pointerId);
           setDragging(true);
+          onResizingChange(true);
           const rect = parent.getBoundingClientRect();
           const restoreSelection = suppressTextSelection();
           const previousCursor = document.body.style.cursor;
@@ -738,6 +996,7 @@ function Sash({
             restoreSelection();
             document.body.style.cursor = previousCursor;
             setDragging(false);
+            onResizingChange(false);
             if (!moved) return;
             if (commit) onCommit(nextBoundary);
             else onCancel();

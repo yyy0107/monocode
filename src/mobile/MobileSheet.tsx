@@ -13,7 +13,7 @@ import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { placePopover, type PopoverAlign } from "../shared/lib/popover";
 import { SHEET_CLOSE_MS, SHEET_MOTION_MS, useSheetDrag } from "./sheetDrag";
-import { preserveInputFocus } from "./inputFocus";
+import { preserveInputFocus, usePreserveInputFocusOnTouch } from "./inputFocus";
 
 // Reads the resolved system-bar insets so popovers stay clear of the status
 // bar, gesture area and display cutouts on edge-to-edge screens.
@@ -89,6 +89,7 @@ export function MobileSheet({
   );
   const backdrop = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLElement>(null);
+  usePreserveInputFocusOnTouch(backdrop, preserveFocus, false, open);
   const [position, setPosition] = useState<CSSProperties>();
   useSheetDrag(dialog, placement === "bottom" && open, onClose);
   useLayoutEffect(() => {
@@ -181,6 +182,25 @@ export function MobileSheet({
       place();
     };
     place();
+    // Keyboard motion moves the composer's anchor without resizing it or
+    // scrolling. Track its bounds while open, including when opened midway
+    // through that motion; point-anchored menus keep their original location.
+    let frame: number | undefined;
+    let previousRect = trigger?.getBoundingClientRect();
+    const followAnchor = () => {
+      const rect = trigger!.getBoundingClientRect();
+      if (
+        rect.left !== previousRect?.left ||
+        rect.right !== previousRect?.right ||
+        rect.top !== previousRect?.top ||
+        rect.bottom !== previousRect?.bottom
+      ) {
+        previousRect = rect;
+        place();
+      }
+      frame = requestAnimationFrame(followAnchor);
+    };
+    if (trigger && !anchorPoint) frame = requestAnimationFrame(followAnchor);
     const observer = new ResizeObserver(place);
     observer.observe(element);
     if (trigger) observer.observe(trigger);
@@ -189,6 +209,7 @@ export function MobileSheet({
     viewport?.addEventListener("resize", place);
     viewport?.addEventListener("scroll", place);
     return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
       observer.disconnect();
       window.removeEventListener("resize", resize);
       window.removeEventListener("scroll", scroll, true);
@@ -220,7 +241,13 @@ export function MobileSheet({
     };
   }, [open, anchor, preserveFocus]);
   const onKeyDown = useCallback(
-    (event: { key: string; shiftKey: boolean; preventDefault: () => void }) => {
+    (event: {
+      key: string;
+      shiftKey: boolean;
+      defaultPrevented: boolean;
+      preventDefault: () => void;
+    }) => {
+      if (event.defaultPrevented) return;
       if (event.key === "Escape") {
         event.preventDefault();
         onClose();

@@ -93,4 +93,45 @@ describe("MobileSheet drag", () => {
     act(() => vi.advanceTimersByTime(200));
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it.each(["mouse", "touch"])(
+    "drags only the nested sheet with %s input",
+    (kind) => {
+      const closeSettings = vi.fn();
+      const closePicker = vi.fn();
+      act(() => root.render(createElement(
+        MobileSheet,
+        { title: "Settings", onClose: closeSettings },
+        createElement(MobileSheet, { title: "Picker", onClose: closePicker }, "Options"),
+      )));
+      const outer = node.querySelector<HTMLElement>('[aria-label="Settings"]')!;
+      const inner = node.querySelector<HTMLElement>('[aria-label="Picker"]')!;
+      for (const sheet of [outer, inner])
+        Object.defineProperty(sheet, "offsetHeight", { value: 500 });
+      const grip = inner.querySelector(".mobile-sheet-grip")!;
+      const event = (phase: "down" | "move" | "up", clientY: number) =>
+        kind === "mouse"
+          ? new PointerEvent(`pointer${phase}`, {
+              bubbles: true, pointerType: "mouse", button: 0, clientY,
+            })
+          : new TouchEvent(
+              { down: "touchstart", move: "touchmove", up: "touchend" }[phase],
+              {
+                bubbles: true, cancelable: true,
+                touches: phase === "up" ? [] : [{ clientY } as Touch],
+              },
+            );
+      grip.dispatchEvent(event("down", 100));
+      act(() => vi.advanceTimersByTime(500));
+      inner.dispatchEvent(event("move", 210));
+      act(() => vi.advanceTimersByTime(500));
+      inner.dispatchEvent(event("move", 320));
+      expect(inner.style.transform).toBe("translateY(220px)");
+      expect(outer.style.transform).toBe("");
+      inner.dispatchEvent(event("up", 320));
+      act(() => vi.advanceTimersByTime(131));
+      expect(closePicker).toHaveBeenCalledOnce();
+      expect(closeSettings).not.toHaveBeenCalled();
+    },
+  );
 });

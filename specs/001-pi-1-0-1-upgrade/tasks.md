@@ -74,6 +74,13 @@
 - [x] T029 Execute isolated actual Pi 1.0.1 protocol smoke and available real CLI/model scenarios from specs/001-pi-1-0-1-upgrade/quickstart.md; mark unrun scenarios/versions explicitly (FR-011).
 - [x] T030 Reconcile specs/001-pi-1-0-1-upgrade/spec.md, plan.md and tasks.md with implemented behavior and known limits; mark completed tasks only with evidence (FR-001 through FR-011).
 
+## 2026-10-05 thinking-level regression repair
+
+- [x] T031 Reproduce unsupported medium, model-switch stale state, and unavailable-query failures in piLive.test.ts before changing the adapter.
+- [x] T032 Delegate thinking adjustment to Pi and read the effective state in piFamily.ts; preserve OMP behavior and the documented unavailable-query fallback.
+- [x] T033 Verify native event/readback, Host turn completion and persisted/reconnected settings; record targeted tests, TypeScript checks and isolated Pi 1.0.3 RPC evidence in quickstart.md.
+- [x] T034 Reproduce and repair Pi catalog choices/defaults that ignored thinkingLevelMap; verify initial picker selection, Host catalog discovery and unchanged OMP defaults.
+
 ## Dependencies & Execution Order
 
 Setup -> foundational -> US1 -> US2 -> US3 -> US4 -> US5 -> completion records.

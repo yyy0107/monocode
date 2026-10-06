@@ -22,6 +22,10 @@ import {
   type GridGame,
 } from "../arcade/gridGames";
 import { drawSpeechBubble } from "../../sessions/model/speechBubble";
+import {
+  observeAnimationVisibility,
+  type AnimationVisibility,
+} from "../../../shared/lib/animationVisibility";
 
 const CELL = 6;
 const GAP = 1;
@@ -37,6 +41,7 @@ const SPRITE_SCALE = 0.8;
 /** How hard the bubble chases its speaker; sprites move cell by cell. */
 const BUBBLE_EASE = 0.2;
 const FRAME_MS = 33;
+const SLIDE_MS = 700;
 
 const HEADING: Record<string, { x: number; y: number }> = {
   ArrowUp: { x: 0, y: -1 },
@@ -55,6 +60,7 @@ type Board = {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
   bubbleAt: { x: number; y: number } | null;
+  stamp: Float32Array;
 };
 
 /**
@@ -156,7 +162,11 @@ function drawGhost(
   ctx.restore();
 }
 
-export function TerminalGridBackground() {
+export function TerminalGridBackground({
+  visible = true,
+}: {
+  visible?: boolean;
+}) {
   const { t: uiT } = useTranslation();
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
@@ -174,9 +184,18 @@ export function TerminalGridBackground() {
     dir: 1,
   });
   const [hovered, setHovered] = useState(false);
+  const [activity, setActivity] = useState<AnimationVisibility>(() => ({
+    visible: typeof document === "undefined" || !document.hidden,
+    reducedMotion:
+      typeof window !== "undefined" &&
+      (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false),
+  }));
+  const visibleRef = useRef(visible);
+  const refreshRef = useRef<(() => void) | null>(null);
 
   indexRef.current = slide.index;
   playingRef.current = playing;
+  visibleRef.current = visible;
 
   const game = GRID_GAMES[slide.index] ?? GRID_GAMES[0]!;
 
@@ -196,6 +215,7 @@ export function TerminalGridBackground() {
         canvas,
         ctx,
         bubbleAt: null,
+        stamp: new Float32Array(0),
       });
     }
     boardsRef.current = boards;
@@ -216,14 +236,38 @@ export function TerminalGridBackground() {
     let rgb = parseContentRgb();
     let surfaceRgb = parseSurfaceRgb();
     let lastFrame = 0;
+    let width = 0;
+    let height = 0;
+    let hasArea = false;
+    let pixelRatio = 0;
+    let gridPath = new Path2D();
+    let viewportVisible = !document.hidden;
+    let reducedMotion = activity.reducedMotion;
+    let previousIndex = indexRef.current;
+    let slideFrom = previousIndex;
+    let slideUntil = 0;
 
     const layout = () => {
-      const { width, height } = root.getBoundingClientRect();
-      if (width <= 0 || height <= 0) return;
+      const rect = root.getBoundingClientRect();
+      const nextWidth = rect.width;
+      const nextHeight = rect.height;
+      hasArea = nextWidth > 0 && nextHeight > 0;
+      if (!hasArea) return;
 
       const dpr = window.devicePixelRatio || 1;
+      if (width === nextWidth && height === nextHeight && pixelRatio === dpr)
+        return;
+      width = nextWidth;
+      height = nextHeight;
+      pixelRatio = dpr;
       const nextCols = Math.ceil(width / PITCH);
       const nextRows = Math.ceil(height / PITCH);
+      gridPath = new Path2D();
+      for (let y = 0; y < nextRows; y++) {
+        for (let x = 0; x < nextCols; x++) {
+          gridPath.rect(x * PITCH + 0.5, y * PITCH + 0.5, CELL - 1, CELL - 1);
+        }
+      }
 
       for (const board of boards) {
         board.canvas.width = Math.floor(width * dpr);
@@ -232,6 +276,7 @@ export function TerminalGridBackground() {
         board.canvas.style.height = `${height}px`;
         board.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         board.arcade.resize(nextCols, nextRows);
+        board.stamp = new Float32Array(nextCols * nextRows);
       }
 
       cols = nextCols;
@@ -241,7 +286,8 @@ export function TerminalGridBackground() {
     const paint = (board: Board, width: number, height: number) => {
       const { ctx, arcade } = board;
       const dim = arcade.controlled() ? 1 : board.game.idleDim;
-      const stamp = new Float32Array(cols * rows);
+      const stamp = board.stamp;
+      stamp.fill(0);
       arcade.stamp(stamp, cols, rows);
 
       const fade = arcade.fade();
@@ -259,9 +305,11 @@ export function TerminalGridBackground() {
             ctx.fillStyle = `rgba(${rgb}, ${fillOpacity})`;
             ctx.fillRect(px, py, CELL, CELL);
           }
-          ctx.strokeRect(px + 0.5, py + 0.5, CELL - 1, CELL - 1);
         }
       }
+      // The border never changes between cells. Trace it once at resize,
+      // instead of issuing thousands of individual canvas calls every frame.
+      ctx.stroke(gridPath);
 
       const pickup = arcade.logoPickup();
       const logo = pickup ? logos[pickup.harness] : null;
@@ -332,29 +380,40 @@ export function TerminalGridBackground() {
       );
     };
 
+    const canShow = () =>
+      visibleRef.current && viewportVisible && !document.hidden;
+    const canDraw = () => canShow() && hasArea;
+    const animating = () => !reducedMotion || playingRef.current;
     const draw = (time: number) => {
-      if (document.hidden) {
-        raf = 0;
-        return;
-      }
-      raf = requestAnimationFrame(draw);
-      if (time - lastFrame < FRAME_MS) return;
+      raf = 0;
+      if (!canDraw()) return;
+      if (animating()) raf = requestAnimationFrame(draw);
+      if (lastFrame && time - lastFrame < FRAME_MS) return;
       const dt = lastFrame ? time - lastFrame : FRAME_MS;
       lastFrame = time;
 
-      const { width, height } = root.getBoundingClientRect();
       if (width <= 0 || height <= 0) return;
 
       const current = indexRef.current;
       const controlled = playingRef.current;
+      if (current !== previousIndex) {
+        slideFrom = previousIndex;
+        previousIndex = current;
+        slideUntil = reducedMotion || controlled ? 0 : time + SLIDE_MS;
+      }
 
       for (let i = 0; i < boards.length; i++) {
         const board = boards[i];
         if (!board) continue;
-        // A live game only ticks the board you're on; idle keeps neighbours
-        // moving so a slide doesn't reveal a frozen frame.
-        if (controlled && i !== current) continue;
-        board.arcade.step(dt);
+        // Only the selected board is onscreen, except during its slide.
+        if (
+          i !== current &&
+          (controlled || i !== slideFrom || time >= slideUntil)
+        )
+          continue;
+        // Reduced motion keeps a fully revealed still frame; explicit gameplay
+        // remains interactive rather than freezing its simulation.
+        board.arcade.step(reducedMotion && !controlled ? 1000 : dt);
         paint(board, width, height);
       }
 
@@ -373,22 +432,34 @@ export function TerminalGridBackground() {
       }
     };
 
-    layout();
-    raf = requestAnimationFrame(draw);
-
-    const onVisible = () => {
-      if (document.hidden || raf) return;
+    const refresh = () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      if (!canShow()) return;
+      layout();
       lastFrame = 0;
-      raf = requestAnimationFrame(draw);
+      draw(performance.now());
     };
-    document.addEventListener("visibilitychange", onVisible);
+    refreshRef.current = refresh;
+    const stopObserving = observeAnimationVisibility(root, (next) => {
+      viewportVisible = next.visible;
+      reducedMotion = next.reducedMotion;
+      setActivity((previous) =>
+        previous.visible === next.visible &&
+        previous.reducedMotion === next.reducedMotion
+          ? previous
+          : next,
+      );
+      refresh();
+    });
 
-    const resizeObserver = new ResizeObserver(layout);
+    const resizeObserver = new ResizeObserver(refresh);
     resizeObserver.observe(root);
 
     const themeObserver = new MutationObserver(() => {
       rgb = parseContentRgb();
       surfaceRgb = parseSurfaceRgb();
+      refresh();
     });
     themeObserver.observe(document.documentElement, {
       attributes: true,
@@ -397,12 +468,15 @@ export function TerminalGridBackground() {
 
     return () => {
       cancelAnimationFrame(raf);
-      document.removeEventListener("visibilitychange", onVisible);
+      stopObserving();
       resizeObserver.disconnect();
       themeObserver.disconnect();
       boardsRef.current = null;
+      refreshRef.current = null;
     };
   }, []);
+
+  useEffect(() => refreshRef.current?.(), [visible, playing, slide.index]);
 
   const takeControl = useCallback(() => {
     const board = boardsRef.current?.[indexRef.current];
@@ -439,7 +513,15 @@ export function TerminalGridBackground() {
   }, []);
 
   useEffect(() => {
-    if (playing || hovered || GRID_GAMES.length < 2) return;
+    if (
+      !visible ||
+      !activity.visible ||
+      activity.reducedMotion ||
+      playing ||
+      hovered ||
+      GRID_GAMES.length < 2
+    )
+      return;
 
     const id = window.setInterval(() => {
       if (document.hidden) return;
@@ -448,10 +530,17 @@ export function TerminalGridBackground() {
       );
     }, SLIDE_HOLD_MS);
     return () => window.clearInterval(id);
-  }, [playing, hovered, slide.index]);
+  }, [
+    visible,
+    activity.visible,
+    activity.reducedMotion,
+    playing,
+    hovered,
+    slide.index,
+  ]);
 
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || !visible || !activity.visible) return;
 
     const root = rootRef.current;
     root?.focus();
@@ -487,7 +576,7 @@ export function TerminalGridBackground() {
       window.removeEventListener("keydown", onKey, true);
       root?.removeEventListener("wheel", onWheel);
     };
-  }, [playing, releaseControl]);
+  }, [playing, visible, activity.visible, releaseControl]);
 
   return (
     <div

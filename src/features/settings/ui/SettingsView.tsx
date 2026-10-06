@@ -1,3 +1,4 @@
+import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { setUiLanguage, type UiLanguage } from "../../../shared/i18n/language";
@@ -66,6 +67,8 @@ import {
   applyThemeTint,
   BODY_GLASS_DEFAULT,
   ACCENT_COLOR_DEFAULT,
+  ACCENT_COLOR_PRESET_LABELS,
+  ACCENT_COLOR_PRESETS,
   CHAT_BACKGROUND_EMPTY_OPACITY_DEFAULT,
   CHAT_BACKGROUND_OPACITY_MAX,
   CHAT_BACKGROUND_OPACITY_MIN,
@@ -220,6 +223,7 @@ import {
 import {
   newProviderAccount,
   providerAccounts,
+  sharedProviderAccountId,
   PROVIDER_ACCOUNT_PROVIDERS,
   removeProviderAccount,
   renameProviderAccount,
@@ -228,7 +232,7 @@ import {
   type ProviderAccount,
   type ProviderAccountProvider,
 } from "../../providers/model/providerAccounts";
-import { removeProviderAccountCredentials } from "../../providers/model/providerAccountCredentials";
+import { removeProviderAccountCredentials, loadSharedProviderDefaults, setSharedProviderDefault, importCurrentCodexAccount, requireSharedAccountHost } from "../../providers/model/providerAccountCredentials";
 import {
   identityKey,
   identityOrganizationTag,
@@ -562,15 +566,14 @@ export function SettingsView({
                 ) : null}
                 {section === "chat" ? <ChatPage /> : null}
                 {section === "keybindings" ? <KeybindingsPage /> : null}
+                {section === "import" ? (
+                  <NativeSessionsPanel onOpenSession={onOpenSession} />
+                ) : null}
                 {section === "mcp" ? (
                   <McpSettings cwd={cwd} recents={recents} />
                 ) : null}
                 {section === "providers" ? (
-                  <ProvidersPage
-                    cwd={cwd}
-                    recents={recents}
-                    onOpenSession={onOpenSession}
-                  />
+                  <ProvidersPage cwd={cwd} recents={recents} />
                 ) : null}
                 {section === "worktrees" ? (
                   <WorktreesPage
@@ -874,15 +877,15 @@ function GeneralPage({
           id="file-tabs"
           label={uiT("File tabs")}
           description={uiT(
-            "Open files beside the active chat, or give each file a normal tab in the top bar. Top-bar files can still be combined into split panes.",
+            "Each conversation keeps its own file and page tabs. Choose the default layout; the conversation toolbar can switch it at any time.",
           )}
         >
           <Segmented
             label={uiT("File tabs")}
             value={fileTabMode}
             options={[
-              { value: "pane", label: uiT("Beside chat") },
-              { value: "workspace", label: uiT("Top bar") },
+              { value: "pane", label: uiT("Split view") },
+              { value: "workspace", label: uiT("Full view") },
             ]}
             onChange={onFileTabMode}
           />
@@ -2599,7 +2602,7 @@ function ShortcutEditor({
     try {
       await action();
     } catch (reason) {
-      setError(String(reason));
+      setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setBusy(false);
     }
@@ -3258,9 +3261,7 @@ function ProviderBinaryControl({
 function ProvidersPage({
   cwd,
   recents,
-  onOpenSession,
 }: {
-  onOpenSession?: (id: string) => void;
   cwd?: string;
   recents?: RecentProject[];
 }) {
@@ -3377,7 +3378,6 @@ function ProvidersPage({
 
   return (
     <>
-      <NativeSessionsPanel onOpenSession={onOpenSession} />
       <ProviderAccountsSettings />
 
       <UsageDisplaySettings />
@@ -3501,17 +3501,60 @@ function UsageDisplaySettings() {
 }
 
 type AccountEditor = {
+  importCurrent?: boolean;
   provider: ProviderAccountProvider;
   accountId?: string;
   label: string;
 };
 
-function ProviderAccountsSettings() {
+export function ProviderAccountsSettings() {
   const { t: uiT } = useTranslation();
   const [version, setVersion] = useState(0);
   const [editor, setEditor] = useState<AccountEditor | null>(null);
   const [working, setWorking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [defaultsError, setDefaultsError] = useState<string | null>(null);
+  const [defaultsReady, setDefaultsReady] = useState(false);
+  const [defaultsRetry, setDefaultsRetry] = useState(0);
+  useEffect(() => {
+    let current = true;
+    setDefaultsReady(false);
+    void requireSharedAccountHost()
+      .then(loadSharedProviderDefaults)
+      .then(
+        () => {
+          if (current) {
+            setDefaultsReady(true);
+            setDefaultsError(null);
+          }
+        },
+        (reason) => {
+          if (current)
+            setDefaultsError(
+              reason instanceof Error ? reason.message : String(reason),
+            );
+        },
+      );
+    return () => {
+      current = false;
+    };
+  }, [defaultsRetry]);
+
+  const changeSharedDefault = async (
+    provider: ProviderAccountProvider,
+    accountId: string,
+  ) => {
+    if (working || !defaultsReady) return;
+    setWorking(`default:${provider}`);
+    setError(null);
+    try {
+      await setSharedProviderDefault(provider, accountId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setWorking(null);
+    }
+  };
 
   useEffect(
     () => subscribeProviderAccounts(() => setVersion((value) => value + 1)),
@@ -3543,6 +3586,8 @@ function ProviderAccountsSettings() {
     try {
       if (editor.accountId) {
         renameProviderAccount(editor.provider, editor.accountId, editor.label);
+      } else if (editor.importCurrent) {
+        await importCurrentCodexAccount(editor.label);
       } else {
         const account = newProviderAccount(editor.provider, editor.label);
         await loginHarness(editor.provider, account.id);
@@ -3614,6 +3659,7 @@ function ProviderAccountsSettings() {
       {PROVIDER_ACCOUNT_PROVIDERS.map((provider) => {
         const accounts = providerAccounts(provider);
         const adding = editor?.provider === provider && !editor.accountId;
+        const sharedDefault = sharedProviderAccountId(provider);
         return (
           <div
             key={provider}
@@ -3634,6 +3680,19 @@ function ProviderAccountsSettings() {
                   </div>
                 </div>
               </div>
+              {provider === "codex" && (
+                <button
+                  type="button"
+                  disabled={Boolean(working)}
+                  onClick={() => {
+                    setError(null);
+                    setEditor({ provider, label: "", importCurrent: true });
+                  }}
+                  className="rounded-md border border-content/10 px-2.5 py-1 text-[12px] text-content/70 hover:bg-content/10 disabled:opacity-40"
+                >
+                  {uiT("Import current Codex login")}
+                </button>
+              )}
               <button
                 type="button"
                 disabled={Boolean(working)}
@@ -3644,6 +3703,21 @@ function ProviderAccountsSettings() {
                 {uiT("Add account")}
               </button>
             </div>
+            <p className="px-4 pb-3 text-[11px] text-content/50">
+              {uiT(
+                "Shared default applies to new desktop and phone conversations. Existing conversations keep their account.",
+              )}
+              {defaultsReady &&
+                sharedDefault !== "default" &&
+                !accounts.some((account) => account.id === sharedDefault) && (
+                  <span role="alert">
+                    {" "}
+                    {uiT("Unavailable account ({account})", {
+                      account: sharedDefault,
+                    })}
+                  </span>
+                )}
+            </p>
             <div className="border-t border-content/5 bg-content/[0.015] pl-10">
               {accounts.map((account) => {
                 const editing =
@@ -3691,20 +3765,34 @@ function ProviderAccountsSettings() {
                           identity={identity}
                           fallback={
                             account.isDefault
-                              ? "Provider CLI profile"
-                              : "Isolated profile"
+                              ? uiT("Host CLI account")
+                              : uiT("Isolated profile")
                           }
                           className="truncate text-content/30"
                         />
                       </div>
                     </div>
                     <AccountUsageMeters limits={limits} now={usage.now} />
-                    <div className="flex w-24 shrink-0 items-center justify-end gap-1">
-                      {account.isDefault ? (
-                        <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-content/30">
-                          {uiT("Default")}
+                    <div className="flex shrink-0 items-center justify-end gap-1">
+                      {defaultsReady && account.id === sharedDefault ? (
+                        <span className="mr-1 text-[10px] font-medium text-content/50">
+                          {uiT("Shared default")}
                         </span>
-                      ) : null}
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={Boolean(working) || !defaultsReady}
+                          onClick={() =>
+                            void changeSharedDefault(provider, account.id)
+                          }
+                          aria-label={uiT("Use {account} as shared default", {
+                            account: account.label,
+                          })}
+                          className="rounded-md px-2 py-1 text-[11px] text-content/60 hover:bg-content/10 disabled:opacity-35"
+                        >
+                          {uiT("Use as shared default")}
+                        </button>
+                      )}
                       <button
                         type="button"
                         disabled={Boolean(working)}
@@ -3720,7 +3808,9 @@ function ProviderAccountsSettings() {
                       {!account.isDefault ? (
                         <button
                           type="button"
-                          disabled={Boolean(working)}
+                          disabled={
+                            Boolean(working) || account.id === sharedDefault
+                          }
                           aria-label={uiT("Remove {value0}", {
                             value0: String(account.label),
                           })}
@@ -3739,19 +3829,17 @@ function ProviderAccountsSettings() {
                   </div>
                 );
               })}
-              {adding && editor ? (
-                <ProviderAccountEditor
-                  editor={editor}
-                  working={Boolean(working)}
-                  onLabel={(label) =>
-                    setEditor((current) =>
-                      current ? { ...current, label } : current,
-                    )
-                  }
-                  onCancel={() => setEditor(null)}
-                  onSubmit={submitEditor}
-                />
-              ) : null}
+              <ProviderAccountEditorDisclosure
+                editor={adding ? editor : null}
+                working={Boolean(working)}
+                onLabel={(label) =>
+                  setEditor((current) =>
+                    current ? { ...current, label } : current,
+                  )
+                }
+                onCancel={() => setEditor(null)}
+                onSubmit={submitEditor}
+              />
             </div>
           </div>
         );
@@ -3761,10 +3849,42 @@ function ProviderAccountsSettings() {
           className="border-t border-content/5 px-4 py-2.5 text-[11px] leading-4 text-red-400"
           role="alert"
         >
-          {error}
+          {uiT(error)}
         </p>
       ) : null}
+      {defaultsError && (
+        <p
+          role="status"
+          className="border-t border-content/5 px-4 py-2.5 text-[11px] text-content/50"
+        >
+          {uiT(defaultsError)}
+          <button
+            type="button"
+            className="ml-2 underline"
+            onClick={() => setDefaultsRetry((value) => value + 1)}
+          >
+            {uiT("Retry")}
+          </button>
+        </p>
+      )}
     </Group>
+  );
+}
+
+function ProviderAccountEditorDisclosure({
+  editor,
+  ...props
+}: Omit<Parameters<typeof ProviderAccountEditor>[0], "editor"> & {
+  editor: AccountEditor | null;
+}) {
+  const retained = useRef(editor);
+  if (editor) retained.current = editor;
+  return (
+    <AnimatedCollapse expanded={!!editor}>
+      {retained.current && (
+        <ProviderAccountEditor {...props} editor={retained.current} />
+      )}
+    </AnimatedCollapse>
   );
 }
 
@@ -3825,8 +3945,10 @@ function ProviderAccountEditor({
           {working ? <Loader className="size-3 animate-spin" /> : null}
           {adding
             ? working
-              ? uiT("Waiting for browser…")
-              : uiT("Sign in and add")
+              ? uiT(
+                  editor.importCurrent ? "Importing…" : "Waiting for browser…",
+                )
+              : uiT(editor.importCurrent ? "Import account" : "Sign in and add")
             : uiT("Save")}
         </button>
       </div>
@@ -4337,15 +4459,6 @@ function Slider({
   );
 }
 
-const ACCENT_COLOR_PRESETS = [
-  "#4da3f5",
-  "#8b5cf6",
-  "#ec4899",
-  "#ef4444",
-  "#f59e0b",
-  "#10b981",
-] as const;
-
 function AccentColorPicker({
   value,
   onChange,
@@ -4366,7 +4479,7 @@ function AccentColorPicker({
     <div ref={root} className="w-48">
       <ColorSwatchRow
         colors={["var(--color-content)", ...ACCENT_COLOR_PRESETS]}
-        labels={["Default", "Blue", "Violet", "Pink", "Red", "Orange", "Green"]}
+        labels={["Default", ...ACCENT_COLOR_PRESET_LABELS]}
         colorIndex={presetIndex >= 0 ? presetIndex : undefined}
         customColor={presetIndex < 0 ? (value ?? undefined) : undefined}
         customPickerOpen={open}

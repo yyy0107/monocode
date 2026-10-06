@@ -1,7 +1,6 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useContext, useEffect, useState, useSyncExternalStore } from "react";
-import { findModel } from "../../sessions/model/models";
-import { orchestrator } from "../model/orchestration";
+import { useModelSource } from "../../sessions/ui/modelSource";
 import {
   orchestrationTaskLabel,
   type OrchestrationSummary,
@@ -11,6 +10,7 @@ import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import {
   OrchestrationActions,
   OrchestrationWorkers,
+  OrchestrationRuntimeContext,
 } from "./OrchestrationActions";
 import {
   Check,
@@ -19,21 +19,27 @@ import {
   CircleAlert,
 } from "../../../shared/ui/icons";
 import { TerminalSpinner } from "../../sessions/ui/TerminalSpinner";
+import { localizeOrchestrationMessage } from "./orchestrationMessages";
 
 export function OrchestrationSidebarAgents({
   leadId,
   summary,
+  showRunActions = true,
 }: {
   leadId: string;
   summary: OrchestrationSummary;
+  showRunActions?: boolean;
 }) {
   const { t: uiT } = useTranslation();
-  const actions = useContext(OrchestrationActions);
+  const modelSource = useModelSource();
+  const suppliedActions = useContext(OrchestrationActions);
+  const actions = suppliedActions?.canControl === false ? null : suppliedActions;
   const workers = useContext(OrchestrationWorkers);
+  const runtime = useContext(OrchestrationRuntimeContext);
   const runs = useSyncExternalStore(
-    orchestrator.subscribe,
-    orchestrator.snapshot,
-    orchestrator.snapshot,
+    runtime.subscribe,
+    runtime.snapshot,
+    runtime.snapshot,
   );
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
@@ -64,9 +70,9 @@ export function OrchestrationSidebarAgents({
     (task) => task.status === "running" || task.status === "cancelling",
   );
   const resumeBlocker =
-    run?.status === "paused" ? orchestrator.resumeBlocker(leadId) : undefined;
+    run?.status === "paused" ? runtime.resumeBlocker(leadId) : undefined;
   const leadBusy =
-    run?.status === "paused" && orchestrator.resumeLeadBusy(leadId);
+    run?.status === "paused" && runtime.resumeLeadBusy(leadId);
   const perform = async (operation: () => Promise<void>) => {
     setPending(true);
     setError(undefined);
@@ -123,7 +129,7 @@ export function OrchestrationSidebarAgents({
             summary.live && task.status === "running" && !task.needsInput;
           // A saved provider model may not be in this window's catalog yet.
           // Keep its identity instead of substituting the harness default.
-          const model = findModel(task.model)?.name ?? task.model;
+          const model = modelSource.find(task.model)?.name ?? task.model;
           return (
             <div
               key={task.sessionId}
@@ -206,7 +212,7 @@ export function OrchestrationSidebarAgents({
                     <span className="min-w-0 truncate">{model}</span>
                   </p>
                   {live?.error && (
-                    <p className="text-[11px] text-red-400">{live.error}</p>
+                    <p className="text-[11px] text-red-400">{localizeOrchestrationMessage(live.error, uiT)}</p>
                   )}
                   <div className="flex flex-wrap items-center gap-1">
                     {workers.openDetails && (
@@ -226,14 +232,14 @@ export function OrchestrationSidebarAgents({
                         {uiT("See details")}
                       </button>
                     )}
-                    {live && ["queued", "running"].includes(live.status) && (
+                    {actions && live && ["queued", "running"].includes(live.status) && (
                       <button
                         type="button"
                         className={solidAction}
                         disabled={pending}
                         onClick={() =>
                           void perform(() =>
-                            orchestrator.cancelTask(leadId, live.id),
+                            runtime.cancelTask(leadId, live.id),
                           )
                         }
                       >
@@ -249,12 +255,12 @@ export function OrchestrationSidebarAgents({
       </div>
       {(error || run?.error) && (
         <p role="alert" className="py-1 text-[11px] text-red-400">
-          {error ?? run?.error}
+          {localizeOrchestrationMessage(error ?? run?.error ?? "", uiT)}
         </p>
       )}
       {/* Stopping a run belongs to the composer, which stops the lead and its
           agents together. Resume has no other home, so it stays. */}
-      {run?.status === "paused" && (
+      {showRunActions && run?.status === "paused" && (
         <div className="mt-1.5 space-y-1.5 border-t border-stroke pt-1.5">
           <p className="px-0.5 text-[11px] leading-relaxed text-content/45">
             {stopping
@@ -303,11 +309,7 @@ export function OrchestrationSidebarAgents({
               }
               onClick={() =>
                 void perform(() =>
-                  orchestrator.start(
-                    leadId,
-                    run.allowedHarnesses,
-                    run.maxWorkers,
-                  ),
+                  runtime.resume(leadId),
                 )
               }
             >

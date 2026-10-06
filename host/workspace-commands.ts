@@ -11,11 +11,13 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import type { FileMtime, FsEntry, GitPr, ProjectFile } from "../src/platform/tauri/fs";
 import { hostWorktrees } from "./git-worktrees";
 import { createHostBranch, hostBranches, switchHostBranch } from "./git-branches";
 import type { HostStore } from "./store";
+import { claimCheckoutResource, claimCheckoutWrite } from "./checkout-guards";
 import {
   createHostPath,
   existingPath,
@@ -78,6 +80,12 @@ export const WORKSPACE_COMMANDS = [
   "search_project",
 ] as const;
 export type WorkspaceCommand = (typeof WORKSPACE_COMMANDS)[number];
+const MUTATIONS = new Set<WorkspaceCommand>([
+  "write_text_file", "create_path", "rename_path", "delete_path", "copy_path", "move_path",
+  "git_stage_contents", "git_stage_file", "git_unstage_file", "git_discard_file", "git_discard_all",
+  "git_stage_all", "git_unstage_all", "git_commit", "git_push", "git_pull", "git_sync", "git_pr_create",
+  "git_checkout", "git_create_branch", "git_stash",
+]);
 
 // Remote RPC has bounded request and response bodies. Keep file operations
 // within those bounds even after JSON escaping or base64 encoding.
@@ -106,15 +114,59 @@ export class WorkspaceCommands {
   constructor(
     private readonly store: HostStore,
     private readonly withIdleProject: <T>(projectId: string, action: () => Promise<T>) => Promise<T>,
+    private readonly assertWrite: (path: string) => void = () => {},
   ) {}
 
-  run(command: unknown, args: unknown): Promise<unknown> {
+  async run(command: unknown, args: unknown): Promise<unknown> {
     if (!WORKSPACE_COMMANDS.includes(command as WorkspaceCommand))
       throw new Error("Unsupported workspace command");
     const input =
       args && typeof args === "object" && !Array.isArray(args)
         ? (args as Record<string, unknown>)
         : {};
+    const name = command as WorkspaceCommand;
+    if (!MUTATIONS.has(name)) return this.execute(name, input);
+    const inputs = name === "copy_path" ? [input.destParent]
+      : name === "move_path" ? [input.from, input.destParent]
+      : name === "create_path" ? [input.parent, typeof input.name === "string" && typeof input.parent === "string" ? joined(input.parent, input.name) : input.parent]
+      : name === "rename_path" ? [input.path, typeof input.name === "string" && typeof input.path === "string" ? joined(dirname(input.path), input.name) : input.path]
+      : [input.cwd ?? input.path];
+    const locations = await Promise.all(inputs.map(async (input) => {
+      const location = await this.locate(input);
+      return { ...location, path: resolve(location.root, location.relative) };
+    }));
+    const projects = [...new Set(locations.map(({ root }) => this.projectForRoot(root).id))].sort();
+    const operate = async () => {
+      // Recheck after asynchronous resolution and idle-project acquisition.
+      for (const location of locations) this.assertWrite(location.path);
+      const releases: Array<() => void> = [];
+      try {
+        for (const location of locations) releases.push(claimCheckoutWrite(this.store, `workspace:${randomUUID()}`, location.path));
+        // Copy reads also retain their source while an accepted worker cleans up.
+        if (name === "copy_path") releases.push(claimCheckoutResource(this.store, `workspace:${randomUUID()}`, await this.resourcePath(input.from)));
+        return await this.execute(name, input);
+      } finally { for (const release of releases) release(); }
+    };
+    const idle = (index: number): Promise<unknown> => index === projects.length ? operate()
+      : this.withIdleProject(projects[index], () => idle(index + 1));
+    return idle(0);
+  }
+
+  /** Resolve a buffer lease through the same registered-workspace boundary. */
+  async resourcePath(input: unknown): Promise<string> {
+    this.invalidateRoots();
+    const located = await this.locate(input);
+    return resolve(located.root, located.relative);
+  }
+
+  private projectForRoot(root: string) {
+    const project = this.store.projects().find((candidate) => candidate.cwd === root)
+      ?? this.store.projects().find((candidate) => this.roots.get(candidate.cwd)?.roots.includes(root));
+    if (!project) throw new Error("Project is unavailable");
+    return project;
+  }
+
+  private execute(command: WorkspaceCommand, input: Record<string, unknown>): Promise<unknown> {
     switch (command as WorkspaceCommand) {
       case "list_dir":
         return this.listDir(input.path);
@@ -253,7 +305,7 @@ export class WorkspaceCommands {
       missing = missing ? `${basename(actual)}/${missing}` : basename(actual);
       actual = parent;
     }
-    for (const root of await this.allowedRoots()) {
+    for (const root of (await this.allowedRoots()).sort((left, right) => right.length - left.length)) {
       const rel = relative(root, actual);
       if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)))
         return { root, relative: rel };
@@ -685,22 +737,14 @@ export class WorkspaceCommands {
 
   private async gitCheckout(cwd: unknown, name: unknown, remote: unknown) {
     const root = await this.gitRoot(cwd);
-    const state = await this.withIdleGitProject(root, () => switchHostBranch(root, name, remote));
+    const state = await switchHostBranch(root, name, remote);
     return state.current ?? "HEAD";
   }
 
   private async gitCreateBranch(cwd: unknown, name: unknown) {
     const root = await this.gitRoot(cwd);
-    const state = await this.withIdleGitProject(root, () => createHostBranch(root, name));
+    const state = await createHostBranch(root, name);
     return state.current ?? "HEAD";
-  }
-
-  private async withIdleGitProject<T>(cwd: string, action: () => Promise<T>): Promise<T> {
-    const { root } = await this.locate(cwd);
-    const project = this.store.projects().find((candidate) =>
-      candidate.cwd === root || this.roots.get(candidate.cwd)?.roots.includes(root));
-    if (!project) throw new Error("Project is unavailable");
-    return this.withIdleProject(project.id, action);
   }
 
   private async gitStash(cwd: unknown, message: unknown) {

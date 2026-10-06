@@ -1,5 +1,6 @@
 import { sanitizeTitleState } from "../src/features/sessions/model/titlePolicy";
 import { DatabaseSync } from "node:sqlite";
+import { retainTurnOrigins } from "../src/features/sessions/model/turnOrigins";
 import { createHash, randomUUID } from "node:crypto";
 import {
   copyFileSync,
@@ -8,42 +9,19 @@ import {
   statSync,
   realpathSync,
   unlinkSync,
-  readFileSync,
 } from "node:fs";
-import { basename, resolve, join, dirname } from "node:path";
+import { basename, resolve } from "node:path";
 import type { Block, Session } from "../src/features/sessions/model/session";
-import { isRemoteProvider } from "../src/features/connections/model/protocol";
+import { isRemoteProvider, type HostSession } from "../src/features/connections/model/protocol";
 import { attachmentPath, MAX_REMOTE_ATTACHMENT_BYTES } from "./attachments";
-import { summary, type HostStore } from "./store";
-
-export function refreshNativeDesktopSession(
-  store: HostStore,
-  id: string,
-  busy: boolean,
-) {
-  if (!/^[A-Za-z0-9_-]{1,512}$/.test(id))
-    throw new Error("Invalid desktop session ID");
-  const config = JSON.parse(
-    readFileSync(
-      join(dirname(store.attachmentDir), "desktop-owner.json"),
-      "utf8",
-    ),
-  );
-  if (typeof config.desktopDirectory !== "string")
-    throw new Error("Desktop history is unavailable");
-  importDesktopSessions(store, join(config.desktopDirectory, "monocode.db"), {
-    id,
-    busy,
-  });
-  return summary(store.session(id));
-}
+import { migrateNativeLink } from "./native/migrate";
+import type { HostStore } from "./store";
 
 /** Import once per source row, including a tombstone after Host deletion.
  * Never modify the source or replace an existing canonical conversation. */
 export function importDesktopSessions(
   store: HostStore,
   path: string,
-  refresh?: { id: string; busy: boolean },
 ): number {
   if (!existsSync(path)) return 0;
   const sourceKey = createHash("sha256").update(resolve(path)).digest("hex");
@@ -52,10 +30,9 @@ export function importDesktopSessions(
   try {
     const rows = source.prepare("SELECT id, cwd, harness FROM sessions").all();
     for (const reference of rows) {
-      if (refresh && reference.id !== refresh.id) continue;
       const marker = `desktop-import:${sourceKey}:${reference.id}`;
       if (
-        !refresh &&
+        store.db.prepare("SELECT 1 FROM metadata WHERE key=?").get(`desktop-retired:${sourceKey}:${reference.id}`) ||
         store.db.prepare("SELECT 1 FROM metadata WHERE key=?").get(marker)
       )
         continue;
@@ -78,10 +55,6 @@ export function importDesktopSessions(
             String(row.native_session_json),
           ) as Session["nativeSession"])
         : undefined;
-      if (refresh && !nativeSession)
-        throw new Error(
-          "Only imported native sessions can refresh desktop history",
-        );
       if (
         nativeSession &&
         (nativeSession.provider !== harness ||
@@ -91,26 +64,13 @@ export function importDesktopSessions(
       const copied: string[] = [];
       try {
         store.transaction(() => {
-          if (
-            !refresh &&
-            store.db.prepare("SELECT 1 FROM metadata WHERE key=?").get(marker)
-          )
+          if (store.db.prepare("SELECT 1 FROM metadata WHERE key=?").get(marker))
             return;
           const existing = store.db
             .prepare("SELECT snapshot FROM sessions WHERE id=?")
             .get(id);
-          const previous = existing
-            ? JSON.parse(String(existing.snapshot))
-            : undefined;
-          if (
-            previous &&
-            refresh &&
-            (previous.session.nativeSession?.path !== nativeSession?.path ||
-              previous.session.providerSessionId !== row.provider_session_id)
-          )
-            throw new Error("Native session binding changed");
-          if (existing && !refresh) {
-            const value = previous;
+          if (existing) {
+            const value = JSON.parse(String(existing.snapshot)) as HostSession;
             if (
               value.session.harness !== harness ||
               store.project(value.projectId).cwd !== cwd
@@ -194,8 +154,9 @@ export function importDesktopSessions(
               model: String(row.model),
               modelSettings: JSON.parse(String(row.model_settings ?? "{}")),
               runtimeMode: row.runtime_mode as Session["runtimeMode"],
-              blocks,
-              busy: refresh?.busy ?? false,
+              // Desktop rows never carry trusted turn origins.
+              blocks: retainTurnOrigins([], blocks),
+              busy: false,
               nativeSession,
               providerSessionId: row.provider_session_id
                 ? String(row.provider_session_id)
@@ -222,19 +183,18 @@ export function importDesktopSessions(
                   }
                 : {}),
             };
-            store.save(
-              {
-                session,
-                projectId: project.id,
-                revision: (previous?.revision ?? 0) + 1,
-                status: refresh?.busy ? "running" : "idle",
-                createdAt: Number(row.created_at),
-                updatedAt: Number(row.updated_at),
-                archived: previous?.archived ?? !!row.archived,
-                pinned: previous?.pinned ?? !!row.pinned,
-              },
-              { type: "desktop.import" },
-            );
+            const value: HostSession = {
+              session,
+              projectId: project.id,
+              revision: 1,
+              status: "idle",
+              createdAt: Number(row.created_at),
+              updatedAt: Number(row.updated_at),
+              archived: !!row.archived,
+              pinned: !!row.pinned,
+            };
+            // Imported native links are Host-managed from the start.
+            store.save(migrateNativeLink(value) ?? value, { type: "desktop.import" });
             imported++;
           }
           store.db

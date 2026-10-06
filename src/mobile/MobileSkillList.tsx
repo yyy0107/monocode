@@ -72,7 +72,7 @@ export function MobileSkillList({
             <span className="mobile-sheet-row-text">
               <strong>/{skill.invocation}</strong>
               {skill.description && (
-                <small>
+                <small className="mobile-skill-description">
                   {skill.kind === "builtin"
                     ? t(skill.description)
                     : skill.description}
@@ -89,11 +89,7 @@ export function MobileSkillList({
                 ? HARNESS_TITLE[skill.source]
                 : skill.kind === "builtin"
                   ? "MonoCode"
-                  : t(
-                      skill.scope === "project"
-                        ? "Project skill"
-                        : "Personal skill",
-                    )}
+                  : t(skill.scope === "project" ? "Project" : "Personal")}
             </span>
           </button>
         ))}

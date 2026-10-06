@@ -205,6 +205,10 @@ describe("sidebar session multiselection", () => {
     }));
     props.activeSessionId = "session-80";
     act(() => render());
+    // Explicitly reveal the eighth batch before selecting its last row.
+    for (let page = 1; page < 8; page++) {
+      act(() => container.querySelector<HTMLButtonElement>('[data-session-list-toggle]')!.click());
+    }
     act(() =>
       container
         .querySelector<HTMLElement>('[data-session-card="session-40"]')!
@@ -387,7 +391,7 @@ describe("sidebar session multiselection", () => {
     expect(props.onSelectSession).toHaveBeenCalledTimes(1);
   });
 
-  it("creates a folder containing the Ctrl-clicked sessions without opening them", () => {
+  it("keeps multiselection without offering folder actions", () => {
     props.sessions = [1, 2, 3].map((n) => ({
       ...props.sessions[0],
       id: `session-${n}`,
@@ -415,11 +419,9 @@ describe("sidebar session multiselection", () => {
     const newFolder = Array.from(
       document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
     ).find((item) => item.textContent === "New folder")!;
-    act(() => newFolder.click());
-    expect(loadSessionFolders(props.cwd)[0].sessionIds).toEqual([
-      "session-1",
-      "session-3",
-    ]);
+    expect(newFolder).toBeUndefined();
+    expect(document.querySelector('[role="menu"]')?.textContent).not.toContain("Add to");
+    expect(loadSessionFolders(props.cwd)).toEqual([]);
   });
 });
 
@@ -616,7 +618,7 @@ describe("sidebar session rename", () => {
 });
 
 describe("sidebar reorder affordances", () => {
-  it("keeps the default cursor on reorderable tabs and folders", () => {
+  it("keeps the default cursor on tabs and flattens legacy folders", () => {
     props.sessions = [
       props.sessions[0],
       {
@@ -653,12 +655,8 @@ describe("sidebar reorder affordances", () => {
       expect(tab.className).not.toContain("cursor-grab");
       expect(tab.parentElement?.className).not.toContain("cursor-grab");
     }
-    for (const name of ["Folder one", "Folder two"]) {
-      expect(
-        container.querySelector<HTMLButtonElement>(`button[title="${name}"]`)!
-          .className,
-      ).not.toContain("cursor-grab");
-    }
+    expect(container.querySelector("[data-session-folder]")).toBeNull();
+    expect(container.querySelectorAll("[data-session-card]")).toHaveLength(2);
   });
 });
 

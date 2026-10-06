@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newAgentTab, newEditorPane } from "../../workspace/model/layout";
 import { newSession } from "../../sessions/model/session";
 import { FilePane } from "./FilePane";
+import { hostOrchestrationClient } from "../../orchestration/model/orchestrationClient";
+import * as connections from "../../connections/model/connections";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => []),
@@ -61,6 +63,7 @@ describe("file pane agent tabs", () => {
     await act(async () => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -141,5 +144,64 @@ describe("file pane agent tabs", () => {
     );
     expect(buttons).not.toContain("Allow");
     expect(buttons).not.toContain("Deny");
+  });
+
+  it("keeps shell controls visible even when inner file tabs would be hidden", async () => {
+    const controls = createElement(
+      "button",
+      { "data-shell-controls": "" },
+      "Full view",
+    );
+    await act(async () =>
+      root.render(
+        createElement(FilePane, {
+          ...props,
+          showTabs: false,
+          tabsTrailing: controls,
+        }),
+      ),
+    );
+    expect(container.querySelector('[role="tablist"]')).not.toBeNull();
+    expect(container.querySelector("[data-shell-controls]")?.textContent).toBe(
+      "Full view",
+    );
+  });
+
+  it("does not poll an active worker tab while its full pane is hidden", async () => {
+    const reference = {
+      machineId: "host",
+      sessionId: "worker",
+      leadId: "lead",
+      project: {
+        local: false,
+        cwd: "/repo",
+        projectId: "project",
+        environmentId: "environment",
+      },
+    } as unknown as NonNullable<
+      ReturnType<typeof hostOrchestrationClient.reference>
+    >;
+    vi.spyOn(hostOrchestrationClient, "reference").mockReturnValue(reference);
+    const poll = vi
+      .spyOn(connections, "loadRemoteSession")
+      .mockRejectedValue(new Error("offline"));
+    const session = { ...newSession("codex", "/repo"), id: "worker" };
+    const render = (visible: boolean) =>
+      act(async () =>
+        root.render(
+          createElement(FilePane, {
+            ...props,
+            visible,
+            sessions: [session],
+          }),
+        ),
+      );
+    await render(false);
+    expect(poll).not.toHaveBeenCalled();
+    await render(true);
+    expect(poll).toHaveBeenCalledOnce();
+    await render(false);
+    await act(async () => vi.advanceTimersByTime(3_500));
+    expect(poll).toHaveBeenCalledOnce();
   });
 });

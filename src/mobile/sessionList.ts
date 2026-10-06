@@ -1,4 +1,24 @@
-import type { HostSessionSummary } from "../features/connections/model/protocol";
+import type {
+  HostProject,
+  HostSessionSummary,
+} from "../features/connections/model/protocol";
+
+export function sortMobileProjects(
+  projects: readonly HostProject[],
+  sessionsForProject: (projectId: string) => readonly HostSessionSummary[],
+): HostProject[] {
+  return projects
+    .map((project) => ({
+      project,
+      updatedAt: sessionsForProject(project.id).reduce(
+        (latest, session) =>
+          session.archived ? latest : Math.max(latest, session.updatedAt),
+        0,
+      ),
+    }))
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((item) => item.project);
+}
 
 export function sortMobileSessions(
   sessions: readonly HostSessionSummary[],
@@ -33,4 +53,13 @@ export function sortMobileSessions(
     });
   }
   return ordered;
+}
+
+/** Archived conversations, most recently touched first. */
+export function archivedMobileSessions(
+  sessions: readonly HostSessionSummary[],
+): HostSessionSummary[] {
+  return sessions
+    .filter((session) => session.archived)
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
 }

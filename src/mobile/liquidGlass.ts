@@ -9,12 +9,15 @@
 
 export const LIQUID_GLASS_SELECTOR = [
   '.mobile-header[data-floating="true"] > :not([data-capsule="false"])',
-  ".mobile-composer",
+  ".mobile-composer:not(.mobile-composer-card)",
+  ".mobile-composer-card > .mobile-composer-context",
+  ".mobile-composer-card > .mobile-composer-input",
   ".mobile-jump",
   ".mobile-queue-pill",
   ".mobile-glass-preview-chip",
   ".mobile-drawer",
   ".mobile-sheet",
+  ".mobile-shared-question",
   ".popover-backdrop",
 ].join(", ");
 
@@ -190,7 +193,7 @@ export function installLiquidGlass(root: HTMLElement): () => void {
         node.setAttribute("width", String(width));
         node.setAttribute("height", String(height));
       }
-      if (surface.key && element.matches(".mobile-composer") && !settled) {
+      if (surface.key && element.closest(".mobile-composer") && !settled) {
         // Stretch the existing lens during composer motion. Rasterizing and
         // encoding a full displacement map on every resize stalls the thread
         // that also drives input, layout and transcript scrolling.

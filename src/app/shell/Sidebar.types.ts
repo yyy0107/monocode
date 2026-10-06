@@ -16,6 +16,8 @@ import type { RecentProject } from "../../features/projects/model/recents";
 type SidebarTab = SidebarTabId;
 
 export type SidebarProps = {
+  onOpenAssistant?: () => void;
+  assistantActive?: boolean;
   cwd: string;
   recents?: RecentProject[];
   projectHistory?: SessionSummary[];

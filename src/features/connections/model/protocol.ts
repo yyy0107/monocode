@@ -3,6 +3,55 @@ import type { UserQuestionReply } from "../../sessions/model/userQuestion";
 import type { AgentModel } from "../../sessions/model/models";
 import type { LinkedWorkItem } from "../../sessions/model/session";
 import type { Skill } from "../../skills/model/skillTypes";
+import type { HarnessId } from "../../sessions/model/session";
+import type { OrchestrationWorkspace, TaskStatus } from "../../orchestration/model/orchestrationState";
+import type { ProposedTask } from "../../orchestration/model/orchestrationPlan";
+
+/** Public run projection. Execution credentials and journals remain on Host. */
+export type HostOrchestrationView = {
+  id: string;
+  leadId: string;
+  proposalId?: string;
+  cwd: string;
+  workspace?: OrchestrationWorkspace;
+  status: "active" | "paused" | "stopped" | "finished";
+  allowedHarnesses: HarnessId[];
+  maxWorkers: number;
+  tasks: {
+    id: string;
+    sessionId: string;
+    title: string;
+    harness: HarnessId;
+    model: string;
+    status: TaskStatus;
+    error?: string;
+    needsInput?: boolean;
+  }[];
+  error?: string;
+  resumeBlocker?: { sessionId: string; title: string };
+  resumeLeadBusy?: boolean;
+};
+
+export type HostOrchestrationCommand =
+  | {
+      type: "orchestration";
+      action: "editProposal" | "confirmProposal";
+      commandId: string;
+      projectId: string;
+      sessionId: string;
+      proposalBlockId: string;
+      expectedRevision: number;
+      edit?: { maxWorkers: number; tasks: ProposedTask[] };
+    }
+  | {
+      type: "orchestration";
+      action: "resume" | "stop" | "cancelTask";
+      commandId: string;
+      projectId: string;
+      sessionId: string;
+      orchestrationId: string;
+      taskId?: string;
+    };
 
 export const HOST_PROTOCOL_VERSION = 1;
 export const REMOTE_PROVIDERS = [
@@ -26,7 +75,7 @@ export type HostDescriptor = {
   capabilities: string[];
   platform?: "win32" | "darwin" | "linux";
 };
-export type HostProject = { id: string; cwd: string; name: string };
+export type HostProject = { id: string; cwd: string; name: string; kind?: "assistant" };
 export type HostDirectory = {
   path: string;
   parent: string | null;
@@ -36,6 +85,21 @@ export type HostModelCatalog = {
   models: Partial<Record<RemoteProvider, AgentModel[]>>;
   errors: Partial<Record<RemoteProvider, string>>;
 };
+/** Named login profiles the paired desktop shares; `default` is the CLI's own. */
+export type HostAccountIdentity = { email?: string; name?: string; plan?: string; organization?: string };
+export type HostProviderAccount = {
+  id: string;
+  label: string;
+  identity?: HostAccountIdentity;
+  /** Builtin entry describes where a new conversation following Host defaults goes. */
+  defaultAccountId?: string;
+  defaultAccountLabel?: string;
+  defaultIdentity?: HostAccountIdentity;
+  defaultError?: string;
+};
+export type HostProviderAccounts = Partial<
+  Record<RemoteProvider, HostProviderAccount[]>
+>;
 export type HostSkillCatalog = {
   skills: Skill[];
   native: boolean;
@@ -71,6 +135,11 @@ export type HostSession = {
   autoWorktreeBranch?: string;
   /** Host-only: the revision at which each block last changed. */
   blockRevisions?: Record<string, number>;
+  /** Host-managed native history status (absent for ordinary sessions and older Hosts). */
+  nativeStatus?: import("../../../integrations/harness/core/nativeSessions").NativeSyncStatus;
+  /** Host-only lazy identity for a MonoCode-started provider conversation. */
+  nativeBinding?: import("../../../integrations/harness/core/nativeSessions").NativeBinding;
+  orchestration?: HostOrchestrationView;
 };
 export type HostSessionSummary = Omit<
   HostSession,
@@ -95,6 +164,9 @@ export type HostSessionSummary = Omit<
   repo?: string;
   draft?: boolean;
   nativeSession?: Session["nativeSession"];
+  nativeStatus?: HostSession["nativeStatus"];
+  orchestrationLeadId?: string;
+  assistantOwnerId?: string;
 };
 
 export type HostSessionActivity = {
@@ -165,6 +237,7 @@ export function applySessionSync(
   };
 }
 export type HostCommand =
+  | HostOrchestrationCommand
   | {
       type: "create";
       commandId: string;
@@ -175,6 +248,8 @@ export type HostCommand =
       model: string;
       modelSettings?: Record<string, string>;
       runtimeMode: RuntimeMode;
+      /** Named desktop account profile; omitted for the default login. */
+      providerAccountId?: string;
     }
   | {
       type: "configure";
@@ -204,9 +279,10 @@ export type HostCommand =
       sessionId: string;
       text: string;
       attachments?: RemoteAttachment[];
-      intent?: "default" | "plan" | "build";
+      intent?: "default" | "plan" | "build" | "orchestrate";
       /** Active-turn delivery preference; omitted retains the existing queue behavior. */
       followUpBehavior?: "queue" | "steer";
+      retryProposalBlockId?: string;
       draftBlockId?: string;
       planBlockId?: string;
       /** Host FIFO dispatch; callers cannot bypass a paused or edited head. */

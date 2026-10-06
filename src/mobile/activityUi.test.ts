@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { MobileApp } from "./MobileApp";
 import type { HostSessionSummary } from "../features/connections/model/protocol";
+import type { SessionReference } from "../features/assistant/model/assistant";
 import { setUiLanguage } from "../shared/i18n/language";
 
 const mocked = vi.hoisted(() => ({
@@ -42,6 +43,11 @@ vi.mock("./client", () => ({
       sessions: mocked.summaries,
     });
     session = mocked.session;
+    rpc = async (method: string, params?: { sessionId?: string }) => {
+      if (method === "projects.list") return this.projects();
+      if (method === "sessions.get") return mocked.session(params?.sessionId);
+      return null;
+    };
     cachedModels = () => undefined;
     cachedSession = () => undefined;
     sessionPreviews = async () => undefined;
@@ -54,6 +60,13 @@ vi.mock("./MobileAppUpdates", () => ({
 }));
 vi.mock("./MobileTranscript", () => ({
   MobileTranscript: () => createElement("div", { "data-transcript": true }),
+}));
+vi.mock("./MobileAssistant", () => ({
+  MobileAssistant: ({ onOpen }: { onOpen: (ref: SessionReference) => Promise<void> }) =>
+    createElement("button", {
+      "data-assistant-open": true,
+      onClick: () => onOpen({ environmentId: "host", projectId: "other-project", sessionId: "two" }),
+    }, "Open conversation"),
 }));
 vi.mock("./notifications", () => ({
   nativeActivityNotifications: () => mocked.native,
@@ -135,6 +148,17 @@ async function openMenu() {
   await act(async () => {
     node.querySelector<HTMLButtonElement>('button[aria-label="Menu"]')!.click();
   });
+}
+async function swipeOpenDrawer() {
+  Object.defineProperty(node.querySelector(".mobile-drawer")!, "offsetWidth", { value: 300, configurable: true });
+  const surface = node.querySelector(".mobile-chat")!;
+  for (const [type, x] of [["pointerdown", 20], ["pointermove", 60], ["pointermove", 240], ["pointerup", 240]] as const) {
+    await act(async () => surface.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, pointerId: 7, pointerType: "touch", clientX: x, clientY: 300,
+    })));
+  }
+  expect(node.querySelector(".mobile-drawer-backdrop")!.getAttribute("data-open")).toBe("true");
+  await act(async () => vi.advanceTimersByTimeAsync(400));
 }
 // Start a blank chat from Home before exercising the conversation drawer.
 async function clickProject() {
@@ -290,6 +314,87 @@ describe("mobile header search", () => {
     }
   });
 });
+describe("mobile project conversation Back navigation", () => {
+  const headerButton = (label: string) => node.querySelector<HTMLButtonElement>(`header button[aria-label="${label}"]`);
+  const openProjectPage = async () => {
+    await act(async () => root.render(createElement(MobileApp)));
+    await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home-project[title="/other"]')!.click());
+  };
+  const openRow = async () => {
+    await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home [data-session-id="two"]')!.click());
+  };
+
+  it.each(["recent", "pinned", "search"])("returns a %s conversation to its project", async (entry) => {
+    if (entry === "pinned") mocked.summaries[1].pinned = true;
+    await openProjectPage();
+    if (entry === "search") {
+      await act(async () => node.querySelector<HTMLButtonElement>(".mobile-home-search")!.click());
+      await act(async () => {
+        const input = node.querySelector<HTMLInputElement>(".mobile-header-search input")!;
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Other");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(node.querySelectorAll(".mobile-home [data-session-id]")).toHaveLength(1);
+      await openRow(); // Existing outside-click behavior dismisses search first.
+    }
+    await openRow();
+    expect(node.querySelector(".mobile-app")!.getAttribute("data-view")).toBe("chat");
+    expect(headerButton("Menu")).toBeNull();
+    await act(async () => headerButton("Back")!.click());
+    expect(node.querySelector("header strong")!.textContent).toBe("Other");
+    expect(node.querySelectorAll(".mobile-home [data-session-id]")).toHaveLength(1);
+    expect(node.querySelector('.mobile-home [data-session-id="two"]')).not.toBeNull();
+  });
+
+  it.each(["existing", "draft"])("preserves the %s conversation's source through settings and localizes Back", async (kind) => {
+    await openProjectPage();
+    if (kind === "existing") await openRow();
+    else await act(async () => node.querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
+    expect(headerButton("Back")).not.toBeNull();
+    await swipeOpenDrawer();
+    await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-settings")!.click());
+    await act(async () => headerButton("Back")!.click());
+    expect(node.querySelector(".mobile-app")!.getAttribute("data-view")).toBe("chat");
+    expect(headerButton("Menu")).toBeNull();
+    act(() => setUiLanguage("zh-CN"));
+    await act(async () => headerButton("返回")!.click());
+    expect(node.querySelector("header strong")!.textContent).toBe("Other");
+  });
+
+  it.each(["existing", "new"])("resets the source when the sidebar opens a %s conversation after a project visit", async (kind) => {
+    await openProjectPage();
+    await openRow();
+    await swipeOpenDrawer();
+    await act(async () => node.querySelector<HTMLButtonElement>(kind === "existing"
+      ? '.mobile-drawer [data-session-id="two"]' : '.mobile-drawer-new')!.click());
+    expect(node.querySelector("header strong")!.textContent).toBe(kind === "existing" ? "Other conversation" : "New conversation");
+    expect(headerButton("Menu")).not.toBeNull();
+    expect(headerButton("Back")).toBeNull();
+  });
+
+  it("resets the source when the assistant opens the same conversation", async () => {
+    await openProjectPage();
+    await openRow();
+    await swipeOpenDrawer();
+    await act(async () => [...node.querySelectorAll<HTMLButtonElement>(".mobile-drawer-top > button")]
+      .find((button) => button.textContent === "Assistant")!.click());
+    await act(async () => node.querySelector<HTMLButtonElement>("[data-assistant-open]")!.click());
+    expect(node.querySelector("header strong")!.textContent).toBe("Other conversation");
+    expect(headerButton("Menu")).not.toBeNull();
+    expect(headerButton("Back")).toBeNull();
+  });
+
+  it("keeps the menu when Home opens the same conversation after a project visit", async () => {
+    await openProjectPage();
+    await openRow();
+    await act(async () => headerButton("Back")!.click());
+    await act(async () => headerButton("Back")!.click());
+    await openRow();
+    expect(headerButton("Menu")).not.toBeNull();
+    expect(headerButton("Back")).toBeNull();
+  });
+});
+
 describe("mobile unread indicators and notification navigation", () => {
   it("opens native conversation notification settings after permission is already granted", async () => {
     mocked.native = true;
@@ -551,7 +656,10 @@ describe("mobile unread indicators and notification navigation", () => {
     expect(backdrop.getAttribute("data-open")).toBe("false");
   });
   it("opens a notification from another project in its owning project", async () => {
-    await clickProject();
+    await act(async () => root.render(createElement(MobileApp)));
+    await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home-project[title="/project"]')!.click());
+    await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home [data-session-id="one"]')!.click());
+    expect(node.querySelector('header button[aria-label="Back"]')).not.toBeNull();
     await updateReply("two");
     expect(mocked.notify).toHaveBeenCalledTimes(1);
     const onOpen = mocked.notify.mock.calls[0][3];
@@ -563,6 +671,8 @@ describe("mobile unread indicators and notification navigation", () => {
       });
     });
     expect(mocked.session).toHaveBeenCalledWith("two");
+    expect(node.querySelector('header button[aria-label="Menu"]')).not.toBeNull();
+    expect(node.querySelector('header button[aria-label="Back"]')).toBeNull();
     expect(node.querySelector("header strong")?.textContent).toBe(
       "Other conversation",
     );

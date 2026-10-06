@@ -13,12 +13,23 @@ function trimSlash(path: string): string {
   return slash(path).replace(/\/+$/, "") || "/";
 }
 
+// Render paths compare the same few hundred paths over and over; each key
+// costs several regex passes, so remember them (bounded, keys are pure).
+const PATH_KEY_LIMIT = 4096;
+const pathKeys = new Map<string, string>();
+
 /** Stable comparison key for Windows paths without changing their display case. */
 export function pathKey(path: string): string {
+  const cached = pathKeys.get(path);
+  if (cached !== undefined) return cached;
   const normalized = trimSlash(path);
-  return /^[A-Za-z]:(?:\/|$)/.test(normalized) || normalized.startsWith("//")
-    ? normalized.toLowerCase()
-    : normalized;
+  const key =
+    /^[A-Za-z]:(?:\/|$)/.test(normalized) || normalized.startsWith("//")
+      ? normalized.toLowerCase()
+      : normalized;
+  if (pathKeys.size >= PATH_KEY_LIMIT) pathKeys.clear();
+  pathKeys.set(path, key);
+  return key;
 }
 
 export function prettyCwd(cwd: string): string {

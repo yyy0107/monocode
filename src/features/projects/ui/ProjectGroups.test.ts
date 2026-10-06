@@ -81,7 +81,7 @@ function button(label: string): HTMLButtonElement {
 function sectionLabels(): string[] {
   return [...container.querySelectorAll("span")]
     .map((element) => element.textContent ?? "")
-    .filter((text) => ["Pinned", "Groups", "Projects"].includes(text));
+    .filter((text) => ["Pinned", "Groups", "Recent projects"].includes(text));
 }
 
 it("renders assigned projects in persistent collapsible groups", async () => {
@@ -94,7 +94,7 @@ it("renders assigned projects in persistent collapsible groups", async () => {
 
   expect(button("personal")).toBeDefined();
   expect(button("client")).toBeDefined();
-  expect(sectionLabels()).toEqual(["Pinned", "Groups", "Projects"]);
+  expect(sectionLabels()).toEqual(["Pinned", "Groups", "Recent projects"]);
 
   const group = container.querySelector<HTMLElement>(
     '[data-project-group="clients"]',
@@ -153,7 +153,7 @@ it("renders assigned projects in persistent collapsible groups", async () => {
 
 it("creates, styles, assigns, and deletes a group from the project list", async () => {
   await renderRail();
-  expect(sectionLabels()).toEqual(["Projects"]);
+  expect(sectionLabels()).toEqual(["Recent projects"]);
   expect(
     document.querySelector('button[aria-label="New project group"]'),
   ).toBeNull();
@@ -207,7 +207,7 @@ it("creates, styles, assigns, and deletes a group from the project list", async 
   expect(loadProjectGroups()).toEqual([]);
   expect(loadProjectGroupAssignments()).toEqual({});
   expect(button("personal")).toBeDefined();
-  expect(sectionLabels()).toEqual(["Projects"]);
+  expect(sectionLabels()).toEqual(["Recent projects"]);
   expect(
     document.querySelector('button[aria-label="New project group"]'),
   ).toBeNull();

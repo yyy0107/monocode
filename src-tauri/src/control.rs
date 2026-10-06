@@ -123,6 +123,19 @@ pub struct ControlHost {
     inner: Arc<Mutex<Inner>>,
 }
 
+impl ControlHost {
+    pub(crate) fn retire_sessions(&self, ids: &[String]) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.grants.retain(|id, _| !ids.contains(id));
+        inner.app_grants.retain(|id, _| !ids.contains(id));
+        inner
+            .workers
+            .retain(|id, lead| !ids.contains(id) && !ids.contains(lead));
+        inner.scratch.retain(|id, _| !ids.contains(id));
+        inner.active.retain(|id, _| !ids.contains(id));
+    }
+}
+
 fn paths_overlap(a: &str, b: &str) -> bool {
     a == b || a.starts_with(&format!("{b}/")) || b.starts_with(&format!("{a}/"))
 }
@@ -288,6 +301,10 @@ pub fn control_enable(
     session_id: String,
     cwd: String,
 ) -> Result<String, String> {
+    crate::legacy_orchestration::authorize_session(
+        &window.state::<crate::session_store::SessionStore>(),
+        &session_id,
+    )?;
     let cwd = std::fs::canonicalize(crate::fs::expand_home(&cwd)).map_err(|e| e.to_string())?;
     if !cwd.is_dir() {
         return Err("Choose a project folder first".into());

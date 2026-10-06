@@ -23,3 +23,12 @@ descriptions, commands and user text retain their original values.
 This is selection and invocation of existing skills, not a new skill-management
 screen. No provider credentials, skill bodies or filesystem access move onto the
 phone. Existing Host authentication and protocol-v1 clients remain compatible.
+
+## Compact list follow-up — 2026-10-05
+
+Use smaller text, icons and spacing in the mobile skills picker and inline slash
+suggestions. Command names and descriptions stay on one line with ellipsis when
+needed; source labels take only their content width. Preserve at least 44px touch
+targets, readable search input, native argument hints and existing selection.
+Both the plus-menu picker and the list opened by typing `/` use this density;
+file-skill origin labels read Project / Personal (项目 / 个人), without a skill suffix.

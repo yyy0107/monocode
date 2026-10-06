@@ -87,6 +87,8 @@ export type ComposerTurnOptions = {
   onResendRejected?: (recovery: EditedResendRejection) => void;
   /** Promote an existing unsent transcript block instead of appending a turn. */
   draftBlockId?: string;
+  /** Retry an existing Host orchestration proposal using its saved request. */
+  retryProposalBlockId?: string;
 };
 
 export type PlanStatus = "streaming" | "ready" | "building" | "built";
@@ -253,13 +255,24 @@ export type Attachment = {
   previewUrl?: string;
 };
 
+export type TurnOrigin = {
+  kind: "assistant";
+  assistantId: string;
+  assistantName?: string;
+  actionId: string;
+  wakeupId: string;
+};
+
 export type QueuedMessage = {
+  /** Retained for review; skipped until a human edits or removes the item. */
+  blocked?: string;
   id: string;
   text: string;
   attachments: Attachment[];
   noteCard?: NoteComposerCard;
   handoffCard?: HandoffComposerCard;
   intent?: TurnIntent;
+  origin?: TurnOrigin;
 };
 
 export type MessageQueueStatus = "active" | "paused" | "resuming";
@@ -292,6 +305,7 @@ export type TurnMetrics = {
 export type Block = {
   id: string;
   role: BlockRole;
+  origin?: TurnOrigin;
   text: string;
   image?: GeneratedImageMeta;
   attachments?: Attachment[];
@@ -397,19 +411,33 @@ export const RUNTIME_MODE_HINT: Record<RuntimeMode, string> = {
 export type WorkspaceMode = "current" | "worktree";
 
 export type NativeSessionLink = {
-  provider: "codex" | "pi";
+  provider: import("../../../integrations/harness/core/nativeSessions").NativeSessionProvider;
   providerSessionId: string;
+  /** Absent for records saved before multi-provider sync, which were all JSONL. */
+  storage?: "jsonl" | "sqlite";
+  /** Claude/Codex account profile that owns the native conversation. */
+  accountId?: string;
   createdAt: number;
   updatedAt: number;
   path: string;
   revision: string;
   blockIds: string[];
+  /** Host-managed: set once the Host owns this conversation's lifecycle. */
+  mode?: "managed";
+  /** Resolved provider account/data directory that owns the source. */
+  dataDir?: string;
+  /** Native transcript block IDs already represented in history (Host-managed). */
+  nativeIds?: string[];
 };
 
 export type Session = {
+  /** Host-owned assistant brain, excluded from ordinary conversation lists. */
+  assistantOwnerId?: string;
   titleState?: import("./titlePolicy").SessionTitleState;
   /** Native transcript tracked by the local import/sync feature. */
   nativeSession?: NativeSessionLink;
+  /** Host-managed native history status, copied from the Host snapshot. */
+  nativeSyncStatus?: import("../../../integrations/harness/core/nativeSessions").NativeSyncStatus;
   /** Receipt for an acknowledged floating-composer handoff. */
   quickLaunchAccepted?: boolean;
   /** Internal worker: displayed in its lead's panel rather than a workspace tab. */
@@ -646,6 +674,34 @@ export function newSessionLike(
     seed?.runtimeMode,
     seed?.modelSettings,
   );
+}
+
+/**
+ * A session that still looks like an untouched draft the user never typed in:
+ * no messages, no composer seed, no pending card, not bound to a provider thread.
+ * Safe to reuse when the user asks for a new session in the same project.
+ */
+export function isReusableDraftSession(session: Session): boolean {
+  if (session.blocks.length !== 0) return false;
+  if (session.busy || session.worktreePreparing) return false;
+  if (session.pendingSwitch) return false;
+  if (session.worktreeRemoved) return false;
+  if (session.providerSessionId) return false;
+  if (session.nativeSession) return false;
+  if (session.assistantOwnerId) return false;
+  if (session.orchestrationLeadId) return false;
+  if (session.inboxAsk) return false;
+  if (session.composerSeed) return false;
+  if (session.inboxCard) return false;
+  if (session.noteCard) return false;
+  if (session.linkedWorkItem) return false;
+  if (session.linkedWorkItemUpdateCard) return false;
+  if (session.handoffCard) return false;
+  if (session.pendingQuestion) return false;
+  if ((session.queuedMessages?.length ?? 0) > 0) return false;
+  if (session.titleState && session.titleState.source !== "placeholder")
+    return false;
+  return true;
 }
 
 /** First line of a prompt, truncated for the tab strip. */

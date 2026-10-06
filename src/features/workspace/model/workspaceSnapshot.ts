@@ -7,6 +7,7 @@ import {
   APP_VIEW_KINDS,
   isAgentTab,
   isAppViewTab,
+  isAppViewOnlyTab,
   isTerminalTab,
   leafIds,
   newTab,
@@ -29,6 +30,7 @@ import {
 import { normalizeProjectPath } from "../../projects/model/recents";
 import { pathKey } from "../../../shared/lib/paths";
 import { parseRemotePath, remotePath } from "../../connections/model/remoteProjects";
+import { isRetiredSession } from "../../sessions/model/retiredSessions";
 import {
   reconcileProjectReturn,
   type ProjectReturnMemory,
@@ -189,10 +191,13 @@ function withoutAgentTabs(tabs: WorkspaceTab[]): WorkspaceTab[] {
   });
 }
 
-/** Keep the first valid view of each kind without stranding duplicate panes. */
+/** Views belong to their chat workspace. Legacy standalone views stay unique. */
 function withoutDuplicateAppViews(tabs: WorkspaceTab[]): WorkspaceTab[] {
-  const seen = new Set<AppViewKind>();
+  const standaloneSeen = new Set<AppViewKind>();
   return tabs.flatMap((tab) => {
+    const seen = isAppViewOnlyTab(tab)
+      ? standaloneSeen
+      : new Set<AppViewKind>();
     let remaining: WorkspaceTab | null = tab;
     const panes: EditorPane[] = [];
     for (const pane of tab.editorPanes) {
@@ -304,6 +309,42 @@ export function workspaceSnapshotKey(snapshot: WorkspaceSnapshot): string {
   return JSON.stringify(snapshot);
 }
 
+/** Retired records must never fall back to a saved stub or an empty leaf. */
+export function withoutRetiredSessions<T extends {
+  tabs: WorkspaceTab[];
+  sessions: { id: string; cwd: string }[];
+  activeTabId: string;
+  projectCwd: string;
+}>(snapshot: T): T {
+  const cwds = new Map(snapshot.sessions.map((session) => [session.id, session.cwd]));
+  const retired = (id: string) => isRetiredSession(id, cwds.get(id) ?? snapshot.projectCwd);
+  const tabs = snapshot.tabs.flatMap((tab) => {
+    let remaining: WorkspaceTab | null = tab;
+    const paneIds = new Set([...tab.editorPanes, ...(tab.terminalPanes ?? [])].map((pane) => pane.id));
+    for (const id of leafIds(tab.layout)) {
+      if (!paneIds.has(id) && retired(id)) remaining = remaining && closeLeaf(remaining, id);
+    }
+    if (!remaining) return [];
+    for (const pane of remaining.editorPanes) {
+      const files = pane.files.filter((file) => !isAgentTab(file) ||
+        (!retired(file.agent.sessionId) && !retired(file.agent.leadId)));
+      if (files.length === pane.files.length) continue;
+      if (!files.length) {
+        remaining = remaining && closeLeaf(remaining, pane.id);
+      } else if (remaining) {
+        remaining = { ...remaining, editorPanes: remaining.editorPanes.map((entry) => entry.id !== pane.id ? entry : {
+          ...entry, files, activeFileId: files.some((file) => file.id === entry.activeFileId) ? entry.activeFileId : files[0].id,
+        }) };
+      }
+    }
+    return remaining ? [remaining] : [];
+  });
+  return { ...snapshot, tabs,
+    sessions: snapshot.sessions.filter((session) => !isRetiredSession(session.id, session.cwd)),
+    activeTabId: tabs.some((tab) => tab.id === snapshot.activeTabId) ? snapshot.activeTabId : (tabs[0]?.id ?? ""),
+  };
+}
+
 /**
  * Reopen the saved tabs/panes. Transcripts come from `loaded` when the
  * session was persisted; blank tabs fall back to the stub.
@@ -313,7 +354,7 @@ export function hydrateWorkspaceSnapshot(
   loaded: Map<string, Session>,
   interruptedIds: ReadonlySet<string> = new Set(),
 ): ResumedWorkspace | null {
-  const parsed = parseWorkspaceSnapshot(snapshot);
+  const parsed = parseWorkspaceSnapshot(withoutRetiredSessions(snapshot));
   if (!parsed) return null;
 
   const paneIds = new Set<string>();
@@ -327,6 +368,7 @@ export function hydrateWorkspaceSnapshot(
   const sessions = new Map<string, Session>();
 
   const take = (id: string): Session | null => {
+    if (isRetiredSession(id, loaded.get(id)?.cwd ?? stubs.get(id)?.cwd ?? parsed.projectCwd)) return null;
     const existing = sessions.get(id);
     if (existing) return existing;
     const record = loaded.get(id);
@@ -363,6 +405,7 @@ export function hydrateWorkspaceSnapshot(
   }
 
   for (const id of interruptedIds) {
+    if (isRetiredSession(id, loaded.get(id)?.cwd ?? parsed.projectCwd)) continue;
     const session = take(id);
     if (!session || session.inboxAsk) continue;
     if (tabs.some((tab) => leafIds(tab.layout).includes(id))) continue;
@@ -527,6 +570,9 @@ function sanitizeTab(raw: unknown): WorkspaceTab | null {
     terminalPanes,
     ...(value.diffOpen === true ? { diffOpen: true } : {}),
     ...(value.diffFocused === true ? { diffFocused: true } : {}),
+    ...(value.surfaceMode === "split" || value.surfaceMode === "unified"
+      ? { surfaceMode: value.surfaceMode }
+      : {}),
     ...(typeof value.groupId === "string" && value.groupId
       ? { groupId: value.groupId }
       : {}),

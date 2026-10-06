@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AgentTranscript } from "./AgentTranscript";
 import { messageFilesFromClipboard } from "../../../platform/tauri/clipboard";
+import { setUiLanguage } from "../../../shared/i18n/language";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -32,6 +33,7 @@ it("shows the user's send time next to the message actions", () => {
 });
 
 beforeEach(() => {
+  setUiLanguage("en");
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   // Measurements here are driven explicitly; the observer never reports.
   vi.stubGlobal(
@@ -53,6 +55,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("shows the assistant nickname above its sent bubble without including it in copied text", async () => {
+  setUiLanguage("zh-CN");
+  act(() => root.render(createElement(AgentTranscript, { blocks: [{
+    id: "from-assistant", role: "user", text: "你好，我是助理",
+    origin: { kind: "assistant", assistantId: "a", assistantName: "小团", actionId: "send", wakeupId: "wake" },
+  }] })));
+  const label = container.querySelector("[data-assistant-origin]")!;
+  const bubble = container.querySelector(".user-message-bubble")!;
+  expect(label.textContent).toBe("来自 小团");
+  expect(label.parentElement).toBe(bubble.parentElement);
+  expect(bubble.contains(label)).toBe(false);
+  expect(label.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="复制消息"]')!.click());
+  expect(await navigator.clipboard.readText()).toBe("你好，我是助理");
+});
 it("copies the full user prompt and confirms success", async () => {
   const text = "First line\nSecond line\nThird line\nFourth line\nFifth line";
   act(() =>

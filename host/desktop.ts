@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { HostStore } from "./store";
 import { importDesktopSessions } from "./desktop-import";
+import { readLegacyRetirementManifest } from "./legacy-orchestration";
 
 /** Used only by the native desktop bootstrap. Its credential never reaches JS. */
 export async function prepareDesktopHost(
@@ -13,7 +14,11 @@ export async function prepareDesktopHost(
   desktopDirectory: string,
   entry: string,
   port: number,
+  retirementManifestPath?: string,
 ) {
+  const retirement = retirementManifestPath
+    ? readLegacyRetirementManifest(retirementManifestPath, desktopDirectory)
+    : undefined;
   const runningPath = join(directory, "running.json");
   const alive = async () => {
     if (!existsSync(runningPath)) return false;
@@ -30,8 +35,15 @@ export async function prepareDesktopHost(
         signal: AbortSignal.timeout(3_000),
       });
       if (!response.ok) return false;
-      const status = (await response.json()) as { sharedDesktop?: number };
-      return status.sharedDesktop === 2 ? "shared" : "legacy";
+      const status = (await response.json()) as {
+        sharedDesktop?: number;
+        orchestrationHost?: number;
+        nativeSessionAccess?: number;
+        nativeSessionManager?: number;
+      };
+      return status.sharedDesktop === 2 && status.orchestrationHost === 1 && status.nativeSessionAccess === 1 &&
+        status.nativeSessionManager === 1
+        ? "shared" : "legacy";
     } catch {
       return false;
     }
@@ -44,7 +56,9 @@ export async function prepareDesktopHost(
       // Keep the write lease until shutdown: another device cannot accept a
       // new turn between the idle check and restarting the old executable.
       if ((await alive()) === "legacy") {
-        if (old.sessions().some((value) => value.status === "running"))
+        const activeOrchestration = old.db.prepare("SELECT state FROM orchestration_runs").all()
+          .some((row) => JSON.parse(String(row.state)).status === "active");
+        if (old.sessions().some((value) => value.status === "running") || activeOrchestration)
           throw new Error(
             "Finish the running Host conversations before upgrading shared desktop access, then retry.",
           );
@@ -104,6 +118,18 @@ export async function prepareDesktopHost(
         started.stderr || "Could not start shared conversation service",
       );
   }
+  if (retirement) {
+    const state = JSON.parse(readFileSync(runningPath, "utf8"));
+    const response = await fetch(`http://127.0.0.1:${state.port}/lifecycle`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${state.secret}`, "Content-Type": "application/json", Connection: "close" },
+      body: JSON.stringify({ action: "retireLegacyOrchestration", manifest: retirement }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new Error("Could not retire legacy orchestration conversations; retry startup");
+    const result = await response.json() as { retired?: boolean; error?: string };
+    if (!result.retired) throw new Error(result.error ?? "Legacy orchestration cleanup was not accepted");
+  }
   const store = new HostStore(join(directory, "host.db"));
   try {
     importDesktopSessions(store, join(desktopDirectory, "monocode.db"));
@@ -128,6 +154,10 @@ export async function prepareDesktopHost(
       )
       .all()
       .map((row) => ({ id: String(row.id), cwd: String(row.cwd) }));
+    for (const retired of retirement?.entries ?? []) {
+      if (!sessions.some((row) => row.id === retired.id))
+        sessions.push({ id: retired.id, cwd: retired.cwd ?? "~", deleted: true });
+    }
     const legacyPath = join(desktopDirectory, "monocode.db");
     if (existsSync(legacyPath)) {
       const sourceKey = createHash("sha256")

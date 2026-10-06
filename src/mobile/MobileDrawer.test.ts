@@ -93,9 +93,11 @@ describe("mobile sidebar sessions", () => {
   it("lists pinned conversations first under their project and hides archives", () => {
     render();
     expect(
-      [...node.querySelectorAll(".mobile-drawer-group .mobile-session-row strong")].map(
-        (el) => el.textContent,
-      ),
+      [
+        ...node.querySelectorAll(
+          ".mobile-drawer-group .mobile-session-row strong",
+        ),
+      ].map((el) => el.textContent),
     ).toEqual(["Pinned conversation", "Recent conversation"]);
     expect(node.textContent).not.toContain("Archived conversation");
   });
@@ -212,7 +214,9 @@ describe("mobile sidebar sessions", () => {
       value: 300,
     });
     const panel = node.querySelector<HTMLElement>(".mobile-drawer")!;
-    const backdrop = node.querySelector<HTMLElement>(".mobile-drawer-backdrop")!;
+    const backdrop = node.querySelector<HTMLElement>(
+      ".mobile-drawer-backdrop",
+    )!;
     const progress = () =>
       backdrop.style.getPropertyValue("--mobile-drawer-progress");
     expect(progress()).toBe("1");
@@ -301,19 +305,55 @@ describe("mobile sidebar projects", () => {
   const toggles = () => [
     ...node.querySelectorAll<HTMLButtonElement>(".mobile-drawer-group-toggle"),
   ];
-  it("keeps the Host order and tells same-name projects apart by parent", () => {
-    render(true, { projects, project });
+  const toggle = (cwd: string) =>
+    links()
+      .find((item) => item.title === cwd)!
+      .closest(".mobile-drawer-group")!
+      .querySelector<HTMLButtonElement>(".mobile-drawer-group-toggle")!;
+  const session = (
+    projectId: string,
+    updatedAt: number,
+    extra: Partial<HostSessionSummary> = {},
+  ): HostSessionSummary => ({
+    id: `${projectId}-chat`,
+    title: `${projectId} chat`,
+    projectId,
+    harness: "codex",
+    status: "idle",
+    revision: 1,
+    updatedAt,
+    ...extra,
+  });
+  it("orders all projects by recent visible activity and tells same-name projects apart by parent", async () => {
+    const loadSessions = vi.fn(async (id: string) =>
+      id === "android"
+        ? [
+            session(id, 90),
+            session(id, 1_000, { id: "archived", archived: true }),
+          ]
+        : [session(id, 200, { pinned: true })],
+    );
+    await act(async () => render(true, { projects, project, loadSessions }));
     expect(links().map((item) => item.title)).toEqual([
-      "/mnt/data/Android",
       "/home/wy/Documents/Codex/monocode",
       "/projects/monocode",
+      "/mnt/data/Android",
     ]);
     expect(
       links().map((item) => item.querySelector("small")?.textContent),
-    ).toEqual([undefined, "~/Documents/Codex", "/projects"]);
-    expect(
-      toggles().map((item) => item.getAttribute("aria-expanded")),
-    ).toEqual(["false", "false", "true"]);
+    ).toEqual(["~/Documents/Codex", "/projects", undefined]);
+    expect(toggles().map((item) => item.getAttribute("aria-expanded"))).toEqual(
+      ["false", "true", "false"],
+    );
+    expect(loadSessions.mock.calls.map(([id]) => id).sort()).toEqual([
+      "android",
+      "codex",
+    ]);
+    expect(projects.map((item) => item.id)).toEqual([
+      "android",
+      "codex",
+      "project",
+    ]);
   });
   it("loads another project's conversations when it opens and opens them in that project", async () => {
     const onSession = vi.fn();
@@ -328,9 +368,13 @@ describe("mobile sidebar projects", () => {
         updatedAt: 90,
       },
     ]);
-    render(true, { projects, project, loadSessions, onSession });
-    await act(async () => toggles()[0].click());
-    expect(loadSessions).toHaveBeenCalledExactlyOnceWith("android");
+    await act(async () =>
+      render(true, { projects, project, loadSessions, onSession }),
+    );
+    await act(async () => toggle(projects[0].cwd).click());
+    expect(
+      loadSessions.mock.calls.filter(([id]) => id === "android"),
+    ).toHaveLength(1);
     const chat = node.querySelector<HTMLButtonElement>(
       '[data-session-id="android-chat"]',
     )!;
@@ -340,10 +384,158 @@ describe("mobile sidebar projects", () => {
       "android-chat",
       projects[0],
     );
-    act(() => toggles()[0].click());
-    expect(toggles()[0].getAttribute("aria-expanded")).toBe("false");
+    act(() => toggle(projects[0].cwd).click());
+    expect(toggle(projects[0].cwd).getAttribute("aria-expanded")).toBe("false");
     act(() => vi.advanceTimersByTime(350));
     expect(node.querySelector('[data-session-id="android-chat"]')).toBeNull();
+  });
+  it("automatically expands running projects but keeps manual collapses through refreshes", async () => {
+    const loadSessions = vi.fn(async (id: string) => [
+      session(id, 100, {
+        status: id === "android" || id === "codex" ? "running" : "idle",
+        archived: id === "codex",
+      }),
+    ]);
+    await act(async () =>
+      render(true, {
+        projects,
+        project: undefined,
+        sessions: [],
+        loadSessions,
+      }),
+    );
+    expect(toggle(projects[0].cwd).getAttribute("aria-expanded")).toBe("true");
+    expect(toggle(projects[1].cwd).getAttribute("aria-expanded")).toBe("false");
+    expect(toggle(projects[2].cwd).getAttribute("aria-expanded")).toBe("false");
+    expect(
+      node.querySelector('[data-session-id="android-chat"]'),
+    ).not.toBeNull();
+    act(() => toggle(projects[0].cwd).click());
+    expect(
+      node
+        .querySelector('.mobile-drawer-group [data-fold-state="closing"]')
+        ?.hasAttribute("inert"),
+    ).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(toggle(projects[0].cwd).getAttribute("aria-expanded")).toBe("false");
+    expect(node.querySelector('[data-session-id="android-chat"]')).toBeNull();
+  });
+  it("refreshes collapsed projects, preserves history on failure and stops polling while closed", async () => {
+    let recent = 20;
+    let running = false;
+    let failed = false;
+    const loadSessions = vi.fn(async (id: string) => {
+      if (failed) throw new Error("Offline");
+      return [
+        session(id, id === "android" ? recent : 50, {
+          status: id === "android" && running ? "running" : "idle",
+        }),
+      ];
+    });
+    const props = { projects, project: undefined, sessions: [], loadSessions };
+    await act(async () => render(false, props));
+    expect(loadSessions).not.toHaveBeenCalled();
+    await act(async () => render(true, props));
+    expect(links().map((item) => item.title)).toEqual([
+      projects[1].cwd,
+      projects[2].cwd,
+      projects[0].cwd,
+    ]);
+    recent = 100;
+    running = true;
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(links()[0].title).toBe(projects[0].cwd);
+    expect(toggle(projects[0].cwd).getAttribute("aria-expanded")).toBe("true");
+    failed = true;
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(links()[0].title).toBe(projects[0].cwd);
+    expect(
+      node.querySelector('[data-session-id="android-chat"]'),
+    ).not.toBeNull();
+    await act(async () => render(false, props));
+    loadSessions.mockClear();
+    await act(async () => vi.advanceTimersByTimeAsync(6_000));
+    expect(loadSessions).not.toHaveBeenCalled();
+    failed = false;
+    await act(async () => render(true, props));
+    expect(loadSessions).toHaveBeenCalledTimes(3);
+    await act(async () => render(true, { ...props, foreground: false }));
+    loadSessions.mockClear();
+    await act(async () => vi.advanceTimersByTimeAsync(6_000));
+    expect(loadSessions).not.toHaveBeenCalled();
+    await act(async () => render(true, props));
+    expect(loadSessions).toHaveBeenCalledTimes(3);
+  });
+  it("ignores older history requests after reopening the drawer", async () => {
+    let resolveOld!: (sessions: HostSessionSummary[]) => void;
+    const old = new Promise<HostSessionSummary[]>((resolve) => {
+      resolveOld = resolve;
+    });
+    const loadSessions = vi
+      .fn()
+      .mockReturnValueOnce(old)
+      .mockResolvedValueOnce([session("android", 100, { status: "running" })]);
+    const props = {
+      projects: [projects[0]],
+      project: undefined,
+      sessions: [],
+      loadSessions,
+    };
+    await act(async () => render(true, props));
+    await act(async () => render(false, props));
+    await act(async () => render(true, props));
+    expect(toggle(projects[0].cwd).getAttribute("aria-expanded")).toBe("true");
+    await act(async () =>
+      resolveOld([session("android", 50, { title: "Stale history" })]),
+    );
+    expect(
+      node.querySelector('[data-session-id="android-chat"] strong')
+        ?.textContent,
+    ).toBe("android chat");
+    expect(toggle(projects[0].cwd).getAttribute("aria-expanded")).toBe("true");
+  });
+  it("reveals an expanded running project beyond the five-project preview without changing time order", async () => {
+    const owners = Array.from({ length: 12 }, (_, index) => ({
+      id: `p${index}`,
+      name: `Project ${index}`,
+      cwd: `/p${index}`,
+    }));
+    const loadSessions = async (id: string) => [
+      session(id, 100 - Number(id.slice(1)), {
+        status: id === "p6" ? "running" : "idle",
+      }),
+    ];
+    await act(async () =>
+      render(true, {
+        projects: owners,
+        project: undefined,
+        sessions: [],
+        loadSessions,
+      }),
+    );
+    expect(links().map((item) => item.title)).toEqual(
+      owners.slice(0, 10).map((item) => item.cwd),
+    );
+    expect(toggle("/p6").getAttribute("aria-expanded")).toBe("true");
+    expect(node.querySelector('[data-session-id="p6-chat"]')).not.toBeNull();
+    act(() =>
+      node
+        .querySelector<HTMLButtonElement>(
+          ".mobile-drawer-sessions > .mobile-drawer-more",
+        )!
+        .click(),
+    );
+    expect(links()).toHaveLength(12);
+    act(() =>
+      node
+        .querySelector<HTMLButtonElement>(
+          ".mobile-drawer-sessions > .mobile-drawer-more",
+        )!
+        .click(),
+    );
+    act(() => vi.advanceTimersByTime(350));
+    expect(links()).toHaveLength(10);
+    expect(node.querySelector('[data-session-id="p6-chat"]')).not.toBeNull();
   });
   it("shows exactly five conversations per project until Show more", () => {
     const base = {
@@ -363,13 +555,7 @@ describe("mobile sidebar projects", () => {
       [...node.querySelectorAll(".mobile-session-row")].map((item) =>
         item.getAttribute("data-session-id"),
       );
-    expect(ids()).toEqual([
-      "chat-0",
-      "chat-1",
-      "chat-2",
-      "chat-3",
-      "chat-4",
-    ]);
+    expect(ids()).toEqual(["chat-0", "chat-1", "chat-2", "chat-3", "chat-4"]);
     act(() =>
       node.querySelector<HTMLButtonElement>(".mobile-drawer-more")!.click(),
     );
@@ -378,20 +564,44 @@ describe("mobile sidebar projects", () => {
       "Show less",
     );
   });
-  it("opens project pages without a per-project plus, keeping a global new-conversation action", () => {
+  it("opens project pages without a per-project plus, keeping a global new-conversation action", async () => {
     const onProject = vi.fn();
     const onHome = vi.fn();
     const onAllProjects = vi.fn();
     const onNewSession = vi.fn();
     const onAddProject = vi.fn();
-    render(true, { projects, project, onProject, onHome, onAllProjects, onNewSession, onAddProject });
-    expect(node.querySelector('[aria-label="New conversation in Android"]')).toBeNull();
-    act(() => links()[0].click());
+    await act(async () =>
+      render(true, {
+        projects,
+        project,
+        onProject,
+        onHome,
+        onAllProjects,
+        onNewSession,
+        onAddProject,
+      }),
+    );
+    expect(
+      node.querySelector('[aria-label="New conversation in Android"]'),
+    ).toBeNull();
+    act(() =>
+      links()
+        .find((item) => item.title === projects[0].cwd)!
+        .click(),
+    );
     expect(onProject).toHaveBeenCalledExactlyOnceWith(projects[0]);
-    expect(toggles()[0].getAttribute("aria-expanded")).toBe("false");
-    act(() => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
+    expect(toggle(projects[0].cwd).getAttribute("aria-expanded")).toBe("false");
+    act(() =>
+      node
+        .querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!
+        .click(),
+    );
     expect(onAllProjects).toHaveBeenCalledOnce();
-    act(() => [...node.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Home")!.click());
+    act(() =>
+      [...node.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent === "Home")!
+        .click(),
+    );
     expect(onHome).toHaveBeenCalledOnce();
     act(() =>
       node.querySelector<HTMLButtonElement>(".mobile-drawer-new")!.click(),

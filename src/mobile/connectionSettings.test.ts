@@ -25,6 +25,9 @@ const host = vi.hoisted(() => ({
     { id: "one", name: "Connections", cwd: "/projects/Connections" },
   ]),
   sessions: vi.fn(async () => []),
+  models: vi.fn(async () => ({ models: {}, errors: {} })),
+  cachedModels: () => undefined,
+  providerAccounts: vi.fn(async () => ({})),
   activity: vi.fn(async () => ({ environmentId: "host", sessions: [] })),
 }));
 vi.mock("./client", () => ({

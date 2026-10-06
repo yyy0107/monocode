@@ -1,6 +1,6 @@
 import { pathKey } from "../../../shared/lib/paths";
 import type { OrchestrationChoice } from "./orchestrationPlan";
-import type { HarnessId } from "../../sessions/model/session";
+import type { HarnessId, TurnOrigin } from "../../sessions/model/session";
 
 export type TaskStatus =
   | "queued"
@@ -62,6 +62,8 @@ export type OrchestrationDispatch = {
 
 export type OrchestrationTask = {
   id: string;
+  /** Host-owned provenance for a queued assistant follow-up. */
+  turnOrigin?: TurnOrigin;
   assignmentId?: string;
   sessionId: string;
   title: string;
@@ -130,15 +132,15 @@ export function workspaceIdentity(
 }
 
 export function orchestrationWorkspace(
-  run: OrchestrationRun,
+  run: Pick<OrchestrationRun, "cwd" | "workspace">,
 ): OrchestrationWorkspace {
   return run.workspace ?? workspaceIdentity(run.cwd, run.cwd);
 }
 
-export const orchestrationProjectCwd = (run: OrchestrationRun) =>
+export const orchestrationProjectCwd = (run: Pick<OrchestrationRun, "cwd" | "workspace">) =>
   orchestrationWorkspace(run).projectCwd;
 
-export const orchestrationCheckoutCwd = (run: OrchestrationRun) =>
+export const orchestrationCheckoutCwd = (run: Pick<OrchestrationRun, "cwd" | "workspace">) =>
   orchestrationWorkspace(run).checkoutCwd;
 
 export function normalizeOrchestrationRun(

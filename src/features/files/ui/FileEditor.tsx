@@ -96,6 +96,7 @@ import { editorLint } from "../editor/editorLint";
 import { editorSearch } from "../editor/editorSearch";
 import { editorScrollbar } from "../editor/editorScrollbar";
 import { FilePreviewSearch } from "./FilePreviewSearch";
+import { claimEditorResource, type EditorResource } from "../model/editorResource";
 
 type EditorNavigationRequest = EditorNavigation & { token: number };
 
@@ -139,6 +140,16 @@ export function FileEditor({
   const [saveState, setSaveState] = useState<SaveState>({ status: "idle" });
   const [reloadKey, setReloadKey] = useState(0);
   const [draft, setDraft] = useState("");
+  const resource = useRef<EditorResource | undefined>(undefined);
+  useEffect(() => {
+    const lease = claimEditorResource(path);
+    resource.current = lease;
+    return () => {
+      // React destroys the mounted editor in the same cleanup pass before this
+      // release. Queued writes still own the file until their queue settles.
+      void saveQueue.current.then(() => lease.release()).catch(() => {});
+    };
+  }, [path]);
   const [gitBase, setGitBase] = useState<{
     path: string;
     original: string;
@@ -192,6 +203,7 @@ export function FileEditor({
     async (force = false) => {
       const generation = ++loadGeneration.current;
       try {
+        await resource.current?.reclaim();
         const content = await readTextFile(path);
         if (generation !== loadGeneration.current) return;
         if (dirtyRef.current && !force) {
@@ -226,7 +238,7 @@ export function FileEditor({
     setLoadState({ status: "loading" });
     setSaveState({ status: "idle" });
     const generation = ++loadGeneration.current;
-    void readTextFile(path)
+    void (reloadKey ? resource.current?.reclaim() : resource.current?.ready ?? Promise.resolve())?.then(() => readTextFile(path))
       .then((content) => {
         if (cancelled || generation !== loadGeneration.current) return;
         applyDiskContent(content);
@@ -342,9 +354,11 @@ export function FileEditor({
       const generation = ++saveGeneration.current;
       setSaveState({ status: "saving" });
       const serializedContent = restoreLineEnding(content, eolRef.current);
-      const operation = saveQueue.current.then(() =>
-        writeTextFile(path, serializedContent),
-      );
+      const lease = resource.current;
+      const operation = saveQueue.current.then(async () => {
+        await lease?.reclaim();
+        return writeTextFile(path, serializedContent);
+      });
       saveQueue.current = operation.catch(() => {});
       try {
         await operation;

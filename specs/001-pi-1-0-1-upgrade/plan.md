@@ -7,6 +7,15 @@
 
 ## Summary
 
+2026-10-05 bounded repair: remove the adapter's unsupported-thinking rejection,
+delegate adjustment to Pi, and read back native state after setting thinking or
+switching models. Preserve native settings when optional capability discovery
+fails. Verify with Pi/OMP live regressions, Host transport/persistence, TypeScript,
+and an isolated Pi 1.0.3 RPC check without a model prompt.
+Follow-up: use Pi's catalog thinkingLevelMap to restrict initial picker options
+and choose a supported default before live capabilities arrive; retain OMP's
+existing catalog behavior and the session-specific capability override.
+
 Repair Pi request/run completion, connect its dialogs to shared question UI,
 discover loaded command kinds and model-specific thinking choices, and preserve
 PNG tool images through desktop and Host attachment paths. OMP remains an

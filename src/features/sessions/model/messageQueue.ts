@@ -3,7 +3,7 @@ import { REMOTE_PATH_PREFIX } from "../../../shared/lib/remotePaths";
 import type { QueuedMessage, Session } from "./session";
 
 export function queuedHead(session: Session): QueuedMessage | undefined {
-  return session.queuedMessages?.[0];
+  return session.queuedMessages?.find(message => !message.blocked);
 }
 
 /** Hold auto-dispatch only while the item about to send is being edited. */
@@ -60,7 +60,7 @@ export function queuedMessageForSubmit(
   const message = session.queuedMessages?.find(
     (entry) => entry.id === messageId,
   );
-  if (!message) return undefined;
+  if (!message || message.blocked) return undefined;
   if (mode === "steer") return message;
   if (queuedHead(session)?.id !== messageId) return undefined;
   if (!canDispatchQueuedHead(session)) return undefined;

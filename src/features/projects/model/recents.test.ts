@@ -73,7 +73,7 @@ describe("looksLikeProject", () => {
 });
 
 describe("projectRailSections", () => {
-  it("keeps saved order and does not move the current project first", () => {
+  it("orders ordinary projects by recency despite an older saved drag order", () => {
     const recents = [
       { path: "/tmp/older", openedAt: 1 },
       { path: "/tmp/current", openedAt: 2 },
@@ -85,8 +85,8 @@ describe("projectRailSections", () => {
       [],
     );
     expect([...pinned, ...projects].map((item) => item.path)).toEqual([
-      "/tmp/older",
       "/tmp/current",
+      "/tmp/older",
     ]);
   });
 
@@ -103,7 +103,30 @@ describe("projectRailSections", () => {
       ["/tmp/b"],
     );
     expect(pinned.map((item) => item.path)).toEqual(["/tmp/b"]);
-    expect(projects.map((item) => item.path)).toEqual(["/tmp/a", "/tmp/c"]);
+    expect(projects.map((item) => item.path)).toEqual(["/tmp/c", "/tmp/a"]);
+  });
+
+  it("retains manual pin order and places a newly opened project first", () => {
+    const recents = [
+      { path: "/tmp/old-pin", openedAt: 1 },
+      { path: "/tmp/new-pin", openedAt: 4 },
+      { path: "/tmp/older", openedAt: 2 },
+      { path: "/tmp/new", openedAt: 5 },
+    ];
+    const { pinned, projects } = projectRailSections(
+      recents,
+      "/tmp/older",
+      ["/tmp/old-pin", "/tmp/older", "/tmp/new-pin"],
+      ["/tmp/new-pin", "/tmp/old-pin"],
+    );
+    expect(pinned.map((item) => item.path)).toEqual([
+      "/tmp/old-pin",
+      "/tmp/new-pin",
+    ]);
+    expect(projects.map((item) => item.path)).toEqual([
+      "/tmp/new",
+      "/tmp/older",
+    ]);
   });
 
   it("appends new projects without reordering existing entries", () => {

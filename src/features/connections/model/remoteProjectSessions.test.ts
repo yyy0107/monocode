@@ -100,6 +100,27 @@ it("preserves collapsed history and treats a successfully loaded empty list as l
   expect(listCalls()).toHaveLength(1);
 });
 
+it("keeps idle polls of an unchanged list silent and announces real changes", async () => {
+  const path = project("idle-poll");
+  list = async () => [summary("Same")];
+  await prefetchRemoteProjectSessions(path);
+  const first = cachedRemoteSessions(path);
+  const updates = vi.fn();
+  window.addEventListener("monocode:remote-history-updated", updates);
+  try {
+    await prefetchRemoteProjectSessions(path);
+    expect(updates).not.toHaveBeenCalled();
+    expect(cachedRemoteSessions(path)).toBe(first);
+
+    list = async () => [summary("Renamed")];
+    await prefetchRemoteProjectSessions(path);
+    expect(updates).toHaveBeenCalledOnce();
+    expect(cachedRemoteSessions(path)[0].title).toBe("Renamed");
+  } finally {
+    window.removeEventListener("monocode:remote-history-updated", updates);
+  }
+});
+
 it("distinguishes an unloaded project from successful empty and restored cache lists", async () => {
   const empty = project("empty-readiness");
   const restored = project("restored-readiness");
@@ -297,4 +318,27 @@ it("keeps the same Host session id distinct between project caches", async () =>
   await Promise.all([prefetchRemoteProjectSessions(first), prefetchRemoteProjectSessions(second)]);
   expect(cachedRemoteSessionSummary(first, "same-session-id")!.title).toBe("first-project");
   expect(cachedRemoteSessionSummary(second, "same-session-id")!.title).toBe("second-project");
+});
+
+it("caches history without native block IDs and evicts other projects when storage is full", async () => {
+  const path = project("trimmed");
+  const other = `monocode.remote-history.v2:${project("other")}`;
+  localStorage.setItem(other, JSON.stringify([summary("Other")]));
+  const nativeSession = {
+    provider: "codex", providerSessionId: "native", path: "/tmp/native.jsonl",
+    revision: "1", createdAt: 1, updatedAt: 1, blockIds: ["a", "b"], nativeIds: ["a"],
+  } as HostSessionSummary["nativeSession"];
+  list = async () => [{ ...summary("Native"), nativeSession }];
+  const setItem = localStorage.setItem.bind(localStorage);
+  let failures = 1;
+  const spy = vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+    if (key.endsWith(path) && failures-- > 0) throw new DOMException("full", "QuotaExceededError");
+    setItem(key, value);
+  });
+  await prefetchRemoteProjectSessions(path);
+  spy.mockRestore();
+  expect(cachedRemoteSessions(path)[0].nativeSession?.blockIds).toEqual(["a", "b"]);
+  const stored = JSON.parse(localStorage.getItem(`monocode.remote-history.v2:${path}`)!);
+  expect(stored[0].nativeSession).toEqual({ ...nativeSession, blockIds: [], nativeIds: undefined });
+  expect(localStorage.getItem(other)).toBeNull();
 });

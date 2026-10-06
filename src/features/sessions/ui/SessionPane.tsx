@@ -3,6 +3,7 @@ import { ChevronDown, GripVertical, X } from "../../../shared/ui/icons";
 import {
   memo,
   useCallback,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -11,19 +12,14 @@ import {
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import {
-  nativeSessionAccessHint,
-  nativeSessionReadOnly,
-  nativeSessionSnapshot,
-  subscribeNativeSessions,
-} from "../data/nativeSessions";
+import { useNativeSessionAccess } from "./useNativeSessionAccess";
 import { Composer } from "./Composer";
 import type { Worktree } from "../../source-control/model/worktrees";
 import {
   orchestrationCheckoutCwd,
-  orchestrator,
   sameCheckout,
 } from "../../orchestration/model/orchestration";
+import { OrchestrationRuntimeContext } from "../../orchestration/ui/OrchestrationActions";
 import { DiscussionEmpty } from "./DiscussionEmpty";
 import { LinkedWorkItemUpdateNotice } from "../../inbox/ui/LinkedWorkItemUpdateNotice";
 import { SessionReview } from "./SessionReview";
@@ -97,7 +93,6 @@ import {
   loadNewThreadBackgroundEffect,
   subscribeChatBackgroundPath,
 } from "../../settings/model/appearance";
-import type { SessionFolderTarget } from "../model/sessionFolders";
 import { markLinkedSessionUpdateSeen } from "../../inbox/model/linkedSessionSeen";
 import { RemoteSession } from "../../connections/ui/RemoteSession";
 import { isRemoteProjectPath } from "../../projects/model/recents";
@@ -112,6 +107,8 @@ export type SessionPaneProps = {
   focused: boolean;
   addToChatTarget?: boolean;
   inSplit: boolean;
+  /** Replaces the split heading using the resolved local or Host session. */
+  renderHeader?: (session: Session) => ReactNode;
   composerFocused: boolean;
   composerFocusToken?: number;
   recents: RecentProject[];
@@ -149,10 +146,6 @@ export type SessionPaneProps = {
   onRemoveDraft: (sessionId: string, draftBlockId: string) => boolean | void;
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
-  onPlaceSessionInFolder: (
-    sessionId: string,
-    target: SessionFolderTarget,
-  ) => void;
   onDeleteQueuedMessage: (sessionId: string, messageId: string) => void;
   onEditQueuedMessage: (
     sessionId: string,
@@ -230,7 +223,7 @@ type Props = SessionPaneProps & {
   /** The session runtime is on another machine. */
   messageQueue?: ReactNode;
   remoteSession?: boolean;
-  remoteFeatures?: { attachments: boolean; plan: boolean; draft: boolean };
+  remoteFeatures?: { attachments: boolean; plan: boolean; draft: boolean; orchestration?: boolean };
   /** An opened host conversation whose transcript has not arrived yet. */
   remoteSessionLoading?: boolean;
   remoteSessionStarted?: boolean;
@@ -250,6 +243,7 @@ export const SessionPane = memo(function SessionPane(props: SessionPaneProps) {
         onOpenFile={props.onOpenFile}
         onOpenDiff={props.onOpenDiff}
         onOpenPlan={props.onOpenPlan}
+        unavailableHeader={props.renderHeader?.(props.session)}
         render={(remote) => <LocalSessionPane {...props} {...remote}
           {...(project?.local ? { onNewTerminal: props.onNewTerminal,
             onManageWorktrees: props.onManageWorktrees } : {})} />}
@@ -272,6 +266,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
   focused,
   addToChatTarget = focused,
   inSplit,
+  renderHeader,
   composerFocused,
   composerFocusToken,
   recents,
@@ -292,7 +287,6 @@ const LocalSessionPane = memo(function LocalSessionPane({
   onSubmit,
   onStop,
   onCompactContext,
-  onPlaceSessionInFolder,
   onDeleteQueuedMessage,
   onEditQueuedMessage,
   onQueuedMessageEditingChange,
@@ -328,16 +322,13 @@ const LocalSessionPane = memo(function LocalSessionPane({
 }: Props) {
   const { t: uiT } = useTranslation();
   const closePaneLabel = useShortcutLabel("Close Pane", "Pane: Close");
-  useSyncExternalStore(
-    subscribeNativeSessions,
-    nativeSessionSnapshot,
-    nativeSessionSnapshot,
-  );
-  const nativeReadOnly = nativeSessionReadOnly(session);
+  const { readOnly: nativeReadOnly, hint: nativeAccessHint } =
+    useNativeSessionAccess(session);
+  const orchestrationRuntime = useContext(OrchestrationRuntimeContext);
   const orchestrationRuns = useSyncExternalStore(
-    orchestrator.subscribe,
-    orchestrator.snapshot,
-    orchestrator.snapshot,
+    orchestrationRuntime.subscribe,
+    orchestrationRuntime.snapshot,
+    orchestrationRuntime.snapshot,
   );
   const managed = orchestrationRuns.some(
     (run) =>
@@ -431,9 +422,9 @@ const LocalSessionPane = memo(function LocalSessionPane({
   }, [visible]);
   // Restore a saved run for this lead; its agents render on the sidebar card.
   useEffect(() => {
-    if (!remote && !session.inboxAsk && !session.worktreeRemoved)
-      void orchestrator.hydrate(session.id).catch(console.error);
-  }, [remote, session.id, session.inboxAsk, session.worktreeRemoved]);
+    if (remoteSession && !session.inboxAsk && !session.worktreeRemoved)
+      void orchestrationRuntime.hydrate(session.id).catch(console.error);
+  }, [remoteSession, orchestrationRuntime, session.id, session.inboxAsk, session.worktreeRemoved]);
   const [quoteRequest, setQuoteRequest] = useState<QuoteRequest>();
   const btw = useBtwConversation({
     available:
@@ -574,10 +565,11 @@ const LocalSessionPane = memo(function LocalSessionPane({
         workspaceSwitchingSessionId === session.id ||
         (nativeReadOnly && !session.busy)
       }
-      readOnlyReason={nativeSessionAccessHint(session)}
+      readOnlyReason={nativeAccessHint}
       messageQueue={messageQueue}
       remoteSession={remoteSession}
       remoteFeatures={remoteFeatures}
+      orchestrationAvailable={remoteSession && !session.nativeSession}
       allowedModelHarnesses={allowedModelHarnesses}
       enabled={visible}
       focused={focused && composerFocused && !btw.open}
@@ -681,7 +673,6 @@ const LocalSessionPane = memo(function LocalSessionPane({
       onBtwCommand={btw.openWith}
       onStop={() => onStop(session.id)}
       onCompactContext={() => onCompactContext(session.id)}
-      onPlaceInFolder={(target) => onPlaceSessionInFolder(session.id, target)}
       queuedMessages={session.queuedMessages}
       queueStatus={session.queueStatus}
       onDeleteQueuedMessage={(messageId) =>
@@ -739,7 +730,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
           <OpusWelcome key={modelWelcome.run} onDone={dismissModelWelcome} />
         )
       ) : null}
-      {inSplit ? (
+      {renderHeader ? renderHeader(session) : inSplit ? (
         <div
           className={`flex h-9 shrink-0 touch-none items-center gap-1.5 border-b border-stroke px-2 select-none ${
             onPaneDragStart ? "cursor-grab active:cursor-grabbing" : ""
@@ -828,6 +819,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
             ) : (
               <EmptySession
                 cwd={session.cwd}
+                visible={visible}
                 hasChatBackground={Boolean(
                   projectBackground || globalBackgroundPath,
                 )}

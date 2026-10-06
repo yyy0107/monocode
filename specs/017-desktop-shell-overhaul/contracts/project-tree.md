@@ -143,3 +143,31 @@ trigger without reopening it. Menus, drag, ancestor scrolling and hidden or
 closing parent surfaces dismiss summaries. Existing Popover positioning and
 AnimatedCollapse/SurfaceVisibility contracts remain the source of layout,
 motion and portal visibility.
+
+## Session folder retirement — 2026-10-05
+
+Supersedes references to user-defined session folders above: desktop sessions
+are flat within each project. Stored folder membership/collapse cannot affect
+visibility, ordering, pagination or navigation. Dragging one session onto another
+does nothing; workspace pane drops remain supported. Group menus, composer
+folder commands, automation destination pickers and Operator folder actions are
+removed. Pins, reminders and project groups keep their existing behavior.
+
+## Recent sections — 2026-10-05
+
+Recent projects replaces the ordinary Projects heading. Unpinned projects,
+including group members, use openedAt descending; their saved manual rail order
+is ignored and they do not initiate drag sorting. Pins retain manual order.
+ProjectList accepts optional recentEntries (project-key/session-id identity plus
+rendered shortcut), positioned after Pinned with an independent five-row preview.
+Optional recentPending suppresses an empty-state hint until summary reads settle.
+The recent section uses the existing AnimatedCollapse reveal/closing lifetime.
+Sidebar supplies filtered non-worker history and missing open conversations;
+Host shell IDs are canonicalized within their project before deduplication.
+Recent shortcuts sort by updatedAt descending, regardless of pin, and use the
+same native/local/remote session actions as pinned shortcuts. Scope/search and
+filters affect both lists. Single-project callers omit recentEntries.
+The shared summary queue reads collapsed as well as expanded projects at
+concurrency <=4 while the multi-project Sessions sidebar is open. These are
+one-shot reads, with no collapsed Host polling; hiding the sidebar or leaving
+Sessions stops queued work. Search clearing leaves recent-summary discovery on.

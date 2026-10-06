@@ -20,6 +20,7 @@ pub struct SharedHost {
     machine: crate::remote::Machine,
     projects: Vec<Value>,
     sessions: Vec<Value>,
+    retired_session_ids: Vec<String>,
 }
 
 fn bundled_runtime(root: &Path) -> Option<(PathBuf, PathBuf)> {
@@ -59,12 +60,30 @@ pub fn shared_host_prepare(
     let (node, entry) = runtime(&app)?;
     let desktop = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&desktop).map_err(|e| e.to_string())?;
+    let store = app.state::<crate::session_store::SessionStore>();
+    let manifest = crate::legacy_orchestration::prepare(&store)?;
+    let retired_session_ids: Vec<String> = manifest
+        .entries
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect();
+    if let Some(control) = app.try_state::<crate::control::ControlHost>() {
+        control.retire_sessions(&retired_session_ids);
+    }
+    if let Some(harness) = app.try_state::<crate::harness::HarnessHost>() {
+        harness.retire_sessions(&retired_session_ids)?;
+    }
+    let manifest_path = desktop.join("legacy-orchestration-retirement.json");
+    let raw = serde_json::to_vec(&manifest).map_err(|e| e.to_string())?;
+    write_retirement_manifest(&desktop, &manifest_path, &raw)?;
     let mut command = Command::new(node);
     command
         .arg(entry)
         .arg("desktop")
         .arg("--desktop-data-dir")
-        .arg(desktop);
+        .arg(&desktop)
+        .arg("--legacy-orchestration-manifest")
+        .arg(&manifest_path);
     crate::hide_window_console(&mut command);
     let output = command
         .output()
@@ -74,6 +93,7 @@ pub fn shared_host_prepare(
     }
     let prepared: Prepared = serde_json::from_slice(&output.stdout)
         .map_err(|_| "Invalid conversation service response")?;
+    crate::legacy_orchestration::finish(&store, &manifest)?;
     let machine = crate::remote::remote_connect(
         app,
         state,
@@ -85,12 +105,349 @@ pub fn shared_host_prepare(
         machine,
         projects: prepared.projects,
         sessions: prepared.sessions,
+        retired_session_ids,
     })
 }
 
+fn write_retirement_manifest(desktop: &Path, path: &Path, raw: &[u8]) -> Result<(), String> {
+    if std::fs::read(path).is_ok_and(|previous| previous == raw) {
+        return Ok(());
+    }
+    let mut manifest_file = std::fs::OpenOptions::new();
+    manifest_file.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        manifest_file.mode(0o600);
+    }
+    let temporary_manifest =
+        desktop.join(format!("legacy-orchestration-{}.tmp", uuid::Uuid::new_v4()));
+    let mut manifest_file = manifest_file
+        .open(&temporary_manifest)
+        .map_err(|e| e.to_string())?;
+    {
+        use std::io::Write;
+        manifest_file.write_all(raw).map_err(|e| e.to_string())?;
+        manifest_file.sync_all().map_err(|e| e.to_string())?;
+    }
+    drop(manifest_file);
+    // Windows rename cannot replace an existing file. The authoritative manifest
+    // is already durable in SQLite, so an interrupted replacement is recreated
+    // on the next bootstrap rather than rescanning conversations.
+    #[cfg(windows)]
+    if path.exists() {
+        std::fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
+    match std::fs::rename(&temporary_manifest, path) {
+        Ok(()) => Ok(()),
+        Err(_) if std::fs::read(path).is_ok_and(|previous| previous == raw) => {
+            let _ = std::fs::remove_file(&temporary_manifest);
+            Ok(())
+        }
+        Err(error) => {
+            let _ = std::fs::remove_file(&temporary_manifest);
+            Err(error.to_string())
+        }
+    }
+}
+
+/// Resource rows are shared with Node Host. Transactions cover row acquisition
+/// only; the durable reservation stays in place while a process or buffer lives.
+#[derive(Clone)]
+pub(crate) struct SharedResourceLease {
+    _owner: std::sync::Arc<SharedResourceOwner>,
+}
+
+struct SharedResourceOwner {
+    database: PathBuf,
+    id: String,
+    owner_pid: std::sync::atomic::AtomicU32,
+}
+
+impl SharedResourceLease {
+    pub(crate) fn set_owner_pid(&self, pid: u32) -> Result<(), String> {
+        use std::sync::atomic::Ordering;
+        if pid == 0 || pid > i32::MAX as u32 {
+            return Err("Invalid process resource identity".into());
+        }
+        let previous = self._owner.owner_pid.load(Ordering::SeqCst);
+        let conn = resource_connection(&self._owner.database)?;
+        let updated = conn
+            .execute(
+                "UPDATE checkout_resources SET owner_pid=?1 WHERE id=?2 AND owner_pid=?3",
+                rusqlite::params![pid, self._owner.id, previous],
+            )
+            .map_err(|e| e.to_string())?;
+        if updated != 1 {
+            return Err("This process no longer owns its checkout reservation".into());
+        }
+        self._owner.owner_pid.store(pid, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+impl Drop for SharedResourceOwner {
+    fn drop(&mut self) {
+        let owner_pid = self.owner_pid.load(std::sync::atomic::Ordering::SeqCst);
+        // An exited group leader can leave a live descendant. Keep its durable
+        // row until registry recovery observes that the process group is gone.
+        if owner_pid != std::process::id() && owner_alive(owner_pid) {
+            return;
+        }
+        let _ = release_resource_row_for_owner(&self.database, &self.id, owner_pid);
+    }
+}
+
+fn host_database() -> Option<PathBuf> {
+    crate::dirs_home().map(|home| Path::new(&home).join(".monocode-host/host.db"))
+}
+
+fn resource_path(path: &Path) -> String {
+    let mut ancestor = path.to_path_buf();
+    let mut suffix = Vec::new();
+    while !ancestor.exists() {
+        let Some(name) = ancestor.file_name().map(|name| name.to_os_string()) else {
+            break;
+        };
+        suffix.push(name);
+        if !ancestor.pop() {
+            break;
+        }
+    }
+    let mut canonical = ancestor.canonicalize().unwrap_or(ancestor);
+    for part in suffix.into_iter().rev() {
+        canonical.push(part);
+    }
+    let value = canonical.to_string_lossy().replace('\\', "/");
+    #[cfg(windows)]
+    let value = value.strip_prefix("//?/").unwrap_or(&value).to_lowercase();
+    value.trim_end_matches('/').to_string()
+}
+
+fn paths_overlap(left: &str, right: &str) -> bool {
+    left == right
+        || left.starts_with(&format!("{right}/"))
+        || right.starts_with(&format!("{left}/"))
+}
+
+fn owner_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        // EPERM denotes a live process we are not allowed to inspect.
+        if pid > i32::MAX as u32 {
+            return true;
+        }
+        unsafe {
+            libc::kill(pid as i32, 0) == 0
+                || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+                || libc::kill(-(pid as i32), 0) == 0
+                || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+        }
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject};
+        unsafe {
+            let process = OpenProcess(0x0010_0000, 0, pid); // SYNCHRONIZE
+            if process.is_null() {
+                return std::io::Error::last_os_error().raw_os_error() != Some(87);
+            }
+            let alive = WaitForSingleObject(process, 0) != 0;
+            CloseHandle(process);
+            alive
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        true
+    }
+}
+
+fn resource_connection(database: &Path) -> Result<rusqlite::Connection, String> {
+    let conn = rusqlite::Connection::open_with_flags(
+        database,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+    )
+    .map_err(|e| format!("Could not open shared resource registry: {e}"))?;
+    conn.execute_batch("PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS checkout_resources (id TEXT PRIMARY KEY, path TEXT NOT NULL, kind TEXT NOT NULL, owner_pid INTEGER NOT NULL);")
+        .map_err(|e| e.to_string())?;
+    Ok(conn)
+}
+
+fn acquire_resource_row(
+    database: &Path,
+    id: &str,
+    path: &Path,
+    removing: bool,
+) -> Result<bool, String> {
+    acquire_resource_kind(
+        database,
+        id,
+        path,
+        if removing { "removing" } else { "resource" },
+    )
+}
+
+fn acquire_resource_kind(
+    database: &Path,
+    id: &str,
+    path: &Path,
+    requested_kind: &str,
+) -> Result<bool, String> {
+    if !database.is_file() {
+        return Ok(false);
+    }
+    let conn = resource_connection(database)?;
+    conn.execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| e.to_string())?;
+    let rows = {
+        let mut statement = conn
+            .prepare("SELECT id, path, kind, owner_pid FROM checkout_resources")
+            .map_err(|e| e.to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, u32>(3)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
+    };
+    let key = resource_path(path);
+    for (other_id, other_path, kind, pid) in rows {
+        if !owner_alive(pid) {
+            conn.execute(
+                "DELETE FROM checkout_resources WHERE id=?1 AND owner_pid=?2",
+                rusqlite::params![other_id, pid],
+            )
+            .map_err(|e| e.to_string())?;
+        } else if other_id != id && paths_overlap(&key, &other_path) {
+            if requested_kind == "removing" || kind == "removing" {
+                return Err("Close files and terminals using this working copy before cleanup; it may currently be being removed.".into());
+            }
+            if (requested_kind == "writing" && kind == "integrating")
+                || (requested_kind == "integrating" && (kind == "writing" || kind == "integrating"))
+            {
+                return Err("This working copy is receiving an accepted result or an active write. Retry when the operation finishes.".into());
+            }
+        }
+    }
+    conn.execute("INSERT INTO checkout_resources VALUES (?1, ?2, ?3, ?4) ON CONFLICT(id) DO UPDATE SET path=excluded.path, kind=excluded.kind, owner_pid=excluded.owner_pid", rusqlite::params![id, key, requested_kind, std::process::id()]).map_err(|e| e.to_string())?;
+    conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+fn release_resource_row(database: &Path, id: &str) -> Result<(), String> {
+    release_resource_row_for_owner(database, id, std::process::id())
+}
+
+fn release_resource_row_for_owner(database: &Path, id: &str, owner_pid: u32) -> Result<(), String> {
+    if !database.is_file() {
+        return Ok(());
+    }
+    let conn = resource_connection(database)?;
+    conn.execute(
+        "DELETE FROM checkout_resources WHERE id=?1 AND owner_pid=?2",
+        rusqlite::params![id, owner_pid],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub(crate) fn claim_checkout_resource(
+    path: &Path,
+    id: &str,
+) -> Result<Option<SharedResourceLease>, String> {
+    claim_checkout(path, id, "resource")
+}
+
+pub(crate) fn claim_checkout_removal(path: &Path) -> Result<Option<SharedResourceLease>, String> {
+    claim_checkout(
+        path,
+        &format!("remove:{}", uuid::Uuid::new_v4()),
+        "removing",
+    )
+}
+
+/// Only actual mutations hold this lease; mounted editor buffers remain available.
+pub(crate) fn claim_checkout_write(path: &Path) -> Result<Option<SharedResourceLease>, String> {
+    claim_checkout(path, &format!("write:{}", uuid::Uuid::new_v4()), "writing")
+}
+
+/// A native terminal/provider may write until its last descendant exits.
+pub(crate) fn claim_checkout_process_resource(
+    path: &Path,
+    id: &str,
+) -> Result<Option<SharedResourceLease>, String> {
+    claim_checkout(path, id, "writing")
+}
+
+fn claim_checkout(
+    path: &Path,
+    id: &str,
+    kind: &str,
+) -> Result<Option<SharedResourceLease>, String> {
+    let Some(database) = host_database() else {
+        return Ok(None);
+    };
+    let id = format!("native:{}:{id}", std::process::id());
+    if !acquire_resource_kind(&database, &id, path, kind)? {
+        return Ok(None);
+    }
+    Ok(Some(SharedResourceLease {
+        _owner: std::sync::Arc::new(SharedResourceOwner {
+            database,
+            id,
+            owner_pid: std::sync::atomic::AtomicU32::new(std::process::id()),
+        }),
+    }))
+}
+
+fn editor_resource_id(resource_id: &str) -> Result<String, String> {
+    if resource_id.is_empty()
+        || resource_id.len() > 200
+        || !resource_id
+            .chars()
+            .all(|value| value.is_ascii_alphanumeric() || "-_:".contains(value))
+    {
+        return Err("Invalid editor resource identity".into());
+    }
+    Ok(format!("editor:{}:{resource_id}", std::process::id()))
+}
+
+#[tauri::command(async)]
+pub fn shared_host_resource_claim(resource_id: String, path: String) -> Result<(), String> {
+    let id = editor_resource_id(&resource_id)?;
+    let path = PathBuf::from(path);
+    if !path.is_absolute() {
+        return Err("Editor resource path must be absolute".into());
+    }
+    if let Some(database) = host_database() {
+        acquire_resource_row(&database, &id, &path, false)?;
+    }
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn shared_host_resource_release(resource_id: String) -> Result<(), String> {
+    let id = editor_resource_id(&resource_id)?;
+    if let Some(database) = host_database() {
+        release_resource_row(&database, &id)?;
+    }
+    Ok(())
+}
+
 /// Native worktree deletion must also honor conversations owned by Host.
-/// Keep its write lease until Git finishes so another client cannot create a
-/// conversation in the checkout between the reference check and removal.
+/// The lifecycle's shared removal row prevents new owners while Git runs;
+/// this reference check commits before returning to avoid holding a DB lock.
 pub fn reserve_worktree_removal(path: &Path) -> Result<Option<rusqlite::Connection>, String> {
     let Some(home) = crate::dirs_home() else {
         return Ok(None);
@@ -130,15 +487,185 @@ fn worktree_removal_lease(
             return Err("Shared conversations still use this worktree. Delete those conversations before removing it.".into());
         }
     }
-    // SQLite rolls back this reservation when the caller drops the connection.
+    conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
     Ok(Some(conn))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn native_removal_honors_shared_conversation_references_and_holds_the_write_lease() {
+    fn retirement_manifest_file_is_reused_and_repaired_from_the_durable_list() {
+        let root = std::env::temp_dir().join(format!(
+            "monocode-retirement-manifest-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("manifest.json");
+        let raw = br#"{"manifestId":"host-orchestration-v1","entries":[]}"#;
+        write_retirement_manifest(&root, &path, raw).unwrap();
+        write_retirement_manifest(&root, &path, raw).unwrap();
+        std::fs::write(&path, "incomplete").unwrap();
+        write_retirement_manifest(&root, &path, raw).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), raw);
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn shared_resources_protect_nested_paths_without_locking_database_and_drop_after_last_clone() {
+        let root = std::env::temp_dir().join(format!("monocode-resource-{}", uuid::Uuid::new_v4()));
+        let tree = root.join("tree");
+        std::fs::create_dir_all(tree.join("nested")).unwrap();
+        let database = root.join("host.db");
+        let writer = rusqlite::Connection::open(&database).unwrap();
+        writer
+            .execute_batch("CREATE TABLE unrelated (value TEXT)")
+            .unwrap();
+        let id = "editor:active";
+        assert!(acquire_resource_row(&database, id, &tree.join("nested/file.txt"), false).unwrap());
+        let lease = SharedResourceLease {
+            _owner: std::sync::Arc::new(SharedResourceOwner {
+                database: database.clone(),
+                id: id.into(),
+                owner_pid: std::sync::atomic::AtomicU32::new(std::process::id()),
+            }),
+        };
+        let clone = lease.clone();
+        assert!(acquire_resource_row(&database, "remove:blocked", &tree, true).is_err());
+        writer.busy_timeout(std::time::Duration::ZERO).unwrap();
+        writer
+            .execute("INSERT INTO unrelated VALUES ('unblocked')", [])
+            .unwrap();
+        drop(lease);
+        assert!(acquire_resource_row(&database, "remove:still-blocked", &tree, true).is_err());
+        drop(clone);
+        assert!(acquire_resource_row(&database, "remove:active", &tree, true).unwrap());
+        assert!(acquire_resource_row(
+            &database,
+            "editor:new",
+            &tree.join("nested/file.txt"),
+            false
+        )
+        .is_err());
+        assert!(acquire_resource_row(
+            &database,
+            "editor:sibling",
+            &root.join("tree-other/file.txt"),
+            false
+        )
+        .unwrap());
+        release_resource_row(&database, "remove:active").unwrap();
+        assert!(acquire_resource_row(
+            &database,
+            "editor:new",
+            &tree.join("nested/file.txt"),
+            false
+        )
+        .unwrap());
+        drop(writer);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn dead_resource_owners_are_recovered_without_expiring_live_buffers() {
+        let root =
+            std::env::temp_dir().join(format!("monocode-resource-dead-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let database = root.join("host.db");
+        let writer = rusqlite::Connection::open(&database).unwrap();
+        resource_connection(&database).unwrap();
+        writer
+            .execute(
+                "INSERT INTO checkout_resources VALUES (?1, ?2, 'resource', 0)",
+                rusqlite::params!["dead", resource_path(&root)],
+            )
+            .unwrap();
+        assert!(acquire_resource_row(&database, "remove", &root, true).unwrap());
+        let count: i32 = writer
+            .query_row(
+                "SELECT COUNT(*) FROM checkout_resources WHERE id='dead'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+        drop(writer);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn active_writes_and_integration_exclude_each_other_but_mounted_buffers_do_not() {
+        let root = std::env::temp_dir().join(format!(
+            "monocode-integration-resource-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let database = root.join("host.db");
+        let conn = rusqlite::Connection::open(&database).unwrap();
+        let target = root.join("a.txt");
+        std::fs::write(&target, "baseline").unwrap();
+        assert!(acquire_resource_kind(&database, "editor:mounted", &target, "resource").unwrap());
+        assert!(acquire_resource_kind(&database, "write:active", &target, "writing").unwrap());
+        assert!(
+            acquire_resource_kind(&database, "integration:blocked", &root, "integrating").is_err()
+        );
+        release_resource_row(&database, "write:active").unwrap();
+        assert!(
+            acquire_resource_kind(&database, "integration:active", &root, "integrating").unwrap()
+        );
+        assert!(acquire_resource_kind(&database, "write:blocked", &target, "writing").is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "baseline");
+        assert!(acquire_resource_kind(&database, "editor:new", &target, "resource").unwrap());
+        conn.busy_timeout(std::time::Duration::ZERO).unwrap();
+        conn.execute_batch("CREATE TABLE unrelated (value TEXT)")
+            .unwrap();
+        release_resource_row(&database, "integration:active").unwrap();
+        assert!(acquire_resource_kind(&database, "write:after", &target, "writing").unwrap());
+        std::fs::write(&target, "saved after apply").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(target).unwrap(),
+            "saved after apply"
+        );
+        drop(conn);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn transferred_process_resource_survives_lease_drop_until_process_exit() {
+        use std::os::unix::process::CommandExt;
+        let root =
+            std::env::temp_dir().join(format!("monocode-live-resource-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let database = root.join("host.db");
+        let conn = rusqlite::Connection::open(&database).unwrap();
+        assert!(acquire_resource_kind(&database, "native:process", &root, "writing").unwrap());
+        let lease = SharedResourceLease {
+            _owner: std::sync::Arc::new(SharedResourceOwner {
+                database: database.clone(),
+                id: "native:process".into(),
+                owner_pid: std::sync::atomic::AtomicU32::new(std::process::id()),
+            }),
+        };
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        lease.set_owner_pid(child.id()).unwrap();
+        drop(lease);
+        let blocked =
+            acquire_resource_kind(&database, "integration", &root, "integrating").is_err();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(blocked);
+        assert!(acquire_resource_kind(&database, "integration", &root, "integrating").unwrap());
+        drop(conn);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn native_removal_honors_shared_conversation_references_without_holding_a_write_transaction() {
         let root =
             std::env::temp_dir().join(format!("monocode-shared-worktree-{}", uuid::Uuid::new_v4()));
         let tree = root.join("tree");
@@ -162,7 +689,7 @@ mod tests {
         writer.busy_timeout(std::time::Duration::ZERO).unwrap();
         assert!(writer
             .execute("INSERT INTO sessions VALUES ('{}')", [])
-            .is_err());
+            .is_ok());
         drop(lease);
         assert!(writer
             .execute("INSERT INTO sessions VALUES ('{}')", [])

@@ -1,5 +1,6 @@
 import { readClaudeNativeTitle } from "../../core/child";
 import type { NativeTitleInput } from "../../core/titleCoordinator";
+import type { NativeSessionLink } from "../../../../features/sessions/model/session";
 import { nativeModelId } from "../../../../features/sessions/model/models";
 import { sameProviderAccountId } from "../../../../features/providers/model/providerAccounts";
 import type {
@@ -135,6 +136,10 @@ type BackgroundTask = {
 type Live = {
   cwd: string;
   claudeSessionId: string;
+  /** Imported native conversation that this process must keep writing to. */
+  nativeSessionId?: string;
+  /** Set when Claude reported another conversation than the imported one. */
+  resumeError?: Error;
   providerAccountId?: string;
   runtimeMode: RuntimeMode;
   planning: boolean;
@@ -193,6 +198,8 @@ type Resume = {
   sessionId: string;
   cwd: string;
   providerAccountId?: string;
+  /** Imported from the CLI: resume strictly, never start a replacement conversation. */
+  native?: boolean;
 };
 
 const INIT_TIMEOUT_MS = 8_000;
@@ -401,10 +408,16 @@ export function bindClaudeSession(
   providerSessionId: string,
   cwd: string,
   providerAccountId?: string,
+  nativeSession?: NativeSessionLink,
 ): void {
   const sessionId = providerSessionId.trim();
   if (!threadId || !sessionId || !cwd.trim()) return;
-  resumeByThread.set(threadId, { sessionId, cwd, providerAccountId });
+  resumeByThread.set(threadId, {
+    sessionId,
+    cwd,
+    providerAccountId,
+    native: nativeSession?.providerSessionId === sessionId || undefined,
+  });
   // Task ids from another conversation mean nothing in this one.
   if (tasksByThread.get(threadId)?.providerSessionId !== sessionId) {
     tasksByThread.delete(threadId);
@@ -451,6 +464,16 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     existing.runtimeMode = input.runtimeMode;
     return existing;
   }
+  const bound = resumeByThread.get(input.sessionId);
+  // Claude sessions are cwd- and account-bound; an imported one cannot follow a move.
+  if (
+    bound?.native &&
+    (bound.cwd !== input.cwd ||
+      !sameProviderAccountId(bound.providerAccountId, input.providerAccountId))
+  )
+    throw new Error(
+      "Claude Code can only continue the imported session in its original project and account",
+    );
   if (existing) {
     // Model and launch-setting changes require a fresh Claude process, but
     // they must resume the same provider conversation. Only a cwd change
@@ -493,6 +516,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   const live: Live = {
     cwd: input.cwd,
     claudeSessionId,
+    nativeSessionId: canResume && resume?.native ? resume.sessionId : undefined,
     providerAccountId: input.providerAccountId,
     runtimeMode: input.runtimeMode,
     planning,
@@ -572,6 +596,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     sessionId: claudeSessionId,
     cwd: input.cwd,
     providerAccountId: input.providerAccountId,
+    native: live.nativeSessionId ? true : undefined,
   });
 
   try {
@@ -580,6 +605,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       buildControlRequest(nextControlId(live), { subtype: "initialize" }),
     );
     await waitForInit(live, INIT_TIMEOUT_MS);
+    if (live.resumeError) throw live.resumeError;
     live.onEvent({
       type: "session.providerBound",
       providerSessionId: live.claudeSessionId,
@@ -695,6 +721,19 @@ function handleLine(sessionId: string, live: Live, line: string): void {
   if (live.muteUpdates) return;
 
   const sessionIdFromLine = sessionIdFromMessage(rec);
+  if (
+    sessionIdFromLine &&
+    live.nativeSessionId &&
+    sessionIdFromLine !== live.nativeSessionId
+  ) {
+    // Writing to a replacement conversation would silently fork the imported history.
+    live.resumeError = new Error("Claude Code did not resume the imported session");
+    live.muteUpdates = true;
+    live.turnFailed?.(live.resumeError);
+    live.initDone?.();
+    void stopClaudeSession(sessionId);
+    return;
+  }
   if (sessionIdFromLine && sessionIdFromLine !== live.claudeSessionId) {
     live.claudeSessionId = sessionIdFromLine;
     // A different conversation starts with its own task ids.

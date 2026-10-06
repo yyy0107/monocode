@@ -150,6 +150,8 @@ function MobileQueueView({
                 }}
               >
                 <ListEnd size={17} aria-hidden="true" />
+                {message.origin?.kind === "assistant" && <small>{t("From {value0}", { value0: message.origin.assistantName || t("Assistant") })}</small>}
+                {message.blocked && <small title={t(message.blocked)}>{t("Blocked")}</small>}
                 <span>{label}</span>
                 <MoreHorizontal size={20} aria-hidden="true" />
               </button>
@@ -210,7 +212,7 @@ function MobileQueueView({
           <button
             type="button"
             className="mobile-sheet-row"
-            disabled={blocked || !view.canSteer}
+            disabled={blocked || !!menuMessage.blocked || !view.canSteer}
             onClick={() => {
               view.steerMessage(menuMessage.id);
               setMenuId(undefined);

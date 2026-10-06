@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { request } from "node:http";
+import { DatabaseSync } from "node:sqlite";
 import { HostEngine } from "./engine";
 import { HostStore } from "./store";
 import { createHostServer } from "./server";
@@ -18,6 +19,8 @@ import { HostChildBackend } from "./child-backend";
 import { configureChildBackend } from "../src/integrations/harness/core/child";
 import type { SendTurnInput } from "../src/integrations/harness/core/types";
 import type { RemoteProvider } from "../src/features/connections/model/protocol";
+import { withCheckoutRemoval } from "./checkout-guards";
+import { importDesktopSessions } from "./desktop-import";
 
 const modelProbe = vi.hoisted(() => vi.fn());
 const piModelProbe = vi.hoisted(() => vi.fn());
@@ -35,6 +38,7 @@ configureChildBackend(new HostChildBackend(binaries));
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
+  vi.unstubAllEnvs();
 });
 
 async function setup(providers: RemoteProvider[] = ["codex"], discoverProviders?: () => Promise<RemoteProvider[]>) {
@@ -121,6 +125,166 @@ async function setup(providers: RemoteProvider[] = ["codex"], discoverProviders?
 }
 
 describe("remote host API", () => {
+  it("lists desktop provider accounts, passes a selected account to the turn and rejects removed accounts", async () => {
+    const s = await setup();
+    await s.engine.ready;
+    expect((await s.call("providerAccounts.list")).value.result).toEqual({});
+    writeFileSync(join(s.directory, "desktop-owner.json"), JSON.stringify({ desktopDirectory: s.directory }));
+    mkdirSync(join(s.directory, "provider-accounts"));
+    vi.stubEnv("CODEX_HOME", s.directory);
+    vi.stubEnv("CLAUDE_CONFIG_DIR", s.directory);
+    const accountsFile = join(s.directory, "provider-accounts", "accounts.json");
+    writeFileSync(accountsFile, JSON.stringify({ codex: [{ id: "work", label: "Work account" }], claude: [{ id: "personal", label: "Personal account" }] }));
+    expect((await s.call("providerAccounts.list")).value.result).toMatchObject({
+      codex: [{ id: "default", label: "Default account" }, { id: "work", label: "Work account" }],
+      claude: [{ id: "default", label: "Default account" }, { id: "personal", label: "Personal account" }],
+    });
+    const command = { type: "create", commandId: "account-create", projectId: s.project.id,
+      harness: "codex", model: "codex:test", modelSettings: { reasoningEffort: "high" },
+      runtimeMode: "supervised", providerAccountId: "work" };
+    const created = await s.call("commands.dispatch", command);
+    expect(created.status).toBe(200);
+    const id = created.value.result.sessionId;
+    expect(s.store.session(id).session.providerAccountId).toBe("work");
+    await s.call("commands.dispatch", { type: "send", commandId: "account-send", sessionId: id, text: "Use this account" });
+    await vi.waitFor(() => expect(s.send).toHaveBeenCalledOnce());
+    expect(s.turn()).toMatchObject({ providerAccountId: "work", modelSettings: { reasoningEffort: "high" } });
+    s.finish();
+    writeFileSync(accountsFile, "{}");
+    const removed = await s.call("commands.dispatch", { ...command, commandId: "removed-account-create" });
+    expect(removed.status).toBe(400);
+    expect(removed.value.error).toBe("This provider account is no longer available");
+  });
+  it("serves unchanged session polling from the cache without reparsing snapshots or enumerating history", async () => {
+    const s = await setup();
+    await s.engine.ready;
+    const created = s.engine.command({ type: "create", commandId: "cached-poll", projectId: s.project.id,
+      harness: "codex", model: "codex:test", runtimeMode: "supervised" });
+    const current = s.store.session(created.sessionId);
+    const prepare = vi.spyOn(s.store.db, "prepare");
+    const sessions = vi.spyOn(s.store, "sessions");
+    try {
+      for (let index = 0; index < 3; index++) {
+        expect((await s.call("sessions.sync", { sessionId: created.sessionId, revision: current.revision })).value.result).toMatchObject({ kind: "unchanged" });
+        expect((await s.call("sessions.get", { sessionId: created.sessionId, revision: current.revision })).value.result).toBeNull();
+      }
+      expect(prepare.mock.calls.filter(([sql]) => sql === "SELECT snapshot FROM sessions WHERE id=?")).toHaveLength(0);
+      expect(sessions).not.toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+      sessions.mockRestore();
+    }
+  });
+
+  it("preserves missing and retired session handling in the assistant privacy guard", async () => {
+    const s = await setup();
+    const created = s.engine.command({ type: "create", commandId: "privacy-retired", projectId: s.project.id,
+      harness: "codex", model: "codex:test", runtimeMode: "supervised" });
+    s.store.db.prepare("INSERT INTO retired_sessions VALUES (?)").run(created.sessionId);
+    for (const sessionId of ["missing", created.sessionId]) {
+      expect((await s.call("environment.describe", { sessionId })).status).toBe(200);
+      expect((await s.call("sessions.get", { sessionId })).value.error).toContain("Session not found");
+    }
+    const value = s.store.db.prepare("SELECT snapshot FROM sessions WHERE id=?").get(created.sessionId)!;
+    const retired = JSON.parse(String(value.snapshot));
+    retired.session.assistantOwnerId = "private-assistant";
+    s.store.db.prepare("UPDATE sessions SET snapshot=? WHERE id=?").run(JSON.stringify(retired), created.sessionId);
+    s.store.invalidateSession(created.sessionId);
+    expect((await s.call("sessions.get", { sessionId: created.sessionId })).value.error).toContain("Assistant brain is private");
+  });
+
+  it("advertises native continuation and imports desktop native links as Host-managed", async () => {
+    const s = await setup();
+    const capabilities = (await s.call("environment.describe")).value.result.capabilities;
+    expect(capabilities).toEqual(expect.arrayContaining([
+      "sessions.nativeAccess", "sessions.refreshNative", "nativeSources.list", "nativeSources.import", "nativeSources.syncAll",
+    ]));
+    expect((await s.call("nativeSources.syncAll")).value.result).toEqual({ synced: 0 });
+    expect(capabilities).not.toContain("sessions.refreshDesktopNative");
+    const path = join(s.directory, "monocode.db");
+    const source = new DatabaseSync(path);
+    source.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT, harness TEXT, model TEXT,
+      runtime_mode TEXT, title TEXT, blocks_json TEXT, created_at INTEGER, updated_at INTEGER,
+      native_session_json TEXT, provider_session_id TEXT)`);
+    const nativeSession = {
+      provider: "codex", providerSessionId: "native-provider", path: join(s.directory, "native.jsonl"),
+      revision: "first", blockIds: ["native-codex-0"], createdAt: 1, updatedAt: 1,
+    };
+    source.prepare("INSERT INTO sessions VALUES (?, ?, 'codex', 'codex:test', 'supervised', 'Native history', '[]', 1, 1, ?, ?)")
+      .run("native-mirror", s.directory, JSON.stringify(nativeSession), nativeSession.providerSessionId);
+    try {
+      importDesktopSessions(s.store, path);
+      expect((await s.call("sessions.nativeAccess", { sessionId: "native-mirror" })).value.result.path).toBe(nativeSession.path);
+      expect(s.store.session("native-mirror").session.nativeSession).toMatchObject({
+        mode: "managed", storage: "jsonl", nativeIds: ["native-codex-0"],
+      });
+      expect(s.store.session("native-mirror").nativeStatus).toMatchObject({ state: "syncing", pendingChange: true });
+      expect((await s.call("sessions.refreshDesktopNative", { sessionId: "native-mirror", busy: false })).status).toBe(400);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("advertises Host orchestration and scopes persistent editor resources to the authenticated device", async () => {
+    const s = await setup();
+    const described = (await s.call("environment.describe")).value.result;
+    expect(described.capabilities).toEqual(expect.arrayContaining(["sessions.orchestration", "resources"]));
+    const path = join(s.directory, "missing-file.txt");
+    expect((await s.call("resources.claim", { resourceId: "file-editor", path })).status).toBe(200);
+    expect((await s.call("resources.claim", { resourceId: "file-editor", path }, s.second.token)).status).toBe(200);
+    expect(s.store.db.prepare("SELECT * FROM checkout_resources").all()).toHaveLength(2);
+    await s.call("resources.release", { resourceId: "file-editor" }, s.second.token);
+    await expect(withCheckoutRemoval(s.store, s.directory, async () => true)).rejects.toThrow("Close files and terminals");
+    await s.call("resources.release", { resourceId: "file-editor" });
+    await withCheckoutRemoval(s.store, s.directory, async () => {
+      expect((await s.call("resources.claim", { resourceId: "race", path })).value.error).toContain("being removed");
+    });
+    expect((await s.call("resources.claim", { resourceId: "bad", path: join(s.directory, "../outside.txt") })).value.error).toContain("outside");
+    expect((await s.call("resources.claim", { resourceId: "bad/identity", path })).status).toBe(400);
+  });
+
+  it("keeps worker history readable while excluding it from lists and rejecting independent session actions", async () => {
+    const s = await setup();
+    const lead = s.engine.command({ type: "create", commandId: "lead", projectId: s.project.id, harness: "codex", model: "codex:test", runtimeMode: "supervised" });
+    const worker = s.engine.command({ type: "create", commandId: "worker", projectId: s.project.id, harness: "codex", model: "codex:test", runtimeMode: "supervised" });
+    const value = s.store.session(worker.sessionId);
+    s.store.save({ ...value, revision: value.revision + 1, session: { ...value.session, orchestrationLeadId: lead.sessionId } }, {});
+    expect((await s.call("sessions.list", { projectId: s.project.id })).value.result.map((value: { id: string }) => value.id)).toEqual([lead.sessionId]);
+    expect((await s.call("sessions.activity")).value.result.sessions.map((value: { id: string }) => value.id)).toEqual([lead.sessionId]);
+    expect((await s.call("sessions.get", { sessionId: worker.sessionId })).value.result.session.id).toBe(worker.sessionId);
+    expect((await s.call("sessions.delete", { sessionId: worker.sessionId, projectId: s.project.id })).value.error).toContain("managed by its lead");
+    expect((await s.call("commands.dispatch", { type: "send", commandId: "bypass-send", sessionId: worker.sessionId, text: "Work independently" })).value.error).toContain("managed by its lead");
+    expect(s.send).not.toHaveBeenCalled();
+  });
+
+  it("guards both public workspace APIs against mutations of a managed worker checkout", async () => {
+    const s = await setup(); writeFileSync(join(s.directory, "file.txt"), "worker file\n");
+    const worker = s.engine.command({ type: "create", commandId: "worker-guard", projectId: s.project.id, harness: "codex", model: "codex:test", runtimeMode: "supervised" });
+    const value = s.store.session(worker.sessionId);
+    s.store.save({ ...value, revision: value.revision + 1, session: { ...value.session, orchestrationLeadId: "owning-lead" } }, {});
+    const projectId = s.project.id;
+    for (const [method, params] of [
+      ["files.write", { projectId, path: "file.txt", expected: "worker file\n", content: "bypass\n" }],
+      ["files.create", { projectId, parent: "", name: "new.txt", isDir: false }],
+      ["git.action", { projectId, action: "stage", path: "file.txt" }],
+      ["git.switch", { projectId, branch: "other" }],
+      ["git.createBranch", { projectId, branch: "other" }],
+      ["git.worktreeCreate", { projectId, branch: "other", base: "HEAD", existing: false }],
+    ] as const) expect((await s.call(method, params)).value.error).toContain("managed by its lead");
+    for (const [command, args] of [
+      ["write_text_file", { path: join(s.directory, "file.txt"), content: "bypass" }],
+      ["create_path", { parent: s.directory, name: "new.txt", isDir: false }],
+      ["rename_path", { path: join(s.directory, "file.txt"), name: "renamed.txt" }],
+      ["delete_path", { path: join(s.directory, "file.txt") }],
+      ["copy_path", { from: join(s.directory, "file.txt"), destParent: s.directory }],
+      ["move_path", { from: join(s.directory, "file.txt"), destParent: s.directory }],
+      ["git_stage_file", { cwd: s.directory, relative: "file.txt" }],
+      ["git_checkout", { cwd: s.directory, name: "other" }],
+      ["git_stash", { cwd: s.directory }],
+    ] as const) expect((await s.call("workspace.run", { command, args })).value.error).toContain("managed by its lead");
+    expect((await s.call("files.read", { projectId, path: "file.txt" })).value.result).toBe("worker file\n");
+  });
+
   it("returns lightweight reply activity across projects, with credential and Host identity checks", async () => {
     const s = await setup();
     const other = s.store.addProject("/activity-other-project", "Other");
@@ -395,7 +559,7 @@ describe("remote host API", () => {
     expect(await list()).toEqual([{ id: "codex:new", name: "New" }]);
     expect(modelProbe).toHaveBeenCalledTimes(2);
   });
-  it("re-probes models once the catalog is five minutes old", async () => {
+  it("serves a five-minute-old catalog while re-probing it in the background", async () => {
     const s = await setup();
     modelProbe.mockClear();
     modelProbe.mockResolvedValueOnce([{ id: "codex:old", name: "Old" }]);
@@ -409,7 +573,9 @@ describe("remote host API", () => {
       vi.setSystemTime(Date.now() + 4 * 60_000);
       expect(await list()).toEqual([{ id: "codex:old", name: "Old" }]);
       vi.setSystemTime(Date.now() + 60_000);
-      expect(await list()).toEqual([{ id: "codex:new", name: "New" }]);
+      expect(await list()).toEqual([{ id: "codex:old", name: "Old" }]);
+      await vi.waitFor(async () =>
+        expect(await list()).toEqual([{ id: "codex:new", name: "New" }]));
     } finally {
       vi.useRealTimers();
     }
@@ -826,4 +992,25 @@ describe("remote host API", () => {
       (await s.call("git.index", { projectId: project.id })).value.result.files,
     ).toEqual([]);
   });
+});
+
+it("advertises assistant RPC, enforces device auth and hides the private brain", async () => {
+  const { engine, store, project, call, first } = await setup();
+  await engine.ready;
+  engine.assistant.setCatalog(async () => ["codex"], async () => ({ models: { codex: [{ id: "test", name: "Test" }] }, errors: {} }));
+  expect((await call("environment.describe")).value.result.capabilities).toContain("assistant.v1");
+  expect((await call("assistant.get")).value.result).toBeNull();
+  const command = { commandId: "setup-assistant", expectedRevision: 0, patch: { harness: "codex", model: "test", triggers: { user: true, event: false, schedule: false } } };
+  expect((await call("assistant.configure", command)).status).toBe(200);
+  expect((await call("assistant.configure", command)).status).toBe(200);
+  expect((await call("assistant.send", { commandId: "assistant-message", text: "Hello" })).status).toBe(200);
+  await vi.waitFor(() => expect(engine.assistant.store.get()?.brainSessionId).toBeTruthy());
+  const brain = engine.assistant.store.get()!.brainSessionId!;
+  expect((await call("sessions.get", { sessionId: brain })).value.error).toMatch(/private/);
+  expect((await call("sessions.list", { projectId: store.session(brain).projectId })).value.result).toEqual([]);
+  expect((await call("projects.list")).value.result.map((p: any) => p.id)).toContain(project.id);
+  expect((await call("projects.list")).value.result.some((p: any) => p.kind === "assistant")).toBe(false);
+  expect((await call("assistant.configure", { ...command, commandId: "conflict", patch: { name: "Changed" } })).value).toMatchObject({ code: "conflict" });
+  store.revokeToken(first.token);
+  expect((await call("assistant.get")).status).toBe(401);
 });

@@ -6,7 +6,7 @@ import {
   type RefObject,
   type SetStateAction,
 } from "react";
-import type { OrchestrationRun } from "../../features/orchestration/model/orchestration";
+import type { OrchestrationReadRun } from "../../features/orchestration/model/orchestrationClient";
 import { rememberLoadedSession } from "../../features/sessions/data/sessionCache";
 import { shouldPersistSession } from "../../features/sessions/data/sessionStore";
 import { sessionChildHarnesses } from "../../features/sessions/model/handoff";
@@ -37,7 +37,7 @@ export function useIdleSessionDetach({
   sessionsRef: RefObject<Session[]>;
   tabs: WorkspaceTab[];
   tabsRef: RefObject<WorkspaceTab[]>;
-  orchestrationRuns: OrchestrationRun[];
+  orchestrationRuns: readonly OrchestrationReadRun[];
   liveAgentsEnabled: boolean;
   unseenFinishedIds: ReadonlySet<string>;
   openingSessionIds: RefObject<Set<string>>;

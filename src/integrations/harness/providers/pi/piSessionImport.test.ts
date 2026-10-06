@@ -115,3 +115,53 @@ describe("Pi session import", () => {
     ).toThrow("cycle");
   });
 });
+
+describe("omp session import (shared Pi parser)", () => {
+  const ompFile: NativeSessionFile = { ...file, provider: "omp", providerSessionId: "omp-id" };
+  const title = (value: string) => ({ type: "title", v: 1, title: value, pad: "    " });
+  const ompHeader = { type: "session", version: 3, id: "omp-id", cwd: "/repo" };
+  const ompLines = (...records: unknown[]) =>
+    records.map((record) => JSON.stringify(record)).join("\n") + "\n";
+
+  it("skips padded title records and reads omp model strings", () => {
+    const result = parsePiSession(
+      ompLines(
+        title(""),
+        ompHeader,
+        entry("m", null, { type: "model_change", model: "ollama/qwen3:14b" }),
+        entry("t", "m", { type: "thinking_level_change", thinkingLevel: "high" }),
+        entry("u", "t", { type: "message", message: { role: "user", content: [{ type: "text", text: "ping" }] } }),
+        entry("a", "u", {
+          type: "message",
+          message: { role: "assistant", provider: "ollama", model: "qwen3:14b", content: [{ type: "text", text: "pong" }] },
+        }),
+        title("Named by omp"),
+      ),
+      ompFile,
+    );
+    expect(result.blocks.map((block) => [block.id, block.text])).toEqual([
+      ["native-omp-u", "ping"],
+      ["native-omp-a", "pong"],
+    ]);
+    expect(result.model).toBe("omp:ollama/qwen3:14b");
+    expect(result.modelSettings.thinking).toBe("high");
+    expect(result.title).toBe("Named by omp");
+  });
+
+  it("keeps Pi strict about a leading title record", () => {
+    expect(() => parsePiSession(ompLines(title(""), header), file)).toThrow();
+    expect(parsePiSession(lines(entry("u", null, { type: "message", message: { role: "user", content: "x" } })), file).blocks[0].id).toBe("native-pi-u");
+  });
+
+  it("follows the newest omp branch and rejects cycles", () => {
+    const message = (text: string) => ({ type: "message", message: { role: "user", content: text } });
+    const result = parsePiSession(ompLines(
+      title("Named"), ompHeader,
+      entry("u", null, message("first")),
+      entry("old", "u", message("abandoned")),
+      entry("new", "u", message("current")),
+    ), ompFile);
+    expect(result.blocks.map((block) => block.text)).toEqual(["first", "current"]);
+    expect(() => parsePiSession(ompLines(title("Named"), ompHeader, entry("x", "x", message("cycle"))), ompFile)).toThrow("cycle");
+  });
+});

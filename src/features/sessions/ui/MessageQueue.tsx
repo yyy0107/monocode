@@ -187,6 +187,8 @@ export function MessageQueue({
               }`}
             >
               <ListEnd className="size-3.5 shrink-0" />
+              {message.origin?.kind === "assistant" && <span className="shrink-0 text-xs text-content/60">{uiT("From {value0}", { value0: message.origin.assistantName || uiT("Assistant") })}</span>}
+              {message.blocked && <span className="shrink-0 text-xs text-red-400" title={uiT(message.blocked)}>{uiT("Blocked")}</span>}
               {editing ? (
                 <>
                   <textarea

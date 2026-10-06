@@ -1,17 +1,23 @@
 import { createHash, randomUUID } from "node:crypto";
+import { HostOrchestration, type HostOrchestrationOptions } from "./orchestration";
+import { HostAssistant } from "./assistant";
+import type { ControlOutcome, ControlReceiptContext, OrchestrationRun, OrchestrationTask, WorkerPreparation } from "../src/features/orchestration/model/orchestrationRuntime";
+import { assertCheckoutAvailable, claimCheckoutResource, checkoutPath, checkoutPathsOverlap } from "./checkout-guards";
+import type { LegacyRetirementManifest } from "./legacy-orchestration";
 import { SessionTitleCoordinator } from "../src/integrations/harness/core/titleCoordinator";
 import { titleStateFor } from "../src/features/sessions/model/titlePolicy";
 import { resolveProvider } from "./process";
+import { ACCOUNT_PROVIDERS, desktopProviderAccounts, resolveDefaultAccount } from "./provider-accounts";
 import { realpath, stat } from "node:fs/promises";
 import { readFileSync, unlinkSync } from "node:fs";
-import { basename, isAbsolute } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { renameHostWorktreeBranch, resolveHostWorktree } from "./git-worktrees";
 import {
   applyHarnessEvent,
   appendSteerUser,
   stopStreaming,
 } from "../src/integrations/harness/core/apply";
-import { canDispatchQueuedHead, dequeueQueuedMessage } from "../src/features/sessions/model/messageQueue";
+import { canDispatchQueuedHead, dequeueQueuedMessage, queuedHead } from "../src/features/sessions/model/messageQueue";
 import { resolveModel } from "../src/features/sessions/model/models";
 import { isVisionImage } from "../src/features/sessions/model/attachments";
 import type {
@@ -36,6 +42,9 @@ import {
 import type { HostProvider } from "./providers";
 import { HostStore } from "./store";
 import { HostSkills } from "./skills";
+import { NativeSessionGuard, nativeAccessMessage, type NativeLease } from "./native-access";
+import { NativeSessionManager, nativeHolding, type NativeManagerOptions } from "./native/manager";
+import { migrateNativeLink } from "./native/migrate";
 import { parseRemoteAttachments, resolveAttachments, saveGeneratedImageAttachment } from "./attachments";
 import type { Attachment } from "../src/features/sessions/model/session";
 
@@ -98,6 +107,13 @@ export function parseCommand(input: unknown): HostCommand {
         !/^mc\/[a-z0-9]{8}$/.test(v.autoWorktreeBranch))
     )
       throw new Error("Invalid automatically created worktree branch");
+    if (
+      v.providerAccountId !== undefined &&
+      (typeof v.providerAccountId !== "string" ||
+        !/^[A-Za-z0-9_-]{1,80}$/.test(v.providerAccountId) ||
+        !ACCOUNT_PROVIDERS.includes(v.harness as never))
+    )
+      throw new Error("Invalid provider account");
     return {
       type: "create",
       commandId,
@@ -114,9 +130,26 @@ export function parseCommand(input: unknown): HostCommand {
         ? { modelSettings: modelSettings(v.modelSettings) }
         : {}),
       runtimeMode: v.runtimeMode as Session["runtimeMode"],
+      ...(v.providerAccountId !== undefined
+        ? { providerAccountId: v.providerAccountId as string }
+        : {}),
     };
   }
   const sessionId = text(v.sessionId, "session ID");
+  if (v.type === "orchestration") {
+    const projectId = text(v.projectId, "project ID");
+    if (v.action === "editProposal" || v.action === "confirmProposal") {
+      if (!Number.isSafeInteger(v.expectedRevision) || Number(v.expectedRevision) < 0) throw new Error("Invalid proposal revision");
+      const base = { type: "orchestration" as const, commandId, sessionId, projectId, proposalBlockId: text(v.proposalBlockId, "proposal block ID"), expectedRevision: Number(v.expectedRevision) };
+      if (v.action === "confirmProposal" && v.edit === undefined) return { ...base, action: "confirmProposal" };
+      if (!v.edit || typeof v.edit !== "object" || Array.isArray(v.edit)) throw new Error("Invalid proposal edits");
+      const edit = v.edit as Record<string, unknown>;
+      if (!Number.isInteger(edit.maxWorkers) || Number(edit.maxWorkers) < 1 || Number(edit.maxWorkers) > 4 || !Array.isArray(edit.tasks)) throw new Error("Invalid proposal edits");
+      return { ...base, action: v.action, edit: { maxWorkers: Number(edit.maxWorkers), tasks: edit.tasks as import("../src/features/orchestration/model/orchestrationPlan").ProposedTask[] } };
+    }
+    if (!["resume", "stop", "cancelTask"].includes(String(v.action))) throw new Error("Invalid orchestration action");
+    return { type: "orchestration", commandId, sessionId, projectId, action: v.action as "resume" | "stop" | "cancelTask", orchestrationId: text(v.orchestrationId, "orchestration ID"), ...(v.action === "cancelTask" ? { taskId: text(v.taskId, "task ID") } : {}) };
+  }
   if (v.type === "configure") {
     if (!RUNTIME_MODES.includes(v.runtimeMode as never))
       throw new Error("Invalid permission mode");
@@ -159,7 +192,7 @@ export function parseCommand(input: unknown): HostCommand {
     if (
       v.type === "send" &&
       v.intent !== undefined &&
-      !["default", "plan", "build"].includes(String(v.intent))
+      !["default", "plan", "build", "orchestrate"].includes(String(v.intent))
     )
       throw new Error("Invalid turn intent");
     if (
@@ -183,8 +216,10 @@ export function parseCommand(input: unknown): HostCommand {
         ? { followUpBehavior: v.followUpBehavior as "queue" | "steer" }
         : {}),
       ...(v.type === "send" && v.intent
-        ? { intent: v.intent as "default" | "plan" | "build" }
+        ? { intent: v.intent as "default" | "plan" | "build" | "orchestrate" }
         : {}),
+      ...(v.type === "send" && v.retryProposalBlockId !== undefined
+        ? { retryProposalBlockId: text(v.retryProposalBlockId, "proposal block ID") } : {}),
       ...(v.type === "send" && v.draftBlockId !== undefined
         ? { draftBlockId: text(v.draftBlockId, "draft block ID") }
         : {}),
@@ -276,6 +311,13 @@ export function parseCommand(input: unknown): HostCommand {
 }
 
 export class HostEngine {
+  readonly assistant: HostAssistant;
+  authorizeAssistantQueued?: (origin: import("../src/features/sessions/model/session").TurnOrigin, projectId: string) => boolean;
+  readonly orchestration: HostOrchestration;
+  readonly ready: Promise<void>;
+  private managedCompletions = new Map<string, (outcome: ControlOutcome) => void>();
+  private checkoutReleases = new Map<string, () => void>();
+  private retiring = new Set<string>();
   private switchingProjects = new Set<string>();
   private boundSessions = new Set<string>();
   private running = new Map<
@@ -305,6 +347,11 @@ export class HostEngine {
   private closing = false;
   private readonly titles: SessionTitleCoordinator;
   private parked = new Map<string, { harness: string; timer: ReturnType<typeof setTimeout> }>();
+  /** Writer lock and external-CLI checks for native sessions. */
+  readonly native = new NativeSessionGuard(() => dirname(this.store.attachmentDir));
+  /** Host owner of native histories: sources, sync, watching and turn settlement. */
+  readonly nativeSessions: NativeSessionManager;
+  private nativeLeases = new Map<string, NativeLease>();
   private editors = new Map<
     string,
     { owner: string; timer: ReturnType<typeof setTimeout> }
@@ -314,7 +361,25 @@ export class HostEngine {
     readonly store: HostStore,
     private readonly providers: Partial<Record<RemoteProvider, HostProvider>>,
     private readonly skills = new HostSkills(),
+    options: HostOrchestrationOptions & { native?: NativeManagerOptions } = {},
   ) {
+    this.nativeSessions = new NativeSessionManager({
+      store,
+      guard: this.native,
+      desktopDirectory: () => this.desktopDirectory(),
+      mutate: (id, change, event) => this.mutateManaged(id, change, event),
+      create: (value) => this.store.transaction(() => this.store.save(value, { type: "native.imported" })),
+      openProject: (cwd) => this.openProject(cwd),
+      canSteer: (provider) => !!this.providers[provider as RemoteProvider]?.steer,
+      busy: (id) => this.running.has(id),
+      dispatch: (id) => this.dispatchQueue(id),
+      stopProvider: async (id) => {
+        const parked = this.parked.get(id);
+        if (parked) { clearTimeout(parked.timer); this.parked.delete(id); }
+        await this.provider(this.store.session(id).session.harness).stop(id);
+        this.boundSessions.delete(id);
+      },
+    }, options.native);
     this.titles = new SessionTitleCoordinator({
       get: (id) => { try { return this.store.session(id).session; } catch { return undefined; } },
       update: (id, change) => {
@@ -343,10 +408,12 @@ export class HostEngine {
     });
     // Provider dispatch is not transactional with SQLite. Never replay a send
     // automatically after a crash; its external effects may already exist.
-    for (const value of store.sessions()) {
-      // Native imports retain the desktop's external-CLI ownership checks.
-      // Host shares their history, and never creates another provider owner.
-      if (value.session.nativeSession) continue;
+    for (const stored of store.sessions()) {
+      // Native links from older clients become managed once; sync has no fallbacks.
+      const migrated = migrateNativeLink(stored);
+      const value = migrated
+        ? store.transaction(() => store.save({ ...migrated, revision: migrated.revision + 1 }, { type: "native.migrated" }))
+        : stored;
       const interrupted = value.status === "running";
       const recovered = interrupted
         ? this.settled(
@@ -381,25 +448,233 @@ export class HostEngine {
           { type: "queue.recovered" },
         );
       }
-      if (value.session.providerSessionId) this.bindRetainedSession(value.session);
+      // Native conversations bind under the writer lease when a turn starts.
+      if (value.session.providerSessionId && !value.session.nativeSession) this.bindRetainedSession(value.session);
     }
+    this.orchestration = new HostOrchestration(store, {
+      session: (id) => this.session(id),
+      values: () => this.currentValues(),
+      mutate: (id, change, event) => this.mutateManaged(id, change, event),
+      createWorker: (run, task, preparation) => this.createManagedWorker(run, task, preparation),
+      submit: (id, prompt, done, origin) => this.submitManaged(id, prompt, done, origin),
+      stop: (id) => this.stopManaged(id),
+      steer: (id, prompt, receipt) => this.steerManaged(id, prompt, receipt),
+      approve: (id, requestId, decision, receipt) => this.controlManaged(id, "approve", { requestId, decision }, receipt),
+      answer: (id, requestId, reply, receipt) => this.controlManaged(id, "answer", { requestId, reply }, receipt),
+    }, Object.keys(providers) as RemoteProvider[], options);
+    this.assistant = new HostAssistant(this, Object.keys(providers) as RemoteProvider[], this.orchestration.ready, options);
+    this.ready = this.assistant.ready;
+    this.nativeSessions.start();
   }
 
   private bindRetainedSession(session: Session): void {
     if (!session.providerSessionId) return;
     const provider = this.provider(session.harness);
-    if (session.providerAccountId) provider.bind(session.id, session.providerSessionId,
+    // An imported conversation resumes strictly: never a silent replacement session.
+    if (session.nativeSession) provider.bind(session.id, session.providerSessionId,
+      session.cwd, session.providerAccountId, session.nativeSession);
+    else if (session.providerAccountId) provider.bind(session.id, session.providerSessionId,
       session.cwd, session.providerAccountId);
     else provider.bind(session.id, session.providerSessionId, session.cwd);
     this.boundSessions.add(session.id);
   }
 
-  async openProject(path: string) {
+  /** Named login profiles published by the paired desktop. */
+  providerAccounts() {
+    return desktopProviderAccounts(
+      join(dirname(this.store.attachmentDir), "desktop-owner.json"),
+    );
+  }
+
+  /** The paired desktop's data directory holds MonoCode provider-account profiles. */
+  private desktopDirectory(): string | undefined {
+    // Read on every native sync and listing; the pairing file changes only at desktop startup.
+    if (this.desktopOwner && Date.now() - this.desktopOwner.at < 10_000) return this.desktopOwner.value;
+    let value: string | undefined;
+    try {
+      const config = JSON.parse(readFileSync(join(dirname(this.store.attachmentDir), "desktop-owner.json"), "utf8"));
+      value = typeof config.desktopDirectory === "string" ? config.desktopDirectory : undefined;
+    } catch {
+      value = undefined;
+    }
+    // Only a paired directory is cached; an unpaired Host picks up a pairing at once.
+    if (value) this.desktopOwner = { at: Date.now(), value };
+    return value;
+  }
+  private desktopOwner?: { at: number; value: string | undefined };
+
+  /** Whether a client may continue an imported native session now (null for ordinary sessions). */
+  async nativeAccess(sessionId: string) {
+    const value = this.store.session(sessionId);
+    const link = value.session.nativeSession;
+    if (!link) return null;
+    return this.native.probe(sessionId, link, value.session.cwd, this.nativeLeases.has(sessionId));
+  }
+
+  /** Read one session, including streamed output that has not been flushed. */
+  session(id: string): HostSession | undefined {
+    return this.live.get(id)?.value ?? this.store.sessionIfExists(id);
+  }
+
+  private currentValues(): HostSession[] {
+    return this.store.sessions().map((value) => this.live.get(value.session.id)?.value ?? value);
+  }
+
+  private mutateManaged(id: string, change: (value: HostSession) => HostSession, event: unknown): HostSession {
+    this.flush(id);
+    const current = this.store.session(id);
+    const next = change(current);
+    // An unchanged value is not a new revision.
+    if (next === current) return current;
+    const saved = this.save(next, event);
+    const live = this.live.get(id); if (live) live.value = saved;
+    return saved;
+  }
+
+  private createManagedWorker(run: OrchestrationRun, task: OrchestrationTask, preparation: WorkerPreparation): void {
+    const lead = this.store.session(run.leadId);
+    const project = this.store.project(lead.projectId);
+    const cwd = preparation.workspace.checkoutCwd;
+    assertCheckoutAvailable(this.store, cwd);
+    let retained: HostSession | undefined;
+    try { retained = this.store.session(task.sessionId); } catch { /* New worker. */ }
+    if (retained && (retained.projectId !== lead.projectId || retained.session.harness !== task.harness || retained.session.model !== task.model))
+      throw new Error("The retained worker configuration no longer matches its assignment");
+    const now = Date.now();
+    const value: HostSession = retained ?? { projectId: project.id, revision: 0, status: "idle", createdAt: now, updatedAt: now,
+      session: { id: task.sessionId, cwd, harness: task.harness, model: task.model, modelSettings: task.modelSettings ?? {}, runtimeMode: lead.session.runtimeMode, title: task.title, blocks: [] } };
+    this.save({ ...value, supportsQueue: true, canSteer: !!this.provider(task.harness).steer,
+      session: { ...value.session, cwd, worktreeCwd: cwd === project.cwd ? undefined : cwd, branch: preparation.workspace.branch, worktreeRemoved: false, runtimeMode: lead.session.runtimeMode, orchestrationLeadId: run.leadId } }, { type: "orchestration.workerPrepared", leadId: run.leadId });
+    if (value.session.providerSessionId) this.bindRetainedSession({ ...value.session, cwd });
+  }
+
+  private submitManaged(id: string, prompt: string, done: (outcome: ControlOutcome) => void, origin?: import("../src/features/sessions/model/session").TurnOrigin): void {
+    try {
+      if (this.managedCompletions.has(id)) throw new Error("The managed worker already has a pending turn");
+      const value = this.store.session(id);
+      if (origin && !this.authorizeAssistantQueued?.(origin, value.projectId)) throw new Error("Assistant message blocked because its permission was revoked.");
+      this.applyCommand({ type: "send", commandId: `managed:${randomUUID()}`, sessionId: id, text: prompt }, true, undefined, origin);
+      this.managedCompletions.set(id, done);
+    } catch (error) { done({ status: "failed", text: "", error: error instanceof Error ? error.message : String(error) }); }
+  }
+
+  private async stopManaged(id: string): Promise<void> {
+    let value: HostSession;
+    try { value = this.store.session(id); } catch { return; }
+    const provider = this.provider(value.session.harness);
+    const active = this.running.get(id);
+    if (active) active.cancelled = true;
+    const parked = this.parked.get(id);
+    if (parked) { clearTimeout(parked.timer); this.parked.delete(id); }
+    await provider.stop(id);
+    if (active) await active.done;
+    this.checkoutReleases.get(id)?.(); this.checkoutReleases.delete(id);
+  }
+
+  private async steerManaged(id: string, prompt: string, receipt?: ControlReceiptContext): Promise<void> {
+    this.flush(id);
+    const value = this.store.session(id), active = this.running.get(id), provider = this.provider(value.session.harness);
+    if (!active || active.finishing || active.cancelled || !provider.steer) throw new Error("This worker cannot receive guidance during its current turn");
+    if (receipt?.origin && !this.authorizeAssistantQueued?.(receipt.origin, value.projectId)) throw new Error("Assistant message permission was revoked.");
+    const saved = this.store.transaction(() => {
+      const steered = appendSteerUser(value.session, prompt);
+      if (receipt?.origin) steered.blocks[steered.blocks.length - 1] = { ...steered.blocks.at(-1)!, origin: receipt.origin };
+      const saved = this.store.save({ ...value, revision: value.revision + 1, updatedAt: Date.now(), session: steered }, { type: "orchestration.steer" });
+      if (receipt) this.recordControlReceipt(receipt);
+      return saved;
+    });
+    const live = this.live.get(id); if (live) live.value = saved;
+    await provider.steer({ sessionId: id, cwd: value.session.cwd, model: value.session.model, modelSettings: value.session.modelSettings, text: prompt });
+  }
+
+  private recordControlReceipt(receipt: ControlReceiptContext): void {
+    const generation = this.store.orchestration(receipt.leadId)?.id;
+    if (!generation) throw new Error("The orchestration generation is unavailable");
+    this.store.db.prepare("INSERT INTO metadata VALUES (?, ?)").run(`orchestration-effect:${generation}:${receipt.requestId}`, JSON.stringify({ signature: receipt.signature, result: receipt.result }));
+  }
+
+  private controlManaged(id: string, type: "approve" | "answer", params: Record<string, unknown>, receipt?: ControlReceiptContext) {
+    const value = this.store.session(id);
+    this.applyCommand({ ...params, type, commandId: `managed-control:${id}:${value.runId}:${type}:${params.requestId}`, sessionId: id, runId: value.runId }, true, receipt);
+  }
+
+  assertWorkspaceWrite(path: string) {
+    assertCheckoutAvailable(this.store, path);
+    this.orchestration.assertCheckout(path);
+    const worker = this.currentValues().find((value) => value.session.orchestrationLeadId && !value.session.worktreeRemoved &&
+      checkoutPathsOverlap(checkoutPath(path), checkoutPath(value.session.cwd)));
+    if (worker) throw new Error("This worker checkout is managed by its lead");
+  }
+
+  assertProjectWrite(projectId: string) {
+    const managed = this.orchestration?.scheduler.snapshot().some((run) => ["active", "paused"].includes(run.status) && this.store.session(run.leadId).projectId === projectId);
+    if (managed) throw new Error("Stop orchestration before changing this project's branches or worktrees");
+  }
+
+  async deleteSession(id: string) {
+    this.orchestration.assertSessionWrite(id, "delete");
+    await this.orchestration.scheduler.deleteSession(id, async () => {
+      this.store.deleteSession(id);
+      this.store.db.prepare("DELETE FROM orchestration_runs WHERE lead_id=?").run(id);
+      this.store.db.prepare("DELETE FROM orchestration_commands WHERE session_id=?").run(id);
+    });
+  }
+
+  /** Native bootstrap only: device RPC never exposes retirement. */
+  async retireLegacyOrchestration(manifest: LegacyRetirementManifest): Promise<{ retired: true }> {
+    if (manifest?.manifestId !== "host-orchestration-v1" || !/^[a-f0-9]{64}$/.test(manifest.sourceKey) || !Array.isArray(manifest.entries)) throw new Error("Invalid legacy retirement manifest");
+    const ids = new Set<string>();
+    for (const entry of manifest.entries) {
+      if (!entry || typeof entry.id !== "string" || !/^[A-Za-z0-9_-]{1,512}$/.test(entry.id) || ids.has(entry.id)) throw new Error("Invalid legacy retirement identity");
+      ids.add(entry.id);
+    }
+    const key = `desktop-orchestration-retired:${manifest.sourceKey}:${manifest.manifestId}`;
+    const signature = createHash("sha256").update(JSON.stringify(manifest.entries)).digest("hex");
+    const completed = this.store.db.prepare("SELECT value FROM metadata WHERE key=?").get(key);
+    if (completed) { if (completed.value !== signature) throw new Error("Legacy retirement manifest changed"); return { retired: true }; }
+    // Establish every identity before stopping or deleting any conversation.
+    for (const entry of manifest.entries) {
+      const row = this.store.db.prepare("SELECT snapshot FROM sessions WHERE id=?").get(entry.id);
+      if (!row) continue;
+      const value = JSON.parse(String(row.snapshot)) as HostSession;
+      const imported = this.store.db.prepare("SELECT 1 FROM metadata WHERE key=?").get(`desktop-import:${manifest.sourceKey}:${entry.id}`);
+      const matching = entry.cwd && entry.harness && this.store.project(value.projectId).cwd === entry.cwd && value.session.harness === entry.harness;
+      if (!imported && !matching) throw new Error(`Legacy conversation identity could not be verified: ${entry.id}`);
+    }
+    for (const id of ids) this.retiring.add(id);
+    try {
+      await this.orchestration.retire([...ids]);
+      await Promise.all([...ids].map((id) => this.stopManaged(id)));
+      for (const id of ids) {
+        clearTimeout(this.retryTimers.get(id)); this.retryTimers.delete(id);
+        clearTimeout(this.live.get(id)?.timer); this.live.delete(id);
+        this.running.delete(id); this.managedCompletions.delete(id); this.boundSessions.delete(id);
+        this.clearEditor(id);
+      }
+      this.store.transaction(() => {
+        for (const id of ids) {
+          this.store.db.prepare("INSERT OR IGNORE INTO metadata VALUES (?, '1')").run(`desktop-import:${manifest.sourceKey}:${id}`);
+          this.store.db.prepare("INSERT OR IGNORE INTO metadata VALUES (?, '1')").run(`desktop-retired:${manifest.sourceKey}:${id}`);
+          this.store.db.prepare("INSERT OR IGNORE INTO retired_sessions VALUES (?)").run(id);
+          this.store.db.prepare("DELETE FROM events WHERE session_id=?").run(id);
+          this.store.db.prepare("DELETE FROM orchestration_runs WHERE lead_id=?").run(id);
+          this.store.db.prepare("DELETE FROM orchestration_commands WHERE session_id=?").run(id);
+          this.store.db.prepare("DELETE FROM sessions WHERE id=?").run(id);
+          this.store.invalidateSession(id);
+        }
+        this.store.db.prepare("INSERT INTO metadata VALUES (?, ?)").run(key, signature);
+      });
+      return { retired: true };
+    } finally { for (const id of ids) this.retiring.delete(id); }
+  }
+
+  async openProject(path: string, authorize?: (cwd: string) => void) {
     if (!isAbsolute(path) || path.includes("\0"))
       throw new Error("Choose an absolute directory path on the host");
     const cwd = await realpath(path);
     if (!(await stat(cwd)).isDirectory())
       throw new Error("Project path is not a directory");
+    authorize?.(cwd);
     return this.store.addProject(cwd, basename(cwd));
   }
 
@@ -417,6 +692,7 @@ export class HostEngine {
     projectId: string,
     action: () => Promise<T>,
   ): Promise<T> {
+    this.assertProjectWrite(projectId);
     if (this.switchingProjects.has(projectId))
       throw new Error("A branch switch is already in progress");
     if (
@@ -450,10 +726,15 @@ export class HostEngine {
     );
   }
 
-  updateSession(id: string, patch: Parameters<HostStore["updateSession"]>[1]) {
+  updateSession(id: string, patch: Parameters<HostStore["updateSession"]>[1], accepted?: (result: ReturnType<HostStore["updateSession"]>) => void) {
+    this.orchestration.assertSessionWrite(id, "metadata");
     if (patch.title !== undefined) this.titles.cancel(id);
     this.flush(id);
-    const summary = this.store.updateSession(id, patch);
+    const summary = this.store.transaction(() => {
+      const result = this.store.updateSession(id, patch);
+      accepted?.(result);
+      return result;
+    });
     const live = this.live.get(id);
     if (live) live.value = this.store.session(id);
     return summary;
@@ -531,10 +812,90 @@ export class HostEngine {
   }
 
   command(raw: unknown): CommandReceipt {
+    if (raw && typeof raw === "object") {
+      const input = raw as Record<string, unknown>;
+      if (["origin", "author", "assistantOwnerId"].some(key => key in input) || String(input.commandId).startsWith("assistant:")) throw new Error("Assistant identity is reserved for Host");
+      if (input.projectId && this.store.project(String(input.projectId)).kind === "assistant") throw new Error("Assistant project is private");
+      if (input.sessionId && this.store.session(String(input.sessionId)).session.assistantOwnerId) throw new Error("Use the assistant control API");
+    }
+    return this.applyCommand(raw, false);
+  }
+
+  assistantCommand(raw: unknown, origin?: import("../src/features/sessions/model/session").TurnOrigin): CommandReceipt {
+    return this.applyCommand(raw, false, undefined, origin);
+  }
+
+  stopAssistantBrain(id: string): Promise<void> { return this.stopManaged(id); }
+
+  /** Deliver a user follow-up into the assistant brain's running turn; false when it cannot be steered. */
+  async assistantBrainSteer(id: string, prompt: string): Promise<boolean> {
+    this.flush(id);
+    const value = this.store.session(id), active = this.running.get(id), provider = this.provider(value.session.harness);
+    if (!value.session.assistantOwnerId || !active || active.finishing || active.cancelled || !provider.steer) return false;
+    const prepared = await this.skills.prepare(prompt, { harness: value.session.harness as RemoteProvider, cwd: value.session.cwd, sessionId: id }, provider);
+    if (active.finishing || active.cancelled || this.running.get(id) !== active) return false;
+    const saved = this.save({ ...this.store.session(id), session: appendSteerUser(this.store.session(id).session, prompt) }, { type: "assistant.brainSteer" });
+    const live = this.live.get(id); if (live) live.value = saved;
+    await provider.steer({ sessionId: id, cwd: value.session.cwd, model: value.session.model, modelSettings: value.session.modelSettings, text: prepared });
+    return true;
+  }
+
+  /** Update trusted sender display metadata without changing provider text. */
+  refreshAssistantSenderName(assistantId: string, assistantName: string): void {
+    const needsName = (origin: import("../src/features/sessions/model/session").TurnOrigin | undefined) =>
+      origin?.kind === "assistant" && origin.assistantId === assistantId && origin.assistantName !== assistantName;
+    for (const candidate of this.currentValues()) {
+      if (!candidate.session.blocks.some(block => needsName(block.origin)) &&
+          !candidate.session.queuedMessages?.some(message => needsName(message.origin))) continue;
+      const id = candidate.session.id;
+      this.flush(id);
+      const value = this.store.session(id);
+      const update = <T extends { origin?: import("../src/features/sessions/model/session").TurnOrigin }>(item: T): T =>
+        needsName(item.origin) ? { ...item, origin: { ...item.origin!, assistantName } } : item;
+      const saved = this.save({ ...value, session: { ...value.session,
+        blocks: value.session.blocks.map(update),
+        queuedMessages: value.session.queuedMessages?.map(update),
+      } }, { type: "assistant.senderName" });
+      const live = this.live.get(id);
+      if (live) live.value = saved;
+    }
+  }
+
+  async refreshAssistantBrainProcess(id: string): Promise<void> {
+    const value = this.store.session(id);
+    if (!value.session.assistantOwnerId || value.status === "running") throw new Error("Assistant brain must be idle before refreshing its process");
+    // Grants rotate per turn; an idle provider process still holds its old environment.
+    await this.stopManaged(id);
+    this.bindRetainedSession(this.store.session(id).session);
+  }
+
+  async assistantSteer(id: string, runId: string, prompt: string, origin: import("../src/features/sessions/model/session").TurnOrigin, authorize: () => boolean): Promise<{ steered: true }> {
+    this.flush(id);
+    const value = this.store.session(id), active = this.running.get(id), provider = this.provider(value.session.harness);
+    this.orchestration.assertSessionWrite(id, "send");
+    if (!active || active.runId !== runId || active.finishing || active.cancelled || !provider.steer || !authorize()) throw new Error("This turn cannot receive guidance");
+    const prepared = await this.skills.prepare(prompt, { harness: value.session.harness as RemoteProvider, cwd: value.session.cwd, sessionId: id }, provider);
+    if (!authorize() || active.finishing || active.cancelled || !this.authorizeAssistantQueued?.(origin, value.projectId)) throw new Error("Assistant permission was revoked");
+    const next = appendSteerUser(this.store.session(id).session, prompt);
+    next.blocks[next.blocks.length - 1] = { ...next.blocks[next.blocks.length - 1], origin };
+    const saved = this.save({ ...this.store.session(id), session: next }, { type: "assistant.steer", origin });
+    const live = this.live.get(id); if (live) live.value = saved;
+    await provider.steer({ sessionId: id, cwd: value.session.cwd, model: value.session.model, modelSettings: value.session.modelSettings, text: prepared });
+    return { steered: true };
+  }
+
+  private applyCommand(raw: unknown, managed: boolean, controlReceipt?: ControlReceiptContext, origin?: import("../src/features/sessions/model/session").TurnOrigin): CommandReceipt {
     if (this.closing) throw new Error("Host is stopping");
     const command = parseCommand(raw);
+    if (command.type === "orchestration") {
+      this.flush(command.sessionId);
+      const receipt = this.orchestration.accept(command);
+      const live = this.live.get(command.sessionId);
+      if (live) live.value = this.store.session(command.sessionId);
+      return receipt;
+    }
     const signature = createHash("sha256")
-      .update(JSON.stringify(command))
+      .update(JSON.stringify(origin ? { command, origin } : command))
       .digest("hex");
     const previous = this.store.receipt(command.commandId, signature);
     if (previous) return previous;
@@ -548,7 +909,14 @@ export class HostEngine {
         if (this.switchingProjects.has(project.id))
           throw new Error("Wait for the branch switch to finish");
         this.provider(command.harness);
+        const providerAccountId = resolveDefaultAccount(
+          join(dirname(this.store.attachmentDir), "desktop-owner.json"),
+          command.harness,
+          command.providerAccountId,
+        );
         const cwd = resolveHostWorktree(project.cwd, command.worktreeCwd);
+        assertCheckoutAvailable(this.store, cwd);
+        this.orchestration.assertCheckout(cwd);
         const now = Date.now();
         value = {
           projectId: project.id,
@@ -566,6 +934,9 @@ export class HostEngine {
             model: command.model,
             runtimeMode: command.runtimeMode,
             modelSettings: command.modelSettings ?? {},
+            ...(providerAccountId
+              ? { providerAccountId }
+              : {}),
             title: "New remote session",
             titleState: { source: "placeholder", epoch: 0, purpose: "initial", fallbackAttempted: false },
             ...(command.autoWorktreeBranch
@@ -576,8 +947,17 @@ export class HostEngine {
         };
       } else {
         value = this.store.session(command.sessionId);
-        if (value.session.nativeSession)
-          throw new Error("Continue imported native conversations on the desktop, where CLI ownership can be verified.");
+        if (this.retiring.has(command.sessionId)) throw new Error("This legacy conversation is being deleted");
+        assertCheckoutAvailable(this.store, value.session.cwd);
+        if (!managed) this.orchestration.assertSessionWrite(command.sessionId, command.type);
+        if (command.type === "send" && command.intent === "orchestrate" && (value.status === "running" || value.session.queuedMessages?.length || this.orchestration.scheduler.run(command.sessionId)?.status === "active"))
+          throw new Error("Wait for or stop the current turn before preparing assignments");
+        if (value.session.nativeSession && (command.type === "send" || command.type === "compact")) {
+          // Fail fast on a known owner; the turn re-checks under the lock before writing.
+          const known = this.native.cached(command.sessionId);
+          if (known && known.state !== "idle" && !this.nativeLeases.has(command.sessionId))
+            throw new Error(nativeAccessMessage(known));
+        }
         if (
           (command.type === "send" || command.type === "compact") &&
           this.switchingProjects.has(value.projectId)
@@ -599,7 +979,7 @@ export class HostEngine {
             },
           };
         } else if (command.type === "queue") {
-          value = this.queueCommand(value, command);
+          value = this.queueCommand(value, command, origin);
           effect = (saved) => {
             if (command.action === "hold")
               this.holdEditor(command.sessionId, command.editor!);
@@ -614,7 +994,7 @@ export class HostEngine {
           !command.queuedMessageId &&
           !command.draftBlockId &&
           !command.planBlockId &&
-          (value.status === "running" || value.session.queuedMessages?.length)
+          (value.status === "running" || value.session.queuedMessages?.length || nativeHolding(value))
         ) {
           const attachments = resolveAttachments(
             this.store,
@@ -640,6 +1020,7 @@ export class HostEngine {
                   text: command.text,
                   attachments,
                   intent: command.intent,
+                  origin,
                 },
               ],
               queueStatus: value.session.queueStatus ?? (value.session.usageLimit || this.running.get(value.session.id)?.failed ? "paused" : "active"),
@@ -675,6 +1056,7 @@ export class HostEngine {
                 {
                   id: command.commandId,
                   role: "user",
+                  origin,
                   text: command.text,
                   ...(attachments.length ? { attachments } : {}),
                   draft: true,
@@ -699,6 +1081,8 @@ export class HostEngine {
         } else if (command.type === "send" || command.type === "compact") {
           if (value.status === "running")
             throw new Error("This session is already running");
+          if (nativeHolding(value))
+            throw new Error("Native history is synchronizing; this conversation can continue when it is up to date");
           if (command.type === "compact" && !provider.compact)
             throw new Error(
               "Context compaction is unavailable for this provider",
@@ -712,7 +1096,7 @@ export class HostEngine {
           if (command.type === "send" && command.queuedMessageId) {
             if (
               !queued ||
-              queued.id !== value.session.queuedMessages?.[0]?.id ||
+              queued.id !== queuedHead(value.session)?.id ||
               !canDispatchQueuedHead(value.session) ||
               value.queueSteeringId
             )
@@ -809,6 +1193,7 @@ export class HostEngine {
                 {
                   id: queued?.id ?? command.commandId,
                   role: "user",
+                  origin: queued?.origin ?? origin,
                   text: prompt,
                   ...(attachments.length ? { attachments } : {}),
                   startedAt: Date.now(),
@@ -830,6 +1215,7 @@ export class HostEngine {
               command.type === "compact" ? null : prompt,
               intent,
               attachments,
+              command.type === "send" ? command.retryProposalBlockId : undefined,
             );
             if (firstTurn && command.type === "send") {
               this.generateFirstTurnNames(saved, prompt, placeholderTitle, command.refreshTitle);
@@ -911,6 +1297,7 @@ export class HostEngine {
         revision: saved.revision,
       };
       this.store.recordReceipt(signature, result);
+      if (controlReceipt) this.recordControlReceipt(controlReceipt);
       return { receipt: result, saved };
     });
     const live = this.live.get(saved.session.id);
@@ -923,6 +1310,7 @@ export class HostEngine {
   private queueCommand(
     value: HostSession,
     command: Extract<HostCommand, { type: "queue" }>,
+    origin?: import("../src/features/sessions/model/session").TurnOrigin,
   ): HostSession {
     const { session } = value;
     const row = session.queuedMessages?.find(
@@ -978,7 +1366,7 @@ export class HostEngine {
             ...session,
             editingQueuedMessageId: undefined,
             queuedMessages: session.queuedMessages!.map((entry) =>
-              entry.id === row!.id ? { ...entry, text: command.text! } : entry,
+              entry.id === row!.id ? { ...entry, text: command.text!, origin, blocked: undefined } : entry,
             ),
           },
         };
@@ -1064,12 +1452,21 @@ export class HostEngine {
     if (
       value.status === "running" ||
       value.queueSteeringId ||
+      nativeHolding(value) ||
       !canDispatchQueuedHead(value.session)
     )
       return;
-    const row = value.session.queuedMessages![0];
+    const row = queuedHead(value.session)!;
+    if (row.origin && !this.authorizeAssistantQueued?.(row.origin, value.projectId)) {
+      const remaining = value.session.queuedMessages!.map(q => q.id === row.id ? { ...q, blocked: "Assistant message blocked because its permission was revoked." } : q);
+      this.save({ ...value, session: { ...value.session, queuedMessages: remaining,
+        blocks: [...value.session.blocks, { id: `blocked:${row.id}`, role: "system", text: "Assistant message blocked because its permission was revoked." }],
+        queueStatus: remaining.length ? "active" : undefined } }, { type: "assistant.queueBlocked", origin: row.origin });
+      this.dispatchQueue(id);
+      return;
+    }
     try {
-      this.command({
+      this.applyCommand({
         type: "send",
         commandId: `queue-send:${createHash("sha256").update(row.id).digest("hex")}`,
         sessionId: id,
@@ -1079,7 +1476,7 @@ export class HostEngine {
           row.intent === "plan" || row.intent === "build"
             ? row.intent
             : "default",
-      });
+      }, false, undefined, row.origin);
     } catch (error) {
       console.error("Could not dispatch queued message:", error);
       this.save(
@@ -1097,12 +1494,14 @@ export class HostEngine {
     const row = session.queuedMessages!.find(
       (entry) => entry.id === messageId,
     )!;
+    if (row.blocked) throw new Error(row.blocked);
     const active = this.running.get(session.id)!;
     active.controls = active.controls.then(async () => {
       try {
         const provider = this.provider(session.harness);
         const prepared = await this.skills.prepare(row.text, { harness: session.harness as RemoteProvider, cwd: session.worktreeCwd || session.cwd, sessionId: session.id }, provider);
         if (active.cancelled || active.finishing || this.closing) throw new Error("Turn stopped before the queued message could be steered");
+        if (row.origin && !this.authorizeAssistantQueued?.(row.origin, value.projectId)) throw new Error("Assistant permission was revoked");
         await provider.steer!({
           sessionId: session.id,
           cwd: session.cwd,
@@ -1119,6 +1518,7 @@ export class HostEngine {
           ...steered.blocks[steered.blocks.length - 1],
           id: row.id,
           sentAt: Date.now(),
+          origin: row.origin,
         };
         const saved = this.save({ ...latest, queueSteeringId: undefined, session: steered }, { type: "queue.steered", messageId });
         const live = this.live.get(session.id);
@@ -1207,8 +1607,9 @@ export class HostEngine {
   private run(
     value: HostSession,
     prompt: string | null,
-    intent?: "default" | "plan" | "build",
+    intent?: "default" | "plan" | "build" | "orchestrate",
     attachments: Session["blocks"][number]["attachments"] = [],
+    retryProposalBlockId?: string,
   ): void {
     const { session, runId } = value;
     const parked = this.parked.get(session.id);
@@ -1233,6 +1634,8 @@ export class HostEngine {
         let error: string | undefined;
         try {
           if (!this.closing && !active.cancelled) {
+            if (!this.checkoutReleases.has(session.id)) this.checkoutReleases.set(session.id, claimCheckoutResource(this.store, `host-provider:${session.id}:${randomUUID()}`, session.cwd));
+            const turnPrompt = intent === "orchestrate" ? await this.orchestration.preparePlanning(value, prompt!, retryProposalBlockId) : prompt === null ? null : this.orchestration.prompt(session.id, prompt);
             const input: HarnessSessionInput = {
               sessionId: session.id,
               cwd: session.cwd,
@@ -1240,12 +1643,23 @@ export class HostEngine {
               modelSettings: session.modelSettings,
               providerAccountId: session.providerAccountId,
               runtimeMode: session.runtimeMode,
-              intent,
-              onEvent: (event) => this.event(session.id, runId!, event, session.harness, session.providerAccountId),
+              intent: intent === "orchestrate" ? "plan" : intent,
+              onEvent: (event) => { if (!this.orchestration.planningEvent(session.id, event)) this.event(session.id, runId!, event, session.harness, session.providerAccountId); },
             };
+            // A MonoCode-started conversation continued elsewhere becomes a managed native session.
+            if (!session.nativeSession && this.store.session(session.id).nativeBinding)
+              await this.nativeSessions.promoteIfChanged(session.id);
+            if (this.store.session(session.id).session.nativeSession && !this.nativeLeases.has(session.id)) {
+              const turnBlockId = value.session.blocks.findLast((block) => block.role === "user" && !block.draft)?.id ?? "";
+              // Lease, ownership recheck and pre-send catch-up happen before the provider writes.
+              this.nativeLeases.set(session.id, await this.nativeSessions.prepare(session.id, turnBlockId));
+              const prepared = this.store.session(session.id).session;
+              this.bindRetainedSession(prepared);
+              input.nativeSession = prepared.nativeSession;
+            }
             if (prompt === null) await provider.compact!(input);
             else {
-              const prepared = await this.skills.prepare(prompt, { harness: session.harness as RemoteProvider, cwd: session.worktreeCwd || session.cwd, sessionId: session.id }, provider);
+              const prepared = await this.skills.prepare(turnPrompt!, { harness: session.harness as RemoteProvider, cwd: session.worktreeCwd || session.cwd, sessionId: session.id }, provider);
               if (!this.closing && !active.cancelled) await provider.send({
                 ...input,
                 text: prepared,
@@ -1261,6 +1675,10 @@ export class HostEngine {
                     : file,
                 ),
               });
+              if (intent === "orchestrate" && !active.cancelled && !active.failed && !this.closing) {
+                const repair = this.orchestration.repairPlanning(session.id);
+                if (repair) await provider.send({ ...input, text: repair, attachments: [] });
+              }
             }
           }
         } catch (reason) {
@@ -1270,15 +1688,31 @@ export class HostEngine {
         await active.controls;
         // Keep the session running until the old process has stopped. Otherwise
         // a follow-up can race cleanup and have its newly spawned child killed.
-        if (active.cancelled || this.closing || active.persistenceFailed || !provider.readSessionTitle) await provider.stop(session.id);
+        const managedRun = this.orchestration.scheduler.forSession(session.id);
+        // A native session's CLI must not stay alive after the turn: the desktop
+        // and the user's own CLI would see it as an owner.
+        const nativeTurn = !!this.store.sessionIfExists(session.id)?.session.nativeSession;
+        if (active.cancelled || this.closing || active.persistenceFailed || !!managedRun || !provider.readSessionTitle || nativeTurn) {
+          await provider.stop(session.id);
+          this.checkoutReleases.get(session.id)?.(); this.checkoutReleases.delete(session.id);
+        }
         else {
           const timer = setTimeout(() => {
             this.parked.delete(session.id);
-            if (!this.running.has(session.id)) void provider.stop(session.id).catch(() => undefined);
+            if (!this.running.has(session.id)) void provider.stop(session.id).catch(() => undefined).finally(() => { this.checkoutReleases.get(session.id)?.(); this.checkoutReleases.delete(session.id); });
           }, 5 * 60_000);
           timer.unref?.();
           this.parked.set(session.id, { harness: session.harness, timer });
         }
+        // Publish an idle turn only after its native writer lock is released.
+        // Otherwise an immediate follow-up can contend with this Host itself.
+        // Settlement reads the stable native history before the lease is released.
+        const nativeLease = this.nativeLeases.get(session.id);
+        this.nativeLeases.delete(session.id);
+        if (nativeLease)
+          await this.nativeSessions.settle(session.id, nativeLease).catch((reason) =>
+            console.error("Native settlement failed:", reason instanceof Error ? reason.message : reason));
+        this.native.forget(session.id);
         this.flush(session.id);
         this.live.delete(session.id);
         const latest = this.store.session(session.id);
@@ -1300,7 +1734,21 @@ export class HostEngine {
           );
         }
         this.running.delete(session.id);
+        if (intent === "orchestrate") this.orchestration.finishPlanning(session.id, active.cancelled || this.closing ? "Planning was interrupted. Generate the assignments again." : error || (active.failed ? "The provider failed while planning assignments" : undefined));
+        await this.orchestration.workerSettled(session.id);
+        const completion = this.managedCompletions.get(session.id);
+        this.managedCompletions.delete(session.id);
+        if (!this.closing && completion) {
+          const result = this.store.session(session.id).session.blocks.slice(session.blocks.length).filter((block) => block.role === "assistant").map((block) => block.text).join("\n");
+          completion({ status: active.cancelled ? "cancelled" : error || active.failed || active.persistenceFailed ? "failed" : "completed", text: result.slice(-20_000), ...(error ? { error } : {}) });
+        }
+        if (!this.closing) this.orchestration.sync();
         this.titles.settled(session.id, active.cancelled || this.closing || active.persistenceFailed);
+        if (!this.closing && !nativeTurn) {
+          try { this.nativeSessions.recordLazy(session.id); } catch (reason) {
+            console.error("Could not record native identity:", reason instanceof Error ? reason.message : reason);
+          }
+        }
         // stop/forget releases callbacks and native resources; bind only retained
         // provider conversation identity for an explicit future follow-up.
         const persisted = this.store.session(session.id).session;
@@ -1385,11 +1833,13 @@ export class HostEngine {
         };
       }
     }
+    this.orchestration.observe(id, event);
     const previousSession = live.value.session;
     const session = applyHarnessEvent(live.value.session, event);
     if (session === live.value.session) return;
     live.value = { ...live.value, session };
     live.events.push(event);
+    this.orchestration.sync();
     if (event.type === "session.providerBound") { this.flush(id); void this.titles.read(id); }
     if (!BATCHED.has(event.type)) {
       if (!this.scheduledFlush(id, this.provider(session.harness)) && savedImage) {
@@ -1451,6 +1901,9 @@ export class HostEngine {
 
   async close(): Promise<void> {
     this.closing = true;
+    this.nativeSessions.close();
+    await this.assistant.close();
+    await this.orchestration.close();
     this.titles.close();
     this.skills.close();
     await Promise.all([...this.parked.entries()].map(async ([id, entry]) => { clearTimeout(entry.timer); await this.provider(entry.harness).stop(id); }));
@@ -1465,5 +1918,7 @@ export class HostEngine {
       ),
     );
     await Promise.all([...this.running.values()].map((active) => active.done));
+    for (const release of this.checkoutReleases.values()) release();
+    this.checkoutReleases.clear();
   }
 }

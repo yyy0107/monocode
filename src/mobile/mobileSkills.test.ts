@@ -148,7 +148,9 @@ describe("mobile skills and slash completion", () => {
     expect(load).not.toHaveBeenCalled();
     await input("Before after", 7);
     await click("Add to message");
-    await click("Skills and commands");
+    expect(node.querySelector(".mobile-composer-skills")).toBeNull();
+    expect(node.querySelector(".mobile-composer-project")).toBeNull();
+    expect(option("review")).toBeDefined();
     expect(load).toHaveBeenCalledWith(true);
     await act(async () => {
       const search = node.querySelector<HTMLInputElement>(
@@ -165,7 +167,7 @@ describe("mobile skills and slash completion", () => {
     expect(area().value).toBe("Before /review after");
     expect(area().selectionStart).toBe(15);
     expect(document.activeElement).toBe(area());
-    expect(node.querySelector('[role="dialog"]')).toBeNull();
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     expect(onSend).not.toHaveBeenCalled();
   });
 

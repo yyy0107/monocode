@@ -14,12 +14,19 @@ import {
   type DockSide,
 } from "../features/projects/model/projectTerminal";
 import { setUiLanguage } from "../shared/i18n/language";
-import { saveNotesEnabled } from "../features/settings/model/settings";
+import {
+  saveMenuBarVisible,
+  saveNotesEnabled,
+} from "../features/settings/model/settings";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   viewMounted: vi.fn(),
   fileOpen: vi.fn(),
+  diffOpen: vi.fn(),
+  windowMinimize: vi.fn(async () => {}),
+  windowMaximize: vi.fn(async () => {}),
+  windowClose: vi.fn(async () => {}),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -39,6 +46,11 @@ vi.mock("@tauri-apps/api/window", () => ({
     setTitle: async () => {},
     setFocus: async () => {},
     unminimize: async () => {},
+    isMaximized: async () => false,
+    onResized: async () => () => {},
+    minimize: mocks.windowMinimize,
+    toggleMaximize: mocks.windowMaximize,
+    close: mocks.windowClose,
   }),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -102,16 +114,19 @@ vi.mock("../features/files/model/fileIndex", async (original) => ({
   ...(await original<typeof import("../features/files/model/fileIndex")>()),
   prefetchProjectFiles: () => {},
   resolveFileOpenRequest: async (cwd: string, path: string) => {
-    mocks.fileOpen(cwd, path);
-    return path;
+    return await mocks.fileOpen(cwd, path);
   },
-  resolveOpenablePath: async (_cwd: string, path: string) => path,
+  resolveOpenablePath: async (cwd: string, path: string) =>
+    await mocks.diffOpen(cwd, path),
 }));
 
 // Keep App's state, command dispatch, workspace model and pane rendering real.
 // These shell/view substitutes isolate background services and rich editors.
 vi.mock("./shell/MenuBar", async () => {
   const { createElement: el } = await import("react");
+  const { loadMenuBarVisible } =
+    await import("../features/settings/model/settings");
+  const { WindowControls } = await import("./shell/WindowControls");
   return {
     MENU_BAR_HEIGHT: 36,
     MenuBar: ({ dispatch }: { dispatch: (id: string) => void }) =>
@@ -134,6 +149,7 @@ vi.mock("./shell/MenuBar", async () => {
             id,
           ),
         ),
+        loadMenuBarVisible() ? el(WindowControls) : null,
       ),
   };
 });
@@ -141,6 +157,7 @@ vi.mock("./shell/TitleBar", async () => {
   const { createElement: el } = await import("react");
   return {
     WindowNavigation: () => null,
+    WindowNavigationSpace: () => null,
     TitleBar: ({
       tabs,
       activeId,
@@ -173,6 +190,7 @@ vi.mock("./shell/Sidebar", async () => {
   const { createElement: el } = await import("react");
   return {
     Sidebar: ({
+      onOpenAssistant,
       onOpenFile,
       onOpenDiff,
       cwd,
@@ -188,8 +206,14 @@ vi.mock("./shell/Sidebar", async () => {
       onRemoteSessionDeleted,
       onSessionNavigationOrder,
       onRemoveProject,
+      activeSessionId,
+      tab,
     }: {
-      onOpenFile: (path: string) => void;
+      onOpenAssistant: () => void;
+      onOpenFile: (
+        path: string,
+        navigation?: { line: number; column?: number },
+      ) => void;
       onOpenDiff: (path: string) => void;
       cwd: string;
       gitCwd: string;
@@ -204,6 +228,8 @@ vi.mock("./shell/Sidebar", async () => {
       onRemoteSessionDeleted: (id: string, cwd?: string) => void;
       onSessionNavigationOrder: (ids: readonly string[]) => void;
       onRemoveProject: (cwd: string, options: { purgeData: boolean }) => void;
+      activeSessionId?: string;
+      tab?: string;
     }) =>
       el(
         "aside",
@@ -212,7 +238,21 @@ vi.mock("./shell/Sidebar", async () => {
           "data-git-cwd": gitCwd,
           "data-loaded-projects": [...loadedProjectPaths].join("|"),
           "data-failed-projects": [...failedProjectPaths].join("|"),
+          "data-active-session": activeSessionId,
+          "data-sidebar-tab": tab,
         },
+        el("button", { "data-open-assistant": true, onClick: onOpenAssistant }, "Assistant"),
+        ...["first", "recent", "replacement"].map((id) =>
+          el(
+            "button",
+            {
+              key: `select-${id}`,
+              "data-select-session": id,
+              onClick: () => onSelectSession(id, "/repo"),
+            },
+            id,
+          ),
+        ),
         el(
           "button",
           {
@@ -306,6 +346,17 @@ vi.mock("./shell/Sidebar", async () => {
           },
           "Open file",
         ),
+        ...[10, 20].map((line) =>
+          el(
+            "button",
+            {
+              key: `file-line-${line}`,
+              "data-open-file-line": line,
+              onClick: () => onOpenFile("/repo/file.ts", { line, column: 2 }),
+            },
+            `Open file at line ${line}`,
+          ),
+        ),
         el(
           "button",
           {
@@ -317,7 +368,17 @@ vi.mock("./shell/Sidebar", async () => {
       ),
   };
 });
-vi.mock("./shell/ActivityBar", () => ({ ActivityBar: () => null }));
+vi.mock("./shell/ActivityBar", async () => {
+  const { createElement: el } = await import("react");
+  return {
+    ActivityBar: ({ onOpenSettings }: { onOpenSettings: () => void }) =>
+      el(
+        "button",
+        { "data-open-settings": true, onClick: onOpenSettings },
+        "Settings",
+      ),
+  };
+});
 vi.mock("./shell/UsageFooter", async () => {
   const { createElement: el } = await import("react");
   return { UsageFooter: () => el("footer", { "data-footer": true }, "Usage") };
@@ -362,6 +423,8 @@ vi.mock("../features/sessions/ui/SessionPane", async () => {
   return {
     SessionPane: ({
       session,
+      composerFocused,
+      onClose,
     }: {
       session: {
         id: string;
@@ -369,13 +432,27 @@ vi.mock("../features/sessions/ui/SessionPane", async () => {
         worktreeCwd?: string;
         branch?: string;
       };
+      composerFocused: boolean;
+      onClose: (sessionId: string) => void;
     }) =>
-      el("div", {
-        "data-session": session.id,
-        "data-session-cwd": session.cwd,
-        "data-session-worktree": session.worktreeCwd,
-        "data-session-branch": session.branch,
-      }),
+      el(
+        "div",
+        {
+          "data-session": session.id,
+          "data-session-cwd": session.cwd,
+          "data-session-worktree": session.worktreeCwd,
+          "data-session-branch": session.branch,
+          "data-composer-focused": composerFocused,
+        },
+        el(
+          "button",
+          {
+            "data-close-session": session.id,
+            onClick: () => onClose(session.id),
+          },
+          "Close chat",
+        ),
+      ),
   };
 });
 vi.mock("../features/sessions/ui/SessionSurface", () => ({
@@ -388,15 +465,19 @@ vi.mock("../features/files/ui/FileEditor", async () => {
       path,
       cwd,
       showDiff,
+      navigation,
     }: {
       path: string;
       cwd: string;
       showDiff: boolean;
+      navigation?: { line: number; column?: number } | null;
     }) =>
       el("div", {
         "data-file-editor": path,
         "data-file-cwd": cwd,
         "data-file-diff": showDiff,
+        "data-file-navigation-line": navigation?.line,
+        "data-file-navigation-column": navigation?.column,
       }),
   };
 });
@@ -407,6 +488,14 @@ vi.mock("../features/source-control/ui/WorkingTreeDiff", async () => {
       el("div", { "data-diff-cwd": cwd }),
   };
 });
+vi.mock("../features/assistant/ui/DesktopAssistant", async () => {
+  const { createElement: el } = await import("react");
+  return {
+    DesktopAssistant: () => el("section", { "data-app-view": "assistant" },
+      el("textarea", { "aria-label": "Assistant draft" })),
+  };
+});
+
 vi.mock("../features/settings/ui/SettingsView", async () => {
   const { createElement: el, useEffect, useState } = await import("react");
   return {
@@ -477,7 +566,11 @@ beforeEach(() => {
     return [];
   });
   mocks.viewMounted.mockReset();
-  mocks.fileOpen.mockReset();
+  mocks.fileOpen.mockReset().mockImplementation(async (_cwd, path) => path);
+  mocks.diffOpen.mockReset().mockImplementation(async (_cwd, path) => path);
+  mocks.windowMinimize.mockClear();
+  mocks.windowMaximize.mockClear();
+  mocks.windowClose.mockClear();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -527,10 +620,46 @@ async function click(selector: string) {
   await act(async () => vi.dynamicImportSettled());
 }
 
-const activeTitle = () =>
-  container.querySelector<HTMLButtonElement>(
-    '[data-select-tab][data-active="true"]',
+const workspace = (id?: string) =>
+  container.querySelector<HTMLElement>(
+    id
+      ? `[data-workspace-tab="${id}"]`
+      : '[data-workspace-tab][data-active="true"]',
   )!;
+
+const activeTabId = () => workspace().dataset.workspaceTab;
+
+const ownedTabs = (id?: string) =>
+  workspace(id).querySelector<HTMLElement>("[data-session-surface-tabs]")!;
+
+const ownedFileTabs = (id?: string) => [
+  ...workspace(id).querySelectorAll<HTMLElement>("[data-file-tab-id]"),
+];
+
+async function clickInWorkspace(selector: string, id?: string) {
+  const button = workspace(id).querySelector<HTMLButtonElement>(selector);
+  expect(button, selector).not.toBeNull();
+  await act(async () => button!.click());
+  await act(async () => vi.dynamicImportSettled());
+}
+
+async function selectSession(id: "first" | "recent") {
+  await click(`[data-select-session="${id}"]`);
+}
+
+async function pressKey(key: string, ctrlKey = false) {
+  await act(async () =>
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key,
+        code: key === "w" ? "KeyW" : key,
+        ctrlKey,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+}
 
 describe("terminal dock disclosure motion", () => {
   const grid = () =>
@@ -613,10 +742,50 @@ describe("terminal dock disclosure motion", () => {
 });
 
 describe("App workspace app views", () => {
-  it("closes an existing Notes tab when Notes is disabled", async () => {
+  it("opens Assistant as a reusable workspace page and retains its draft across chat switches", async () => {
+    await mount();
+    await click("[data-open-assistant]");
+    const assistantTab = activeTabId();
+    expect(assistantTab).not.toBe(firstId);
+    expect(workspace().querySelector('[data-app-view="assistant"]')).not.toBeNull();
+    expect(container.querySelector(".assistant-overlay")).toBeNull();
+    const draft = container.querySelector<HTMLTextAreaElement>('[aria-label="Assistant draft"]')!;
+    draft.value = "Keep this draft";
+    await selectSession("recent");
+    await click("[data-open-assistant]");
+    expect(activeTabId()).toBe(assistantTab);
+    expect(container.querySelectorAll('[data-app-view="assistant"]')).toHaveLength(1);
+    expect(container.querySelector('[aria-label="Assistant draft"]')).toBe(draft);
+    expect(draft.value).toBe("Keep this draft");
+    await pressKey("w", true);
+    expect(container.querySelector('[data-app-view="assistant"]')).toBeNull();
+    expect(workspace(recentId)).not.toBeNull();
+  });
+
+  it("retains native window controls when the menu bar and global workspace tabs are hidden", async () => {
+    const visibleControls = () =>
+      [...container.querySelectorAll('[aria-label="Window controls"]')].filter(
+        (controls) => !controls.closest('[aria-hidden="true"]'),
+      );
+    saveMenuBarVisible(false);
+    await mount();
+    expect(container.querySelector("[data-title-bar]")).toBeNull();
+    expect(visibleControls()).toHaveLength(1);
+    await click('[aria-label="Minimize window"]');
+    await click('[aria-label="Maximize window"]');
+    await click('[aria-label="Close window"]');
+    expect(mocks.windowMinimize).toHaveBeenCalledOnce();
+    expect(mocks.windowMaximize).toHaveBeenCalledOnce();
+    expect(mocks.windowClose).toHaveBeenCalledOnce();
+    await act(async () => saveMenuBarVisible(true));
+    expect(visibleControls()).toHaveLength(1);
+  });
+
+  it("closes a session's Notes tool when Notes is disabled", async () => {
     await mount();
     await click('[data-command="View: Notes"]');
-    const notesId = activeTitle().dataset.selectTab;
+    const notesId = ownedFileTabs()[0].dataset.fileTabId;
+    expect(activeTabId()).toBe(firstId);
     expect(container.querySelector('[data-app-view="notes"]')).not.toBeNull();
     await click('[data-command="App: Settings"]');
     await act(async () => {
@@ -624,21 +793,22 @@ describe("App workspace app views", () => {
     });
     expect(container.querySelector('[data-app-view="notes"]')).toBeNull();
     expect(
-      container.querySelector(`[data-select-tab="${notesId}"]`),
+      workspace().querySelector(`[data-file-tab-id="${notesId}"]`),
     ).toBeNull();
     expect(
       container.querySelector('[data-app-view="settings"]'),
     ).not.toBeNull();
   });
 
-  it("updates an app title in zh-CN without losing the active tab or view state", async () => {
+  it("updates a session tool title in zh-CN without losing its owner or view state", async () => {
     await mount();
     await click('[data-command="App: Settings"]');
-    const appId = activeTitle().dataset.selectTab;
-    await click("[data-view-state]");
+    const appId = ownedFileTabs()[0].dataset.fileTabId;
+    await clickInWorkspace("[data-view-state]");
     await act(async () => setUiLanguage("zh-CN"));
-    expect(activeTitle().dataset.files).toBe("设置");
-    expect(activeTitle().dataset.selectTab).toBe(appId);
+    expect(ownedFileTabs()[0].textContent).toBe("设置");
+    expect(ownedFileTabs()[0].dataset.fileTabId).toBe(appId);
+    expect(activeTabId()).toBe(firstId);
     expect(container.querySelector("[data-view-state]")?.textContent).toBe("1");
     expect(
       mocks.viewMounted.mock.calls.filter(([kind]) => kind === "settings"),
@@ -661,92 +831,354 @@ describe("App workspace app views", () => {
       expect(shell, selector).not.toBeNull();
       expect(shell?.closest(".hidden")).toBeNull();
     }
-    expect(activeTitle().dataset.files).toBe("Inbox");
+    expect(ownedFileTabs()[0].textContent).toBe("Inbox");
+    expect(activeTabId()).toBe(firstId);
+    expect(container.querySelector("[data-title-bar]")).toBeNull();
   });
 
-  it("opens from an app-only tab in the project's last visited content tab", async () => {
+  it.each(["pane", "workspace"])(
+    "opens files inside the owning chat with the legacy %s file preference",
+    async (legacyMode) => {
+      localStorage.setItem("monocode.fileTabMode", legacyMode);
+      await mount();
+      await selectSession("recent");
+      await click('[data-command="App: Settings"]');
+      await click("[data-open-file]");
+      expect(activeTabId()).toBe(recentId);
+      expect(ownedFileTabs().map((tab) => tab.textContent)).toEqual([
+        "Settings",
+        "file.ts",
+      ]);
+      const editor = workspace(recentId).querySelector(
+        '[data-file-editor="/repo/file.ts"]',
+      );
+      expect(editor).not.toBeNull();
+      expect(editor?.getAttribute("data-file-cwd")).toBe("/repo");
+      expect(mocks.fileOpen).toHaveBeenCalledWith("/repo", "/repo/file.ts");
+      expect(workspace(firstId).querySelector("[data-file-editor]")).toBeNull();
+    },
+  );
+
+  it("opens the same file independently in two chats without moving their pages", async () => {
     await mount();
-    await click(`[data-select-tab="${recentId}"]`);
-    await click('[data-command="App: Settings"]');
     await click("[data-open-file]");
-    expect(activeTitle().dataset.selectTab).toBe(recentId);
-    const editor = container.querySelector(
+    const firstEditor = workspace(firstId).querySelector(
       '[data-file-editor="/repo/file.ts"]',
     );
-    expect(editor).not.toBeNull();
-    expect(editor?.getAttribute("data-file-cwd")).toBe("/repo");
-    expect(mocks.fileOpen).toHaveBeenCalledWith("/repo", "/repo/file.ts");
+    const firstFileId = ownedFileTabs()[0].dataset.fileTabId;
+    await selectSession("recent");
+    expect(ownedFileTabs()).toHaveLength(0);
+    await click("[data-open-file]");
+    expect(activeTabId()).toBe(recentId);
+    expect(ownedFileTabs()[0].dataset.fileTabId).not.toBe(firstFileId);
+    expect(workspace(firstId).querySelector("[data-file-editor]")).toBe(
+      firstEditor,
+    );
+    expect(workspace(recentId).querySelector("[data-file-editor]")).not.toBe(
+      firstEditor,
+    );
+    await selectSession("first");
+    expect(ownedFileTabs()[0].dataset.fileTabId).toBe(firstFileId);
+    expect(activeTabId()).toBe(firstId);
   });
 
+  it("retains each chat's source location when both open the same file", async () => {
+    const editor = (tabId: string) =>
+      workspace(tabId).querySelector<HTMLElement>(
+        '[data-file-editor="/repo/file.ts"]',
+      )!;
+    await mount();
+    await click('[data-open-file-line="10"]');
+    expect(editor(firstId).dataset.fileNavigationLine).toBe("10");
+    expect(editor(firstId).dataset.fileNavigationColumn).toBe("2");
+    await selectSession("recent");
+    await click('[data-open-file-line="20"]');
+    expect(editor(recentId).dataset.fileNavigationLine).toBe("20");
+    await selectSession("first");
+    expect(editor(firstId).dataset.fileNavigationLine).toBe("10");
+    await selectSession("recent");
+    expect(editor(recentId).dataset.fileNavigationLine).toBe("20");
+    await selectSession("first");
+    await clickInWorkspace('[data-close-session="first"]');
+    expect(activeTabId()).toBe(recentId);
+    await clickInWorkspace('[data-close-session="recent"]');
+    expect(activeTabId()).toBe(recentId);
+    expect(
+      workspace(recentId).querySelector('[data-session="recent"]'),
+    ).toBeNull();
+    await click("[data-open-file]");
+    expect(editor(recentId).dataset.fileNavigationLine).toBeUndefined();
+  });
+
+  it("retains a delayed source location in its owning chat while another chat uses the same file", async () => {
+    let finishOpen!: (path: string) => void;
+    mocks.fileOpen.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          finishOpen = resolve;
+        }),
+    );
+    const editor = (tabId: string) =>
+      workspace(tabId).querySelector<HTMLElement>(
+        '[data-file-editor="/repo/file.ts"]',
+      )!;
+    await mount();
+    await click('[data-open-file-line="10"]');
+    await selectSession("recent");
+    await click('[data-open-file-line="20"]');
+    expect(editor(recentId).dataset.fileNavigationLine).toBe("20");
+    await act(async () => finishOpen("/repo/file.ts"));
+    await act(async () => vi.dynamicImportSettled());
+    expect(activeTabId()).toBe(recentId);
+    expect(editor(recentId).dataset.fileNavigationLine).toBe("20");
+    await selectSession("first");
+    expect(editor(firstId).dataset.fileNavigationLine).toBe("10");
+    await selectSession("recent");
+    expect(editor(recentId).dataset.fileNavigationLine).toBe("20");
+  });
+
+  it.each(["file", "diff"])(
+    "finishes a pending %s open in its originating chat after switching chats",
+    async (surface) => {
+      localStorage.setItem("monocode.diffViewer", "editor");
+      let finishOpen!: (path: string) => void;
+      const resolver = surface === "file" ? mocks.fileOpen : mocks.diffOpen;
+      resolver.mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            finishOpen = resolve;
+          }),
+      );
+      await mount();
+      await click(
+        surface === "file" ? '[data-open-file-line="10"]' : "[data-open-diff]",
+      );
+      await selectSession("recent");
+      await act(async () => finishOpen("/repo/file.ts"));
+      await act(async () => vi.dynamicImportSettled());
+      expect(activeTabId()).toBe(recentId);
+      expect(
+        workspace(recentId).querySelector("[data-file-editor]"),
+      ).toBeNull();
+      await selectSession("first");
+      expect(
+        workspace(firstId).querySelector('[data-file-editor="/repo/file.ts"]'),
+      ).not.toBeNull();
+      expect(ownedFileTabs()[0].textContent).toBe(
+        surface === "file" ? "file.ts" : "file.ts (Working Tree)",
+      );
+    },
+  );
+
+  it.each(["file", "diff"])(
+    "discards a pending %s open when its blank chat is replaced",
+    async (surface) => {
+      let finishOpen!: (path: string) => void;
+      const resolver = surface === "file" ? mocks.fileOpen : mocks.diffOpen;
+      resolver.mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            finishOpen = resolve;
+          }),
+      );
+      const replacement = {
+        ...newSession("codex", "/repo"),
+        id: "replacement",
+        blocks: [
+          { id: "prompt", role: "user" as const, text: "Existing chat" },
+        ],
+      };
+      const invoke = mocks.invoke.getMockImplementation()!;
+      mocks.invoke.mockImplementation((command, args) =>
+        command === "session_get" && args.sessionId === replacement.id
+          ? Promise.resolve(replacement)
+          : invoke(command, args),
+      );
+      await mount();
+      await click(
+        surface === "file" ? '[data-open-file-line="10"]' : "[data-open-diff]",
+      );
+      await click('[data-select-session="replacement"]');
+      expect(activeTabId()).toBe(firstId);
+      const composer = workspace().querySelector(
+        '[data-session="replacement"]',
+      );
+      expect(composer).not.toBeNull();
+      expect(composer?.getAttribute("data-composer-focused")).toBe("true");
+      await act(async () => finishOpen("/repo/file.ts"));
+      await act(async () => vi.dynamicImportSettled());
+      expect(activeTabId()).toBe(firstId);
+      expect(ownedFileTabs()).toHaveLength(0);
+      expect(
+        workspace().querySelector("[data-file-editor], [data-diff-cwd]"),
+      ).toBeNull();
+      expect(composer?.getAttribute("data-composer-focused")).toBe("true");
+      expect(
+        container
+          .querySelector("[data-sidebar]")
+          ?.getAttribute("data-sidebar-tab"),
+      ).toBe("sessions");
+      if (surface === "file") {
+        await click("[data-open-file]");
+        expect(
+          workspace().querySelector<HTMLElement>("[data-file-editor]")?.dataset
+            .fileNavigationLine,
+        ).toBeUndefined();
+      }
+    },
+  );
+
   it.each(["editor", "unified"])(
-    "opens a %s diff from an app-only tab in the project's last content tab",
+    "opens a %s diff inside the current chat beside its Settings tool",
     async (viewer) => {
       localStorage.setItem("monocode.diffViewer", viewer);
       await mount();
-      await click(`[data-select-tab="${recentId}"]`);
+      await selectSession("recent");
       await click('[data-command="App: Settings"]');
       await click("[data-open-diff]");
-      expect(activeTitle().dataset.selectTab).toBe(recentId);
+      expect(activeTabId()).toBe(recentId);
       expect(
-        container.querySelector(
+        workspace(recentId).querySelector(
           viewer === "unified"
             ? '[data-diff-cwd="/repo"]'
             : '[data-file-editor="/repo/file.ts"][data-file-cwd="/repo"][data-file-diff="true"]',
         ),
       ).not.toBeNull();
+      expect(
+        workspace(firstId).querySelector("[data-file-editor], [data-diff-cwd]"),
+      ).toBeNull();
     },
   );
 
-  it("keeps one Settings instance and its local state when revisiting, then closes it with Ctrl+W", async () => {
+  it("owns a separate Settings instance in each chat and retains their local state", async () => {
     await mount();
-    await click('[data-command="App: Settings"]');
-    const appId = activeTitle().dataset.selectTab!;
-    await click("[data-view-state]");
-    await click(`[data-select-tab="${firstId}"]`);
-    await click(`[data-select-tab="${appId}"]`);
-    expect(container.querySelector("[data-view-state]")?.textContent).toBe("1");
+    await click("[data-open-settings]");
+    const firstAppId = ownedFileTabs()[0].dataset.fileTabId;
+    await clickInWorkspace("[data-view-state]");
+    await selectSession("recent");
+    await click("[data-open-settings]");
+    expect(activeTabId()).toBe(recentId);
+    expect(ownedFileTabs()[0].dataset.fileTabId).not.toBe(firstAppId);
+    expect(
+      workspace(recentId).querySelector("[data-view-state]")?.textContent,
+    ).toBe("0");
+    await clickInWorkspace("[data-view-state]");
+    await clickInWorkspace("[data-view-state]");
+    await selectSession("first");
+    await click("[data-open-settings]");
+    expect(
+      workspace(firstId).querySelector("[data-view-state]")?.textContent,
+    ).toBe("1");
+    expect(ownedFileTabs()).toHaveLength(1);
+    expect(ownedFileTabs()[0].dataset.fileTabId).toBe(firstAppId);
     expect(
       mocks.viewMounted.mock.calls.filter(([kind]) => kind === "settings"),
-    ).toHaveLength(1);
-    await act(async () =>
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "w",
-          code: "KeyW",
-          ctrlKey: true,
-          bubbles: true,
-          cancelable: true,
-        }),
-      ),
-    );
-    expect(container.querySelector(`[data-select-tab="${appId}"]`)).toBeNull();
-    expect(container.querySelector('[data-app-view="settings"]')).toBeNull();
-    expect(activeTitle().dataset.selectTab).toBe(recentId);
+    ).toHaveLength(2);
+    await selectSession("recent");
+    expect(
+      workspace(recentId).querySelector("[data-view-state]")?.textContent,
+    ).toBe("2");
   });
 
-  it("Escape leaves the real Search view and retains its workspace tab", async () => {
+  it.each(["split", "unified"])(
+    "closes the focused %s tool with Ctrl+W and retains its owning chat",
+    async (mode) => {
+      await mount();
+      await click('[data-command="App: Settings"]');
+      if (mode === "unified")
+        await clickInWorkspace("[data-surface-mode-toggle]");
+      await pressKey("w", true);
+      expect(
+        workspace(firstId).querySelector('[data-app-view="settings"]'),
+      ).toBeNull();
+      expect(activeTabId()).toBe(firstId);
+      expect(ownedFileTabs()).toHaveLength(0);
+      expect(
+        workspace(firstId).querySelector('[data-session="first"]'),
+      ).not.toBeNull();
+      expect(
+        ownedTabs()
+          .querySelector('[data-session-chat-tab="first"]')
+          ?.getAttribute("aria-selected"),
+      ).toBe("true");
+    },
+  );
+
+  it("Escape leaves the real Search view and retains the tool in its owning chat", async () => {
     await mount();
-    await click(`[data-select-tab="${recentId}"]`);
+    await selectSession("recent");
     await click('[data-command="View: Search Everywhere"]');
-    const appId = activeTitle().dataset.selectTab!;
+    const appId = ownedFileTabs()[0].dataset.fileTabId;
     expect(container.querySelector("[data-app-search]")).not.toBeNull();
-    await act(async () =>
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Escape",
-          bubbles: true,
-          cancelable: true,
-        }),
-      ),
-    );
-    expect(activeTitle().dataset.selectTab).toBe(recentId);
+    await pressKey("Escape");
+    expect(activeTabId()).toBe(recentId);
     expect(
-      container.querySelector(`[data-select-tab="${appId}"]`),
+      workspace().querySelector(`[data-file-tab-id="${appId}"]`),
     ).not.toBeNull();
     expect(
-      container
-        .querySelector("[data-app-search]")
-        ?.closest('[aria-hidden="true"]'),
+      ownedTabs()
+        .querySelector('[data-session-chat-tab="recent"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("restores each chat's view mode and selected tool when switching chats", async () => {
+    await mount();
+    await click('[data-command="App: Settings"]');
+    expect(
+      workspace()
+        .querySelector("[data-surface-mode-toggle]")
+        ?.getAttribute("aria-label"),
+    ).toBe("Enter full view");
+    await clickInWorkspace("[data-surface-mode-toggle]");
+    expect(
+      workspace()
+        .querySelector("[data-surface-mode-toggle]")
+        ?.getAttribute("aria-label"),
+    ).toBe("Use split view");
+    await selectSession("recent");
+    await click('[data-command="View: Inbox"]');
+    expect(
+      workspace()
+        .querySelector("[data-surface-mode-toggle]")
+        ?.getAttribute("aria-label"),
+    ).toBe("Enter full view");
+    await selectSession("first");
+    expect(
+      workspace()
+        .querySelector("[data-surface-mode-toggle]")
+        ?.getAttribute("aria-label"),
+    ).toBe("Use split view");
+    expect(
+      workspace().querySelector('[data-file-tab-id] [aria-selected="true"]')
+        ?.textContent,
+    ).toBe("Settings");
+    await selectSession("recent");
+    expect(
+      workspace()
+        .querySelector("[data-surface-mode-toggle]")
+        ?.getAttribute("aria-label"),
+    ).toBe("Enter full view");
+    expect(
+      workspace().querySelector('[data-file-tab-id] [aria-selected="true"]')
+        ?.textContent,
+    ).toBe("Inbox");
+  });
+
+  it("closes a conversation together with its owned tool pages", async () => {
+    await mount();
+    await click('[data-command="App: Settings"]');
+    await click("[data-open-file]");
+    expect(ownedFileTabs()).toHaveLength(2);
+    await clickInWorkspace('[data-session-chat-tab="first"]');
+    await pressKey("w", true);
+    expect(workspace(firstId)).toBeNull();
+    expect(activeTabId()).toBe(recentId);
+    expect(ownedFileTabs()).toHaveLength(0);
+    expect(container.querySelector('[data-app-view="settings"]')).toBeNull();
+    expect(container.querySelector("[data-file-editor]")).toBeNull();
+    expect(
+      workspace(recentId).querySelector('[data-session="recent"]'),
     ).not.toBeNull();
   });
 
@@ -776,7 +1208,7 @@ describe("App workspace app views", () => {
       expect(
         container.querySelector('[data-session-cwd="/repo"]'),
       ).not.toBeNull();
-      expect(activeTitle().dataset.files).toBe("");
+      expect(ownedFileTabs()).toHaveLength(0);
       expect(container.querySelector('[data-sidebar="/repo"]')).not.toBeNull();
     },
   );
@@ -979,9 +1411,9 @@ describe("App multi-project history", () => {
     await mount();
     await click("[data-publish-navigation]");
     await click('[data-new-project-session="/project-b"]');
-    const activeTab = activeTitle().dataset.selectTab;
+    const activeTab = activeTabId();
     await click('[data-command="Session: Next"]');
-    expect(activeTitle().dataset.selectTab).toBe(activeTab);
+    expect(activeTabId()).toBe(activeTab);
     expect(
       container.querySelector('[data-sidebar="/project-b"]'),
     ).not.toBeNull();
@@ -990,9 +1422,9 @@ describe("App multi-project history", () => {
   it("keeps equal remote session ids in different projects in separate tabs", async () => {
     await mount();
     await click('[data-open-remote-project="remote://host/project-a"]');
-    const aTab = activeTitle().dataset.selectTab;
+    const aTab = activeTabId();
     await click('[data-open-remote-project="remote://host/project-b"]');
-    expect(activeTitle().dataset.selectTab).not.toBe(aTab);
+    expect(activeTabId()).not.toBe(aTab);
     expect(
       container.querySelector('[data-session-cwd="remote://host/project-a"]'),
     ).not.toBeNull();
@@ -1004,6 +1436,6 @@ describe("App multi-project history", () => {
       container.querySelector('[data-session-cwd="remote://host/project-a"]'),
     ).not.toBeNull();
     await click('[data-open-remote-project="remote://host/project-a"]');
-    expect(activeTitle().dataset.selectTab).toBe(aTab);
+    expect(activeTabId()).toBe(aTab);
   });
 });

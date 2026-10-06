@@ -39,8 +39,11 @@ impl SessionStore {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let conn = Connection::open(&path).map_err(|e| e.to_string())?;
-        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
-            .map_err(|e| e.to_string())?;
+        // NORMAL is crash-safe under WAL; it only skips the fsync per commit.
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;",
+        )
+        .map_err(|e| e.to_string())?;
         migrate(&conn).map_err(|e| e.to_string())?;
         crate::worktrees::reconcile_removals(&conn)?;
         let read_conn = Connection::open(&path).map_err(|e| e.to_string())?;
@@ -241,7 +244,11 @@ pub fn session_upsert(
     }
 
     let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
-    let summary = upsert_session(&conn, &session).map_err(|e| e.to_string())?;
+    // One commit for the row, its title state and worker links instead of a
+    // separate fsync per statement while the store lock is held.
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let summary = upsert_session(&tx, &session).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(summary)
 }
 
@@ -308,33 +315,6 @@ pub fn session_get(
     validate_id(&session_id, "session")?;
     let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
     get_session(&conn, &session_id).map_err(|e| e.to_string())
-}
-
-/// Reuse a provider binding even when MonoCode groups its worktree under a parent project.
-#[tauri::command(async)]
-pub fn session_find_native_id(
-    store: State<'_, SessionStore>,
-    harness: String,
-    provider_session_id: String,
-) -> Result<Option<String>, String> {
-    if harness != "codex" && harness != "pi" {
-        return Err("Unsupported native provider".into());
-    }
-    validate_id(&provider_session_id, "provider session")?;
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
-    conn.query_row("SELECT id FROM sessions WHERE harness = ?1 AND provider_session_id = ?2 AND COALESCE(provider_account_id, 'default') = 'default' ORDER BY updated_at DESC LIMIT 1", params![harness, provider_session_id], |row| row.get(0)).optional().map_err(|e| e.to_string())
-}
-
-/// Sync only explicitly linked imports, including projects outside the recent list.
-#[tauri::command(async)]
-pub fn session_list_native_ids(store: State<'_, SessionStore>) -> Result<Vec<String>, String> {
-    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
-    let mut query = conn.prepare("SELECT id FROM sessions WHERE native_session_json IS NOT NULL AND archived = 0 AND worktree_removed = 0").map_err(|e| e.to_string())?;
-    let rows = query
-        .query_map([], |row| row.get(0))
-        .map_err(|e| e.to_string())?;
-    rows.collect::<rusqlite::Result<Vec<String>>>()
-        .map_err(|e| e.to_string())
 }
 
 const MAX_SEARCH_SCAN: usize = 400;
@@ -646,6 +626,53 @@ pub fn workspace_get_snapshot(store: State<'_, SessionStore>) -> Result<Option<V
         None => Ok(None),
         Some(raw) => serde_json::from_str(&raw).map_err(|e| e.to_string()),
     }
+}
+
+/// Remote commands awaiting a Host receipt. Native storage keeps the outbox
+/// out of the WebView's small per-origin quota, which caches can exhaust.
+#[tauri::command(async)]
+pub fn remote_outbox_list(store: State<'_, SessionStore>) -> Result<Vec<(String, String)>, String> {
+    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let mut stmt = conn
+        .prepare("SELECT key, entry_json FROM remote_outbox")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| e.to_string())?;
+    rows.collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+pub fn remote_outbox_put(
+    store: State<'_, SessionStore>,
+    key: String,
+    entry: String,
+) -> Result<(), String> {
+    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    conn.execute(
+        "INSERT INTO remote_outbox (key, entry_json, updated_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(key) DO UPDATE SET
+           entry_json = excluded.entry_json,
+           updated_at = excluded.updated_at",
+        params![key, entry, now_millis()],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn remote_outbox_delete(
+    store: State<'_, SessionStore>,
+    keys: Vec<String>,
+) -> Result<(), String> {
+    let mut conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for key in keys {
+        tx.execute("DELETE FROM remote_outbox WHERE key = ?1", params![key])
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())
 }
 
 /// Add a `sessions` column when it is absent, so a half-applied history cannot
@@ -966,6 +993,11 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
          CREATE TABLE IF NOT EXISTS worktree_removals (
            path TEXT PRIMARY KEY,
            sessions_json TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS remote_outbox (
+           key TEXT PRIMARY KEY,
+           entry_json TEXT NOT NULL,
+           updated_at INTEGER NOT NULL
          );",
     )?;
     // Compatibility only: earlier Inbox Ask builds saved temporary chats here.
@@ -993,6 +1025,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     crate::reminders::ensure_table(conn)?;
     crate::automations::ensure_tables(conn)?;
     ensure_orchestration_history(conn)?;
+    crate::legacy_orchestration::ensure_tables(conn)?;
     Ok(())
 }
 
@@ -1088,6 +1121,11 @@ pub(crate) fn save_orchestration(
     lead: &str,
     run: &Value,
 ) -> rusqlite::Result<()> {
+    if crate::legacy_orchestration::is_retired(conn, lead)? {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "Legacy orchestration has been deleted".into(),
+        ));
+    }
     let tx = conn.unchecked_transaction()?;
     tx.execute("INSERT INTO orchestration_runs(lead_id, state) VALUES (?1, ?2) ON CONFLICT(lead_id) DO UPDATE SET state = excluded.state", params![lead, run.to_string()])?;
     index_orchestration(&tx, lead, run)?;
@@ -1115,6 +1153,11 @@ fn orchestration_summary(conn: &Connection, id: &str) -> rusqlite::Result<Option
 }
 
 fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Result<SessionSummary> {
+    if crate::legacy_orchestration::is_retired(conn, &session.id)? {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "This legacy orchestration conversation has been deleted".into(),
+        ));
+    }
     let now = now_millis();
     let model_settings = serde_json::to_string(&session.model_settings)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
@@ -1983,6 +2026,9 @@ fn replace_in_flight(conn: &mut Connection, sessions: &[InFlightSession]) -> rus
              VALUES (?1, ?2, ?3)",
         )?;
         for (index, session) in sessions.iter().enumerate() {
+            if crate::legacy_orchestration::is_retired(&tx, &session.session_id)? {
+                continue;
+            }
             insert.execute(params![session.session_id, session.cwd, index as i64])?;
         }
     }
@@ -2197,6 +2243,51 @@ mod tests {
         // A later run replaces the card's agents without resurfacing old chats.
         save_orchestration(&conn, "lead", &json!({"status": "active", "tasks": []})).unwrap();
         assert_eq!(list_by_project(&conn, "/tmp/a").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn legacy_retirement_rejects_delayed_snapshots_runs_and_workspace_references() {
+        let store = SessionStore::open_in_memory().unwrap();
+        {
+            let conn = store.lock_conn().unwrap();
+            upsert_session(&conn, &sample("old-lead", "/tmp/a", "Old lead")).unwrap();
+            upsert_session(&conn, &sample("old-worker", "/tmp/a", "Old worker")).unwrap();
+            save_orchestration(
+                &conn,
+                "old-lead",
+                &json!({"tasks": [{"sessionId": "old-worker"}]}),
+            )
+            .unwrap();
+        }
+        let manifest = crate::legacy_orchestration::prepare(&store).unwrap();
+        {
+            let conn = store.lock_conn().unwrap();
+            assert!(upsert_session(&conn, &sample("old-worker", "/tmp/a", "Late")).is_err());
+            assert!(save_orchestration(&conn, "old-lead", &json!({"tasks": []})).is_err());
+            upsert_session(&conn, &sample("ordinary", "/tmp/a", "Keep")).unwrap();
+        }
+        crate::legacy_orchestration::finish(&store, &manifest).unwrap();
+        let mut conn = store.lock_conn().unwrap();
+        assert!(upsert_session(&conn, &sample("old-lead", "/tmp/a", "Late")).is_err());
+        replace_in_flight(
+            &mut conn,
+            &[
+                InFlightSession {
+                    session_id: "old-worker".into(),
+                    cwd: "/tmp/a".into(),
+                },
+                InFlightSession {
+                    session_id: "ordinary".into(),
+                    cwd: "/tmp/a".into(),
+                },
+            ],
+        )
+        .unwrap();
+        let references = list_in_flight(&conn).unwrap();
+        assert_eq!(references.len(), 1);
+        assert_eq!(references[0].session_id, "ordinary");
+        assert!(get_session(&conn, "old-lead").unwrap().is_none());
+        assert!(get_session(&conn, "ordinary").unwrap().is_some());
     }
 
     #[test]

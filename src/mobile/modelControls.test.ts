@@ -140,6 +140,42 @@ function render(
   return { node, changes, change, row };
 }
 describe("mobile Agent, model and reasoning controls", () => {
+  it("shows loading indicators until discovery completes, without treating failure as loading", () => {
+    const node = document.createElement("div");
+    document.body.append(node);
+    root = createRoot(node);
+    const onChange = vi.fn();
+    const update = (loading: boolean, nextCatalog?: HostModelCatalog) => act(() =>
+      root.render(createElement(MobileModelControls, {
+        catalog: nextCatalog,
+        loading,
+        configuration: configurationForModel(catalog.models.codex![0]),
+        lockedAgent: false,
+        disabled: false,
+        onClose: () => {},
+        onChange,
+      })),
+    );
+    update(true);
+    expect(node.querySelectorAll('.mobile-sheet-row > .mobile-spin[aria-label="Loading…"]')).toHaveLength(3);
+    expect(node.textContent).not.toContain("Unavailable");
+    for (const row of node.querySelectorAll<HTMLButtonElement>('.mobile-sheet-row[aria-busy="true"]')) {
+      expect(row.disabled).toBe(true);
+      act(() => row.click());
+    }
+    expect(onChange).not.toHaveBeenCalled();
+    update(false, catalog);
+    expect(node.querySelector(".mobile-spin")).toBeNull();
+    expect(node.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(node.textContent).toContain("Full model");
+    expect(node.textContent).toContain("High");
+    update(true, catalog);
+    expect(node.querySelectorAll(".mobile-sheet-row > .mobile-spin")).toHaveLength(3);
+    update(false, { models: {}, errors: { codex: "Model discovery failed" } });
+    expect(node.querySelector(".mobile-spin")).toBeNull();
+    expect(node.querySelector('[role="alert"]')?.textContent).toBe("Model discovery failed");
+  });
+
   it("opens separate Agent, model and reasoning dialogs without changing settings on back", () => {
     const { node, row, changes } = render();
     expect(

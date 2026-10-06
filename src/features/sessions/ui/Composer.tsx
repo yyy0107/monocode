@@ -176,18 +176,6 @@ import {
   supportsBtwHarness,
 } from "../model/btw";
 import { COMPACT_COMMAND, isCompactCommand } from "../model/compact";
-import {
-  consumeSessionFolderCommand,
-  isSessionFolderCommand,
-  runsSessionFolderCommandOnSpace,
-  SESSION_FOLDER_COMMAND,
-} from "../model/sessionFolderCommand";
-import {
-  loadSessionFolders,
-  type SessionFolderTarget,
-  type SessionFolder,
-} from "../model/sessionFolders";
-import { SessionFolderPicker } from "./SessionFolderPicker";
 import { MCP_COMMAND, isMcpCommand } from "../model/mcpCommand";
 import {
   mcpContextText,
@@ -234,7 +222,8 @@ type Props = {
   /** Keeps local file mentions, skills, and app modes off for host sessions. */
   messageQueue?: ReactNode;
   remoteSession?: boolean;
-  remoteFeatures?: { attachments: boolean; plan: boolean; draft: boolean };
+  remoteFeatures?: { attachments: boolean; plan: boolean; draft: boolean; orchestration?: boolean };
+  orchestrationAvailable?: boolean;
   context?: ContextUsage;
   compactSupported?: boolean;
   quoteRequest?: QuoteRequest;
@@ -288,7 +277,6 @@ type Props = {
   onSaveDraft?: (text: string, attachments: Attachment[]) => boolean | void;
   onStop?: () => void;
   onCompactContext?: () => boolean;
-  onPlaceInFolder?: (target: SessionFolderTarget) => void;
   onDeleteQueuedMessage?: (messageId: string) => void;
   onEditQueuedMessage?: (messageId: string, text: string) => void;
   onQueuedMessageEditingChange?: (messageId?: string) => void;
@@ -364,6 +352,7 @@ export function Composer({
   messageQueue,
   remoteSession = false,
   remoteFeatures,
+  orchestrationAvailable = true,
   context,
   compactSupported = false,
   quoteRequest,
@@ -407,7 +396,6 @@ export function Composer({
   onSaveDraft,
   onStop,
   onCompactContext,
-  onPlaceInFolder,
   onDeleteQueuedMessage,
   onEditQueuedMessage,
   onQueuedMessageEditingChange,
@@ -484,9 +472,6 @@ export function Composer({
   const [slash, setSlash] = useState<SlashToken | null>(null);
   const [skillActive, setSkillActive] = useState(0);
   const [creatingSkill, setCreatingSkill] = useState(false);
-  const [sessionFolderOpen, setSessionFolderOpen] = useState(false);
-  const [sessionFolders, setSessionFolders] = useState<SessionFolder[]>([]);
-  const [sessionFolderSelected, setSessionFolderSelected] = useState(false);
   const [mcpPickerOpen, setMcpPickerOpen] = useState(false);
   const [mcpConnections, setMcpConnections] = useState<McpConnection[]>([]);
   const [mcpStatus, setMcpStatus] = useState<Map<string, string>>(new Map());
@@ -540,7 +525,7 @@ export function Composer({
     !noteCard &&
     !handoffCard;
   const skillPickerOpen = creatingSkill || slash !== null;
-  const pickerOpen = skillPickerOpen || sessionFolderOpen || mcpPickerOpen;
+  const pickerOpen = skillPickerOpen || mcpPickerOpen;
   const skillCatalog = useComposerSkills({
     harness,
     executionCwd: localCwd,
@@ -551,12 +536,11 @@ export function Composer({
   const slashItems = useMemo(
     () =>
       remote
-        ? [...(remoteFeatures?.plan ? [PLAN_COMMAND] : []), COMPACT_COMMAND]
+        ? [...(remoteFeatures?.orchestration && !hideTopBar ? [ORCHESTRATOR_COMMAND] : []), ...(remoteFeatures?.plan ? [PLAN_COMMAND] : []), COMPACT_COMMAND]
         : [
-            SESSION_FOLDER_COMMAND,
             MCP_COMMAND,
             OPERATOR_COMMAND,
-            ...(hideTopBar ? [] : [ORCHESTRATOR_COMMAND]),
+            ...(hideTopBar || !orchestrationAvailable ? [] : [ORCHESTRATOR_COMMAND]),
             PLAN_COMMAND,
             ...(canSaveDraft && onSaveDraft ? [DRAFT_COMMAND] : []),
             COMPACT_COMMAND,
@@ -569,7 +553,6 @@ export function Composer({
                 (skill.kind === "native" ||
                   (skill.name !== PLAN_COMMAND.name &&
                     skill.name !== COMPACT_COMMAND.name &&
-                    skill.name !== SESSION_FOLDER_COMMAND.name &&
                     skill.name !== MCP_COMMAND.name &&
                     skill.name !== ORCHESTRATOR_COMMAND.name &&
                     skill.name !== DRAFT_COMMAND.name &&
@@ -581,6 +564,8 @@ export function Composer({
       skills,
       remote,
       remoteFeatures?.plan,
+      remoteFeatures?.orchestration,
+      orchestrationAvailable,
       hideTopBar,
       canSaveDraft,
       onSaveDraft,
@@ -845,11 +830,6 @@ export function Composer({
   }, [slash?.query, cwd]);
 
   useEffect(() => {
-    setSessionFolderOpen(false);
-    setSessionFolderSelected(false);
-  }, [cwd]);
-
-  useEffect(() => {
     setSkillActive((index) =>
       rankedSkills.length === 0 ? 0 : Math.min(index, rankedSkills.length - 1),
     );
@@ -945,8 +925,6 @@ export function Composer({
     setDraftSelected(false);
     setPlanSelected(false);
     setOrchestrationSelected(false);
-    setSessionFolderSelected(false);
-    setSessionFolderOpen(false);
     setMcpPickerOpen(false);
     setSelectedMcp([]);
     setPlusOpen(false);
@@ -985,11 +963,6 @@ export function Composer({
     setSlash(token);
     setMention(token ? null : mentionTokenAt(el.value, cursor));
   };
-
-  const openSessionFolderPicker = useCallback(() => {
-    setSessionFolders(loadSessionFolders(cwd));
-    setSessionFolderOpen(true);
-  }, [cwd]);
 
   useEffect(() => {
     const el = ref.current;
@@ -1068,28 +1041,6 @@ export function Composer({
         openMcpPicker();
         return;
       }
-      const sessionFolderCommand =
-        skill.kind === "builtin" &&
-        skill.name === SESSION_FOLDER_COMMAND.name &&
-        !!onPlaceInFolder;
-      if (sessionFolderCommand) {
-        const next = replaceSlashToken(
-          el.value,
-          token,
-          SESSION_FOLDER_COMMAND.invocation,
-        );
-        el.value = next;
-        resizeComposer(el);
-        let cursor = token.start + SESSION_FOLDER_COMMAND.invocation.length + 1;
-        if (next[cursor] === " ") cursor += 1;
-        el.setSelectionRange(cursor, cursor);
-        setDraft(next);
-        syncHasValue(next, attachmentsRef.current);
-        setSlash(null);
-        setCreatingSkill(false);
-        openSessionFolderPicker();
-        return;
-      }
       const next = replaceSlashToken(el.value, token, skill.invocation);
       el.value = next;
       resizeComposer(el);
@@ -1108,9 +1059,7 @@ export function Composer({
     [
       enterBtwFromPrefix,
       onDraftChange,
-      onPlaceInFolder,
       openMcpPicker,
-      openSessionFolderPicker,
       syncHasValue,
     ],
   );
@@ -1460,7 +1409,6 @@ export function Composer({
       syncHasValue("", []);
       return;
     }
-    const folderCommand = consumeSessionFolderCommand(value);
     const btwCommand = consumeBtwCommand(value);
     if (
       btwCommand.matched &&
@@ -1487,10 +1435,6 @@ export function Composer({
       syncHasValue("", []);
       return;
     }
-    if (folderCommand.matched && onPlaceInFolder && !sessionFolderSelected) {
-      openSessionFolderPicker();
-      return;
-    }
 
     if (isCompactCommand(value)) {
       if (!onCompactContext?.()) return;
@@ -1509,13 +1453,9 @@ export function Composer({
       return;
     }
 
-    const command = consumePlanCommand(
-      folderCommand.matched && sessionFolderSelected
-        ? folderCommand.text
-        : value,
-    );
+    const command = consumePlanCommand(value);
     const orchestratorCommand =
-      !remote && !hideTopBar && !command.planning
+      !hideTopBar && !command.planning
         ? consumeOrchestratorCommand(command.text)
         : { text: command.text, matched: false };
     const text = isNativeCommandPrompt(orchestratorCommand.text, harness)
@@ -1568,7 +1508,7 @@ export function Composer({
     // orchestration is paused). Keep the user's text, files and selected mode
     // intact so resolving the blocker never destroys their work.
     if (accepted === false) {
-      restoreDraft(text, files);
+      restoreDraft(value, files);
       return;
     }
     pasteGenerationRef.current += 1;
@@ -1587,8 +1527,6 @@ export function Composer({
     setPlanSelected(false);
     setOperatorSelected(false);
     setOrchestrationSelected(false);
-    setSessionFolderSelected(false);
-    setSessionFolderOpen(false);
     setPlusOpen(false);
     setSlash(null);
     setMention(null);
@@ -1608,22 +1546,6 @@ export function Composer({
     ) {
       e.preventDefault();
       submit(e.currentTarget.value);
-      return;
-    }
-
-    if (
-      e.key === " " &&
-      runsSessionFolderCommandOnSpace({
-        text: e.currentTarget.value,
-        selectionStart: e.currentTarget.selectionStart,
-        selectionEnd: e.currentTarget.selectionEnd,
-        altKey: e.altKey,
-        ctrlKey: e.ctrlKey,
-        metaKey: e.metaKey,
-      })
-    ) {
-      e.preventDefault();
-      openSessionFolderPicker();
       return;
     }
 
@@ -1668,8 +1590,7 @@ export function Composer({
       e.key === "Enter" &&
       !e.shiftKey &&
       (isCompactCommand(e.currentTarget.value) ||
-        isMcpCommand(e.currentTarget.value) ||
-        isSessionFolderCommand(e.currentTarget.value))
+        isMcpCommand(e.currentTarget.value))
     ) {
       e.preventDefault();
       submit(e.currentTarget.value);
@@ -1942,34 +1863,6 @@ export function Composer({
                 mcpInsertAt.current = null;
                 setMcpPickerOpen(false);
                 if (reason === "escape") ref.current?.focus();
-              }}
-            />
-          </div>
-        ) : sessionFolderOpen ? (
-          <div className="absolute inset-x-0 bottom-full z-30 mb-1">
-            <SessionFolderPicker
-              folders={sessionFolders}
-              onPick={(target) => {
-                setSessionFolderOpen(false);
-                setSessionFolderSelected(true);
-                onPlaceInFolder?.(target);
-                const el = ref.current;
-                if (!el) return;
-                const cursor = el.selectionStart ?? el.value.length;
-                if (/^\s*\/add-to-folder$/i.test(el.value)) {
-                  el.value = `${el.value} `;
-                  resizeComposer(el);
-                  setDraft(el.value);
-                  syncHasValue(el.value, attachmentsRef.current);
-                  el.setSelectionRange(el.value.length, el.value.length);
-                } else {
-                  el.setSelectionRange(cursor, cursor);
-                }
-                requestAnimationFrame(() => el.focus());
-              }}
-              onDismiss={() => {
-                setSessionFolderOpen(false);
-                ref.current?.focus();
               }}
             />
           </div>
@@ -2249,12 +2142,6 @@ export function Composer({
                     : retained;
                 });
                 setPasteError(null);
-                if (
-                  sessionFolderSelected &&
-                  !consumeSessionFolderCommand(el.value).matched
-                ) {
-                  setSessionFolderSelected(false);
-                }
                 syncHasValue(el.value, attachments);
                 syncTokensFromTextarea(el);
               }}
@@ -2374,7 +2261,7 @@ export function Composer({
                       ) : null}
                     </button>
                   ) : null}
-                  {!remote && !hideTopBar && (
+                  {orchestrationAvailable && (!remote || remoteFeatures?.orchestration) && !hideTopBar && (
                     <button
                       type="button"
                       aria-pressed={orchestrationActive}

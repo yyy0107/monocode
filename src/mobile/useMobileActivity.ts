@@ -3,8 +3,10 @@ import type { MobileClient } from "./client";
 import {
   loadMobileActivity,
   saveMobileActivity,
+  type ActivityNotice,
   type MobileActivity,
 } from "./activity";
+import { playCue } from "../features/settings/model/sounds";
 import {
   MobileNotifications,
   mobileNotificationPermission,
@@ -17,6 +19,18 @@ import {
 import { translate } from "../shared/i18n/language";
 
 const ENABLED_KEY = "monocode.mobileNotifications";
+
+/** One cue per poll, however many conversations changed at once. */
+function playActivityCue(notices: readonly ActivityNotice[]) {
+  for (const notice of notices)
+    if (
+      playCue("turnFinished", {
+        projectId: notice.session.projectId,
+        category: notice.kind === "input" ? "agentInput" : "agentFinished",
+      })
+    )
+      return;
+}
 export function useMobileActivity(
   client: MobileClient,
   options: {
@@ -24,6 +38,7 @@ export function useMobileActivity(
     foreground: boolean;
     visibleSession?: {
       id: string;
+      projectId: string;
       revision: number;
       lastCompletedRunId?: string | null;
       pendingInputKey?: string | null;
@@ -156,6 +171,35 @@ export function useMobileActivity(
     client.connection,
   ]);
 
+  // The open conversation never produces a notice, so cue its own transitions.
+  const visibleCursor = useRef<
+    { id: string; finished: string | null; input: string | null } | undefined
+  >(undefined);
+  useEffect(() => {
+    if (!visibleSession) {
+      visibleCursor.current = undefined;
+      return;
+    }
+    const finished = visibleSession.lastCompletedRunId ?? null;
+    const input = visibleSession.pendingInputKey ?? null;
+    const previous = visibleCursor.current;
+    visibleCursor.current = { id: visibleSession.id, finished, input };
+    if (!foreground || previous?.id !== visibleSession.id) return;
+    const newInput = !!input && input !== previous.input;
+    const newFinish = !!finished && finished !== previous.finished;
+    if (newInput || newFinish)
+      playCue("turnFinished", {
+        projectId: visibleSession.projectId,
+        category: newInput ? "agentInput" : "agentFinished",
+      });
+  }, [
+    foreground,
+    visibleSession?.id,
+    visibleSession?.projectId,
+    visibleSession?.lastCompletedRunId,
+    visibleSession?.pendingInputKey,
+  ]);
+
   useEffect(() => {
     if (!environmentId) return;
     let live = true;
@@ -214,9 +258,11 @@ export function useMobileActivity(
         const result = await client.activity();
         if (!live || result.environmentId !== environmentId) return;
         if (nativeActivityNotifications()) {
-          activity.current?.observe(
-            result.sessions,
-            current.current.visibleSession?.id,
+          playActivityCue(
+            activity.current?.observe(
+              result.sessions,
+              current.current.visibleSession?.id,
+            ) ?? [],
           );
           if (activity.current) saveMobileActivity(environmentId, activity.current);
           const state = await MobileNotifications.observe({
@@ -238,6 +284,7 @@ export function useMobileActivity(
             result.sessions,
             current.current.visibleSession?.id,
           );
+          playActivityCue(notices);
           const visible = current.current.visibleSession;
           if (visible)
             activity.current.markRead(visible.id, visible.revision, {

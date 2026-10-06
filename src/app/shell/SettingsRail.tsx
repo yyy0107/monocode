@@ -2,6 +2,7 @@ import { useTranslation } from "../../shared/i18n/useTranslation";
 import {
   Archive,
   Bot,
+  FileImport,
   Inbox,
   FolderTree,
   Globe,
@@ -26,6 +27,7 @@ const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
   keybindings: Keyboard,
   chat: MessageSquare,
   providers: Bot,
+  import: FileImport,
   mcp: Globe,
   skills: Sparkles,
   inbox: Inbox,

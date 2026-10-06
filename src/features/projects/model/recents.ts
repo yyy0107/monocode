@@ -378,6 +378,8 @@ export function projectRailSections(
     if (pinnedSet.has(key)) pinned.push(item);
     else unpinned.push(item);
   }
+  // Pins retain their manual order; ordinary projects always follow recency.
+  unpinned.sort((a, b) => b.openedAt - a.openedAt);
   return { pinned, projects: unpinned };
 }
 

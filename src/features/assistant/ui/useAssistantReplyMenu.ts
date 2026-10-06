@@ -1,0 +1,82 @@
+import { useEffect, useRef, useState, type HTMLAttributes } from "react";
+
+/** Touch movement cancels the hold so reading/scrolling never opens a menu. */
+export function useAssistantReplyMenu(mobile: boolean, active: boolean) {
+  const [menu, setMenu] = useState<{ x: number; y: number; text: string }>();
+  const hold = useRef<
+    { x: number; y: number; timer: ReturnType<typeof setTimeout> } | undefined
+  >(undefined);
+  const cancelHold = () => {
+    if (hold.current) clearTimeout(hold.current.timer);
+    hold.current = undefined;
+  };
+  const close = () => {
+    cancelHold();
+    setMenu(undefined);
+  };
+  useEffect(() => {
+    if (!active) close();
+    return cancelHold;
+  }, [active]);
+  const interactive = (target: EventTarget) =>
+    target instanceof Element &&
+    !!target.closest("a, button, input, textarea, select");
+  const bind = (text: string): HTMLAttributes<HTMLDivElement> => ({
+    tabIndex: 0,
+    "aria-haspopup": mobile ? "dialog" : "menu",
+    onContextMenu: (event) => {
+      if (!active || event.defaultPrevented || interactive(event.target))
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelHold();
+      setMenu({ x: event.clientX, y: event.clientY, text });
+    },
+    onKeyDown: (event) => {
+      if (!active || interactive(event.target)) return;
+      if (
+        event.key === "ContextMenu" ||
+        (event.shiftKey && event.key === "F10")
+      ) {
+        event.preventDefault();
+        const rect = event.currentTarget.getBoundingClientRect();
+        setMenu({ x: rect.left, y: rect.bottom, text });
+      }
+    },
+    onPointerDown: (event) => {
+      cancelHold();
+      if (
+        !mobile ||
+        !active ||
+        event.button !== 0 ||
+        event.pointerType === "mouse" ||
+        interactive(event.target)
+      )
+        return;
+      const x = event.clientX,
+        y = event.clientY;
+      hold.current = {
+        x,
+        y,
+        timer: setTimeout(() => {
+          hold.current = undefined;
+          setMenu({ x, y, text });
+        }, 450),
+      };
+    },
+    onPointerMove: (event) => {
+      if (
+        hold.current &&
+        Math.hypot(
+          event.clientX - hold.current.x,
+          event.clientY - hold.current.y,
+        ) > 10
+      )
+        cancelHold();
+    },
+    onPointerUp: cancelHold,
+    onPointerCancel: cancelHold,
+    onPointerLeave: cancelHold,
+  });
+  return { menu: active ? menu : undefined, bind, close, cancelHold };
+}

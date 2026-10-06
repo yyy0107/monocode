@@ -112,6 +112,8 @@ type Live = {
 type Resume = {
   sessionId: string;
   cwd: string;
+  /** Imported from the CLI: adopt exactly this session, never fork or create. */
+  native?: boolean;
 };
 
 const SERVER_TIMEOUT_MS = 30_000;
@@ -348,10 +350,16 @@ export function bindOpenCodeSession(
   threadId: string,
   providerSessionId: string,
   cwd: string,
+  _providerAccountId?: string,
+  nativeSession?: import("../../../../features/sessions/model/session").NativeSessionLink,
 ): void {
   const sessionId = providerSessionId.trim();
   if (!threadId || !sessionId || !cwd.trim()) return;
-  resumeByThread.set(threadId, { sessionId, cwd });
+  resumeByThread.set(threadId, {
+    sessionId,
+    cwd,
+    native: nativeSession?.providerSessionId === sessionId || undefined,
+  });
 }
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
@@ -366,8 +374,13 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     existing.runtimeMode = input.runtimeMode;
     return existing;
   }
+  const bound = resumeByThread.get(input.sessionId);
+  if (bound?.native && bound.cwd !== input.cwd)
+    throw new Error(
+      "OpenCode can only continue the imported session in its original project",
+    );
   if (existing) {
-    resumeByThread.delete(input.sessionId);
+    if (!bound?.native) resumeByThread.delete(input.sessionId);
     await stopOpenCodeSession(input.sessionId);
   }
 
@@ -471,6 +484,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     resumeByThread.set(input.sessionId, {
       sessionId: openCodeSession.id,
       cwd: input.cwd,
+      native: canResume && resume?.native ? true : undefined,
     });
 
     await client.subscribeEvents(
@@ -540,6 +554,14 @@ async function resolveSession(
   },
 ) {
   const permission = buildOpenCodePermissionRules(input.runtimeMode);
+  if (input.resume?.native) {
+    // No fork or create fallback: either the imported session continues, or the turn fails.
+    const adopted = await client.getSession(input.resume.sessionId);
+    if (adopted.id !== input.resume.sessionId || !sameDirectory(adopted.directory ?? "", input.cwd))
+      throw new Error("OpenCode did not resume the imported session");
+    await client.updateSession(adopted.id, { permission }).catch(() => undefined);
+    return adopted;
+  }
   if (input.resume) {
     try {
       const adopted = await client.getSession(input.resume.sessionId);

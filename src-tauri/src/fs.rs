@@ -980,9 +980,13 @@ pub async fn git_commit_file_diff(
 /// Stage a changed file (`git add`).
 #[tauri::command]
 pub async fn git_stage_file(cwd: String, relative: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || git_stage_file_for(&expand_home(&cwd), &relative))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = expand_home(&cwd);
+        let _write = crate::local_host::claim_checkout_write(&root)?;
+        git_stage_file_for(&root, &relative)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Write `contents` into the index for one path, leaving the working tree alone.
@@ -993,6 +997,7 @@ pub async fn git_stage_contents(
     contents: String,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _write = crate::local_host::claim_checkout_write(&expand_home(&cwd))?;
         git_stage_contents_for(&expand_home(&cwd), &relative, contents.as_bytes())
     })
     .await
@@ -1003,6 +1008,7 @@ pub async fn git_stage_contents(
 #[tauri::command]
 pub async fn git_unstage_file(cwd: String, relative: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _write = crate::local_host::claim_checkout_write(&expand_home(&cwd))?;
         git_unstage_file_for(&expand_home(&cwd), &relative)
     })
     .await
@@ -1013,6 +1019,7 @@ pub async fn git_unstage_file(cwd: String, relative: String) -> Result<(), Strin
 #[tauri::command]
 pub async fn git_discard_file(cwd: String, relative: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _write = crate::local_host::claim_checkout_write(&expand_home(&cwd))?;
         git_discard_file_for(&expand_home(&cwd), &relative)
     })
     .await
@@ -1022,15 +1029,20 @@ pub async fn git_discard_file(cwd: String, relative: String) -> Result<(), Strin
 /// Discard every unstaged change (restore tracked files; delete untracked).
 #[tauri::command]
 pub async fn git_discard_all(cwd: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || git_discard_all_for(&expand_home(&cwd)))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = expand_home(&cwd);
+        let _write = crate::local_host::claim_checkout_write(&root)?;
+        git_discard_all_for(&root)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Stage every changed file in the repo.
 #[tauri::command]
 pub async fn git_stage_all(cwd: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _write = crate::local_host::claim_checkout_write(&expand_home(&cwd))?;
         git_checked(&expand_home(&cwd), &["add", "-A", "--", "."])
     })
     .await
@@ -1041,6 +1053,7 @@ pub async fn git_stage_all(cwd: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn git_unstage_all(cwd: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _write = crate::local_host::claim_checkout_write(&expand_home(&cwd))?;
         git_checked(&expand_home(&cwd), &["restore", "--staged", "--", "."])
     })
     .await
@@ -1068,6 +1081,7 @@ pub async fn git_staged_context(cwd: String) -> Result<GitStagedContext, String>
 pub async fn git_commit(cwd: String, message: String, amend: bool) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let root = expand_home(&cwd);
+        let _write = crate::local_host::claim_checkout_write(&root)?;
         if amend {
             git_commit_amend_for(&root, &message)
         } else {
@@ -1089,15 +1103,20 @@ pub async fn git_head_message(cwd: String) -> Result<String, String> {
 /// Push the current branch to its upstream, or set upstream on first push.
 #[tauri::command]
 pub async fn git_push(cwd: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || git_push_for(&expand_home(&cwd)))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = expand_home(&cwd);
+        let _write = crate::local_host::claim_checkout_write(&root)?;
+        git_push_for(&root)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Fast-forward the current branch from its upstream.
 #[tauri::command]
 pub async fn git_pull(cwd: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _write = crate::local_host::claim_checkout_write(&expand_home(&cwd))?;
         git_checked(&expand_home(&cwd), &["pull", "--ff-only"])
     })
     .await
@@ -1107,9 +1126,13 @@ pub async fn git_pull(cwd: String) -> Result<(), String> {
 /// Pull incoming commits, then push local commits.
 #[tauri::command]
 pub async fn git_sync(cwd: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || git_sync_changes_for(&expand_home(&cwd)))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = expand_home(&cwd);
+        let _write = crate::local_host::claim_checkout_write(&root)?;
+        git_sync_changes_for(&root)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -1719,6 +1742,7 @@ pub async fn git_checkout(
     remote: Option<String>,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _write = crate::local_host::claim_checkout_write(&expand_home(&cwd))?;
         git_checkout_for(&expand_home(&cwd), &name, remote.as_deref())
     })
     .await
@@ -1728,15 +1752,20 @@ pub async fn git_checkout(
 /// Create a branch from HEAD and switch to it.
 #[tauri::command]
 pub async fn git_create_branch(cwd: String, name: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || git_create_branch_for(&expand_home(&cwd), &name))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = expand_home(&cwd);
+        let _write = crate::local_host::claim_checkout_write(&root)?;
+        git_create_branch_for(&root, &name)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Stash tracked and untracked local changes so a checkout can proceed.
 #[tauri::command]
 pub async fn git_stash(cwd: String, message: Option<String>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _write = crate::local_host::claim_checkout_write(&expand_home(&cwd))?;
         git_stash_for(&expand_home(&cwd), message.as_deref())
     })
     .await
@@ -4933,6 +4962,7 @@ fn already_exists(label: &str) -> String {
 pub fn create_path(parent: String, name: String, is_dir: bool) -> Result<String, String> {
     let parent_dir = expand_home(&parent);
     let dest = resolve_under(&parent_dir, &name)?;
+    let _write = crate::local_host::claim_checkout_write(&dest)?;
     let label = file_label(&dest, &name);
 
     if dest.exists() {
@@ -5488,6 +5518,7 @@ fn write_text_file_sync(path: &str, content: &str) -> Result<(), String> {
     } else {
         requested
     };
+    let _write = crate::local_host::claim_checkout_write(&destination)?;
     if destination.is_dir() {
         return Err("Cannot save text to a directory.".into());
     }
@@ -5628,6 +5659,8 @@ fn rename_path_sync(path: &str, name: &str) -> Result<String, String> {
         .parent()
         .ok_or_else(|| "File has no parent directory.".to_string())?;
     let dest = resolve_under(parent, name)?;
+    let _write_from = crate::local_host::claim_checkout_write(&from)?;
+    let _write_to = crate::local_host::claim_checkout_write(&dest)?;
     if same_entry(&from, &dest) {
         if from == dest {
             return Ok(from.to_string_lossy().into_owned());
@@ -5670,6 +5703,7 @@ pub async fn rename_path(path: String, name: String) -> Result<String, String> {
 
 fn delete_path_sync(path: &str) -> Result<(), String> {
     let path = expand_home(path);
+    let _write = crate::local_host::claim_checkout_write(&path)?;
     if !path.exists() {
         return Err(format!("{}: No such file or directory", path.display()));
     }
@@ -5700,6 +5734,9 @@ fn copy_path_sync(from: &str, dest_parent: &str) -> Result<String, String> {
         return Err(format!("{}: No such file or directory", from.display()));
     }
     let dest_parent = expand_home(dest_parent);
+    let _write = crate::local_host::claim_checkout_write(&dest_parent)?;
+    let _source =
+        crate::local_host::claim_checkout_resource(&from, &format!("copy:{}", Uuid::new_v4()))?;
     if !dest_parent.is_dir() {
         return Err(format!("{} is not a folder", dest_parent.display()));
     }
@@ -5724,10 +5761,12 @@ pub async fn copy_path(from: String, dest_parent: String) -> Result<String, Stri
 
 fn move_path_sync(from: &str, dest_parent: &str) -> Result<String, String> {
     let from = expand_home(from);
+    let _write_from = crate::local_host::claim_checkout_write(&from)?;
     if !from.exists() {
         return Err(format!("{}: No such file or directory", from.display()));
     }
     let dest_parent = expand_home(dest_parent);
+    let _write_to = crate::local_host::claim_checkout_write(&dest_parent)?;
     if !dest_parent.is_dir() {
         return Err(format!("{} is not a folder", dest_parent.display()));
     }

@@ -1,4 +1,5 @@
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -63,7 +64,7 @@ import {
   saveSessionSidebarFilters,
   type SessionSidebarFilters,
 } from "../../features/sessions/model/sessionFilters";
-import { filterSessionsByArchive } from "../../features/sessions/data/sessionHistory";
+import { compareSessionSummaries, filterSessionsByArchive } from "../../features/sessions/data/sessionHistory";
 import { sessionDisplayTitle } from "../../features/sessions/model/session";
 import {
   cachedRemoteProjectSessionsState,
@@ -86,6 +87,7 @@ import { SidebarTransition } from "./SidebarTransition";
 import { ResizeHandle } from "../../shared/ui/ResizeHandle";
 import { ProjectList, AddProjectButton } from "./ProjectList";
 import { ProjectSessionSection } from "./ProjectSessionSection";
+import { ExternalSessions } from "./ExternalSessions";
 import type { SidebarProps } from "./Sidebar.types";
 import {
   projectHoverSummary,
@@ -97,6 +99,8 @@ const TAB_LABELS: Record<SidebarTabId, string> = {
   files: "Explorer",
   changes: "Changes",
 };
+
+const NO_SESSIONS: readonly SessionSummary[] = [];
 
 function SidebarComponent(props: SidebarProps) {
   const { t } = useTranslation();
@@ -152,6 +156,8 @@ function SidebarComponent(props: SidebarProps) {
   const [treeHeight, setTreeHeight] = useState(700);
   const treeLock = useLockOverscroll<HTMLDivElement>();
   const searchActive = tab === "sessions" && !!query.trim();
+  const loadAllProjectSummaries =
+    open && tab === "sessions" && props.recents !== undefined;
   const allProjects = useMemo(
     () => [...collectRailProjects(recents, cwd).values()],
     [cwd, recents],
@@ -252,7 +258,7 @@ function SidebarComponent(props: SidebarProps) {
 
   const expansionRequests = useRef(new Set<string>());
   useEffect(() => {
-    if (!open || tab !== "sessions") return;
+    if (!open || tab !== "sessions" || loadAllProjectSummaries) return;
     for (const project of projects) {
       const key = pathKey(project.path);
       if (
@@ -275,6 +281,7 @@ function SidebarComponent(props: SidebarProps) {
   }, [
     open,
     tab,
+    loadAllProjectSummaries,
     expandedPathsKey,
     loadedPathsKey,
     projectPathsKey,
@@ -288,17 +295,21 @@ function SidebarComponent(props: SidebarProps) {
   const searchQueue = useRef<string[]>([]);
   const searchRunning = useRef(0);
   const searchContext = useRef({
-    active: searchActive && open,
+    active: (searchActive && open) || loadAllProjectSummaries,
     onLoad: props.onLoadProject,
     onRemote: props.onPrefetchRemoteProject,
   });
   searchContext.current = {
-    active: searchActive && open,
+    active: (searchActive && open) || loadAllProjectSummaries,
     onLoad: props.onLoadProject,
     onRemote: props.onPrefetchRemoteProject,
   };
   useEffect(() => {
-    if (!searchActive || !open) {
+    searchContext.current.active =
+      (searchActive && open) || loadAllProjectSummaries;
+    // Recent shortcuts need summaries even for projects that remain collapsed.
+    // Share the bounded search loader rather than opening/polling every section.
+    if ((!searchActive || !open) && !loadAllProjectSummaries) {
       searchQueue.current = [];
       searchRequests.current.clear();
       return;
@@ -352,9 +363,14 @@ function SidebarComponent(props: SidebarProps) {
       }
     };
     pump();
+    return () => {
+      searchContext.current.active = false;
+      searchQueue.current = [];
+    };
   }, [
     open,
     searchActive,
+    loadAllProjectSummaries,
     projectPathsKey,
     loadedPathsKey,
     searchRevision,
@@ -374,6 +390,20 @@ function SidebarComponent(props: SidebarProps) {
     if (!props.projectHistory) grouped.set(pathKey(cwd), sessions);
     return grouped;
   }, [projectHistory, sessions, cwd, props.projectHistory]);
+  // Grouped once per change: per-project filtering on every render compared
+  // every open tab with every project and handed memoized sections new arrays.
+  const openSessionsByProject = useMemo(() => {
+    const grouped = new Map<string, SessionSummary[]>();
+    for (const row of props.openSessions ?? []) {
+      const key = pathKey(row.cwd);
+      const mine = grouped.get(key) ?? [];
+      mine.push(row);
+      grouped.set(key, mine);
+    }
+    return grouped;
+  }, [props.openSessions]);
+  const projectOpenSessions = (path: string): readonly SessionSummary[] =>
+    openSessionsByProject.get(pathKey(path)) ?? NO_SESSIONS;
   const projectSessionFlags = (
     flags: ReadonlySet<string> | undefined,
     path: string,
@@ -382,8 +412,7 @@ function SidebarComponent(props: SidebarProps) {
       return flags ? new Set(flags) : undefined;
     const localRows = [
       ...(historyByProject.get(pathKey(path)) ?? []),
-      ...(props.openSessions?.filter((row) => sameProjectPath(row.cwd, path)) ??
-        []),
+      ...projectOpenSessions(path),
     ];
     const remote = isRemoteProjectPath(path) || !!remoteProjectFor(path);
     const scoped = new Set<string>();
@@ -626,9 +655,9 @@ function SidebarComponent(props: SidebarProps) {
     sessionProjectPath,
     props.onSessionNavigationOrder,
   ]);
-  const searchPending =
+  const summariesPending =
     open &&
-    searchActive &&
+    (searchActive || loadAllProjectSummaries) &&
     (searchRunning.current > 0 ||
       searchQueue.current.length > 0 ||
       projects.some(
@@ -641,6 +670,7 @@ function SidebarComponent(props: SidebarProps) {
             ? props.onPrefetchRemoteProject
             : props.onLoadProject),
       ));
+  const searchPending = searchActive && summariesPending;
 
   const expandProject = (path: string) => {
     const key = pathKey(path);
@@ -790,19 +820,24 @@ function SidebarComponent(props: SidebarProps) {
     );
   };
 
-  const renderChildren = (path: string): ReactNode => {
+  const renderChildren = (path: string, shortcutId?: string): ReactNode => {
     const current = sameProjectPath(path, cwd);
     const key = pathKey(path);
     const remote = isRemoteProjectPath(path) || !!remoteProjectFor(path);
+    const openSession = (id: string) =>
+      props.recents === undefined
+        ? props.onSelectSession(id)
+        : props.onSelectSession(id, path);
     return (
+      <Fragment key={key}>
       <ProjectSessionSection
         {...props}
         key={key}
         cwd={path}
+        shortcutId={shortcutId}
+        flatPins={props.recents !== undefined}
         sessions={historyByProject.get(key) ?? []}
-        openSessions={props.openSessions?.filter((row) =>
-          sameProjectPath(row.cwd, path),
-        )}
+        openSessions={props.openSessions && projectOpenSessions(path)}
         activeSessionId={current ? props.activeSessionId : undefined}
         activeProject={current}
         reminders={
@@ -833,7 +868,7 @@ function SidebarComponent(props: SidebarProps) {
         scrollRef={treeScrollRef}
         onClearQuery={() => setQuery("")}
         dense={props.recents !== undefined}
-        pollRemote={open && expandedPaths.has(key)}
+        pollRemote={!shortcutId && open && expandedPaths.has(key)}
         onRetry={() => {
           setSearchFailed((previous) => {
             const next = new Set(previous);
@@ -849,14 +884,94 @@ function SidebarComponent(props: SidebarProps) {
           );
         }}
         onNew={() => newInProject(path)}
-        onSelectSession={(id) =>
-          props.recents === undefined
-            ? props.onSelectSession(id)
-            : props.onSelectSession(id, path)
-        }
+        onSelectSession={openSession}
       />
+      {shortcutId || remote || searchActive ? null : (
+        <ExternalSessions projectPath={path} onOpen={openSession} />
+      )}
+      </Fragment>
     );
   };
+
+  const shortcutSessions =
+    props.recents === undefined
+      ? []
+      : projects
+          .flatMap(({ path }) => {
+            const remoteRows =
+              isRemoteProjectPath(path) || remoteProjectFor(path)
+                ? cachedRemoteSessions(path)
+                : undefined;
+            const storedRows: SessionSummary[] = remoteRows
+              ? remoteRows.map((row) => ({
+                  ...row,
+                  cwd: path,
+                  model: row.model ?? "",
+                  providerSessionId: row.providerSessionId ?? undefined,
+                  runtimeMode: row.runtimeMode ?? "supervised",
+                  createdAt: row.createdAt ?? row.updatedAt,
+                }))
+              : (historyByProject.get(pathKey(path)) ?? []);
+            const knownIds = new Set(storedRows.map((row) => row.id));
+            const liveRows = projectOpenSessions(path)
+              .map((row) =>
+                remoteRows
+                  ? { ...row, id: remoteSessionFor(row.id) ?? row.id }
+                  : row,
+              );
+            const rows = [
+              ...storedRows,
+              ...liveRows.filter((row) => !knownIds.has(row.id)),
+            ];
+            const busy = remoteRows
+              ? new Set(
+                  remoteRows
+                    .filter(
+                      (row) => row.status === "running" && !row.needsInput,
+                    )
+                    .map((row) => row.id),
+                )
+              : props.busySessionIds;
+            const approvals = remoteRows
+              ? new Set(
+                  remoteRows
+                    .filter((row) => row.needsInput)
+                    .map((row) => row.id),
+                )
+              : props.approvalSessionIds;
+            const filtered = filterSessionsByStatus(
+              filterSessionsByTime(
+                filterSessionsByHarness(
+                  filterSessionsByArchive(rows, filters.showArchived),
+                  filters.hiddenHarnesses,
+                ),
+                filters.time,
+                Date.now(),
+              ),
+              filters.status,
+              busy,
+              approvals,
+              projectSessionFlags(props.unseenFinishedIds, path) ?? new Set(),
+            );
+            const needle = query.trim().toLocaleLowerCase();
+            return filtered.filter(
+              (row) =>
+                !row.orchestrationLeadId &&
+                (!needle ||
+                  matchInfo.names.has(pathKey(path)) ||
+                  sessionDisplayTitle(row.title, row.harness)
+                    .toLocaleLowerCase()
+                    .includes(needle)),
+            );
+          })
+          .sort(compareSessionSummaries);
+  const pinnedSessions = shortcutSessions.filter((session) => session.pinned);
+  const recentSessions = [...shortcutSessions].sort(
+    (a, b) =>
+      b.updatedAt - a.updatedAt ||
+      pathKey(a.cwd).localeCompare(pathKey(b.cwd)) ||
+      a.id.localeCompare(b.id),
+  );
 
   const filterSummaries: SessionSummary[] = [...projectHistory];
   for (const { path } of projects) {
@@ -916,6 +1031,7 @@ function SidebarComponent(props: SidebarProps) {
         className="body-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-stroke"
         style={{ width: resize.dragging ? "100%" : resize.width }}
       >
+        {props.onOpenAssistant && <button type="button" className={`mx-2 my-1 rounded-lg px-3 py-2 text-left text-sm hover:bg-content/10 ${props.assistantActive ? "bg-content/10" : ""}`} aria-current={props.assistantActive ? "page" : undefined} onClick={props.onOpenAssistant}>{t("Assistant")}</button>}
         {!props.chromeInMenuBar ? (
           <div
             className="flex h-10 shrink-0 select-none items-center pr-2"
@@ -1112,6 +1228,19 @@ function SidebarComponent(props: SidebarProps) {
               busyPaths={busyPaths}
               needsApprovalPaths={approvalPaths}
               projectSummaries={projectSummaries}
+              pinnedEntries={tab === "sessions" ? pinnedSessions.map((session) => ({
+                id: `${pathKey(session.cwd)}:${session.id}`,
+                content: renderChildren(session.cwd, session.id),
+              })) : undefined}
+              recentEntries={
+                props.recents !== undefined && tab === "sessions"
+                  ? recentSessions.map((session) => ({
+                      id: `${pathKey(session.cwd)}:${session.id}`,
+                      content: renderChildren(session.cwd, session.id),
+                    }))
+                  : undefined
+              }
+              recentPending={summariesPending}
               onProjectHoverOpen={
                 props.onLoadProject || props.onPrefetchRemoteProject
                   ? onProjectHoverOpen

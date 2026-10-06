@@ -11,6 +11,7 @@ import {
   type HostSessionSummary,
   type HostSessionActivity,
   type HostModelCatalog,
+  type HostProviderAccounts,
   type HostSkillCatalog,
   type HostCommand,
   type CommandReceipt,
@@ -33,6 +34,7 @@ import {
 } from "../features/connections/model/remoteAttachmentPreviews";
 import type { MobileStorage } from "./storage";
 import { translate } from "../shared/i18n/language";
+import type { NativeSessionAccess } from "../integrations/harness/core/nativeSessions";
 
 export type Connection = {
   endpoint: string;
@@ -310,6 +312,7 @@ export class MobileClient {
   }
   async reconnect(): Promise<void> {
     if (!this.connection) throw new Error("Connect to a Host first.");
+    this.clearCaches();
     if (this.connection.disabled) {
       const connection = this.connection;
       const enabled = { ...connection, disabled: false };
@@ -413,37 +416,51 @@ export class MobileClient {
     this.sessionLoads.delete(sessionId);
     this.previewLoads.delete(sessionId);
   }
-  cachedModels(projectId: string): HostModelCatalog | undefined {
-    const cached = this.catalogs.get(projectId);
+  /** Returns the last catalog even after it expires so a new conversation can
+   * render its Agent and model lists immediately while `models` refreshes. */
+  cachedModels(projectId?: string): HostModelCatalog | undefined {
+    const key = JSON.stringify(projectId ?? null);
+    const cached = this.catalogs.get(key);
     if (!cached) return undefined;
-    if (Date.now() >= cached.expires) {
-      this.catalogs.delete(projectId);
-      return undefined;
-    }
-    this.catalogs.delete(projectId);
-    this.catalogs.set(projectId, cached);
+    this.catalogs.delete(key);
+    this.catalogs.set(key, cached);
     return cached.value;
   }
-  models(projectId: string) {
-    const cached = this.cachedModels(projectId);
-    if (cached) return Promise.resolve(cached);
-    const existing = this.modelLoads.get(projectId);
+  models(projectId?: string, refresh = false) {
+    const key = JSON.stringify(projectId ?? null);
+    const cached = this.catalogs.get(key);
+    if (!refresh && cached && Date.now() < cached.expires) return Promise.resolve(this.cachedModels(projectId)!);
+    const existing = this.modelLoads.get(key);
     if (existing) return existing;
     const epoch = this.cacheEpoch;
-    const pending = this.rpc<HostModelCatalog>("models.list", { projectId }).then((value) => {
+    const pending = this.rpc<HostModelCatalog>("models.list", projectId === undefined ? {} : { projectId }).then((value) => {
       if (epoch !== this.cacheEpoch) throw new Error(translate("Host connection changed."));
-      if (!Object.keys(value.errors).length) {
-        this.catalogs.delete(projectId);
-        this.catalogs.set(projectId, { value, expires: Date.now() + 60_000 });
-        if (this.catalogs.size > 8)
-          this.catalogs.delete(this.catalogs.keys().next().value!);
-      }
+      // The Host caches each provider, so a partial catalog is retried sooner
+      // without discarding the providers that already answered.
+      const ttl = Object.keys(value.errors).length ? 15_000 : 5 * 60_000;
+      this.catalogs.delete(key);
+      this.catalogs.set(key, { value, expires: Date.now() + ttl });
+      if (this.catalogs.size > 8)
+        this.catalogs.delete(this.catalogs.keys().next().value!);
       return value;
     }).finally(() => {
-      if (this.modelLoads.get(projectId) === pending) this.modelLoads.delete(projectId);
+      if (this.modelLoads.get(key) === pending) this.modelLoads.delete(key);
     });
-    this.modelLoads.set(projectId, pending);
+    this.modelLoads.set(key, pending);
     return pending;
+  }
+  async providerAccounts(): Promise<HostProviderAccounts | null> {
+    const epoch = this.cacheEpoch;
+    let result: HostProviderAccounts | null;
+    try {
+      result = await this.rpc<HostProviderAccounts>("providerAccounts.list");
+    } catch (error) {
+      if (!(error instanceof HostRequestError && error.status === 400 && error.message === "Unsupported host method"))
+        throw error;
+      result = null;
+    }
+    if (epoch !== this.cacheEpoch) throw new Error(translate("Host connection changed."));
+    return result;
   }
   skills(projectId: string, harness: string, sessionId?: string, refresh = false) {
     return this.rpc<HostSkillCatalog>("skills.list", { projectId, harness,
@@ -489,6 +506,17 @@ export class MobileClient {
     }
     return JSON.parse(serialized) as SessionSync;
   }
+  /** Whether an imported native conversation may be continued now; null for ordinary sessions. */
+  async nativeAccess(sessionId: string): Promise<NativeSessionAccess | null> {
+    const connection = this.connection;
+    if (!connection) throw new Error("Connect to a Host first.");
+    const epoch = this.cacheEpoch;
+    const result = await this.requestWith<NativeSessionAccess | null>(connection, "sessions.nativeAccess", { sessionId });
+    if (epoch !== this.cacheEpoch)
+      throw new Error(translate("Host connection changed."));
+    return result;
+  }
+
   async session(sessionId: string, minimumRevision?: number): Promise<HostSession> {
     const existing = this.sessionLoads.get(sessionId);
     if (existing) {

@@ -1,4 +1,5 @@
 import type { OrchestrationRun, TaskStatus } from "./orchestration";
+import type { OrchestrationReadRun } from "./orchestrationClient";
 import { sessionNeedsInput, type HarnessId, type Session } from "../../sessions/model/session";
 
 /** Small history projection; never includes prompts, results or credentials. */
@@ -16,7 +17,7 @@ export type OrchestrationSummary = {
 };
 
 export function summarizeOrchestration(
-  run: OrchestrationRun,
+  run: OrchestrationReadRun,
   sessions: readonly Session[],
 ): OrchestrationSummary {
   const byId = new Map(sessions.map((session) => [session.id, session]));
@@ -30,7 +31,8 @@ export function summarizeOrchestration(
       model,
       status,
       needsInput:
-        !!byId.get(sessionId) && sessionNeedsInput(byId.get(sessionId)!),
+        run.tasks.find(task => task.sessionId === sessionId)?.needsInput ||
+        (!!byId.get(sessionId) && sessionNeedsInput(byId.get(sessionId)!)),
     })),
   };
 }

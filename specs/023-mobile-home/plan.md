@@ -6,6 +6,12 @@
 - Extend MobileApp navigation with a home view and a selected home project.
   Preserve the active conversation separately from the browsed list scope.
   Remember the last project without automatically reopening its conversation.
+- Track conversation entry source separately in MobileApp memory. Project-page
+  row and creation callbacks pass `project`; other entries default to `other`.
+  Preserve source through loading, unavailable-session draft fallback and
+  Settings navigation. Render the existing localized Back IconButton/ArrowLeft
+  for project entries and call openHome with the current valid project, reusing
+  navigation request invalidation. Keep persisted locations and Host APIs intact.
 - Split MobileDrawer project headers into a page link and an animated disclosure
   control. Reuse the existing global creation and folder-picker flows.
 - Extend drawer swipe support to the list page, and use existing theme tokens,
@@ -46,3 +52,10 @@
   project ID. Refresh Home histories after successful metadata changes without
   navigating. Retain the controlled MobileSheet through closing animation and
   preserve existing sidebar and chat actions.
+- Share project activity ordering between MobileHome and MobileDrawer. Load
+  all other project summaries on drawer open and every 3 s while foregrounded;
+  reuse the app's current-project summaries and retain histories on failures.
+  Preserve request generation guards and pause polling when hidden or closed.
+  Automatically expand non-archived running projects unless manually collapsed.
+  Let MobileListPreview reveal enough existing animated batches to keep expanded
+  projects visible without changing time order or resetting pagination.

@@ -416,6 +416,20 @@ describe("tools and models", () => {
     expect(models[1]?.settings).toBeUndefined();
   });
 
+  it.each([
+    [{ minimal: null, low: null, medium: null, high: "high", xhigh: "max" }, ["off", "high", "xhigh"], "high"],
+    [{ medium: null, high: null }, ["off", "minimal", "low"], "low"],
+    [undefined, ["off", "minimal", "low", "medium", "high"], "medium"],
+  ])("uses Pi model capabilities for picker choices and defaults (%j)", (thinkingLevelMap, levels, value) => {
+    const data = { models: [{ id: "fixture", provider: "test", reasoning: true, thinkingLevelMap }] };
+    const setting = modelsFromRpcData(PI_FLAVOR, data)[0]?.settings?.[0];
+    expect(setting?.options.map(option => option.value)).toEqual(levels);
+    expect(setting?.value).toBe(value);
+    const omp = modelsFromRpcData(OMP_FLAVOR, data)[0]?.settings?.[0];
+    expect(omp?.options.map(option => option.value)).toEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+    expect(omp?.value).toBe("medium");
+  });
+
   it("adds fast mode to omp models without exposing it for Pi", () => {
     const data = {
       models: [

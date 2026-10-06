@@ -4,6 +4,7 @@ import {
   isSessionChangesTab,
   leafIds,
   removePane,
+  resetTabToSession,
   type EditorPane,
   type WorkspaceTab,
 } from "../../workspace/model/layout";
@@ -86,15 +87,7 @@ export function removeSessionFromWorkspace({
     const replacement = createReplacement(seed);
     remainingSessionIds.add(replacement.id);
     nextSessions = [...nextSessions, replacement];
-    nextTabs[index] = {
-      ...tab,
-      layout: { type: "leaf", id: replacement.id },
-      focusedId: replacement.id,
-      editorPanes: [],
-      terminalPanes: [],
-      diffOpen: false,
-      diffFocused: false,
-    };
+    nextTabs[index] = resetTabToSession(tab, replacement.id);
   }
 
   return {

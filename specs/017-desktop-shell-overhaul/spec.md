@@ -67,8 +67,11 @@ terminal docks, persisted snapshots and existing keyboard overrides.
    archived/deleted, without the previous 20-project eviction.
    Child rows indent their content to the project name; the project avatar
    doubles as the disclosure, turning into a chevron on hover/focus. Each
-   project shows five ungrouped chats (plus the active one) with Show
-   more/Show less; search results are never truncated.
+   project initially shows five ungrouped chats (keeping the active one visible).
+   Each Show more click reveals the next five, or the remaining rows if fewer;
+   scrolling does not reveal more. Once all rows are shown, Show less restores
+   the initial preview. Added and removed rows animate through AnimatedCollapse;
+   search results retain their existing progressive mounting behavior.
 
    Project groups, project children, session folders, pins and reminders all
    animate on expansion and collapse through the shared AnimatedCollapse
@@ -170,8 +173,8 @@ Reduced-motion preferences skip the animation.
 ## Native window resize edges follow-up (2026-10-05)
 
 The outer edge of the whole desktop window is too difficult to grab for resizing.
-Linux and Windows workspace windows provide transparent resize hit areas extending
-10 CSS pixels inward from each edge, with 16px corner areas for diagonal resizing.
+Linux and Windows workspace windows recognize resize bands extending 10 CSS pixels
+inward from each edge, with 16px corner areas for diagonal resizing.
 All eight directions show the matching resize cursor and start the existing native
 window resize operation. Native size constraints and window-manager behavior stay
 under Tauri/OS control; the application does not calculate or set window sizes.
@@ -276,11 +279,29 @@ The dock's raised tab/action wrappers must fit their visible controls. Its full
 top boundary, including positions above tabs and trailing buttons, exposes the
 resize cursor and drag gesture. A full-row wrapper must not block that boundary.
 
+## General UI responsiveness — follow-up (2026-10-05)
+
+The user reports delay across almost all clicks and tab switches. Unchanged
+native ownership polls must not redraw unrelated session panes. Composer access
+must still become read-only when its latest idle ownership check expires after
+15 seconds, and ownership changes must update the affected pane immediately.
+
+Project-tree history overlays must group history and live sessions once while
+preserving path aliases, pins, ordering and global worker/inbox exclusions.
+Decorative arcade and composer animations must pause for hidden tabs, offscreen
+content and hidden windows, retain their state when returning, and respect reduced
+motion. Running terminals remain mounted. Preserve the default arcade preference,
+explicit gameplay, slide behavior and existing static-render support.
+
+Use focused consumer regressions, bounded measurements and a production build.
+Record browser fixture results separately from native WebKit timing; measured
+fixture improvements do not establish that all native interaction delay is fixed.
+
 ## Production startup responsiveness — follow-up (2026-10-05)
 
 The user reproduced the delay in the production desktop and clarified that it
 mainly happens immediately after launch. Restoring a large workspace must avoid
-repeatedly decoding the entire remote-session binding table and building
+repeatedly decoding the entire remote-session binding/scope tables and building
 transcripts for tabs that have never been shown. After its first visit, a
 transcript retains the existing pool, scroll and revisit behavior. Background
 session synchronization, queue ownership and mounted terminal lifetimes remain
@@ -296,3 +317,47 @@ the storage event is delivered, and failed writes must not alter cached records.
 Verify restored-pane mount/request counts and existing transcript first-paint
 and scrolling behavior. Rebuild production packages. Controlled counts and helper
 benchmarks are evidence of removed work, not native launch-to-responsive timing.
+
+## Conversation sidebar grouping — follow-up (2026-10-05)
+
+The conversation sidebar uses a top Pinned section containing pinned conversation
+shortcuts and pinned projects, followed by Projects. Shortcuts remain usable while
+their project is collapsed and preserve project/Host identity and existing session
+actions. Projects retain their configured avatars and regular-weight labels;
+conversation rows, including pinned shortcuts, retain their provider icons.
+Conversation titles indent below projects without a nested Pinned heading.
+
+Each section initially shows five entries, including mixed conversations/projects
+in Pinned; each Show more click reveals five more. Project conversation and folder
+previews are independent. Search still covers all known entries. Expansion and
+collapse reuse the shared motion lifetime, with closing content inert.
+
+## Session folders removed — 2026-10-05
+
+This user-requested change supersedes the session-folder requirements above.
+Desktop conversations appear directly under their project, including members of
+previously expanded or collapsed session folders. Remove drag-to-group, folder
+menus, the `/add-to-folder` composer command, automation folder destinations and
+Operator folder actions. Preserve session contents, search, selection, ordinary
+pagination, pinned/reminder groups and drag-to-workspace-pane placement. Existing
+folder metadata may remain stored but must not hide or regroup conversations.
+
+## Recent sidebar projects and conversations — 2026-10-05
+
+Ordinary sidebar projects sort by last opened time, newest first, overriding
+their former drag order. Pinned projects retain manual order and project groups
+retain membership; projects inside each group also sort by recency. The regular
+project heading is Recent projects (最近项目).
+
+Multi-project Sessions adds Recent sessions (最近会话) below Pinned. It merges
+project history, cached Host rows and open blank conversations, with scoped
+deduplication, sorting solely by last conversation update regardless of pin.
+Shortcuts work while projects are collapsed and retain provider icons, metadata,
+actions and local/native/remote routing. Project scope, search and existing
+session filters also apply to recent rows. Each recent/project section starts
+with five entries and reveals five per click through shared collapse motion;
+existing search/scope views retain their full-list behavior.
+Missing project summaries load with at most four concurrent background reads
+while the Sessions sidebar is open, including collapsed projects; this does not
+start their Host pollers. Closing the sidebar or leaving Sessions stops queued
+reads. Existing storage formats and single-project consumers remain supported.

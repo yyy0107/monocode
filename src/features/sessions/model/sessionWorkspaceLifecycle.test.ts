@@ -169,6 +169,35 @@ describe("removeSessionFromWorkspace", () => {
     expect(result.sessions.map((entry) => entry.id)).toEqual(["replacement"]);
   });
 
+  it("clears the removed chat's display mode and tools from its replacement", () => {
+    const closing: WorkspaceTab = {
+      ...openEditorTab(
+        tab("only", "s1"),
+        newFileTab("/projects/monocode/README.md", "/projects/monocode"),
+      ),
+      surfaceMode: "unified",
+      groupId: "group",
+    };
+    const result = remove({
+      tabs: [closing],
+      sessions: [session("s1")],
+      sessionId: "s1",
+      activeTabId: closing.id,
+    });
+
+    expect(result.tabs[0]).toMatchObject({
+      id: closing.id,
+      groupId: "group",
+      layout: leaf("replacement"),
+      focusedId: "replacement",
+      editorPanes: [],
+      terminalPanes: [],
+    });
+    expect(result.tabs[0].surfaceMode).toBeUndefined();
+    expect(closing.surfaceMode).toBe("unified");
+    expect(result.sessions.map((entry) => entry.id)).toEqual(["replacement"]);
+  });
+
   it("does not leave the project when closing its final tab in project scope", () => {
     const result = remove({
       tabs: [tab("ruler", "r1"), tab("monocode", "s1")],

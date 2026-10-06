@@ -236,6 +236,19 @@ describe("Composer question focus", () => {
     });
   }
 
+  it("does not offer or intercept the removed sidebar folder command", async () => {
+    const onSubmit = vi.fn();
+    await renderComposer(undefined, vi.fn(), false, 0, undefined, undefined, onSubmit);
+    const textarea = container.querySelector("textarea")!;
+    await typeInto(textarea, "/");
+    expect(container.textContent).not.toContain("/add-to-folder");
+    await typeInto(textarea, "/add-to-folder keep this text");
+    await act(async () => textarea.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Enter", bubbles: true, cancelable: true,
+    })));
+    expect(onSubmit).toHaveBeenCalledWith("/add-to-folder keep this text", [], expect.any(Object));
+  });
+
   it("opens BTW as soon as `/btw ` is typed and hands over the rest", async () => {
     const onBtwCommand = vi.fn(() => true);
     await renderComposer(undefined, vi.fn(), false, 0, undefined, onBtwCommand);

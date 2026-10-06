@@ -25,6 +25,7 @@ export type SettingsSectionId =
   | "keybindings"
   | "chat"
   | "providers"
+  | "import"
   | "mcp"
   | "skills"
   | "inbox"
@@ -99,6 +100,15 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
       "Provider accounts, agent CLIs MonoCode can drive, and the model new sessions start with.",
     keywords:
       "account sign in login model harness claude codex gemini cli default hooks",
+  },
+  {
+    id: "import",
+    group: "agents",
+    label: "Import",
+    description:
+      "Bring conversations from other AI coding apps into MonoCode, follow them live, and continue them here.",
+    keywords:
+      "import native sessions claude code codex pi omp opencode history sync resume 导入 同步 会话 历史",
   },
   {
     id: "mcp",
@@ -391,9 +401,15 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     keywords: "pacman snake arcade grid fun",
   },
   {
+    id: "native-auto-sync",
+    section: "import",
+    label: "Keep imports synced",
+    keywords: "auto sync automatic refresh live watch 自动同步",
+  },
+  {
     id: "native-sessions",
-    section: "providers",
-    label: "Native sessions",
+    section: "import",
+    label: "Import from other AI apps",
     keywords:
       "codex pi import history synchronization sync resume native 导入 同步 会话 历史",
   },
@@ -636,7 +652,7 @@ export type FileTabMode = "pane" | "workspace";
 
 export const FILE_TAB_MODE_DEFAULT: FileTabMode = "pane";
 
-/** Choose whether an ordinary file joins the active pane or gets a top tab. */
+/** Default conversation layout; legacy values remain compatible with saved preferences. */
 export function loadFileTabMode(): FileTabMode {
   try {
     const raw = localStorage.getItem(FILE_TAB_MODE_KEY);

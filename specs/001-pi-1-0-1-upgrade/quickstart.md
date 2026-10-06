@@ -120,3 +120,38 @@ Validation on the merged main worktree, including its restored local edits:
 No Rust source changed in this merge. The currently running desktop remains the
 Pi feature-worktree instance; merged-main GUI launch and real generated-image GUI
 flows were not exercised by these checks. No remote push was performed.
+
+## 2026-10-05 unsupported-thinking repair
+
+The catalog defaults reasoning models to `medium`, while a live Pi model can
+advertise a narrower set. The adapter previously threw before sending the turn.
+It now lets Pi resolve the level and reads back actual state after thinking/model
+changes. Missing optional capability discovery retains the native setting.
+
+| Check | Result |
+|---|---|
+| New regression cases before repair | 4 expected failures: unsupported medium with/without native event, off-only model switch, unavailable capability query |
+| `npx vitest run src/integrations/harness/providers/pi/piLive.test.ts src/integrations/harness/providers/omp/ompLive.test.ts` | PASS: 56 tests |
+| `npx vitest run --config host/vitest.config.ts host/provider-transport.test.ts -t 'Pi\|pi\|omp'` | PASS: 21 tests; 6 excluded by filter. Includes two turns with a stale default and persisted/reconnected effective settings |
+| `npx tsc --noEmit` | PASS |
+| `npx tsc --noEmit -p host/tsconfig.json` | PASS |
+| Installed Pi `1.0.3`, Node `v24.16.0`, isolated offline RPC fixture | PASS: custom model with levels off/high maps medium to high; switching to a non-reasoning model maps medium to off; zero agent starts/model prompts |
+
+The real RPC fixture used a temporary agent directory and dummy localhost
+provider, with extensions, skills, templates, context files and tools disabled;
+temporary data was removed. Host tests emitted title-generation teardown
+diagnostics but passed. No authenticated DeepSeek generation or native desktop
+GUI run was performed; this repair is in source and has not been packaged or
+deployed. Existing unrelated working-tree changes were preserved.
+
+Follow-up: the initial picker exposed every generic level because catalog parsing
+ignored `thinkingLevelMap`. Catalog choices now follow the installed Pi 1.0.3
+capability rules, including null-disabled levels and explicitly mapped xhigh/max;
+the default is selected from those choices. Live capabilities still override the
+catalog for the active session. OMP catalog choices/defaults are unchanged.
+
+- Three new catalog regressions failed before repair and passed afterward.
+- `npx vitest run src/integrations/harness/providers/pi/piProtocol.test.ts src/integrations/harness/providers/pi/piCatalog.test.ts src/features/sessions/ui/ModelPicker.test.ts`: 55 passed.
+- Additional UI regression: `npx vitest run src/features/sessions/ui/ModelPicker.test.ts -t 'unsupported Pi thinking'`: 1 passed, 24 filtered out; proves the pre-session menu offers only off/high and selects high.
+- `npx vitest run --config host/vitest.config.ts host/provider-transport.test.ts -t 'discovers host models'`: 1 passed, 26 filtered out; verifies restricted Pi catalog/default through real subprocess I/O and retained OMP default.
+- Web and Host `tsc --noEmit` checks passed after the catalog implementation change.

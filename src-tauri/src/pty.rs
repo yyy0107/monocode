@@ -45,6 +45,7 @@ struct LivePty {
     #[cfg(windows)]
     master: Mutex<Box<dyn portable_pty::MasterPty + Send>>,
     pid: u32,
+    _shared_resource: Option<crate::local_host::SharedResourceLease>,
 }
 
 pub struct PtyHost {
@@ -124,10 +125,12 @@ impl Drop for PtyHost {
     }
 }
 
-#[tauri::command]
+/// Off the main thread: claiming the checkout opens the shared resource
+/// registry with a 5s busy timeout, which froze the UI while the Host wrote.
+#[tauri::command(async)]
 pub fn pty_spawn(
     app: AppHandle,
-    host: State<PtyHost>,
+    host: State<'_, PtyHost>,
     id: String,
     cwd: String,
     cols: u16,
@@ -135,6 +138,10 @@ pub fn pty_spawn(
 ) -> Result<(), String> {
     let workdir = working_dir(&cwd);
     let _reservation = crate::worktree_lifecycle::reserve_spawn(&workdir)?;
+    let shared_resource = crate::local_host::claim_checkout_process_resource(
+        &workdir,
+        &format!("pty:{}", uuid::Uuid::new_v4()),
+    )?;
     if let Some(prev) = host.remove(&id) {
         terminate(prev.pid);
         #[cfg(unix)]
@@ -143,12 +150,28 @@ pub fn pty_spawn(
 
     #[cfg(unix)]
     {
-        spawn_unix(app, host, id, workdir, cols.max(2), rows.max(2))
+        spawn_unix(
+            app,
+            host,
+            id,
+            workdir,
+            cols.max(2),
+            rows.max(2),
+            shared_resource,
+        )
     }
 
     #[cfg(windows)]
     {
-        spawn_windows(app, host, id, workdir, cols.max(2), rows.max(2))
+        spawn_windows(
+            app,
+            host,
+            id,
+            workdir,
+            cols.max(2),
+            rows.max(2),
+            shared_resource,
+        )
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -249,6 +272,7 @@ fn spawn_unix(
     workdir: std::path::PathBuf,
     cols: u16,
     rows: u16,
+    shared_resource: Option<crate::local_host::SharedResourceLease>,
 ) -> Result<(), String> {
     use std::fs::File;
     use std::os::unix::io::FromRawFd;
@@ -297,6 +321,13 @@ fn spawn_unix(
         .map_err(|e| format!("Failed to start {shell}: {e}"))?;
     close_fd(slave);
     let pid = child.id();
+    if let Some(lease) = shared_resource.as_ref() {
+        if let Err(error) = lease.set_owner_pid(pid) {
+            crate::harness::terminate_all(&[pid]);
+            let _ = child.wait();
+            return Err(error);
+        }
+    }
 
     set_cloexec(master);
     let reader = unsafe { File::from_raw_fd(dup_fd(master)?) };
@@ -307,6 +338,7 @@ fn spawn_unix(
         writer: Mutex::new(Box::new(writer)),
         master_fd: master,
         pid,
+        _shared_resource: shared_resource.clone(),
     });
     host.insert(id.clone(), live);
 
@@ -348,6 +380,7 @@ fn spawn_unix(
     let wait_app = app;
     let wait_id = id;
     thread::spawn(move || {
+        let _shared_resource = shared_resource;
         let code = child.wait().ok().and_then(|status| status.code());
         // Only announce this child. A remount/respawn reuses the id, and the
         // previous wait thread must not paint "[process exited]" on the new PTY
@@ -378,6 +411,7 @@ fn spawn_windows(
     workdir: std::path::PathBuf,
     cols: u16,
     rows: u16,
+    shared_resource: Option<crate::local_host::SharedResourceLease>,
 ) -> Result<(), String> {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
@@ -409,6 +443,13 @@ fn spawn_windows(
     let mut child = crate::windows::spawn_pty(pair.slave.as_ref(), cmd)
         .map_err(|err| format!("Failed to start {shell}: {err}"))?;
     let pid = child.process_id().unwrap_or(0);
+    if let Some(lease) = shared_resource.as_ref() {
+        if let Err(error) = lease.set_owner_pid(pid) {
+            crate::harness::terminate_all(&[pid]);
+            let _ = child.wait();
+            return Err(error);
+        }
+    }
     let mut reader = pair
         .master
         .try_clone_reader()
@@ -423,6 +464,7 @@ fn spawn_windows(
         writer: Mutex::new(Box::new(writer)),
         master: Mutex::new(pair.master),
         pid,
+        _shared_resource: shared_resource.clone(),
     });
     host.insert(id.clone(), live);
 
@@ -447,6 +489,7 @@ fn spawn_windows(
     let wait_app = app;
     let wait_id = id;
     thread::spawn(move || {
+        let _shared_resource = shared_resource;
         let code = child.wait().ok().map(|status| status.exit_code() as i32);
         let emit = if let Some(host) = wait_app.try_state::<PtyHost>() {
             host.remove_if_pid(&wait_id, pid).is_some()
@@ -705,11 +748,12 @@ fn foreground_label(master_fd: i32, shell_pid: u32) -> Option<String> {
         return None;
     }
     let pid = pgrp;
-    if pid <= 0 {
+    // An idle prompt is the common case; skip forking `ps` for it.
+    if pid <= 0 || pid == shell_pid as i32 {
         return None;
     }
     let label = process_label(pid)?;
-    if pid == shell_pid as i32 || is_shell_name(&label) {
+    if is_shell_name(&label) {
         return None;
     }
     Some(label)
@@ -824,6 +868,7 @@ mod tests {
                 writer: Mutex::new(Box::new(std::io::sink())),
                 master_fd: -1,
                 pid: 42,
+                _shared_resource: None,
             }),
         );
         assert!(host.remove_if_pid("term", 7).is_none());

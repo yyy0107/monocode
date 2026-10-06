@@ -18,6 +18,7 @@ import { homeDir } from "./platform/tauri/fs";
 import { setHomeDir } from "./shared/lib/paths";
 import { consumeInstalledUpdate } from "./app/model/updateNotice";
 import { initializeProviderBinaryPaths } from "./features/providers/model/providerBinaryPaths";
+import { initProviderAccountPublishing, loadSharedProviderDefaults } from "./features/providers/model/providerAccountCredentials";
 // Lets file commands reach a connected machine for `remote://` paths.
 import "./features/connections/model/remoteCommands";
 import "./styles/index.css";
@@ -33,6 +34,8 @@ const appLoaded = import("./app/App");
 initUiLanguage();
 initAppearance();
 initSounds();
+initProviderAccountPublishing();
+const sharedDefaultsPrimed = loadSharedProviderDefaults().catch(() => undefined);
 // Prime the real home directory before the first render so every `~/` file
 // reference resolves consistently. The IPC call is local and failures remain
 // best-effort, falling back to inference from a session's cwd.
@@ -57,7 +60,7 @@ function dismissBootSplash() {
         start: 0,
         end: "monocode:ui-ready",
       });
-    }, 180);
+    }, 300);
   };
   // useLayoutEffect runs before paint. Two frames later the app is on
   // screen, so the fade reveals UI instead of the desktop blur.
@@ -117,6 +120,7 @@ async function boot() {
   try {
     await providerBinaryPathsPrimed;
     await initializeSharedHost();
+    await sharedDefaultsPrimed;
     const [
       ,
       ,

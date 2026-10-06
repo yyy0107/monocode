@@ -44,6 +44,7 @@ import {
   resolveTabGroupMascot,
 } from "../../workspace/model/tabGroups";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
+import { observeAnimationVisibility } from "../../../shared/lib/animationVisibility";
 
 type Props = {
   boxRef: RefObject<HTMLElement | null>;
@@ -77,6 +78,7 @@ export function ComposerRunner({
   const busyRef = useRef(busy);
   const enabledRef = useRef(enabled);
   const onExitedRef = useRef(onExited);
+  const refreshRef = useRef<(() => void) | null>(null);
   busyRef.current = busy;
   enabledRef.current = enabled;
   onExitedRef.current = onExited;
@@ -123,9 +125,9 @@ export function ComposerRunner({
     let cachedTrack: RunnerTrack | null = null;
     let cachedObstacle: Obstacle | null = null;
     const coins: LiveCoin[] = [];
-    const reduced = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
+    let reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let viewportVisible = !document.hidden;
+    let pausedAt: number | null = null;
     let learned = reduced;
     const starEls = Array.from({ length: STAR_COUNT }, () => {
       const el = document.createElement("div");
@@ -141,8 +143,21 @@ export function ComposerRunner({
       return el;
     });
 
+    const mascotElements = sprite.querySelectorAll<SVGElement>("svg, path");
+    let layerShown: boolean | undefined;
+    let motionPaused: boolean | undefined;
     const showLayer = (shown: boolean) => {
-      layer.style.visibility = shown ? "visible" : "hidden";
+      if (layerShown !== shown) {
+        layer.style.visibility = shown ? "visible" : "hidden";
+        layerShown = shown;
+      }
+      const paused = !shown || reduced;
+      if (motionPaused !== paused) {
+        for (const element of mascotElements) {
+          element.style.animationPlayState = paused ? "paused" : "running";
+        }
+        motionPaused = paused;
+      }
     };
     showLayer(false);
 
@@ -444,18 +459,78 @@ export function ComposerRunner({
       );
     };
 
-    apply(last);
-    const tick = (now: number) => {
-      apply(now);
-      raf = requestAnimationFrame(tick);
+    const canDraw = () =>
+      enabledRef.current && viewportVisible && !document.hidden;
+    const schedule = () => {
+      if (canDraw() && !reduced && !finished && !raf) {
+        raf = requestAnimationFrame(tick);
+      }
     };
-    raf = requestAnimationFrame(tick);
+    const tick = (now: number) => {
+      raf = 0;
+      if (!canDraw()) return;
+      apply(now);
+      schedule();
+    };
+    const refresh = () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      const now = performance.now();
+      if (!canDraw()) {
+        showLayer(false);
+        pausedAt ??= now;
+        // A completed turn in a hidden tab has no exit animation to display.
+        if (!busyRef.current && !finished) {
+          finished = true;
+          clearCoins();
+          onExitedRef.current();
+        }
+        return;
+      }
+      if (pausedAt != null) {
+        const pause = now - pausedAt;
+        nextCoinAt += pause;
+        exitAt += pause;
+        stunAt += pause;
+        for (const coin of coins) {
+          if (coin.collectedAt != null) coin.collectedAt += pause;
+        }
+        pausedAt = null;
+        geometryAt = -Infinity;
+      }
+      last = now;
+      apply(now);
+      schedule();
+    };
+    refreshRef.current = refresh;
+    const box = boxRef.current;
+    const stopObserving = box
+      ? observeAnimationVisibility(box, (activity) => {
+          viewportVisible = activity.visible;
+          reduced = activity.reducedMotion;
+          refresh();
+        })
+      : () => {};
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(() => {
+            geometryAt = -Infinity;
+            if (reduced) refresh();
+          });
+    if (box) resizeObserver?.observe(box);
+    if (!box) refresh();
     return () => {
       cancelAnimationFrame(raf);
+      stopObserving();
+      resizeObserver?.disconnect();
       clearCoins();
       showLayer(false);
+      refreshRef.current = null;
     };
   }, [boxRef]);
+
+  useLayoutEffect(() => refreshRef.current?.(), [enabled, busy]);
 
   return createPortal(
     <div

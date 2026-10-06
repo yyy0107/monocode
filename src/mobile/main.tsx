@@ -5,12 +5,19 @@ import { installLiquidGlass } from "./liquidGlass";
 import { installKeyboardMotion } from "./keyboardMotion";
 import { applyGlassSettings, readGlassSettings } from "./glassSettings";
 import { refreshUiLanguage } from "../shared/i18n/language";
+import {
+  applyAccentColor,
+  loadAccentColor,
+} from "../features/settings/model/appearance";
+import { initSounds } from "../features/settings/model/sounds";
 import "../styles/index.css";
 import "./mobile.css";
 
 refreshUiLanguage();
 installKeyboardMotion();
 applyGlassSettings(readGlassSettings());
+applyAccentColor(loadAccentColor());
+initSounds();
 
 createRoot(document.getElementById("root")!, {
   onRecoverableError(error) {

@@ -1,3 +1,4 @@
+import { useSidebarListPreview } from "./useSidebarListPreview";
 import { AnimatedCollapse } from "../../shared/ui/AnimatedCollapse";
 import {
   HoverSummary,
@@ -105,6 +106,9 @@ export type ProjectListProps = {
   searchActive?: boolean;
   /** Full project counts, independent of the current sidebar filter/preview. */
   projectSummaries?: ReadonlyMap<string, ProjectHoverSummary>;
+  pinnedEntries?: { id: string; content: ReactNode }[];
+  recentEntries?: { id: string; content: ReactNode }[];
+  recentPending?: boolean;
   onProjectHoverOpen?: (path: string) => void;
 };
 
@@ -139,6 +143,9 @@ export function ProjectList({
   matchedProjectPaths,
   searchActive: searchActiveProp,
   projectSummaries,
+  pinnedEntries = [],
+  recentEntries,
+  recentPending = false,
   onProjectHoverOpen,
 }: ProjectListProps) {
   const { t: uiT } = useTranslation();
@@ -328,27 +335,12 @@ export function ProjectList({
   };
 
   const onReorderPinned = (ids: string[]) => {
-    const subset = new Set(sections.pinned.map((item) => item.path));
-    const next = reorderSubset(railOrder, ids, subset);
-    setRailOrder(next);
-    saveProjectRailOrder(next);
-  };
-
-  const onReorderProjects = (ids: string[]) => {
     const subset = new Set(ids);
     const next = reorderSubset(railOrder, ids, subset);
     setRailOrder(next);
     saveProjectRailOrder(next);
   };
 
-  const pinnedIds = sections.pinned.map((item) => item.path);
-  const projectIds = groupedProjectSections.ungrouped.map((item) => item.path);
-  const pinnedSortable = useAnimatedReorder(pinnedIds, onReorderPinned, "y");
-  const projectSortable = useAnimatedReorder(
-    projectIds,
-    onReorderProjects,
-    "y",
-  );
   return (
     <ProjectSummaryContext.Provider
       value={{
@@ -376,18 +368,55 @@ export function ProjectList({
           }}
           className={`flex flex-col gap-1 pb-2 ${scrollable ? "min-h-0 flex-1 overflow-y-auto overscroll-none" : "shrink-0"}`}
         >
-          {sections.pinned.length > 0 ? (
+          {sections.pinned.length > 0 || pinnedEntries.length > 0 ? (
             <ProjectSection
               compact={compact}
-              label={uiT("Pinned")}
+              label={uiT(tree ? "Pinned items" : "Pinned")}
+              leadingEntries={pinnedEntries}
               items={sections.pinned}
               muteStatuses={muteStatuses}
               cwd={cwd}
               busy={busy}
               statsEnabled={statsEnabled ?? !compact}
               tree={tree}
-              sortable={pinnedSortable}
+              onReorder={onReorderPinned}
               pinned
+              searchActive={searchActive}
+              onSelect={onSelectProject}
+              onTogglePin={toggleProjectPin}
+              onContextMenu={onProjectContextMenu}
+              onOpenMenu={projectMenu.open}
+              groupLabels={groupLabels}
+              groupColors={groupColors}
+              groupCustomColors={groupCustomColors}
+              groupLogos={groupLogos}
+              groupMascots={groupMascots}
+            />
+          ) : null}
+
+          {recentEntries !== undefined ? (
+            <ProjectSection
+              compact={compact}
+              label={uiT("Recent sessions")}
+              section="recent"
+              leadingEntries={recentEntries}
+              items={[]}
+              emptyLabel={
+                recentPending
+                  ? undefined
+                  : uiT(
+                      searchActive
+                        ? "No matching sessions"
+                        : "Sessions you start will show up here",
+                    )
+              }
+              muteStatuses={muteStatuses}
+              cwd={cwd}
+              busy={busy}
+              statsEnabled={false}
+              tree={tree}
+              onReorder={onReorderPinned}
+              pinned={false}
               searchActive={searchActive}
               onSelect={onSelectProject}
               onTogglePin={toggleProjectPin}
@@ -432,7 +461,6 @@ export function ProjectList({
                     onTogglePin={toggleProjectPin}
                     onContextMenu={onProjectContextMenu}
                     onOpenMenu={projectMenu.open}
-                    onReorder={onReorderProjects}
                     onToggleCollapsed={() =>
                       updateProjectGroup(group.id, (current) => ({
                         ...current,
@@ -455,8 +483,7 @@ export function ProjectList({
 
           <ProjectSection
             compact={compact}
-            hideHeader={!!tree}
-            label={uiT("Projects")}
+            label={uiT("Recent projects")}
             items={groupedProjectSections.ungrouped}
             muteStatuses={muteStatuses}
             emptyLabel={
@@ -473,7 +500,7 @@ export function ProjectList({
             busy={busy}
             statsEnabled={statsEnabled ?? !compact}
             tree={tree}
-            sortable={projectSortable}
+            onReorder={onReorderPinned}
             pinned={false}
             searchActive={searchActive}
             onSelect={onSelectProject}
@@ -508,6 +535,8 @@ function ProjectSection({
   hideHeader = false,
   label,
   items,
+  leadingEntries = [],
+  section,
   muteStatuses,
   emptyLabel,
   onAdd,
@@ -515,7 +544,7 @@ function ProjectSection({
   busy,
   statsEnabled,
   tree,
-  sortable,
+  onReorder,
   pinned,
   searchActive,
   onSelect,
@@ -532,6 +561,8 @@ function ProjectSection({
   hideHeader?: boolean;
   label: string;
   items: RecentProject[];
+  leadingEntries?: { id: string; content: ReactNode }[];
+  section?: "recent";
   muteStatuses: ReadonlyMap<string, string | null>;
   emptyLabel?: string;
   onAdd?: () => void;
@@ -539,7 +570,7 @@ function ProjectSection({
   busy: Set<string>;
   statsEnabled: boolean;
   tree?: ProjectTree;
-  sortable: SortableHandle;
+  onReorder: (ids: string[]) => void;
   pinned: boolean;
   searchActive: boolean;
   onSelect: (path: string) => void;
@@ -558,14 +589,27 @@ function ProjectSection({
   groupMascots: Record<string, string>;
 }) {
   const { t: uiT } = useTranslation();
+  const preview = useSidebarListPreview(
+    items.length + leadingEntries.length,
+    String(searchActive),
+    searchActive,
+  );
+  const sortable = useAnimatedReorder(
+    items
+      .slice(0, Math.max(0, preview.count - leadingEntries.length))
+      .map((item) => item.path),
+    onReorder,
+    "y",
+  );
   return (
     <div
-      className={compact ? "shrink-0" : `shrink-0 ${tree ? "mb-1" : "mb-2"}`}
+      className={compact ? "shrink-0" : `shrink-0 ${tree ? "mb-4" : "mb-2"}`}
+      data-project-section={section ?? (pinned ? "pinned" : "projects")}
     >
       {compact || hideHeader ? null : (
         <ProjectSectionHeader label={label} onAdd={onAdd} />
       )}
-      {items.length === 0 && emptyLabel ? (
+      {items.length === 0 && leadingEntries.length === 0 && emptyLabel ? (
         <p className="px-4 pb-1 text-[11px] leading-tight text-content/40">
           {uiT(emptyLabel)}
         </p>
@@ -577,33 +621,44 @@ function ProjectSection({
             : `flex flex-col px-2 ${tree ? "gap-[3px]" : "gap-px"}`
         }
       >
-        {items.map((item) => (
-          <ProjectCard
-            compact={compact}
-            key={item.path}
-            item={item}
-            muteStatus={muteStatuses.get(pathKey(item.path)) ?? undefined}
-            selected={
-              (!searchActive || !!tree) && sameProjectPath(item.path, cwd)
-            }
-            busy={isBusyPath(item.path, busy)}
-            statsEnabled={
-              statsEnabled && (!tree || sameProjectPath(item.path, cwd))
-            }
-            tree={tree}
-            pinned={pinned}
-            sortable={sortable}
-            onSelect={onSelect}
-            onTogglePin={onTogglePin}
-            onContextMenu={onContextMenu}
-            onOpenMenu={onOpenMenu}
-            groupLabels={groupLabels}
-            groupColors={groupColors}
-            groupCustomColors={groupCustomColors}
-            groupLogos={groupLogos}
-            groupMascots={groupMascots}
-          />
+        {leadingEntries.map((entry, index) => (
+          <AnimatedCollapse key={entry.id} expanded={index < preview.count}>
+            {entry.content}
+          </AnimatedCollapse>
         ))}
+        {items.map((item, index) => (
+          <AnimatedCollapse
+            key={item.path}
+            expanded={index + leadingEntries.length < preview.count}
+          >
+            <ProjectCard
+              compact={compact}
+              key={item.path}
+              item={item}
+              muteStatus={muteStatuses.get(pathKey(item.path)) ?? undefined}
+              selected={
+                (!searchActive || !!tree) && sameProjectPath(item.path, cwd)
+              }
+              busy={isBusyPath(item.path, busy)}
+              statsEnabled={
+                statsEnabled && (!tree || sameProjectPath(item.path, cwd))
+              }
+              tree={tree}
+              pinned={pinned}
+              sortable={pinned ? sortable : undefined}
+              onSelect={onSelect}
+              onTogglePin={onTogglePin}
+              onContextMenu={onContextMenu}
+              onOpenMenu={onOpenMenu}
+              groupLabels={groupLabels}
+              groupColors={groupColors}
+              groupCustomColors={groupCustomColors}
+              groupLogos={groupLogos}
+              groupMascots={groupMascots}
+            />
+          </AnimatedCollapse>
+        ))}
+        {preview.button}
       </div>
     </div>
   );
@@ -657,7 +712,6 @@ function ProjectGroupSection({
   onTogglePin,
   onContextMenu,
   onOpenMenu,
-  onReorder,
   onToggleCollapsed,
   onOpenGroupMenu,
   groupLabels,
@@ -684,7 +738,6 @@ function ProjectGroupSection({
     y: number,
     trigger?: HTMLElement | null,
   ) => void;
-  onReorder: (ids: string[]) => void;
   onToggleCollapsed: () => void;
   onOpenGroupMenu: (x: number, y: number) => void;
   groupLabels: Record<string, string>;
@@ -694,10 +747,10 @@ function ProjectGroupSection({
   groupMascots: Record<string, string>;
 }) {
   const { t: uiT } = useTranslation();
-  const sortable = useAnimatedReorder(
-    items.map((item) => item.path),
-    onReorder,
-    "y",
+  const preview = useSidebarListPreview(
+    items.length,
+    String(searchActive),
+    searchActive,
   );
   const countLabel = uiT(
     items.length === 1 ? "{count} project" : "{count} projects",
@@ -800,33 +853,35 @@ function ProjectGroupSection({
               : `flex flex-col ${tree ? "gap-[3px] px-1 py-[3px]" : "gap-px p-1"}`
           }
         >
-          {items.map((item) => (
-            <ProjectCard
-              compact={compact}
-              key={item.path}
-              item={item}
-              muteStatus={muteStatuses.get(pathKey(item.path)) ?? undefined}
-              selected={
-                (!searchActive || !!tree) && sameProjectPath(item.path, cwd)
-              }
-              busy={isBusyPath(item.path, busy)}
-              statsEnabled={
-                statsEnabled && (!tree || sameProjectPath(item.path, cwd))
-              }
-              tree={tree}
-              pinned={false}
-              sortable={sortable}
-              onSelect={onSelect}
-              onTogglePin={onTogglePin}
-              onContextMenu={onContextMenu}
-              onOpenMenu={onOpenMenu}
-              groupLabels={groupLabels}
-              groupColors={groupColors}
-              groupCustomColors={groupCustomColors}
-              groupLogos={groupLogos}
-              groupMascots={groupMascots}
-            />
+          {items.map((item, index) => (
+            <AnimatedCollapse key={item.path} expanded={index < preview.count}>
+              <ProjectCard
+                compact={compact}
+                key={item.path}
+                item={item}
+                muteStatus={muteStatuses.get(pathKey(item.path)) ?? undefined}
+                selected={
+                  (!searchActive || !!tree) && sameProjectPath(item.path, cwd)
+                }
+                busy={isBusyPath(item.path, busy)}
+                statsEnabled={
+                  statsEnabled && (!tree || sameProjectPath(item.path, cwd))
+                }
+                tree={tree}
+                pinned={false}
+                onSelect={onSelect}
+                onTogglePin={onTogglePin}
+                onContextMenu={onContextMenu}
+                onOpenMenu={onOpenMenu}
+                groupLabels={groupLabels}
+                groupColors={groupColors}
+                groupCustomColors={groupCustomColors}
+                groupLogos={groupLogos}
+                groupMascots={groupMascots}
+              />
+            </AnimatedCollapse>
           ))}
+          {preview.button}
         </div>
       </AnimatedCollapse>
     </div>
@@ -864,7 +919,7 @@ function ProjectCard({
   statsEnabled: boolean;
   tree?: ProjectTree;
   pinned: boolean;
-  sortable: SortableHandle;
+  sortable?: SortableHandle;
   onSelect: (path: string) => void;
   onTogglePin: (path: string) => void;
   onContextMenu: (path: string, event: MouseEvent<HTMLElement>) => void;
@@ -883,7 +938,7 @@ function ProjectCard({
   const { t: uiT } = useTranslation();
   const hoverSummary = useContext(ProjectSummaryContext);
   const hover = useHoverSummary<HTMLButtonElement>({
-    enabled: !hoverSummary.disabled && !sortable.draggingId,
+    enabled: !hoverSummary.disabled && !sortable?.draggingId,
     interactive: true,
     onOpen: () => hoverSummary.onOpen?.(item.path),
   });
@@ -926,7 +981,7 @@ function ProjectCard({
     machine
       ? "min-w-0 max-w-[75%] shrink-0 truncate text-sm font-medium leading-tight"
       : nameClassName
-  ).replace("font-medium", tree && selected ? "font-semibold" : "font-medium");
+  ).replace("font-medium", tree ? "font-normal" : "font-medium");
   const treeAvatar = tree ? (
     <ProjectAvatar
       path={item.path}
@@ -945,7 +1000,7 @@ function ProjectCard({
 
   const header = (
     <div
-      ref={tree ? undefined : (el) => sortable.setItemRef(item.path, el)}
+      ref={tree ? undefined : (el) => sortable?.setItemRef(item.path, el)}
       data-selected={selected || undefined}
       data-project-header={tree ? "" : undefined}
       className={`${tree ? "project-tree-header project-reorder-item" : "reorder-item project-reorder-item"} group relative flex touch-none items-stretch rounded-md ${compact ? "size-8" : "px-2 h-8"} ${
@@ -966,13 +1021,13 @@ function ProjectCard({
         if ((event.target as HTMLElement | null)?.closest("[data-no-drag]")) {
           return;
         }
-        sortable.onItemPointerDown(item.path, event);
+        sortable?.onItemPointerDown(item.path, event);
       }}
       onClick={(event) => {
         if ((event.target as HTMLElement | null)?.closest("[data-no-drag]")) {
           return;
         }
-        if (sortable.consumeClick()) return;
+        if (sortable?.consumeClick()) return;
         hover.close();
         onSelect(item.path);
       }}
@@ -1350,7 +1405,7 @@ function ProjectCard({
   );
   return tree ? (
     <div
-      ref={(el) => sortable.setItemRef(item.path, el)}
+      ref={(el) => sortable?.setItemRef(item.path, el)}
       data-project-path={pathKey(item.path)}
       className="reorder-item shrink-0"
     >

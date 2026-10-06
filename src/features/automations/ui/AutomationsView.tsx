@@ -106,10 +106,6 @@ import {
   type RecentProject,
 } from "../../projects/model/recents";
 import {
-  loadSessionFolders,
-  subscribeSessionFolders,
-} from "../../sessions/model/sessionFolders";
-import {
   loadModelControls,
   subscribeModelControls,
 } from "../../settings/model/settings";
@@ -915,36 +911,6 @@ function AutomationEditor({
     draft.prompt.trim().length > 0 &&
     looksLikeProject(draft.cwd) &&
     draft.model.length > 0;
-  const [sessionFolders, setSessionFolders] = useState(() =>
-    loadSessionFolders(draft.cwd),
-  );
-  useEffect(() => {
-    setSessionFolders(loadSessionFolders(draft.cwd));
-    return subscribeSessionFolders(draft.cwd, () => {
-      setSessionFolders(loadSessionFolders(draft.cwd));
-    });
-  }, [draft.cwd]);
-  const folderOptions = useMemo(() => {
-    const options = [
-      { value: "", label: uiT("None") },
-      ...sessionFolders.map((folder) => ({
-        value: folder.id,
-        label: folder.name,
-        keywords: folder.name,
-      })),
-    ];
-    if (
-      draft.sessionFolderId &&
-      !sessionFolders.some((folder) => folder.id === draft.sessionFolderId)
-    ) {
-      options.push({
-        value: draft.sessionFolderId,
-        label: uiT("Removed folder"),
-        keywords: draft.sessionFolderId,
-      });
-    }
-    return options;
-  }, [draft.sessionFolderId, sessionFolders, uiT]);
   const update = <K extends keyof AutomationDraft>(
     key: K,
     value: AutomationDraft[K],
@@ -1443,20 +1409,6 @@ function AutomationEditor({
                     onChange={(value) =>
                       update("reuseSession", value === "reuse")
                     }
-                  />
-                </SettingsRow>
-                <SettingsRow
-                  label={uiT("Session folder")}
-                  hint={uiT("Where runs appear in the sidebar")}
-                >
-                  <SearchableSelect
-                    variant="pill"
-                    searchable={folderOptions.length > 6}
-                    align="end"
-                    label={uiT("Session folder")}
-                    value={draft.sessionFolderId}
-                    options={folderOptions}
-                    onChange={(value) => update("sessionFolderId", value)}
                   />
                 </SettingsRow>
               </div>

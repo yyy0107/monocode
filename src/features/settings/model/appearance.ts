@@ -82,6 +82,24 @@ export const THEME_PREFERENCE_DEFAULT: ThemePreference = "dark";
 
 export const ACCENT_COLOR_DEFAULT = null;
 
+/** Accent swatches offered after "Default" on desktop and mobile. */
+export const ACCENT_COLOR_PRESETS = [
+  "#4da3f5",
+  "#8b5cf6",
+  "#ec4899",
+  "#ef4444",
+  "#f59e0b",
+  "#10b981",
+] as const;
+export const ACCENT_COLOR_PRESET_LABELS = [
+  "Blue",
+  "Violet",
+  "Pink",
+  "Red",
+  "Orange",
+  "Green",
+] as const;
+
 /** Fired on `window` whenever the color scheme flips (detail: ColorScheme). */
 export const SCHEME_CHANGE_EVENT = "monocode:schemechange";
 

@@ -366,10 +366,10 @@ fn supported_remote_method(method: &str) -> bool {
             | "projects.open"
             | "models.list"
             | "sessions.list"
+            | "sessions.get"
             | "sessions.update"
             | "sessions.delete"
             | "sessions.sync"
-            | "sessions.refreshDesktopNative"
             | "sessions.syncChunk"
             | "commands.dispatch"
             | "attachments.upload"
@@ -392,6 +392,12 @@ fn supported_remote_method(method: &str) -> bool {
             | "git.index"
             | "git.fileDiff"
             | "git.action"
+            | "assistant.get"
+            | "assistant.configure"
+            | "assistant.messages"
+            | "assistant.send"
+            | "assistant.control"
+            | "assistant.respond"
     )
 }
 

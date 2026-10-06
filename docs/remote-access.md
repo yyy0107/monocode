@@ -100,7 +100,15 @@ The release workflow publishes `monocode-host-{darwin,linux}-{arm64,x64}.tar.gz`
 
 Supported: persistent remote text conversations with all ten local provider adapters, follow-up turns, approvals, questions where the provider offers them, cancellation, per-device revocation, reconnect, remote file browsing and text editing, Git status, file diffs, and history, staging and commits, branch selection and creation, worktree selection and creation, and a tracked Git diff against HEAD. OpenCode's server and event stream stay on the host's loopback interface. Cursor's optional enrichment from its native session database is not available on the headless host; basic transcript and subagent events still work. The desktop polls the host and downloads only transcript blocks that changed since its last update (every 0.75 s while a session runs, 3 s otherwise). The desktop rejects any single host response over 16 MiB. A sync above 4 MiB, such as reopening a very long transcript or one very large tool output, is sent as a series of bounded pieces of one consistent revision. Transcript size is therefore not limited by the response cap. The host writes streamed output in 120 ms batches and keeps a bounded event journal.
 
-Remote history appears in the Sessions sidebar of each project on a machine. Host snapshots also populate the app's normal session state while the tab is open; they are not written to the local session store. Remote `/compact` uses the provider's context compaction, and `/plan` selects the host provider's plan mode. Queued follow-ups and editing the last message still need host commands. Other local slash commands and skill expansion are not yet available remotely. Worktree deletion, terminals, generated image output, named provider accounts, `/operator`, automations, orchestration, LAN discovery, and account-based tunnels are not implemented yet. Other remote prompts are sent directly to the provider.
+Remote history appears in the Sessions sidebar of each project on a machine. Host snapshots also populate the app's normal session state while the tab is open; they are not written to the local session store. Remote `/compact` uses the provider's context compaction, and `/plan` selects the host provider's plan mode. Queued follow-ups and editing the last message still need host commands. Other local slash commands and skill expansion are not yet available remotely. Worktree deletion, terminals, generated image output, named provider accounts, `/operator`, automations, LAN discovery, and account-based tunnels are not implemented yet. Other remote prompts are sent directly to the provider.
+
+Hosts advertising orchestration capability version 1 support desktop assignment
+generation, reviewed confirmation, parallel workers, worker details, task
+cancellation, stopping and manual resume. Execution and persistence stay on that
+Host, including when desktop closes. Host restart pauses unfinished runs instead
+of redispatching them. Worker histories are inspected through their lead and are
+protected from independent writes. Older Hosts expose no orchestration controls.
+Phone clients receive orchestration status and history without new controls.
 
 The headless host runs the reused TypeScript adapters with a Node process backend. It proves the execution boundary without introducing the planned Rust daemon/worker IPC yet. Node is included in both Host release archives and desktop bundles. Local desktop projects now connect to the same background service automatically; see [shared desktop and mobile conversations](shared-sessions.md) for migration and current feature limits. Imported named Codex/Claude accounts use the local desktop's existing account directories; standalone remote Hosts retain their separate account limitations.
 
@@ -120,3 +128,35 @@ Host tests use fake provider executables and temporary loopback servers. They do
 For the real OpenSSH transport and native askpass smoke test on Linux/macOS, build with `npm run host:package` and `cargo build --bin monocode`, then run `python3 scripts/test-remote-ssh.py`. It uses a disposable loopback sshd, temporary keys and known-hosts file, and an isolated packaged host. It leaves personal SSH configuration, provider credentials, and OS services untouched.
 
 Host CI runs on Windows, macOS, and Linux. Windows-specific tests cover ACL inheritance, Task Scheduler definitions, bootstrap parsing/installation, and provider child-process cleanup. They use temporary data and mocked task registration so normal test runs do not install or replace a real user's background task. Full SSH-to-Task-Scheduler setup must also be validated on a signed-in Windows host before a supported release.
+
+
+## Personal assistant
+
+Hosts advertising `assistant.v1` provide one persistent personal assistant. Open
+**Assistant** in the desktop sidebar or phone drawer and select an existing
+provider/model. Each Host keeps its own chat, settings and drafts. Older Hosts
+show an unavailable notice until upgraded. Restart the development Host after
+building this feature to load the new runtime.
+
+The assistant can discover providers, projects and conversations, create and
+message conversations, and manage their inputs, queues, files, Git and reviewed
+orchestration through the existing Host owners. Platform permissions start
+enabled and can be restricted by action and project. Agent execution mode is a
+separate provider setting. These API permissions do not sandbox a provider's
+operating-system access.
+
+Manual input, important Host session events and interval checks run without a
+connected client. Pausing stops the assistant brain and new actions; delegated
+work continues. Disabling retains history. Restart interrupts an active brain
+turn and requires **Continue** after reviewing its effects. Known receipts are
+reused; uncertain external effects are not replayed automatically. Interval
+checks use UTC durations, coalesce missed periods, and stay quiet when unchanged.
+
+The public chat contains replies, session cards and necessary user input. Full
+brain execution stays private. Target messages retain the user role and show an
+**Assistant** badge. Cards identify the exact Host/project/session; worker cards
+open read-only details. Removing read permission or project scope disables the
+card's navigation.
+
+Actual checks and unverified combinations are recorded in
+[the assistant compatibility record](../specs/022-host-assistant/compatibility.md).

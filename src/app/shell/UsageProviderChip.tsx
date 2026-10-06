@@ -87,6 +87,7 @@ export function UsageProviderChip({
   onConsumeReset,
   onReconnect,
   presentation,
+  identitySource,
 }: {
   limits: ProviderRateLimits;
   now: number;
@@ -94,6 +95,7 @@ export function UsageProviderChip({
   project?: string;
   accounts?: ProviderAccount[];
   accountId?: string;
+  identitySource?: "host" | "local";
   onSelectAccount?: (accountId: string) => void;
   onAddAccount?: (label: string) => Promise<ProviderAccount>;
   onManageAccounts?: () => void;
@@ -143,6 +145,7 @@ export function UsageProviderChip({
   const identities = useProviderAccountIdentities(
     accounts,
     `${open}:${limits.updatedAt}:${reconnectState}`,
+    identitySource,
   );
   const activeIdentity = activeAccount
     ? identities[identityKey(activeAccount)]

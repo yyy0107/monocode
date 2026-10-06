@@ -1028,3 +1028,40 @@ it("still kills the child when closing an ended stream fails", async () => {
   expect(closeHarnessSse).toHaveBeenCalledExactlyOnceWith("opencode-live");
   expect(killChild).toHaveBeenCalledExactlyOnceWith("opencode-live");
 });
+
+describe("OpenCode imported native sessions", () => {
+  const native = {
+    provider: "opencode" as const,
+    providerSessionId: "session_1",
+    path: "/home/u/.local/share/opencode/opencode.db",
+    storage: "sqlite" as const,
+    revision: "sqlite:1:1:1",
+    blockIds: [],
+    createdAt: 1,
+    updatedAt: 2,
+  };
+
+  it("adopts the imported session without creating a new one", async () => {
+    bindOpenCodeSession("opencode-live", "session_1", "/repo", undefined, native);
+    const events: HarnessEvent[] = [];
+    const { done } = await startTurn(events);
+    expect(
+      harnessHttp.mock.calls.some(
+        ([input]) => input.method === "GET" && new URL(input.url).pathname === "/session/session_1",
+      ),
+    ).toBe(true);
+    expect(
+      harnessHttp.mock.calls.some(
+        ([input]) => input.method === "POST" && new URL(input.url).pathname === "/session",
+      ),
+    ).toBe(false);
+    idle();
+    await done;
+  });
+
+  it("refuses to continue an imported session from another project", async () => {
+    bindOpenCodeSession("opencode-live", "session_1", "/other", undefined, native);
+    await expect(turn([])).rejects.toThrow("original project");
+    expect(spawnChild).not.toHaveBeenCalled();
+  });
+});

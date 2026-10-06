@@ -1,13 +1,33 @@
 // @vitest-environment happy-dom
-import { beforeEach, expect, it } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import {
   pendingRemoteCommand,
   pendingRemoteFollowup,
   savePendingRemoteCommand,
 } from "./connections";
+import { loadRemoteOutbox } from "./remoteOutbox";
 import type { HostCommand } from "./protocol";
 
-beforeEach(() => localStorage.clear());
+const native = vi.hoisted(() => ({ rows: new Map<string, string>(), fail: false }));
+vi.mock("@tauri-apps/api/event", () => ({
+  emit: vi.fn(async () => undefined),
+  listen: vi.fn(async () => () => undefined),
+}));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (command: string, args: { key: string; entry: string; keys: string[] }) => {
+    if (command === "remote_outbox_list") return [...native.rows];
+    if (native.fail) throw new Error("disk full");
+    if (command === "remote_outbox_put") native.rows.set(args.key, args.entry);
+    if (command === "remote_outbox_delete") for (const key of args.keys) native.rows.delete(key);
+  }),
+}));
+
+beforeEach(async () => {
+  localStorage.clear();
+  native.rows.clear();
+  native.fail = false;
+  await loadRemoteOutbox();
+});
 const create: HostCommand = {
   type: "create",
   commandId: "create-1",
@@ -23,26 +43,38 @@ const followup: HostCommand = {
   text: "First message",
 };
 
-it("isolates unfinished creates by tab and keeps their original first message on retry", () => {
-  savePendingRemoteCommand("project", "env", create, "first-tab", followup);
+it("isolates unfinished creates by tab and keeps their original first message on retry", async () => {
+  await savePendingRemoteCommand("project", "env", create, "first-tab", followup);
   expect(
     pendingRemoteCommand("project", "env", null, "second-tab"),
   ).toBeUndefined();
   expect(pendingRemoteCommand("project", "env", null, "first-tab")).toEqual(
     create,
   );
-  savePendingRemoteCommand("project", "env", create, "first-tab");
+  await savePendingRemoteCommand("project", "env", create, "first-tab");
   expect(pendingRemoteFollowup("project", "env", create.commandId)).toEqual(
     followup,
   );
 });
 
-it("can recover commands saved by the earlier desktop", () => {
-  localStorage.setItem(
-    'monocode.remote-command.v1:["project","env"]:create-1',
-    JSON.stringify(create),
-  );
+it("persists natively and refuses to dispatch when the request cannot be saved", async () => {
+  await savePendingRemoteCommand("project", "env", create, "first-tab");
+  expect(native.rows.size).toBe(1);
+  expect(localStorage.length).toBe(0);
+  native.fail = true;
+  await expect(
+    savePendingRemoteCommand("project", "env", followup, "first-tab"),
+  ).rejects.toThrow("Cannot save your request locally");
+  expect(pendingRemoteCommand("project", "env", "", "first-tab")).toBeUndefined();
+});
+
+it("moves commands saved by the earlier desktop into native storage", async () => {
+  const key = 'monocode.remote-command.v1:["project","env"]:create-1';
+  localStorage.setItem(key, JSON.stringify(create));
+  await loadRemoteOutbox();
   expect(pendingRemoteCommand("project", "env", null, "first-tab")).toEqual(
     create,
   );
+  expect(native.rows.get(key)).toBe(JSON.stringify(create));
+  expect(localStorage.getItem(key)).toBeNull();
 });

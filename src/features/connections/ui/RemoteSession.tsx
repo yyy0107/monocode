@@ -1,8 +1,13 @@
+import { requestedProviderAccountId, supportsProviderAccounts } from "../../providers/model/providerAccounts";
 import { MessageQueue } from "../../sessions/ui/MessageQueue";
 import { titleStateFor } from "../../sessions/model/titlePolicy";
 import { useHostQueue } from "./useHostQueue";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { hostOrchestrationClient } from "../../orchestration/model/orchestrationClient";
+import { localizeOrchestrationMessage } from "../../orchestration/ui/orchestrationMessages";
+import { OrchestrationActions, OrchestrationWorkers, OrchestrationRuntimeContext, type OrchestrationRuntime, type OrchestrationWorkerDetail } from "../../orchestration/ui/OrchestrationActions";
+import type { OrchestrationProposal } from "../../orchestration/model/orchestrationPlan";
 import type { SessionPaneProps } from "../../sessions/ui/SessionPane";
 import { sharedSessionBackend } from "../../sessions/data/sharedSessionBackend";
 import type {
@@ -72,7 +77,7 @@ import {
 export type RemoteSessionOverrides = Partial<SessionPaneProps> & {
   messageQueue?: ReactNode;
   remoteSession: boolean;
-  remoteFeatures: { attachments: boolean; plan: boolean; draft: boolean };
+  remoteFeatures: { attachments: boolean; plan: boolean; draft: boolean; orchestration?: boolean };
   remoteSessionLoading: boolean;
   remoteSessionStarted: boolean;
   allowedModelHarnesses: readonly HarnessId[];
@@ -90,7 +95,8 @@ type OptimisticTurn = {
   commandId: string;
   text: string;
   attachments: Attachment[];
-  intent: "default" | "plan" | "build";
+  intent: "default" | "plan" | "build" | "orchestrate";
+  retryProposalBlockId?: string;
   draft?: boolean;
   draftBlockId?: string;
   planBlockId?: string;
@@ -136,6 +142,7 @@ export function RemoteSession({
   onOpenDiff,
   onOpenPlan,
   render,
+  unavailableHeader,
 }: {
   /** The tab's local session, which provides its ID and new-session defaults. */
   shell: Session;
@@ -145,6 +152,7 @@ export function RemoteSession({
   onOpenDiff: SessionPaneProps["onOpenDiff"];
   onOpenPlan: SessionPaneProps["onOpenPlan"];
   render: (overrides: RemoteSessionOverrides) => ReactNode;
+  unavailableHeader?: ReactNode;
 }) {
   const { t: uiT } = useTranslation();
   const [, refreshProject] = useState(0);
@@ -164,6 +172,8 @@ export function RemoteSession({
     : undefined;
   if (!project || !machine || !project.projectId)
     return (
+      <>
+        {unavailableHeader}
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <p className="text-[13px] text-content/60">
           {projectError || (!project
@@ -188,6 +198,7 @@ export function RemoteSession({
           </button>
         ) : null}
       </div>
+      </>
     );
   return (
     <ConnectedRemoteSession
@@ -230,6 +241,11 @@ function ConnectedRemoteSession({
   const [descriptor, setDescriptor] = useState<HostDescriptor | undefined>(() =>
     cachedDescriptors.get(descriptorKey(machine.id, machine.environmentId)),
   );
+  const parentActions = useContext(OrchestrationActions);
+  const parentWorkers = useContext(OrchestrationWorkers);
+  const source = useMemo(() => ({ machineId: machine.id, project }), [machine.id, project]);
+  const orchestrationEnabled = !!descriptor?.capabilities.includes("sessions.orchestration");
+  const [proposalEdits, setProposalEdits] = useState<ReadonlyMap<string, { proposal: OrchestrationProposal; revision: number }>>(() => new Map());
   const [online, setOnline] = useState(false);
   const [error, setError] = useState("");
   const [sessionId, setSessionId] = useState(() => remoteSessionFor(shell.id));
@@ -245,6 +261,7 @@ function ConnectedRemoteSession({
         setStarting(undefined);
         setUnseenSend(undefined);
         setChanges(undefined);
+        setProposalEdits(new Map());
         applied.current = undefined;
         setError("");
         setRemovingDraft(undefined);
@@ -441,8 +458,12 @@ function ConnectedRemoteSession({
         if (next && sessionId)
           rememberSessionSnapshot(snapshotKey(machine.id, sessionId), next);
         setSnapshot(next);
+        if (next) {
+          hostOrchestrationClient.bindShell(source, next.session.id, shell.id);
+          hostOrchestrationClient.accept(source, next);
+        }
         if (next) onSnapshot?.(shell.id, next);
-        active = !!next?.session.busy;
+        active = !!next?.session.busy || next?.orchestration?.status === "active";
       } catch (reason) {
         if (stale()) return;
         setOnline(false);
@@ -559,7 +580,7 @@ function ConnectedRemoteSession({
   const optimisticTurn = (
     text: string,
     attachments: Attachment[] = [],
-    intent: "default" | "plan" | "build" = "default",
+    intent: "default" | "plan" | "build" | "orchestrate" = "default",
     draft = false,
     draftBlockId?: string,
     planBlockId?: string,
@@ -603,7 +624,7 @@ function ConnectedRemoteSession({
     // Keep the original ID across disconnects and app restarts. An ambiguous
     // response is retried explicitly instead of silently sending a new prompt.
     try {
-      savePendingRemoteCommand(
+      await savePendingRemoteCommand(
         project.key,
         machine.environmentId,
         command,
@@ -630,7 +651,7 @@ function ConnectedRemoteSession({
           command.commandId,
         );
         if (next && next.type !== "create")
-          savePendingRemoteCommand(
+          await savePendingRemoteCommand(
             project.key,
             machine.environmentId,
             { ...next, sessionId: receipt.sessionId },
@@ -718,7 +739,7 @@ function ConnectedRemoteSession({
           ),
         );
       }
-      setError(message.replace(/^Error: /, ""));
+      setError(uiT(message.replace(/^Error: /, "").replace(/^Host rejected request: /, "")));
       return undefined;
     } finally {
       sendingRef.current = false;
@@ -763,7 +784,7 @@ function ConnectedRemoteSession({
       sharedSessionBackend()?.rememberSession(shell.id, project.cwd);
     }
     boundSession.current = id;
-    rememberRemoteSession(shell.id, id);
+    rememberRemoteSession(shell.id, id, project);
     setSessionId(id);
   };
 
@@ -832,6 +853,7 @@ function ConnectedRemoteSession({
             turn.draftBlockId,
             turn.planBlockId,
             turn.refreshTitle,
+            turn.retryProposalBlockId,
           ),
       turn,
     );
@@ -893,6 +915,7 @@ function ConnectedRemoteSession({
             turn.draftBlockId,
             turn.planBlockId,
             turn.refreshTitle,
+            turn.retryProposalBlockId,
           );
       const receipt = await run(
         {
@@ -905,6 +928,9 @@ function ConnectedRemoteSession({
           model: draft.model,
           modelSettings: draft.settings,
           runtimeMode: draft.mode,
+          ...(project.local && supportsProviderAccounts(draft.harness)
+            ? { providerAccountId: (shell.harness === draft.harness ? shell.providerAccountId : undefined) ?? requestedProviderAccountId(draft.harness, project.cwd) }
+            : {}),
         },
         turn,
         followup,
@@ -936,10 +962,11 @@ function ConnectedRemoteSession({
     text: string,
     commandId: string = crypto.randomUUID(),
     attachments: RemoteAttachment[] = [],
-    intent: "default" | "plan" | "build" = "default",
+    intent: "default" | "plan" | "build" | "orchestrate" = "default",
     draftBlockId?: string,
     planBlockId?: string,
     refreshTitle = false,
+    retryProposalBlockId?: string,
   ): Extract<HostCommand, { type: "send" | "compact" }> =>
     text.trim().toLowerCase() === "/compact" &&
     !attachments.length &&
@@ -956,6 +983,7 @@ function ConnectedRemoteSession({
           ...(draftBlockId ? { draftBlockId } : {}),
           ...(planBlockId ? { planBlockId } : {}),
           ...(refreshTitle ? { refreshTitle: true } : {}),
+          ...(retryProposalBlockId ? { retryProposalBlockId } : {}),
         };
 
   const submit = (
@@ -975,9 +1003,10 @@ function ConnectedRemoteSession({
     )
       return false;
     const intent =
-      options?.intent === "plan" || options?.intent === "build"
+      options?.intent === "plan" || options?.intent === "build" || options?.intent === "orchestrate"
         ? options.intent
         : "default";
+    if (intent === "orchestrate" && !orchestrationEnabled) return false;
     const turn = optimisticTurn(
       text,
       attachments,
@@ -987,6 +1016,7 @@ function ConnectedRemoteSession({
       planBlockId,
     );
     turn.refreshTitle = options?.refreshTitle;
+    turn.retryProposalBlockId = options?.retryProposalBlockId;
     preparingRef.current = true;
     setStarting(turn);
     if (!hostSession) {
@@ -1135,7 +1165,11 @@ function ConnectedRemoteSession({
     modelSettings: configuration.settings,
     runtimeMode: configuration.mode,
     busy,
-    blocks: unconfirmed ? [...blocks, unconfirmed] : blocks,
+    blocks: (unconfirmed ? [...blocks, unconfirmed] : blocks).map(block => {
+      const edit = proposalEdits.get(block.id);
+      return edit && block.orchestration?.status === "ready" && snapshot?.orchestration?.proposalId !== block.id
+        ? { ...block, orchestration: edit.proposal } : block;
+    }),
   };
 
   const catalogProblem = catalog?.errors[configuration.harness] ?? catalogError;
@@ -1252,6 +1286,10 @@ function ConnectedRemoteSession({
   };
 
   const stopTurn = () => {
+    if (snapshot?.orchestration && ["active", "paused"].includes(snapshot.orchestration.status)) {
+      void controlRun("stop").catch(reason => setError(String(reason)));
+      return;
+    }
     if (hostSession?.busy && snapshot?.runId)
       void run({
         type: "cancel",
@@ -1295,6 +1333,85 @@ function ConnectedRemoteSession({
   };
   const saveDraft = (text: string, attachments: Attachment[]) =>
     submit(text, attachments, undefined, true);
+
+  const refreshOrchestration = async () => {
+    const id = hostSession?.id;
+    if (!id || !alive.current) return;
+    const next = await loadRemoteSession(machine.id, id, snapshotRef.current);
+    if (!alive.current || boundSession.current !== id) return;
+    snapshotRef.current = next;
+    setSnapshot(next);
+    hostOrchestrationClient.accept(source, next);
+    onSnapshot?.(shell.id, next);
+  };
+  const controlRun = async (action: "resume" | "stop" | "cancelTask", taskId?: string) => {
+    const view = snapshotRef.current?.orchestration;
+    if (!view || !online || !orchestrationEnabled || pending)
+      throw new Error(uiT("Connect to the Host before controlling this run."));
+    const receipt = await run({ type: "orchestration", action, commandId: crypto.randomUUID(),
+      projectId: project.projectId, sessionId: view.leadId, orchestrationId: view.id,
+      ...(taskId ? { taskId } : {}) });
+    if (!receipt) throw new Error(uiT("The Host has not confirmed this request. Retry it before continuing."));
+    await refreshOrchestration();
+  };
+  const runViews = useMemo(() => {
+    const view = snapshot?.orchestration;
+    if (!view) return [];
+    return [{ ...view, cwd: project.key, workspace: view.workspace && {
+      ...view.workspace, projectCwd: project.key,
+      checkoutCwd: project.local ? view.workspace.checkoutCwd : remotePath(project.environmentId, view.workspace.checkoutCwd),
+    } }];
+  }, [snapshot?.orchestration, project]);
+  const orchestrationRuntime = useMemo<OrchestrationRuntime>(() => ({
+    subscribe: hostOrchestrationClient.subscribe,
+    snapshot: () => runViews,
+    hydrate: async () => undefined,
+    resumeBlocker: () => runViews[0]?.resumeBlocker && ({ id: runViews[0].resumeBlocker.sessionId, title: runViews[0].resumeBlocker.title }),
+    resumeLeadBusy: () => !!runViews[0]?.resumeLeadBusy,
+    resume: () => controlRun("resume"),
+    stop: () => controlRun("stop"),
+    cancelTask: (_, taskId) => controlRun("cancelTask", taskId),
+  }), [runViews, online, orchestrationEnabled, pending, hostSession?.id, sending]);
+  const hostWorker = (worker: OrchestrationWorkerDetail): OrchestrationWorkerDetail => ({
+    ...worker,
+    leadId: shell.id,
+    sessionId: hostOrchestrationClient.shellId(source, worker.sessionId),
+    host: { ...source, leadId: hostSession?.id ?? worker.leadId, sessionId: worker.sessionId },
+  });
+  const hostActions = orchestrationEnabled ? {
+    open: () => parentActions?.open(shell.id),
+    openAgents: (workers: OrchestrationWorkerDetail[]) => parentActions?.openAgents?.(workers.map(hostWorker)),
+    update: (_: string, blockId: string, proposal: OrchestrationProposal) => {
+      if (!snapshot || busy || pending) return;
+      setProposalEdits(current => new Map(current).set(blockId, {
+        proposal, revision: current.get(blockId)?.revision ?? snapshot.revision,
+      }));
+    },
+    confirm: async (_: string, blockId: string) => {
+      const current = snapshotRef.current;
+      if (!current || !online || busy || pending) throw new Error(uiT("Wait for the proposal to finish before confirming."));
+      const edit = proposalEdits.get(blockId);
+      const receipt = await run({ type: "orchestration", action: "confirmProposal", commandId: crypto.randomUUID(),
+        projectId: project.projectId, sessionId: current.session.id, proposalBlockId: blockId,
+        expectedRevision: edit?.revision ?? current.revision,
+        ...(edit ? { edit: { maxWorkers: edit.proposal.settings.maxWorkers, tasks: edit.proposal.tasks } } : {}),
+      });
+      if (!receipt) {
+        await refreshOrchestration();
+        throw new Error(uiT("The Host has not confirmed this request. Retry it before continuing."));
+      }
+      setProposalEdits(edits => { const next = new Map(edits); next.delete(blockId); return next; });
+      await refreshOrchestration();
+    },
+    retry: (_: string, blockId: string) => {
+      const proposal = hostSession?.blocks.find(block => block.id === blockId)?.orchestration;
+      if (proposal) submit(proposal.request, [], { intent: "orchestrate", retryProposalBlockId: blockId });
+    },
+    reload: (_: string, blockId: string) => {
+      setProposalEdits(edits => { const next = new Map(edits); next.delete(blockId); return next; });
+      setRefresh(value => value + 1);
+    },
+  } : null;
   useEffect(
     () =>
       registerRemoteSessionActions(shell.id, {
@@ -1330,6 +1447,7 @@ function ConnectedRemoteSession({
       attachments: !!descriptor?.capabilities.includes("attachments.upload"),
       plan: !!descriptor?.capabilities.includes("sessions.plan"),
       draft: !!descriptor?.capabilities.includes("sessions.draft"),
+      orchestration: orchestrationEnabled,
     },
     remoteSessionLoading: !!sessionId && !hostSession && !session.blocks.length,
     remoteSessionStarted: !!sessionId,
@@ -1392,7 +1510,6 @@ function ConnectedRemoteSession({
         });
       return true;
     },
-    onPlaceSessionInFolder: noop,
     onDeleteQueuedMessage: (_, id) => queue.onDelete(id),
     onEditQueuedMessage: (_, id, text) => queue.onEdit(id, text),
     onQueuedMessageEditingChange: (_, id) => queue.onEditingChange(id),
@@ -1417,6 +1534,13 @@ function ConnectedRemoteSession({
 
   return (
     <ModelSourceContext.Provider value={modelSource}>
+      <OrchestrationRuntimeContext.Provider value={orchestrationRuntime}>
+      <OrchestrationActions.Provider value={hostActions}>
+      <OrchestrationWorkers.Provider value={{ ...parentWorkers,
+        selectedId: runViews[0]?.tasks.find(task => hostOrchestrationClient.shellId(source, task.sessionId) === parentWorkers.selectedId)?.sessionId ?? null,
+        inspect: id => parentWorkers.inspect(id ? hostOrchestrationClient.shellId(source, id) : null),
+        openDetails: parentWorkers.openDetails ? worker => parentWorkers.openDetails?.(hostWorker(worker)) : undefined,
+      }}>
       <div className="relative flex h-full min-h-0 flex-col">
         {notice ? (
           <div
@@ -1424,9 +1548,9 @@ function ConnectedRemoteSession({
             className="flex shrink-0 items-center gap-3 border-b border-stroke px-4 py-2 text-[12px] text-content/65"
           >
             <span className="min-w-0 flex-1 truncate" title={notice.detail}>
-              {notice.text}
+              {localizeOrchestrationMessage(notice.text, uiT)}
               {notice.detail ? (
-                <span className="text-content/40"> {notice.detail}</span>
+                <span className="text-content/40"> {localizeOrchestrationMessage(notice.detail, uiT)}</span>
               ) : null}
             </span>
             {notice.action ? (
@@ -1443,6 +1567,9 @@ function ConnectedRemoteSession({
         ) : null}
         <div className="min-h-0 flex-1">{render(overrides)}</div>
       </div>
+      </OrchestrationWorkers.Provider>
+      </OrchestrationActions.Provider>
+      </OrchestrationRuntimeContext.Provider>
     </ModelSourceContext.Provider>
   );
 }

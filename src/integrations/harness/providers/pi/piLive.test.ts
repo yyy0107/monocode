@@ -323,6 +323,70 @@ describe("Pi live session", () => {
     } finally { await stopPiSession("pi-levels"); }
   });
 
+  it.each([true, false])("accepts native thinking clamping without publishing the requested level (event=%s)", async emitChange => {
+    let thinking = "off";
+    mocks.request.mockImplementation(async command => {
+      if (command.type === "get_state") return { data: { sessionId: "pi-clamped",
+        model: { provider: "deepseek", id: "flash" }, thinkingLevel: thinking } };
+      if (command.type === "get_available_thinking_levels") return { data: { levels: ["off", "high"] } };
+      if (command.type === "set_thinking_level") {
+        thinking = "high";
+        if (emitChange) mocks.frames[0]!({ type: "thinking_level_changed", level: thinking });
+      }
+      return { data: {} };
+    });
+    const events: HarnessEvent[] = [];
+    try {
+      await compactPiContext({ sessionId: "pi-clamped", cwd: "/repo", model: "pi:default",
+        runtimeMode: "supervised", modelSettings: { thinking: "medium" }, onEvent: event => events.push(event) });
+      expect(mocks.request).toHaveBeenCalledWith({ type: "set_thinking_level", level: "medium" });
+      expect(mocks.request).toHaveBeenCalledWith({ type: "compact" }, 30 * 60_000);
+      expect(events).toContainEqual(expect.objectContaining({ type: "session.configChanged",
+        modelSettings: { thinking: "high" } }));
+      expect(events.some(event => event.type === "session.configChanged" && event.modelSettings?.thinking === "medium")).toBe(false);
+    } finally { await stopPiSession("pi-clamped"); }
+  });
+
+  it("reads thinking state after switching to an off-only model", async () => {
+    let modelId = "reasoning";
+    mocks.request.mockImplementation(async command => {
+      if (command.type === "get_state") return { data: { sessionId: "pi-switch-thinking",
+        model: { provider: "test", id: modelId }, thinkingLevel: modelId === "reasoning" ? "medium" : "off" } };
+      if (command.type === "set_model") modelId = command.modelId;
+      if (command.type === "get_available_thinking_levels") return { data: { levels: modelId === "reasoning" ? ["off", "medium"] : ["off"] } };
+      return { data: {} };
+    });
+    const events: HarnessEvent[] = [];
+    const input = { sessionId: "pi-switch-thinking", cwd: "/repo", runtimeMode: "supervised" as const,
+      modelSettings: { thinking: "medium" }, onEvent: (event: HarnessEvent) => events.push(event) };
+    try {
+      await compactPiContext({ ...input, model: "pi:test/reasoning" });
+      events.length = 0;
+      await compactPiContext({ ...input, model: "pi:test/plain" });
+      expect(events).toContainEqual(expect.objectContaining({ type: "session.configChanged",
+        modelSettings: { thinking: "off" }, modelSettingOptions: { model: "pi:test/plain",
+          settings: [expect.objectContaining({ value: "off", options: [{ value: "off", label: "Off" }] })] } }));
+      expect(events.some(event => event.type === "session.configChanged" && event.modelSettings?.thinking === "medium")).toBe(false);
+    } finally { await stopPiSession("pi-switch-thinking"); }
+  });
+
+  it("keeps native thinking when the capability query is unavailable", async () => {
+    mocks.request.mockImplementation(async command => {
+      if (command.type === "get_state") return { data: { sessionId: "pi-no-levels",
+        model: { provider: "test", id: "model" }, thinkingLevel: "high" } };
+      if (command.type === "get_available_thinking_levels") throw new Error("Unknown command");
+      return { data: {} };
+    });
+    const events: HarnessEvent[] = [];
+    try {
+      await compactPiContext({ sessionId: "pi-no-levels", cwd: "/repo", model: "pi:default",
+        runtimeMode: "supervised", modelSettings: { thinking: "medium" }, onEvent: event => events.push(event) });
+      expect(mocks.request).not.toHaveBeenCalledWith(expect.objectContaining({ type: "set_thinking_level" }));
+      expect(events).toContainEqual(expect.objectContaining({ type: "session.configChanged",
+        modelSettings: { thinking: "high" }, modelSettingOptions: { model: "pi:test/model", settings: [] } }));
+    } finally { await stopPiSession("pi-no-levels"); }
+  });
+
   it("does not claim a rejected thinking setting was applied", async () => {
     mocks.request.mockImplementation(async command => {
       if (command.type === "get_state") return { data: { sessionId: "pi-rejected",

@@ -21,7 +21,7 @@ import type { MobileSheetPoint } from "./MobileSheet";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { MobileListPreview } from "./MobileListPreview";
 import { formatMobileRelativeTime } from "./relativeTime";
-import { sortMobileSessions } from "./sessionList";
+import { sortMobileProjects, sortMobileSessions } from "./sessionList";
 
 interface History {
   sessions?: HostSessionSummary[];
@@ -119,17 +119,10 @@ export function MobileHome({
     };
   }, [idsKey, foreground, loadSessions, retry, refreshKey]);
 
-  const orderedProjects = projects
-    .map((item) => ({
-      project: item,
-      updatedAt: (histories[item.id]?.sessions ?? []).reduce(
-        (latest, session) =>
-          session.archived ? latest : Math.max(latest, session.updatedAt),
-        0,
-      ),
-    }))
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .map((item) => item.project);
+  const orderedProjects = sortMobileProjects(
+    projects,
+    (id) => histories[id]?.sessions ?? [],
+  );
   const ownerById = new Map(owners.map((item) => [item.id, item]));
   const needle = query.trim().toLocaleLowerCase();
   const ordered = sortMobileSessions(
@@ -220,16 +213,20 @@ export function MobileHome({
                 t("Untitled conversation")}
             </span>
           </strong>
-          {item.status === "running" && (
-            <small>
-              <LoaderCircle size={13} className="mobile-spin" />
-              <span>{t("Working")}</span>
-            </small>
-          )}
         </span>
-        <time dateTime={new Date(item.updatedAt).toISOString()}>
-          {formatMobileRelativeTime(item.updatedAt, now, language)}
-        </time>
+        {item.status === "running" ? (
+          <span
+            className="mobile-home-session-loading"
+            role="img"
+            aria-label={t("Working")}
+          >
+            <LoaderCircle size={16} className="mobile-spin" aria-hidden="true" />
+          </span>
+        ) : (
+          <time dateTime={new Date(item.updatedAt).toISOString()}>
+            {formatMobileRelativeTime(item.updatedAt, now, language)}
+          </time>
+        )}
         {unreadIds.has(item.id) && (
           <span
             className="mobile-unread-dot"

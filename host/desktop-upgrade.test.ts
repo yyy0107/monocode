@@ -14,7 +14,7 @@ import { expect, it } from "vitest";
 import { HostStore } from "./store";
 import { prepareDesktopHost } from "./desktop";
 
-async function legacyHost(busy: boolean) {
+async function legacyHost(busy: boolean, status: { sharedDesktop?: number; orchestrationHost?: number } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "monocode-legacy-upgrade-"));
   const desktop = join(directory, "desktop");
   mkdirSync(desktop);
@@ -49,7 +49,7 @@ async function legacyHost(busy: boolean) {
       data += chunk;
     });
     request.on("end", () => {
-      response.end("{}");
+      response.end(JSON.stringify(status));
       if (JSON.parse(data).action === "stop") {
         stops++;
         store.close();
@@ -93,8 +93,11 @@ async function legacyHost(busy: boolean) {
   };
   return { directory, desktop, port, phone, stops: () => stops, cleanup };
 }
-it("updates an idle legacy Host without losing phone credentials or conversations", async () => {
-  const old = await legacyHost(false);
+it.each([
+  ["legacy", {}],
+  ["shared Host without native continuation", { sharedDesktop: 2, orchestrationHost: 1 }],
+] as const)("updates an idle %s without losing phone credentials or conversations", async (_name, status) => {
+  const old = await legacyHost(false, status);
   try {
     const prepared = await prepareDesktopHost(
       old.directory,
@@ -121,12 +124,21 @@ it("updates an idle legacy Host without losing phone credentials or conversation
     expect((await response.json()).result.value.session.blocks[0].text).toBe(
       "Keep this",
     );
+    const described = await fetch(`${prepared.endpoint}/rpc`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${old.phone.token}` },
+      body: JSON.stringify({ version: 1, method: "environment.describe", params: {} }),
+    });
+    expect((await described.json()).result.capabilities).toContain("sessions.nativeAccess");
   } finally {
     await old.cleanup();
   }
 }, 30_000);
-it("leaves a busy legacy Host running and reports a retryable upgrade condition", async () => {
-  const old = await legacyHost(true);
+it.each([
+  ["legacy", {}],
+  ["shared Host without native continuation", { sharedDesktop: 2, orchestrationHost: 1 }],
+] as const)("leaves a busy %s running and reports a retryable upgrade condition", async (_name, status) => {
+  const old = await legacyHost(true, status);
   try {
     await expect(
       prepareDesktopHost(
@@ -140,5 +152,34 @@ it("leaves a busy legacy Host running and reports a retryable upgrade condition"
     expect(existsSync(join(old.directory, "running.json"))).toBe(true);
   } finally {
     await old.cleanup();
+  }
+});
+
+it("refuses an older Host upgrade while orchestration is active even with no running lead turn", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "monocode-upgrade-active-"));
+  const actions: string[] = [];
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", chunk => { body += String(chunk); });
+    request.on("end", () => {
+      actions.push(JSON.parse(body).action);
+      response.end(JSON.stringify({ sharedDesktop: 2 }));
+    });
+  });
+  await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
+  const port = (server.address() as AddressInfo).port;
+  writeFileSync(join(directory, "running.json"), JSON.stringify({ pid: process.pid, port, secret: "private" }));
+  const original = readFileSync(join(directory, "running.json"));
+  const store = new HostStore(join(directory, "host.db"));
+  store.db.prepare("INSERT INTO orchestration_runs VALUES (?, ?, ?)").run("lead", "run", JSON.stringify({ status: "active" }));
+  store.close();
+  try {
+    await expect(prepareDesktopHost(directory, directory, "unused-entry.mjs", port)).rejects.toThrow("Finish the running Host conversations");
+    expect(actions).not.toContain("stop");
+    expect(readFileSync(join(directory, "running.json"))).toEqual(original);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>(done => server.close(() => done()));
+    rmSync(directory, { recursive: true, force: true });
   }
 });

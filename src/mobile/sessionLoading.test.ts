@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostSession, HostSessionSummary, HostModelCatalog } from "../features/connections/model/protocol";
 import { MobileApp } from "./MobileApp";
 import { setUiLanguage } from "../shared/i18n/language";
+import { NATIVE_SESSION_PROVIDERS, type NativeSessionAccess, type NativeSessionProvider } from "../integrations/harness/core/nativeSessions";
 
 const host = vi.hoisted(() => ({
   connection: { endpoint: "http://computer:3774", environmentId: "host", name: "Computer" },
@@ -13,9 +14,10 @@ const host = vi.hoisted(() => ({
   verify: vi.fn(async () => {}),
   pending: vi.fn(async () => undefined),
   projects: vi.fn(async () => [{ id: "project", cwd: "/project", name: "Project" }]),
-  sessions: vi.fn(), models: vi.fn(), session: vi.fn(), dispatch: vi.fn(),
+  sessions: vi.fn(), models: vi.fn(), session: vi.fn(), nativeAccess: vi.fn(), dispatch: vi.fn(),
   cache: new Map<string, HostSession>(),
   activity: vi.fn(), updateSession: vi.fn(), markUnread: vi.fn(),
+  rpc: vi.fn(),
 }));
 vi.mock("./client", () => ({
   MobileClient: class {
@@ -29,7 +31,9 @@ vi.mock("./client", () => ({
     sessions = host.sessions;
     updateSession = host.updateSession;
     models = host.models;
+    rpc = host.rpc;
     session = host.session;
+    nativeAccess = host.nativeAccess;
     dispatch = host.dispatch;
     uploadAttachments = async () => [];
     cachedModels = () => undefined;
@@ -49,11 +53,12 @@ vi.mock("./MobileTranscript", () => ({
     createElement("button", { "data-transcript": true, disabled }, snapshot.session.blocks[0]?.text),
 }));
 vi.mock("./MobileComposer", () => ({
-  MobileComposer: ({ disabled, configuration, value, onChange, onSend, canSend, canStop, onStop }: {
+  MobileComposer: ({ disabled, catalogLoading, configuration, value, onChange, onSend, canSend, canStop, onStop }: {
+    catalogLoading?: boolean;
     disabled: boolean; configuration: { model: string }; value: string; onChange: (value: string) => void;
     onSend: () => void; canSend: boolean; canStop: boolean; onStop: () => void;
   }) => createElement("div", {},
-    createElement("textarea", { disabled, "data-model": configuration.model, value,
+    createElement("textarea", { disabled, "data-model": configuration.model, "data-catalog-loading": catalogLoading, value,
       onChange: (event: { target: { value: string } }) => onChange(event.target.value) }),
     createElement("button", { "data-send": true, disabled: !canSend, onClick: onSend }, "Send"),
     createElement("button", { "data-stop": true, disabled: !canStop, onClick: onStop }, "Stop")),
@@ -72,6 +77,18 @@ function snapshot(id = "one", revision = 1): HostSession {
       blocks: [{ id: "reply", role: "assistant", text: `${id} revision ${revision}` }] },
   };
 }
+function nativeSnapshot(provider: NativeSessionProvider = "pi", id = "one"): HostSession {
+  const value = snapshot(id);
+  value.session.harness = provider;
+  value.session.model = `${provider}:existing`;
+  value.session.providerSessionId = `native-${id}`;
+  value.session.nativeSession = { provider, providerSessionId: `native-${id}`, path: `/native/${id}.jsonl`,
+    revision: "1", createdAt: 1, updatedAt: 1, blockIds: ["reply"] };
+  return value;
+}
+const access = (state: NativeSessionAccess["state"] = "idle", path = "/native/one.jsonl"): NativeSessionAccess => ({
+  state, path, reason: state === "idle" ? "available" : "externalProcess", checkedAt: 1,
+});
 const catalog: HostModelCatalog = { models: { codex: [
   { id: "codex:catalog-default", harness: "codex", name: "Default" },
 ] }, errors: {} };
@@ -86,7 +103,9 @@ beforeEach(() => {
   host.markUnread.mockClear();
   host.activity.mockClear();
   host.models.mockReset().mockResolvedValue(catalog);
+  host.rpc.mockReset().mockResolvedValue(null);
   host.session.mockReset().mockImplementation(async (id: string) => snapshot(id));
+  host.nativeAccess.mockReset().mockResolvedValue(access());
   host.dispatch.mockReset().mockResolvedValue({ commandId: "sent", sessionId: "one", revision: 1 });
   host.sessions.mockReset().mockResolvedValue(["one", "two"].map((id) => ({
     id, projectId: "project", title: id, harness: "codex", revision: 1, updatedAt: 1, status: "idle",
@@ -122,6 +141,84 @@ async function open(id: string) {
 }
 
 describe("mobile conversation loading UI", () => {
+  const projectChat = async () => {
+    await mount();
+    await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home-project[title="/project"]')!.click());
+    await open("one");
+  };
+  const goBack = () => act(async () => node.querySelector<HTMLButtonElement>('header [aria-label="Back"]')!.click());
+
+  it("returns during project conversation loading and ignores the late response", async () => {
+    const response = deferred<HostSession>();
+    host.session.mockReturnValue(response.promise);
+    await projectChat();
+    expect(conversationLoading()).not.toBeNull();
+    expect(node.querySelector('header [aria-label="Menu"]')).toBeNull();
+    await goBack();
+    expect(node.querySelector("header strong")!.textContent).toBe("Project");
+    await act(async () => response.resolve(snapshot()));
+    expect(node.querySelector(".mobile-app")!.getAttribute("data-view")).toBe("home");
+    expect(node.querySelector("header strong")!.textContent).toBe("Project");
+    expect(transcript()).toBeNull();
+  });
+
+  it.each([false, true])("returns after a project conversation load failure (cached: %s)", async (cached) => {
+    if (cached) host.cache.set("one", snapshot());
+    host.session.mockRejectedValue(new Error("Offline"));
+    await projectChat();
+    expect(node.textContent).toContain("Offline");
+    expect(node.querySelector('header [aria-label="Menu"]')).toBeNull();
+    await goBack();
+    expect(node.querySelector(".mobile-app")!.getAttribute("data-view")).toBe("home");
+    expect(node.querySelector("header strong")!.textContent).toBe("Project");
+  });
+
+  it("preserves project Back when an unavailable conversation falls back to a draft", async () => {
+    host.session.mockResolvedValue({ ...snapshot(), archived: true });
+    await projectChat();
+    expect(node.querySelector("header strong")!.textContent).toBe("New conversation");
+    await goBack();
+    expect(node.querySelector("header strong")!.textContent).toBe("Project");
+  });
+
+  it("shows the configured assistant name and refreshes it when reopening the drawer", async () => {
+    const identity = deferred<{ name: string }>();
+    host.rpc.mockReturnValueOnce(identity.promise);
+    await mount();
+    const openDrawer = async () => {
+      await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Menu"]')!.click());
+    };
+    const assistant = () => node.querySelector(".mobile-drawer-top > button")!;
+    const closeDrawer = async () => {
+      await act(async () => [...node.querySelectorAll<HTMLButtonElement>(".mobile-drawer-top > button")]
+        .find((button) => button.textContent === "Home")!.click());
+    };
+    await openDrawer();
+    expect(assistant().textContent).toBe("Assistant");
+    await act(async () => identity.resolve({ name: "小管家" }));
+    expect(assistant().textContent).toBe("小管家");
+    await closeDrawer();
+    host.rpc.mockResolvedValueOnce({ name: "我的助理" });
+    await openDrawer();
+    expect(assistant().textContent).toBe("我的助理");
+    await closeDrawer();
+    host.rpc.mockRejectedValueOnce(new Error("Offline"));
+    await openDrawer();
+    expect(assistant().textContent).toBe("我的助理");
+  });
+
+  it("warms models on Home without waiting for discovery or opening a conversation", async () => {
+    const models = deferred<HostModelCatalog>();
+    host.models.mockReturnValue(models.promise);
+    await mount();
+    expect(host.models).toHaveBeenCalledWith("project");
+    expect(node.querySelector(".mobile-app")?.getAttribute("data-view")).toBe("home");
+    expect(node.querySelector('[data-session-id="one"]')).not.toBeNull();
+    expect(host.session).not.toHaveBeenCalled();
+    expect(node.querySelector('[role="alert"]')).toBeNull();
+    await act(async () => models.resolve(catalog));
+  });
+
   it("edits a home conversation in its own project and animates menu dismissal", async () => {
     localStorage.removeItem("monocode-mobile-last");
     host.projects.mockResolvedValue([
@@ -214,8 +311,10 @@ describe("mobile conversation loading UI", () => {
     expect(transcript()?.textContent).toBe("one revision 1");
     expect(conversationLoading()).toBeNull();
     expect(composer().getAttribute("data-model")).toBe("codex:existing");
+    expect(composer().getAttribute("data-catalog-loading")).toBe("true");
     await act(async () => models.resolve(catalog));
     expect(composer().getAttribute("data-model")).toBe("codex:existing");
+    expect(composer().getAttribute("data-catalog-loading")).toBe("false");
   });
 
   it("keeps history and text available when model discovery fails", async () => {
@@ -224,6 +323,7 @@ describe("mobile conversation loading UI", () => {
     await open("one");
     expect(transcript()?.textContent).toBe("one revision 1");
     expect(conversationLoading()).toBeNull();
+    expect(composer().getAttribute("data-catalog-loading")).toBe("false");
     await open("two");
     expect(transcript()?.textContent).toBe("two revision 1");
   });
@@ -271,5 +371,132 @@ describe("mobile conversation loading UI", () => {
     expect(transcript()?.textContent).toBe("two revision 1");
     await act(async () => fresh.resolve(snapshot("two", 2)));
     expect(transcript()?.textContent).toBe("two revision 2");
+  });
+});
+
+describe("mobile imported native continuation", () => {
+  it.each(NATIVE_SESSION_PROVIDERS)("continues the existing %s conversation after ownership is confirmed", async (provider) => {
+    const value = nativeSnapshot(provider);
+    host.session.mockResolvedValue(value);
+    await mount();
+    await open("one");
+    expect(composer().disabled).toBe(false);
+    expect(node.querySelector(".mobile-native-readonly")).toBeNull();
+    await act(async () => {
+      const area = composer();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(area, "Continue here");
+      area.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => node.querySelector<HTMLButtonElement>("[data-send]")!.click());
+    expect(host.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      type: "send", sessionId: "one", text: "Continue here",
+    }), undefined);
+    expect(value.session.providerSessionId).toBe("native-one");
+  });
+
+  it("keeps checking and externally owned history readable, then unlocks when the CLI exits", async () => {
+    const check = deferred<NativeSessionAccess>();
+    host.session.mockResolvedValue(nativeSnapshot());
+    host.nativeAccess.mockReturnValueOnce(check.promise).mockResolvedValue(access());
+    await mount();
+    await open("one");
+    expect(transcript()?.textContent).toBe("one revision 1");
+    expect(composer().disabled).toBe(true);
+    expect(node.querySelector(".mobile-native-readonly")?.textContent).toContain("Checking whether");
+    await act(async () => check.resolve({ ...access("external"), holder: { pid: 42, command: "pi", provider: "pi" } }));
+    expect(composer().disabled).toBe(true);
+    expect(node.querySelector(".mobile-native-readonly")?.textContent).toContain("Pi (pid 42)");
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(composer().disabled).toBe(false);
+  });
+
+  it.each([
+    [null, "Reconnect to the Host"],
+    [{ ...access("unknown"), reason: "unsupportedPlatform" }, "ownership cannot be verified on this platform"],
+    [{ ...access("unknown"), reason: "anotherMonocode" }, "MonoCode desktop is using"],
+    [{ ...access("unknown"), reason: "ambiguousProcess", holder: { pid: 43, provider: "pi", command: "pi" } }, "may be using this conversation"],
+    [new Error("Timeout"), "Reconnect to the Host"],
+    [access("idle", "/native/different.jsonl"), "Reconnect to the Host"],
+  ])("blocks unavailable access with the correct recovery hint (%s)", async (result, hint) => {
+    host.session.mockResolvedValue(nativeSnapshot());
+    if (result instanceof Error) host.nativeAccess.mockRejectedValue(result);
+    else host.nativeAccess.mockResolvedValue(result);
+    await mount();
+    await open("one");
+    expect(composer().disabled).toBe(true);
+    expect(node.querySelector(".mobile-native-readonly")?.textContent).toContain(hint);
+    expect(host.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("allows queueing and cancellation during a Host turn, but keeps a desktop busy mirror locked", async () => {
+    const value = { ...nativeSnapshot(), status: "running" as const };
+    host.session.mockResolvedValue(value);
+    host.nativeAccess.mockResolvedValue(access("external"));
+    await mount();
+    await open("one");
+    expect(composer().disabled).toBe(true);
+    expect(node.querySelector(".mobile-native-readonly")).not.toBeNull();
+    host.session.mockResolvedValue({ ...value, runId: "host-run", supportsQueue: true });
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(composer().disabled).toBe(false);
+    expect(node.querySelector<HTMLButtonElement>("[data-stop]")!.disabled).toBe(false);
+    expect(node.querySelector(".mobile-native-readonly")).toBeNull();
+    await act(async () => node.querySelector<HTMLButtonElement>("[data-stop]")!.click());
+    expect(host.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      type: "cancel", sessionId: "one", runId: "host-run",
+    }), undefined);
+  });
+
+  it("waits for a slow probe before scheduling another and discards it after navigation", async () => {
+    const old = deferred<NativeSessionAccess>();
+    host.session.mockImplementation(async (id: string) => nativeSnapshot("pi", id));
+    host.nativeAccess.mockReturnValueOnce(old.promise).mockResolvedValue(access("external", "/native/two.jsonl"));
+    await mount();
+    await open("one");
+    await act(async () => vi.advanceTimersByTimeAsync(15000));
+    expect(host.nativeAccess).toHaveBeenCalledTimes(1);
+    await open("two");
+    await act(async () => old.resolve(access()));
+    expect(composer().disabled).toBe(true);
+    expect(transcript()?.textContent).toBe("two revision 1");
+  });
+
+  it("rechecks when an OpenCode binding changes in the same database", async () => {
+    const first = nativeSnapshot("opencode");
+    first.session.nativeSession!.storage = "sqlite";
+    first.session.nativeSession!.path = "/native/opencode.db";
+    host.session.mockResolvedValue(first);
+    host.nativeAccess.mockResolvedValueOnce(access("idle", "/native/opencode.db"));
+    await mount();
+    await open("one");
+    expect(composer().disabled).toBe(false);
+    const check = deferred<NativeSessionAccess>();
+    host.nativeAccess.mockReturnValue(check.promise);
+    host.session.mockResolvedValue({ ...first, revision: 2, session: { ...first.session,
+      nativeSession: { ...first.session.nativeSession!, providerSessionId: "native-rebound" } } });
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
+    expect(composer().disabled).toBe(true);
+    expect(host.nativeAccess).toHaveBeenCalledTimes(2);
+    await act(async () => check.resolve(access("external", "/native/opencode.db")));
+    expect(composer().disabled).toBe(true);
+  });
+
+  it("clears idle access in the background and checks again immediately on resume", async () => {
+    host.session.mockResolvedValue(nativeSnapshot());
+    await mount();
+    await open("one");
+    expect(composer().disabled).toBe(false);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    await act(async () => vi.advanceTimersByTimeAsync(10000));
+    expect(host.nativeAccess).toHaveBeenCalledTimes(1);
+    const check = deferred<NativeSessionAccess>();
+    host.nativeAccess.mockReturnValue(check.promise);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    expect(composer().disabled).toBe(true);
+    expect(host.nativeAccess).toHaveBeenCalledTimes(2);
+    await act(async () => check.resolve(access("external")));
+    expect(composer().disabled).toBe(true);
   });
 });

@@ -17,6 +17,8 @@ import { sessionNeedsInput } from "../src/features/sessions/model/session";
 const CACHED_SESSIONS = 32;
 
 export class HostStore {
+  private transactionDepth = 0;
+  onSessionSave?: (previous: HostSession | undefined, next: HostSession, event: unknown) => void;
   readonly db: DatabaseSync;
   readonly environmentId: string;
   readonly attachmentDir: string;
@@ -24,6 +26,7 @@ export class HostStore {
   // served from memory instead of re-parsing whole transcripts. Callers must
   // treat returned values as immutable.
   private cache = new Map<string, HostSession>();
+  private assistantSessions = new Map<string, boolean>();
 
   constructor(path: string) {
     this.attachmentDir = join(dirname(path), "attachments");
@@ -36,9 +39,18 @@ export class HostStore {
       CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, signature TEXT NOT NULL, receipt TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS events (session_id TEXT NOT NULL REFERENCES sessions(id), revision INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(session_id, revision));
       CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, hash TEXT NOT NULL UNIQUE);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS orchestration_runs (lead_id TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, state TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS orchestration_commands (id TEXT PRIMARY KEY, signature TEXT NOT NULL, session_id TEXT NOT NULL, command TEXT NOT NULL, state TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS retired_sessions (id TEXT PRIMARY KEY);`);
     const columns = this.db.prepare("PRAGMA table_info(sessions)").all();
+    if (!this.db.prepare("PRAGMA table_info(projects)").all().some(column => column.name === "kind")) this.db.exec("ALTER TABLE projects ADD COLUMN kind TEXT");
     if (!columns.some((column) => column.name === "summary"))
       this.db.exec("ALTER TABLE sessions ADD COLUMN summary TEXT");
+    // `summary` follows the large `snapshot` column, so reading it from the
+    // table walks every snapshot overflow page. Covering indexes keep summary
+    // listings and per-session privacy checks off the snapshots entirely.
+    this.db.exec(`CREATE INDEX IF NOT EXISTS sessions_project_summary ON sessions(project_id, id, summary);
+      CREATE INDEX IF NOT EXISTS sessions_id_summary ON sessions(id, summary);`);
     this.db
       .prepare("INSERT OR IGNORE INTO metadata VALUES ('environmentId', ?)")
       .run(randomUUID());
@@ -50,7 +62,9 @@ export class HostStore {
   }
 
   transaction<T>(fn: () => T): T {
+    if (this.transactionDepth) return fn();
     this.db.exec("BEGIN IMMEDIATE");
+    this.transactionDepth++;
     try {
       const value = fn();
       this.db.exec("COMMIT");
@@ -63,28 +77,31 @@ export class HostStore {
         console.error("Could not roll back host transaction:", rollbackError);
       }
       throw error;
+    } finally {
+      this.transactionDepth--;
     }
   }
 
   project(id: string): HostProject {
     const row = this.db.prepare("SELECT * FROM projects WHERE id=?").get(id);
     if (!row) throw new Error("Project is not registered on this machine");
-    return row as unknown as HostProject;
+    return { id: String(row.id), cwd: String(row.cwd), name: String(row.name), ...(row.kind === "assistant" ? { kind: "assistant" as const } : {}) };
   }
 
   projects(): HostProject[] {
     return this.db
-      .prepare("SELECT * FROM projects ORDER BY name")
-      .all() as unknown as HostProject[];
+      .prepare("SELECT * FROM projects WHERE kind IS NULL ORDER BY name")
+      .all().map(row => ({ id: String(row.id), cwd: String(row.cwd), name: String(row.name) }));
   }
 
-  addProject(cwd: string, name: string): HostProject {
+  addProject(cwd: string, name: string, kind?: "assistant"): HostProject {
     this.db
-      .prepare("INSERT OR IGNORE INTO projects VALUES (?, ?, ?)")
-      .run(randomUUID(), cwd, name);
-    return this.db
+      .prepare("INSERT OR IGNORE INTO projects(id,cwd,name,kind) VALUES (?, ?, ?, ?)")
+      .run(randomUUID(), cwd, name, kind ?? null);
+    const row = this.db
       .prepare("SELECT * FROM projects WHERE cwd=?")
-      .get(cwd) as unknown as HostProject;
+      .get(cwd)!;
+    return this.project(String(row.id));
   }
 
   private remember(value: HostSession): HostSession {
@@ -107,9 +124,27 @@ export class HostStore {
   }
 
   session(id: string): HostSession {
-    const value = this.find(id);
+    const value = this.sessionIfExists(id);
     if (!value) throw new Error("Session not found on this machine");
     return value;
+  }
+
+  sessionIfExists(id: string): HostSession | undefined {
+    return this.isRetired(id) ? undefined : this.find(id);
+  }
+
+  /** The public RPC privacy guard also checks retained retired rows. */
+  isAssistantSession(id: string): boolean {
+    // Ownership is fixed when the Host creates an assistant session, so each
+    // stored session is parsed at most once instead of on every request.
+    const known = this.assistantSessions.get(id);
+    if (known !== undefined) return known;
+    const value = this.find(id);
+    // A missing id may still be created later; only remember stored rows.
+    if (!value) return false;
+    const owned = !!value.session.assistantOwnerId;
+    this.assistantSessions.set(id, owned);
+    return owned;
   }
 
   summaries(projectId?: string): HostSessionSummary[] {
@@ -127,7 +162,9 @@ export class HostStore {
           cached.providerSessionId !== undefined &&
           cached.lastUserMessageAt !== undefined &&
           cached.lastReplyRevision !== undefined &&
-          cached.pendingInputKey !== undefined
+          cached.pendingInputKey !== undefined &&
+          !cached.nativeSession?.nativeIds &&
+          !cached.nativeSession?.blockIds.length
         )
           return cached;
         const fresh = summary(this.session(String(row.id)));
@@ -174,6 +211,11 @@ export class HostStore {
 
   /** Returns the saved value, stamped with per-block change revisions. */
   save(input: HostSession, event: unknown): HostSession {
+    return this.transaction(() => this.saveInTransaction(input, event));
+  }
+
+  private saveInTransaction(input: HostSession, event: unknown): HostSession {
+    if (this.isRetired(input.session.id)) throw new Error("This legacy orchestration conversation was deleted");
     const previous = this.find(input.session.id);
     const revisions = blockRevisions(previous, input);
     const before = new Map(previous?.session.blocks.map((block) => [block.id, block]));
@@ -209,6 +251,7 @@ export class HostStore {
     this.db
       .prepare("DELETE FROM events WHERE session_id=? AND revision<?")
       .run(value.session.id, value.revision - 2_000);
+    this.onSessionSave?.(previous, value, event);
     return this.remember(value);
   }
 
@@ -248,7 +291,29 @@ export class HostStore {
       this.db.prepare("DELETE FROM events WHERE session_id=?").run(id);
       this.db.prepare("DELETE FROM sessions WHERE id=?").run(id);
       this.cache.delete(id);
+      this.assistantSessions.delete(id);
     });
+  }
+
+  isRetired(id: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM retired_sessions WHERE id=?").get(id);
+  }
+
+  invalidateSession(id: string): void { this.cache.delete(id); }
+
+  orchestration(leadId: string): { id: string; run: import("../src/features/orchestration/model/orchestrationState").OrchestrationRun } | undefined {
+    const row = this.db.prepare("SELECT id, state FROM orchestration_runs WHERE lead_id=?").get(leadId);
+    return row ? { id: String(row.id), run: JSON.parse(String(row.state)) } : undefined;
+  }
+
+  orchestrationLeads(): string[] {
+    return this.db.prepare("SELECT lead_id FROM orchestration_runs").all().map((row) => String(row.lead_id));
+  }
+
+  saveOrchestration(id: string, run: import("../src/features/orchestration/model/orchestrationState").OrchestrationRun): void {
+    if (this.isRetired(run.leadId)) throw new Error("This legacy orchestration conversation was deleted");
+    this.db.prepare("INSERT INTO orchestration_runs VALUES (?, ?, ?) ON CONFLICT(lead_id) DO UPDATE SET id=excluded.id, state=excluded.state")
+      .run(run.leadId, id, JSON.stringify(run));
   }
 
   receipt(id: string, signature: string): CommandReceipt | undefined {
@@ -336,6 +401,13 @@ export class HostStore {
   }
 }
 
+/** Lists carry the link's identity only; per-block ID arrays grow with history. */
+function listedNativeLink(link: HostSession["session"]["nativeSession"]) {
+  if (!link) return undefined;
+  const { nativeIds: _nativeIds, ...rest } = link;
+  return { ...rest, blockIds: [] };
+}
+
 export function summary(value: HostSession): HostSessionSummary {
   const lastUserMessage = value.session.blocks.findLast(
     (block) => block.role === "user" && !block.draft && !block.internal,
@@ -368,7 +440,11 @@ export function summary(value: HostSession): HostSessionSummary {
     linkedWorkItem: value.session.linkedWorkItem,
     needsInput: sessionNeedsInput(value.session),
     draft: value.session.blocks.some((block) => block.role === "user" && block.draft),
-    nativeSession: value.session.nativeSession,
+    nativeSession: listedNativeLink(value.session.nativeSession),
+    ...(value.nativeStatus ? { nativeStatus: value.nativeStatus } : {}),
+    orchestration: value.orchestration,
+    orchestrationLeadId: value.session.orchestrationLeadId,
+    assistantOwnerId: value.session.assistantOwnerId,
   };
 }
 

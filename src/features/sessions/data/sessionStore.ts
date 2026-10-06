@@ -124,7 +124,7 @@ export function shouldPersistSession(session: Session): boolean {
   return (
     !session.inboxAsk &&
     !isRemoteProjectPath(session.cwd) &&
-    (!sharedSessionBackend()?.ownsProject(session.cwd) || !!session.nativeSession) &&
+    !sharedSessionBackend()?.ownsProject(session.cwd) &&
     session.cwd !== "~" &&
     session.blocks.some((block) => block.role === "user")
   );
@@ -200,6 +200,23 @@ export function sanitizeNativeSessionLink(
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     blockIds: [...value.blockIds],
+    ...(value.storage === "jsonl" || value.storage === "sqlite"
+      ? { storage: value.storage }
+      : {}),
+    ...(typeof value.accountId === "string" &&
+    /^[A-Za-z0-9_-]{1,80}$/.test(value.accountId)
+      ? { accountId: value.accountId }
+      : {}),
+    ...(value.mode === "managed" ? { mode: value.mode } : {}),
+    ...(typeof value.dataDir === "string" &&
+    value.dataDir.length <= 4096 &&
+    !value.dataDir.includes("\0")
+      ? { dataDir: value.dataDir }
+      : {}),
+    ...(Array.isArray(value.nativeIds) &&
+    value.nativeIds.every((id) => typeof id === "string")
+      ? { nativeIds: [...value.nativeIds] }
+      : {}),
   };
 }
 
@@ -303,14 +320,12 @@ export async function upsertSession(
         ),
       },
     });
-    const shared = sharedSessionBackend();
-    if (session.nativeSession && shared?.ownsProject(session.cwd)) await shared.mirrorNative(session);
     return result;
   });
   return summary ? normalizeSummary(summary) : null;
 }
 
-/** The execution owner persists user renames, including native shared imports. */
+/** The execution owner persists user renames. */
 export async function persistManualSessionTitle(session: Session, title: string): Promise<Session> {
   const updated = session.title === title && sanitizeTitleState(session.titleState)?.source === "manual" ? session : manualSessionTitle(session, title);
   const shared = sharedSessionBackend();
@@ -318,7 +333,6 @@ export async function persistManualSessionTitle(session: Session, title: string)
     // A blank draft can precede creation of its Host row. RemoteSession carries
     // its protected name when the row is first created.
     if (await shared.get(session.id)) await shared.update(session.id, { title });
-    if (session.nativeSession) await upsertSession(updated);
     return updated;
   }
   if (isRemoteProjectPath(session.cwd)) {

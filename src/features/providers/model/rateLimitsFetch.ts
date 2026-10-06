@@ -1,3 +1,4 @@
+import { sharedHostMachineId } from "../../connections/model/remoteProjects";
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "../../../platform/tauri/fs";
 import {
@@ -84,6 +85,8 @@ type ClaudeUsageFetch = {
 export async function fetchClaudeRateLimits(
   accountId = "default",
 ): Promise<ProviderRateLimits> {
+  if (accountId === "default" && sharedHostMachineId())
+    return unavailableRateLimits("claude", "Host CLI account usage is unavailable. Choose a named account.");
   try {
     const result = await invoke<ClaudeUsageFetch>("fetch_claude_usage", {
       accountId,
@@ -117,6 +120,8 @@ export async function fetchClaudeRateLimits(
 export async function fetchCodexRateLimits(
   accountId = "default",
 ): Promise<ProviderRateLimits> {
+  if (accountId === "default" && sharedHostMachineId())
+    return unavailableRateLimits("codex", "Host CLI account usage is unavailable. Choose a named account.");
   let path: string;
   try {
     path = (await resolveCodexBinary()).path;
@@ -162,6 +167,8 @@ export async function consumeCodexRateLimitResetCredit(
   creditId?: string,
   accountId = "default",
 ): Promise<CodexRateLimitResetOutcome> {
+  if (accountId === "default" && sharedHostMachineId())
+    throw new Error("Host CLI account usage is unavailable. Choose a named account.");
   const path = (await resolveCodexBinary()).path;
   const cwd = await homeDir();
   const result = await requestCodexAccount<unknown>(

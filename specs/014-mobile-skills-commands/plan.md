@@ -26,3 +26,14 @@ and both mobile entry points. Exercise real disposable Host RPC and real fake
 Pi/OMP subprocesses, plus existing desktop skills regressions. Complete check:web,
 test:host, build and mobile:build; record actual versions and unrun native/provider
 scenarios. No Rust changes, APK publication, personal Host restart, push or merge.
+
+## Compact list follow-up
+
+Scope the density changes to the existing mobile skill selectors in mobile.css:
+14px command names, 12px descriptions, 11px origins and 16px icons with the current
+popup font step. Reduce row and picker spacing, keep 44px minimum row height and
+16px search text, and prevent the shared row flex rule from stretching origins.
+Inspect the actual composer at narrow phone widths and run the existing mobile
+skills tests; this presentation change needs no additional tests or full build.
+Both entry points share MobileSkillList. Use the existing localized Project and
+Personal labels there so the shortened origins stay consistent across both lists.

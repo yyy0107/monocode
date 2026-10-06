@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import { Check, ChevronDown } from "../shared/ui/icons";
 import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 
@@ -10,22 +10,26 @@ export function MobileSelect<T extends string>({
   open,
   onOpenChange,
   onChange,
+  disabled = false,
 }: {
   id: string;
   label: string;
   value: T;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; icon?: ReactNode; disabled?: boolean }[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChange: (value: T) => void;
+  disabled?: boolean;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
+  const selected = options.find((option) => option.value === value);
   return (
     <>
       <button
         ref={trigger}
         id={id}
         type="button"
+        disabled={disabled}
         className="mobile-select-trigger"
         aria-label={label}
         aria-haspopup="dialog"
@@ -38,8 +42,9 @@ export function MobileSelect<T extends string>({
           }
         }}
       >
-        <span>
-          {options.find((option) => option.value === value)?.label ?? value}
+        <span className="mobile-select-value">
+          {selected?.icon}
+          <span>{selected?.label ?? value}</span>
         </span>
         <ChevronDown size={14} />
       </button>
@@ -60,11 +65,13 @@ export function MobileSelect<T extends string>({
               role="radio"
               key={option.value}
               aria-checked={value === option.value}
+              disabled={disabled || option.disabled}
               onClick={() => {
                 onOpenChange(false);
                 onChange(option.value);
               }}
             >
+              {option.icon}
               <span>{option.label}</span>
               {value === option.value && <Check size={20} />}
             </button>

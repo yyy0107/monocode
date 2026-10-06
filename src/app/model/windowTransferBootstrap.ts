@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { WindowTransferPayload } from "./windowTransfer";
+import { withoutRetiredSessions } from "../../features/workspace/model/workspaceSnapshot";
 
 let transferPromise: Promise<WindowTransferPayload | null> | null = null;
 
@@ -8,7 +9,7 @@ export function loadWindowTransfer(): Promise<WindowTransferPayload | null> {
   if (!transferPromise) {
     transferPromise = invoke<string | null>("take_window_transfer")
       .then((raw) =>
-        raw ? (JSON.parse(raw) as WindowTransferPayload) : null,
+        raw ? withoutRetiredSessions(JSON.parse(raw) as WindowTransferPayload) : null,
       )
       .catch(() => null);
   }

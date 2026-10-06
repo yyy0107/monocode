@@ -37,7 +37,7 @@ function fixture(className = "mobile-composer") {
   document.body.append(composer);
   setLiquidGlassRefraction(1);
   dispose = installLiquidGlass(document.body);
-  return { composer, width, height, encode, resize: callbacks[0] };
+  return { composer, width, height, encode, callbacks, resize: callbacks[0] };
 }
 
 it("stretches the existing composer lens during resize and rasterizes only the settled size", () => {
@@ -101,4 +101,33 @@ it("keeps immediate lens updates for other glass surfaces", () => {
   expect(encode).toHaveBeenCalledTimes(beforeResize + 1);
   expect(document.querySelector("feImage")?.getAttribute("height")).toBe("47");
   expect(vi.getTimerCount()).toBe(0);
+});
+
+
+it("gives the stacked composer cards separate lenses and defers input resizing", () => {
+  const { composer, encode, callbacks } = fixture("mobile-composer mobile-composer-card");
+  expect(document.querySelectorAll("filter")).toHaveLength(0);
+  const context = document.createElement("div");
+  context.className = "mobile-composer-context";
+  const input = document.createElement("div");
+  input.className = "mobile-composer-input";
+  for (const element of [context, input]) {
+    element.style.borderRadius = "30px";
+    vi.spyOn(element, "offsetWidth", "get").mockReturnValue(327);
+  }
+  vi.spyOn(context, "offsetHeight", "get").mockReturnValue(70);
+  const height = vi.spyOn(input, "offsetHeight", "get").mockReturnValue(131);
+  composer.append(context, input);
+  dispose!();
+  dispose = installLiquidGlass(document.body);
+  expect(document.querySelectorAll("filter")).toHaveLength(2);
+  expect(context.style.getPropertyValue("--mobile-glass-refraction")).toContain("url(");
+  expect(input.style.getPropertyValue("--mobile-glass-refraction")).not.toBe(context.style.getPropertyValue("--mobile-glass-refraction"));
+  expect(composer.style.getPropertyValue("--mobile-glass-refraction")).toBe("");
+  const before = encode.mock.calls.length;
+  height.mockReturnValue(164);
+  callbacks.at(-1)!();
+  expect(encode).toHaveBeenCalledTimes(before);
+  vi.advanceTimersByTime(80);
+  expect(encode).toHaveBeenCalledTimes(before + 1);
 });

@@ -19,6 +19,8 @@ import {
   newSessionChangesTab,
   newTab,
   newTerminalFile,
+  openEditorTab,
+  openSessionAppView,
   splitPane,
 } from "./layout";
 import { createProjectTerminal } from "../../projects/model/projectTerminal";
@@ -84,7 +86,7 @@ describe("app view snapshots", () => {
     })).toBeNull();
   });
 
-  it("keeps the first kind across panes and tabs while retaining other content", () => {
+  it("keeps chat-owned views while removing duplicate legacy standalone views", () => {
     const first = newAppViewWorkspaceTab("settings");
     const duplicate = newAppViewWorkspaceTab("settings");
     const notes = newAppViewWorkspaceTab("notes");
@@ -102,9 +104,9 @@ describe("app view snapshots", () => {
     };
     const parsed = parseWorkspaceSnapshot(raw)!;
     expect(parsed.tabs.map((tab) => tab.id)).toEqual([first.id, chatTab.id, notes.id]);
-    expect(parsed.tabs[1].layout).toEqual(leaf("chat"));
-    expect(parsed.tabs[1].focusedId).toBe("chat");
-    expect(parsed.tabs[1].editorPanes).toEqual([]);
+    expect(parsed.tabs[1].layout).toEqual(chatTab.layout);
+    expect(parsed.tabs[1].focusedId).toBe(duplicate.focusedId);
+    expect(parsed.tabs[1].editorPanes).toEqual(duplicate.editorPanes);
     expect(parsed.activeTabId).toBe(first.id);
     const collected = collectWorkspaceSnapshot(raw.tabs, raw.sessions, duplicate.id, "/repo", new Map());
     expect(collected.tabs.map((tab) => tab.id)).toEqual(parsed.tabs.map((tab) => tab.id));
@@ -113,14 +115,85 @@ describe("app view snapshots", () => {
 
   it("retains the other files when removing a duplicate within one pane", () => {
     const first = newAppViewWorkspaceTab("notes");
-    const duplicate = newAppViewWorkspaceTab("notes");
+    const duplicate = { ...first.editorPanes[0].files[0], id: "duplicate-notes" };
     const file = newFileTab("/repo/a.ts", "/repo");
-    duplicate.editorPanes[0].files.push(file);
+    first.editorPanes[0].files.push(duplicate, file);
+    first.editorPanes[0].activeFileId = duplicate.id;
     const parsed = parseWorkspaceSnapshot({
-      tabs: [first, duplicate], activeTabId: duplicate.id,
+      tabs: [first], activeTabId: first.id,
     })!;
-    expect(parsed.tabs[1].editorPanes[0].files).toEqual([file]);
-    expect(parsed.tabs[1].editorPanes[0].activeFileId).toBe(file.id);
+    expect(parsed.tabs[0].editorPanes[0].files).toEqual([
+      first.editorPanes[0].files[0], file,
+    ]);
+    expect(parsed.tabs[0].editorPanes[0].activeFileId).toBe(first.editorPanes[0].files[0].id);
+  });
+
+  it("round-trips independent app views and active documents for two chats", () => {
+    const firstSession = chat("first", "/repo");
+    const secondSession = chat("second", "/repo");
+    const first = openSessionAppView(newTab(firstSession.id), "notes");
+    const second = openSessionAppView(newTab(secondSession.id), "notes");
+    const firstFile = first.editorPanes[0].files[0];
+    const secondFile = second.editorPanes[0].files[0];
+    const snapshot = collectWorkspaceSnapshot(
+      [first, second], [firstSession, secondSession], second.id, "/repo", new Map(),
+    );
+    const restored = hydrateWorkspaceSnapshot(snapshot, new Map())!;
+    expect(restored.tabs).toHaveLength(2);
+    expect(restored.tabs.map((tab) => tab.editorPanes[0].activeFileId))
+      .toEqual([firstFile.id, secondFile.id]);
+    expect(restored.tabs.map((tab) => tab.focusedId))
+      .toEqual([first.focusedId, second.focusedId]);
+    expect(restored.activeTabId).toBe(second.id);
+  });
+
+  it.each(["split", "unified"] as const)(
+    "preserves %s display mode and the active file on restore",
+    (surfaceMode) => {
+      const session = chat("chat", "/repo");
+      const first = newFileTab("/repo/a.ts", "/repo");
+      const second = newFileTab("/repo/b.ts", "/repo");
+      const tab = {
+        ...openEditorTab(openEditorTab(newTab(session.id), first, { pin: true }), second, { pin: true }),
+        surfaceMode,
+      };
+      const snapshot = collectWorkspaceSnapshot(
+        [tab], [session], tab.id, "/repo", new Map(),
+      );
+      const restored = hydrateWorkspaceSnapshot(snapshot, new Map())!.tabs[0];
+      expect(restored.surfaceMode).toBe(surfaceMode);
+      expect(restored.focusedId).toBe(tab.focusedId);
+      expect(restored.editorPanes[0].activeFileId).toBe(second.id);
+      expect(restored.editorPanes[0].files.map((file) => file.id))
+        .toEqual([first.id, second.id]);
+    },
+  );
+
+  it.each([undefined, "invalid", false, 1, {}])(
+    "falls back to split mode when saved mode is %j",
+    (surfaceMode) => {
+      const tab = newTab("chat");
+      const parsed = parseWorkspaceSnapshot({
+        tabs: [{ ...tab, surfaceMode }], activeTabId: tab.id,
+      })!;
+      expect(parsed.tabs[0].surfaceMode).toBeUndefined();
+    },
+  );
+
+  it("prunes duplicate app-view panes within one chat without affecting other chats", () => {
+    const first = openSessionAppView(newTab("first-chat"), "notes");
+    const second = openSessionAppView(newTab("second-chat"), "notes");
+    const duplicate = newAppViewWorkspaceTab("notes").editorPanes[0];
+    first.layout = splitPane(first.layout, first.focusedId, "right", duplicate.id);
+    first.editorPanes.push(duplicate);
+    first.focusedId = duplicate.id;
+    const parsed = parseWorkspaceSnapshot({
+      tabs: [first, second], activeTabId: first.id,
+    })!;
+    expect(parsed.tabs[0].editorPanes).toHaveLength(1);
+    expect(leafIds(parsed.tabs[0].layout)).not.toContain(duplicate.id);
+    expect(parsed.tabs[0].focusedId).not.toBe(duplicate.id);
+    expect(parsed.tabs[1].editorPanes).toEqual(second.editorPanes);
   });
 });
 

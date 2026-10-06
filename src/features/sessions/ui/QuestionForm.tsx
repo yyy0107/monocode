@@ -30,6 +30,7 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [custom, setCustom] = useState<Record<string, string>>({});
   const [now, setNow] = useState(Date.now);
+  const body = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (prompt.autoResolveAt == null) return;
@@ -97,13 +98,18 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
     if (index > 0) setStep(index - 1);
   };
 
+  // Each step starts at its prompt, not wherever the previous one was scrolled.
+  useEffect(() => {
+    body.current?.scrollTo({ top: 0 });
+  }, [index]);
+
   if (!question) return null;
 
   const title = question.header?.trim() || prompt.title?.trim() || "Question";
 
   return (
     <div
-      className="px-1.5 pb-1.5"
+      className="flex min-h-0 flex-col px-1.5 pb-1.5"
       data-question-form
       onPointerDownCapture={interact}
       onClickCapture={interact}
@@ -112,18 +118,22 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
       onChangeCapture={interact}
     >
       <form
-        className="rounded-lg border border-content/10 bg-content/3 px-3 py-2.5"
+        className="flex min-h-0 flex-col rounded-lg border border-content/10 bg-content/3 px-3 py-2.5"
+        data-question-card
         onSubmit={(event) => {
           event.preventDefault();
           continueCurrent();
         }}
       >
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5" data-question-header>
           <MessageSquare
             className="size-3.5 shrink-0 text-content/45"
             strokeWidth={1.75}
           />
-          <span className="min-w-0 flex-1 truncate text-[11px] text-content/50">
+          <span
+            className="min-w-0 flex-1 truncate text-[11px] text-content/50"
+            data-question-title
+          >
             {title}
           </span>
           {total > 1 ? (
@@ -135,12 +145,17 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
           <button
             type="button"
             className="h-6 shrink-0 rounded-md px-1.5 text-[11px] text-content/55 hover:bg-content/10 hover:text-content"
+            data-question-secondary
             onClick={skipCurrent}
           >
             {uiT("Skip")}
           </button>
         </div>
-        <div className="mt-2">
+        <div
+          ref={body}
+          className="mt-2 min-h-0 overflow-y-auto"
+          data-question-body
+        >
           <QuestionFields
             key={question.id}
             question={question}
@@ -177,10 +192,14 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
             }}
           />
         </div>
-        <div className="mt-2.5 flex items-center justify-end gap-2">
+        <div
+          className="mt-2.5 flex shrink-0 items-center justify-end gap-2"
+          data-question-footer
+        >
           {prompt.autoResolveAt != null ? (
             <span
               className="mr-auto text-[11px] text-content/40"
+              data-question-hint
               title={uiT("Interact to keep this question open.")}
             >
               {prompt.autoResolveAt - now > 60_000
@@ -199,6 +218,7 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
             <button
               type="button"
               className="h-6 shrink-0 rounded-md px-1.5 text-[11px] text-content/55 hover:bg-content/10 hover:text-content"
+              data-question-secondary
               onClick={goBack}
             >
               {uiT("Back")}
@@ -208,6 +228,7 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
             type="submit"
             disabled={!ready}
             className="h-6 rounded-md bg-content px-2.5 text-[11px] font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
+            data-question-submit
           >
             {uiT("Continue")}
           </button>
@@ -288,11 +309,14 @@ function QuestionFields({
       className="min-w-0"
       aria-label={question.header || question.prompt}
     >
-      <p className="text-[13px] font-medium leading-snug text-content">
+      <p
+        className="text-[13px] font-medium leading-snug text-content"
+        data-question-prompt
+      >
         {question.prompt}
       </p>
       {question.multiSelect ? (
-        <p className="mt-0.5 text-[11px] text-content/40">
+        <p className="mt-0.5 text-[11px] text-content/40" data-question-hint>
           {uiT("Select all that apply")}
         </p>
       ) : null}
@@ -321,6 +345,7 @@ function QuestionFields({
         <div
           className="mt-1.5 flex max-h-52 flex-col gap-1 overflow-y-auto"
           role="group"
+          data-question-options
         >
           {options.map((option, optionIndex) => {
             const isCustom =
@@ -347,6 +372,7 @@ function QuestionFields({
                     setHighlighted(optionIndex);
                     onSelect(option.id);
                   }}
+                  data-question-option
                   className={`flex w-full items-start gap-2 rounded-md border px-2 py-1.5 text-left focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${
                     active
                       ? "border-content/35 bg-selection"
@@ -355,6 +381,7 @@ function QuestionFields({
                 >
                   <span
                     aria-hidden
+                    data-question-mark
                     className={`mt-0.5 grid size-3.5 shrink-0 place-items-center border ${
                       question.multiSelect ? "rounded-[3px]" : "rounded-full"
                     } ${
@@ -368,11 +395,17 @@ function QuestionFields({
                     ) : null}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[12px] leading-snug text-content">
+                    <span
+                      className="block text-[12px] leading-snug text-content"
+                      data-question-label
+                    >
                       {option.label}
                     </span>
                     {option.description ? (
-                      <span className="mt-0.5 block text-[11px] leading-snug text-content/50">
+                      <span
+                        className="mt-0.5 block text-[11px] leading-snug text-content/50"
+                        data-question-description
+                      >
                         {option.description}
                       </span>
                     ) : null}

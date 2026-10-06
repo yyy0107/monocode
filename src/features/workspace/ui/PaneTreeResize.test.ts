@@ -1,17 +1,42 @@
 // @vitest-environment happy-dom
-import { act, createElement, type ComponentProps } from "react";
+import {
+  act,
+  createElement,
+  memo,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Session } from "../../sessions/model/session";
 import { PaneTree } from "./PaneTree";
 
-vi.mock("../../files/ui/FilePane", () => ({ FilePane: () => null }));
-vi.mock("../../sessions/ui/SessionPane", () => ({ SessionPane: () => null }));
+const paneRenders = vi.hoisted(() => ({ session: vi.fn(), file: vi.fn() }));
+vi.mock("../../files/ui/FilePane", () => ({
+  FilePane: memo((props: { tabsTrailing?: ReactNode }) => {
+    paneRenders.file(props);
+    return props.tabsTrailing;
+  }),
+}));
+vi.mock("../../sessions/ui/SessionPane", () => ({
+  SessionPane: memo(
+    (props: { session: Session; onOpenFile: (path: string) => void }) => {
+      paneRenders.session(props);
+      return createElement("button", {
+        "data-session-pane": props.session.id,
+        onClick: () => props.onOpenFile("src/example.ts"),
+      });
+    },
+  ),
+}));
 
 let container: HTMLDivElement;
 let root: Root;
 let pendingFrame: FrameRequestCallback | undefined;
 
 beforeEach(() => {
+  paneRenders.session.mockClear();
+  paneRenders.file.mockClear();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     pendingFrame = callback;
@@ -33,10 +58,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function render(dir: "right" | "down") {
+function render(
+  dir: "right" | "down",
+  patch: Partial<ComponentProps<typeof PaneTree>> = {},
+) {
   const noop = vi.fn();
   const onRatio = vi.fn();
-  const props: ComponentProps<typeof PaneTree> = {
+  let props: ComponentProps<typeof PaneTree> = {
     visible: true,
     layout: {
       type: "split",
@@ -76,7 +104,6 @@ function render(dir: "right" | "down") {
     onRemoveDraft: noop,
     onStop: noop,
     onCompactContext: noop,
-    onPlaceSessionInFolder: noop,
     onDeleteQueuedMessage: noop,
     onEditQueuedMessage: noop,
     onQueuedMessageEditingChange: noop,
@@ -95,17 +122,28 @@ function render(dir: "right" | "down") {
     onMovePane: noop,
     onDetachPane: noop,
     onNewTerminal: noop,
+    ...patch,
   };
   act(() => root.render(createElement(PaneTree, props)));
-  container.firstElementChild!.getBoundingClientRect = () =>
-    new DOMRect(100, 100, 1000, 800);
+  container.querySelector<HTMLElement>(
+    "[data-pane-tree-layout]",
+  )!.getBoundingClientRect = () => new DOMRect(100, 100, 1000, 800);
   const separator = container.querySelector<HTMLElement>('[role="separator"]')!;
   const handle = separator.firstElementChild as HTMLElement;
   const capture = new Set<number>();
   handle.setPointerCapture = (id) => capture.add(id);
   handle.hasPointerCapture = (id) => capture.has(id);
   handle.releasePointerCapture = (id) => capture.delete(id);
-  return { onRatio, separator, handle, capture };
+  return {
+    onRatio,
+    separator,
+    handle,
+    capture,
+    rerender(patch: Partial<ComponentProps<typeof PaneTree>>) {
+      props = { ...props, ...patch };
+      act(() => root.render(createElement(PaneTree, props)));
+    },
+  };
 }
 
 function pointer(
@@ -128,6 +166,82 @@ function pointer(
 }
 
 describe("workspace split resize handles", () => {
+  it("keeps chat and editor subtrees memoized throughout sash resizing", () => {
+    const { handle } = render("right", {
+      sessions: [
+        {
+          id: "first",
+          title: "Chat",
+          cwd: "/project",
+          blocks: [],
+        } as unknown as Session,
+      ],
+      editorPanes: [
+        {
+          id: "second",
+          activeFileId: "file",
+          files: [{ id: "file", path: "/project/example.ts", cwd: "/project" }],
+        },
+      ],
+      onOpenSessionFile: vi.fn(),
+      onSurfaceModeChange: vi.fn(),
+    });
+    expect(paneRenders.session).toHaveBeenCalledTimes(1);
+    expect(paneRenders.file).toHaveBeenCalledTimes(1);
+    pointer(handle, "pointerdown", 600, 500);
+    for (let frame = 1; frame <= 10; frame += 1) {
+      pointer(handle, "pointermove", 600 + frame * 10, 500);
+      act(() => pendingFrame?.(frame));
+    }
+    pointer(handle, "pointerup", 700, 500);
+    expect(paneRenders.session).toHaveBeenCalledTimes(1);
+    expect(paneRenders.file).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the latest file handlers and keeps the source session after focus and session changes", () => {
+    const first = {
+      id: "first",
+      title: "First",
+      cwd: "/project",
+      blocks: [],
+    } as unknown as Session;
+    const second = {
+      id: "second",
+      title: "Second",
+      cwd: "/project",
+      blocks: [],
+    } as unknown as Session;
+    const original = vi.fn();
+    const latest = vi.fn();
+    const fallback = vi.fn();
+    const { rerender } = render("right", {
+      sessions: [first, second],
+      onOpenSessionFile: original,
+      onOpenFile: fallback,
+    });
+    const open = (id: string) =>
+      act(() =>
+        container
+          .querySelector(`[data-session-pane="${id}"]`)!
+          .dispatchEvent(new MouseEvent("click", { bubbles: true })),
+      );
+    rerender({ onOpenSessionFile: latest });
+    expect(paneRenders.session).toHaveBeenCalledTimes(2);
+    rerender({ focusedId: "second" });
+    open("first");
+    open("second");
+    expect(latest.mock.calls).toEqual([
+      ["src/example.ts", "first"],
+      ["src/example.ts", "second"],
+    ]);
+    expect(original).not.toHaveBeenCalled();
+    rerender({ sessions: [second] });
+    rerender({ sessions: [first, second], onOpenSessionFile: undefined });
+    open("first");
+    expect(fallback).toHaveBeenCalledExactlyOnceWith("src/example.ts");
+    expect(latest).toHaveBeenCalledTimes(2);
+  });
+
   it.each(["right", "down"] as const)(
     "previews and commits a %s split through the enlarged target",
     (dir) => {

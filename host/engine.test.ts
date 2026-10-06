@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { SendTurnInput } from "../src/integrations/harness/core/types";
 import type { HostProvider } from "./providers";
 import { HostEngine, parseCommand } from "./engine";
@@ -36,7 +37,10 @@ function setup(harness: "codex" | "claude" = "codex") {
     approve: vi.fn(),
     answer: vi.fn(),
   };
-  const engine = new HostEngine(store, { codex: provider, claude: provider });
+  // Native sources resolve inside the fixture, never in the developer's home.
+  const engine = new HostEngine(store, { codex: provider, claude: provider }, undefined, {
+    native: { environment: { home: join(directory, "home"), env: {} } },
+  });
   const created = engine.command({
     type: "create",
     commandId: "create",
@@ -62,6 +66,38 @@ function setup(harness: "codex" | "claude" = "codex") {
 }
 
 describe("headless session ownership", () => {
+  it("reads one session for orchestration without enumerating history and preserves unflushed output", async () => {
+    const { engine, store, turns, id } = setup();
+    await engine.ready;
+    const sessions = vi.spyOn(store, "sessions");
+    expect(engine.orchestration.scheduler.submissionError(id)).toBeNull();
+    expect(engine.orchestration.scheduler.submissionError("missing")).toBeNull();
+    expect(sessions).not.toHaveBeenCalled();
+
+    engine.command({ type: "send", commandId: "single-session-send", sessionId: id, text: "Work" });
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    const started = store.session(id).revision;
+    turns[0].input.onEvent({ type: "message.delta", text: "Unflushed response" });
+    expect(store.session(id).revision).toBe(started);
+    expect(store.session(id).session.blocks.some((block) => block.text === "Unflushed response")).toBe(false);
+    expect(engine.session(id)?.session.blocks.some((block) => block.text === "Unflushed response")).toBe(true);
+    expect(engine.session("missing")).toBeUndefined();
+    expect(sessions).not.toHaveBeenCalled();
+    sessions.mockRestore();
+    turns[0].finish();
+  });
+
+  it("skips submission checks for native refreshes while still enforcing them for sends", async () => {
+    const { engine, id } = setup();
+    await engine.ready;
+    const submission = vi.spyOn(engine.orchestration.scheduler, "submissionError").mockReturnValue("Submission is blocked");
+    engine.orchestration.assertSessionWrite(id, "refresh");
+    expect(submission).not.toHaveBeenCalled();
+    expect(() => engine.orchestration.assertSessionWrite(id, "send")).toThrow("Submission is blocked");
+    expect(submission).toHaveBeenCalledOnce();
+    submission.mockRestore();
+  });
+
   it("refreshes event-automation titles once and protects subsequent manual names", async () => {
     const { engine, store, provider, turns, id } = setup();
     provider.generateTitle = vi.fn(async () => ({ title: "New automation goal", workItem: null }));
@@ -1000,4 +1036,106 @@ describe("headless session ownership", () => {
       }),
     ).toThrow();
   });
+});
+
+describe("imported native sessions", () => {
+  async function nativeSetup() {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const context = setup("claude");
+    writeFileSync(join(context.directory, "desktop-owner.json"), JSON.stringify({ desktopDirectory: join(context.directory, "desktop") }));
+    // Process detection spans all test workers. Synthetic CLI fixtures in other
+    // suites must not accidentally own this independently imported conversation.
+    const nativeId = randomUUID();
+    const projects = join(context.directory, "home/.claude/projects/fixture");
+    mkdirSync(projects, { recursive: true });
+    const path = join(projects, `${nativeId}.jsonl`);
+    const row = (uuid: string, parentUuid: string | null, type: "user" | "assistant", text: string) =>
+      JSON.stringify({
+        type, uuid, parentUuid, sessionId: nativeId, cwd: context.directory, timestamp: new Date(1_000).toISOString(),
+        message: type === "user" ? { role: "user", content: text } : { role: "assistant", content: [{ type: "text", text }] },
+      }) + "\n";
+    writeFileSync(path, row("u1", null, "user", "Imported question") + row("a1", "u1", "assistant", "Imported answer"));
+    const value = context.store.session(context.id);
+    const nativeSession = {
+      provider: "claude" as const,
+      providerSessionId: nativeId,
+      path,
+      revision: "1",
+      blockIds: [],
+      nativeIds: [],
+      mode: "managed" as const,
+      storage: "jsonl" as const,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    context.store.save(
+      { ...value, revision: value.revision + 1, session: { ...value.session, providerSessionId: nativeId, nativeSession } },
+      { type: "test" },
+    );
+    const { nativeLockPath } = await import("./native-access");
+    return { ...context, lock: nativeLockPath(context.directory, nativeSession), path, nativeId, row };
+  }
+
+  it.runIf(process.platform === "linux")("continues under the Host's lock with a strict binding, then releases it", async () => {
+    const { acquireNativeLease, IN_USE_BY_MONOCODE } = await import("./native-access");
+    const { engine, provider, turns, id, lock, path, store, nativeId } = await nativeSetup();
+    expect(await engine.nativeAccess(id)).toMatchObject({ state: "idle" });
+    engine.command({ type: "send", commandId: "native-send", sessionId: id, text: "Continue from the phone" });
+    await vi.waitFor(() => expect(turns, store.session(id).session.blocks.at(-1)?.text).toHaveLength(1), { timeout: 5_000 });
+    expect(provider.bind).toHaveBeenCalledWith(id, nativeId, expect.any(String), undefined, expect.objectContaining({ path }));
+    expect(turns[0].input.nativeSession?.path).toBe(path);
+    // Another MonoCode writer cannot start while the Host turn runs.
+    await expect(acquireNativeLease(lock)).rejects.toThrow(IN_USE_BY_MONOCODE);
+    expect(await engine.nativeAccess(id)).toMatchObject({ state: "idle" });
+    turns[0].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+    // The provider is stopped right away so no idle CLI keeps owning the file.
+    expect(provider.stop).toHaveBeenCalledWith(id);
+    const lease = await acquireNativeLease(lock);
+    await lease.release();
+  }, 10_000);
+
+  it.runIf(process.platform === "linux")("refuses to write while another MonoCode writer holds the session", async () => {
+    const { acquireNativeLease } = await import("./native-access");
+    const { engine, provider, id, lock, store } = await nativeSetup();
+    const other = await acquireNativeLease(lock);
+    try {
+      expect(await engine.nativeAccess(id)).toMatchObject({ reason: "anotherMonocode" });
+      // A known owner fails fast, before a turn starts.
+      expect(() => engine.command({ type: "send", commandId: "blocked", sessionId: id, text: "x" })).toThrow(
+        "MonoCode desktop is using this conversation",
+      );
+      expect(provider.send).not.toHaveBeenCalled();
+      expect(store.session(id).status).toBe("idle");
+    } finally {
+      await other.release();
+    }
+  });
+});
+
+it.each(["codex", "claude"] as const)("pins the shared %s default at creation and preserves older conversations", async (harness) => {
+  const { directory, engine, project, id: legacyId, store, turns } = setup(harness);
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  mkdirSync(join(directory, "provider-accounts"));
+  writeFileSync(join(directory, "desktop-owner.json"), JSON.stringify({ desktopDirectory: directory }));
+  writeFileSync(join(directory, "provider-accounts/accounts.json"), JSON.stringify({ [harness]: [{ id: "work", label: "Work" }, { id: "personal", label: "Personal" }] }));
+  const defaults = join(directory, "provider-accounts/defaults.json");
+  writeFileSync(defaults, JSON.stringify({ [harness]: "work" }));
+  const create = (commandId: string, providerAccountId?: string) => engine.command({ type: "create", commandId, projectId: project.id, harness, model: `${harness}:test`, runtimeMode: "supervised", providerAccountId });
+  const following = create("following");
+  expect(store.session(create("explicit-cli", "default").sessionId).session.providerAccountId).toBeUndefined();
+  const explicit = create("explicit", "personal");
+  expect(store.session(following.sessionId).session.providerAccountId).toBe("work");
+  expect(store.session(explicit.sessionId).session.providerAccountId).toBe("personal");
+  writeFileSync(defaults, JSON.stringify({ [harness]: "personal" }));
+  expect(store.session(create("after-change").sessionId).session.providerAccountId).toBe("personal");
+  engine.command({ type: "send", commandId: "old-named", sessionId: following.sessionId, text: "Continue" });
+  await vi.waitFor(() => expect(turns).toHaveLength(1));
+  expect(turns[0].input.providerAccountId).toBe("work"); turns[0].finish();
+  engine.command({ type: "send", commandId: "old-cli", sessionId: legacyId, text: "Continue" });
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  expect(turns[1].input.providerAccountId).toBeUndefined(); turns[1].finish();
+  writeFileSync(defaults, JSON.stringify({ [harness]: "removed" }));
+  expect(() => create("missing-default")).toThrow("no longer available");
+  expect(store.session(create("override-broken", "work").sessionId).session.providerAccountId).toBe("work");
 });

@@ -1,3 +1,4 @@
+import { configureSharedHost } from "../../connections/model/remoteProjects";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const child = vi.hoisted(() => ({
@@ -51,10 +52,11 @@ vi.mock("../../../integrations/harness/core/jsonRpc", () => ({
   },
 }));
 
-import { fetchCodexRateLimits } from "./rateLimitsFetch";
+import { fetchCodexRateLimits, fetchClaudeRateLimits, consumeCodexRateLimitResetCredit } from "./rateLimitsFetch";
 
 describe("fetchCodexRateLimits", () => {
   beforeEach(() => {
+    configureSharedHost(undefined, []);
     child.live = 0;
     child.maxLive = 0;
     child.spawned = [];
@@ -77,4 +79,12 @@ describe("fetchCodexRateLimits", () => {
       10, 10, 10,
     ]);
   });
+});
+
+it("never queries or spends reset credits through the desktop environment for the shared Host CLI account", async () => {
+  configureSharedHost("env", [], "shared-host");
+  expect((await fetchCodexRateLimits()).status).toBe("unavailable");
+  expect((await fetchClaudeRateLimits()).status).toBe("unavailable");
+  await expect(consumeCodexRateLimitResetCredit()).rejects.toThrow("Host CLI account usage is unavailable");
+  configureSharedHost(undefined, []);
 });

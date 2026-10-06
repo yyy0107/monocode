@@ -10,6 +10,20 @@
   when opening or creating a conversation, independently of history loading.
 - A conversation list row carries both session id and owning HostProject.
   Cross-project opens load the owner and validate the snapshot's project id.
+- `sessionEntrySource = project | other` is MobileApp-only memory. Project-page
+  regular/pinned/search rows and the bottom Chat action explicitly select
+  `project`; aggregate Home/All projects, drawer, notification and assistant
+  opens reset it to `other`. Retained `homeProjectId` never determines the source
+  of a non-list entry. Opening a project for a conversation defaults to `other`
+  before any asynchronous history request settles.
+- Chat renders the existing Back IconButton and ArrowLeft only for `project`
+  source, using the existing English/Chinese translation. Back calls openHome
+  with the current project if it remains in the project list, otherwise Home;
+  an unsent draft uses its selected project. Loading/failure, fallback to a draft
+  for an unavailable session, and Settings round trips retain source. openHome
+  invalidates navigation requests so late session responses cannot reopen chat.
+  This changes neither drawer swipes nor Android Back, Host APIs, persisted
+  location/session formats, or desktop navigation.
 - Settings remember the previous view; Android Back from chat opens its project
   list. Home project Back opens the aggregate page.
 - Histories use existing `sessions.list({projectId})`; no Host API changes.
@@ -27,6 +41,14 @@
   their dock Chat action creates a conversation in that selected project.
 - Archived sessions are excluded; pinned sessions appear once in Pinned and
   other sessions retain the existing activity/running ordering in Recent.
+- Home and sidebar project order uses the maximum non-archived session
+  `updatedAt`, descending. Pins do not affect project priority; ties and empty
+  projects retain Host order. The drawer reads collapsed projects too, refreshes
+  every 3 s while open/foregrounded, preserves cached summaries on failure and
+  ignores responses superseded by newer requests. Its current and running
+  projects expand by default; manual collapse is retained until explicitly
+  reopened or selected as the current project. Expanded projects remain visible
+  through the shared animated preview batches, even outside the first five.
 - Conversation rows put the provider icon before the title and unread marker
   after the timestamp on the right. Unread state and notification consumption
   retain their existing behavior; the icon remains visible when titles truncate.

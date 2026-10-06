@@ -139,6 +139,41 @@ describe("mobile Host transport", () => {
 });
 
 describe("mobile client synchronization", () => {
+  it("queries native ownership on the paired Host and preserves the native binding through sync", async () => {
+    const value = snapshot();
+    value.session.nativeSession = { provider: "pi", providerSessionId: "pi-native", path: "/native/pi.jsonl",
+      revision: "1", createdAt: 1, updatedAt: 1, blockIds: [] };
+    value.session.providerSessionId = "pi-native";
+    const rpc = vi.fn(transport((method, params) => {
+      if (method === "sessions.nativeAccess") {
+        expect(params).toEqual({ sessionId: "session" });
+        return { state: "idle", reason: "available", checkedAt: 1, path: "/native/pi.jsonl" };
+      }
+      return { kind: "snapshot", value };
+    }));
+    const client = new MobileClient(memory(), rpc);
+    await client.connect(endpoint, token);
+    expect((await client.session("session")).session.nativeSession).toEqual(value.session.nativeSession);
+    expect(await client.nativeAccess("session")).toMatchObject({ state: "idle" });
+    expect(rpc.mock.calls.at(-1)![2]).toMatchObject({ environmentId: "host-1", method: "sessions.nativeAccess" });
+  });
+  it("propagates network and native-access errors", async () => {
+    let failure: Error = new Error("Network timeout");
+    const client = new MobileClient(memory(), transport(() => { throw failure; }));
+    await client.connect(endpoint, token);
+    await expect(client.nativeAccess("session")).rejects.toThrow("Network timeout");
+    failure = new HostRequestError("Conversation not found", 400);
+    await expect(client.nativeAccess("session")).rejects.toThrow("Conversation not found");
+  });
+  it("discards an ownership response after the Host connection changes", async () => {
+    let resolve!: (value: unknown) => void;
+    const client = new MobileClient(memory(), transport(() => new Promise((done) => { resolve = done; })));
+    await client.connect(endpoint, token);
+    const check = client.nativeAccess("session");
+    await client.connect("https://other-computer.example", token);
+    resolve({ state: "idle", path: "/native/pi.jsonl", checkedAt: 1, reason: "available" });
+    await expect(check).rejects.toThrow("Host connection changed");
+  });
   it("updates session metadata on its owning project and drops deleted cached snapshots", async () => {
     const requests: Array<{ method: string; params: Record<string, any> }> = [];
     const client = new MobileClient(

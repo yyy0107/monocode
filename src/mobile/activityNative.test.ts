@@ -117,7 +117,7 @@ describe("Android activity notification bridge", () => {
     expect(native.observe).toHaveBeenLastCalledWith(
       expect.objectContaining({ enabled: false }),
     );
-    options = { ...options, visibleSession: { id: "one", revision: 20 } };
+    options = { ...options, visibleSession: { id: "one", projectId: "project", revision: 20 } };
     await render();
     expect(native.visible).toHaveBeenLastCalledWith({
       environmentId: "host",

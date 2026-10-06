@@ -26,6 +26,10 @@ import {
   loadNotesEnabled,
   subscribeNotesEnabled,
 } from "../../settings/model/settings";
+import { hostOrchestrationClient } from "../../orchestration/model/orchestrationClient";
+import { loadRemoteSession } from "../../connections/model/connections";
+import type { HostSession } from "../../connections/model/protocol";
+import { parseRemotePath, remotePath } from "../../connections/model/remoteProjects";
 
 /**
  * One orchestration worker, watched from its lead's workspace.
@@ -37,7 +41,7 @@ import {
  */
 export function AgentTabView({
   title,
-  session,
+  session: initialSession,
   visible,
   focused = visible,
   onOpenFile,
@@ -49,6 +53,36 @@ export function AgentTabView({
   onOpenFile?: (path: string) => void;
 }) {
   const { t: uiT } = useTranslation();
+  const [hostSession, setHostSession] = useState<Session>();
+  const session = hostSession?.id === initialSession?.id ? hostSession : initialSession;
+  const openFile = useCallback((path: string) => {
+    const source = initialSession && hostOrchestrationClient.reference(initialSession.id);
+    if (!source || source.project.local || parseRemotePath(path)) return onOpenFile?.(path);
+    const cwd = session && parseRemotePath(sessionWorkCwd(session))?.hostPath;
+    const absolute = path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\")
+      ? path : `${cwd ?? source.project.cwd}/${path}`;
+    onOpenFile?.(remotePath(source.project.environmentId, absolute));
+  }, [initialSession?.id, session, onOpenFile]);
+  useEffect(() => {
+    const source = initialSession && hostOrchestrationClient.reference(initialSession.id);
+    if (!source || source.sessionId === source.leadId || !visible) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let known: HostSession | undefined;
+    const poll = async () => {
+      let active = false;
+      try {
+        const next = await loadRemoteSession(source.machineId, source.sessionId, known);
+        if (disposed || next.projectId !== source.project.projectId || next.session.orchestrationLeadId !== source.leadId) return;
+        known = next;
+        setHostSession(hostOrchestrationClient.desktopSession(source, next));
+        active = next.status === "running";
+      } catch { /* Retain readable worker history while disconnected. */ }
+      if (!disposed) timer = setTimeout(() => void poll(), active ? 750 : 3_000);
+    };
+    void poll();
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [initialSession?.id, visible]);
   const navigateBlockRef = useRef<
     ((blockId: string | null, query?: string) => boolean) | null
   >(null);
@@ -134,7 +168,7 @@ export function AgentTabView({
           harness={session.harness}
           model={session.model}
           visible={visible}
-          onOpenFile={onOpenFile}
+          onOpenFile={onOpenFile ? openFile : undefined}
           onSaveNote={notesEnabled ? saveNote : undefined}
           onSaveSelectionNote={notesEnabled ? saveSelectionNote : undefined}
           onNavigateReady={onNavigateReady}

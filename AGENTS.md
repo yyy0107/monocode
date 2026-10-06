@@ -27,8 +27,18 @@ are not prerequisites for local work.
 
 ## Spec Kit
 
-The active feature is recorded in `.specify/feature.json` and lives in
-`specs/017-desktop-shell-overhaul/`. Read spec.md, plan.md, contracts and tasks.md together.
+The active feature is recorded in `.specify/feature.json`. Read spec.md, plan.md,
+contracts and tasks.md together from that directory. The Host orchestration
+record lives in `specs/019-host-orchestration/`; the desktop shell record remains
+in `specs/017-desktop-shell-overhaul/`.
+The multi-agent native session sync record (Claude Code, Codex, Pi, omp, OpenCode)
+lives in `specs/021-multi-agent-session-sync/`.
+The Host-owned native session lifecycle record lives in
+`specs/030-host-native-sessions/`; history mapping (031) and the cross-platform
+`native-guard` (032) follow it.
+The Host assistant record lives in `specs/022-host-assistant/`; its human-like
+conversation follow-up (persona, local time, reminders, steering) lives in
+`specs/027-assistant-humanlike/`.
 The native session titles record remains in `specs/004-native-session-titles/`.
 The completed native session synchronization record remains in
 `specs/002-native-session-sync/`.
@@ -39,9 +49,22 @@ Toolkit initialization or artifact quality checks do not prove product implement
 
 ## Verification
 
-Run affected tests during development. For this adapter upgrade, complete
-`npm run check:web`, `npm run test:host` and `npm run build`; run
-`npm run check:rust` when Rust changes. Record actual CLI versions and test results.
+Keep verification proportional to the change and minimize unnecessary testing.
+
+- Run the smallest relevant existing tests for changed behavior; do not run full
+  suites by default.
+- Documentation-only changes do not require tests. For reversible, low-risk
+  presentation changes, use a focused inspection or check instead of adding tests.
+- Add tests only for meaningful behavior or regression risks; avoid tests that
+  merely mirror the implementation.
+- Once relevant checks pass, do not repeat or broaden them unless further changes,
+  failures, or unresolved risks justify it.
+- Use `npm run check:web`, `npm run test:host` and `npm run build` only when their
+  scope is relevant or the task explicitly requires them; run `npm run check:rust`
+  when Rust changes.
+- Record the checks actually run and their results, and actual CLI versions when
+  verifying provider compatibility.
+
 Never mark tasks complete or claim compatibility for an unrun scenario.
 Publishing, pushing and merging into main are separate scoped operations.
 

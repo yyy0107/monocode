@@ -94,7 +94,7 @@ function keyboard(height: number, duration = 285) {
     ),
   );
 }
-function tapKeepingFocus(target: HTMLElement) {
+function pointerTapKeepingFocus(target: HTMLElement) {
   act(() => {
     for (const event of [
       new PointerEvent("pointerdown", {
@@ -109,6 +109,29 @@ function tapKeepingFocus(target: HTMLElement) {
     }
     target.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     target.click();
+  });
+}
+function touch(type: string, target: Element, clientX = 40, clientY = 100) {
+  const point = new Touch({ identifier: 1, target, clientX, clientY });
+  const event = new TouchEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    touches: type === "touchend" || type === "touchcancel" ? [] : [point],
+    changedTouches: [point],
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+function tapKeepingFocus(target: HTMLElement) {
+  act(() => {
+    target.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true, cancelable: true, pointerType: "touch", pointerId: 1,
+    }));
+    touch("touchstart", target);
+    target.dispatchEvent(new PointerEvent("pointerup", {
+      bubbles: true, pointerType: "touch", pointerId: 1,
+    }));
+    expect(touch("touchend", target).defaultPrevented).toBe(true);
   });
 }
 describe("mobile composer popup focus", () => {
@@ -127,16 +150,22 @@ describe("mobile composer popup focus", () => {
     const blur = vi.fn();
     area.addEventListener("blur", blur);
     tapKeepingFocus(button(label));
-    const sheet = node.querySelector<HTMLElement>('[role="dialog"]')!;
+    const sheet = node.querySelector<HTMLElement>('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')!;
     expect(sheet).not.toBeNull();
     expect(document.activeElement).toBe(area);
     expect(sheet.getAttribute("aria-modal")).not.toBe("true");
-    tapKeepingFocus(node.querySelector<HTMLElement>(".mobile-sheet-backdrop")!);
-    expect(node.querySelector('[role="dialog"]')).toBeNull();
+    tapKeepingFocus(node.querySelector<HTMLElement>('.mobile-sheet-backdrop:not([aria-hidden="true"])')!);
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(area);
     expect([area.selectionStart, area.selectionEnd]).toEqual([5, 9]);
     expect(area.value).toBe("Keep this draft");
     expect(blur).not.toHaveBeenCalled();
+    expect(sheet.closest(".mobile-sheet-backdrop")?.getAttribute("data-fold-state")).toBe("closing");
+    expect(sheet.closest<HTMLElement>(".mobile-sheet-backdrop")?.inert).toBe(true);
+    tapKeepingFocus(button(label));
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBe(sheet);
+    expect(document.activeElement).toBe(area);
+    expect([area.selectionStart, area.selectionEnd]).toEqual([5, 9]);
   });
 
   it("keeps typing focus through model and reasoning submenus and option changes", () => {
@@ -168,7 +197,7 @@ describe("mobile composer popup focus", () => {
     act(() => area.focus());
     const blur = vi.fn();
     area.addEventListener("blur", blur);
-    const row = (text: string) => [...node.querySelectorAll<HTMLButtonElement>(".mobile-sheet-row")]
+    const row = (text: string) => [...node.querySelectorAll<HTMLButtonElement>('.mobile-sheet-backdrop:not([aria-hidden="true"]) .mobile-sheet-row')]
       .find((element) => element.querySelector("strong")?.textContent === text)!;
     tapKeepingFocus(button("Model and reasoning"));
     tapKeepingFocus(row("Model"));
@@ -188,205 +217,114 @@ describe("mobile composer popup focus", () => {
     act(() => area.focus());
     tapKeepingFocus(button("Add to message"));
     act(() => area.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(node.querySelector('[role="dialog"]')).toBeNull();
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(area);
 
     tapKeepingFocus(button("Add to message"));
-    const rows = [...node.querySelectorAll<HTMLButtonElement>(".mobile-sheet-row:not(:disabled)")];
+    const rows = [...node.querySelectorAll<HTMLButtonElement>('.mobile-sheet-backdrop:not([aria-hidden="true"]) .mobile-sheet-row:not(:disabled)')];
     act(() => area.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true })));
     expect(document.activeElement).toBe(rows[0]);
     act(() => rows[0].dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true })));
     expect(document.activeElement).toBe(rows.at(-1));
     act(() => rows.at(-1)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(node.querySelector('[role="dialog"]')).toBeNull();
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(area);
+  });
+
+  it("retains the existing pointer and mouse focus protection", () => {
+    const { node, button } = render();
+    const area = node.querySelector("textarea")!;
+    act(() => area.focus());
+    pointerTapKeepingFocus(button("Add to message"));
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).not.toBeNull();
+    expect(document.activeElement).toBe(area);
+  });
+
+  it("applies a permission once without losing typing focus", () => {
+    const onConfigurationChange = vi.fn();
+    const { node, button } = render({ onConfigurationChange });
+    const area = node.querySelector("textarea")!;
+    act(() => area.focus());
+    const blur = vi.fn();
+    area.addEventListener("blur", blur);
+    tapKeepingFocus(button("Permissions: Supervised"));
+    const choice = [...node.querySelectorAll<HTMLButtonElement>('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="radio"]')]
+      .find(element => element.textContent?.includes("Full access"))!;
+    tapKeepingFocus(choice);
+    expect(onConfigurationChange).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ runtimeMode: "full-access" }));
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(area);
+    expect(blur).not.toHaveBeenCalled();
+  });
+
+  it("leaves scrolling and cancelled touches available without opening a popup", () => {
+    const { node, button } = render();
+    const area = node.querySelector("textarea")!;
+    act(() => area.focus());
+    const trigger = button("Model and reasoning");
+    act(() => {
+      touch("touchstart", trigger);
+      expect(touch("touchmove", trigger, 40, 120).defaultPrevented).toBe(false);
+      // Returning to the starting point still belongs to the scroll gesture.
+      expect(touch("touchend", trigger).defaultPrevented).toBe(false);
+      touch("touchstart", trigger);
+      touch("touchcancel", trigger);
+      expect(touch("touchend", trigger).defaultPrevented).toBe(false);
+    });
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(area);
+  });
+
+  it("keeps form submission and stop working exactly once for touch actions", () => {
+    const { node, button, rerender, onSend, onStop } = render();
+    const area = node.querySelector("textarea")!;
+    act(() => area.focus());
+    tapKeepingFocus(button("Send message"));
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onStop).not.toHaveBeenCalled();
+    rerender({ running: true, value: "", canStop: true });
+    tapKeepingFocus(button("Stop"));
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(area);
   });
 });
-describe("mobile composer with the Android keyboard", () => {
-  it("changes shape when the keyboard starts moving, on the keyboard's timing", () => {
-    vi.useFakeTimers();
+describe("mobile composer card", () => {
+  it("preserves multiline drafts, visible controls and attachments when focus or keyboard state changes", () => {
     const uninstall = installKeyboardMotion();
     try {
       keyboard(0, 0);
-      const { node } = render();
-      const form = node.querySelector("form")!;
+      const draft = "First line\nSecond line\nThird line";
+      vi.spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get").mockReturnValue(104);
+      const { node, button } = render({
+        value: draft,
+        attachments: [{ id: "one", name: "notes.txt", mimeType: "text/plain", kind: "file", size: 4 }],
+      });
       const area = node.querySelector("textarea")!;
-      act(() => area.focus());
-      expect(form.dataset.collapsed).toBe("true");
-      keyboard(300);
-      expect(form.dataset.collapsed).toBe("false");
-      expect(form.style.getPropertyValue("--mobile-composer-duration")).toBe("285ms");
-      // The keyboard's curve may overshoot; the capsule keeps its own.
-      expect(form.style.getPropertyValue("--mobile-composer-easing")).toBe("");
-      expect(document.documentElement.style.getPropertyValue("--mobile-keyboard-height")).toBe(
-        "300px",
-      );
-
+      const chips = node.querySelector(".mobile-composer-attachments")!;
       const outside = document.createElement("button");
       document.body.append(outside);
+      act(() => area.focus());
+      keyboard(300);
       act(() => outside.focus());
-      expect(form.dataset.collapsed).toBe("false");
       keyboard(0, 240);
-      expect(form.dataset.collapsed).toBe("true");
-      expect(form.style.getPropertyValue("--mobile-composer-duration")).toBe("240ms");
+      expect(area.value).toBe(draft);
+      expect(area.style.height).toBe("104px");
+      expect(node.querySelector(".mobile-composer-attachments")).toBe(chips);
+      expect(chips.closest('[aria-hidden="true"], [inert]')).toBeNull();
+      expect(button("Model and reasoning").closest('[aria-hidden="true"], [inert]')).toBeNull();
+      expect(button("Permissions: Supervised").closest('[aria-hidden="true"], [inert]')).toBeNull();
+      act(() => area.focus());
+      expect(node.querySelector("textarea")).toBe(area);
+      expect(area.value).toBe(draft);
     } finally {
       uninstall();
-      vi.useRealTimers();
     }
   });
-  it("keeps the borrowed keyboard duration within the capsule's range", () => {
-    vi.useFakeTimers();
-    const uninstall = installKeyboardMotion();
-    try {
-      keyboard(0, 0);
-      const { node } = render();
-      const form = node.querySelector("form")!;
-      act(() => node.querySelector("textarea")!.focus());
-      keyboard(300, 900);
-      expect(form.dataset.collapsed).toBe("false");
-      expect(form.style.getPropertyValue("--mobile-composer-duration")).toBe("420ms");
-    } finally {
-      uninstall();
-      vi.useRealTimers();
-    }
-  });
-  it("expands on its own when no keyboard appears", () => {
-    vi.useFakeTimers();
-    const uninstall = installKeyboardMotion();
-    try {
-      keyboard(0, 0);
-      const { node } = render();
-      const form = node.querySelector("form")!;
-      act(() => node.querySelector("textarea")!.focus());
-      expect(form.dataset.collapsed).toBe("true");
-      act(() => vi.advanceTimersByTime(400));
-      expect(form.dataset.collapsed).toBe("false");
-      expect(form.style.getPropertyValue("--mobile-composer-duration")).toBe("");
-    } finally {
-      uninstall();
-      vi.useRealTimers();
-    }
-  });
-});
-describe("compact mobile composer", () => {
-  it("keeps the send target still during a pointer press, then expands after sending", () => {
-    const { node, button, onSend } = render();
-    const form = node.querySelector("form")!;
-    const send = button("Send message");
-    act(() => send.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
-    act(() => send.focus());
-    expect(form.dataset.collapsed).toBe("true");
-    act(() => {
-      send.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
-      send.click();
-    });
-    expect(onSend).toHaveBeenCalledOnce();
-    expect(form.dataset.collapsed).toBe("false");
-  });
 
-  it("starts as a single row with only the add and primary action, then expands when clicked", () => {
-    const { node, button } = render({ planMode: true });
-    const form = node.querySelector("form")!;
-    expect(form.dataset.collapsed).toBe("true");
-    expect(button("Add to message").hidden).toBe(false);
-    expect(button("Send message").hidden).toBe(false);
-    expect(button("Model and reasoning").closest('[aria-hidden="true"]')).not.toBeNull();
-    expect(button("Permissions: Supervised").closest('[aria-hidden="true"]')).not.toBeNull();
-    expect(button("Plan mode").closest('[aria-hidden="true"]')).not.toBeNull();
-    act(() => form.click());
-    expect(document.activeElement).toBe(node.querySelector("textarea"));
-    expect(form.dataset.collapsed).toBe("false");
-    expect(button("Model and reasoning").closest('[aria-hidden="true"]')).toBeNull();
-    expect(button("Plan mode").closest('[aria-hidden="true"]')).toBeNull();
-  });
-
-  it("collapses on outside focus and restores multiline drafts and attachments when focused again", () => {
-    const draft = "First line\nSecond line\nThird line";
-    const { node, button } = render({
-      value: draft,
-      attachments: [{ id: "one", name: "notes.txt", mimeType: "text/plain", kind: "file", size: 4 }],
-    });
-    const form = node.querySelector("form")!;
-    const area = node.querySelector("textarea")!;
-    const attachments = node.querySelector<HTMLElement>(".mobile-composer-attachment-region")!;
-    vi.spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get").mockReturnValue(104);
-    expect(attachments.getAttribute("aria-hidden")).toBe("true");
-    act(() => area.focus());
-    expect(form.dataset.collapsed).toBe("false");
-    expect(area.style.height).toBe("104px");
-    expect(attachments.getAttribute("aria-hidden")).toBe("false");
-    expect(node.querySelectorAll("textarea")).toHaveLength(1);
-    act(() => button("Add to message").focus());
-    expect(form.dataset.collapsed).toBe("false");
-    const outside = document.createElement("button");
-    document.body.append(outside);
-    act(() => outside.focus());
-    expect(form.dataset.collapsed).toBe("true");
-    expect(area.style.height).toBe("28px");
-    expect(attachments.getAttribute("aria-hidden")).toBe("true");
-    expect(area.value).toBe(draft);
-    act(() => area.focus());
-    expect(form.dataset.collapsed).toBe("false");
-    expect(area.style.height).toBe("104px");
-    expect(attachments.getAttribute("aria-hidden")).toBe("false");
-    expect(area.value).toBe(draft);
-  });
-
-  it("stays expanded after choosing a sheet option while the change briefly disables it", () => {
-    const { node, click, rerender } = render();
-    const form = node.querySelector("form")!;
-    click("Permissions: Supervised");
-    const fullAccess = [...node.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
-      .find((row) => row.getAttribute("aria-checked") === "false")!;
-    act(() => {
-      fullAccess.focus();
-      fullAccess.click();
-    });
-    expect(node.querySelector('[role="dialog"]')).toBeNull();
-    expect(form.dataset.collapsed).toBe("false");
-    rerender({ disabled: true });
-    expect(form.dataset.collapsed).toBe("false");
-    rerender({ disabled: false });
-    expect(form.dataset.collapsed).toBe("false");
-  });
-
-  it("keeps controls and attachments mounted through collapse and settles the single-line preview at the end", () => {
-    const { node } = render({
-      value: "First line\nSecond line",
-      attachments: [{ id: "one", name: "notes.txt", mimeType: "text/plain", kind: "file", size: 4 }],
-    });
-    const form = node.querySelector("form")!;
-    const area = node.querySelector("textarea")!;
-    const regions = [...node.querySelectorAll<HTMLElement>(".mobile-composer-controls, .mobile-composer-attachment-region")];
-    act(() => area.focus());
-    const outside = document.createElement("button");
-    document.body.append(outside);
-    act(() => outside.focus());
-    expect(area.dataset.compact).toBe("false");
-    for (const region of regions) {
-      expect(region.hidden).toBe(false);
-      expect(region.dataset.collapsed).toBe("true");
-      expect(region.getAttribute("aria-hidden")).toBe("true");
-      expect(region.inert).toBe(true);
-    }
-    const settle = () => {
-      // happy-dom exposes TransitionEvent as Event and drops propertyName.
-      const event = new Event("transitionend", { bubbles: true });
-      Object.defineProperty(event, "propertyName", { value: "padding-bottom" });
-      act(() => form.dispatchEvent(event));
-    };
-    settle();
-    expect(area.dataset.compact).toBe("true");
-    act(() => area.focus());
-    // A late completion from the previous collapse must not compact the field.
-    settle();
-    expect(area.dataset.compact).toBe("false");
-    expect(area.value).toBe("First line\nSecond line");
-  });
-
-  it("measures the final expanded width once and only remeasures when the dock width changes", () => {
+  it("remeasures wrapping only when the available dock width changes", () => {
     const observers: { callback: () => void; observe: ReturnType<typeof vi.fn> }[] = [];
-    const resize = vi.spyOn(globalThis, "ResizeObserver").mockImplementation(function (callback) {
+    vi.spyOn(globalThis, "ResizeObserver").mockImplementation(function (callback) {
       const observer = { callback: () => callback([], {} as ResizeObserver), observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
       observers.push(observer);
       return observer;
@@ -394,7 +332,7 @@ describe("compact mobile composer", () => {
     const measuredWidths: string[] = [];
     vi.spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLTextAreaElement) {
       measuredWidths.push(this.style.width);
-      return this.style.width === "336px" ? 80 : 120;
+      return this.style.width === "324px" ? 80 : 120;
     });
     const { node } = render();
     const form = node.querySelector("form")!;
@@ -403,74 +341,83 @@ describe("compact mobile composer", () => {
     dock.style.padding = "8px 16px";
     form.style.border = "1px solid";
     const width = vi.spyOn(dock, "clientWidth", "get").mockReturnValue(394);
-    const formWidth = vi.spyOn(form, "clientWidth", "get").mockReturnValue(328);
-    act(() => area.focus());
     const dockObservers = observers.filter((item) => item.observe.mock.calls.some(([target]) => target === dock));
-    expect(dockObservers).toHaveLength(2);
     const notifyResize = () => act(() => dockObservers.forEach((item) => item.callback()));
-    expect(measuredWidths).toEqual(["336px"]);
+    notifyResize();
+    expect(measuredWidths).toEqual(["0px", "324px"]);
     expect(area.style.height).toBe("80px");
-    formWidth.mockReturnValue(344);
     notifyResize();
-    formWidth.mockReturnValue(360);
-    notifyResize();
-    expect(measuredWidths).toEqual(["336px"]);
+    expect(measuredWidths).toHaveLength(2);
     width.mockReturnValue(334);
     notifyResize();
-    expect(measuredWidths).toEqual(["336px", "276px"]);
+    expect(measuredWidths).toEqual(["0px", "324px", "264px"]);
     expect(area.style.height).toBe("120px");
     expect(node.querySelectorAll("textarea")).toHaveLength(1);
-    resize.mockRestore();
   });
 
-  it("settles immediately when reduced motion is requested", () => {
-    vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
-    const { node } = render();
-    const area = node.querySelector("textarea")!;
-    act(() => area.focus());
-    const outside = document.createElement("button");
-    document.body.append(outside);
-    act(() => outside.focus());
-    expect(area.dataset.compact).toBe("true");
-    expect(area.style.height).toBe("28px");
-  });
-
-  it("lets sent attachments exit smoothly and cancels their removal if new files arrive", () => {
+  it("lets sent attachments exit inertly and reverses closing when new files arrive", () => {
     vi.useFakeTimers();
     try {
       const attachment = { id: "one", name: "notes.txt", mimeType: "text/plain", kind: "file", size: 4 };
       const { node, rerender } = render({ attachments: [attachment] });
-      act(() => node.querySelector("textarea")!.focus());
       rerender({ value: "", attachments: [] });
-      const region = node.querySelector<HTMLElement>(".mobile-composer-attachment-region")!;
-      expect(region.dataset.collapsed).toBe("true");
-      expect(region.inert).toBe(true);
-      expect(region.textContent).toContain("notes.txt");
+      const fold = node.querySelector<HTMLElement>(".mobile-composer-attachment-region .zen-fold-item")!;
+      expect(fold.dataset.foldState).toBe("closing");
+      expect(fold.inert).toBe(true);
+      expect(fold.textContent).toContain("notes.txt");
       act(() => vi.advanceTimersByTime(140));
       rerender({ attachments: [{ ...attachment, id: "two", name: "new.txt" }] });
-      act(() => vi.advanceTimersByTime(280));
-      expect(region.dataset.collapsed).toBe("false");
-      expect(region.textContent).toContain("new.txt");
+      expect(fold.dataset.foldState).toBe("opening");
+      expect(fold.inert).toBe(false);
+      expect(fold.textContent).toContain("new.txt");
+      act(() => vi.advanceTimersByTime(350));
+      expect(fold.dataset.foldState).toBe("open");
       rerender({ attachments: [] });
-      act(() => vi.advanceTimersByTime(280));
-      expect(node.querySelector(".mobile-composer-attachment-region")).toBeNull();
+      act(() => vi.advanceTimersByTime(350));
+      expect(node.querySelector(".mobile-composer-attachments")).toBeNull();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("stays expanded when focus leaves for the system, such as a file picker", () => {
-    const { node } = render();
-    const form = node.querySelector("form")!;
-    const area = node.querySelector("textarea")!;
-    act(() => area.focus());
-    act(() => area.blur());
-    expect(form.dataset.collapsed).toBe("false");
+  it("removes attachment chips immediately with reduced motion", () => {
+    vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
+    const { node, rerender } = render({
+      attachments: [{ id: "one", name: "notes.txt", mimeType: "text/plain", kind: "file", size: 4 }],
+    });
+    rerender({ attachments: [] });
+    expect(node.querySelector(".mobile-composer-attachments")).toBeNull();
   });
 
-  it("collapses on an outside tap but not on an outside scroll gesture", () => {
+  it("switches draft projects through the add menu without losing typing focus", () => {
+    const { node, button, onProjectChange } = render();
+    const area = node.querySelector("textarea")!;
+    act(() => { area.focus(); area.setSelectionRange(5, 9); });
+    tapKeepingFocus(button("Add to message"));
+    tapKeepingFocus(button("Choose project"));
+    const projects = [...node.querySelectorAll<HTMLButtonElement>('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="radio"]')];
+    tapKeepingFocus(projects.find(row => row.getAttribute("aria-checked") === "true")!);
+    expect(onProjectChange).not.toHaveBeenCalled();
+    expect(node.querySelector(".mobile-composer-project")).toBeNull();
+    tapKeepingFocus(button("Add to message"));
+    tapKeepingFocus(button("Choose project"));
+    tapKeepingFocus([...node.querySelectorAll<HTMLButtonElement>('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="radio"]')]
+      .find(row => row.textContent?.includes("workbench"))!);
+    expect(onProjectChange).toHaveBeenCalledOnce();
+    expect(onProjectChange).toHaveBeenCalledWith({ id: "two", name: "workbench", cwd: "/projects/workbench" });
+    expect(document.activeElement).toBe(area);
+    expect([area.selectionStart, area.selectionEnd]).toEqual([5, 9]);
+    expect(area.value).toBe("Keep this draft");
+  });
+
+  it("keeps a locked project sheet closed even if requested externally", () => {
+    const { node } = render({ lockedAgent: true, panel: "projects" });
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
+    expect(node.querySelector('[aria-label="Choose project"]')).toBeNull();
+  });
+
+  it("dismisses the keyboard on an outside tap but retains it during scrolling", () => {
     const { node } = render();
-    const form = node.querySelector("form")!;
     const area = node.querySelector("textarea")!;
     const transcript = document.createElement("div");
     document.body.append(transcript);
@@ -483,14 +430,13 @@ describe("compact mobile composer", () => {
     act(() => area.focus());
     pointer("pointerdown", 100);
     pointer("pointerup", 160);
-    expect(form.dataset.collapsed).toBe("false");
+    expect(document.activeElement).toBe(area);
     pointer("pointerdown", 100);
     pointer("pointercancel", 100);
     pointer("pointerup", 100);
-    expect(form.dataset.collapsed).toBe("false");
+    expect(document.activeElement).toBe(area);
     pointer("pointerdown", 100);
     pointer("pointerup", 102);
-    expect(form.dataset.collapsed).toBe("true");
     expect(document.activeElement).not.toBe(area);
     expect(area.value).toBe("Keep this draft");
   });
@@ -514,13 +460,27 @@ describe("compact mobile composer", () => {
     expect(onStop).toHaveBeenCalledTimes(1);
   });
 
+  it("shows model loading in the composer and keeps it synchronized with the menu", () => {
+    const { node, button, click, rerender } = render({ catalogLoading: true });
+    const trigger = button("Model and reasoning");
+    expect(trigger.getAttribute("aria-busy")).toBe("true");
+    expect(trigger.querySelector('.mobile-spin[aria-label="Loading…"]')).not.toBeNull();
+    expect(trigger.textContent).toContain("Test model");
+    click("Model and reasoning");
+    expect(node.querySelector('.mobile-model-options .mobile-spin')).not.toBeNull();
+    rerender({ catalogLoading: false });
+    expect(trigger.hasAttribute("aria-busy")).toBe(false);
+    expect(trigger.querySelector(".mobile-spin")).toBeNull();
+    expect(node.querySelector('.mobile-model-options .mobile-spin')).toBeNull();
+    expect(node.querySelector("textarea")?.value).toBe("Keep this draft");
+  });
+
   it("keeps model controls in a sheet and closes it with Escape without losing the draft", () => {
     const { node, button, click } = render();
-    expect(node.querySelector("dialog, [role=dialog]")).toBeNull();
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     click("Model and reasoning");
-    const sheet = node.querySelector<HTMLElement>('[role="dialog"]')!;
+    const sheet = node.querySelector<HTMLElement>('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')!;
     expect(sheet).not.toBeNull();
-    expect(node.querySelector("form")!.dataset.collapsed).toBe("false");
     expect(button("Model and reasoning").getAttribute("aria-expanded")).toBe(
       "true",
     );
@@ -529,10 +489,9 @@ describe("compact mobile composer", () => {
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       ),
     );
-    expect(node.querySelector('[role="dialog"]')).toBeNull();
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     expect(node.querySelector("textarea")!.value).toBe("Keep this draft");
     expect(document.activeElement).toBe(button("Model and reasoning"));
-    expect(node.querySelector("form")!.dataset.collapsed).toBe("false");
   });
   it("uses a send button and Ctrl/Command+Enter while plain Enter stays a newline", () => {
     const { node, click, onSend } = render();
@@ -594,10 +553,10 @@ describe("compact mobile composer", () => {
     act(() =>
       node.querySelector<HTMLButtonElement>('[role="switch"]')!.click(),
     );
-    expect(node.querySelector('[role="dialog"]')).toBeNull();
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     expect(node.querySelector(".mobile-composer-plan")).not.toBeNull();
     click("Plan mode");
-    expect(node.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).not.toBeNull();
     expect(node.querySelector(".mobile-composer-plan")).not.toBeNull();
     click("Turn off plan mode");
     expect(node.querySelector(".mobile-composer-plan")).toBeNull();

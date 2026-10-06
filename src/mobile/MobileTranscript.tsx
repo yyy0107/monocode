@@ -17,6 +17,7 @@ import {
 } from "./transcriptPlatform";
 import { MobileToolSheet } from "./MobileToolSheet";
 import { MobileFileSheet } from "./MobileFileSheet";
+import { useTranscriptLayout } from "../features/sessions/hooks/useTranscriptLayout";
 
 type Detail =
   | { kind: "tool"; block: Block }
@@ -39,6 +40,7 @@ export const MobileTranscript = memo(function MobileTranscript({
   animateFrom?: string;
 }) {
   const [detail, setDetail] = useState<Detail>();
+  const layout = useTranscriptLayout();
   // Sheets portal to the app root: as a sibling of the composer dock they
   // would pick up the dock spacing rules and stop short of the screen bottom.
   const [sheetHost, setSheetHost] = useState<HTMLElement | null>(null);
@@ -97,6 +99,7 @@ export const MobileTranscript = memo(function MobileTranscript({
       <div
         ref={findSheetHost}
         className="mobile-desktop-transcript"
+        data-layout={layout}
         role="log"
         aria-label="Conversation"
         aria-live="polite"

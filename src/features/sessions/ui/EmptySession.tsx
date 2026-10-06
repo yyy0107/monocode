@@ -17,11 +17,17 @@ import { TerminalGridBackground } from "../../terminal/ui/TerminalGridBackground
 
 type Props = {
   cwd: string;
+  visible?: boolean;
   composer?: ReactNode;
   hasChatBackground?: boolean;
 };
 
-export function EmptySession({ cwd, composer, hasChatBackground }: Props) {
+export function EmptySession({
+  cwd,
+  visible = true,
+  composer,
+  hasChatBackground,
+}: Props) {
   const { t } = useTranslation();
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const arcadeEnabled = useSyncExternalStore(
@@ -51,7 +57,9 @@ export function EmptySession({ cwd, composer, hasChatBackground }: Props) {
       ref={lockOverscroll}
       className="relative flex h-full min-h-0 overflow-y-auto overscroll-none"
     >
-      {arcadeEnabled && !hasChatBackground ? <TerminalGridBackground /> : null}
+      {arcadeEnabled && !hasChatBackground ? (
+        <TerminalGridBackground visible={visible} />
+      ) : null}
       {composer ? (
         // Same box as the docked composer (max-w-4xl, p-1.5), so the input
         // keeps its width when the first message docks it.

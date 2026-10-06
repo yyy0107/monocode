@@ -12,7 +12,15 @@ import {
 } from "./protocol";
 import { remoteProjectFor, ensureSharedProject, sharedHostMachineId } from "./remoteProjects";
 import { withRemoteAttachmentPreviews } from "./remoteAttachmentPreviews";
+import { hostOrchestrationClient } from "../../orchestration/model/orchestrationClient";
 import { isRemoteProjectPath } from "../../projects/model/recents";
+import {
+  OUTBOX_PREFIX,
+  deleteOutboxEntries,
+  outboxEntry,
+  outboxKeys,
+  putOutboxEntry,
+} from "./remoteOutbox";
 
 const CHANGE = "monocode:remote-machines";
 export const REMOTE_HISTORY_CHANGE = "monocode:remote-history";
@@ -28,6 +36,8 @@ export const OPEN_REMOTE_PROJECT_EVENT = "monocode:open-remote-project";
 export const refreshRemoteMachines = () =>
   window.dispatchEvent(new Event(CHANGE));
 const TAB_KEY = "monocode.remote-tabs.v2";
+const TAB_SCOPE_KEY = "monocode.remote-tab-scopes.v1";
+export type RemoteSessionScope = { environmentId: string; projectId: string };
 /** Read storage on every lookup so writes in other windows are immediately visible,
  * but decode each version only once instead of once per sidebar row or tab. */
 function cachedRemoteRecord<T>(key: string) {
@@ -50,6 +60,7 @@ function cachedRemoteRecord<T>(key: string) {
   };
 }
 const remoteTabBindings = cachedRemoteRecord<string>(TAB_KEY);
+const remoteTabScopes = cachedRemoteRecord<RemoteSessionScope & { hostId: string }>(TAB_SCOPE_KEY);
 const WORKTREE_KEY = "monocode.remote-pending-worktrees.v1";
 
 export function remotePendingWorktree(shellId: string): string | undefined {
@@ -89,29 +100,64 @@ export function remoteSessionFor(shellId: string): string | undefined {
   const value = remoteTabBindings()[shellId];
   return typeof value === "string" ? value : undefined;
 }
-export function rememberRemoteSession(shellId: string, sessionId?: string) {
+export function remoteSessionScopeFor(shellId: string): RemoteSessionScope | undefined {
   try {
+    const value = remoteTabScopes()[shellId];
+    if (value?.hostId === remoteSessionFor(shellId) && typeof value.environmentId === "string" && typeof value.projectId === "string")
+      return { environmentId: value.environmentId, projectId: value.projectId };
+  } catch { /* Legacy bindings are resolved from workspace identity during bootstrap. */ }
+}
+export function rememberRemoteSession(shellId: string, sessionId?: string, scope?: RemoteSessionScope) {
+  try {
+    const knownScope = scope ?? remoteSessionScopeFor(shellId);
     const all = { ...remoteTabBindings() };
+    const scopes = { ...remoteTabScopes() };
+    const nextScope = sessionId && knownScope ? { ...knownScope, hostId: sessionId } : undefined;
+    // Pollers re-bind the same tab on every snapshot. An unchanged binding
+    // must not rewrite storage or make every history list refetch.
+    if (
+      all[shellId] === sessionId &&
+      JSON.stringify(scopes[shellId]) === JSON.stringify(nextScope)
+    )
+      return;
     if (sessionId) all[shellId] = sessionId;
     else delete all[shellId];
     localStorage.setItem(TAB_KEY, JSON.stringify(all));
+    if (nextScope) scopes[shellId] = nextScope;
+    else delete scopes[shellId];
+    localStorage.setItem(TAB_SCOPE_KEY, JSON.stringify(scopes));
   } catch {
     /* tab selection is best effort */
   }
   window.dispatchEvent(new Event(REMOTE_HISTORY_CHANGE));
 }
 
-export function forgetDeletedRemoteBindings(ids: readonly string[]) {
+export function forgetDeletedRemoteBindings(ids: readonly string[], local?: {
+  environmentId: string;
+  projectIds?: ReadonlySet<string>;
+  legacyShellIds?: ReadonlySet<string>;
+}): string[] {
   const deleted = new Set(ids);
   const bindings = { ...remoteTabBindings() };
+  const scopes = { ...remoteTabScopes() };
+  const removed: string[] = [];
   for (const [shellId, hostId] of Object.entries(bindings)) {
-    if (typeof hostId === "string" && deleted.has(hostId)) delete bindings[shellId];
+    if (typeof hostId !== "string" || !deleted.has(hostId)) continue;
+    const scope = remoteSessionScopeFor(shellId);
+    const owned = scope ? !!local && scope.environmentId === local.environmentId &&
+      (!local.projectIds || local.projectIds.has(scope.projectId)) : shellId === hostId || !!local?.legacyShellIds?.has(shellId);
+    if (!owned) continue;
+    delete bindings[shellId];
+    delete scopes[shellId];
+    removed.push(shellId);
   }
   localStorage.setItem(TAB_KEY, JSON.stringify(bindings));
+  localStorage.setItem(TAB_SCOPE_KEY, JSON.stringify(scopes));
+  return removed;
 }
 
 const pendingPrefix = (project: string, environment: string) =>
-  `monocode.remote-command.v1:${JSON.stringify([project, environment])}:`;
+  `${OUTBOX_PREFIX}${JSON.stringify([project, environment])}:`;
 
 type PendingEntry = { command: HostCommand; shellId?: string; followup?: HostCommand };
 const readPendingEntry = (value: string): PendingEntry => {
@@ -120,7 +166,7 @@ const readPendingEntry = (value: string): PendingEntry => {
 };
 
 export const pendingRemoteFollowup = (project: string, environment: string, id: string) => {
-  const value = localStorage.getItem(`${pendingPrefix(project, environment)}${id}`);
+  const value = outboxEntry(`${pendingPrefix(project, environment)}${id}`);
   return value ? readPendingEntry(value).followup : undefined;
 };
 
@@ -131,10 +177,9 @@ export const pendingRemoteCommand = (
   shellId?: string,
 ): HostCommand | undefined => {
   const prefix = pendingPrefix(project, environment);
-  for (let index = 0; index < localStorage.length; index++) {
-    const key = localStorage.key(index);
-    if (key?.startsWith(prefix)) {
-      const value = localStorage.getItem(key);
+  for (const key of outboxKeys()) {
+    if (key.startsWith(prefix)) {
+      const value = outboxEntry(key);
       if (value) {
         const entry = readPendingEntry(value);
         const command = entry.command;
@@ -153,7 +198,7 @@ export const pendingRemoteCommand = (
 // Each command owns its storage entry: a late receipt from another pane can
 // never erase this pane's uncertain request. Persistence must succeed before
 // dispatch; unlike preferences, silently dropping an outbox entry is unsafe.
-export const savePendingRemoteCommand = (
+export const savePendingRemoteCommand = async (
   project: string,
   environment: string,
   command: HostCommand,
@@ -161,7 +206,7 @@ export const savePendingRemoteCommand = (
   followup?: HostCommand,
 ) => {
   try {
-    localStorage.setItem(
+    await putOutboxEntry(
       `${pendingPrefix(project, environment)}${command.commandId}`,
       JSON.stringify({ command, shellId,
         followup: followup ?? pendingRemoteFollowup(project, environment, command.commandId),
@@ -178,7 +223,7 @@ export const clearPendingRemoteCommand = (
   environment: string,
   commandId: string,
 ) =>
-  localStorage.removeItem(`${pendingPrefix(project, environment)}${commandId}`);
+  void deleteOutboxEntries([`${pendingPrefix(project, environment)}${commandId}`]);
 
 export async function remoteRequest<T>(
   machineId: string,
@@ -413,6 +458,36 @@ export function useRemoteMachineOnline(machineId?: string): boolean | undefined 
 
 const historyKey = (project: string) => `monocode.remote-history.v2:${project}`;
 
+// Native transcript block IDs dominate list rows and are refetched with the
+// list; caching them let a few long sessions fill the WebView quota.
+const cachedHistoryRow = (row: HostSessionSummary): HostSessionSummary => {
+  if (!row.nativeSession) return row;
+  const { nativeIds: _nativeIds, ...link } = row.nativeSession;
+  return { ...row, nativeSession: { ...link, blockIds: [] } };
+};
+
+function persistRemoteHistory(key: string, sessions: HostSessionSummary[]) {
+  const serialized = JSON.stringify(sessions.map(cachedHistoryRow));
+  try {
+    localStorage.setItem(historyKey(key), serialized);
+    return;
+  } catch {
+    /* Other projects' lists are refetchable; make room for the visible one. */
+  }
+  try {
+    const prefix = historyKey("");
+    const others: string[] = [];
+    for (let index = 0; index < localStorage.length; index++) {
+      const stored = localStorage.key(index);
+      if (stored?.startsWith(prefix) && stored !== historyKey(key)) others.push(stored);
+    }
+    for (const stored of others) localStorage.removeItem(stored);
+    localStorage.setItem(historyKey(key), serialized);
+  } catch {
+    /* Keep the successful in-memory cache if storage is still full. */
+  }
+}
+
 export type RemoteProjectSessions = {
   /** Undefined when this machine is not connected on this computer. */
   machine?: RemoteMachine;
@@ -520,8 +595,16 @@ export function prefetchRemoteProjectSessions(project: string): Promise<void> {
   const state = sessionCache(project);
   const request = { identity, machineId: knownMachineId, promise: Promise.resolve() };
   let unavailable = false;
-  state.pending = true;
-  state.error = undefined;
+  // Every listener re-renders on an update event, so announce only real
+  // changes; an idle poll that returns the same list announces nothing.
+  const visible = () => [state.sessions, state.loaded, state.pending, state.error, state.offline];
+  const before = visible();
+  // A loaded, healthy list refreshes in the background with nothing to wait for.
+  if (!state.loaded || state.offline || state.error) {
+    state.pending = true;
+    state.error = undefined;
+  }
+  const started = visible();
   request.promise = (async () => {
     try {
       const machine = await remoteMachineFor(remote.environmentId);
@@ -542,15 +625,16 @@ export function prefetchRemoteProjectSessions(project: string): Promise<void> {
       if (sessionRequests.get(key) !== request ||
           sessionProjectIdentity(project) !== identity ||
           knownRemoteMachine(remote.environmentId)?.id !== machine.id) return;
-      state.sessions = next;
+      // Pollers refetch every few seconds; an identical list keeps its array so
+      // history views do not re-render (or rewrite storage) for nothing.
+      const serialized = JSON.stringify(next);
+      const unchanged = state.loaded && JSON.stringify(state.sessions) === serialized;
+      if (!unchanged) state.sessions = next;
+      for (const row of next) hostOrchestrationClient.accept({ machineId: machine.id, project: hostProject }, row);
       state.loaded = true;
       state.offline = false;
       state.error = undefined;
-      try {
-        localStorage.setItem(historyKey(key), JSON.stringify(next));
-      } catch {
-        /* Keep the successful in-memory cache if storage is full. */
-      }
+      if (!unchanged) persistRemoteHistory(key, next);
     } catch (error) {
       if (sessionRequests.get(key) === request &&
           sessionProjectIdentity(project) === identity &&
@@ -564,12 +648,14 @@ export function prefetchRemoteProjectSessions(project: string): Promise<void> {
       if (sessionRequests.get(key) === request) {
         sessionRequests.delete(key);
         state.pending = false;
-        window.dispatchEvent(new Event(REMOTE_HISTORY_UPDATED));
+        if (visible().some((value, index) => value !== started[index]))
+          window.dispatchEvent(new Event(REMOTE_HISTORY_UPDATED));
       }
     }
   })();
   sessionRequests.set(key, request);
-  window.dispatchEvent(new Event(REMOTE_HISTORY_UPDATED));
+  if (started.some((value, index) => value !== before[index]))
+    window.dispatchEvent(new Event(REMOTE_HISTORY_UPDATED));
   return request.promise;
 }
 
@@ -617,7 +703,21 @@ export function useRemoteProjectSessions(
   const machine = remote ? knownRemoteMachine(remote.environmentId) : undefined;
   const [state, setState] = useState(() => ({ ...sessionCache(project) }));
   useEffect(() => {
-    const updated = () => setState({ ...sessionCache(project) });
+    // Every project's history poll announces itself to every list; only a
+    // list whose own state changed should re-render.
+    const updated = () =>
+      setState((current) => {
+        const next = sessionCache(project);
+        return current.sessions === next.sessions &&
+          current.loaded === next.loaded &&
+          current.pending === next.pending &&
+          current.error === next.error &&
+          current.offline === next.offline
+          ? current
+          : { ...next };
+      });
+    // `machine` is derived outside this state, so machine changes always render.
+    const machinesChanged = () => setState({ ...sessionCache(project) });
     const refresh = () => {
       if (remoteProjectFor(project) || isRemoteProjectPath(project))
         void prefetchRemoteProjectSessions(project).catch(() => {});
@@ -625,11 +725,11 @@ export function useRemoteProjectSessions(
     updated();
     window.addEventListener(REMOTE_HISTORY_UPDATED, updated);
     window.addEventListener(REMOTE_HISTORY_CHANGE, refresh);
-    window.addEventListener(CHANGE, updated);
+    window.addEventListener(CHANGE, machinesChanged);
     return () => {
       window.removeEventListener(REMOTE_HISTORY_UPDATED, updated);
       window.removeEventListener(REMOTE_HISTORY_CHANGE, refresh);
-      window.removeEventListener(CHANGE, updated);
+      window.removeEventListener(CHANGE, machinesChanged);
     };
   }, [project]);
   useEffect(() => {

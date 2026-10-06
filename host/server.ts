@@ -7,13 +7,15 @@ import { hostname, homedir } from "node:os";
 import { execFile } from "node:child_process";
 import { realpath, stat } from "node:fs/promises";
 import { promisify } from "node:util";
+import { createHash, randomUUID } from "node:crypto";
+import { claimCheckoutResource, claimCheckoutWrite } from "./checkout-guards";
 import {
   HOST_PROTOCOL_VERSION,
   type HostModelCatalog,
   type RemoteProvider,
 } from "../src/features/connections/model/protocol";
 import { HostEngine } from "./engine";
-import { refreshNativeDesktopSession } from "./desktop-import";
+import { assistantErrorCode } from "./assistant/errors";
 import { writeAttachmentChunk, readAttachmentChunk } from "./attachments";
 import type { LinkedWorkItem } from "../src/features/sessions/model/session";
 import { parseGithubWorkItemUrl } from "../src/features/sessions/model/sessionWorkItem";
@@ -112,20 +114,15 @@ async function body(
   return value as Record<string, unknown>;
 }
 
-/** Identifies each installed provider CLI. An update changes its real path or
- * modification time, which invalidates the catalog the old version reported. */
-async function providerBinaries(providers: RemoteProvider[]): Promise<string> {
-  const binaries = await Promise.all(
-    providers.map(async (provider) => {
-      try {
-        const file = await realpath((await resolveBinary[provider]()).path);
-        return `${provider}:${file}:${(await stat(file)).mtimeMs}`;
-      } catch {
-        return `${provider}:missing`;
-      }
-    }),
-  );
-  return binaries.join("\n");
+/** Identifies one installed provider CLI. An update changes its real path or
+ * modification time, which invalidates the models the old version reported. */
+async function providerBinary(provider: RemoteProvider): Promise<string> {
+  try {
+    const file = await realpath((await resolveBinary[provider]()).path);
+    return `${file}:${(await stat(file)).mtimeMs}`;
+  } catch {
+    return "missing";
+  }
 }
 
 export function createHostServer(
@@ -143,62 +140,89 @@ export function createHostServer(
       });
     return discovering;
   };
+  // Cached per project and provider so one failing or slow CLI never forces
+  // every other provider to be probed again on the next visit.
   const catalogs = new Map<
     string,
-    { binaries: string; probed: number; catalog: Promise<HostModelCatalog> }
+    {
+      binary: string;
+      /** When the last successful probe finished; 0 while the first is pending. */
+      probed: number;
+      models: Promise<AgentModel[]>;
+      refreshing?: Promise<void>;
+    }
   >();
   const transfers = new SyncTransfers();
   const workspace = new WorkspaceCommands(
     engine.store,
     (projectId, action) => engine.withIdleProject(projectId, action),
+    (path) => engine.assertWorkspaceWrite(path),
   );
+  const discover = (cwd: string, provider: RemoteProvider) =>
+    discoverModels[provider](cwd).then((discovered) => {
+      if (discovered.length) setHarnessModels(provider, discovered);
+      return discovered;
+    });
+  // Cached per project and provider so one failing or slow CLI never forces
+  // every other provider to be probed again. An expired list keeps answering
+  // while its replacement is discovered in the background.
+  const providerModels = async (cwd: string, provider: RemoteProvider) => {
+    const key = `${cwd}\n${provider}`;
+    const binary = await providerBinary(provider);
+    const cached = catalogs.get(key);
+    if (cached?.binary === binary) {
+      if (cached.probed && Date.now() - cached.probed >= CATALOG_MAX_AGE_MS && !cached.refreshing) {
+        const next = discover(cwd, provider);
+        cached.refreshing = next.then(
+          () => { if (catalogs.get(key) === cached) catalogs.set(key, { binary, probed: Date.now(), models: next }); },
+          () => { if (catalogs.get(key) === cached) cached.refreshing = undefined; },
+        );
+      }
+      return cached.models;
+    }
+    const entry = { binary, probed: 0, models: discover(cwd, provider) };
+    catalogs.set(key, entry);
+    entry.models.then(
+      () => { entry.probed = Date.now(); },
+      () => { if (catalogs.get(key) === entry) catalogs.delete(key); },
+    );
+    return entry.models;
+  };
   const models = async (projectId?: unknown) => {
     const cwd =
       typeof projectId === "string"
         ? engine.store.project(projectId).cwd
         : homedir();
     const available = await availableProviders();
-    const binaries = await providerBinaries(available);
-    const cached = catalogs.get(cwd);
-    let catalog =
-      cached?.binaries === binaries &&
-      Date.now() - cached.probed < CATALOG_MAX_AGE_MS
-        ? cached.catalog
-        : undefined;
-    if (!catalog) {
-      catalog = (async () => {
-        const result: HostModelCatalog = { models: {}, errors: {} };
-        await Promise.all(
-          available.map(async (provider) => {
-            try {
-              const discovered = await discoverModels[provider](cwd);
-              result.models[provider] = discovered;
-              if (discovered.length) setHarnessModels(provider, discovered);
-            } catch (error) {
-              result.errors[provider] =
-                error instanceof Error ? error.message : String(error);
-            }
-          }),
-        );
-        return result;
-      })().then(
-        (result) => {
-          if (
-            Object.keys(result.errors).length &&
-            catalogs.get(cwd)?.catalog === catalog
-          )
-            catalogs.delete(cwd);
-          return result;
-        },
-        (error) => {
-          if (catalogs.get(cwd)?.catalog === catalog) catalogs.delete(cwd);
-          throw error;
-        },
-      );
-      catalogs.set(cwd, { binaries, probed: Date.now(), catalog });
-    }
-    return catalog;
+    const result: HostModelCatalog = { models: {}, errors: {} };
+    await Promise.all(
+      available.map(async (provider) => {
+        try {
+          result.models[provider] = await providerModels(cwd, provider);
+        } catch (error) {
+          result.errors[provider] =
+            error instanceof Error ? error.message : String(error);
+        }
+      }),
+    );
+    return result;
   };
+  engine.orchestration.setCatalog(async (projectId) => {
+    const catalog = await models(projectId);
+    return Object.entries(catalog.models).flatMap(([harness, entries]) =>
+      (entries ?? []).map((model) => ({ harness: harness as RemoteProvider, model: model.id, name: model.name })));
+  });
+  engine.assistant.setCatalog(availableProviders, models);
+  const resourceId = (token: string, value: unknown) => {
+    if (typeof value !== "string" || !/^[A-Za-z0-9_:-]{1,200}$/.test(value)) throw new Error("Invalid editor resource identity");
+    return `device:${createHash("sha256").update(token).digest("hex")}:${value}`;
+  };
+  const mutateWorkspace = <T>(projectId: string, cwd: string, action: () => Promise<T>): Promise<T> =>
+    engine.withIdleProject(projectId, async () => {
+      engine.assertWorkspaceWrite(cwd);
+      const release = claimCheckoutWrite(engine.store, `workspace:${randomUUID()}`, cwd);
+      try { return await action(); } finally { release(); }
+    });
   return createServer(
     { requestTimeout: 20_000, headersTimeout: 10_000, maxHeaderSize: 8192 },
     async (request, response) => {
@@ -209,6 +233,7 @@ export function createHostServer(
       response.setHeader("Content-Type", "application/json");
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("X-Content-Type-Options", "nosniff");
+      let assistantRequest = false;
       try {
         // Desktop native HTTP supplies credentials. This endpoint intentionally
         // accepts no browser origin and provides no permissive CORS escape hatch.
@@ -236,6 +261,7 @@ export function createHostServer(
           return;
         }
         const input = await body(request);
+        assistantRequest = typeof input.method === "string" && input.method.startsWith("assistant.");
         // Reading a request body yields: a device may have been revoked since
         // the headers arrived. Reject it before dispatching any operation.
         if (!engine.store.authenticated(token)) {
@@ -246,6 +272,7 @@ export function createHostServer(
         }
         if (input.version !== HOST_PROTOCOL_VERSION)
           throw new Error("Incompatible protocol version");
+        await engine.ready;
         if (
           input.method !== "environment.describe" &&
           input.environmentId !== engine.store.environmentId
@@ -259,6 +286,7 @@ export function createHostServer(
           !Array.isArray(input.params)
             ? (input.params as Record<string, unknown>)
             : {};
+        if (typeof params.sessionId === "string" && engine.store.isAssistantSession(params.sessionId)) throw new Error("Assistant brain is private");
         let result: unknown;
         switch (input.method) {
           case "environment.describe":
@@ -277,6 +305,7 @@ export function createHostServer(
                 "sessions",
                 "projects.browse",
                 "models.list",
+                "providerAccounts.defaults",
                 "skills.list",
                 "approvals",
                 "questions",
@@ -303,6 +332,15 @@ export function createHostServer(
                 "sessions.plan",
                 "sessions.queue",
                 "sessions.activity",
+                "sessions.nativeAccess",
+                "sessions.refreshNative",
+                "nativeSources.list",
+                "nativeSources.import",
+                "nativeSources.syncAll",
+                "sessions.orchestration",
+                "assistant.v1",
+                "assistant.persona",
+                "resources",
               ],
             };
             break;
@@ -318,19 +356,22 @@ export function createHostServer(
           case "models.list":
             result = await models(params.projectId);
             break;
+          case "providerAccounts.list":
+            result = engine.providerAccounts();
+            break;
           case "skills.list":
             result = await engine.listSkills(params.projectId, params.harness, params.sessionId, params.refresh === true);
             break;
           case "sessions.activity":
             result = {
               environmentId: engine.store.environmentId,
-              sessions: engine.store.summaries(),
+              sessions: engine.store.summaries().filter((session) => !session.orchestrationLeadId && !session.assistantOwnerId),
             };
             break;
           case "sessions.list": {
             const projectId = String(params.projectId ?? "");
             const project = engine.store.project(projectId);
-            const summaries = engine.store.summaries(projectId);
+            const summaries = engine.store.summaries(projectId).filter((session) => !session.orchestrationLeadId && !session.assistantOwnerId);
             const paths = [...new Set(summaries.map((session) => session.cwd ?? project.cwd))];
             const branches = new Map(await Promise.all(paths.map(async (cwd) => {
               const branch = await exec("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
@@ -384,9 +425,35 @@ export function createHostServer(
             result = engine.updateSession(sessionId, patch);
             break;
           }
-          case "sessions.refreshDesktopNative": {
-            if (typeof params.busy !== "boolean") throw new Error("Invalid desktop session status");
-            result = refreshNativeDesktopSession(engine.store, String(params.sessionId ?? ""), params.busy);
+          case "sessions.nativeAccess": {
+            result = await engine.nativeAccess(String(params.sessionId ?? ""));
+            break;
+          }
+          case "sessions.refreshNative": {
+            const sessionId = String(params.sessionId ?? "");
+            const current = engine.store.session(sessionId);
+            if (!current.session.nativeSession) throw new Error("This conversation has no native source");
+            engine.nativeSessions.touch(sessionId);
+            result = (await engine.nativeSessions.refresh(sessionId, { force: true })) ?? null;
+            break;
+          }
+          case "nativeSources.list": {
+            if (params.autoSync !== undefined) {
+              if (typeof params.autoSync !== "boolean") throw new Error("Invalid native auto-sync setting");
+              engine.nativeSessions.setAutoSync(params.autoSync);
+            }
+            result = await engine.nativeSessions.list(params.refresh === true);
+            break;
+          }
+          case "nativeSources.syncAll": {
+            result = { synced: await engine.nativeSessions.syncAll() };
+            break;
+          }
+          case "nativeSources.import": {
+            const value = await engine.nativeSessions.importSource(String(params.sourceId ?? ""));
+            engine.nativeSessions.touch(value.session.id);
+            const { blockRevisions: _revisions, ...snapshot } = value;
+            result = snapshot;
             break;
           }
           case "sessions.delete": {
@@ -394,12 +461,13 @@ export function createHostServer(
             const current = engine.store.session(sessionId);
             if (current.projectId !== params.projectId)
               throw new Error("Session does not belong to this project");
-            engine.store.deleteSession(sessionId);
+            await engine.deleteSession(sessionId);
             result = { deleted: true };
             break;
           }
           case "sessions.sync": {
             const sessionId = String(params.sessionId ?? "");
+            engine.nativeSessions.touch(sessionId);
             result = transfers.respond(
               sessionId,
               engine.store.sync(
@@ -435,6 +503,14 @@ export function createHostServer(
           case "commands.dispatch":
             result = engine.command(params);
             break;
+          case "assistant.get":
+          case "assistant.configure":
+          case "assistant.messages":
+          case "assistant.send":
+          case "assistant.control":
+          case "assistant.respond":
+            result = await engine.assistant.rpc(input.method, params);
+            break;
           case "attachments.upload":
             result = writeAttachmentChunk(engine.store, params);
             break;
@@ -445,6 +521,20 @@ export function createHostServer(
             // Only the caller's own credential. Sessions and other devices
             // are unaffected; the host keeps running.
             result = { revoked: engine.store.revokeToken(token) };
+            engine.store.db.prepare("DELETE FROM checkout_resources WHERE id LIKE ? AND owner_pid=?")
+              .run(`device:${createHash("sha256").update(token).digest("hex") }:%`, process.pid);
+            break;
+          case "resources.claim": {
+            const id = resourceId(token, params.resourceId);
+            const path = await workspace.resourcePath(params.path);
+            if (!engine.store.authenticated(token)) throw new Error("Device credential is invalid or revoked");
+            claimCheckoutResource(engine.store, id, path);
+            result = { claimed: true };
+            break;
+          }
+          case "resources.release":
+            engine.store.db.prepare("DELETE FROM checkout_resources WHERE id=? AND owner_pid=?").run(resourceId(token, params.resourceId), process.pid);
+            result = { released: true };
             break;
           case "git.diff": {
             const project = engine.store.project(
@@ -484,7 +574,7 @@ export function createHostServer(
               String(params.projectId ?? ""),
             );
             const cwd = await resolveHostWorktreeAsync(project.cwd, params.cwd);
-            result = await engine.withIdleProject(project.id, () =>
+            result = await mutateWorkspace(project.id, cwd, () =>
               switchHostBranch(cwd, params.branch, params.remote),
             );
             break;
@@ -494,7 +584,7 @@ export function createHostServer(
               String(params.projectId ?? ""),
             );
             const cwd = await resolveHostWorktreeAsync(project.cwd, params.cwd);
-            result = await engine.withIdleProject(project.id, () =>
+            result = await mutateWorkspace(project.id, cwd, () =>
               createHostBranch(cwd, params.branch),
             );
             break;
@@ -511,7 +601,7 @@ export function createHostServer(
               String(params.projectId ?? ""),
             );
             const cwd = await resolveHostWorktreeAsync(project.cwd, params.cwd);
-            result = await engine.withIdleProject(project.id, () =>
+            result = await mutateWorkspace(project.id, cwd, () =>
               createHostWorktree(
                 project.cwd,
                 params.branch,
@@ -579,25 +669,27 @@ export function createHostServer(
             const project = engine.store.project(
               String(params.projectId ?? ""),
             );
-            result = await createHostPath(
-              await resolveHostWorktreeAsync(project.cwd, params.cwd),
+            const cwd = await resolveHostWorktreeAsync(project.cwd, params.cwd);
+            result = await mutateWorkspace(project.id, cwd, () => createHostPath(
+              cwd,
               params.parent,
               params.name,
               params.isDir,
-            );
+            ));
             break;
           }
           case "files.write": {
             const project = engine.store.project(
               String(params.projectId ?? ""),
             );
+            const cwd = await resolveHostWorktreeAsync(project.cwd, params.cwd);
             result =
-              (await writeHostFile(
-                await resolveHostWorktreeAsync(project.cwd, params.cwd),
+              (await mutateWorkspace(project.id, cwd, () => writeHostFile(
+                cwd,
                 params.path,
                 params.expected,
                 params.content,
-              )) ?? null;
+              ))) ?? null;
             break;
           }
           case "git.index": {
@@ -626,7 +718,7 @@ export function createHostServer(
             );
             const cwd = await resolveHostWorktreeAsync(project.cwd, params.cwd);
             result =
-              (await engine.withIdleProject(project.id, () =>
+              (await mutateWorkspace(project.id, cwd, () =>
                 hostGitAction(
                   cwd,
                   params.action,
@@ -647,6 +739,7 @@ export function createHostServer(
             JSON.stringify({
               error:
                 error instanceof Error ? error.message : "Host request failed",
+              ...(assistantRequest ? { code: assistantErrorCode(error) } : {}),
             }),
           );
       }

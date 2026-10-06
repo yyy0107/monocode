@@ -162,6 +162,18 @@ describe("mobile skill and app-command send flow", () => {
       undefined,
     );
   });
+  it("opens skills directly in the add menu and inserts the chosen skill into the draft", async () => {
+    await render();
+    await input("Inspect ");
+    await act(async () => node.querySelector<HTMLButtonElement>('button[aria-label="Add to message"]')!.click());
+    const item = [...node.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+      .find(row => row.querySelector("strong")?.textContent === "/review")!;
+    await act(async () => item.click());
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
+    expect(node.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("Inspect /review ");
+    expect(document.activeElement).toBe(node.querySelector("textarea"));
+    expect(host.dispatch).not.toHaveBeenCalled();
+  });
   it("consumes the app Plan prefix and preserves plan intent on the Host turn", async () => {
     await render();
     await input("/plan inspect code");

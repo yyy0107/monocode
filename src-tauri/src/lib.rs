@@ -15,6 +15,7 @@ mod harness;
 mod harness_updates;
 mod inbox_media;
 mod jira;
+mod legacy_orchestration;
 mod linear;
 mod link_preview;
 mod local_host;
@@ -24,13 +25,12 @@ mod macos;
 mod macos_background;
 mod mcp;
 mod menu;
-mod native_access;
-mod native_sessions;
 mod notes;
 mod notifications;
 mod pasteboard;
 mod pi_usage;
 mod project_logo;
+mod provider_defaults;
 mod pty;
 #[cfg(target_os = "macos")]
 mod quick_composer;
@@ -228,7 +228,6 @@ pub fn run() {
                 .build(),
         )
         .manage(harness::HarnessHost::new())
-        .manage(native_access::NativeLeases::default())
         .manage(pty::PtyHost::new())
         .manage(remote::RemoteConnections::default())
         .manage(window_transfer::WindowTransferState::new())
@@ -263,6 +262,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             local_host::shared_host_prepare,
+            local_host::shared_host_resource_claim,
+            local_host::shared_host_resource_release,
             remote::remote_machines,
             remote::remote_connect,
             remote::remote_disconnect,
@@ -455,6 +456,10 @@ pub fn run() {
             harness_updates::harness_update_check_claim,
             harness_updates::harness_update,
             harness::provider_account_remove,
+            harness::provider_accounts_publish,
+            provider_defaults::provider_account_defaults,
+            provider_defaults::provider_account_set_default,
+            provider_defaults::provider_account_import_codex,
             account_identity::provider_account_identity,
             pi_usage::fetch_pi_usage,
             rate_limits::fetch_claude_usage,
@@ -472,13 +477,6 @@ pub fn run() {
             session_store::session_search,
             session_store::cancel_session_search,
             session_store::session_get,
-            session_store::session_list_native_ids,
-            session_store::session_find_native_id,
-            native_sessions::native_sessions_list,
-            native_sessions::native_session_read,
-            native_sessions::native_session_probe,
-            native_access::native_session_acquire,
-            native_access::native_session_release,
             session_store::session_delete,
             session_store::session_set_archived,
             session_store::session_set_pinned,
@@ -488,6 +486,9 @@ pub fn run() {
             session_store::session_take_in_flight,
             session_store::workspace_set_snapshot,
             session_store::workspace_get_snapshot,
+            session_store::remote_outbox_list,
+            session_store::remote_outbox_put,
+            session_store::remote_outbox_delete,
             notes::notes_list,
             notes::notes_get,
             notes::notes_upsert,

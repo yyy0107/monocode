@@ -3,7 +3,7 @@ import {
   ArrowUp,
   AiIdea,
   Check,
-  ChevronDown,
+  ChevronsUpDown,
   FilePlus,
   Folder,
   ImagePlus,
@@ -11,10 +11,10 @@ import {
   ListEnd,
   Plus,
   Square,
-  Sparkles,
   X,
 } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
+import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { AttachmentChip } from "../features/sessions/ui/AttachmentChip";
 import { RuntimeModeIcon } from "../features/sessions/ui/RuntimeModeIcon";
@@ -27,7 +27,6 @@ import { insertMobileSkill } from "./skillCommands";
 import { useMobileSkills, type MobileSkillsLoader } from "./useMobileSkills";
 import { MobileSkillList } from "./MobileSkillList";
 import {
-  HARNESS_TITLE,
   RUNTIME_MODES,
   RUNTIME_MODE_LABEL,
   RUNTIME_MODE_HINT,
@@ -43,18 +42,7 @@ import {
   type MobileConfiguration,
 } from "./MobileModelControls";
 import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
-import { preserveInputFocus } from "./inputFocus";
-import {
-  keyboardHeight,
-  keyboardTracked,
-  onKeyboardMotion,
-  type KeyboardMotion,
-} from "./keyboardMotion";
-
-/** How long a focus change waits for the keyboard before animating alone. */
-export const KEYBOARD_WAIT_MS = { open: 400, close: 250 };
-/** Range of keyboard durations the capsule borrows. */
-export const KEYBOARD_DURATION_MS = { min: 240, max: 420 };
+import { preserveInputFocus, usePreserveInputFocusOnTouch } from "./inputFocus";
 
 export type MobileComposerPanel =
   | "actions"
@@ -62,7 +50,6 @@ export type MobileComposerPanel =
   | "model"
   | "projects"
   | "plan"
-  | "skills"
   | null;
 const planStyle = MODE_COMMAND_STYLES[PLAN_COMMAND.name];
 type Props = {
@@ -71,6 +58,7 @@ type Props = {
   onChange: (text: string) => void;
   configuration: MobileConfiguration;
   catalog?: HostModelCatalog;
+  catalogLoading?: boolean;
   onConfigurationChange: (value: MobileConfiguration) => void;
   lockedAgent: boolean;
   disabled: boolean;
@@ -95,25 +83,28 @@ type Props = {
   canCompact?: boolean;
 };
 
+function MobileComposerAttachments({ attachments, disabled, onRemoveAttachment }: Pick<Props, "attachments" | "disabled" | "onRemoveAttachment">) {
+  const [rendered, setRendered] = useState(attachments);
+  useLayoutEffect(() => {
+    if (attachments.length) setRendered(attachments);
+  }, [attachments]);
+  // Keep the last chips during closing. AnimatedCollapse unmounts this child
+  // when finished, releasing their data without a separate removal timer.
+  return <div className="mobile-composer-attachments">
+    {rendered.map(attachment => <AttachmentChip
+      key={attachment.id}
+      attachment={attachment}
+      onRemove={disabled || !attachments.length ? undefined : () => onRemoveAttachment(attachment.id)}
+    />)}
+  </div>;
+}
+
 export function MobileComposer(props: Props) {
   const { t } = useTranslation();
   const area = useRef<HTMLTextAreaElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const dock = useRef<HTMLDivElement>(null);
-  const pressingAction = useRef(false);
-  // "Engaged" survives sheets, system file pickers and short busy states.
-  // Only a deliberate move away (an outside tap or focusing another control)
-  // collapses the composer again.
-  const [engaged, setEngaged] = useState(false);
-  // The capsule changes shape with the keyboard: when engaging opens or
-  // closes the Android keyboard, the change waits for the keyboard's motion
-  // to begin and borrows its duration. The curve stays the composer's own:
-  // keyboard curves start abruptly or overshoot on some devices, which threw
-  // the growing capsule upward before it settled back.
-  const [shown, setShown] = useState(false);
-  const expanded = shown || props.panel !== null;
-  const [renderedAttachments, setRenderedAttachments] = useState(props.attachments);
-  const showAttachments = expanded && props.attachments.length > 0;
+  usePreserveInputFocusOnTouch(form, area, true);
   const photos = useRef<HTMLInputElement>(null);
   const files = useRef<HTMLInputElement>(null);
   const panelAnchor = useRef<HTMLButtonElement>(null);
@@ -126,14 +117,14 @@ export function MobileComposer(props: Props) {
   const skillsKey = props.skillsContextKey ?? `${props.project?.id ?? ""}\0${props.configuration.harness}`;
   const nativeGuess = props.configuration.harness === "pi" || props.configuration.harness === "omp";
   const inlineOpen = !!slash && props.panel === null && !props.disabled;
-  const skillsState = useMobileSkills(skillsKey, props.loadSkills, inlineOpen || props.panel === "skills", nativeGuess);
+  const skillsState = useMobileSkills(skillsKey, props.loadSkills, inlineOpen || props.panel === "actions", nativeGuess);
   const native = skillsState.catalog?.native ?? nativeGuess;
   const commands = useMemo(() => [PLAN_COMMAND,
     ...(props.canCompact && (skillsState.catalog?.canCompact ?? true) ? [COMPACT_COMMAND] : []),
     ...(skillsState.catalog?.skills ?? []).filter(skill => !["operator", "mono", "monocode"].includes(skill.name) &&
       (skill.kind === "native" || !["plan", "compact", "orchestrator", "draft", "btw", "mcp", "add-to-folder"].includes(skill.name))),
   ], [props.canCompact, skillsState.catalog]);
-  const options = rankSkills(commands, props.panel === "skills" ? skillQuery : slash?.query ?? "");
+  const options = rankSkills(commands, props.panel === "actions" ? skillQuery : slash?.query ?? "");
   useEffect(() => { setSlash(null); setSkillQuery(""); setSkillActive(0); }, [skillsKey]);
   useEffect(() => { setSkillActive(0); }, [slash?.query, skillQuery]);
   useEffect(() => {
@@ -170,40 +161,6 @@ export function MobileComposer(props: Props) {
     props.configuration,
     props.lockedAgent ? props.configuration.model : undefined,
   );
-  useEffect(() => {
-    if (engaged === shown) return;
-    const element = form.current;
-    const follow = (motion?: KeyboardMotion) => {
-      if (element) {
-        if (motion?.duration) {
-          const duration = Math.min(
-            KEYBOARD_DURATION_MS.max,
-            Math.max(KEYBOARD_DURATION_MS.min, motion.duration),
-          );
-          element.style.setProperty("--mobile-composer-duration", `${duration}ms`);
-        } else {
-          element.style.removeProperty("--mobile-composer-duration");
-        }
-      }
-      setShown(engaged);
-    };
-    const keyboardOpen = keyboardHeight() > 0;
-    if (!keyboardTracked() || engaged === keyboardOpen) {
-      follow();
-      return;
-    }
-    const stop = onKeyboardMotion((motion) => {
-      if ((motion.height > 0) === engaged) follow(motion);
-    });
-    const timer = setTimeout(
-      follow,
-      engaged ? KEYBOARD_WAIT_MS.open : KEYBOARD_WAIT_MS.close,
-    );
-    return () => {
-      stop();
-      clearTimeout(timer);
-    };
-  }, [engaged, shown]);
   const close = () => props.onPanelChange(null);
   // The dock floats over the transcript; publish its height so content can
   // scroll past it without hiding the last message.
@@ -237,43 +194,11 @@ export function MobileComposer(props: Props) {
     };
   }, []);
   useLayoutEffect(() => {
-    if (
-      props.attachments.length ||
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-    ) {
-      setRenderedAttachments(props.attachments);
-      return;
-    }
-    if (!renderedAttachments.length) return;
-    // Sending clears the attachment data immediately. Keep the old chips only
-    // for the exit transition so the dock does not lose their height in a snap.
-    const duration =
-      parseFloat(
-        getComputedStyle(form.current!).getPropertyValue("--mobile-composer-duration"),
-      ) || 280;
-    const timer = setTimeout(() => setRenderedAttachments([]), duration);
-    return () => clearTimeout(timer);
-  }, [props.attachments, renderedAttachments.length]);
-  useLayoutEffect(() => {
     const element = area.current;
     const container = form.current;
     const widthSource = dock.current;
     if (!element || !container || !widthSource) return;
     const resize = () => {
-      if (!expanded) {
-        element.style.height = "28px";
-        // Keep wrapping until the field finishes shrinking, so multiline
-        // drafts do not jump into a single line at the start of the motion.
-        if (
-          !element.dataset.compact ||
-          window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-        )
-          element.dataset.compact = "true";
-        element.scrollTop = 0;
-        element.scrollLeft = 0;
-        return;
-      }
-      element.dataset.compact = "false";
       // An offscreen copy measures wrapping without resetting the live field
       // mid-animation or moving its caret.
       const measure = element.cloneNode() as HTMLTextAreaElement;
@@ -285,11 +210,11 @@ export function MobileComposer(props: Props) {
       measure.className = "mobile-composer-measure";
       const inset =
         parseFloat(
-          getComputedStyle(container).getPropertyValue("--mobile-composer-expanded-inset"),
-        ) || 12;
+          getComputedStyle(container).getPropertyValue("--mobile-composer-input-inset"),
+        ) || 18;
       const dockStyle = getComputedStyle(widthSource);
       const formStyle = getComputedStyle(container);
-      const expandedWidth =
+      const availableWidth =
         widthSource.clientWidth -
         (parseFloat(dockStyle.paddingLeft) || 0) -
         (parseFloat(dockStyle.paddingRight) || 0) -
@@ -300,23 +225,20 @@ export function MobileComposer(props: Props) {
         visibility: "hidden",
         pointerEvents: "none",
         transition: "none",
-        // Measure the destination width once; animated padding must not
-        // repeatedly retarget the height and restart the easing curve.
-        width: `${Math.max(0, expandedWidth - inset * 2)}px`,
+        // Use the dock width so keyboard motion does not disturb the caret.
+        width: `${Math.max(0, availableWidth - inset * 2)}px`,
         height: "0px",
         minHeight: "0px",
         maxHeight: "none",
       });
       element.after(measure);
-      const nextHeight = `${Math.max(44, Math.min(measure.scrollHeight, 168))}px`;
+      const nextHeight = `${Math.max(36, Math.min(measure.scrollHeight, 168))}px`;
       measure.remove();
       if (element.style.height === nextHeight) return;
       element.style.height = nextHeight;
     };
     resize();
-    if (!expanded) return;
-    // The form itself changes width during expansion. Observe the fixed dock
-    // so that motion does not restart textarea height measurement each frame.
+    // Observe available width without remeasuring on height-only changes.
     let width = widthSource.clientWidth;
     const observer = new ResizeObserver(() => {
       const nextWidth = widthSource.clientWidth;
@@ -326,22 +248,22 @@ export function MobileComposer(props: Props) {
     });
     observer.observe(widthSource);
     return () => observer.disconnect();
-  }, [props.value, expanded]);
+  }, [props.value]);
   useEffect(() => {
     // Applying a setting, switching project or reading attachments briefly
-    // disables the composer. Close any open sheet but keep the expanded layout.
+    // disables the composer. Close any open sheet without disturbing the draft.
     if (props.disabled) props.onPanelChange(null);
   }, [props.disabled, props.onPanelChange]);
   useEffect(() => {
-    if (!engaged || props.panel !== null) return;
-    // Collapse on a tap outside the composer, not on a scroll gesture: touch
+    if (props.panel !== null) return;
+    // Dismiss the keyboard on an outside tap while keeping the card visible. Touch
     // scrolling cancels the pointer or moves it past the tap threshold.
     let start: { id: number; x: number; y: number } | undefined;
     const outside = (target: EventTarget | null) =>
       target instanceof Element &&
       !form.current?.parentElement?.contains(target) &&
       !target.closest(".mobile-sheet-backdrop") &&
-      // Jumping to the latest message should not reflow the dock under the
+      // Jumping to the latest message should not lower the keyboard under the
       // finger before the click lands.
       !target.closest(".mobile-jump");
     const down = (event: PointerEvent) => {
@@ -354,7 +276,6 @@ export function MobileComposer(props: Props) {
       const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
       start = undefined;
       if (moved > 10) return;
-      setEngaged(false);
       if (form.current?.contains(document.activeElement))
         (document.activeElement as HTMLElement).blur();
     };
@@ -369,7 +290,7 @@ export function MobileComposer(props: Props) {
       document.removeEventListener("pointerup", up, true);
       document.removeEventListener("pointercancel", cancel, true);
     };
-  }, [engaged, props.panel]);
+  }, [props.panel]);
   const selectFiles = (input: HTMLInputElement) => {
     if (input.files?.length) props.onFiles(Array.from(input.files));
     input.value = "";
@@ -388,243 +309,195 @@ export function MobileComposer(props: Props) {
         {props.queue ? <div className="mobile-message-queue">{props.queue}</div> : null}
         <form
           ref={form}
-          className="mobile-composer"
-          data-collapsed={!expanded}
-          onTransitionEnd={(event) => {
-            if (
-              event.target === event.currentTarget &&
-              event.propertyName === "padding-bottom" &&
-              !expanded &&
-              area.current
-            )
-              area.current.dataset.compact = "true";
-          }}
+          className="mobile-composer mobile-composer-card"
           onPointerDownCapture={(event) => {
-            pressingAction.current = !!(event.target as Element).closest("button");
-            if (pressingAction.current) preserveInputFocus(event, area.current);
+            if ((event.target as Element).closest("button"))
+              preserveInputFocus(event, area.current);
           }}
           onMouseDownCapture={(event) => {
             if ((event.target as Element).closest("button"))
               preserveInputFocus(event, area.current);
           }}
-          onPointerUpCapture={() => {
-            // Touch browsers can focus a button between pointerup and click.
-            setTimeout(() => {
-              pressingAction.current = false;
-            }, 0);
-          }}
-          onPointerCancelCapture={() => {
-            pressingAction.current = false;
-          }}
-          onFocus={() => {
-            if (!pressingAction.current) setEngaged(true);
-          }}
-          onBlur={(event) => {
-            // No related target means focus left for the system (file picker,
-            // backgrounding) or the field was disabled; that is not leaving.
-            // Focus moving into a sheet opened from the composer is not either.
-            const next = event.relatedTarget;
-            if (
-              next instanceof Element &&
-              !event.currentTarget.contains(next) &&
-              !next.closest(".mobile-sheet-backdrop")
-            )
-              setEngaged(false);
-          }}
           onClick={(event) => {
-            pressingAction.current = false;
-            if (props.disabled) return;
-            if (event.target === event.currentTarget) area.current?.focus();
-            else setEngaged(true);
+            if (!props.disabled && (event.target === event.currentTarget ||
+              (event.target as Element).classList.contains("mobile-composer-input")))
+              area.current?.focus();
           }}
           onSubmit={(event) => {
             event.preventDefault();
             if (props.canSend) props.onSend();
           }}
         >
-          {renderedAttachments.length > 0 && (
-            <div
-              className="mobile-composer-attachment-region"
-              data-collapsed={!showAttachments}
-              inert={!showAttachments}
-              aria-hidden={!showAttachments}
-            >
-              <div className="mobile-composer-attachment-clip">
-                <div className="mobile-composer-attachments">
-                  {renderedAttachments.map((attachment) => (
-                    <AttachmentChip
-                      key={attachment.id}
-                      attachment={attachment}
-                      onRemove={
-                        props.disabled
-                          ? undefined
-                          : () => props.onRemoveAttachment(attachment.id)
-                      }
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-          <textarea
-            ref={area}
-            aria-label={t("Message")}
-            placeholder={t(
-              props.running ? "Agent is working…" : "Ask {agent} anything",
-              { agent: HARNESS_TITLE[props.configuration.harness] },
-            )}
-            rows={1}
-            value={props.value}
-            onChange={(event) => { dismissedSlash.current = null; props.onChange(event.target.value); syncSkillToken(event.currentTarget); }}
-            onSelect={(event) => syncSkillToken(event.currentTarget)}
-            aria-autocomplete="list"
-            aria-expanded={inlineOpen}
-            aria-controls={inlineOpen ? skillListId : undefined}
-            aria-activedescendant={inlineOpen && options.length ? `${skillListId}-${Math.min(skillActive, options.length - 1)}` : undefined}
-            disabled={props.disabled}
-            onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing) return;
-              if (inlineOpen && !event.metaKey && !event.ctrlKey) {
-                if (event.key === "Escape") { event.preventDefault(); dismissSkills(); return; }
-                if ((event.key === "ArrowDown" || event.key === "ArrowUp") && options.length) {
-                  event.preventDefault();
-                  setSkillActive(index => (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length);
-                  return;
-                }
-                if ((event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) && options.length) {
-                  event.preventDefault(); pickSkill(options[Math.min(skillActive, options.length - 1)]!); return;
-                }
-              }
-              if (
-                event.key === "Enter" &&
-                (event.metaKey || event.ctrlKey) &&
-                !event.nativeEvent.isComposing &&
-                props.canSend
-              ) {
-                event.preventDefault();
-                props.onSend();
-              }
-            }}
-          />
-          <div className="mobile-composer-toolbar">
+          <div className="mobile-composer-context">
             <button
               type="button"
-              className="mobile-composer-action mobile-composer-add"
-              aria-label={t("Add to message")}
+              className="mobile-composer-model"
+              title={[modelName, effort && t(effort)].filter(Boolean).join(" · ")}
+              disabled={props.disabled || props.running}
+              aria-label={t("Model and reasoning")}
               aria-haspopup="dialog"
-              aria-expanded={props.panel === "actions"}
-              disabled={props.disabled}
+              aria-expanded={props.panel === "model"}
+              aria-busy={props.catalogLoading || undefined}
               onClick={(event) => {
                 panelAnchor.current = event.currentTarget;
-                props.onPanelChange("actions");
+                props.onPanelChange("model");
               }}
             >
-              <Plus size={22} />
+              <HarnessIcon harness={props.configuration.harness} className="mobile-composer-agent-icon" />
+              <span className="mobile-composer-model-label">
+                <strong>{modelName}</strong>
+                {effort && <small>{t(effort)}</small>}
+              </span>
+              {props.catalogLoading ? (
+                <LoaderCircle size={16} className="mobile-spin" role="status" aria-label={t("Loading…")} />
+              ) : (
+                <ChevronsUpDown size={16} aria-hidden="true" />
+              )}
             </button>
-            <div
-              className="mobile-composer-controls"
-              data-collapsed={!expanded}
-              inert={!expanded}
-              aria-hidden={!expanded}
-            >
-              {props.planMode && (
+          </div>
+          <div className="mobile-composer-input">
+            <div className="mobile-composer-attachment-region">
+              <AnimatedCollapse expanded={props.attachments.length > 0}>
+                <MobileComposerAttachments
+                attachments={props.attachments}
+                disabled={props.disabled}
+                onRemoveAttachment={props.onRemoveAttachment}
+              />
+            </AnimatedCollapse>
+            </div>
+            <textarea
+              ref={area}
+              aria-label={t("Message")}
+              placeholder={t(
+                props.running ? "Agent is working…" : "Assign a task or type / for more",
+              )}
+              rows={1}
+              value={props.value}
+              onChange={(event) => { dismissedSlash.current = null; props.onChange(event.target.value); syncSkillToken(event.currentTarget); }}
+              onSelect={(event) => syncSkillToken(event.currentTarget)}
+              aria-autocomplete="list"
+              aria-expanded={inlineOpen}
+              aria-controls={inlineOpen ? skillListId : undefined}
+              aria-activedescendant={inlineOpen && options.length ? `${skillListId}-${Math.min(skillActive, options.length - 1)}` : undefined}
+              disabled={props.disabled}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) return;
+                if (inlineOpen && !event.metaKey && !event.ctrlKey) {
+                  if (event.key === "Escape") { event.preventDefault(); dismissSkills(); return; }
+                  if ((event.key === "ArrowDown" || event.key === "ArrowUp") && options.length) {
+                    event.preventDefault();
+                    setSkillActive(index => (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length);
+                    return;
+                  }
+                  if ((event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) && options.length) {
+                    event.preventDefault(); pickSkill(options[Math.min(skillActive, options.length - 1)]!); return;
+                  }
+                }
+                if (
+                  event.key === "Enter" &&
+                  (event.metaKey || event.ctrlKey) &&
+                  !event.nativeEvent.isComposing &&
+                  props.canSend
+                ) {
+                  event.preventDefault();
+                  props.onSend();
+                }
+              }}
+            />
+            <div className="mobile-composer-toolbar">
+              <button
+                type="button"
+                className="mobile-composer-action mobile-composer-add"
+                aria-label={t("Add to message")}
+                aria-haspopup="dialog"
+                aria-expanded={props.panel === "actions"}
+                disabled={props.disabled}
+                onClick={(event) => {
+                  panelAnchor.current = event.currentTarget;
+                  setSkillQuery("");
+                  setSkillActive(0);
+                  props.onPanelChange("actions");
+                }}
+              >
+                <Plus size={22} />
+              </button>
+              <div className="mobile-composer-controls">
+                {props.planMode && (
+                  <button
+                    type="button"
+                    className={`mobile-composer-plan ${planStyle.pill?.className ?? planStyle.className}`}
+                    disabled={props.disabled}
+                    aria-label={t("Plan mode")}
+                    title={t("Plan mode")}
+                    aria-haspopup="dialog"
+                    aria-expanded={props.panel === "plan"}
+                    onClick={(event) => {
+                      panelAnchor.current = event.currentTarget;
+                      props.onPanelChange("plan");
+                    }}
+                  >
+                    <planStyle.Icon size={18} aria-hidden="true" />
+                  </button>
+                )}
                 <button
                   type="button"
-                  className={`mobile-composer-plan ${planStyle.pill?.className ?? planStyle.className}`}
-                  disabled={props.disabled}
-                  aria-label={t("Plan mode")}
-                  title={t("Plan mode")}
+                  className="mobile-composer-action mobile-composer-permissions"
+                  data-full-access={
+                    props.configuration.runtimeMode === "full-access"
+                  }
+                  aria-label={t("Permissions: {mode}", {
+                    mode: t(RUNTIME_MODE_LABEL[props.configuration.runtimeMode]),
+                  })}
+                  title={t(RUNTIME_MODE_LABEL[props.configuration.runtimeMode])}
                   aria-haspopup="dialog"
-                  aria-expanded={props.panel === "plan"}
+                  aria-expanded={props.panel === "permissions"}
+                  disabled={props.disabled || props.running}
                   onClick={(event) => {
                     panelAnchor.current = event.currentTarget;
-                    props.onPanelChange("plan");
+                    props.onPanelChange("permissions");
                   }}
                 >
-                  <planStyle.Icon size={18} aria-hidden="true" />
+                  <RuntimeModeIcon
+                    mode={props.configuration.runtimeMode}
+                    size={20}
+                    className={
+                      props.configuration.runtimeMode === "full-access"
+                        ? "text-amber-400/90"
+                        : undefined
+                    }
+                  />
+                </button>
+                {props.running && props.canSend ? (
+                  <button type="submit" className="mobile-composer-action" aria-label={t("Queue message")}>
+                    {props.working ? <LoaderCircle size={20} className="mobile-spin" /> : <ListEnd size={20} />}
+                  </button>
+                ) : null}
+              </div>
+              {props.running && !props.value.trim() && !props.attachments.length ? (
+                <button
+                  type="button"
+                  className="mobile-send"
+                  disabled={!props.canStop}
+                  aria-label={t("Stop")}
+                  onClick={props.onStop}
+                >
+                  <Square size={14} fill="currentColor" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  className="mobile-send"
+                  disabled={!props.canSend}
+                  aria-label={t("Send message")}
+                >
+                  {props.working ? (
+                    <LoaderCircle size={20} className="mobile-spin" />
+                  ) : (
+                    <ArrowUp size={20} />
+                  )}
                 </button>
               )}
-              <button
-                type="button"
-                className="mobile-composer-action mobile-composer-permissions"
-                data-full-access={
-                  props.configuration.runtimeMode === "full-access"
-                }
-                aria-label={t("Permissions: {mode}", {
-                  mode: t(RUNTIME_MODE_LABEL[props.configuration.runtimeMode]),
-                })}
-                title={t(RUNTIME_MODE_LABEL[props.configuration.runtimeMode])}
-                aria-haspopup="dialog"
-                aria-expanded={props.panel === "permissions"}
-                disabled={props.disabled || props.running}
-                onClick={(event) => {
-                  panelAnchor.current = event.currentTarget;
-                  props.onPanelChange("permissions");
-                }}
-              >
-                <RuntimeModeIcon
-                  mode={props.configuration.runtimeMode}
-                  size={20}
-                  className={
-                    props.configuration.runtimeMode === "full-access"
-                      ? "text-amber-400/90"
-                      : undefined
-                  }
-                />
-              </button>
-              <button
-                type="button"
-                className="mobile-composer-model"
-                title={modelName}
-                disabled={props.disabled || props.running}
-                aria-label={t("Model and reasoning")}
-                aria-haspopup="dialog"
-                aria-expanded={props.panel === "model"}
-                onClick={(event) => {
-                  panelAnchor.current = event.currentTarget;
-                  props.onPanelChange("model");
-                }}
-              >
-                <HarnessIcon
-                  harness={props.configuration.harness}
-                  className="mobile-composer-agent-icon size-3.5"
-                />
-                <span className="mobile-composer-model-label">
-                  <strong>{modelName}</strong>
-                  {effort && <small>{t(effort)}</small>}
-                </span>
-                <ChevronDown size={12} />
-              </button>
-              {props.running && props.canSend ? (
-                <button type="submit" className="mobile-composer-action" aria-label={t("Queue message")}>
-                  {props.working ? <LoaderCircle size={20} className="mobile-spin" /> : <ListEnd size={20} />}
-                </button>
-              ) : null}
             </div>
-            {props.running && !props.value.trim() && !props.attachments.length ? (
-              <button
-                type="button"
-                className="mobile-send"
-                disabled={!props.canStop}
-                aria-label={t("Stop")}
-                onClick={props.onStop}
-              >
-                <Square size={14} fill="currentColor" />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                className="mobile-send"
-                disabled={!props.canSend}
-                aria-label={t("Send message")}
-              >
-                {props.working ? (
-                  <LoaderCircle size={20} className="mobile-spin" />
-                ) : (
-                  <ArrowUp size={20} />
-                )}
-              </button>
-            )}
           </div>
           <input
             ref={photos}
@@ -645,200 +518,195 @@ export function MobileComposer(props: Props) {
           />
         </form>
       </div>
-      {props.panel === "model" && (
-        <MobileModelControls
-          anchor={panelAnchor}
-          preserveFocus={area}
-          catalog={props.catalog}
-          configuration={props.configuration}
-          lockedAgent={props.lockedAgent}
+      <MobileModelControls
+        open={props.panel === "model"}
+        anchor={panelAnchor}
+        preserveFocus={area}
+        catalog={props.catalog}
+        loading={props.catalogLoading}
+        configuration={props.configuration}
+        lockedAgent={props.lockedAgent}
+        disabled={props.disabled}
+        onChange={props.onConfigurationChange}
+        onClose={close}
+      />
+      <MobileSheet
+        open={props.panel === "plan"}
+        title="Plan mode"
+        placement="anchor"
+        anchor={panelAnchor}
+        preserveFocus={area}
+        width={SHEET_WIDTH.menu}
+        side="top"
+        onClose={close}
+      >
+        <button
+          type="button"
+          className="mobile-sheet-row"
+          aria-label={t("Turn off plan mode")}
           disabled={props.disabled}
-          onChange={props.onConfigurationChange}
-          onClose={close}
-        />
-      )}
-      {props.panel === "plan" && (
-        <MobileSheet
-          title="Plan mode"
-          placement="anchor"
-          anchor={panelAnchor}
-          preserveFocus={area}
-          width={SHEET_WIDTH.menu}
-          side="top"
-          onClose={close}
+          onClick={() => {
+            close();
+            props.onPlanModeChange(false);
+          }}
         >
-          <button
-            type="button"
-            className="mobile-sheet-row"
-            aria-label={t("Turn off plan mode")}
-            disabled={props.disabled}
-            onClick={() => {
-              close();
-              props.onPlanModeChange(false);
-            }}
-          >
-            <X size={18} />
-            <span>{t("Turn off")}</span>
-          </button>
-        </MobileSheet>
-      )}
-      {props.panel === "permissions" && (
-        <MobileSheet
-          title="Permissions"
-          placement="anchor"
-          anchor={panelAnchor}
-          preserveFocus={area}
-          width={SHEET_WIDTH.list}
-          onClose={close}
-        >
-          <div role="radiogroup" aria-label={t("Permissions")}>
-            {RUNTIME_MODES.map((mode) => (
-              <button
-                type="button"
-                role="radio"
-                className="mobile-sheet-row"
-                key={mode}
-                aria-checked={props.configuration.runtimeMode === mode}
-                disabled={props.disabled}
-                onClick={() => {
-                  close();
-                  props.onConfigurationChange({
-                    ...props.configuration,
-                    runtimeMode: mode,
-                  });
-                }}
-              >
-                <RuntimeModeIcon
-                  mode={mode}
-                  size={22}
-                  className={
-                    mode === "full-access"
-                      ? "text-amber-400/90"
-                      : "text-content/70"
-                  }
-                />
-                <span className="mobile-sheet-row-text">
-                  <strong>{t(RUNTIME_MODE_LABEL[mode])}</strong>
-                  <small>{t(RUNTIME_MODE_HINT[mode])}</small>
-                </span>
-                {props.configuration.runtimeMode === mode && (
-                  <Check size={20} />
-                )}
-              </button>
-            ))}
-          </div>
-        </MobileSheet>
-      )}
-      {props.panel === "actions" && (
-        <MobileSheet
-          title="Add to message"
-          placement="anchor"
-          anchor={panelAnchor}
-          preserveFocus={area}
-          width={SHEET_WIDTH.menu}
-          onClose={close}
-        >
-          <button
-            type="button"
-            className="mobile-sheet-row"
-            disabled={props.disabled || !props.loadSkills}
-            onClick={() => { setSkillQuery(""); setSkillActive(0); props.onPanelChange("skills"); }}
-          >
-            <Sparkles size={22} />
-            <span>{t("Skills and commands")}</span>
-          </button>
-          <button
-            type="button"
-            className="mobile-sheet-row"
-            disabled={props.disabled}
-            onClick={() => {
-              close();
-              photos.current?.click();
-            }}
-          >
-            <ImagePlus size={22} />
-            <span>{t("Upload photos")}</span>
-          </button>
-          <button
-            type="button"
-            className="mobile-sheet-row"
-            disabled={props.disabled}
-            onClick={() => {
-              close();
-              files.current?.click();
-            }}
-          >
-            <FilePlus size={22} />
-            <span>{t("Upload files")}</span>
-          </button>
-          <button
-            type="button"
-            className="mobile-sheet-row"
-            role="switch"
-            aria-checked={props.planMode}
-            disabled={props.disabled}
-            onClick={() => {
-              close();
-              props.onPlanModeChange(!props.planMode);
-            }}
-          >
-            <AiIdea size={22} className="text-yellow-300/80" />
-            <span>{t("Plan mode")}</span>
-            {props.planMode && <Check size={20} />}
-          </button>
-        </MobileSheet>
-      )}
-      {props.panel === "skills" && <MobileSheet title="Skills and commands" anchor={panelAnchor} preserveFocus={area} onClose={close}>
-        <div className="mobile-skill-picker">
-          <div className="mobile-skill-heading"><h2>{t("Skills and commands")}</h2>
-            <button type="button" className="mobile-icon-button" aria-label={t("Close")} onClick={close}><X size={20} /></button>
-          </div>
-          <input type="search" aria-label={t("Search skills and commands")} placeholder={t("Search skills and commands")}
-            value={skillQuery} onChange={event => setSkillQuery(event.currentTarget.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
-          <MobileSkillList skills={options} loading={skillsState.loading} failed={!!skillsState.failed} error={skillsState.error}
-            active={skillActive} id={skillListId} onPick={pickSkill} onActive={setSkillActive} onRetry={() => void skillsState.reload(true)} />
+          <X size={18} />
+          <span>{t("Turn off")}</span>
+        </button>
+      </MobileSheet>
+      <MobileSheet
+        open={props.panel === "permissions"}
+        title="Permissions"
+        placement="anchor"
+        anchor={panelAnchor}
+        preserveFocus={area}
+        width={SHEET_WIDTH.list}
+        onClose={close}
+      >
+        <div role="radiogroup" aria-label={t("Permissions")}>
+          {RUNTIME_MODES.map((mode) => (
+            <button
+              type="button"
+              role="radio"
+              className="mobile-sheet-row"
+              key={mode}
+              aria-checked={props.configuration.runtimeMode === mode}
+              disabled={props.disabled}
+              onClick={() => {
+                close();
+                props.onConfigurationChange({
+                  ...props.configuration,
+                  runtimeMode: mode,
+                });
+              }}
+            >
+              <RuntimeModeIcon
+                mode={mode}
+                size={22}
+                className={
+                  mode === "full-access"
+                    ? "text-amber-400/90"
+                    : "text-content/70"
+                }
+              />
+              <span className="mobile-sheet-row-text">
+                <strong>{t(RUNTIME_MODE_LABEL[mode])}</strong>
+                <small>{t(RUNTIME_MODE_HINT[mode])}</small>
+              </span>
+              {props.configuration.runtimeMode === mode && (
+                <Check size={20} />
+              )}
+            </button>
+          ))}
         </div>
-      </MobileSheet>}
-      {props.panel === "projects" && (
-        <MobileSheet
-          title="Choose project"
-          placement="anchor"
-          anchor={panelAnchor}
-          preserveFocus={area}
-          width={SHEET_WIDTH.list}
-          side="top"
-          onClose={close}
+      </MobileSheet>
+      <MobileSheet
+        open={props.panel === "actions"}
+        title="Add to message"
+        placement="anchor"
+        anchor={panelAnchor}
+        preserveFocus={area}
+        width={SHEET_WIDTH.list}
+        side="top"
+        onClose={close}
+      >
+        <button
+          type="button"
+          className="mobile-sheet-row"
+          disabled={props.disabled}
+          onClick={() => {
+            close();
+            photos.current?.click();
+          }}
         >
-          <div
-            className="mobile-project-options"
-            role="radiogroup"
-            aria-label={t("Projects")}
-          >
-            {props.projects.map((project) => (
-              <button
-                type="button"
-                className="mobile-sheet-row"
-                role="radio"
-                key={project.id}
-                disabled={props.disabled}
-                aria-checked={props.project?.id === project.id}
-                onClick={() => {
-                  close();
-                  if (project.id !== props.project?.id)
-                    props.onProjectChange(project);
-                }}
-              >
-                <Folder size={22} />
-                <span className="mobile-sheet-row-text">
-                  <strong>{project.name}</strong>
-                  <small>{project.cwd}</small>
-                </span>
-                {project.id === props.project?.id && <Check size={20} />}
-              </button>
-            ))}
+          <ImagePlus size={22} />
+          <span>{t("Upload photos")}</span>
+        </button>
+        <button
+          type="button"
+          className="mobile-sheet-row"
+          disabled={props.disabled}
+          onClick={() => {
+            close();
+            files.current?.click();
+          }}
+        >
+          <FilePlus size={22} />
+          <span>{t("Upload files")}</span>
+        </button>
+        <button
+          type="button"
+          className="mobile-sheet-row"
+          role="switch"
+          aria-checked={props.planMode}
+          disabled={props.disabled}
+          onClick={() => {
+            close();
+            props.onPlanModeChange(!props.planMode);
+          }}
+        >
+          <AiIdea size={22} className="text-yellow-300/80" />
+          <span>{t("Plan mode")}</span>
+          {props.planMode && <Check size={20} />}
+        </button>
+        {!props.lockedAgent && (
+          <button type="button" className="mobile-sheet-row" aria-label={t("Choose project")}
+            disabled={props.disabled || props.running || !props.projects.length}
+            onClick={() => props.onPanelChange("projects")}>
+            <Folder size={22} />
+            <span>{t("Choose project")}</span>
+          </button>
+        )}
+        {props.loadSkills && <>
+          <div className="mobile-menu-divider" role="separator" />
+          <div className="mobile-skill-picker">
+            <div className="mobile-skill-heading"><h2>{t("Skills and commands")}</h2></div>
+            <input type="search" aria-label={t("Search skills and commands")} placeholder={t("Search skills and commands")}
+              value={skillQuery} onChange={event => setSkillQuery(event.currentTarget.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
+            <MobileSkillList skills={options.filter(skill => skill !== PLAN_COMMAND)} loading={skillsState.loading} failed={!!skillsState.failed} error={skillsState.error}
+              active={skillActive} id={skillListId} onPick={pickSkill} onActive={setSkillActive} onRetry={() => void skillsState.reload(true)} />
           </div>
-        </MobileSheet>
-      )}
+        </>}
+      </MobileSheet>
+      <MobileSheet
+        open={props.panel === "projects" && !props.lockedAgent}
+        title="Choose project"
+        placement="anchor"
+        anchor={panelAnchor}
+        preserveFocus={area}
+        width={SHEET_WIDTH.list}
+        side="top"
+        onClose={close}
+      >
+        <div
+          className="mobile-project-options"
+          role="radiogroup"
+          aria-label={t("Projects")}
+        >
+          {props.projects.map((project) => (
+            <button
+              type="button"
+              className="mobile-sheet-row"
+              role="radio"
+              key={project.id}
+              disabled={props.disabled}
+              aria-checked={props.project?.id === project.id}
+              onClick={() => {
+                close();
+                if (project.id !== props.project?.id)
+                  props.onProjectChange(project);
+              }}
+            >
+              <Folder size={22} />
+              <span className="mobile-sheet-row-text">
+                <strong>{project.name}</strong>
+                <small>{project.cwd}</small>
+              </span>
+              {project.id === props.project?.id && <Check size={20} />}
+            </button>
+          ))}
+        </div>
+      </MobileSheet>
     </>
   );
 }

@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  allProjectHistoryWithLiveSessions,
   historyWithLiveSessions,
   filterSessionsByArchive,
   filterSessionsByQuery,
@@ -7,6 +8,7 @@ import {
   mergeProjectHistorySummary,
   replaceProjectHistory,
 } from "./sessionHistory";
+import { pathKey } from "../../../shared/lib/paths";
 import { newSession } from "../model/session";
 import type { SessionSummary } from "./sessionStore";
 import type { OrchestrationRun } from "../../orchestration/model/orchestration";
@@ -120,7 +122,11 @@ describe("historyWithLiveSessions", () => {
       blocks: [{ id: "u", role: "user" as const, text: "Fix PR #42" }],
       busy: true,
     };
-    const rows = historyWithLiveSessions([summary("live", cwd)], [session], cwd);
+    const rows = historyWithLiveSessions(
+      [summary("live", cwd)],
+      [session],
+      cwd,
+    );
     expect(rows[0]).toMatchObject({
       title: "cursor · Fix tab title refresh",
       linkedWorkItem,
@@ -296,6 +302,151 @@ describe("historyWithLiveSessions", () => {
 
     const rows = historyWithLiveSessions(history, [], "/tmp/project-a");
     expect(rows.map((row) => row.id)).toEqual(["a1"]);
+  });
+
+  describe("allProjectHistoryWithLiveSessions", () => {
+    it("preserves project order, path aliases, duplicate rows and live overlays", () => {
+      const clock = vi.spyOn(Date, "now").mockReturnValue(100);
+      try {
+        const history = [
+          {
+            ...summary("stored", "/tmp/project-a", 3),
+            repo: "origin",
+            branch: "old",
+          },
+          summary("duplicate", "C:\\Repo\\", 8),
+          { ...summary("pin", "/tmp/project-a/", 1), pinned: true },
+          summary("duplicate", "c:/repo", 8),
+          summary("duplicate", "/tmp/project-b", 2),
+        ];
+        const saved = {
+          ...newSession("cursor", "/tmp/project-a/"),
+          id: "stored",
+          title: "Updated",
+          automationId: "automation-1",
+          blocks: [
+            { id: "draft", role: "user" as const, text: "Next", draft: true },
+          ],
+        };
+        const sessions = [
+          saved,
+          { ...newSession("codex", "c:/REPO/"), id: "new", busy: true },
+          { ...newSession("cursor", "/tmp/project-b"), id: "blank" },
+        ];
+        const gitForProject = (cwd: string) =>
+          pathKey(cwd) === pathKey(saved.cwd)
+            ? { branch: "current" }
+            : undefined;
+        const paths = new Map<string, string>();
+        for (const row of [...history, ...sessions])
+          paths.set(pathKey(row.cwd), row.cwd);
+        const previous = [...paths.values()].flatMap((cwd) =>
+          historyWithLiveSessions(history, sessions, cwd, gitForProject(cwd)),
+        );
+        const next = allProjectHistoryWithLiveSessions(
+          history,
+          sessions,
+          gitForProject,
+        );
+        expect(next).toEqual(previous);
+        expect(next.map((row) => row.id)).toEqual([
+          "pin",
+          "stored",
+          "new",
+          "duplicate",
+          "duplicate",
+          "duplicate",
+        ]);
+        expect(next.find((row) => row.id === "stored")).toMatchObject({
+          title: "Updated",
+          draft: true,
+          automationId: "automation-1",
+          repo: "origin",
+          branch: "old",
+          updatedAt: 3,
+        });
+        expect(next[0]).toBe(history[2]);
+        expect(next[3]).toBe(history[1]);
+        expect(next[4]).toBe(history[3]);
+        expect(history[0].title).toBe("cursor · stored");
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
+    it("keeps cross-project workers and inbox chats private while updating lead input status", () => {
+      const worker = {
+        ...newSession("codex", "/tmp/project-b"),
+        id: "worker-a",
+        pendingQuestion: { requestId: 1, questions: [] },
+        busy: true,
+      };
+      const internal = {
+        ...newSession("codex", "/tmp/project-c"),
+        id: "internal-worker",
+        orchestrationLeadId: "saved-lead",
+        busy: true,
+      };
+      const inbox = {
+        ...newSession("codex", "/tmp/project-b"),
+        id: "inbox",
+        busy: true,
+        inboxAsk: {
+          key: "item",
+          title: "Ask",
+          url: "https://example.com/item",
+          provider: "github" as const,
+        },
+      };
+      const history = [
+        summary("worker-a", worker.cwd),
+        summary("lead", run.cwd),
+        {
+          ...summary("saved-lead", "/tmp/project-c"),
+          orchestration: {
+            status: "paused" as const,
+            tasks: [{ ...run.tasks[1], sessionId: "saved-worker" }],
+          },
+        },
+        summary("saved-worker", "/tmp/project-d"),
+        summary("internal-worker", "/tmp/project-e"),
+        summary("inbox", "/tmp/project-f"),
+        summary("unrelated", worker.cwd),
+      ];
+      const next = allProjectHistoryWithLiveSessions(
+        history,
+        [worker, internal, inbox],
+        undefined,
+        [run],
+      );
+      expect(next.map((row) => row.id)).toEqual([
+        "unrelated",
+        "lead",
+        "saved-lead",
+      ]);
+      expect(
+        next.find((row) => row.id === "lead")?.orchestration?.tasks[0]
+          .needsInput,
+      ).toBe(true);
+      expect(next.find((row) => row.id === "saved-lead")).toBe(history[2]);
+    });
+
+    it("groups histories without reading every row again for each project", () => {
+      let pathReads = 0;
+      const history = Array.from({ length: 120 }, (_, index) => {
+        const cwd = `/tmp/project-${index % 30}`;
+        return {
+          ...summary(`row-${index}`, cwd, index),
+          get cwd() {
+            pathReads++;
+            return cwd;
+          },
+        };
+      });
+      const next = allProjectHistoryWithLiveSessions(history, []);
+      expect(next).toHaveLength(history.length);
+      expect(pathReads).toBeLessThanOrEqual(history.length * 2);
+    });
   });
 });
 

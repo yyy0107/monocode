@@ -29,7 +29,9 @@ vi.mock("../../core/child", () => ({
 }));
 
 import {
+  bindOmpSession,
   cancelOmpTurn,
+  compactOmpContext,
   rewindOmpLastTurn,
   sendOmpTurn,
   steerOmpTurn,
@@ -833,5 +835,41 @@ describe("OMP workflow dialogs", () => {
       cancelled: true,
     });
     expect(events.some((e) => e.type === "question.resolved")).toBe(true);
+  });
+});
+
+describe("omp imported native sessions", () => {
+  const source = (path: string) => ({
+    provider: "omp" as const,
+    providerSessionId: "omp-native",
+    path,
+    revision: "1",
+    blockIds: [],
+    createdAt: 1,
+    updatedAt: 2,
+  });
+  const compact = (sessionId: string) =>
+    compactOmpContext({
+      sessionId,
+      cwd: "/repo",
+      model: "omp:default",
+      runtimeMode: "supervised",
+      onEvent: () => undefined,
+    });
+
+  it("resumes the imported file with omp's --resume flag", async () => {
+    transport.stateSessionId = "omp-native";
+    bindOmpSession("omp-import", "omp-native", "/repo", undefined, source("/n/omp.jsonl"));
+    await compact("omp-import");
+    const args = transport.spawnChild.mock.calls[0][2] as string[];
+    expect(args).toEqual(expect.arrayContaining(["--resume", "/n/omp.jsonl"]));
+    expect(args).not.toContain("--session");
+  });
+
+  it("fails instead of starting an empty omp session", async () => {
+    transport.stateSessionId = "replacement";
+    bindOmpSession("omp-import-failed", "omp-native", "/repo", undefined, source("/n/missing.jsonl"));
+    await expect(compact("omp-import-failed")).rejects.toThrow("omp did not resume the imported session");
+    expect(transport.spawnChild).toHaveBeenCalledOnce();
   });
 });

@@ -16,11 +16,20 @@ import {
   deleteSession,
   upsertSession,
 } from "../../sessions/data/sessionStore";
-import { setSharedSessionBackend } from "../../sessions/data/sharedSessionBackend";
+import { setSharedSessionBackend, sharedSessionBackend } from "../../sessions/data/sharedSessionBackend";
 import type { HostSession } from "./protocol";
-import { remoteSessionFor } from "./connections";
+import { remoteSessionFor, rememberRemoteSession } from "./connections";
+import { isRetiredSession } from "../../sessions/model/retiredSessions";
 import { sessionUsesHost } from "./remoteProjects";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("./remoteOutbox", () => ({
+  OUTBOX_PREFIX: "monocode.remote-command.v1:",
+  loadRemoteOutbox: vi.fn(async () => undefined),
+  outboxKeys: () => [],
+  outboxEntry: () => undefined,
+  putOutboxEntry: vi.fn(async () => undefined),
+  deleteOutboxEntries: vi.fn(async () => undefined),
+}));
 const machine = {
   id: "computer",
   environmentId: "local",
@@ -29,8 +38,10 @@ const machine = {
 };
 const project = { id: "project", cwd: "/home/me/repo", name: "repo" };
 let value: HostSession;
+let workspace: unknown;
 beforeEach(() => {
   localStorage.clear();
+  workspace = null;
   value = {
     projectId: project.id,
     revision: 1,
@@ -56,6 +67,7 @@ beforeEach(() => {
         sessions: [{ id: "history", cwd: project.cwd }],
       };
     if (command === "remote_machines") return [machine];
+    if (command === "workspace_get_snapshot") return workspace;
     if (command === "session_delete") return;
     if (command === "session_upsert")
       return {
@@ -68,7 +80,6 @@ beforeEach(() => {
       };
     if (command === "remote_request") {
       if (args.method === "sessions.delete") return { deleted: true };
-      if (args.method === "sessions.refreshDesktopNative") return {};
       if (args.method === "projects.list") return [project];
       if (args.method === "sessions.sync") return { kind: "snapshot", value };
       if (args.method === "sessions.list")
@@ -158,7 +169,7 @@ it("rejects bootstrap failure instead of silently selecting a local runtime", as
   vi.mocked(invoke).mockRejectedValueOnce(new Error("Host unavailable"));
   await expect(initializeSharedHost()).rejects.toThrow("Host unavailable");
 });
-it("shares native import history while retaining the desktop's protected native runtime", async () => {
+it("runs imported native conversations on the Host and never saves them on the desktop", async () => {
   await initializeSharedHost();
   const session = {
     ...value.session,
@@ -173,20 +184,21 @@ it("shares native import history while retaining the desktop's protected native 
     },
     providerSessionId: "native",
   };
-  expect(shouldPersistSession(session)).toBe(true);
-  expect(sessionUsesHost(session)).toBe(false);
-  expect(await upsertSession(session)).not.toBeNull();
-  expect(invoke).toHaveBeenCalledWith("remote_request", {
-    machineId: machine.id,
-    method: "sessions.refreshDesktopNative",
-    params: { sessionId: session.id, busy: false },
-  });
+  // The Host owns native history and execution; the desktop does not save it.
+  expect(sessionUsesHost(session)).toBe(true);
+  expect(shouldPersistSession(session)).toBe(false);
+  expect(await upsertSession(session)).toBeNull();
 });
 it("removes deleted Host bindings before restoring a desktop workspace", async () => {
   localStorage.setItem(
     "monocode.remote-tabs.v2",
-    JSON.stringify({ shell: "history" }),
+    JSON.stringify({ shell: "history", "unknown-shell": "history" }),
   );
+  rememberRemoteSession("remote-shell", "history", { environmentId: "other-host", projectId: "other-project" });
+  workspace = { sessions: [
+    { id: "shell", cwd: project.cwd },
+    { id: "remote-shell", cwd: "remote://other-host/home/me/repo" },
+  ] };
   vi.mocked(invoke).mockResolvedValueOnce({
     machine,
     projects: [project],
@@ -195,8 +207,33 @@ it("removes deleted Host bindings before restoring a desktop workspace", async (
   await initializeSharedHost();
   expect(remoteSessionFor("shell")).toBeUndefined();
   expect(remoteSessionFor("history")).toBeUndefined();
+  expect(isRetiredSession("shell")).toBe(true);
+  expect(remoteSessionFor("remote-shell")).toBe("history");
+  expect(remoteSessionFor("unknown-shell")).toBe("history");
+  expect(isRetiredSession("remote-shell")).toBe(false);
   vi.mocked(invoke).mockRejectedValue(
     new Error("Session not found on this machine"),
   );
   expect(await getSession("history")).toBeNull();
+});
+
+it("retires scoped local aliases before hydration without requiring workspace evidence", async () => {
+  rememberRemoteSession("local-alias", "history", { environmentId: "local", projectId: "project" });
+  rememberRemoteSession("other-project-alias", "history", { environmentId: "local", projectId: "other-project" });
+  vi.mocked(invoke).mockResolvedValueOnce({ machine, projects: [project], sessions: [], retiredSessionIds: ["history"] });
+  await initializeSharedHost();
+  expect(remoteSessionFor("local-alias")).toBeUndefined();
+  expect(isRetiredSession("local-alias")).toBe(true);
+  expect(remoteSessionFor("other-project-alias")).toBe("history");
+  expect(isRetiredSession("other-project-alias")).toBe(false);
+});
+
+it("does not claim another Host or project's shell through an identical local wire ID", async () => {
+  rememberRemoteSession("remote-alias", "history", { environmentId: "other", projectId: "project" });
+  rememberRemoteSession("project-alias", "history", { environmentId: "local", projectId: "other-project" });
+  rememberRemoteSession("local-alias", "history", { environmentId: "local", projectId: "project" });
+  await initializeSharedHost();
+  expect(sharedSessionBackend()?.ownsSession("remote-alias")).toBe(false);
+  expect(sharedSessionBackend()?.ownsSession("project-alias")).toBe(false);
+  expect(sharedSessionBackend()?.ownsSession("local-alias")).toBe(true);
 });

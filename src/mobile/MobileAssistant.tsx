@@ -1,0 +1,524 @@
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type Ref,
+} from "react";
+import { AssistantChat } from "../features/assistant/ui/AssistantChat";
+import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
+import { mobileTranscriptPlatform } from "./transcriptPlatform";
+import type {
+  AssistantChatChrome,
+  AssistantComposerProps,
+  AssistantControlsProps,
+  AssistantHeaderProps,
+  AssistantMessageMenuProps,
+  AssistantSelectProps,
+  AssistantSettingsPanelProps,
+} from "../features/assistant/ui/AssistantChatChrome";
+import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
+import { useTranslation } from "../shared/i18n/useTranslation";
+import {
+  ArrowLeft,
+  ArrowUp,
+  Check,
+  ChevronRight,
+  File,
+  MoreHorizontal,
+  Pause,
+  Play,
+  Plus,
+  Settings,
+  Square,
+  X,
+} from "../shared/ui/icons";
+import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
+import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
+import { HARNESS_TITLE } from "../features/sessions/model/session";
+import { preserveInputFocus, usePreserveInputFocusOnTouch } from "./inputFocus";
+import "./assistant.css";
+
+const BackHandlers = createContext(new Map<number, () => void>());
+function useAssistantBack(priority: number, open: boolean, close: () => void) {
+  const handlers = useContext(BackHandlers);
+  useEffect(() => {
+    if (!open) return;
+    handlers.set(priority, close);
+    return () => {
+      handlers.delete(priority);
+    };
+  }, [handlers, priority, open, close]);
+}
+
+function MobileAssistantHeader({
+  name,
+  hostName,
+  harness,
+  status,
+  lifecycle,
+  busy,
+  onSettings,
+  onClose,
+  controls,
+}: AssistantHeaderProps) {
+  const { t } = useTranslation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menu = useRef<HTMLButtonElement>(null);
+  useAssistantBack(2, menuOpen, () => setMenuOpen(false));
+  const action = (run?: () => void) => {
+    setMenuOpen(false);
+    run?.();
+  };
+  return (
+    <>
+      <header
+        className="mobile-header mobile-assistant-header"
+        data-floating="true"
+      >
+        <button
+          type="button"
+          className="mobile-icon-button"
+          onClick={onClose}
+          aria-label={t("Back")}
+        >
+          <ArrowLeft size={22} />
+        </button>
+        <div className="mobile-header-title" data-capsule="true">
+          <strong>{name}</strong>
+          <span className="mobile-assistant-identity">
+            <span title={hostName}>{hostName}</span>
+            {harness && (
+              <span
+                className="mobile-assistant-agent"
+                aria-label={`${t("Agent")}: ${HARNESS_TITLE[harness]}`}
+              >
+                <HarnessIcon harness={harness} className="size-3.5" />
+                <span>{HARNESS_TITLE[harness]}</span>
+              </span>
+            )}
+            <span data-lifecycle={lifecycle}>{status}</span>
+          </span>
+        </div>
+        <button
+          ref={menu}
+          type="button"
+          className="mobile-icon-button"
+          aria-label={t("Assistant options")}
+          aria-haspopup="dialog"
+          aria-expanded={menuOpen}
+          disabled={!onSettings}
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <MoreHorizontal size={22} />
+        </button>
+      </header>
+      <MobileSheet
+        open={menuOpen}
+        title="Assistant options"
+        placement="anchor"
+        anchor={menu}
+        width={SHEET_WIDTH.menu}
+        align="end"
+        onClose={() => setMenuOpen(false)}
+      >
+        <button
+          type="button"
+          className="mobile-sheet-row"
+          disabled={busy}
+          onClick={() => action(onSettings)}
+        >
+          <Settings size={20} />
+          <span>{t("Settings")}</span>
+          <ChevronRight size={18} />
+        </button>
+        {controls && (
+          <>
+            <button
+              type="button"
+              className="mobile-sheet-row"
+              disabled={busy}
+              onClick={() => action(controls.onToggle)}
+            >
+              {controls.continuable ? <Play size={20} /> : <Pause size={20} />}
+              <span>{t(controls.continuable ? "Continue" : "Pause")}</span>
+            </button>
+            <button
+              type="button"
+              className="mobile-sheet-row mobile-assistant-disable"
+              disabled={busy || !controls.enabled}
+              onClick={() => action(controls.onDisable)}
+            >
+              <Square size={20} />
+              <span>{t("Disable assistant")}</span>
+            </button>
+          </>
+        )}
+      </MobileSheet>
+    </>
+  );
+}
+
+function MobileAssistantSettingsPanel({
+  open,
+  initialSetup,
+  onClose,
+  children,
+}: AssistantSettingsPanelProps) {
+  const { t } = useTranslation();
+  useAssistantBack(1, open, onClose);
+  return (
+    <MobileSheet
+      open={open}
+      title={initialSetup ? "Set up assistant" : "Assistant settings"}
+      onClose={onClose}
+    >
+      <section className="mobile-assistant-settings-page">
+        <header className="mobile-assistant-settings-header">
+          <button
+            type="button"
+            className="mobile-icon-button"
+            onClick={onClose}
+            aria-label={t("Back")}
+          >
+            <ArrowLeft size={22} />
+          </button>
+          <strong>
+            {t(initialSetup ? "Set up assistant" : "Assistant settings")}
+          </strong>
+          <span aria-hidden="true" />
+        </header>
+        <div className="mobile-assistant-settings-content">{children}</div>
+      </section>
+    </MobileSheet>
+  );
+}
+
+function MobileAssistantControls({
+  nextRetryAt,
+  backlog,
+}: AssistantControlsProps) {
+  const { t } = useTranslation();
+  if (!nextRetryAt && !backlog) return null;
+  return (
+    <div className="mobile-assistant-notices" role="status">
+      {nextRetryAt && (
+        <span>
+          {t("Next retry")}: {new Date(nextRetryAt).toLocaleTimeString()}
+        </span>
+      )}
+      {backlog && (
+        <span>
+          {t("Some follow-ups are delayed while the assistant is busy.")}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function MobileAssistantComposer({
+  draft,
+  onDraftChange,
+  onSend,
+  onAttach,
+  onRemoveAttachment,
+  attachments,
+  busy,
+  inputDisabled,
+  attachDisabled,
+  sendDisabled,
+  retry,
+  onRetry,
+}: AssistantComposerProps) {
+  const { t } = useTranslation();
+  const input = useRef<HTMLTextAreaElement>(null);
+  const files = useRef<HTMLInputElement>(null);
+  const form = useRef<HTMLFormElement>(null);
+  const [renderedAttachments, setRenderedAttachments] = useState(attachments);
+  usePreserveInputFocusOnTouch(form, input, true);
+  useLayoutEffect(() => {
+    if (attachments.length) setRenderedAttachments(attachments);
+  }, [attachments]);
+  useLayoutEffect(() => {
+    const field = input.current;
+    if (!field) return;
+    const resize = () => {
+      field.style.height = "0px";
+      field.style.height = `${Math.min(Math.max(field.scrollHeight, 28), Math.min(window.innerHeight * 0.25, 168))}px`;
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, [draft]);
+  return (
+    <div className="mobile-assistant-compose-dock">
+      {retry && (
+        <button
+          type="button"
+          className="mobile-assistant-retry"
+          disabled={busy}
+          onClick={onRetry}
+        >
+          {t("Retry message")}
+        </button>
+      )}
+      <form
+        ref={form}
+        className="mobile-composer mobile-assistant-compose"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSend();
+        }}
+        onPointerDownCapture={(e) => preserveInputFocus(e, input.current)}
+        onMouseDownCapture={(e) => preserveInputFocus(e, input.current)}
+      >
+        <AnimatedCollapse expanded={!!attachments.length}>
+          <div
+            className="mobile-assistant-attachments"
+            aria-label={t("Attachments")}
+          >
+            {renderedAttachments.map((file) => (
+              <div className="mobile-assistant-attachment" key={file.id}>
+                <File size={16} aria-hidden="true" />
+                <span title={file.name}>{file.name}</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label={t("Remove attachment")}
+                  onClick={() => onRemoveAttachment(file.id)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </AnimatedCollapse>
+        <div className="mobile-assistant-compose-row">
+          <button
+            type="button"
+            className="mobile-assistant-add"
+            aria-label={t("Attach files")}
+            disabled={attachDisabled}
+            onClick={() => files.current?.click()}
+          >
+            <Plus size={22} />
+          </button>
+          <input
+            ref={files}
+            type="file"
+            multiple
+            className="mobile-assistant-file-input"
+            tabIndex={-1}
+            aria-hidden="true"
+            aria-label={t("Attach files")}
+            disabled={attachDisabled}
+            onChange={(e) => {
+              const selected = Array.from(e.target.files ?? []);
+              e.target.value = "";
+              if (selected.length) onAttach(selected);
+            }}
+          />
+          <textarea
+            ref={input}
+            rows={1}
+            aria-label={t("Message assistant")}
+            placeholder={t("Ask your assistant…")}
+            value={draft}
+            disabled={inputDisabled}
+            onChange={(e) => onDraftChange(e.target.value)}
+          />
+          <button
+            type="submit"
+            className="mobile-assistant-send"
+            aria-label={t("Send")}
+            disabled={sendDisabled}
+          >
+            <ArrowUp size={21} />
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function MobileAssistantMessageMenu({
+  open,
+  point,
+  disabled,
+  onReply,
+  onClose,
+}: AssistantMessageMenuProps) {
+  const { t } = useTranslation();
+  useAssistantBack(3, open, onClose);
+  return (
+    <MobileSheet
+      open={open}
+      title="Reply"
+      placement="anchor"
+      anchorPoint={point}
+      width={SHEET_WIDTH.menu}
+      onClose={onClose}
+    >
+      <button
+        type="button"
+        className="mobile-sheet-row"
+        disabled={disabled}
+        onClick={onReply}
+      >
+        <span>{t("Reply")}</span>
+      </button>
+    </MobileSheet>
+  );
+}
+
+/** A settings row that opens a bottom sheet instead of the native picker. */
+function MobileAssistantSelect({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder,
+  disabled,
+  hint,
+  hideLabel,
+  searchable,
+}: AssistantSelectProps) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const close = () => {
+    setOpen(false);
+    setFilter("");
+  };
+  useAssistantBack(4, open, close);
+  const selected = options.find((option) => option.value === value);
+  const needle = filter.trim().toLocaleLowerCase();
+  const visible = needle
+    ? options.filter((option) =>
+        option.label.toLocaleLowerCase().includes(needle),
+      )
+    : options;
+  return (
+    <div
+      className="mobile-assistant-select"
+      data-compact={hideLabel || undefined}
+    >
+      <button
+        type="button"
+        className="mobile-assistant-select-trigger"
+        aria-label={`${label}: ${selected?.label ?? placeholder}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+      >
+        {!hideLabel && (
+          <span className="mobile-assistant-select-label">{label}</span>
+        )}
+        <span
+          className="mobile-assistant-select-value"
+          data-empty={!selected || undefined}
+        >
+          {selected?.label ?? placeholder}
+        </span>
+        <ChevronRight size={18} aria-hidden="true" />
+      </button>
+      {hint && <small className="mobile-assistant-select-hint">{hint}</small>}
+      <MobileSheet open={open} title={label} onClose={close}>
+        {searchable && (
+          <input
+            type="search"
+            className="mobile-assistant-select-search"
+            aria-label={t("Search options…")}
+            placeholder={t("Search options…")}
+            value={filter}
+            onChange={(e) => setFilter(e.currentTarget.value)}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+        )}
+        <div
+          className="mobile-assistant-select-options"
+          role="radiogroup"
+          aria-label={label}
+        >
+          {visible.map((option) => {
+            const checked = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className="mobile-sheet-row"
+                role="radio"
+                aria-checked={checked}
+                onClick={() => {
+                  onChange(option.value);
+                  close();
+                }}
+              >
+                {option.icon}
+                <span className="mobile-sheet-row-text">
+                  <strong>{option.label}</strong>
+                </span>
+                {checked && <Check size={20} />}
+              </button>
+            );
+          })}
+          {!visible.length && (
+            <p className="mobile-assistant-select-empty">
+              {t("No matching options")}
+            </p>
+          )}
+        </div>
+      </MobileSheet>
+    </div>
+  );
+}
+
+const chrome: AssistantChatChrome = {
+  Header: MobileAssistantHeader,
+  Controls: MobileAssistantControls,
+  SettingsPanel: MobileAssistantSettingsPanel,
+  Composer: MobileAssistantComposer,
+  MessageMenu: MobileAssistantMessageMenu,
+  Select: MobileAssistantSelect,
+};
+export type MobileAssistantHandle = { back: () => void };
+export function MobileAssistant({
+  ref,
+  ...props
+}: Omit<ComponentProps<typeof AssistantChat>, "chrome"> & {
+  ref?: Ref<MobileAssistantHandle>;
+}) {
+  const handlers = useMemo(() => new Map<number, () => void>(), []);
+  const back = () => {
+    const priority = Math.max(...handlers.keys());
+    const handler = handlers.get(priority);
+    if (handler) handler();
+    else props.onClose?.();
+  };
+  useImperativeHandle(ref, () => ({ back }));
+  return (
+    <aside
+      className="mobile-assistant-overlay bg-background-base text-content"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !e.defaultPrevented) {
+          e.preventDefault();
+          back();
+        }
+      }}
+    >
+      <BackHandlers.Provider value={handlers}>
+        <TranscriptPlatformContext.Provider value={mobileTranscriptPlatform}>
+          <AssistantChat {...props} chrome={chrome} />
+        </TranscriptPlatformContext.Provider>
+      </BackHandlers.Provider>
+    </aside>
+  );
+}

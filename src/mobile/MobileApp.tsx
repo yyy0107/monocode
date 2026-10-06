@@ -1,4 +1,6 @@
 import { useConnectionAppearance, saveConnectionAppearance, removeConnectionAppearance } from "./connectionAppearance";
+import { MobileAssistant, type MobileAssistantHandle } from "./MobileAssistant";
+import { resolveAssistantTarget } from "../features/assistant/model/assistantNavigation";
 import { useHostQueue } from "../features/connections/ui/useHostQueue";
 import { consumePlanCommand } from "../features/sessions/model/plan";
 import { isCompactCommand } from "../features/sessions/model/compact";
@@ -45,9 +47,15 @@ import { MobileTranscript } from "./MobileTranscript";
 import { useMobileAppUpdates } from "./MobileAppUpdates";
 import {
   configurationForSession,
-  firstConfiguration,
   type MobileConfiguration,
 } from "./MobileModelControls";
+import {
+  defaultConfiguration as firstConfiguration,
+  defaultProviderAccount,
+  loadMobileAgentDefaults,
+  type MobileAgentDefaults as AgentDefaults,
+} from "./agentDefaults";
+import { MobileAgentDefaults } from "./MobileAgentDefaults";
 import type { HostModelCatalog } from "../features/connections/model/protocol";
 import {
   MobileClient,
@@ -80,12 +88,31 @@ import { MobileHostStatus } from "./MobileHostStatus";
 import { useHostConnectionStatus } from "./useHostConnectionStatus";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { setUiLanguage, translate } from "../shared/i18n/language";
+import {
+  nativeProviderLabel,
+  nativeSourceKey,
+  nativeSyncBlocked,
+  nativeSyncNotice,
+  type NativeSessionAccess,
+} from "../integrations/harness/core/nativeSessions";
 import { readMobileAttachments } from "./attachments";
 import { takeBackQueuedMessage } from "./queuedDraft";
 import {
   loadFollowUpBehavior,
   saveFollowUpBehavior,
 } from "../features/settings/model/settings";
+import {
+  applyAccentColor,
+  loadAccentColor,
+  loadTranscriptLayout,
+  saveAccentColor,
+  saveTranscriptLayout,
+} from "../features/settings/model/appearance";
+import {
+  loadSoundsEnabled,
+  saveSoundsEnabled,
+} from "../features/settings/model/sounds";
+import { MobileArchive } from "./MobileArchive";
 import { mobileStorage } from "./storage";
 import { useStableCallback } from "./useStableCallback";
 import {
@@ -101,6 +128,42 @@ import {
 
 const client = new MobileClient(mobileStorage);
 
+/**
+ * `undefined` while checking; `null` when the Host cannot verify ownership
+ * (older Host or unavailable). Only a verified idle session may be written,
+ * and a running Host turn already holds the shared lock.
+ */
+function nativeWriteBlocked(
+  snapshot: HostSession | undefined,
+  access: NativeSessionAccess | undefined,
+): boolean {
+  if (!snapshot?.session.nativeSession) return false;
+  if (nativeSyncBlocked(snapshot.nativeStatus)) return true;
+  return !(snapshot.status === "running" && snapshot.runId) && access?.state !== "idle";
+}
+
+function nativeAccessNotice(access: NativeSessionAccess | undefined): string {
+  if (access === undefined)
+    return translate("Checking whether this conversation is open elsewhere…");
+  if (access.reason === "hostUnavailable")
+    return translate("Unable to check native session access. Reconnect to the Host to continue.");
+  const holder = access.holder;
+  if (holder && access.state === "external")
+    return translate(
+      "Open in {provider} (pid {pid}) on the computer. Close it there to continue here.",
+      { provider: nativeProviderLabel(holder.provider), pid: holder.pid },
+    );
+  if (holder && access.reason === "ambiguousProcess")
+    return translate(
+      "{provider} is running in this project (pid {pid}) on the computer and may be using this conversation. Close it to continue here.",
+      { provider: nativeProviderLabel(holder.provider), pid: holder.pid },
+    );
+  if (access.reason === "anotherMonocode")
+    return translate("MonoCode desktop is using this conversation. Try again when it finishes.");
+  if (access.reason === "unsupportedPlatform")
+    return translate("Native session ownership cannot be verified on this platform. Imported history is read-only.");
+  return translate("Native session access could not be confirmed. Saved history keeps syncing; check other clients before continuing here.");
+}
 const readHostImage = (path: string) => client.readBinaryFile(path);
 const browseHostDirectories = (path?: string) => client.browseDirectories(path);
 // Settings doubles as the connection screen before pairing.
@@ -118,7 +181,7 @@ function HeaderMoreIcon() {
 }
 const message = (error: unknown) =>
   error instanceof Error
-    ? error.message
+    ? translate(error.message)
     : translate("Unable to reach this Host.");
 function IconButton({
   label,
@@ -174,6 +237,21 @@ export function MobileApp() {
   const { language, t } = useTranslation();
   const appUpdates = useMobileAppUpdates();
   const [view, setView] = useState<View>("settings");
+  // List scope survives navigation, so chat controls need their own entry source.
+  const [sessionEntrySource, setSessionEntrySource] = useState<"project" | "other">("other");
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantIdentity, setAssistantIdentity] = useState<{ hostId: string; name?: string }>();
+  const assistantPage = useRef<MobileAssistantHandle>(null);
+  const assistantRpc = useCallback(async <T,>(method: string, params?: object) => {
+    const hostId = client.connection?.environmentId;
+    const result = await client.rpc<T>(method, params);
+    if (method === "assistant.get" && hostId && client.connection?.environmentId === hostId) {
+      const name = (result as { name?: string } | null)?.name;
+      setAssistantIdentity((current) => current?.hostId === hostId && current.name === name
+        ? current : { hostId, name });
+    }
+    return result;
+  }, []);
   const [homeProjectId, setHomeProjectId] = useState<string>();
   const [allProjectsPage, setAllProjectsPage] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -188,6 +266,14 @@ export function MobileApp() {
   const connectionAppearance = useConnectionAppearance(client.connection?.environmentId);
   const connectionName = connectionAppearance.displayName || client.connection?.name || "MonoCode";
   const [connected, setConnected] = useState(false);
+  const [connectionRevision, setConnectionRevision] = useState(0);
+  const assistantHostId = connected ? client.connection?.environmentId : undefined;
+  useEffect(() => {
+    if (!assistantHostId || !drawerOpen) return;
+    // Opening the drawer refreshes names changed by another client. Assistant
+    // chat syncs update the same identity immediately after local saves.
+    void assistantRpc("assistant.get").catch(() => {});
+  }, [assistantHostId, drawerOpen, assistantRpc]);
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
   const [projects, setProjects] = useState<HostProject[]>([]);
@@ -195,9 +281,16 @@ export function MobileApp() {
   const [sessions, setSessions] = useState<HostSessionSummary[]>([]);
   const [sessionId, setSessionId] = useState<string>();
   const [snapshot, setSnapshot] = useState<HostSession>();
+  const [nativeAccessResult, setNativeAccessResult] = useState<{
+    key: string;
+    value: NativeSessionAccess | undefined;
+  }>();
   const [sessionConfirmed, setSessionConfirmed] = useState(false);
   const [animateFrom, setAnimateFrom] = useState<string>();
   const [catalog, setCatalog] = useState<HostModelCatalog>();
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const draftDefaults = useRef<AgentDefaults>({});
+  const draftConfigurationChanged = useRef(false);
   const [configuration, setConfiguration] = useState<MobileConfiguration>({
     harness: "codex",
     model: "",
@@ -209,6 +302,9 @@ export function MobileApp() {
   const [readingAttachments, setReadingAttachments] = useState(false);
   const [planMode, setPlanMode] = useState(false);
   const [followUpBehavior, setFollowUpBehavior] = useState(loadFollowUpBehavior);
+  const [transcriptLayout, setTranscriptLayout] = useState(loadTranscriptLayout);
+  const [accentColor, setAccentColor] = useState(loadAccentColor);
+  const [soundsEnabled, setSoundsEnabled] = useState(loadSoundsEnabled);
   const acceptedQueueAttachments = useRef<Attachment[]>([]);
   const parkedDrafts = useRef<Array<{
     text: string;
@@ -235,6 +331,41 @@ export function MobileApp() {
   const [pending, setPending] = useState<PendingCommand>();
   const [foreground, setForeground] = useState(true);
   const hostStatus = useHostConnectionStatus(client, connected, foreground);
+  const nativeLink = snapshot?.session.nativeSession;
+  const nativeAccessKey = nativeLink && snapshot.session.id === sessionId
+    ? JSON.stringify([client.connection?.environmentId, client.connection?.endpoint,
+        sessionId, nativeLink.provider, nativeSourceKey(nativeLink), nativeLink.accountId])
+    : undefined;
+  const checkNativeAccess = connected && foreground && view === "chat";
+  const nativeAccess = checkNativeAccess && nativeAccessResult?.key === nativeAccessKey
+    ? nativeAccessResult?.value : undefined;
+  useEffect(() => {
+    setNativeAccessResult(undefined);
+    if (!checkNativeAccess || !nativeAccessKey || !sessionId || !nativeLink) return;
+    let current = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const unavailable = (): NativeSessionAccess => ({
+      state: "unknown", reason: "hostUnavailable", path: nativeLink.path, checkedAt: Date.now(),
+    });
+    const check = async () => {
+      let value: NativeSessionAccess;
+      try {
+        const access = await client.nativeAccess(sessionId);
+        value = access && access.path === nativeLink.path ? access : unavailable();
+      } catch {
+        value = unavailable();
+      }
+      if (!current) return;
+      setNativeAccessResult({ key: nativeAccessKey, value });
+      // One probe at a time: a slow response must not overwrite a newer owner.
+      timer = setTimeout(check, 5_000);
+    };
+    void check();
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [checkNativeAccess, nativeAccessKey]);
   const [now, setNow] = useState(() => Date.now());
   const [theme, setTheme] = useState(
     () => localStorage.getItem("monocode-mobile-theme") || "dark",
@@ -469,6 +600,7 @@ export function MobileApp() {
       setSnapshot(undefined);
       setSessionConfirmed(false);
       setCatalog(undefined);
+      setCatalogLoading(false);
       setAttachments([]);
       acceptedQueueAttachments.current = [];
       parkedDrafts.current = [];
@@ -477,6 +609,7 @@ export function MobileApp() {
       setUrl(client.connection!.endpoint);
       setProjects(items);
       setConnected(true);
+      setConnectionRevision((value) => value + 1);
       setAddingConnection(false);
       setPending(await client.pending());
       await restoreLocation(items);
@@ -494,9 +627,13 @@ export function MobileApp() {
     const projectTurn = ++projectGeneration.current;
     setProject(item);
     setSessions([]);
+    const defaults = loadMobileAgentDefaults(client.connection?.environmentId);
+    draftDefaults.current = defaults;
+    draftConfigurationChanged.current = false;
     const cachedCatalog = client.cachedModels(item.id);
     setCatalog(cachedCatalog);
-    setConfiguration((cachedCatalog && firstConfiguration(cachedCatalog)) ?? {
+    setCatalogLoading(!cachedCatalog);
+    setConfiguration((cachedCatalog && firstConfiguration(cachedCatalog, defaults)) ?? {
       harness: "codex", model: "", modelSettings: {}, runtimeMode: "supervised",
     });
     setSessionId(undefined);
@@ -506,6 +643,7 @@ export function MobileApp() {
     setComposerPanel(null);
     setSessionActionsOpen(false);
     setView(nextView);
+    setSessionEntrySource("other");
     setLoading(false);
     setHistoryLoading(true);
     setError("");
@@ -514,12 +652,14 @@ export function MobileApp() {
     void client.models(item.id).then((catalog) => {
       if (projectGeneration.current !== projectTurn) return;
       setCatalog(catalog);
-      const first = firstConfiguration(catalog);
-      if (first) setConfiguration((current) => current.model ? current : {
+      const first = firstConfiguration(catalog, defaults);
+      if (first && !draftConfigurationChanged.current) setConfiguration((current) => ({
         ...first, runtimeMode: current.runtimeMode,
-      });
+      }));
     }).catch((problem) => {
       if (projectGeneration.current === projectTurn) setError(message(problem));
+    }).finally(() => {
+      if (projectGeneration.current === projectTurn) setCatalogLoading(false);
     });
     try {
       const history = await client.sessions(item.id);
@@ -543,12 +683,20 @@ export function MobileApp() {
     setSearchOpen(false);
     setSettingsPage("root");
     setProject(target);
+    // Warm the likely next conversation's catalog while Home is already usable.
+    // Navigation shares this in-flight request; failures are retried on entry.
+    if (target) void client.models(target.id).catch(() => {});
   };
-  const openSession = async (id?: string, restoredProjectId?: string) => {
+  const openSession = async (
+    id?: string,
+    restoredProjectId?: string,
+    entrySource: "project" | "other" = "other",
+  ) => {
     const start = performance.now();
     appRoot.current?.removeAttribute("data-session-load-ms");
     appRoot.current?.removeAttribute("data-session-load-source");
     const turn = ++navigation.current;
+    if (id) draftConfigurationChanged.current = true;
     const known = id ? client.cachedSession(id) : undefined;
     const cached = known && (!restoredProjectId ||
       (known.projectId === restoredProjectId && !known.archived)) ? known : undefined;
@@ -567,6 +715,7 @@ export function MobileApp() {
     setSessionActionsOpen(false);
     setDrawerOpen(false);
     setView("chat");
+    setSessionEntrySource(entrySource);
     setLoading(!!id);
     setError("");
     if (!id) return;
@@ -574,7 +723,9 @@ export function MobileApp() {
       const result = await client.session(id);
       if (navigation.current === turn) {
         if (restoredProjectId && (result.projectId !== restoredProjectId || result.archived)) {
-          await openSession();
+          const owner = projects.find((item) => item.id === restoredProjectId);
+          if (owner) void openProject(owner);
+          await openSession(undefined, undefined, entrySource);
           return;
         }
         setSnapshot((previous) => previous && previous.session.id === result.session.id &&
@@ -592,7 +743,7 @@ export function MobileApp() {
     connected,
     foreground,
     visibleSession: view === "chat" && !drawerOpen && !loading && sessionConfirmed && snapshot && snapshot.session.id === sessionId
-      ? { id: snapshot.session.id, revision: snapshot.revision,
+      ? { id: snapshot.session.id, projectId: snapshot.projectId, revision: snapshot.revision,
           lastCompletedRunId: snapshot.lastCompletedRunId, pendingInputKey: pendingSessionInputKey(snapshot.session, snapshot.runId) }
       : undefined,
     language,
@@ -638,9 +789,15 @@ export function MobileApp() {
           const changedProject = owner.id !== project?.id;
           setProject(owner);
           if (changedProject) {
-            projectGeneration.current += 1;
+            const projectTurn = ++projectGeneration.current;
             setCatalog(undefined);
-            setCatalog(await client.models(owner.id));
+            setCatalogLoading(true);
+            try {
+              const nextCatalog = await client.models(owner.id);
+              if (projectGeneration.current === projectTurn) setCatalog(nextCatalog);
+            } finally {
+              if (projectGeneration.current === projectTurn) setCatalogLoading(false);
+            }
           }
         }
         setSessionId(receipt.sessionId);
@@ -756,7 +913,7 @@ export function MobileApp() {
       pending ||
       readingAttachments ||
       (!!sessionId && !sessionConfirmed) ||
-      !!snapshot?.session.nativeSession ||
+      nativeWriteBlocked(snapshot, nativeAccess) ||
       (snapshot?.status === "running" && !snapshot.supportsQueue)
     )
       return;
@@ -796,7 +953,20 @@ export function MobileApp() {
     setBusy(true);
     setError("");
     try {
+      const generation = navigation.current;
+      const hostId = client.connection?.environmentId;
+      const providerAccountId = !sessionId
+        ? defaultProviderAccount(configuration.harness, draftDefaults.current)
+        : undefined;
+      if (providerAccountId) {
+        const accounts = await client.providerAccounts();
+        if (!accounts) throw new Error(t("Provider accounts are unavailable on this Host."));
+        if (!accounts[configuration.harness]?.some((account) => account.id === providerAccountId))
+          throw new Error(t("This provider account is no longer available. Choose an account in Settings and start a new conversation."));
+      }
+      if (generation !== navigation.current || hostId !== client.connection?.environmentId) return;
       const uploaded = await client.uploadAttachments(attachments, acceptedQueueAttachments.current);
+      if (generation !== navigation.current || hostId !== client.connection?.environmentId) return;
       const prompt: MobileFirstMessage = {
         text: parsed.text,
         ...(uploaded.length ? { attachments: uploaded } : {}),
@@ -819,6 +989,7 @@ export function MobileApp() {
             harness: configuration.harness,
             model: configuration.model,
             modelSettings: configuration.modelSettings,
+            ...(providerAccountId ? { providerAccountId } : {}),
             runtimeMode: configuration.runtimeMode,
           },
           prompt,
@@ -876,6 +1047,7 @@ export function MobileApp() {
     setAllProjectsPage(allProjects);
     setSearchOpen(false);
     navigate("home");
+    if (owner) void client.models(owner.id).catch(() => {});
   };
   const updateSessionMetadata = async (
     patch: MobileSessionPatch,
@@ -918,6 +1090,7 @@ export function MobileApp() {
         setSnapshot(undefined);
         setDraft("");
         setAttachments([]);
+        void openProject(project);
       }
     } finally {
       setBusy(false);
@@ -951,6 +1124,8 @@ export function MobileApp() {
     setBusy(true);
     try {
       await client.reconnect();
+      setConnectionRevision((value) => value + 1);
+      setPreferencePanel(null);
       if (!connected) {
         const items = await client.projects();
         setProjects(items);
@@ -968,7 +1143,11 @@ export function MobileApp() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     const listener = App.addListener("backButton", () => {
-      if (queueOverlayClose.current) queueOverlayClose.current();
+      if (assistantOpen) {
+        if (assistantPage.current) assistantPage.current.back();
+        else setAssistantOpen(false);
+      }
+      else if (queueOverlayClose.current) queueOverlayClose.current();
       else if (sessionStatusOpen) setSessionStatusOpen(false);
       else if (sessionActionsOpen) {
         if (!busy) setSessionActionsOpen(false);
@@ -992,6 +1171,7 @@ export function MobileApp() {
       void listener.then((handle) => handle.remove());
     };
   }, [
+    assistantOpen,
     view,
     connected,
     addingConnection,
@@ -1013,7 +1193,7 @@ export function MobileApp() {
   const sessionActionsSummary = view === "home" ? homeActionSession : sessions.find(
     (item) => item.id === sessionActionsTarget,
   );
-  const nativeReadOnly = !!snapshot?.session.nativeSession;
+  const nativeReadOnly = nativeWriteBlocked(snapshot, nativeAccess);
   const skillHarness = snapshot?.session.harness ?? configuration.harness;
   const skillContextKey = `${client.connection?.environmentId ?? ""}\0${project?.id ?? ""}\0${skillHarness}\0${sessionId ?? ""}\0${snapshot?.session.worktreeCwd || snapshot?.session.cwd || project?.cwd || ""}`;
   const loadSkillCatalog = useCallback((refresh = false) => {
@@ -1105,8 +1285,29 @@ export function MobileApp() {
       onClickCapture={(event) => interceptSearchOutside(event, true)}
       onContextMenuCapture={(event) => interceptSearchOutside(event, true)}
     >
-      <header className="mobile-header" data-floating={floatingHeader} data-project={view === "home" && !!homeProject} data-search={view === "home" && searchOpen} inert={drawerOpen}>
-        {view === "chat" || (view === "home" && !homeProject) ? (
+      {assistantOpen && client.connection && (
+        <MobileAssistant
+          ref={assistantPage}
+          key={client.connection.environmentId}
+          hostKey={client.connection.environmentId}
+          hostName={connectionName}
+          rpc={assistantRpc}
+          onClose={() => setAssistantOpen(false)}
+          onOpen={async ref => {
+            const target = await resolveAssistantTarget(client.connection!.environmentId, ref, assistantRpc);
+            if (target.session.session.orchestrationLeadId) throw new Error("Open orchestration worker details on desktop");
+            await openSession(ref.sessionId, ref.projectId);
+            setAssistantOpen(false);
+          }}
+        />
+      )}
+      <div className="mobile-assistant-background" inert={assistantOpen} aria-hidden={assistantOpen || undefined}>
+      <header className="mobile-header" data-floating={floatingHeader} data-project={view === "home" && !!homeProject} data-search={view === "home" && searchOpen} inert={drawerOpen || assistantOpen}>
+        {view === "chat" && sessionEntrySource === "project" ? (
+          <IconButton label="Back" onClick={() => openHome(projects.find((item) => item.id === project?.id))}>
+            <ArrowLeft size={22} />
+          </IconButton>
+        ) : view === "chat" || (view === "home" && !homeProject) ? (
           <IconButton
             label="Menu"
             inactive={view === "home" && searchOpen}
@@ -1326,6 +1527,45 @@ export function MobileApp() {
             saveFollowUpBehavior(behavior);
             setFollowUpBehavior(behavior);
           }}
+          transcriptLayout={transcriptLayout}
+          onTranscriptLayoutChange={(layout) => {
+            saveTranscriptLayout(layout);
+            setTranscriptLayout(layout);
+          }}
+          accentColor={accentColor}
+          onAccentColorChange={(color) => {
+            saveAccentColor(color);
+            setAccentColor(applyAccentColor(color));
+          }}
+          soundsEnabled={soundsEnabled}
+          onSoundsEnabledChange={(enabled) => {
+            saveSoundsEnabled(enabled);
+            setSoundsEnabled(enabled);
+          }}
+          archive={
+            <MobileArchive
+              projects={projects}
+              disabled={busy || !connected}
+              loadSessions={onDrawerLoadSessions}
+              onRestore={(session) =>
+                updateSessionMetadata(
+                  { archived: false },
+                  session.id,
+                  session.projectId,
+                )
+              }
+            />
+          }
+          agentDefaults={
+            <MobileAgentDefaults
+              key={`${client.connection?.environmentId ?? "disconnected"}:${connected}:${connectionRevision}`}
+              client={client}
+              hostId={connected ? client.connection?.environmentId : undefined}
+              disabled={busy || loading || !connected}
+              panel={preferencePanel}
+              onPanelChange={setPreferencePanel}
+            />
+          }
           preferencePanel={preferencePanel}
           onPreferencePanelChange={setPreferencePanel}
           activity={activity}
@@ -1345,7 +1585,10 @@ export function MobileApp() {
           unreadIds={activity.unreadIds}
           loadSessions={onDrawerLoadSessions}
           onProject={onDrawerProject}
-          onSession={onDrawerSession}
+          onSession={(id, owner) => {
+            void openProject(owner);
+            void openSession(id, owner.id, homeProject ? "project" : "other");
+          }}
           refreshKey={homeRefreshKey}
           sessionActionsId={sessionActionsOpen ? sessionActionsTarget : undefined}
           onSessionActions={(summary, trigger, point) => {
@@ -1357,12 +1600,15 @@ export function MobileApp() {
           searchTrigger={searchTrigger}
           onNewSession={() => {
             const owner = homeProject ?? projects.find((item) => item.id === project?.id) ?? projects[0];
-            if (owner) onDrawerNewSession(owner);
+            if (owner) {
+              void openProject(owner);
+              void openSession(undefined, undefined, homeProject ? "project" : "other");
+            }
           }}
           onAddProject={openAddProject}
         />
       ) : (
-        <main className="mobile-chat" inert={drawerOpen}>
+        <main className="mobile-chat" inert={drawerOpen || assistantOpen}>
           {snapshot ? (
             <MobileTranscript
               key={snapshot.session.id}
@@ -1405,7 +1651,7 @@ export function MobileApp() {
             </Empty>
           )}
           {nativeReadOnly ? <p className="mobile-native-readonly" role="status">
-            {translate("Imported native conversations continue on the desktop.")}
+            {nativeSyncNotice(snapshot?.nativeStatus) ?? nativeAccessNotice(nativeAccess)}
           </p> : null}
           {project && <MobileComposer
             queue={
@@ -1426,6 +1672,7 @@ export function MobileApp() {
               snapshot ? configurationForSession(snapshot) : configuration
             }
             catalog={catalog}
+            catalogLoading={catalogLoading}
             lockedAgent={!!sessionId}
             disabled={
               nativeReadOnly ||
@@ -1466,7 +1713,10 @@ export function MobileApp() {
                 });
             }}
             onConfigurationChange={(next) => {
-              if (!sessionId) setConfiguration(next);
+              if (!sessionId) {
+                if (next.model) draftConfigurationChanged.current = true;
+                setConfiguration(next);
+              }
               else
                 void dispatch({
                   type: "configure",
@@ -1497,7 +1747,10 @@ export function MobileApp() {
 
       {connected && view !== "settings" && (
         <MobileDrawer
+          assistantName={assistantIdentity && assistantIdentity.hostId === assistantHostId ? assistantIdentity.name : undefined}
+          onAssistant={() => { setDrawerOpen(false); setAssistantOpen(true); }}
           open={drawerOpen}
+          foreground={foreground}
           onOpenChange={onDrawerOpenChange}
           projects={projects}
           project={project}
@@ -1603,6 +1856,7 @@ export function MobileApp() {
           }}
         />
       )}
+      </div>
     </div>
   );
 }

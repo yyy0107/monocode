@@ -1,6 +1,7 @@
 import { MobileListPreview } from "./MobileListPreview";
 import {
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -9,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
+  Bot,
   ChevronDown,
   Folder,
   FolderPlus,
@@ -32,7 +34,7 @@ import { useTranslation } from "../shared/i18n/useTranslation";
 import type { HostConnectionStatus } from "./client";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { formatMobileRelativeTime } from "./relativeTime";
-import { sortMobileSessions } from "./sessionList";
+import { sortMobileProjects, sortMobileSessions } from "./sessionList";
 import type { MobileSheetPoint } from "./MobileSheet";
 import {
   canPullDrawerFrom,
@@ -85,6 +87,7 @@ interface Swipe {
 // the composer must not re-render every session row.
 export const MobileDrawer = memo(function MobileDrawer({
   open,
+  foreground = true,
   onOpenChange,
   projects,
   project,
@@ -106,8 +109,11 @@ export const MobileDrawer = memo(function MobileDrawer({
   sessionActionsId,
   onNewSession,
   onSettings,
+  onAssistant,
+  assistantName,
 }: {
   open: boolean;
+  foreground?: boolean;
   onOpenChange: (open: boolean) => void;
   projects: HostProject[];
   project?: HostProject;
@@ -134,16 +140,25 @@ export const MobileDrawer = memo(function MobileDrawer({
   sessionActionsId?: string;
   onNewSession: (project: HostProject) => void;
   onSettings: () => void;
+  onAssistant?: () => void;
+  assistantName?: string;
 }) {
   const { language, t } = useTranslation();
-  // The current project starts open; others open on demand and stay open
-  // while this drawer lives, like desktop project groups.
+  // Current and running projects open automatically; manual collapses survive
+  // background refreshes while this drawer lives.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
     () => new Set(project ? [project.id] : []),
   );
   const [histories, setHistories] = useState<
     Record<string, ProjectHistory | undefined>
   >({});
+  const collapsed = useRef(new Set<string>());
+  // A just-opened project can precede the next project list refresh.
+  const treeProjects =
+    project && !projects.some((item) => item.id === project.id)
+      ? [project, ...projects]
+      : projects;
+  const projectIds = JSON.stringify(treeProjects.map((item) => item.id));
   const historyTurn = useRef<Record<string, number>>({});
   const panel = useRef<HTMLElement>(null);
   const backdrop = useRef<HTMLDivElement>(null);
@@ -240,27 +255,29 @@ export const MobileDrawer = memo(function MobileDrawer({
     };
   }, [open]);
   useEffect(() => {
-    if (project)
+    if (project) {
+      collapsed.current.delete(project.id);
       setExpanded((current) =>
         current.has(project.id) ? current : new Set(current).add(project.id),
       );
+    }
   }, [project?.id]);
-  const readHistory = (projectId: string) => {
-    const turn = (historyTurn.current[projectId] ?? 0) + 1;
-    historyTurn.current[projectId] = turn;
-    setHistories((current) => ({
-      ...current,
-      [projectId]: { ...current[projectId], loading: true, failed: false },
-    }));
-    loadSessions(projectId).then(
-      (sessions) => {
+  const readHistory = useCallback(
+    async (projectId: string) => {
+      const turn = (historyTurn.current[projectId] ?? 0) + 1;
+      historyTurn.current[projectId] = turn;
+      setHistories((current) => ({
+        ...current,
+        [projectId]: { ...current[projectId], loading: true, failed: false },
+      }));
+      try {
+        const sessions = await loadSessions(projectId);
         if (historyTurn.current[projectId] === turn)
           setHistories((current) => ({
             ...current,
             [projectId]: { sessions, loading: false, failed: false },
           }));
-      },
-      () => {
+      } catch {
         if (historyTurn.current[projectId] === turn)
           setHistories((current) => ({
             ...current,
@@ -270,26 +287,62 @@ export const MobileDrawer = memo(function MobileDrawer({
               failed: true,
             },
           }));
-      },
-    );
-  };
-  // Other open projects refresh each time the drawer opens; the current
-  // project's list is kept fresh by the app's own polling.
+      }
+    },
+    [loadSessions],
+  );
+  // Collapsed projects need summaries too for activity order and running state.
+  // The app already polls the current project's list.
   useEffect(() => {
-    if (!open) return;
-    for (const id of expanded)
-      if (id !== project?.id && projects.some((item) => item.id === id))
-        readHistory(id);
-  }, [open, project?.id]);
+    if (!open || !foreground) return;
+    const ids: string[] = JSON.parse(projectIds);
+    let live = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      await Promise.allSettled(
+        ids.filter((id) => id !== project?.id).map(readHistory),
+      );
+      if (live) timer = setTimeout(refresh, 3_000);
+    };
+    void refresh();
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [open, foreground, projectIds, project?.id, readHistory]);
+  useEffect(() => {
+    if (!open || !foreground) return;
+    const ids: string[] = JSON.parse(projectIds);
+    setExpanded((current) => {
+      const running = ids.filter(
+        (id) =>
+          !current.has(id) &&
+          !collapsed.current.has(id) &&
+          (id === project?.id
+            ? sessions
+            : (histories[id]?.sessions ?? [])
+          ).some((item) => !item.archived && item.status === "running"),
+      );
+      return running.length ? new Set([...current, ...running]) : current;
+    });
+  }, [open, foreground, projectIds, project?.id, sessions, histories]);
   const toggleProject = (item: HostProject) => {
     const opening = !expanded.has(item.id);
+    if (opening) collapsed.current.delete(item.id);
+    else collapsed.current.add(item.id);
     setExpanded((current) => {
       const next = new Set(current);
       if (opening) next.add(item.id);
       else next.delete(item.id);
       return next;
     });
-    if (opening && item.id !== project?.id) readHistory(item.id);
+    if (
+      opening &&
+      item.id !== project?.id &&
+      !histories[item.id]?.loading &&
+      (!histories[item.id]?.sessions || histories[item.id]?.failed)
+    )
+      void readHistory(item.id);
   };
 
   // One gesture pipeline: a pull on the conversation opens the drawer, a push
@@ -400,12 +453,14 @@ export const MobileDrawer = memo(function MobileDrawer({
     };
   }, []);
 
-  // Projects keep the Host's order so tapping one never moves the tree. A
-  // just-opened project can precede the next project list refresh.
-  const tree =
-    project && !projects.some((item) => item.id === project.id)
-      ? [project, ...projects]
-      : projects;
+  const tree = sortMobileProjects(treeProjects, (id) =>
+    id === project?.id ? sessions : (histories[id]?.sessions ?? []),
+  );
+  const minimumVisibleProjects = tree.reduce(
+    (count, item, index) =>
+      expanded.has(item.id) ? Math.max(count, index + 1) : count,
+    5,
+  );
   const duplicateNames = new Set(
     tree
       .map((item) => item.name)
@@ -596,11 +651,17 @@ export const MobileDrawer = memo(function MobileDrawer({
         }}
       >
         <div className="mobile-drawer-top">
-          <button
-            type="button"
-            className="mobile-drawer-item"
-            onClick={onHome}
-          >
+          {onAssistant && (
+            <button
+              type="button"
+              className="mobile-drawer-item"
+              onClick={onAssistant}
+            >
+              <Bot size={18} />
+              <span>{assistantName || t("Assistant")}</span>
+            </button>
+          )}
+          <button type="button" className="mobile-drawer-item" onClick={onHome}>
             <Home size={18} />
             <span>{t("Home")}</span>
           </button>
@@ -624,7 +685,10 @@ export const MobileDrawer = memo(function MobileDrawer({
             <span>{t("All projects")}</span>
           </button>
           {tree.length ? (
-            <MobileListPreview buttonClassName="mobile-drawer-more">
+            <MobileListPreview
+              buttonClassName="mobile-drawer-more"
+              minimumVisibleCount={minimumVisibleProjects}
+            >
               {tree.map(group)}
             </MobileListPreview>
           ) : (

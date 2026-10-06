@@ -68,8 +68,11 @@ export function bindOmpSession(
   threadId: string,
   providerSessionId: string,
   cwd: string,
+  _providerAccountId?: string,
+  nativeSession?: import("../../../../features/sessions/model/session").NativeSessionLink,
 ): void {
-  bindSession(OMP_FLAVOR, threadId, providerSessionId, cwd);
+  // An imported omp session resumes by file path and must report the same id.
+  bindSession(OMP_FLAVOR, threadId, providerSessionId, cwd, nativeSession?.path);
 }
 
 /** Test seam. */

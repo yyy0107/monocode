@@ -255,7 +255,7 @@ export function SearchableProjectPicker({
           event.preventDefault();
           openPicker();
         }}
-        className={`flex min-w-0 items-center rounded-md text-[12px] leading-none ${
+        className={`flex min-w-0 items-center rounded-md text-[12px] leading-label ${
           compact && !showLabel
             ? "size-8 justify-center p-0"
             : `${compact ? "h-8" : "h-6.5"} gap-1.5 px-2`

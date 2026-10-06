@@ -107,7 +107,6 @@ describe("pane to title tab dragging", () => {
       onSubmit: noop,
       onStop: noop,
       onCompactContext: noop,
-      onPlaceSessionInFolder: noop,
       onDeleteQueuedMessage: noop,
       onEditQueuedMessage: noop,
       onQueuedMessageEditingChange: noop,

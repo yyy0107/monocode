@@ -26,10 +26,28 @@ visual references for project, pinned and recent conversation lists.
   indicators, running metadata, pinned disclosure and project-title menu.
 - Opening a conversation uses its actual owning project. New conversations
   use the selected project, or the last valid project from Home.
+- Only conversations opened or created from a project page show Back in the
+  leading chat header. This includes regular, pinned and search-result rows
+  and the bottom Chat action. Home, All projects, sidebar, notification and
+  assistant entries show Menu, even after an earlier project-page visit.
+  Entry source is explicit in-memory state, independent of retained list scope.
+  Back opens the current conversation's project list; drafts use the selected
+  project, and a missing project falls back to Home. Loading, failed loading
+  and Settings round trips preserve Back. Returning during loading prevents
+  a late response from reopening the conversation. Drawer swipes and Android
+  Back keep their existing behavior.
 - Settings return to the previous view. Android Back leaves conversations for
   their project page, then returns to Home; search and overlays close first.
 - Disclosures animate in both directions with AnimatedCollapse, including
   Show more/Show less. Closing content is inert until animation finishes.
+- Home project rows use a 44px minimum height and aggregate conversation rows
+  use 48px, with 8px vertical padding for a more compact list.
+- Home and sidebar projects sort by their newest non-archived conversation's
+  update time, descending; equal times retain the supplied project order.
+  Sidebar summaries refresh while open and foregrounded, including collapsed
+  projects. The current project and projects with running conversations open
+  by default; manual collapses survive refreshes. Expanded projects remain
+  visible beyond the normal five-project preview, using animated batches.
 - Labels support English and Simplified Chinese; user/provider values survive.
 - Home's top-center title uses plain text and a dropdown arrow instead of a
   capsule. Its dropdown shows Add connection and Settings and reuses the

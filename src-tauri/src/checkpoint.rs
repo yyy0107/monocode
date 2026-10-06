@@ -649,6 +649,7 @@ pub async fn session_checkpoint_apply(
     validate_id(&session_id, "session")?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let _write = crate::local_host::claim_checkout_write(&crate::fs::expand_home(&to_cwd))?;
         store.exclusive(|store| store.apply(&session_id, &from_cwd, &to_cwd))
     })
     .await
@@ -708,6 +709,7 @@ pub async fn session_checkpoint_undo(
     validate_id(&session_id, "session")?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let _write = crate::local_host::claim_checkout_write(&crate::fs::expand_home(&cwd))?;
         store.exclusive(|store| store.undo(&session_id, &cwd, relative.as_deref()))
     })
     .await

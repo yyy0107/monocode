@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { readFileSync, existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -21,6 +21,7 @@ it.each(["codex", "claude"])(
     claude: process.env.CLAUDE_CONFIG_DIR, secure: process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR,
     inherited: ${provider === "codex" ? "!!process.env.OPENAI_API_KEY" : "!!process.env.ANTHROPIC_API_KEY"} }));`,
     );
+    mkdirSync(join(directory, "provider-accounts", provider, "saved"), { recursive: true });
     const backend = new HostChildBackend({}, config);
     let received: any;
     const release = await backend.listen<{ line: string }>(
@@ -48,6 +49,12 @@ it.each(["codex", "claude"])(
       );
       if (provider === "claude") expect(received.secure).toBe(profile);
       expect(received.inherited).toBe(false);
+      rmSync(profile, { recursive: true });
+      await expect(backend.invoke("harness_spawn", {
+        sessionId: "removed", command: file, args: [], cwd: directory,
+        account: { provider, id: "saved" },
+      })).rejects.toThrow("This provider account is no longer available");
+      expect(existsSync(profile)).toBe(false);
       await expect(
         backend.invoke("harness_spawn", {
           sessionId: "invalid",

@@ -221,3 +221,61 @@ the task began; those were preserved.
   excluded with its unrelated implementation; a missing protocol field found
   during extraction was included before the successful type check.
 - The actual commit snapshot was checked independently of the mixed worktree.
+
+## Compact Home and sidebar project activity follow-up (2026-10-05)
+
+- Home project and aggregate conversation rows now have 44px/48px minimum
+  heights and 8px vertical padding. Browser CSS fixture checks at 393 × 852
+  measured those heights, retained title ellipsis and found no horizontal
+  overflow. Preview: `/tmp/monocode-home-compact.png`.
+- Sidebar projects share Home's newest non-archived update-time ordering.
+  All other project summaries refresh every 3 s while the drawer is open and
+  foregrounded; current-project summaries come from MobileApp. Running projects
+  expand by default, manual collapse survives polling, cached rows survive
+  failures and older requests cannot replace newer histories. Expanded projects
+  beyond the first five remain visible through existing animated preview batches.
+- Final focused command: `npx vitest run src/mobile/MobileDrawer.test.ts
+  src/mobile/MobileHome.test.ts src/mobile/sessionList.test.ts
+  src/mobile/activityUi.test.ts`; 4 files, 59 tests passed. Covers project order,
+  archives, pins, ties, ownership, automatic/manual disclosure, pagination,
+  refresh failures, stale requests and closed/background polling cleanup.
+  The existing activityUi swipe test emitted a React act warning while the
+  newly loaded drawer summaries completed; its assertions passed.
+- `npx tsc --noEmit --pretty false` failed at MobileApp's MobileSettings call:
+  that call was missing appearance-setting props required by concurrent settings
+  work (including transcriptLayout and accentColor). This follow-up did not
+  change that settings call or its prop contract. No successful full type check
+  is claimed for this turn.
+- Actual MobileDrawer browser fixtures at 393 × 852 and 320 × 740 verified
+  descending project activity order from reversed input, two automatically
+  expanded running projects (including one beyond the initial preview), no
+  horizontal overflow and inert closing content after a manual collapse.
+  Previews: `/tmp/monocode-drawer-recency-393.png` and
+  `/tmp/monocode-drawer-recency-320.png`. No Host/provider commands were sent.
+- `git diff --check` passed for the changed code. The temporary preview file
+  was removed and the task tab cleared; the existing dev server was preserved.
+  Full Web/Host/Rust suites, native devices, builds, APK installation and
+  publication were not run for this follow-up.
+
+## Project conversation Back button (2026-10-05)
+
+- `npx vitest run src/mobile/activityUi.test.ts src/mobile/sessionLoading.test.ts`
+  passed: 2 files, 60 tests (29 activityUi and 31 sessionLoading).
+  Covers project regular/pinned/search rows, new drafts, correct project return,
+  English/Chinese Back, Settings round trips for existing conversations and
+  drafts, same-session Home/sidebar/assistant reentry, sidebar creation and
+  notification source reset after a project entry. Loading tests cover returning
+  before a late response, failure with/without cache and unavailable-session
+  fallback to a draft. The existing drawer swipe test still emits React `act`
+  warnings; all assertions pass.
+- The first focused run passed 55/58 tests. Three new swipe-based fixtures
+  clicked within the drawer's existing 400 ms drag-click suppression window.
+  After letting that window elapse and adding sidebar creation/assistant cases,
+  the final run above passed. No gesture implementation was changed.
+- `npx tsc --noEmit` passed. Focused `git diff --check` passed.
+- Inspection confirms source is not persisted, non-project opens default to
+  Menu, a missing current project falls back to Home, and Back reuses existing
+  navigation invalidation. No Host API, persisted format, desktop, system Back
+  or disclosure-motion changes. Missing-project fallback was inspected rather
+  than exercised through a project-removal UI. Browser/native-device execution,
+  full suites and builds were not run for this bounded navigation change.

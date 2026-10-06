@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-05",
+  "isolatedHost": true,
+  "longTaskSeconds": 610,
+  "registeredProjects": 2,
+  "codexTargetCountAtReconnect": 1,
+  "originCount": 1,
+  "brainHidden": true,
+  "completedCardCount": 2,
+  "longTaskResult": "HOST_ASSISTANT_OK",
+  "automaticCompletionReply": "Validation completed successfully after 610 seconds. Heartbeat updates ran every 30 seconds, and `done.txt` was verified to contain `HOST_ASSISTANT_OK`. Nothing was committed or published.",
+  "originalSendReceiptUnchanged": true,
+  "consecutiveControlReply": "2 projects.",
+  "claude": {
+    "accepted": true,
+    "modelsTried": [
+      "claude:sonnet",
+      "claude:opus"
+    ],
+    "execution": "unavailable: provider 429 credential cooldown",
+    "newSessionCount": 1
+  },
+  "schedule": {
+    "intervalMinutes": 1,
+    "clientDisconnected": true,
+    "turns": [
+      {
+        "state": "completed",
+        "attempts": 1
+      }
+    ],
+    "publicMessagesAdded": 0,
+    "nextRunPersisted": true
+  },
+  "browserFixture": {
+    "sharedComponent": true,
+    "desktop": "1440x900",
+    "mobile": "390x844",
+    "horizontalOverflow": false,
+    "cardNavigation": "exact fixture session ID",
+    "nativeDesktopAndPhone": false
+  },
+  "minimumConfirmedClientDisconnectionSeconds": 610,
+  "secondsFromOriginalSendToReconnection": 929.057
+}

@@ -79,6 +79,23 @@ it("uses session-specific thinking choices in the toolbar menu", () => {
   act(() => trigger.click());
   expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(1);
 });
+
+it("omits unsupported Pi thinking choices before a live session is started", () => {
+  const models = modelsFromRpcData(PI_FLAVOR, { models: [{ id: "flash", provider: "deepseek", reasoning: true,
+    thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high" } }] });
+  setHarnessModels("pi", models);
+  const onSettingsChange = vi.fn();
+  act(() => root.render(createElement(ModelControlPills, {
+    harness: "pi", model: models[0].id, values: {}, onSettingsChange,
+  })));
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Thinking: High"]')!;
+  expect(trigger).not.toBeNull();
+  act(() => trigger.click());
+  const choices = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+  expect(choices.map(choice => choice.textContent)).toEqual(["Off", "High"]);
+  act(() => choices[1].click());
+  expect(onSettingsChange).toHaveBeenCalledWith({ thinking: "high" });
+});
 import { setUiLanguage } from "../../../shared/i18n/language";
 import { modelsFromRpcData } from "../../../integrations/harness/providers/pi/piProtocol";
 import {

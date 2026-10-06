@@ -1,8 +1,9 @@
-import { useState, type RefObject } from "react";
+import { useLayoutEffect, useState, type RefObject } from "react";
 import {
   Check,
   ChevronRight,
   Gauge,
+  LoaderCircle,
   SlidersHorizontal,
   Sparkles,
 } from "../shared/ui/icons";
@@ -86,18 +87,14 @@ export function configurationLabels(
     HARNESS_TITLE[configuration.harness];
   return { modelName, effort };
 }
-export function firstConfiguration(
-  catalog: HostModelCatalog,
-): MobileConfiguration | undefined {
-  for (const models of Object.values(catalog.models))
-    if (models?.[0]) return configurationForModel(models[0]);
-}
 function modelSettingTitle(setting: ModelSetting): string {
   if (isEffortSettingId(setting.id)) return "Reasoning effort";
   return setting.id === "serviceTier" ? "Speed" : setting.label;
 }
 export function MobileModelControls({
+  open = true,
   catalog,
+  loading = false,
   configuration,
   lockedAgent,
   disabled,
@@ -105,8 +102,11 @@ export function MobileModelControls({
   onClose,
   anchor,
   preserveFocus,
+  agentConfiguration,
 }: {
+  open?: boolean;
   catalog?: HostModelCatalog;
+  loading?: boolean;
   configuration: MobileConfiguration;
   lockedAgent: boolean;
   disabled: boolean;
@@ -114,12 +114,19 @@ export function MobileModelControls({
   onClose: () => void;
   anchor?: RefObject<HTMLElement | null>;
   preserveFocus?: RefObject<HTMLElement | null>;
+  agentConfiguration?: (provider: RemoteProvider) => MobileConfiguration | undefined;
 }) {
   const { t } = useTranslation();
   const [page, setPage] = useState<
     "settings" | "models" | "agents" | "setting"
   >("settings");
   const [settingId, setSettingId] = useState<string>();
+  useLayoutEffect(() => {
+    if (open) {
+      setPage("settings");
+      setSettingId(undefined);
+    }
+  }, [open]);
   const models = catalog?.models[configuration.harness] ?? [];
   const controls = remoteModelControls(
     catalog,
@@ -132,6 +139,9 @@ export function MobileModelControls({
     (a, b) => Number(isEffortSettingId(b.id)) - Number(isEffortSettingId(a.id)),
   );
   const selectedSetting = settings.find((setting) => setting.id === settingId);
+  const rowIndicator = loading ? (
+    <LoaderCircle size={20} className="mobile-spin" role="status" aria-label={t("Loading…")} />
+  ) : <ChevronRight size={20} />;
   const providers = REMOTE_PROVIDERS.filter(
     (provider) =>
       catalog?.models[provider] ||
@@ -145,6 +155,7 @@ export function MobileModelControls({
   };
   return (
     <MobileSheet
+      open={open}
       placement={anchor ? "anchor" : "bottom"}
       anchor={anchor}
       preserveFocus={preserveFocus}
@@ -168,7 +179,8 @@ export function MobileModelControls({
             <button
               type="button"
               className="mobile-sheet-row"
-              disabled={disabled || lockedAgent}
+              disabled={disabled || lockedAgent || loading}
+              aria-busy={loading || undefined}
               onClick={() => setPage("agents")}
             >
               <HarnessIcon harness={configuration.harness} />
@@ -176,12 +188,13 @@ export function MobileModelControls({
                 <strong>{t("Agent")}</strong>
                 <small>{HARNESS_TITLE[configuration.harness]}</small>
               </span>
-              <ChevronRight size={20} />
+              {rowIndicator}
             </button>
             <button
               type="button"
               className="mobile-sheet-row"
-              disabled={disabled || !models.length}
+              disabled={disabled || loading || !models.length}
+              aria-busy={loading || undefined}
               onClick={() => setPage("models")}
             >
               <Sparkles size={20} />
@@ -189,19 +202,19 @@ export function MobileModelControls({
                 <strong>{t("Model")}</strong>
                 <small>
                   {(controls.model?.name ?? configuration.model) ||
-                    t("No models available")}
+                    t(loading ? "Loading…" : "No models available")}
                 </small>
               </span>
-              <ChevronRight size={20} />
+              {rowIndicator}
             </button>
             {!settings.some((setting) => isEffortSettingId(setting.id)) && (
-              <button type="button" className="mobile-sheet-row" disabled>
+              <button type="button" className="mobile-sheet-row" disabled aria-busy={loading || undefined}>
                 <SlidersHorizontal size={20} />
                 <span className="mobile-sheet-row-text mobile-sheet-row-inline">
                   <strong>{t("Reasoning effort")}</strong>
-                  <small>{t("Unavailable")}</small>
+                  <small>{t(loading ? "Loading…" : "Unavailable")}</small>
                 </span>
-                <ChevronRight size={20} />
+                {rowIndicator}
               </button>
             )}
             {settings.map((setting) => {
@@ -215,7 +228,8 @@ export function MobileModelControls({
                   key={setting.id}
                   type="button"
                   className="mobile-sheet-row"
-                  disabled={disabled || !setting.options.length}
+                  disabled={disabled || loading || !setting.options.length}
+                  aria-busy={loading || undefined}
                   onClick={() => {
                     setSettingId(setting.id);
                     setPage("setting");
@@ -230,7 +244,7 @@ export function MobileModelControls({
                     <strong>{t(modelSettingTitle(setting))}</strong>
                     <small>{t(current?.label ?? value)}</small>
                   </span>
-                  <ChevronRight size={20} />
+                  {rowIndicator}
                 </button>
               );
             })}
@@ -336,7 +350,8 @@ export function MobileModelControls({
                 const next = catalog?.models[provider]?.[0];
                 if (next)
                   choose(
-                    configurationForModel(next, {}, configuration.runtimeMode),
+                    agentConfiguration?.(provider) ??
+                      configurationForModel(next, {}, configuration.runtimeMode),
                   );
               }}
             >

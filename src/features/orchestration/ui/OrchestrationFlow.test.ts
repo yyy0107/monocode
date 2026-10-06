@@ -663,7 +663,6 @@ describe("orchestration composer and card", () => {
             onSubmit: submit,
             onStop: noop,
             onCompactContext: () => false,
-            onPlaceSessionInFolder: noop,
             onDeleteQueuedMessage: noop,
             onEditQueuedMessage: noop,
             onQueuedMessageEditingChange: noop,

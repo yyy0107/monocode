@@ -78,6 +78,56 @@ describe("mobile popover position", () => {
     expect(sheet.style.left).toBe("80px");
     expect(sheet.style.top).toBe("252px");
   });
+  it("follows a moving composer anchor without resize or scroll events and stops when closed", () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.set(++frameId, callback);
+      return frameId;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+    const frame = () => act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      pending.forEach(callback => callback(performance.now()));
+    });
+    const bounds = vi.spyOn(trigger, "getBoundingClientRect");
+    const move = (bottom: number) => bounds.mockReturnValue(
+      new DOMRect(40, window.innerHeight - bottom, 44, 44),
+    );
+    move(300);
+    const sheet = render();
+    expect(sheet.style.bottom).toBe("308px");
+    // Keyboard dismissal moves the dock while the button keeps its size.
+    for (const bottom of [240, 140, 60]) {
+      move(bottom);
+      frame();
+      expect(sheet.style.bottom).toBe(`${bottom + 8}px`);
+    }
+    // Follow reversal and horizontal layout changes as well.
+    move(220);
+    frame();
+    expect(sheet.style.bottom).toBe("228px");
+    bounds.mockReturnValue(new DOMRect(280, window.innerHeight - 220, 44, 44));
+    frame();
+    expect(sheet.style.left).toBe("104px");
+    render(undefined, false);
+    expect(frames.size).toBe(0);
+    render();
+    expect(frames.size).toBe(1);
+    act(() => root.render(null));
+    expect(frames.size).toBe(0);
+  });
+  it("leaves point-anchored menus fixed when their originating button moves", () => {
+    const requestFrame = vi.fn();
+    vi.stubGlobal("requestAnimationFrame", requestFrame);
+    const sheet = render({ x: 72, y: 180 });
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(new DOMRect(40, 400, 44, 44));
+    act(() => window.dispatchEvent(new Event("resize")));
+    expect(sheet.style.left).toBe("72px");
+    expect(sheet.style.top).toBe("180px");
+    expect(requestFrame).not.toHaveBeenCalled();
+  });
   it("overlaps a top title trigger at its exact top, including inside the usual popup padding", () => {
     vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(
       new DOMRect(40, 10, 260, 44),

@@ -1,3 +1,4 @@
+import { useSidebarListPreview } from "./useSidebarListPreview";
 import { AnimatedCollapse } from "../../shared/ui/AnimatedCollapse";
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import { NO_BRANCH_LABEL } from "../../features/source-control/model/worktrees";
@@ -20,11 +21,11 @@ import {
   GitBranch,
   GitPullRequest,
   Pin,
-  Plus,
   Share,
   Zap,
 } from "../../shared/ui/icons";
 import {
+  Fragment,
   memo,
   useEffect,
   useId,
@@ -64,33 +65,13 @@ import {
   filterSessionsByArchive,
 } from "../../features/sessions/data/sessionHistory";
 import {
-  addSessionToFolder,
-  applySessionListDrop,
   buildSessionList,
-  createFolderWithSessions,
-  dissolveFolder,
-  folderAccent,
-  folderContaining,
-  folderShellFill,
   loadPinnedSessionsCollapsed,
   loadReminderSessionsCollapsed,
-  loadSessionFolders,
-  mergeFolderSessionSummaries,
-  pruneSessionFolders,
-  removeSessionFromFolder,
-  renameFolder,
-  reorderSessionFolders,
   savePinnedSessionsCollapsed,
   saveReminderSessionsCollapsed,
-  saveSessionFolders,
   sessionListNavigationIds,
-  setFolderCollapsed,
-  setFolderColor,
-  setFolderCustomColor,
-  subscribeSessionFolders,
-  ungroupedSessions,
-  type SessionFolder,
-  type SessionListDropTarget,
+  type SessionListEntry,
 } from "../../features/sessions/model/sessionFolders";
 import { LIST_PAGE_SIZE, listWindowSize } from "../../shared/lib/listWindow";
 import {
@@ -102,14 +83,7 @@ import {
 } from "../../features/sessions/model/sessionFilters";
 import type { LinkedWorkItem } from "../../features/sessions/model/session";
 import type { SessionSummary } from "../../features/sessions/data/sessionStore";
-import { TAB_GROUP_COLORS } from "../../features/workspace/model/tabGroups";
-import { useSortable } from "../../shared/hooks/useSortable";
-import { normalizeHex } from "../../shared/lib/colorUtils";
 import { isRemoteProjectPath } from "../../features/projects/model/recents";
-import {
-  ColorPickerPopover,
-  ColorSwatchRow,
-} from "../../shared/ui/ColorPickerPopover";
 import {
   ExplorerMenu,
   type ExplorerMenuItem,
@@ -144,6 +118,8 @@ import { pathKey } from "../../shared/lib/paths";
 
 type ProjectSessionSectionProps = SidebarProps & {
   searchQuery: string;
+  shortcutId?: string;
+  flatPins?: boolean;
   searchActive?: boolean;
   pollRemote?: boolean;
   sessionFilters: SessionSidebarFilters;
@@ -157,7 +133,7 @@ type ProjectSessionSectionProps = SidebarProps & {
 const REMINDERS_COLOR = "#f59e0b";
 const PROJECT_SESSION_SELECTION = "monocode:project-session-selection";
 
-/** Ungrouped chats each project tree shows before "Show more". */
+/** Initial preview and each "Show more" step in a project tree. */
 const TREE_PREVIEW_COUNT = 5;
 
 function ProjectSessionSectionComponent({
@@ -187,7 +163,6 @@ function ProjectSessionSectionComponent({
   onDeleteSession: onDeleteLocalSession,
   onDeleteSessions: onDeleteLocalSessions,
   tab,
-  onNew,
   onOpenInboxItem,
   unseenFinishedIds: unseenFinishedIdsProp,
   linkedSessionUpdateIds = new Set(),
@@ -195,12 +170,12 @@ function ProjectSessionSectionComponent({
   searchActive = false,
   pollRemote = true,
   sessionFilters,
-  complete,
   activeProject = true,
   dense = true,
+  shortcutId,
+  flatPins = false,
   scrollRef,
   onRetry,
-  onClearQuery,
 }: ProjectSessionSectionProps) {
   const { t: uiT } = useTranslation();
   const remoteProject = isRemoteProjectPath(cwd) || !!remoteProjectFor(cwd);
@@ -381,17 +356,8 @@ function ProjectSessionSectionComponent({
   );
   const contextSelectionRef = useRef(false);
   const selectionAnchorRef = useRef<string | null>(null);
-  const [folderMenu, setFolderMenu] = useState<{
-    x: number;
-    y: number;
-    folderId: string;
-  } | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
     null,
-  );
-  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
-  const [sessionFolders, setSessionFolders] = useState<SessionFolder[]>(() =>
-    loadSessionFolders(cwd),
   );
   const [pinnedSessionsCollapsed, setPinnedSessionsCollapsed] = useState(() =>
     loadPinnedSessionsCollapsed(cwd),
@@ -399,13 +365,10 @@ function ProjectSessionSectionComponent({
   const [reminderSessionsCollapsed, setReminderSessionsCollapsed] = useState(
     () => loadReminderSessionsCollapsed(cwd),
   );
-  const [sessionDrop, setSessionDrop] = useState<SessionListDropTarget | null>(
-    null,
-  );
   const [sessionListLimit, setSessionListLimit] = useState(LIST_PAGE_SIZE);
-  const [showAllSessions, setShowAllSessions] = useState(false);
+  const [treeSessionLimit, setTreeSessionLimit] = useState(TREE_PREVIEW_COUNT);
+  const treeSessionWindow = useRef({ key: "", count: 0 });
   const loadMoreRef = useRef<HTMLLIElement>(null);
-  const pendingFolderSessionIds = useRef(new Set<string>());
   const busyIdsRef = useRef(busySessionIds);
   const focusedSessionIdRef = useRef(activeSessionId);
   const unseenFinishedLocalRef = useRef<Set<string>>(new Set());
@@ -434,23 +397,20 @@ function ProjectSessionSectionComponent({
   const projectOpenSessions = openSessions.filter((session) =>
     sameProjectPath(session.cwd, cwd),
   );
-  const folderOpenSessions = remoteProject
+  const listedOpenSessions = remoteProject
     ? projectOpenSessions.map((session) => {
         const hostId = remoteSessionFor(session.id);
         return hostId ? { ...session, id: hostId } : session;
       })
     : projectOpenSessions;
-  const folderOpenSessionKey = folderOpenSessions
-    .map((session) => session.id)
-    .join("\0");
-  const listedSessions = mergeFolderSessionSummaries(
-    projectSessions,
-    folderOpenSessions,
-    sessionFolders,
-  ).filter(
+  const knownSessionIds = new Set(projectSessions.map((session) => session.id));
+  const listedSessions = [
+    ...projectSessions,
+    ...listedOpenSessions.filter((session) => !knownSessionIds.has(session.id)),
+  ].filter(
     (session) =>
       !session.orchestrationLeadId &&
-      (searchActive || inWorktreeFocus(session, focusedWorktree)),
+      (shortcutId || searchActive || inWorktreeFocus(session, focusedWorktree)),
   );
   const visibleSessions = [
     ...filterSessionsByStatus(
@@ -473,12 +433,11 @@ function ProjectSessionSectionComponent({
           .toLocaleLowerCase()
           .includes(searchQuery.trim().toLocaleLowerCase()),
     ),
-  ].sort(compareSessionSummaries);
+  ].filter((session) => !shortcutId || session.id === shortcutId).sort(compareSessionSummaries);
   const filtersActive = hasActiveSessionFilters(sessionFilters);
   const searchNarrowed = searchActive || Boolean(searchQuery.trim());
   // Summaries for the whole project stay in `sessions` so filters still work.
-  // Folders sit above the ungrouped list. Only a page of ungrouped cards
-  // mounts; the sentinel below asks for the next page.
+  // Every group has its own five-row preview; search keeps its larger window.
   const reminderIds = new Set(reminders.map((reminder) => reminder.sessionId));
   const reminderGroup = {
     sessionIds: [...reminders]
@@ -486,20 +445,28 @@ function ProjectSessionSectionComponent({
       .map((reminder) => reminder.sessionId),
     collapsed: reminderSessionsCollapsed,
   };
-  const ungroupedVisible = ungroupedSessions(
-    visibleSessions,
-    sessionFolders,
-  ).filter((session) => !reminderIds.has(session.id));
+  const allUngrouped = visibleSessions.filter(
+    (session) => !reminderIds.has(session.id),
+  );
+  const ungroupedVisible = flatPins
+    ? allUngrouped
+    : allUngrouped.filter((session) => !session.pinned);
   const activeUngroupedIndex = ungroupedVisible.findIndex(
     (session) => session.id === activeListedSessionId,
   );
-  // Project trees preview a few chats each, so other projects stay in view.
-  const previewOnly = dense && !searchNarrowed && !showAllSessions;
-  const shownUngroupedCount = previewOnly
+  // Reveal five more chats per click, keeping other projects in view.
+  const treePreview = !searchNarrowed;
+  const previewUngroupedCount = listWindowSize(
+    ungroupedVisible.length,
+    TREE_PREVIEW_COUNT,
+    -1,
+    TREE_PREVIEW_COUNT,
+  );
+  const shownUngroupedCount = treePreview
     ? listWindowSize(
         ungroupedVisible.length,
-        TREE_PREVIEW_COUNT,
-        activeUngroupedIndex,
+        treeSessionLimit,
+        -1,
         TREE_PREVIEW_COUNT,
       )
     : listWindowSize(
@@ -508,28 +475,61 @@ function ProjectSessionSectionComponent({
         activeUngroupedIndex,
       );
   const shownUngrouped = ungroupedVisible.slice(0, shownUngroupedCount);
+  const shownUngroupedIds = new Set(
+    shownUngrouped.map((session) => session.id),
+  );
+  const sessionListKey = `${cwd}\0${searchActive}\0${sessionFilters.showArchived}\0${sessionFilters.time}\0${sessionFilters.hiddenHarnesses.join(",")}\0${sessionFilters.status.working}\0${sessionFilters.status.needsApproval}\0${sessionFilters.status.done}\0${searchQuery}`;
+  if (treeSessionWindow.current.key !== sessionListKey)
+    treeSessionWindow.current = { key: sessionListKey, count: 0 };
+  // Keep revealed rows available for closing motion and prepare the next five
+  // collapsed rows so their shared disclosure animates when they open.
+  treeSessionWindow.current.count = treePreview
+    ? Math.min(
+        ungroupedVisible.length,
+        Math.max(
+          treeSessionWindow.current.count,
+          shownUngroupedCount + TREE_PREVIEW_COUNT,
+        ),
+      )
+    : 0;
+  const mountedUngrouped = treePreview
+    ? ungroupedVisible.slice(0, treeSessionWindow.current.count)
+    : shownUngrouped;
   const fullSessionListEntries = buildSessionList(
     visibleSessions,
-    sessionFolders,
-    ungroupedVisible,
-    pinnedSessionsCollapsed,
+    [],
+    allUngrouped,
+    flatPins ? false : pinnedSessionsCollapsed,
     reminderGroup,
   );
-  const sessionListEntries = buildSessionList(
+  const groupedSessionListEntries = buildSessionList(
     visibleSessions,
-    sessionFolders,
-    shownUngrouped,
+    [],
+    flatPins
+      ? mountedUngrouped
+      : [
+          ...allUngrouped.filter((session) => session.pinned),
+          ...mountedUngrouped,
+        ],
     pinnedSessionsCollapsed,
     reminderGroup,
   );
+  const sessionListEntries: SessionListEntry[] = flatPins
+    ? groupedSessionListEntries.flatMap((entry): SessionListEntry[] =>
+        entry.kind === "pinned"
+          ? entry.sessions.map((session) => ({ kind: "session", session }))
+          : [entry],
+      )
+    : groupedSessionListEntries;
   const sessionNavigationIds = sessionListNavigationIds(
     fullSessionListEntries,
     searchNarrowed,
   );
   const sessionNavigationKey = sessionNavigationIds.join("\0");
   useEffect(() => {
-    if (activeProject) onSessionNavigationOrder?.(sessionNavigationIds);
-  }, [activeProject, onSessionNavigationOrder, sessionNavigationKey]);
+    if (activeProject && !shortcutId)
+      onSessionNavigationOrder?.(sessionNavigationIds);
+  }, [activeProject, shortcutId, onSessionNavigationOrder, sessionNavigationKey]);
   useEffect(() => {
     if (tab !== "sessions") {
       selectionAnchorRef.current = null;
@@ -548,27 +548,12 @@ function ProjectSessionSectionComponent({
     );
   }, [cwd, tab, sessionNavigationKey]);
   const hiddenSessions = shownUngroupedCount < ungroupedVisible.length;
-  const hasMoreSessions = !previewOnly && hiddenSessions;
-  const sessionListKey = `${cwd}\0${searchActive}\0${sessionFilters.showArchived}\0${sessionFilters.time}\0${sessionFilters.hiddenHarnesses.join(",")}\0${sessionFilters.status.working}\0${sessionFilters.status.needsApproval}\0${sessionFilters.status.done}\0${searchQuery}`;
+  const hasMoreSessions = !treePreview && hiddenSessions;
+  const treePreviewExpanded = shownUngroupedCount > previewUngroupedCount;
   const narrowedByUser = searchNarrowed || filtersActive;
-  const visibleFolderIds = sessionListEntries.flatMap((entry) =>
-    entry.kind === "folder" ? [entry.folder.id] : [],
-  );
-  const folderSortable = useSortable(
-    visibleFolderIds,
-    (ids) => {
-      setSessionFolders((current) => {
-        const next = reorderSessionFolders(current, ids);
-        if (next === current) return current;
-        saveSessionFolders(cwd, next);
-        return next;
-      });
-    },
-    { axis: "y" },
-  );
   useEffect(() => {
     setSessionListLimit(LIST_PAGE_SIZE);
-    setShowAllSessions(false);
+    setTreeSessionLimit(TREE_PREVIEW_COUNT);
     // The shared project tree owns its scroll position.
   }, [sessionListKey]);
 
@@ -589,95 +574,9 @@ function ProjectSessionSectionComponent({
   }, [tab, hasMoreSessions, shownUngroupedCount]);
 
   useEffect(() => {
-    setSessionFolders(loadSessionFolders(cwd));
     setPinnedSessionsCollapsed(loadPinnedSessionsCollapsed(cwd));
     setReminderSessionsCollapsed(loadReminderSessionsCollapsed(cwd));
-    setRenamingFolderId(null);
-    setFolderMenu(null);
-    setSessionDrop(null);
-    pendingFolderSessionIds.current.clear();
   }, [cwd]);
-
-  useEffect(
-    () =>
-      subscribeSessionFolders(cwd, () => {
-        setSessionFolders(loadSessionFolders(cwd));
-      }),
-    [cwd],
-  );
-
-  useEffect(() => {
-    if (!complete || pending || status === "error") return;
-    if (
-      remoteProject &&
-      (!remote.loaded || remote.pending || remote.error || remote.offline)
-    )
-      return;
-    const known = new Set(projectSessions.map((session) => session.id));
-    const completedFolderSessions = new Map<string, string>();
-    for (const session of openSessions) {
-      if (!sameProjectPath(session.cwd, cwd)) continue;
-      known.add(session.id);
-      const hostId = remoteProject ? remoteSessionFor(session.id) : undefined;
-      if (hostId) known.add(hostId);
-    }
-    if (activeListedSessionId) known.add(activeListedSessionId);
-    if (remoteProject && activeSessionId) known.add(activeSessionId);
-    if (remoteProject) {
-      for (const folder of sessionFolders) {
-        for (const shellId of folder.sessionIds) {
-          const hostId = remoteSessionFor(shellId);
-          if (hostId && known.has(hostId))
-            completedFolderSessions.set(shellId, hostId);
-        }
-      }
-    }
-    for (const id of pendingFolderSessionIds.current) {
-      known.add(id);
-      const hostId = remoteProject ? remoteSessionFor(id) : undefined;
-      if (hostId && known.has(hostId)) {
-        completedFolderSessions.set(id, hostId);
-        pendingFolderSessionIds.current.delete(id);
-        continue;
-      }
-      if (
-        projectSessions.some((session) => session.id === id) ||
-        openSessions.some((session) => session.id === id)
-      ) {
-        pendingFolderSessionIds.current.delete(id);
-      }
-    }
-    setSessionFolders((current) => {
-      const migrated = completedFolderSessions.size
-        ? current.map((folder) => ({
-            ...folder,
-            sessionIds: folder.sessionIds.map(
-              (id) => completedFolderSessions.get(id) ?? id,
-            ),
-          }))
-        : current;
-      const next = pruneSessionFolders(migrated, known);
-      if (next === current) return current;
-      saveSessionFolders(cwd, next);
-      return next;
-    });
-  }, [
-    complete,
-    folderOpenSessionKey,
-    activeListedSessionId,
-    activeSessionId,
-    cwd,
-    openSessions,
-    pending,
-    projectSessions,
-    remoteProject,
-    remote.loaded,
-    remote.pending,
-    remote.error,
-    remote.offline,
-    sessionFolders,
-    status,
-  ]);
 
   useEffect(() => {
     if (tab !== "sessions") return;
@@ -686,15 +585,14 @@ function ProjectSessionSectionComponent({
   }, [tab]);
 
   useEffect(() => {
-    if (!sessionMenu && !folderMenu) return;
+    if (!sessionMenu) return;
     const onScroll = () => {
       closeSessionMenu();
-      setFolderMenu(null);
     };
     const scrollParent = sessionsScrollRef.current ?? window;
     scrollParent.addEventListener("scroll", onScroll, true);
     return () => scrollParent.removeEventListener("scroll", onScroll, true);
-  }, [sessionMenu, folderMenu]);
+  }, [sessionMenu]);
 
   useEffect(() => {
     if (selectedSessionIds.size === 0) return;
@@ -745,7 +643,6 @@ function ProjectSessionSectionComponent({
       contextSelectionRef.current = false;
       setSelectedSessionIds((current) => (current.size ? new Set() : current));
       setSessionMenu(null);
-      setFolderMenu(null);
     };
     window.addEventListener(PROJECT_SESSION_SELECTION, onOtherProjectSelection);
     return () =>
@@ -759,27 +656,6 @@ function ProjectSessionSectionComponent({
     window.dispatchEvent(
       new CustomEvent(PROJECT_SESSION_SELECTION, { detail: pathKey(cwd) }),
     );
-
-  const commitSessionFolders = (next: SessionFolder[]) => {
-    setSessionFolders(next);
-    saveSessionFolders(cwd, next);
-  };
-
-  const onNewInFolder = (folderId: string) => {
-    const sessionId = onNew?.();
-    if (!sessionId) return;
-    pendingFolderSessionIds.current.add(sessionId);
-    onClearQuery?.();
-    setSessionFolders((current) => {
-      const next = setFolderCollapsed(
-        addSessionToFolder(current, folderId, sessionId),
-        folderId,
-        false,
-      );
-      saveSessionFolders(cwd, next);
-      return next;
-    });
-  };
 
   const menuSessionIds = sessionMenu
     ? orderedSessionActionIds(
@@ -805,24 +681,6 @@ function ProjectSessionSectionComponent({
   const allMenuSessionsArchived =
     menuSessions.length > 0 &&
     menuSessions.every((session) => session.archived);
-  const menuSessionFolder =
-    menuSessionIds.length === 1
-      ? folderContaining(sessionFolders, menuSessionIds[0])
-      : undefined;
-  const anyMenuSessionFoldered = menuSessionIds.some((sessionId) =>
-    sessionFolders.some((folder) => folder.sessionIds.includes(sessionId)),
-  );
-  const canRemoveMenuSessionsFromFolders = multipleMenuSessions
-    ? anyMenuSessionFoldered
-    : !!menuSessionFolder;
-  const menuFolder = folderMenu
-    ? sessionFolders.find((folder) => folder.id === folderMenu.folderId)
-    : undefined;
-  const folderMenuItems: ExplorerMenuItem[] = [
-    { kind: "item", id: "rename", label: uiT("Rename"), shortcut: "F2" },
-    { kind: "sep" },
-    { kind: "item", id: "ungroup", label: uiT("Ungroup") },
-  ];
   const sessionMenuItems: ExplorerMenuItem[] = [
     ...(onCancelReminders && menuReminderTimes.length > 0
       ? [
@@ -897,30 +755,6 @@ function ProjectSessionSectionComponent({
       disabled: !onSetReminders,
       submenu: sessionReminderPresets(),
     },
-    { kind: "sep" as const },
-    { kind: "item" as const, id: "folder-new", label: uiT("New folder") },
-    ...(sessionFolders.length > 0 ? [{ kind: "sep" as const }] : []),
-    ...sessionFolders.map((folder) => ({
-      kind: "item" as const,
-      id: `folder-add:${folder.id}`,
-      label: uiT("Add to {value0}", { value0: String(folder.name) }),
-      checked:
-        menuSessionIds.length > 0 &&
-        menuSessionIds.every((sessionId) =>
-          folder.sessionIds.includes(sessionId),
-        ),
-    })),
-    ...(canRemoveMenuSessionsFromFolders
-      ? [
-          {
-            kind: "item" as const,
-            id: "folder-remove",
-            label: multipleMenuSessions
-              ? uiT("Remove from folders")
-              : uiT("Remove from folder"),
-          },
-        ]
-      : []),
     ...(onArchiveSession ||
     onArchiveSessions ||
     onDeleteSession ||
@@ -964,7 +798,6 @@ function ProjectSessionSectionComponent({
     if (contextSelectionRef.current) {
       setSelectedSessionIds(new Set([sessionId]));
     }
-    setFolderMenu(null);
     setSessionMenu({ x: e.clientX, y: e.clientY, sessionId });
   };
 
@@ -974,16 +807,6 @@ function ProjectSessionSectionComponent({
     contextSelectionRef.current = false;
     selectionAnchorRef.current = null;
     setSelectedSessionIds(new Set());
-  };
-
-  const onFolderContextMenu = (
-    folderId: string,
-    e: ReactMouseEvent<HTMLButtonElement>,
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setSessionMenu(null);
-    setFolderMenu({ x: e.clientX, y: e.clientY, folderId });
   };
 
   const onSessionMenuPick = (id: string) => {
@@ -1033,34 +856,6 @@ function ProjectSessionSectionComponent({
       setLinkingSession(menuSessions[0] ?? null);
       return;
     }
-    if (id === "folder-new") {
-      const { folders, id: createdId } = createFolderWithSessions(
-        sessionFolders,
-        sessionIds,
-      );
-      if (!createdId) return;
-      commitSessionFolders(folders);
-      setRenamingFolderId(createdId);
-      return;
-    }
-    if (id.startsWith("folder-add:")) {
-      const folderId = id.slice("folder-add:".length);
-      const folders = sessionIds.reduce(
-        (current, id) => addSessionToFolder(current, folderId, id),
-        sessionFolders,
-      );
-      commitSessionFolders(setFolderCollapsed(folders, folderId, false));
-      return;
-    }
-    if (id === "folder-remove") {
-      commitSessionFolders(
-        sessionIds.reduce(
-          (current, id) => removeSessionFromFolder(current, id),
-          sessionFolders,
-        ),
-      );
-      return;
-    }
     if (id === "archive") {
       if (sessionIds.length > 1 && onArchiveSessions) {
         onArchiveSessions(sessionIds, !archived);
@@ -1077,50 +872,6 @@ function ProjectSessionSectionComponent({
       }
     }
   };
-
-  const onFolderMenuPick = (id: string) => {
-    if (!folderMenu) return;
-    const folderId = folderMenu.folderId;
-    setFolderMenu(null);
-    if (id === "rename") {
-      setRenamingFolderId(folderId);
-      return;
-    }
-    if (id === "ungroup") {
-      commitSessionFolders(dissolveFolder(sessionFolders, folderId));
-    }
-  };
-
-  const onFolderColorChange = (colorIndex: number | null) => {
-    if (!folderMenu) return;
-    commitSessionFolders(
-      setFolderColor(sessionFolders, folderMenu.folderId, colorIndex),
-    );
-  };
-
-  const onFolderCustomColorChange = (color: string) => {
-    if (!folderMenu) return;
-    commitSessionFolders(
-      setFolderCustomColor(sessionFolders, folderMenu.folderId, color),
-    );
-  };
-
-  const onSessionListDrop = (
-    draggedId: string,
-    target: SessionListDropTarget,
-  ) => {
-    const { folders, createdId } = applySessionListDrop(
-      sessionFolders,
-      draggedId,
-      target,
-    );
-    if (folders === sessionFolders) return;
-    commitSessionFolders(folders);
-    if (createdId) setRenamingFolderId(createdId);
-  };
-
-  const isSessionDrop = (kind: "folder" | "session", id: string) =>
-    sessionDrop?.kind === kind && sessionDrop.id === id;
 
   const onSessionCardSelect = (
     sessionId: string,
@@ -1175,7 +926,6 @@ function ProjectSessionSectionComponent({
     onOpenInboxItem,
     onPrefetchSession,
     onPlaceSessionOnPane,
-    onSessionListDrop,
     onSessionContextMenu,
     onArchiveSession,
     setRenamingSessionId,
@@ -1186,7 +936,6 @@ function ProjectSessionSectionComponent({
     onOpenInboxItem,
     onPrefetchSession,
     onPlaceSessionOnPane,
-    onSessionListDrop,
     onSessionContextMenu,
     onArchiveSession,
     setRenamingSessionId,
@@ -1204,8 +953,6 @@ function ProjectSessionSectionComponent({
         cardHandlers.current.onPrefetchSession?.(sessionId),
       placeOnPane: (sessionId: string, targetId: string, edge: PaneEdge) =>
         cardHandlers.current.onPlaceSessionOnPane?.(sessionId, targetId, edge),
-      listDrop: (draggedId: string, target: SessionListDropTarget) =>
-        cardHandlers.current.onSessionListDrop(draggedId, target),
       contextMenu: (sessionId: string, e: ReactMouseEvent<HTMLDivElement>) =>
         cardHandlers.current.onSessionContextMenu(sessionId, e),
       archive: (sessionId: string, archived: boolean) =>
@@ -1223,7 +970,7 @@ function ProjectSessionSectionComponent({
     seen: new Set(),
   });
   // Runs after the rows' mount effects: a project's first paint never animates,
-  // and rows that mount later (sidebar opened, folder expanded) are not new.
+  // and rows that mount later (sidebar opened, group expanded) are not new.
   useLayoutEffect(() => {
     const motion = sessionInsertMotion.current;
     motion.cwd = cwd;
@@ -1253,9 +1000,10 @@ function ProjectSessionSectionComponent({
         done={unseenFinishedIds.has(session.id)}
         linkedUpdate={linkedSessionUpdateIds.has(session.id)}
         needsApproval={listedApprovalSessionIds.has(session.id)}
-        dropTarget={isSessionDrop("session", session.id)}
         compact={compact}
         dense={dense}
+        shortcut={!!shortcutId}
+        plainTree={flatPins}
         now={now}
         onSelect={cardActions.select}
         onOpenWorkItem={
@@ -1267,10 +1015,6 @@ function ProjectSessionSectionComponent({
         onPlaceOnPane={
           onPlaceSessionOnPane ? cardActions.placeOnPane : undefined
         }
-        onListDrop={
-          reminderIds.has(session.id) ? undefined : cardActions.listDrop
-        }
-        onListDropTargetChange={setSessionDrop}
         onContextMenu={cardActions.contextMenu}
         onArchive={onArchiveSession ? cardActions.archive : undefined}
         onRename={onRenameSession ? cardActions.rename : undefined}
@@ -1280,7 +1024,7 @@ function ProjectSessionSectionComponent({
 
   return (
     <div ref={sectionRef} data-project-session-section={pathKey(cwd)}>
-      {(status === "error" || (remoteProject && remote.error)) &&
+      {!shortcutId && (status === "error" || (remoteProject && remote.error)) &&
       projectSessions.length > 0 ? (
         <p role="status" className="px-3 py-1 text-[11px] text-content/50">
           {uiT("Couldn’t load sessions")}
@@ -1295,12 +1039,18 @@ function ProjectSessionSectionComponent({
           ) : null}
         </p>
       ) : null}
-      {remoteProject && remote.offline && projectSessions.length > 0 ? (
+      {!shortcutId && remoteProject && remote.offline && projectSessions.length > 0 ? (
         <p role="status" className="px-3 py-1 text-[11px] text-content/50">
           {uiT("Offline — showing cached sessions")}
         </p>
       ) : null}
-      {!cwd || cwd === "~" ? (
+      {shortcutId ? (
+        <div data-pinned-session-shortcut={shortcutId}>
+          {visibleSessions.map((session) => (
+            <Fragment key={session.id}>{renderSessionCard(session)}</Fragment>
+          ))}
+        </div>
+      ) : !cwd || cwd === "~" ? (
         <p className="px-3 py-2 text-[12px] text-content/50">
           {uiT("No project folder")}
         </p>
@@ -1373,19 +1123,12 @@ function ProjectSessionSectionComponent({
                       }`}
                     >
                       <div className="overflow-hidden rounded-md bg-content/5">
-                        <FolderRow
+                        <SessionGroupRow
                           dense={dense}
-                          folder={
-                            isReminders
-                              ? {
-                                  name: uiT("Reminders"),
-                                  customColor: REMINDERS_COLOR,
-                                }
-                              : { name: uiT("Pinned") }
-                          }
+                          label={isReminders ? uiT("Reminders") : uiT("Pinned")}
+                          accent={isReminders ? REMINDERS_COLOR : undefined}
                           sessions={entry.sessions}
                           expanded={expanded}
-                          dropTarget={false}
                           busy={entry.sessions.some((session) =>
                             listedBusySessionIds.has(session.id),
                           )}
@@ -1421,180 +1164,32 @@ function ProjectSessionSectionComponent({
                           <ul
                             className={`flex flex-col ${dense ? "w-full gap-[3px] px-0 pt-[3px]" : "gap-px p-1"}`}
                           >
-                            {entry.sessions.map((session) => (
-                              <SessionListItem
-                                key={session.id}
-                                session={session}
-                                cwd={cwd}
-                                motion={sessionInsertMotion}
-                              >
-                                {renderSessionCard(session, true)}
-                              </SessionListItem>
-                            ))}
+                            <SessionGroupPreview
+                              sessions={entry.sessions}
+                              resetKey={sessionListKey}
+                              searchActive={searchNarrowed}
+                              cwd={cwd}
+                              motion={sessionInsertMotion}
+                              renderCard={(session) => renderSessionCard(session, true)}
+                            />
                           </ul>
                         </AnimatedCollapse>
                       </div>
                     </li>
                   );
                 }
-                if (entry.kind === "folder") {
-                  const expanded = searchNarrowed || !entry.folder.collapsed;
-                  const shellFill = folderShellFill(
-                    entry.folder.colorIndex,
-                    entry.folder.customColor,
-                  );
-                  const folderIndex = visibleFolderIds.indexOf(entry.folder.id);
-                  const beforeUngrouped =
-                    sessionListEntries[index + 1]?.kind === "session";
-                  const draggingFolder =
-                    folderSortable.draggingId === entry.folder.id;
-                  const showFolderDropStart =
-                    folderSortable.draggingId &&
-                    folderSortable.toIndex === folderIndex &&
-                    folderSortable.fromIndex !== null &&
-                    folderSortable.toIndex < folderSortable.fromIndex;
-                  const showFolderDropEnd =
-                    folderSortable.draggingId &&
-                    folderSortable.toIndex === folderIndex &&
-                    folderSortable.fromIndex !== null &&
-                    folderSortable.toIndex > folderSortable.fromIndex;
-                  return (
-                    <li
-                      key={entry.folder.id}
-                      ref={(el) =>
-                        folderSortable.setItemRef(entry.folder.id, el)
-                      }
-                      data-session-folder={entry.folder.id}
-                      className={`relative ${
-                        !dense && (expanded || beforeUngrouped) ? "mb-1.5" : ""
-                      } ${draggingFolder ? "opacity-40" : ""}`}
-                    >
-                      {showFolderDropStart ? (
-                        <div className="pointer-events-none absolute inset-x-1 top-0 z-20 h-0.5 rounded-full bg-accent" />
-                      ) : null}
-                      {showFolderDropEnd ? (
-                        <div className="pointer-events-none absolute inset-x-1 bottom-0 z-20 h-0.5 rounded-full bg-accent" />
-                      ) : null}
-                      <div
-                        className={`overflow-hidden rounded-md ${
-                          shellFill ? "" : "bg-content/5"
-                        }`}
-                        style={
-                          shellFill ? { background: shellFill } : undefined
-                        }
-                      >
-                        {renamingFolderId === entry.folder.id ? (
-                          <FolderRenameRow
-                            dense={dense}
-                            folder={entry.folder}
-                            memberCount={entry.sessions.length}
-                            dropTarget={isSessionDrop(
-                              "folder",
-                              entry.folder.id,
-                            )}
-                            onCommit={(name) => {
-                              commitSessionFolders(
-                                renameFolder(
-                                  sessionFolders,
-                                  entry.folder.id,
-                                  name,
-                                ),
-                              );
-                              setRenamingFolderId(null);
-                            }}
-                            onCancel={() => setRenamingFolderId(null)}
-                          />
-                        ) : (
-                          <FolderRow
-                            dense={dense}
-                            folder={entry.folder}
-                            sessions={entry.sessions}
-                            expanded={expanded}
-                            dropTarget={isSessionDrop(
-                              "folder",
-                              entry.folder.id,
-                            )}
-                            busy={entry.sessions.some((session) =>
-                              listedBusySessionIds.has(session.id),
-                            )}
-                            done={entry.sessions.some((session) =>
-                              unseenFinishedIds.has(session.id),
-                            )}
-                            needsApproval={entry.sessions.some((session) =>
-                              listedApprovalSessionIds.has(session.id),
-                            )}
-                            onPointerDown={(event) =>
-                              folderSortable.onItemPointerDown(
-                                entry.folder.id,
-                                event,
-                              )
-                            }
-                            onToggle={() => {
-                              if (folderSortable.consumeClick()) return;
-                              if (searchNarrowed) return;
-                              commitSessionFolders(
-                                setFolderCollapsed(
-                                  sessionFolders,
-                                  entry.folder.id,
-                                  !entry.folder.collapsed,
-                                ),
-                              );
-                            }}
-                            onContextMenu={(event) =>
-                              onFolderContextMenu(entry.folder.id, event)
-                            }
-                            onRename={() =>
-                              setRenamingFolderId(entry.folder.id)
-                            }
-                          />
-                        )}
-                        <AnimatedCollapse expanded={expanded}>
-                          <ul
-                            className={`flex flex-col ${dense ? "w-full gap-[3px] px-0 pt-[3px]" : "gap-px p-1"}`}
-                          >
-                            {entry.sessions.map((session) => (
-                              <SessionListItem
-                                key={session.id}
-                                session={session}
-                                cwd={cwd}
-                                motion={sessionInsertMotion}
-                              >
-                                {renderSessionCard(session, true)}
-                              </SessionListItem>
-                            ))}
-                          </ul>
-                          {onNew ? (
-                            <div className="border-t border-stroke p-1">
-                              <button
-                                type="button"
-                                data-no-drag
-                                data-tauri-drag-region="false"
-                                title={uiT("New session")}
-                                aria-label={uiT("New session")}
-                                onClick={() => onNewInFolder(entry.folder.id)}
-                                className={`relative flex w-full items-center gap-1 rounded-md border border-transparent ${dense ? "pl-7 pr-2.5" : "px-2.5"} py-1.5 text-left text-content/45 hover:bg-content/10 hover:text-content`}
-                              >
-                                <Plus
-                                  className="size-3 shrink-0"
-                                  strokeWidth={1.75}
-                                />
-                                <span className="text-[13px] font-semibold leading-snug">
-                                  {uiT("New session")}
-                                </span>
-                              </button>
-                            </div>
-                          ) : null}
-                        </AnimatedCollapse>
-                      </div>
-                    </li>
-                  );
-                }
+                if (entry.kind === "folder") return null;
                 return (
                   <SessionListItem
                     key={entry.session.id}
                     session={entry.session}
                     cwd={cwd}
                     motion={sessionInsertMotion}
+                    expanded={
+                      treePreview
+                        ? shownUngroupedIds.has(entry.session.id)
+                        : undefined
+                    }
                   >
                     {renderSessionCard(entry.session)}
                   </SessionListItem>
@@ -1603,21 +1198,23 @@ function ProjectSessionSectionComponent({
               {hasMoreSessions ? (
                 <li ref={loadMoreRef} aria-hidden className="h-px list-none" />
               ) : null}
-              {dense &&
-              !searchNarrowed &&
-              (previewOnly
-                ? hiddenSessions
-                : ungroupedVisible.length > TREE_PREVIEW_COUNT) ? (
+              {treePreview && (hiddenSessions || treePreviewExpanded) ? (
                 <li className="list-none">
                   <button
                     type="button"
                     data-session-list-toggle
                     data-tauri-drag-region="false"
-                    aria-expanded={!previewOnly}
-                    onClick={() => setShowAllSessions(previewOnly)}
+                    aria-expanded={treePreviewExpanded}
+                    onClick={() =>
+                      setTreeSessionLimit(
+                        hiddenSessions
+                          ? shownUngroupedCount + TREE_PREVIEW_COUNT
+                          : TREE_PREVIEW_COUNT,
+                      )
+                    }
                     className="flex h-8 w-full items-center rounded-md pl-8 pr-2 text-left text-[13px] text-content/45 hover:bg-content/5 hover:text-content"
                   >
-                    {previewOnly ? uiT("Show more") : uiT("Show less")}
+                    {hiddenSessions ? uiT("Show more") : uiT("Show less")}
                   </button>
                 </li>
               ) : null}
@@ -1641,25 +1238,6 @@ function ProjectSessionSectionComponent({
           onClose={closeSessionMenu}
         />
       ) : null}
-      {folderMenu ? (
-        <ExplorerMenu
-          x={folderMenu.x}
-          y={folderMenu.y}
-          items={folderMenuItems}
-          ariaLabel={uiT("Folder actions")}
-          width={260}
-          header={
-            <FolderColorSwatches
-              colorIndex={menuFolder?.colorIndex}
-              customColor={menuFolder?.customColor}
-              onChange={onFolderColorChange}
-              onCustomChange={onFolderCustomColorChange}
-            />
-          }
-          onPick={onFolderMenuPick}
-          onClose={() => setFolderMenu(null)}
-        />
-      ) : null}
       {linkingSession ? (
         <LinkSessionWorkItemDialog
           initial={linkingSession.linkedWorkItem}
@@ -1680,123 +1258,46 @@ function ProjectSessionSectionComponent({
 
 export const ProjectSessionSection = memo(ProjectSessionSectionComponent);
 
-function sessionListDropFromPoint(
-  x: number,
-  y: number,
-  draggedId: string,
-  project: string,
-): SessionListDropTarget | null {
-  const el = document.elementFromPoint(x, y);
-  if (!el) return null;
-  const section = el.closest("[data-project-session-section]");
-  if (
-    section?.getAttribute("data-project-session-section") !== pathKey(project)
-  )
-    return null;
-  if (el.closest("[data-reminder-sessions]")) return null;
-  const card = el.closest("[data-session-card]") as HTMLElement | null;
-  const cardId = card?.dataset.sessionCard;
-  if (cardId === draggedId) return null;
-  const folder = el.closest("[data-session-folder]") as HTMLElement | null;
-  const folderId = folder?.dataset.sessionFolder;
-  if (folderId && cardId && card && folder.contains(card)) {
-    return { kind: "folder", id: folderId };
-  }
-  if (cardId) return { kind: "session", id: cardId };
-  if (folderId) return { kind: "folder", id: folderId };
-  return null;
-}
-
-function FolderColorSwatches({
-  colorIndex,
-  customColor,
-  onChange,
-  onCustomChange,
-}: {
-  colorIndex: number | undefined;
-  customColor: string | undefined;
-  onChange: (index: number | null) => void;
-  onCustomChange: (color: string) => void;
-}) {
-  const paletteColor =
-    colorIndex != null ? TAB_GROUP_COLORS[colorIndex] : TAB_GROUP_COLORS[0];
-  const pickerValue =
-    customColor ?? normalizeHex(paletteColor ?? TAB_GROUP_COLORS[0]);
-  return (
-    <div className="px-1 py-1">
-      <ColorSwatchRow
-        colors={TAB_GROUP_COLORS}
-        colorIndex={colorIndex}
-        customColor={customColor}
-        customPickerOpen
-        customHighlighted={customColor != null}
-        onPickIndex={(index) => onChange(index === 0 ? null : index)}
-      />
-      <ColorPickerPopover value={pickerValue} onChange={onCustomChange} />
-    </div>
-  );
-}
-
-function FolderRow({
-  folder,
+function SessionGroupRow({
+  label,
+  accent,
   sessions,
   expanded,
-  dropTarget,
   busy,
   done,
   needsApproval,
   groupIcon,
   dense = false,
-  onPointerDown,
   onToggle,
-  onContextMenu,
-  onRename,
 }: {
-  folder: Pick<SessionFolder, "name" | "colorIndex" | "customColor">;
+  label: string;
+  accent?: string;
   sessions: SessionSummary[];
   expanded: boolean;
-  dropTarget: boolean;
   busy: boolean;
   done: boolean;
   needsApproval: boolean;
-  groupIcon?: ReactNode;
+  groupIcon: ReactNode;
   /** Project-tree rows indent their icon to the project name. */
   dense?: boolean;
-  onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onToggle: () => void;
-  onContextMenu?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
-  onRename?: () => void;
 }) {
   const count = sessions.length;
-  const accent = folderAccent(folder.colorIndex, folder.customColor);
   return (
     <button
       type="button"
-      title={folder.name}
+      title={label}
       aria-expanded={expanded}
       data-tauri-drag-region="false"
-      onPointerDown={onPointerDown}
       onClick={onToggle}
-      onContextMenu={onContextMenu}
-      onKeyDown={(event) => {
-        if (event.key === "F2" && onRename) {
-          event.preventDefault();
-          onRename();
-        }
-      }}
       className={`group relative flex w-full touch-none items-center gap-1.5 ${dense ? "pl-8 pr-2" : "px-2"} h-8 text-left ${
         expanded ? "rounded-md" : ""
       } ${
-        dropTarget
-          ? "text-content"
-          : expanded
-            ? "text-content hover:bg-content/10"
-            : "text-content/80 hover:bg-content/10 hover:text-content"
+        expanded
+          ? "text-content hover:bg-content/10"
+          : "text-content/80 hover:bg-content/10 hover:text-content"
       }`}
     >
-      {dropTarget ? (
-        <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
-      ) : null}
       <span
         className={`relative grid size-4 shrink-0 place-items-center ${
           accent ? "" : "text-content/50"
@@ -1820,9 +1321,7 @@ function FolderRow({
         ) : (
           <>
             <span className="group-hover:hidden group-focus-visible:hidden">
-              {groupIcon ?? (
-                <Folder className="size-3.5 text-content" strokeWidth={1.75} />
-              )}
+              {groupIcon}
             </span>
             <ChevronRight
               className="hidden size-3.5 group-hover:block group-focus-visible:block text-content"
@@ -1832,7 +1331,7 @@ function FolderRow({
         )}
       </span>
       <span className="relative min-w-0 flex-1 truncate text-[13px] font-semibold leading-snug text-content">
-        {folder.name}
+        {label}
       </span>
       <span className="relative flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-content/45">
         {!expanded && needsApproval ? (
@@ -1848,101 +1347,62 @@ function FolderRow({
   );
 }
 
-function FolderRenameRow({
-  folder,
-  memberCount,
-  dropTarget,
-  dense = false,
-  onCommit,
-  onCancel,
-}: {
-  folder: SessionFolder;
-  memberCount: number;
-  dropTarget: boolean;
-  dense?: boolean;
-  onCommit: (name: string) => void;
-  onCancel: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const finished = useRef(false);
-  const [value, setValue] = useState(folder.name);
-
-  useEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-    input.focus();
-    input.select();
-  }, []);
-
-  const finish = (success: boolean) => {
-    if (finished.current) return;
-    if (success) {
-      const trimmed = value.trim();
-      if (!trimmed) {
-        onCancel();
-        return;
-      }
-      finished.current = true;
-      onCommit(trimmed);
-      return;
-    }
-    finished.current = true;
-    onCancel();
-  };
-
-  return (
-    <div
-      className={`relative flex w-full items-center gap-1.5 ${dense ? "h-8 pl-8 pr-2" : "px-2 py-1.5"} ${
-        dropTarget ? "" : "text-content"
-      }`}
-    >
-      {dropTarget ? (
-        <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
-      ) : null}
-      <span className="relative grid size-4 shrink-0 place-items-center text-content/50">
-        <ChevronDown className="size-3.5" strokeWidth={1.75} />
-      </span>
-      <input
-        ref={inputRef}
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        onBlur={() => finish(true)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            finish(true);
-            return;
-          }
-          if (event.key === "Escape") {
-            event.preventDefault();
-            finish(false);
-          }
-        }}
-        className="relative min-w-0 flex-1 rounded bg-content/10 px-2 py-0.5 text-[13px] font-semibold leading-snug text-content outline-none ring-1 ring-accent/40"
-      />
-      <span className="relative shrink-0 text-[11px] tabular-nums text-content/45">
-        {memberCount}
-      </span>
-    </div>
-  );
-}
-
 const SESSION_PREFETCH_DELAY_MS = 120;
 /** Rows created this recently slide in; older ones are just being listed. */
 const SESSION_INSERT_WINDOW_MS = 15_000;
 
 type SessionInsertMotion = { cwd: string; seen: Set<string> };
 
+function SessionGroupPreview({
+  sessions,
+  resetKey,
+  searchActive,
+  cwd,
+  motion,
+  renderCard,
+}: {
+  sessions: SessionSummary[];
+  resetKey: string;
+  searchActive: boolean;
+  cwd: string;
+  motion: RefObject<SessionInsertMotion>;
+  renderCard: (session: SessionSummary) => ReactNode;
+}) {
+  const preview = useSidebarListPreview(
+    sessions.length,
+    resetKey,
+    searchActive,
+  );
+  return (
+    <>
+      {sessions.map((session, index) => (
+        <SessionListItem
+          key={session.id}
+          session={session}
+          cwd={cwd}
+          motion={motion}
+          expanded={index < preview.count}
+        >
+          {renderCard(session)}
+        </SessionListItem>
+      ))}
+      {preview.button && <li className="list-none">{preview.button}</li>}
+    </>
+  );
+}
+
 /** List row that grows open when a new session lands, pushing rows below it down. */
 function SessionListItem({
   session,
   cwd,
   motion,
+  expanded,
   children,
 }: {
   session: SessionSummary;
   cwd: string;
   motion: RefObject<SessionInsertMotion>;
+  expanded?: boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLLIElement>(null);
@@ -2001,7 +1461,18 @@ function SessionListItem({
       easing: "ease-out",
     });
   }, []);
-  return <li ref={ref}>{children}</li>;
+  return (
+    <li
+      ref={ref}
+      className={expanded === undefined ? undefined : "empty:hidden"}
+    >
+      {expanded === undefined ? (
+        children
+      ) : (
+        <AnimatedCollapse expanded={expanded}>{children}</AnimatedCollapse>
+      )}
+    </li>
+  );
 }
 
 const SessionCard = memo(function SessionCard({
@@ -2012,16 +1483,15 @@ const SessionCard = memo(function SessionCard({
   done,
   linkedUpdate,
   needsApproval,
-  dropTarget,
   compact = false,
   dense = false,
+  shortcut = false,
+  plainTree = false,
   now,
   onSelect,
   onOpenWorkItem,
   onPrefetch,
   onPlaceOnPane,
-  onListDrop,
-  onListDropTargetChange,
   onContextMenu,
   onArchive,
   onRename,
@@ -2034,9 +1504,10 @@ const SessionCard = memo(function SessionCard({
   done: boolean;
   linkedUpdate: boolean;
   needsApproval: boolean;
-  dropTarget?: boolean;
   compact?: boolean;
   dense?: boolean;
+  shortcut?: boolean;
+  plainTree?: boolean;
   now: number;
   onSelect: (
     sessionId: string,
@@ -2045,8 +1516,6 @@ const SessionCard = memo(function SessionCard({
   onOpenWorkItem?: (item: LinkedWorkItem, sessionId: string) => void;
   onPrefetch?: (sessionId: string) => void;
   onPlaceOnPane?: (sessionId: string, targetId: string, edge: PaneEdge) => void;
-  onListDrop?: (draggedId: string, target: SessionListDropTarget) => void;
-  onListDropTargetChange?: (target: SessionListDropTarget | null) => void;
   onContextMenu?: (
     sessionId: string,
     e: ReactMouseEvent<HTMLDivElement>,
@@ -2244,7 +1713,7 @@ const SessionCard = memo(function SessionCard({
       prefetchTimer.current = null;
     }
     onPrefetch?.(session.id);
-    if (!onPlaceOnPane && !onListDrop) return;
+    if (!onPlaceOnPane) return;
     const handle = event.currentTarget;
     const pointerId = event.pointerId;
     const startX = event.clientX;
@@ -2252,15 +1721,8 @@ const SessionCard = memo(function SessionCard({
     let active = false;
     let lastX = startX;
     let lastY = startY;
-    let lastList: SessionListDropTarget | null = null;
     handle.setPointerCapture(pointerId);
     const restoreSelection = suppressTextSelection();
-
-    const setListTarget = (next: SessionListDropTarget | null) => {
-      if (lastList?.kind === next?.kind && lastList?.id === next?.id) return;
-      lastList = next;
-      onListDropTargetChange?.(next);
-    };
 
     const onMove = (ev: PointerEvent) => {
       lastX = ev.clientX;
@@ -2269,25 +1731,12 @@ const SessionCard = memo(function SessionCard({
         if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
         active = true;
         setDragging(true);
-        if (onPlaceOnPane) {
-          setExternalPaneDrop({
-            fromId: session.id,
-            overId: null,
-            edge: "left",
-          });
-        }
+        setExternalPaneDrop({
+          fromId: session.id,
+          overId: null,
+          edge: "left",
+        });
       }
-      setListTarget(
-        onListDrop
-          ? sessionListDropFromPoint(
-              ev.clientX,
-              ev.clientY,
-              session.id,
-              session.cwd,
-            )
-          : null,
-      );
-      if (!onPlaceOnPane) return;
       const over = paneDropFromPoint(ev.clientX, ev.clientY);
       if (!over || over.id === session.id) {
         setExternalPaneDrop({
@@ -2319,7 +1768,6 @@ const SessionCard = memo(function SessionCard({
       restoreSelection();
       setDragging(false);
       setExternalPaneDrop(null);
-      setListTarget(null);
       try {
         handle.releasePointerCapture(pointerId);
       } catch {
@@ -2328,13 +1776,6 @@ const SessionCard = memo(function SessionCard({
       if (!active) return;
       skipClickUntil.current = performance.now() + 400;
       if (!commit) return;
-      const listOver = onListDrop
-        ? sessionListDropFromPoint(lastX, lastY, session.id, session.cwd)
-        : null;
-      if (listOver) {
-        onListDrop?.(session.id, listOver);
-        return;
-      }
       const over = paneDropFromPoint(lastX, lastY);
       if (over && over.id !== session.id) {
         onPlaceOnPane?.(session.id, over.id, over.edge);
@@ -2413,29 +1854,24 @@ const SessionCard = memo(function SessionCard({
               }
             : undefined
         }
-        className={`relative border flex w-full cursor-default select-none touch-none rounded-md text-left ${dense ? `h-8 flex-row items-center gap-1 ${compact ? "pl-[54px] pr-2" : "pl-8 pr-2"}` : `flex-col px-2.5 ${cardPaddingY}`} ${
+        className={`relative border flex w-full cursor-default select-none touch-none rounded-md text-left ${dense ? `h-8 flex-row items-center gap-1 ${shortcut ? "px-2" : compact ? "pl-[54px] pr-2" : "pl-8 pr-2"}` : `flex-col px-2.5 ${cardPaddingY}`} ${
           dragging ? "opacity-40" : ""
         } ${
-          dropTarget
-            ? "text-content border-transparent"
-            : isSelected
-              ? `bg-accent/15 text-content ${draft ? "border-content/30 border-dashed" : "border-transparent"}`
-              : needsApproval
-                ? "bg-content/20 text-content border-content/30 border-dashed"
-                : isActive
-                  ? `bg-selection text-content ${draft ? "border-content/30 border-dashed" : "border-transparent"}`
-                  : draft
-                    ? "border-content/25 border-dashed text-content/80 hover:bg-content/5 hover:text-content"
-                    : `text-content/80 hover:text-content border-transparent ${
-                        orchestrationExpanded
-                          ? "bg-content/5 hover:bg-content/10"
-                          : "hover:bg-content/5"
-                      }`
+          isSelected
+            ? `bg-accent/15 text-content ${draft ? "border-content/30 border-dashed" : "border-transparent"}`
+            : needsApproval
+              ? "bg-content/20 text-content border-content/30 border-dashed"
+              : isActive
+                ? `bg-selection text-content ${draft ? "border-content/30 border-dashed" : "border-transparent"}`
+                : draft
+                  ? "border-content/25 border-dashed text-content/80 hover:bg-content/5 hover:text-content"
+                  : `text-content/80 hover:text-content border-transparent ${
+                      orchestrationExpanded
+                        ? "bg-content/5 hover:bg-content/10"
+                        : "hover:bg-content/5"
+                    }`
         }`}
       >
-        {dropTarget ? (
-          <div className="pointer-events-none absolute inset-0 rounded-md bg-accent/20" />
-        ) : null}
         <div
           role="button"
           tabIndex={0}
@@ -2494,7 +1930,7 @@ const SessionCard = memo(function SessionCard({
                 />
               </span>
             ) : null}
-            {session.pinned ? (
+            {session.pinned && !shortcut && !plainTree ? (
               <Pin
                 className="size-3 shrink-0 text-content/45"
                 strokeWidth={1.75}

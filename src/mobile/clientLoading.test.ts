@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MobileClient, type RpcTransport } from "./client";
+import { HostRequestError, MobileClient, type RpcTransport } from "./client";
 import type { MobileStorage } from "./storage";
 import type { HostSession } from "../features/connections/model/protocol";
 
@@ -39,6 +39,41 @@ async function setup(handler: (method: string, params: any) => unknown) {
 }
 
 describe("mobile loading critical path", () => {
+  it("loads a global catalog without a project and keeps its cache separate", async () => {
+    const { client, rpc } = await setup((_method, params) => ({ models: {}, errors: params.projectId ? { codex: params.projectId } : {} }));
+    const global = await client.models();
+    expect(await client.models()).toBe(global);
+    await client.models("project");
+    expect(client.cachedModels()).toBe(global);
+    expect(client.cachedModels("project")?.errors.codex).toBe("project");
+    const calls = (rpc as ReturnType<typeof vi.fn>).mock.calls.filter((call) => (call[2] as any).method === "models.list");
+    expect(calls.map((call) => (call[2] as any).params)).toEqual([{}, { projectId: "project" }]);
+    await client.models(undefined, true);
+    expect(client.cachedModels()).not.toBe(global);
+  });
+
+  it("distinguishes an old Host's missing account method from network and authentication errors", async () => {
+    const { client } = await setup(() => { throw new HostRequestError("Unsupported host method", 400); });
+    expect(await client.providerAccounts()).toBeNull();
+    const offline = await setup(() => { throw new Error("Network offline"); });
+    await expect(offline.client.providerAccounts()).rejects.toThrow("Network offline");
+    const denied = await setup(() => { throw new HostRequestError("Unauthorized", 401); });
+    await expect(denied.client.providerAccounts()).rejects.toThrow("Unauthorized");
+  });
+
+  it.each(["switch", "disconnect", "reconnect"])("rejects late account and global model responses after %s", async (action) => {
+    const late = deferred<any>();
+    const { client } = await setup(() => late.promise);
+    const accounts = client.providerAccounts();
+    const models = client.models();
+    if (action === "switch") await client.connect("http://second-host", "123");
+    else if (action === "disconnect") await client.disconnect();
+    else await client.reconnect();
+    late.resolve({ models: {}, errors: {} });
+    await expect(accounts).rejects.toThrow("Host connection changed.");
+    await expect(models).rejects.toThrow("Host connection changed.");
+    expect(client.cachedModels()).toBeUndefined();
+  });
   it("returns text while an image download is unresolved", async () => {
     const image = deferred<any>();
     const { client } = await setup((method) => method === "attachments.read"
@@ -149,7 +184,7 @@ describe("mobile loading critical path", () => {
       (call[2] as any).method === "models.list")).toHaveLength(1);
   });
 
-  it("expires catalogs and retries provider errors", async () => {
+  it("keeps stale catalogs visible and retries provider errors sooner", async () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(1000);
     try {
       let requests = 0;
@@ -159,14 +194,35 @@ describe("mobile loading critical path", () => {
         return { models: {}, errors: errors ? { codex: "Not signed in" } : {} };
       });
       await client.models("project");
-      expect(client.cachedModels("project")).toBeUndefined();
+      expect(client.cachedModels("project")?.errors).toEqual({ codex: "Not signed in" });
+      await client.models("project");
+      expect(requests).toBe(1);
       errors = false;
+      now.mockReturnValue(16_000);
       await client.models("project");
       expect(requests).toBe(2);
       now.mockReturnValue(61_000);
-      expect(client.cachedModels("project")).toBeUndefined();
+      expect(client.cachedModels("project")).toBeDefined();
+      await client.models("project");
+      expect(requests).toBe(2);
+      now.mockReturnValue(317_000);
+      expect(client.cachedModels("project")).toBeDefined();
       await client.models("project");
       expect(requests).toBe(3);
     } finally { now.mockRestore(); }
+  });
+
+  it("does not reuse a warmed catalog across Hosts or retain its late response", async () => {
+    const late = deferred<any>();
+    const value = { models: {}, errors: {} };
+    const { client } = await setup((_method, params) =>
+      params.projectId === "pending-project" ? late.promise : value);
+    await client.models("project");
+    const pending = client.models("pending-project");
+    await client.connect("http://second-host", "123");
+    expect(client.cachedModels("project")).toBeUndefined();
+    late.resolve(value);
+    await expect(pending).rejects.toThrow("Host connection changed.");
+    expect(client.cachedModels("pending-project")).toBeUndefined();
   });
 });

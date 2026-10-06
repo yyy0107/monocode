@@ -113,7 +113,7 @@ it("does not resurrect deleted imported history on the next startup", () => {
     store.close();
   }
 });
-it("refreshes imported native history without duplicating images or bypassing CLI ownership", () => {
+it("imports native history as Host-managed once and never bypasses CLI ownership", async () => {
   const { path, store } = fixture();
   const native = {
     provider: "codex",
@@ -131,29 +131,11 @@ it("refreshes imported native history without duplicating images or bypassing CL
     .run(JSON.stringify(native));
   try {
     importDesktopSessions(store, path);
-    const before = store.session("legacy").session.blocks[1].attachments![0].id;
-    const blocks = JSON.parse(
-      String(
-        source.prepare("SELECT blocks_json FROM sessions").get()!.blocks_json,
-      ),
-    );
-    blocks.push({ id: "external", role: "assistant", text: "From native CLI" });
-    source
-      .prepare("UPDATE sessions SET blocks_json=?, native_session_json=?")
-      .run(
-        JSON.stringify(blocks),
-        JSON.stringify({ ...native, revision: "second" }),
-      );
-    importDesktopSessions(store, path, { id: "legacy", busy: false });
-    expect(store.session("legacy").session.nativeSession?.revision).toBe(
-      "second",
-    );
-    expect(store.session("legacy").session.blocks.at(-1)?.text).toBe(
-      "From native CLI",
-    );
-    expect(store.session("legacy").session.blocks[1].attachments![0].id).toBe(
-      before,
-    );
+    // Imported links are Host-managed at once; older blockIds become nativeIds.
+    expect(store.session("legacy").session.nativeSession).toMatchObject({
+      mode: "managed", storage: "jsonl", nativeIds: ["user", "image"],
+    });
+    importDesktopSessions(store, path);
     expect(readdirSync(store.attachmentDir)).toHaveLength(1);
     const provider = {
       send: vi.fn(),
@@ -163,17 +145,28 @@ it("refreshes imported native history without duplicating images or bypassing CL
       approve: vi.fn(),
       answer: vi.fn(),
     };
-    const engine = new HostEngine(store, { codex: provider });
-    expect(provider.bind).not.toHaveBeenCalled();
-    expect(() =>
+    // Native sources resolve inside the fixture, never in the developer's home.
+    const engine = new HostEngine(store, { codex: provider }, undefined, {
+      native: { environment: { home: join(store.attachmentDir, "..", "home"), env: {} } },
+    });
+    try {
+      await engine.ready;
+      expect(provider.bind).not.toHaveBeenCalled();
       engine.command({
         type: "send",
         sessionId: "legacy",
         commandId: "phone",
         text: "Unsafe continuation",
-      }),
-    ).toThrow("CLI ownership");
-    expect(provider.send).not.toHaveBeenCalled();
+      });
+      // The source is outside every configured provider root: the startup sync
+      // fails, and the send waits in the queue instead of invoking the provider.
+      await vi.waitFor(() => expect(store.session("legacy").nativeStatus).toMatchObject({
+        state: "error",
+        message: expect.stringMatching(/^Not a native session in a configured source directory/),
+      }));
+      expect(store.session("legacy").session.queuedMessages?.map((message) => message.text)).toEqual(["Unsafe continuation"]);
+      expect(provider.send).not.toHaveBeenCalled();
+    } finally { await engine.close(); }
   } finally {
     source.close();
     store.close();

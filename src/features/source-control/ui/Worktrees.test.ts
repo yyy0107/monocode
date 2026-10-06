@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -103,6 +103,15 @@ const button = (text: string) =>
   [...document.querySelectorAll<HTMLButtonElement>("button")].find(
     (node) => node.textContent === text,
   )!;
+
+function iconMarkup(element: ReactNode) {
+  const host = document.createElement("div");
+  host.innerHTML = renderToStaticMarkup(element);
+  const svg = host.querySelector("svg")!;
+  // Match the browser's CSS serialization when comparing client and server SVGs.
+  svg.style.cssText = svg.style.cssText;
+  return svg.outerHTML;
+}
 
 const type = (input: HTMLInputElement, value: string) => {
   Object.getOwnPropertyDescriptor(
@@ -514,7 +523,7 @@ it.each([
       executionCwd !== "/repo",
     );
     expect(trigger.querySelector("svg")?.outerHTML).toBe(
-      renderToStaticMarkup(
+      iconMarkup(
         createElement(executionCwd === "/repo" ? GitBranch : FolderTree, {
           className: "size-3.5 shrink-0",
         }),
@@ -524,7 +533,7 @@ it.each([
     const options = document.querySelectorAll('[role="option"]');
     for (const [index, Icon] of [GitBranch, FolderTree].entries()) {
       expect(options[index].querySelector("svg")?.outerHTML).toBe(
-        renderToStaticMarkup(
+        iconMarkup(
           createElement(Icon, {
             className: "size-3.5 shrink-0 text-content/50",
           }),
@@ -535,7 +544,7 @@ it.each([
       button("Switch branch in this working copy…").querySelector("svg")
         ?.outerHTML,
     ).toBe(
-      renderToStaticMarkup(createElement(GitBranch, { className: "size-3.5" })),
+      iconMarkup(createElement(GitBranch, { className: "size-3.5" })),
     );
     await act(async () =>
       button("Switch branch in this working copy…").click(),

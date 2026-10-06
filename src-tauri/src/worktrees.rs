@@ -237,6 +237,7 @@ pub async fn git_worktree_create(
     existing: bool,
 ) -> Result<Worktree, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _write = crate::local_host::claim_checkout_write(&expand_home(&cwd))?;
         create(&expand_home(&cwd), &branch, &base, existing)
     })
     .await
@@ -393,9 +394,13 @@ pub async fn git_orchestration_worktree_create(
     cwd: String,
     branch: String,
 ) -> Result<Worktree, String> {
-    tauri::async_runtime::spawn_blocking(move || create_seeded(&expand_home(&cwd), branch.trim()))
-        .await
-        .map_err(|error| error.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = expand_home(&cwd);
+        let _write = crate::local_host::claim_checkout_write(&root)?;
+        create_seeded(&root, branch.trim())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn rename_branch(root: &Path, path: &Path, branch: &str) -> Result<Worktree, String> {
@@ -432,6 +437,8 @@ pub async fn git_worktree_rename_branch(
     branch: String,
 ) -> Result<Worktree, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _root_write = crate::local_host::claim_checkout_write(&expand_home(&cwd))?;
+        let _tree_write = crate::local_host::claim_checkout_write(&expand_home(&path))?;
         rename_branch(&expand_home(&cwd), &expand_home(&path), &branch)
     })
     .await
@@ -707,8 +714,8 @@ pub fn git_worktree_remove(
     agents: State<'_, crate::harness::HarnessHost>,
 ) -> Result<WorktreeRemoval, String> {
     let path = expand_home(&path);
-    let _shared_reservation = crate::local_host::reserve_worktree_removal(&path)?;
     let _reservation = crate::worktree_lifecycle::reserve_removal(&path)?;
+    let _shared_reservation = crate::local_host::reserve_worktree_removal(&path)?;
     if terminals.has_working_dir(&path) || agents.has_working_dir(&path) {
         return Err("Close the terminals and agent processes using this worktree first.".into());
     }
@@ -732,8 +739,8 @@ pub fn git_orchestration_worktree_remove(
 ) -> Result<WorktreeRemoval, String> {
     let root = expand_home(&cwd);
     let path = expand_home(&path);
-    let _shared_reservation = crate::local_host::reserve_worktree_removal(&path)?;
     let _reservation = crate::worktree_lifecycle::reserve_removal(&path)?;
+    let _shared_reservation = crate::local_host::reserve_worktree_removal(&path)?;
     if terminals.has_working_dir(&path) || agents.has_working_dir(&path) {
         return Err("Close the terminals and agent processes using this worktree first.".into());
     }
@@ -755,6 +762,7 @@ pub fn git_orchestration_worktree_remove(
 pub async fn git_orchestration_branch_remove(cwd: String, branch: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let root = expand_home(&cwd);
+        let _write = crate::local_host::claim_checkout_write(&root)?;
         let branch = branch.trim();
         if !branch.starts_with("mc/orch-") {
             return Err("Only orchestration temporary branches can be removed here".into());

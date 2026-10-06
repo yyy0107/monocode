@@ -18,6 +18,7 @@ pub(crate) struct Reservation<'a> {
     lifecycle: &'a Lifecycle,
     path: PathBuf,
     removing: bool,
+    _shared: Option<crate::local_host::SharedResourceLease>,
 }
 
 impl Lifecycle {
@@ -43,6 +44,7 @@ impl Lifecycle {
             lifecycle: self,
             path,
             removing,
+            _shared: None,
         })
     }
 }
@@ -64,11 +66,18 @@ impl Drop for Reservation<'_> {
 }
 
 pub(crate) fn reserve_spawn(path: &Path) -> Result<Reservation<'static>, String> {
-    LIFECYCLE.reserve(path, false)
+    let mut reservation = LIFECYCLE.reserve(path, false)?;
+    reservation._shared = crate::local_host::claim_checkout_resource(
+        path,
+        &format!("spawn:{}", uuid::Uuid::new_v4()),
+    )?;
+    Ok(reservation)
 }
 
 pub(crate) fn reserve_removal(path: &Path) -> Result<Reservation<'static>, String> {
-    LIFECYCLE.reserve(path, true)
+    let mut reservation = LIFECYCLE.reserve(path, true)?;
+    reservation._shared = crate::local_host::claim_checkout_removal(path)?;
+    Ok(reservation)
 }
 
 #[cfg(test)]

@@ -11,6 +11,8 @@ import {
   saveProviderAccount,
   selectedProviderAccountId,
   selectProviderAccount,
+  rememberSharedProviderDefaults,
+  requestedProviderAccountId,
 } from "./providerAccounts";
 
 beforeEach(() => {
@@ -200,4 +202,17 @@ describe("provider accounts", () => {
 
     expect(providerAccounts("claude")[0]?.label).toBe("Primary");
   });
+});
+
+it("uses confirmed shared defaults for new selections, keeps explicit overrides and exposes missing defaults", () => {
+  rememberSharedProviderDefaults({ codex: "account-9300" });
+  expect(selectedProviderAccountId("codex", "/repo")).toBe("account-9300");
+  expect(requestedProviderAccountId("codex", "/repo")).toBeUndefined();
+  saveProviderAccount({ provider: "codex", id: "work", label: "Work" });
+  selectProviderAccount("codex", "/repo", "work");
+  rememberSharedProviderDefaults({ codex: "removed" });
+  expect(selectedProviderAccountId("codex", "/repo")).toBe("work");
+  expect(selectedProviderAccountId("codex", "/different")).toBe("removed");
+  selectProviderAccount("codex", "/repo", "default");
+  expect(selectedProviderAccountId("codex", "/repo")).toBe("default");
 });

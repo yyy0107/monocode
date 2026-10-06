@@ -25,7 +25,14 @@
 - Map names to existing NativeCommand invocation rules; validate and deduplicate.
 - Query get_available_thinking_levels after active-model selection.
 - Only valid returned levels are presented for that session/model.
+- Before live session capabilities arrive, Pi catalog choices honor its
+  thinkingLevelMap: null removes a level; xhigh/max require explicit mappings.
+  The catalog default is an available level. OMP keeps its independent defaults.
 - thinking_level_changed.level updates the shared session configuration.
+- Stale/default thinking choices do not abort a turn merely because they are
+  absent from the active choices. Pi resolves them through set_thinking_level;
+  read get_state after a successful set or model switch and publish the effective
+  native level, never the requested value based only on an acknowledgement.
 - A failed set does not claim local success; unsupported query disables unverified thinking choices, retains actual provider state and emits a status explanation.
 - Extend session.configChanged with optional active-model setting-choice metadata;
   reducer/session/ModelPicker scope it to that session. Do not overwrite the global

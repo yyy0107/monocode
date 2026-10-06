@@ -15,6 +15,7 @@ export function remoteSessionState(
     ...host,
     id: shell.id,
     cwd: shell.cwd,
+    nativeSyncStatus: snapshot.nativeStatus,
     worktreeCwd: host.cwd === project.cwd
       ? undefined
       : project.local ? host.cwd : remotePath(project.environmentId, host.cwd),

@@ -1,5 +1,5 @@
 import { closeLeaf, leafIds, type WorkspaceTab } from "../../workspace/model/layout";
-import type { OrchestrationRun } from "./orchestration";
+import type { OrchestrationReadRun } from "./orchestrationClient";
 import type { Session } from "../../sessions/model/session";
 
 export function releaseOrchestrationWorker(
@@ -59,7 +59,7 @@ export async function prepareOrchestrationWorkerDetails<
 export function consolidateOrchestrationTabs(
   tabs: WorkspaceTab[],
   activeTabId: string,
-  runs: OrchestrationRun[],
+  runs: readonly OrchestrationReadRun[],
 ) {
   const parents = new Map(
     runs.flatMap((run) =>
@@ -91,7 +91,7 @@ export function consolidateOrchestrationTabs(
 
 export function attachOrchestrationWorkers(
   sessions: Session[],
-  runs: OrchestrationRun[],
+  runs: readonly OrchestrationReadRun[],
 ) {
   const parents = new Map(
     runs.flatMap((run) =>

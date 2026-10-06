@@ -5,7 +5,6 @@ import { SkillPicker } from "./SkillPicker";
 import { ompCommandsFromRpcData } from "../../../integrations/harness/providers/pi/piSkills";
 import { PLAN_COMMAND } from "../../sessions/model/plan";
 import { COMPACT_COMMAND } from "../../sessions/model/compact";
-import { SESSION_FOLDER_COMMAND } from "../../sessions/model/sessionFolderCommand";
 import type { Skill } from "../model/skills";
 
 describe("native command picker", () => {
@@ -34,7 +33,6 @@ describe("native command picker", () => {
     const html = renderToStaticMarkup(
       createElement(SkillPicker, {
         skills: [
-          SESSION_FOLDER_COMMAND,
           PLAN_COMMAND,
           COMPACT_COMMAND,
           ...native,
@@ -54,7 +52,7 @@ describe("native command picker", () => {
     expect(html).toContain("/omp:compact");
     expect(html).toContain("/plan");
     expect(html).toContain("/compact");
-    expect(html).toContain("/add-to-folder");
+    expect(html).not.toContain("/add-to-folder");
     expect(html).toContain("/workflow");
     expect(html).toContain("Choose planners and reviewers");
     expect(html).toContain("&lt;reviewer&gt; [path]");

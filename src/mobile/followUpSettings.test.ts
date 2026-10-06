@@ -56,6 +56,7 @@ const host = vi.hoisted(() => ({
     errors: {},
   })),
   cachedModels: () => undefined,
+  providerAccounts: vi.fn(async () => ({})),
   cachedSession: () => undefined,
   sessionPreviews: async () => undefined,
   session: vi.fn(async () => snapshot),

@@ -6,7 +6,7 @@ import {
 import { EventEmitter } from "node:events";
 import { promisify } from "node:util";
 import { join } from "node:path";
-import { readFile, stat, mkdir } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import type { ChildBackend } from "../src/integrations/harness/core/child";
@@ -25,6 +25,9 @@ import {
   HOST_DIAGNOSTIC_LIMIT_ERROR,
 } from "../src/integrations/harness/core/childErrors";
 import { readClaudeTitleFile } from "./native-title";
+import type { HostStore } from "./store";
+import { claimCheckoutResource } from "./checkout-guards";
+import { randomUUID } from "node:crypto";
 
 const exec = promisify(execFile);
 const ALLOWED_EXEC_ARGS = new Set([
@@ -36,6 +39,12 @@ const ALLOWED_EXEC_ARGS = new Set([
   "status --json",
   "agent list",
 ]);
+function childEnvironment(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, MONOCODE_HOST: "1" };
+  for (const key of ["MONOCODE_CONTROL_ENDPOINT", "MONOCODE_CONTROL_TOKEN", "MONOCODE_APP_ENDPOINT", "MONOCODE_APP_TOKEN"])
+    delete env[key];
+  return env;
+}
 
 function loopbackUrl(value: unknown): string {
   const url = new URL(String(value));
@@ -56,12 +65,18 @@ export class HostChildBackend implements ChildBackend {
   private outputErrors = new WeakMap<ChildProcessWithoutNullStreams, string>();
   private streams = new Map<string, AbortController>();
   private closing = false;
+  private sessionEnvironment?: (id: string) => Record<string, string>;
 
   constructor(
     private readonly binaries: Partial<Record<RemoteProvider, string>> = {},
     private readonly desktopConfigPath?: string,
+    private readonly store?: HostStore,
   ) {
     this.events.setMaxListeners(0);
+  }
+
+  configureSessionEnvironment(environment: (id: string) => Record<string, string>): void {
+    this.sessionEnvironment = environment;
   }
 
   async resolve(provider: RemoteProvider): Promise<string> {
@@ -120,6 +135,7 @@ export class HostChildBackend implements ChildBackend {
           timeout: 10_000,
           maxBuffer: 8 * 1024 * 1024,
           windowsHide: true,
+          env: childEnvironment(),
         });
         return stdout as T;
       }
@@ -282,7 +298,8 @@ export class HostChildBackend implements ChildBackend {
     if (this.closing) throw new Error("Host is stopping");
     const account = args.account as
       { id?: string; provider?: string } | undefined;
-    const env: NodeJS.ProcessEnv = { ...process.env, MONOCODE_HOST: "1" };
+    const env = childEnvironment();
+    Object.assign(env, this.sessionEnvironment?.(id));
     if (account?.id && account.id !== "default") {
       if (!this.desktopConfigPath)
         throw new Error("Named provider accounts require a desktop-owned Host");
@@ -300,7 +317,8 @@ export class HostChildBackend implements ChildBackend {
         account.provider!,
         account.id,
       );
-      await mkdir(profile, { recursive: true, mode: 0o700 });
+      if (!(await stat(profile).catch(() => undefined))?.isDirectory())
+        throw new Error("This provider account is no longer available");
       if (account.provider === "codex") {
         env.CODEX_HOME = profile;
         for (const key of [
@@ -325,6 +343,7 @@ export class HostChildBackend implements ChildBackend {
       args.args as string[],
     );
     if (this.closing) throw new Error("Host is stopping");
+    const release = this.store ? claimCheckoutResource(this.store, `host-guard:${randomUUID()}`, String(args.cwd)) : undefined;
     const child = spawn(
       process.execPath,
       [
@@ -347,15 +366,18 @@ export class HostChildBackend implements ChildBackend {
     this.lines(child, id, "stdout");
     this.lines(child, id, "stderr");
     child.on("close", (code) => {
+      release?.();
       if (this.children.get(id) === child) this.children.delete(id);
       const error = this.outputErrors.get(child);
       this.emit("harness-exit", { sessionId: id, code, pid: child.pid,
         ...(error ? { error } : {}) });
     });
-    await new Promise<void>((resolve, reject) => {
-      child.once("spawn", resolve);
-      child.once("error", reject);
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        child.once("spawn", () => { if (child.pid) release?.transfer(child.pid); resolve(); });
+        child.once("error", reject);
+      });
+    } catch (error) { release?.(); throw error; }
     return child.pid!;
   }
 

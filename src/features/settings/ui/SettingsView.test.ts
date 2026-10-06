@@ -1,3 +1,4 @@
+import { configureSharedHost } from "../../connections/model/remoteProjects";
 // @vitest-environment happy-dom
 import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -96,6 +97,7 @@ function renderedSettingIds(): string[] {
 }
 
 beforeEach(() => {
+  configureSharedHost(undefined, []);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mockLocalStorage();
   refreshUiLanguage();
@@ -1183,4 +1185,58 @@ describe("providers scope inheritance", () => {
       "Hidden globally",
     );
   });
+});
+
+it("saves a shared account only after publication, prevents removing it and supports retry", async () => {
+  configureSharedHost("env", [], "shared-machine");
+  let failSave = true;
+  let defaults: Record<string, string> = {};
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === "remote_request") {
+      if ((args as { method: string }).method === "environment.describe") return { protocolVersion: 1, environmentId: "env", name: "fixture", providers: ["codex"], capabilities: ["providerAccounts.defaults"] };
+      return {};
+    }
+    if (command === "provider_account_defaults") return defaults;
+    if (command === "provider_account_set_default") {
+      if (failSave) throw new Error("Unable to save fixture default");
+      defaults = { codex: "work" }; return defaults;
+    }
+  });
+  saveProviderAccount({ provider: "codex", id: "work", label: "9300" });
+  await render("providers");
+  const choose = () => container.querySelector<HTMLButtonElement>('[aria-label="Use 9300 as shared default"]')!;
+  expect(choose().disabled).toBe(false);
+  await act(async () => choose().click());
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Unable to save fixture default");
+  expect(choose()).not.toBeNull();
+  failSave = false;
+  await act(async () => choose().click());
+  expect(choose()).toBeNull();
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Remove 9300"]')?.disabled).toBe(true);
+  expect(invoke).toHaveBeenCalledWith("provider_account_set_default", { provider: "codex", accountId: "work" });
+  const calls = vi.mocked(invoke).mock.calls.map(call => call[0]);
+  expect(calls.indexOf("provider_accounts_publish")).toBeLessThan(calls.indexOf("provider_account_set_default"));
+});
+
+it("imports the current Codex login into a named profile and animates the editor closed", async () => {
+  const copied = vi.fn();
+  vi.mocked(invoke).mockImplementation(async command => {
+    if (command === "provider_account_import_codex") copied();
+  });
+  await render("providers");
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Import current Codex login")!.click());
+  const input = container.querySelector<HTMLInputElement>('[aria-label="New Codex account"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "9300");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+  expect(copied).toHaveBeenCalledOnce();
+  expect(providerAccounts("codex").some(account => account.label === "9300")).toBe(true);
+  expect(invoke).not.toHaveBeenCalledWith("provider_account_set_default", expect.anything());
+  const closing = container.querySelector('[data-fold-state="closing"]');
+  expect(closing?.getAttribute("aria-hidden")).toBe("true");
+  expect(closing?.hasAttribute("inert")).toBe(true);
+  await act(async () => closing?.dispatchEvent(new Event("animationend", { bubbles: true })));
+  expect(container.querySelector('[aria-label="New Codex account"]')).toBeNull();
 });

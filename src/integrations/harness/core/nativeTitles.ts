@@ -5,6 +5,8 @@ import { killChild, spawnChild, unwatchChild, watchChild } from "./child";
 import type { HarnessId } from "../../../features/sessions/model/session";
 import type { NativeTitleInput } from "./titleCoordinator";
 
+export { parseClaudeNativeTitle } from "./nativeTitleParsing";
+
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -129,25 +131,4 @@ export async function readAcpTitleInProcess(
     unwatchChild(childId);
     await killChild(childId).catch(() => undefined);
   }
-}
-
-export function parseClaudeNativeTitle(
-  content: string,
-  sessionId: string,
-): string | null {
-  let title: string | null = null;
-  let manual: string | null = null;
-  for (const line of content.split("\n")) {
-    try {
-      const row = record(JSON.parse(line));
-      if (row.sessionId !== sessionId) continue;
-      if (row.type === "ai-title")
-        title = usefulNativeTitle(row.aiTitle, sessionId) ?? title;
-      if (row.type === "custom-title" && typeof row.customTitle === "string")
-        manual = usefulNativeTitle(row.customTitle, sessionId);
-    } catch {
-      /* Incomplete writes do not discard the last complete title. */
-    }
-  }
-  return manual ?? title;
 }

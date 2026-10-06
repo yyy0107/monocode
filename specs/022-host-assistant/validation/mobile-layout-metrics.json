@@ -1,0 +1,59 @@
+{
+  "browser": "Chrome/154.0.8037.97",
+  "sizes": [
+    {
+      "width": 320,
+      "height": 640,
+      "overflow": false,
+      "logOverflow": false,
+      "inputFont": "16px",
+      "touchWidths": [
+        44,
+        44
+      ]
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "logOverflow": false,
+      "inputFont": "16px",
+      "touchWidths": [
+        44,
+        44
+      ]
+    },
+    {
+      "width": 430,
+      "height": 932,
+      "overflow": false,
+      "logOverflow": false,
+      "inputFont": "16px",
+      "touchWidths": [
+        44,
+        44
+      ]
+    }
+  ],
+  "scope": "Rendered production MobileAssistant component with fixture RPC in isolated headless Chrome; no physical device or native WebView verification.",
+  "checks": {
+    "keyboardBeforeResize": {
+      "viewportHeight": 844,
+      "keyboardHeight": 300,
+      "overlayHeight": 544,
+      "composerBottom": 522
+    },
+    "keyboardAfterResize": {
+      "viewportHeight": 544,
+      "overlayHeight": 544,
+      "composerBottom": 522
+    },
+    "longUnbrokenPath": "no horizontal overflow",
+    "multilineTextareaMaxHeight": 168,
+    "attachments": "uploaded through browser file input and removed through accessible button",
+    "sessionCard": "opened exact environment/project/session fixture reference",
+    "settings": "chat inert while open; Back returns focus to Assistant options",
+    "reducedMotion": "settings fold state open immediately",
+    "desktop": "default inline settings, controls and composer retained"
+  }
+}

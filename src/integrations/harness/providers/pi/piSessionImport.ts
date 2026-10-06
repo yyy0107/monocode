@@ -9,11 +9,18 @@ import {
 } from "../../core/nativeSessions";
 import type { Block } from "../../../../features/sessions/model/session";
 
+/**
+ * Pi v3 session trees. omp (a Pi fork) writes the same tree with a padded
+ * `title` record before the header, rewrites that record in place, and stores
+ * model changes as one `provider/model` string.
+ */
 export function parsePiSession(
   content: string,
   file: NativeSessionFile,
 ): NativeTranscript {
-  const records = nativeJsonLines(content);
+  const omp = file.provider === "omp";
+  const all = nativeJsonLines(content);
+  const records = omp ? all.filter((record) => record.type !== "title") : all;
   const header = records[0];
   if (
     header?.type !== "session" ||
@@ -22,8 +29,11 @@ export function parsePiSession(
     nativeString(header.cwd).replace(/\\/g, "/") !== file.cwd
   )
     throw new Error(
-      translate("Unsupported or changed Pi session; refresh the session list"),
+      omp
+        ? translate("Unsupported or changed omp session; refresh the session list")
+        : translate("Unsupported or changed Pi session; refresh the session list"),
     );
+  const prefix = omp ? "omp" : "pi";
   const entries = records.slice(1);
   const byId = new Map(
     entries
@@ -37,13 +47,14 @@ export function parsePiSession(
     if (visited.has(leaf.id))
       throw new Error(translate("Invalid Pi session tree: cycle"));
     visited.add(leaf.id);
-    path.unshift(leaf);
+    path.push(leaf);
     if (leaf.parentId == null) break;
     const parent = byId.get(leaf.parentId);
     if (!parent)
       throw new Error(translate("Invalid Pi session tree: missing parent"));
     leaf = parent;
   }
+  path.reverse();
   const edits = new Map(
     path
       .filter((entry) => entry.type === "context_edit")
@@ -54,11 +65,22 @@ export function parsePiSession(
     blocks: [],
     modelSettings: {},
   };
+  if (omp) {
+    const title = all
+      .filter((record) => record.type === "title")
+      .map((record) => nativeString(record.title).trim())
+      .filter(Boolean)
+      .pop();
+    if (title) result.title = title;
+  }
   const calls = new Map<string, Block>();
   for (const entry of path) {
-    const id = `native-pi-${nativeString(entry.id)}`;
+    const id = `native-${prefix}-${nativeString(entry.id)}`;
     if (entry.type === "model_change")
-      result.model = `pi:${nativeString(entry.provider)}/${nativeString(entry.modelId)}`;
+      result.model =
+        omp && typeof entry.model === "string"
+          ? `omp:${entry.model}`
+          : `${prefix}:${nativeString(entry.provider)}/${nativeString(entry.modelId)}`;
     if (entry.type === "thinking_level_change")
       result.modelSettings.thinking = nativeString(entry.thinkingLevel);
     if (entry.type === "session_info" && typeof entry.name === "string")
@@ -107,7 +129,7 @@ export function parsePiSession(
           typeof message.model === "string" &&
           typeof message.provider === "string"
         )
-          result.model = `pi:${message.provider}/${message.model}`;
+          result.model = `${prefix}:${message.provider}/${message.model}`;
         if (!Array.isArray(message.content)) continue;
         for (let index = 0; index < message.content.length; index++) {
           const part = nativeRecord(message.content[index]);

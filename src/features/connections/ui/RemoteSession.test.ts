@@ -1,3 +1,4 @@
+import { rememberSharedProviderDefaults, saveProviderAccount, selectProviderAccount } from "../../providers/model/providerAccounts";
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -13,6 +14,8 @@ import { rememberRemoteProject, configureSharedHost } from "../model/remoteProje
 import { preloadRemoteSession, RemoteSession } from "./RemoteSession";
 import { rememberRemoteSession, remoteSessionFor } from "../model/connections";
 import "../model/remoteCommands";
+import { OrchestrationPreview } from "../../orchestration/ui/OrchestrationPreview";
+import { loadRemoteOutbox } from "../model/remoteOutbox";
 import type {
   HostCommand,
   HostDescriptor,
@@ -22,6 +25,10 @@ import type {
 } from "../model/protocol";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({
+  emit: vi.fn(async () => undefined),
+  listen: vi.fn(async () => () => undefined),
+}));
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
 }));
@@ -51,6 +58,7 @@ vi.mock("../../sessions/ui/AgentTranscript", () => ({
           "li",
           { key: block.id },
           block.text,
+          block.orchestration ? createElement(OrchestrationPreview, { block, busy }) : null,
           block.draft && onSendDraft
             ? createElement(
                 "button",
@@ -112,6 +120,7 @@ let container: HTMLDivElement;
 let host: HostSession | undefined;
 let catalog: HostModelCatalog | Error;
 let providers: HostDescriptor["providers"];
+let orchestrationCapability: boolean;
 let commands: HostCommand[];
 let projectKey: string;
 let syncDelay: Promise<void> | undefined;
@@ -123,7 +132,7 @@ let createdBranch: string | undefined;
 let createdWorktree: string | undefined;
 let deletedSessions: string[];
 
-beforeEach(() => {
+beforeEach(async () => {
   configureSharedHost(undefined, []);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
@@ -140,6 +149,7 @@ beforeEach(() => {
   deletedSessions = [];
   catalog = { models: { codex: [gpt] }, errors: {} };
   providers = ["codex"];
+  orchestrationCapability = false;
   projectKey = rememberRemoteProject("env", {
     id: "project",
     name: "repo",
@@ -148,6 +158,7 @@ beforeEach(() => {
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation(async (command, input) => {
     if (command === "remote_machines") return [machine];
+    if (command === "remote_outbox_list") return [];
     if (command !== "remote_request") return undefined;
     const { method, params } = input as {
       method: string;
@@ -164,7 +175,7 @@ beforeEach(() => {
         environmentId: "env",
         name: "home",
         providers,
-        capabilities: ["attachments.upload", "sessions.plan", "sessions.draft"],
+        capabilities: ["attachments.upload", "sessions.plan", "sessions.draft", ...(orchestrationCapability ? ["sessions.orchestration"] : [])],
       };
     if (method === "models.list") {
       if (catalog instanceof Error) throw catalog.message;
@@ -257,6 +268,7 @@ beforeEach(() => {
     }
     throw new Error(`Unexpected method ${method}`);
   });
+  await loadRemoteOutbox();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -354,6 +366,19 @@ function dispatch(command: HostCommand) {
         ),
       },
     };
+  } else if (host && command.type === "orchestration") {
+    if ((command.action === "confirmProposal" || command.action === "editProposal") && command.expectedRevision !== host.revision)
+      throw new Error("Host rejected request: Proposal changed on another device");
+    if (["resume", "stop", "cancelTask"].includes(command.action) && command.orchestrationId !== host.orchestration?.id)
+      throw new Error("Host rejected request: Orchestration run changed");
+    host = { ...host, revision: host.revision + 1 };
+    if (command.action === "confirmProposal") host = { ...host, session: { ...host.session,
+      blocks: host.session.blocks.map(block => block.id === command.proposalBlockId && block.orchestration
+        ? { ...block, orchestration: { ...block.orchestration, status: "approved", ...(command.edit ? { tasks: command.edit.tasks,
+          settings: { ...block.orchestration.settings, maxWorkers: command.edit.maxWorkers } } : {}) } } : block),
+    } };
+    if (host.orchestration && (command.action === "resume" || command.action === "stop"))
+      host = { ...host, orchestration: { ...host.orchestration, status: command.action === "resume" ? "active" : "stopped" } };
   }
   return {
     commandId: command.commandId,
@@ -397,6 +422,7 @@ async function settle() {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 }
+
 it("shares startup Host metadata across restored panes while syncing each conversation", async () => {
   const original = vi.mocked(invoke).getMockImplementation()!;
   let describe!: () => void;
@@ -491,6 +517,102 @@ async function send(text: string) {
   await settle();
 }
 
+function proposalSession(): HostSession {
+  return {
+    projectId: "project", revision: 7, status: "idle", updatedAt: 1,
+    session: { ...shell(), id: "host-session", cwd: "/home/me/repo", harness: "codex", model: gpt.id,
+      blocks: [{ id: "proposal", role: "assistant", text: "A proposal", orchestration: {
+        version: 1, leadId: "host-session", cwd: "/home/me/repo", checkoutCwd: "/home/me/repo",
+        request: "Fix the tests", author: { harness: "codex", model: gpt.id, name: "GPT Test" },
+        settings: { maxWorkers: 2, choices: [{ harness: "codex", model: gpt.id, name: "GPT Test" }] },
+        status: "ready", title: "Test plan", summary: "Fix tests in parallel", tasks: [],
+      } }] },
+  };
+}
+
+it("offers Host orchestration in the menu and preserves its send intent", async () => {
+  orchestrationCapability = true;
+  await render();
+  await act(async () => byLabel("Add files or choose a mode")!.click());
+  const option = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Orchestrator"));
+  expect(option).toBeDefined();
+  await act(async () => option!.click());
+  await send("Coordinate the fix");
+  expect(commands.at(-1)).toMatchObject({ type: "send", text: "Coordinate the fix", intent: "orchestrate" });
+  expect(vi.mocked(invoke).mock.calls.some(([command]) => command.startsWith("control_"))).toBe(false);
+});
+
+it("supports typed orchestrator requests on the local shared Host", async () => {
+  orchestrationCapability = true;
+  configureSharedHost("env", [{ id: "project", name: "repo", cwd: "/home/me/repo" }], machine.id);
+  await render({ ...shell(), cwd: "/home/me/repo" });
+  await send("/orchestrator Coordinate the local fix");
+  expect(commands.at(-1)).toMatchObject({ type: "send", text: "Coordinate the local fix", intent: "orchestrate" });
+});
+
+it("keeps orchestrator unavailable on an old Host without losing a typed request", async () => {
+  await render();
+  await act(async () => byLabel("Add files or choose a mode")!.click());
+  expect([...document.querySelectorAll("button")].some(button => button.textContent?.includes("Orchestrator"))).toBe(false);
+  await act(async () => document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  await send("/orchestrator Keep this request");
+  expect(commands).toEqual([]);
+  expect(container.querySelector("textarea")!.value).toBe("/orchestrator Keep this request");
+});
+
+it("atomically confirms edited Host proposals with their original revision", async () => {
+  orchestrationCapability = true;
+  host = proposalSession();
+  rememberRemoteSession("shell", host.session.id);
+  await render();
+  const four = container.querySelector<HTMLButtonElement>('[role="radiogroup"] button:last-child')!;
+  await act(async () => four.click());
+  const confirm = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Confirm & start")!;
+  await act(async () => confirm.click());
+  await settle();
+  expect(commands).toContainEqual(expect.objectContaining({ type: "orchestration", action: "confirmProposal",
+    sessionId: "host-session", projectId: "project", proposalBlockId: "proposal", expectedRevision: 7,
+    edit: { maxWorkers: 4, tasks: [] },
+  }));
+  expect(host?.session.blocks[0].orchestration?.status).toBe("approved");
+});
+
+it("retains edits and rejects confirmation after another device changes the proposal", async () => {
+  orchestrationCapability = true;
+  host = proposalSession();
+  rememberRemoteSession("shell", host.session.id);
+  await render();
+  await act(async () => container.querySelector<HTMLButtonElement>('[role="radiogroup"] button:last-child')!.click());
+  host = { ...host!, revision: 8 };
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Confirm & start")!.click());
+  await settle();
+  expect(host.session.blocks[0].orchestration?.status).toBe("ready");
+  expect(container.querySelector('[role="radiogroup"] button:last-child')?.getAttribute("aria-checked")).toBe("true");
+  expect(container.textContent).toContain("Proposal changed on another device");
+  expect(commands.at(-1)).toMatchObject({ type: "orchestration", expectedRevision: 7 });
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Reload proposal")!.click());
+  await settle();
+  expect(container.querySelector('[role="radiogroup"] button:nth-child(2)')?.getAttribute("aria-checked")).toBe("true");
+});
+
+it("exposes manual Resume and Stop on the lead card using the stable orchestration ID", async () => {
+  orchestrationCapability = true;
+  host = proposalSession();
+  host.session.blocks[0].orchestration!.status = "approved";
+  host.runId = "provider-turn";
+  host.orchestration = { id: "orchestration-run", leadId: host.session.id, cwd: "/home/me/repo", proposalId: "proposal",
+    status: "paused", allowedHarnesses: ["codex"], maxWorkers: 2, tasks: [] };
+  rememberRemoteSession("shell", host.session.id);
+  await render();
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Resume")!.click());
+  await settle();
+  expect(commands.at(-1)).toMatchObject({ type: "orchestration", action: "resume", orchestrationId: "orchestration-run" });
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Stop")!.click());
+  await settle();
+  expect(commands.at(-1)).toMatchObject({ type: "orchestration", action: "stop", orchestrationId: "orchestration-run" });
+  expect(host.orchestration.status).toBe("stopped");
+});
+
 it("backs a native project conversation with Host commands and keeps transcript files local", async () => {
   projectKey = "/home/me/repo";
   configureSharedHost("env", [{ id: "project", cwd: projectKey, name: "repo" }]);
@@ -554,7 +676,12 @@ it("opens transcript files and diffs through the shared remote tabs", async () =
 });
 
 it("opens a host conversation in an already mounted empty tab", async () => {
-  await render();
+  await render(shell(), {
+    inSplit: true,
+    renderHeader: (session) => createElement("header", {
+      "data-resolved-session-header": "",
+    }, session.title),
+  });
   dispatch({
     type: "create",
     commandId: "existing-session",
@@ -575,6 +702,10 @@ it("opens a host conversation in an already mounted empty tab", async () => {
   await act(async () => rememberRemoteSession("shell", "host-session"));
   await settle();
   expect(container.textContent).toContain("Earlier message");
+  expect(container.querySelectorAll("[data-resolved-session-header]")).toHaveLength(1);
+  expect(container.querySelector("[data-resolved-session-header]")?.textContent)
+    .toBe("Codex · Existing conversation");
+  expect(byLabel("Close pane")).toBeNull();
   await send("Continue here");
   expect(commands.some((command) => command.type === "create")).toBe(false);
   expect(commands.some((command) => command.type === "send")).toBe(true);
@@ -1207,4 +1338,20 @@ it("shows the Host queue in the desktop composer, queues while busy, and edits a
   expect(container.querySelector('[aria-label="Transcript"]')?.getAttribute("data-busy")).toBe("false");
   expect(container.querySelector('[aria-label="Transcript"]')?.textContent).not.toContain("Queued from desktop");
   expect(commands.filter(command => command.type === "queue").map(command => command.type === "queue" && command.action)).toEqual(["hold", "edit", "remove", "remove"]);
+});
+
+it("passes an explicit desktop account and leaves a following default for Host to resolve", async () => {
+  configureSharedHost("env", [{ id: "project", name: "repo", cwd: "/home/me/repo" }], machine.id);
+  rememberSharedProviderDefaults({ codex: "shared" });
+  await render({ ...shell(), cwd: "/home/me/repo" });
+  await send("Follow the current Host default");
+  expect(commands.find(command => command.type === "create")).not.toHaveProperty("providerAccountId", "shared");
+});
+it("honors a temporary desktop account choice for the first Host create", async () => {
+  configureSharedHost("env", [{ id: "project", name: "repo", cwd: "/home/me/repo" }], machine.id);
+  saveProviderAccount({ provider: "codex", id: "work", label: "Work" });
+  selectProviderAccount("codex", "/home/me/repo", "work");
+  await render({ ...shell(), cwd: "/home/me/repo", harness: "codex", model: gpt.id, providerAccountId: "temporary" });
+  await send("Use the selected account");
+  expect(commands.find(command => command.type === "create")).toMatchObject({ providerAccountId: "temporary" });
 });

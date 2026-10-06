@@ -131,14 +131,6 @@ impl HarnessHost {
             .filter(|path| !path.is_empty())
     }
 
-    pub(crate) fn managed_pids(&self) -> std::collections::HashSet<u32> {
-        self.lock_inner()
-            .children
-            .values()
-            .map(|child| child.pid)
-            .collect()
-    }
-
     pub(crate) fn has_working_dir(&self, path: &Path) -> bool {
         self.lock_inner()
             .children
@@ -261,6 +253,27 @@ impl HarnessHost {
         // Drop stdin before signaling so ACP CLIs that watch the pipe can exit.
         drop(kids);
         terminate_all(&pids);
+    }
+
+    /// Retire only the legacy orchestration IDs; wait for their process trees.
+    pub(crate) fn retire_sessions(&self, ids: &[String]) -> Result<(), String> {
+        let mut children = Vec::new();
+        for id in ids {
+            self.stop_sse(id);
+            if let Some(child) = self.kill_session(id) {
+                children.push(child);
+            }
+        }
+        let pids: Vec<u32> = children.iter().map(|child| child.pid).collect();
+        drop(children);
+        terminate_all(&pids);
+        #[cfg(unix)]
+        if pids.iter().any(|pid| tree_alive(*pid)) {
+            return Err(
+                "Legacy orchestration processes have not stopped yet; retry cleanup".into(),
+            );
+        }
+        Ok(())
     }
 
     fn insert_sse(&self, session_id: String, live: Arc<LiveSse>) -> Option<Arc<LiveSse>> {
@@ -1017,6 +1030,9 @@ pub fn harness_spawn(
     binary_provider: Option<String>,
     binary_path: Option<String>,
 ) -> Result<u32, String> {
+    if let Some(store) = app.try_state::<crate::session_store::SessionStore>() {
+        crate::legacy_orchestration::authorize_session(&store, &session_id)?;
+    }
     let workdir = expand_home(&cwd);
     if !workdir.is_dir() {
         return Err(format!(
@@ -1029,6 +1045,10 @@ pub fn harness_spawn(
     }
 
     let _reservation = crate::worktree_lifecycle::reserve_spawn(&workdir)?;
+    let shared_resource = crate::local_host::claim_checkout_process_resource(
+        &workdir,
+        &format!("harness:{}", uuid::Uuid::new_v4()),
+    )?;
     let (epoch, kill_all, prev) = host.begin_spawn(&session_id);
     if let Some(prev) = prev {
         terminate(prev.pid);
@@ -1048,6 +1068,13 @@ pub fn harness_spawn(
     let mut child =
         spawn_managed(&mut cmd).map_err(|e| format!("Failed to start {command}: {e}"))?;
     let pid = child.id();
+    if let Some(lease) = shared_resource.as_ref() {
+        if let Err(error) = lease.set_owner_pid(pid) {
+            terminate_all(&[pid]);
+            let _ = child.wait();
+            return Err(error);
+        }
+    }
 
     let stdin = child
         .stdin
@@ -1068,6 +1095,14 @@ pub fn harness_spawn(
         pid,
         account,
     });
+    if let Some(store) = app.try_state::<crate::session_store::SessionStore>() {
+        if let Err(error) = crate::legacy_orchestration::authorize_session(&store, &session_id) {
+            drop(live);
+            terminate_all(&[pid]);
+            let _ = child.wait();
+            return Err(error);
+        }
+    }
     if let Some(rejected) = host.install_spawn(session_id.clone(), epoch, kill_all, live) {
         // A kill, or a newer spawn, won the race while this one was forking.
         // Returning `Ok` here would hand the caller a dead pid to store as the
@@ -1114,6 +1149,7 @@ pub fn harness_spawn(
     let wait_id = session_id;
     let wait_pid = pid;
     thread::spawn(move || {
+        let _shared_resource = shared_resource;
         let code = child.wait().ok().and_then(|status| status.code());
         if let Some(host) = wait_app.try_state::<HarnessHost>() {
             if host.remove_if_pid(&wait_id, wait_pid).is_some() {
@@ -1186,6 +1222,10 @@ pub fn provider_account_remove(
     provider: String,
     account_id: String,
 ) -> Result<(), String> {
+    let _guard = crate::provider_defaults::ACCOUNT_WRITE
+        .lock()
+        .map_err(|error| error.to_string())?;
+    crate::provider_defaults::ensure_removable(&app, &provider, &account_id)?;
     let dir = provider_account_path(&app, &provider, &account_id)?;
     host.kill_account(&provider, &account_id);
 
@@ -1214,6 +1254,57 @@ pub fn provider_account_remove(
             "Could not remove the {provider} account directory {}: {error}",
             dir.display()
         )
+    })
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct PublishedProviderAccount {
+    id: String,
+    label: String,
+}
+
+fn valid_account_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 80
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+/// Share account labels with the desktop-owned Host so phones can choose a
+/// profile. Only ids and labels are written; credentials stay in each profile.
+#[tauri::command(async)]
+pub fn provider_accounts_publish(
+    app: AppHandle,
+    accounts: HashMap<String, Vec<PublishedProviderAccount>>,
+) -> Result<(), String> {
+    let published: HashMap<String, Vec<PublishedProviderAccount>> = accounts
+        .into_iter()
+        .filter(|(provider, _)| provider == "claude" || provider == "codex")
+        .map(|(provider, entries)| {
+            let entries = entries
+                .into_iter()
+                .filter(|entry| valid_account_id(&entry.id) && !entry.label.trim().is_empty())
+                .map(|entry| PublishedProviderAccount {
+                    id: entry.id,
+                    label: entry.label.trim().chars().take(80).collect(),
+                })
+                .collect();
+            (provider, entries)
+        })
+        .collect();
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("provider-accounts");
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    let raw = serde_json::to_vec(&published).map_err(|error| error.to_string())?;
+    let temporary = dir.join(format!("accounts-{}.tmp", uuid::Uuid::new_v4()));
+    std::fs::write(&temporary, raw).map_err(|error| error.to_string())?;
+    std::fs::rename(&temporary, dir.join("accounts.json")).map_err(|error| {
+        let _ = std::fs::remove_file(&temporary);
+        error.to_string()
     })
 }
 

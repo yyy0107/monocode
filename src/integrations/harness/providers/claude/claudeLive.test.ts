@@ -986,6 +986,73 @@ describe("claude model switching", () => {
   });
 });
 
+describe("claude imported native sessions", () => {
+  const native = (providerSessionId: string) => ({
+    provider: "claude" as const,
+    providerSessionId,
+    path: `/home/u/.claude/projects/-repo/${providerSessionId}.jsonl`,
+    revision: "1",
+    blockIds: [],
+    createdAt: 1,
+    updatedAt: 2,
+  });
+
+  it("resumes the imported id and keeps it after a resume", async () => {
+    bindClaudeSession("s1", "sess_1", "/repo", undefined, native("sess_1"));
+    const { turn } = await startTurn("s1");
+    expect(spawned[0]).toEqual(expect.arrayContaining(["--resume", "sess_1"]));
+    expect(spawned[0]).not.toContain("--session-id");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("fails instead of continuing in a replacement conversation", async () => {
+    bindClaudeSession("s1", "native_1", "/repo", undefined, native("native_1"));
+    const events: HarnessEvent[] = [];
+    const turn = sendClaudeTurn({
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      modelSettings: {},
+      runtimeMode: "supervised",
+      text: "continue",
+      attachments: [],
+      onEvent: (event) => events.push(event),
+    });
+    await waitFor(
+      () =>
+        parse().some(
+          (m) => (m.request as Record<string, unknown> | undefined)?.subtype === "initialize",
+        ),
+      "initialize",
+    );
+    expect(spawned[0]).toEqual(expect.arrayContaining(["--resume", "native_1"]));
+    emit({ type: "system", subtype: "init", session_id: "fresh_2" });
+    await expect(turn).rejects.toThrow("did not resume the imported session");
+    expect(events).not.toContainEqual({
+      type: "session.providerBound",
+      providerSessionId: "fresh_2",
+    });
+  });
+
+  it("refuses to move an imported session to another project", async () => {
+    bindClaudeSession("s1", "native_1", "/elsewhere", undefined, native("native_1"));
+    await expect(
+      sendClaudeTurn({
+        sessionId: "s1",
+        cwd: "/repo",
+        model: "claude:claude-sonnet-5",
+        modelSettings: {},
+        runtimeMode: "supervised",
+        text: "continue",
+        attachments: [],
+        onEvent: () => undefined,
+      }),
+    ).rejects.toThrow("original project");
+    expect(spawned).toHaveLength(0);
+  });
+});
+
 describe("claude legacy account resume", () => {
   it("resumes a legacy thread when the missing account resolves to default", async () => {
     bindClaudeSession("s1", "legacy-session", "/repo");

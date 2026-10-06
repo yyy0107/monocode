@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { savePinnedProjects } from "../../features/projects/model/recents";
 import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +35,8 @@ const remoteState = vi.hoisted(() => ({
   bindings: new Map<string, string>(),
   states: new Map<string, Partial<RemoteProjectSessions>>(),
   subscriptions: vi.fn(),
+  request: vi.fn(),
+  refresh: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => null),
@@ -81,6 +84,8 @@ vi.mock(
     >()),
     useRemoteMachines: () => ({ machines: [], loaded: true }),
     useRemoteMachineOnline: () => false,
+    remoteRequest: remoteState.request,
+    refreshRemoteProjectSessions: remoteState.refresh,
     remoteSessionFor: (id: string) =>
       remoteState.bindings.get(id) ??
       (id.startsWith("shell:") ? id.slice(6) : undefined),
@@ -132,7 +137,7 @@ const hostRow = (id: string, title = id): HostSessionSummary => ({
 const project = (path: string) =>
   container.querySelector<HTMLElement>(`[data-project-path="${path}"]`)!;
 const card = (id: string) =>
-  container.querySelector<HTMLElement>(`[data-session-card="${id}"]`)!;
+  container.querySelector<HTMLElement>(`[data-project-path] [data-session-card="${id}"]`)!;
 const input = () =>
   container.querySelector<HTMLInputElement>(
     'input[aria-label="Search projects and conversations"], input[aria-label="Search conversations"]',
@@ -190,6 +195,8 @@ beforeEach(() => {
   remoteState.bindings.clear();
   remoteState.states.clear();
   remoteState.subscriptions.mockClear();
+  remoteState.request.mockReset().mockResolvedValue(undefined);
+  remoteState.refresh.mockReset();
   vi.mocked(useProjectDiffStats).mockReset().mockReturnValue(null);
   resizeCallbacks = [];
   measuredHeight = 700;
@@ -556,6 +563,7 @@ describe("named project/session tree", () => {
   });
 
   it("dismisses metadata before a session menu or drag and keeps it hidden during dragging", () => {
+    props.onPlaceSessionOnPane = vi.fn();
     vi.useFakeTimers();
     act(() => render());
     const trigger = card("a").querySelector<HTMLElement>(
@@ -647,7 +655,7 @@ describe("named project/session tree", () => {
     expect(tooltip.querySelector("h3")).toBeNull();
   });
 
-  it("matches the project row height and horizontal bounds for plain, folder, pinned and reminder sessions, including rename", () => {
+  it("matches the project row height and horizontal bounds for plain, formerly grouped, pinned and reminder sessions, including rename", () => {
     props.projectHistory = [
       summary("plain", A),
       summary("folder", A),
@@ -683,7 +691,7 @@ describe("named project/session tree", () => {
     const lists = project(A).querySelectorAll<HTMLElement>(
       "[data-project-session-section] ul",
     );
-    expect(lists).toHaveLength(4);
+    expect(lists).toHaveLength(2);
     for (const list of lists) {
       expect(list.classList.contains("gap-[3px]")).toBe(true);
       if (list.hasAttribute("data-session-list")) {
@@ -697,7 +705,7 @@ describe("named project/session tree", () => {
     const groups = project(A).querySelectorAll<HTMLElement>(
       "[data-pinned-sessions],[data-reminder-sessions],[data-session-folder]",
     );
-    expect(groups).toHaveLength(3);
+    expect(groups).toHaveLength(1);
     for (const group of groups) {
       expect(group.classList.contains("mb-1")).toBe(false);
       expect(group.classList.contains("mb-1.5")).toBe(false);
@@ -717,7 +725,7 @@ describe("named project/session tree", () => {
     // Rows keep the header's bounds while their text indents to its name.
     expect(card("plain").classList.contains("pl-8")).toBe(true);
     expect(card("plain").classList.contains("pr-2")).toBe(true);
-    expect(card("folder").classList.contains("pl-[54px]")).toBe(true);
+    expect(card("folder").classList.contains("pl-8")).toBe(true);
     expect(card("folder").classList.contains("pr-2")).toBe(true);
     act(() =>
       card("plain")
@@ -734,18 +742,14 @@ describe("named project/session tree", () => {
     expect(rename.classList.contains("pl-6")).toBe(true);
   });
 
-  it.each(["folder", "pinned", "reminders"] as const)(
+  it.each(["pinned", "reminders"] as const)(
     "animates %s members open and closed through the shared disclosure",
     (kind) => {
       props.projectHistory = [
         { ...summary("member", A), pinned: kind === "pinned" },
       ];
       props.sessions = props.projectHistory;
-      if (kind === "folder") {
-        saveSessionFolders(A, [
-          { id: "f", name: "Folder", sessionIds: ["member"], collapsed: false },
-        ]);
-      }
+      if (kind === "pinned") props.recents = undefined;
       if (kind === "reminders") {
         props.reminders = [
           {
@@ -760,9 +764,7 @@ describe("named project/session tree", () => {
       }
       act(() => render());
       const selector =
-        kind === "folder"
-          ? "[data-session-folder]"
-          : kind === "pinned"
+        kind === "pinned"
             ? "[data-pinned-sessions]"
             : "[data-reminder-sessions]";
       const group = project(A).querySelector<HTMLElement>(selector)!;
@@ -787,7 +789,7 @@ describe("named project/session tree", () => {
     },
   );
 
-  it("reveals matching collapsed projects and folders, matches custom names, and restores saved expansion", () => {
+  it("reveals matching collapsed projects and ignores legacy folder collapse", () => {
     saveSessionFolders(B, [
       { id: "folder-b", name: "Team", sessionIds: ["b"], collapsed: true },
     ]);
@@ -796,11 +798,7 @@ describe("named project/session tree", () => {
     query("Hidden conversation");
     expect(card("b")).not.toBeNull();
     expect(project(A)).toBeNull();
-    expect(
-      project(B)
-        .querySelector('[data-session-folder="folder-b"] button')
-        ?.getAttribute("aria-expanded"),
-    ).toBe("true");
+    expect(project(B).querySelector("[data-session-folder]")).toBeNull();
     expect(loadSessionFolders(B)[0].collapsed).toBe(true);
     expect(loadProjectTreeExpanded(A)).toEqual(new Set([A]));
     query("");
@@ -1251,9 +1249,10 @@ describe("named project/session tree", () => {
   it("limits missing-history search reads to the selected project", async () => {
     saveProjectTreeExpanded([]);
     props.loadedProjectPaths = new Set();
-    props.onLoadProject = vi.fn(async () => {});
     act(() => render());
     pickScope(B);
+    props.onLoadProject = vi.fn(async () => {});
+    act(() => render());
     query("Hidden");
     await act(async () => {});
     expect(props.onLoadProject).toHaveBeenCalled();
@@ -1381,7 +1380,7 @@ describe("named project/session tree", () => {
     );
   });
 
-  it("preserves a blank Host session created in a folder after collapse and re-expansion before its first send", () => {
+  it("preserves a blank Host session in the flat list through project collapse and binding", () => {
     configureSharedHost("machine", [{ id: "project", cwd: B, name: "beta" }]);
     remoteState.rows.set(B, [hostRow("b")]);
     saveProjectTreeExpanded([A, B]);
@@ -1400,11 +1399,10 @@ describe("named project/session tree", () => {
     act(() =>
       project(B)
         .querySelector<HTMLButtonElement>(
-          '[data-session-folder] button[aria-label="New session"]',
+          'button[aria-label="New session in beta"]',
         )!
         .click(),
     );
-    expect(loadSessionFolders(B)[0].sessionIds).toContain("blank-host");
     act(() =>
       project(B)
         .querySelector<HTMLButtonElement>(
@@ -1416,14 +1414,46 @@ describe("named project/session tree", () => {
     expect(card("blank-host")).toBeNull();
     expand(B);
     expect(card("blank-host")).not.toBeNull();
-    expect(loadSessionFolders(B)[0].sessionIds).toContain("blank-host");
     act(() => card("blank-host").click());
     expect(props.onSelectSession).toHaveBeenCalledWith("blank-host", B);
     remoteState.bindings.set("blank-host", "host-new");
     props = { ...props, openSessions: [...props.openSessions!] };
     act(() => render());
-    expect(loadSessionFolders(B)[0].sessionIds).toContain("host-new");
     expect(card("host-new")).not.toBeNull();
+  });
+
+  it("ignores drops onto another session while still allowing workspace pane drops", () => {
+    props.projectHistory = [summary("a"), summary("target")];
+    props.sessions = props.projectHistory;
+    props.onPlaceSessionOnPane = vi.fn();
+    act(() => render());
+    const from = card("a");
+    from.setPointerCapture = vi.fn();
+    from.releasePointerCapture = vi.fn();
+    const hit = vi.spyOn(document, "elementFromPoint").mockReturnValue(card("target"));
+    const drag = () => act(() => {
+      from.dispatchEvent(new PointerEvent("pointerdown", {
+        pointerId: 1, button: 0, clientX: 1, clientY: 1, bubbles: true,
+      }));
+      window.dispatchEvent(new PointerEvent("pointermove", {
+        pointerId: 1, clientX: 20, clientY: 20, bubbles: true,
+      }));
+      window.dispatchEvent(new PointerEvent("pointerup", {
+        pointerId: 1, clientX: 20, clientY: 20, bubbles: true,
+      }));
+    });
+    drag();
+    expect(loadSessionFolders(A)).toEqual([]);
+    expect(container.querySelector("[data-session-folder]")).toBeNull();
+    expect(card("a")).not.toBeNull();
+    expect(card("target")).not.toBeNull();
+    expect(props.onPlaceSessionOnPane).not.toHaveBeenCalled();
+    const pane = document.createElement("div");
+    pane.dataset.paneId = "workspace-pane";
+    hit.mockReturnValue(pane);
+    drag();
+    expect(props.onPlaceSessionOnPane).toHaveBeenCalledWith("a", "workspace-pane", expect.any(String));
+    expect(loadSessionFolders(A)).toEqual([]);
   });
 
   it("rejects dragging a session into another project's folder and keeps keyboard multiselection scoped", () => {
@@ -1564,29 +1594,493 @@ describe("named project/session tree", () => {
   });
 });
 
-describe("unified project search loading", () => {
-  it("loads at most four unvisited projects, waits before no-results, and stops queuing when search clears", async () => {
-    props.recents = [
-      A,
-      ...Array.from({ length: 7 }, (_, n) => `/workspace/project-${n}`),
-    ].map((path) => ({ path, openedAt: 0 }));
-    props.loadedProjectPaths = new Set([A]);
-    const finish: Array<() => void> = [];
-    props.onLoadProject = vi.fn(
-      () => new Promise<void>((resolve) => finish.push(resolve)),
+describe("unified pinned sidebar group", () => {
+  it("keeps collapsed-project shortcuts scoped across duplicate Host ids and native sessions", () => {
+    configureSharedHost("machine", [
+      { id: "alpha-host", cwd: A, name: "alpha" },
+      { id: "beta-host", cwd: B, name: "beta" },
+    ]);
+    remoteState.rows.set(A, [
+      { ...hostRow("same", "Alpha pin"), pinned: true },
+    ]);
+    remoteState.rows.set(B, [
+      { ...hostRow("same", "Beta pin"), pinned: true },
+      {
+        ...hostRow("native", "Native pin"),
+        pinned: true,
+        nativeSession: {
+          provider: "codex",
+          providerSessionId: "provider",
+          createdAt: 0,
+          updatedAt: 0,
+          path: "/native.jsonl",
+          revision: "r1",
+          blockIds: [],
+        },
+      },
+    ]);
+    props.activeSessionId = "shell:same";
+    props.onSelectRemoteSession = vi.fn();
+    saveProjectTreeExpanded([]);
+    act(() => render());
+    const pinned = container.querySelector('[data-project-section="pinned"]')!;
+    const row = (path: string, id: string) =>
+      pinned.querySelector<HTMLElement>(
+        `[data-project-session-section="${path}"] [data-session-card="${id}"]`,
+      )!;
+    expect(
+      pinned.querySelectorAll("[data-pinned-session-shortcut]"),
+    ).toHaveLength(3);
+    expect(
+      row(A, "same").querySelector('[aria-current="true"]'),
+    ).not.toBeNull();
+    expect(row(B, "same").querySelector('[aria-current="true"]')).toBeNull();
+    act(() => row(B, "same").click());
+    expect(props.onSelectRemoteSession).toHaveBeenCalledWith(B, "same");
+    act(() => row(B, "native").click());
+    expect(props.onSelectSession).toHaveBeenCalledWith("native", B);
+    vi.mocked(props.onSelectSession).mockClear();
+    const nativeRecent = container.querySelector<HTMLElement>(
+      `[data-project-section="recent"] [data-project-session-section="${B}"] [data-session-card="native"]`,
+    )!;
+    act(() => nativeRecent.click());
+    expect(props.onSelectSession).toHaveBeenCalledWith("native", B);
+    expect(
+      remoteState.subscriptions.mock.calls.every(([, enabled]) => !enabled),
+    ).toBe(true);
+  });
+
+  it("mixes pinned conversations and projects with a shared five-item preview and routes collapsed-project shortcuts", () => {
+    props.projectHistory = Array.from({ length: 7 }, (_, index) => ({
+      ...summary(`pin-${index}`, B, `Pinned conversation ${index}`),
+      pinned: true,
+      updatedAt: 100 - index,
+    }));
+    props.sessions = [summary("a", A)];
+    savePinnedProjects([A]);
+    saveProjectTreeExpanded([]);
+    props.onPinSession = vi.fn();
+    act(() => render());
+    const pinned = container.querySelector('[data-project-section="pinned"]')!;
+    const projects = container.querySelector(
+      '[data-project-section="projects"]',
+    )!;
+    const toggle = () =>
+      pinned.querySelector<HTMLButtonElement>("[data-sidebar-list-toggle]")!;
+    expect(pinned.textContent).toContain("Pinned items");
+    expect(projects.textContent).toContain("Recent projects");
+    expect(
+      pinned.querySelectorAll("[data-pinned-session-shortcut]"),
+    ).toHaveLength(5);
+    expect(pinned.querySelector("[data-project-header]")).toBeNull();
+    act(() =>
+      pinned.querySelector<HTMLElement>('[data-session-card="pin-0"]')!.click(),
+    );
+    expect(props.onSelectSession).toHaveBeenCalledWith("pin-0", B);
+    act(() => toggle().click());
+    expect(
+      pinned.querySelectorAll("[data-pinned-session-shortcut]"),
+    ).toHaveLength(7);
+    expect(pinned.querySelector("[data-project-path]")).not.toBeNull();
+    expect(
+      projects.querySelector('[data-project-path="' + A + '"]'),
+    ).toBeNull();
+    act(() =>
+      pinned
+        .querySelector<HTMLElement>('[data-session-card="pin-0"]')!
+        .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })),
+    );
+    const unpin = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((node) => node.textContent?.includes("Unpin"))!;
+    expect(unpin).toBeDefined();
+    act(() => unpin.click());
+    expect(props.onPinSession).toHaveBeenCalledWith("pin-0", false);
+    act(() => toggle().click());
+    settleFolds();
+    expect(
+      pinned.querySelectorAll("[data-pinned-session-shortcut]"),
+    ).toHaveLength(5);
+    query("Pinned conversation 6");
+    expect(
+      pinned.querySelectorAll("[data-pinned-session-shortcut]"),
+    ).toHaveLength(1);
+    expect(pinned.textContent).toContain("Pinned conversation 6");
+  });
+});
+
+describe("recent sidebar conversations", () => {
+  const recent = () =>
+    container.querySelector('[data-project-section="recent"]')!;
+  const recentIds = () =>
+    [...recent().querySelectorAll<HTMLElement>("[data-session-card]")].map(
+      (row) => row.dataset.sessionCard,
+    );
+
+  const recentCard = (path: string, id: string) =>
+    recent().querySelector<HTMLElement>(
+      `[data-project-session-section="${path}"] [data-session-card="${id}"]`,
+    )!;
+  const pickRecentAction = async (path: string, id: string, label: string) => {
+    await act(async () =>
+      recentCard(path, id).dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+      ),
+    );
+    const item = [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ].find((button) => button.textContent?.startsWith(label))!;
+    expect(item, label).toBeDefined();
+    await act(async () => item.click());
+  };
+  const renameRecent = async (path: string, id: string, title: string) => {
+    await pickRecentAction(path, id, "Rename");
+    const renameInput = recent().querySelector<HTMLInputElement>(
+      `[data-project-session-section="${path}"] [data-session-rename-row="${id}"] input`,
+    )!;
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      setter.call(renameInput, title);
+      renameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () =>
+      renameInput.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+  };
+
+  it("keeps rename, pin, unpin, archive and delete actions on an inactive local project's recent shortcut", async () => {
+    props.onRenameSession = vi.fn();
+    props.onPinSession = vi.fn();
+    props.onArchiveSession = vi.fn();
+    props.onDeleteSession = vi.fn();
+    saveProjectTreeExpanded([]);
+    act(() => render());
+
+    await renameRecent(B, "b", "Renamed from recents");
+    expect(props.onRenameSession).toHaveBeenCalledExactlyOnceWith(
+      "b",
+      "Renamed from recents",
+    );
+    await pickRecentAction(B, "b", "Pin");
+    expect(props.onPinSession).toHaveBeenLastCalledWith("b", true);
+    props.projectHistory = props.projectHistory!.map((row) =>
+      row.id === "b" ? { ...row, pinned: true } : row,
     );
     act(() => render());
-    await act(async () => query("a search that has no matches"));
-    expect(props.onLoadProject).toHaveBeenCalledTimes(4);
-    expect(container.textContent).toContain("Searching projects…");
-    expect(container.textContent).not.toContain("No matching sessions");
-    query("another query");
-    await act(async () => Promise.resolve());
-    expect(props.onLoadProject).toHaveBeenCalledTimes(4);
-    query("");
-    await act(async () => finish.forEach((resolve) => resolve()));
-    expect(props.onLoadProject).toHaveBeenCalledTimes(4);
+    await pickRecentAction(B, "b", "Unpin");
+    expect(props.onPinSession).toHaveBeenLastCalledWith("b", false);
+    await pickRecentAction(B, "b", "Archive");
+    expect(props.onArchiveSession).toHaveBeenCalledExactlyOnceWith("b", true);
+    await pickRecentAction(B, "b", "Delete");
+    expect(props.onDeleteSession).toHaveBeenCalledExactlyOnceWith("b");
+    expect(props.onSelectSession).not.toHaveBeenCalled();
+    expect(props.onSelectProject).not.toHaveBeenCalled();
+    expect(container.querySelector("[data-project-children]")).toBeNull();
   });
+
+  it("scopes recent Host mutations to the correct project when another project has the same session ID", async () => {
+    const machine = {
+      id: "machine",
+      name: "Host",
+      endpoint: "http://localhost",
+      environmentId: "environment",
+    };
+    configureSharedHost(
+      machine.environmentId,
+      [
+        { id: "alpha-host", cwd: A, name: "alpha" },
+        { id: "beta-host", cwd: B, name: "beta" },
+      ],
+      machine.id,
+    );
+    for (const path of [A, B]) {
+      remoteState.rows.set(path, [
+        hostRow("same", path === A ? "Alpha" : "Beta"),
+      ]);
+      remoteState.states.set(path, { machine });
+    }
+    props.onRenameSession = vi.fn();
+    props.onPinSession = vi.fn();
+    props.onArchiveSession = vi.fn();
+    props.onDeleteSession = vi.fn();
+    props.onRemoteSessionDeleted = vi.fn();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    saveProjectTreeExpanded([]);
+    act(() => render());
+
+    await renameRecent(B, "same", "Beta renamed");
+    await pickRecentAction(B, "same", "Pin");
+    remoteState.rows.set(B, [
+      { ...hostRow("same", "Beta renamed"), pinned: true },
+    ]);
+    act(() => render());
+    await pickRecentAction(B, "same", "Unpin");
+    await pickRecentAction(B, "same", "Archive");
+    await pickRecentAction(B, "same", "Delete");
+
+    expect(remoteState.request.mock.calls).toEqual([
+      [
+        machine.id,
+        "sessions.update",
+        { projectId: "beta-host", sessionId: "same", title: "Beta renamed" },
+      ],
+      [
+        machine.id,
+        "sessions.update",
+        { projectId: "beta-host", sessionId: "same", pinned: true },
+      ],
+      [
+        machine.id,
+        "sessions.update",
+        { projectId: "beta-host", sessionId: "same", pinned: false },
+      ],
+      [
+        machine.id,
+        "sessions.update",
+        { projectId: "beta-host", sessionId: "same", archived: true },
+      ],
+      [
+        machine.id,
+        "sessions.delete",
+        { projectId: "beta-host", sessionId: "same" },
+      ],
+    ]);
+    expect(remoteState.refresh).toHaveBeenCalledTimes(5);
+    expect(props.onRemoteSessionDeleted).toHaveBeenCalledExactlyOnceWith(
+      "same",
+      B,
+    );
+    for (const callback of [
+      props.onRenameSession,
+      props.onPinSession,
+      props.onArchiveSession,
+      props.onDeleteSession,
+    ])
+      expect(callback).not.toHaveBeenCalled();
+    expect(recentCard(A, "same").textContent).toContain("Alpha");
+    expect(props.onSelectProject).not.toHaveBeenCalled();
+    expect(
+      remoteState.subscriptions.mock.calls.every(([, enabled]) => !enabled),
+    ).toBe(true);
+  });
+
+  it("applies provider, time, archive and running-status filters to recent rows", () => {
+    localStorage.setItem(
+      "monocode.sessionSidebarFilters",
+      JSON.stringify({
+        hiddenHarnesses: ["codex"],
+        time: "7d",
+        status: { working: true },
+      }),
+    );
+    props.projectHistory = [
+      { ...summary("running", B), harness: "pi", updatedAt: Date.now() },
+      { ...summary("hidden", A), updatedAt: Date.now() },
+      { ...summary("old", A), harness: "pi", updatedAt: 0 },
+      { ...summary("waiting", B), harness: "pi", updatedAt: Date.now() },
+      {
+        ...summary("archived", B),
+        harness: "pi",
+        updatedAt: Date.now(),
+        archived: true,
+      },
+    ];
+    props.busySessionIds = new Set(["running", "hidden", "old", "archived"]);
+    props.approvalSessionIds = new Set(["waiting"]);
+    saveProjectTreeExpanded([]);
+    act(() => render());
+    expect(recentIds()).toEqual(["running"]);
+  });
+
+  it("sorts across collapsed projects by update time regardless of pins and refreshes after activity", () => {
+    props.projectHistory = [
+      { ...summary("old-pin", A), updatedAt: 1, pinned: true },
+      { ...summary("latest", B), updatedAt: 30 },
+      { ...summary("middle", A), updatedAt: 20 },
+      { ...summary("archived", B), updatedAt: 40, archived: true },
+      { ...summary("worker", B), updatedAt: 50, orchestrationLeadId: "lead" },
+    ];
+    saveProjectTreeExpanded([]);
+    props.onSessionNavigationOrder = vi.fn();
+    act(() => render());
+    expect(recentIds()).toEqual(["latest", "middle", "old-pin"]);
+    expect(recent().textContent).toContain("Recent sessions");
+    expect(card("latest")).toBeNull();
+    act(() =>
+      recent()
+        .querySelector<HTMLElement>('[data-session-card="latest"]')!
+        .click(),
+    );
+    expect(props.onSelectSession).toHaveBeenCalledWith("latest", B);
+    expect(props.onSessionNavigationOrder).toHaveBeenCalledWith([]);
+    props.projectHistory = props.projectHistory.map((row) =>
+      row.id === "middle" ? { ...row, updatedAt: 60 } : row,
+    );
+    act(() => render());
+    expect(recentIds()).toEqual(["middle", "latest", "old-pin"]);
+    pickScope(B);
+    settleFolds();
+    expect(recentIds()).toEqual(["latest"]);
+    query("no matching conversation");
+    settleFolds();
+    expect(recentIds()).toEqual([]);
+  });
+
+  it("keeps an independent five-row preview with animated closing and rapid reversal", () => {
+    props.projectHistory = Array.from({ length: 12 }, (_, index) => ({
+      ...summary(`recent-${index}`, index % 2 ? A : B),
+      updatedAt: 100 - index,
+    }));
+    saveProjectTreeExpanded([]);
+    act(() => render());
+    const toggle = () =>
+      recent().querySelector<HTMLButtonElement>("[data-sidebar-list-toggle]")!;
+    expect(recentIds()).toHaveLength(5);
+    act(() => toggle().click());
+    expect(recentIds()).toHaveLength(10);
+    act(() => toggle().click());
+    expect(recentIds()).toHaveLength(12);
+    act(() => toggle().click());
+    const closing = recent().querySelector<HTMLElement>(
+      '[data-fold-state="closing"]',
+    )!;
+    expect(closing.inert).toBe(true);
+    act(() => toggle().click());
+    settleFolds();
+    expect(recentIds()).toHaveLength(10);
+    act(() => toggle().click());
+    act(() => toggle().click());
+    settleFolds();
+    expect(recentIds()).toHaveLength(5);
+    expect(project(A).querySelector("[data-project-children]")).toBeNull();
+    query("recent-11");
+    settleFolds();
+    expect(recentIds()).toEqual(["recent-11"]);
+  });
+
+  it("deduplicates blank Host shells while preserving project-scoped IDs and routes", () => {
+    configureSharedHost("machine", [
+      { id: "alpha-host", cwd: A, name: "alpha" },
+      { id: "beta-host", cwd: B, name: "beta" },
+    ]);
+    remoteState.rows.set(A, [{ ...hostRow("same", "Alpha"), updatedAt: 10 }]);
+    remoteState.rows.set(B, [{ ...hostRow("same", "Beta"), updatedAt: 20 }]);
+    remoteState.bindings.set("blank-shell", "blank");
+    props.openSessions = [
+      summary("shell:same", A),
+      {
+        ...summary("blank-shell", B),
+        title: "",
+        updatedAt: 30,
+      },
+    ];
+    props.onSelectRemoteSession = vi.fn();
+    props.cwd = B;
+    props.activeSessionId = "blank-shell";
+    saveProjectTreeExpanded([]);
+    act(() => render());
+    expect(recentIds()).toEqual(["blank", "same", "same"]);
+    const row = (path: string, id: string) =>
+      recent().querySelector<HTMLElement>(
+        `[data-project-session-section="${path}"] [data-session-card="${id}"]`,
+      )!;
+    expect(
+      row(B, "blank").querySelector('[aria-current="true"]'),
+    ).not.toBeNull();
+    act(() => row(B, "same").click());
+    expect(props.onSelectRemoteSession).toHaveBeenCalledWith(B, "same");
+    act(() => row(A, "same").click());
+    expect(props.onSelectRemoteSession).toHaveBeenCalledWith(A, "same");
+    expect(
+      remoteState.subscriptions.mock.calls.every(([, enabled]) => !enabled),
+    ).toBe(true);
+  });
+
+  it("loads collapsed local and Host summaries before searching and localizes the headings", async () => {
+    const remote = rememberRemoteProject("other-machine", {
+      id: "project",
+      cwd: "/remote/beta",
+      name: "beta",
+    });
+    props.recents = [
+      { path: A, openedAt: 1 },
+      { path: remote.key, openedAt: 2 },
+    ];
+    props.projectHistory = [];
+    props.loadedProjectPaths = new Set();
+    saveProjectTreeExpanded([]);
+    props.onLoadProject = vi.fn(async (path) => {
+      props.projectHistory = [summary("loaded", path)];
+      props.loadedProjectPaths = new Set([path]);
+      render();
+    });
+    props.onPrefetchRemoteProject = vi.fn(async (path) => {
+      remoteState.rows.set(path, [
+        { ...hostRow("host-recent"), updatedAt: 2000 },
+      ]);
+      window.dispatchEvent(new Event("monocode:remote-history-updated"));
+    });
+    await act(async () => render());
+    expect(props.onLoadProject).toHaveBeenCalledExactlyOnceWith(A);
+    expect(props.onPrefetchRemoteProject).toHaveBeenCalledExactlyOnceWith(
+      remote.key,
+    );
+    expect(recentIds()).toEqual(["host-recent", "loaded"]);
+    expect(container.querySelector("[data-project-children]")).toBeNull();
+    expect(
+      remoteState.subscriptions.mock.calls.every(([, enabled]) => !enabled),
+    ).toBe(true);
+    act(() => setUiLanguage("zh-CN"));
+    expect(recent().textContent).toContain("最近会话");
+    expect(
+      container.querySelector('[data-project-section="projects"]')!.textContent,
+    ).toContain("最近项目");
+  });
+});
+
+describe("unified project search loading", () => {
+  it.each(["close", "tab", "unmount"])(
+    "loads at most four unvisited projects, continues after search clears, and stops queuing on %s",
+    async (stop) => {
+      props.recents = [
+        A,
+        ...Array.from({ length: 7 }, (_, n) => `/workspace/project-${n}`),
+      ].map((path) => ({ path, openedAt: 0 }));
+      props.loadedProjectPaths = new Set([A]);
+      const finish: Array<() => void> = [];
+      props.onLoadProject = vi.fn(
+        () => new Promise<void>((resolve) => finish.push(resolve)),
+      );
+      act(() => render());
+      await act(async () => query("a search that has no matches"));
+      expect(props.onLoadProject).toHaveBeenCalledTimes(4);
+      expect(container.textContent).toContain("Searching projects…");
+      expect(container.textContent).not.toContain("No matching sessions");
+      query("another query");
+      await act(async () => Promise.resolve());
+      expect(props.onLoadProject).toHaveBeenCalledTimes(4);
+      query("");
+      await act(async () => finish[0]());
+      expect(props.onLoadProject).toHaveBeenCalledTimes(5);
+      if (stop === "unmount") act(() => root.unmount());
+      else {
+        if (stop === "close") props.open = false;
+        else props.tab = "files";
+        act(() => render());
+      }
+      await act(async () => finish.forEach((resolve) => resolve()));
+      expect(props.onLoadProject).toHaveBeenCalledTimes(5);
+    },
+  );
 
   it("prefetches a collapsed Shared Host project despite already-loaded local summaries without starting its poller", async () => {
     configureSharedHost("machine", [{ id: "project", cwd: B, name: "beta" }]);
@@ -1612,6 +2106,11 @@ describe("unified project search loading", () => {
     await act(async () => query(""));
     settleFolds();
     expect(card("host-match")).toBeNull();
+    expect(
+      container.querySelector(
+        '[data-project-section="recent"] [data-session-card="host-match"]',
+      ),
+    ).not.toBeNull();
   });
 
   it("retains a failed nonmatching remote project and its error when a search retry also fails", async () => {
@@ -1664,14 +2163,15 @@ describe("unified project search loading", () => {
 
 describe("project tree session preview", () => {
   const many = (count: number) =>
-    Array.from({ length: count }, (_, index) =>
-      summary(`s${index}`, A, `Chat ${index}`),
-    );
+    Array.from({ length: count }, (_, index) => ({
+      ...summary(`s${index}`, A, `Chat ${index}`),
+      updatedAt: 10_000 - index,
+    }));
   const toggle = () =>
     project(A).querySelector<HTMLButtonElement>("[data-session-list-toggle]");
 
-  it("shows five ungrouped chats per project until Show more, then offers Show less", () => {
-    props.projectHistory = many(9);
+  it("reveals five more chats per click without automatic paging, then animates Show less", () => {
+    props.projectHistory = many(43);
     props.sessions = props.projectHistory;
     props.activeSessionId = "s0";
     act(() => render());
@@ -1679,14 +2179,53 @@ describe("project tree session preview", () => {
     expect(card("s5")).toBeNull();
     expect(toggle()?.textContent).toBe("Show more");
     expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
-    act(() => toggle()!.click());
-    expect(card("s8")).not.toBeNull();
+    for (const count of [10, 15, 20, 25, 30, 35, 40, 43]) {
+      act(() => toggle()!.click());
+      expect(project(A).querySelectorAll("[data-session-card]")).toHaveLength(
+        count,
+      );
+      expect(card(`s${count - 1}`)).not.toBeNull();
+      expect(card(`s${count}`)).toBeNull();
+      expect(toggle()?.textContent).toBe(
+        count < 43 ? "Show more" : "Show less",
+      );
+      expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+      expect(
+        project(A).querySelector("[data-session-list] > li[aria-hidden]"),
+      ).toBeNull();
+      expect(
+        card(`s${count - 1}`)
+          .closest(".zen-fold-item")
+          ?.getAttribute("data-fold-state"),
+      ).toBe("opening");
+    }
     expect(toggle()?.textContent).toBe("Show less");
     act(() => toggle()!.click());
+    const closing = card("s5").closest<HTMLElement>(".zen-fold-item")!;
+    expect(closing.dataset.foldState).toBe("closing");
+    expect(closing.inert).toBe(true);
+    expect(closing.getAttribute("aria-hidden")).toBe("true");
+    expect(toggle()?.textContent).toBe("Show more");
+    // A click during closing reopens exactly the next five rows.
+    act(() => toggle()!.click());
+    expect(closing.dataset.foldState).toBe("opening");
+    expect(closing.inert).toBe(false);
+    settleFolds();
+    expect(project(A).querySelectorAll("[data-session-card]")).toHaveLength(10);
+    for (const count of [15, 20, 25, 30, 35, 40, 43]) {
+      act(() => toggle()!.click());
+      expect(project(A).querySelectorAll("[data-session-card]")).toHaveLength(
+        count,
+      );
+    }
+    act(() => toggle()!.click());
+    settleFolds();
     expect(card("s5")).toBeNull();
+    expect(project(A).querySelectorAll("[data-session-card]")).toHaveLength(5);
+    expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("keeps the active chat visible and leaves folders out of the preview count", () => {
+  it("includes legacy folder members in the same five-chat preview", () => {
     props.projectHistory = many(9);
     props.sessions = props.projectHistory;
     props.activeSessionId = "s7";
@@ -1696,10 +2235,51 @@ describe("project tree session preview", () => {
     act(() => render());
     expect(card("s0")).not.toBeNull();
     expect(card("s1")).not.toBeNull();
-    // Ungrouped s2..s7 are mounted through the active chat; s8 waits.
-    expect(card("s7")).not.toBeNull();
+    // Legacy folder members count toward the ordinary five-row preview.
+    expect(card("s4")).not.toBeNull();
+    expect(card("s5")).toBeNull();
+    expect(container.querySelector("[data-session-folder]")).toBeNull();
+    expect(card("s7")).toBeNull();
     expect(card("s8")).toBeNull();
     expect(toggle()).not.toBeNull();
+    act(() => toggle()!.click());
+    expect(card("s8")).not.toBeNull();
+    expect(toggle()?.textContent).toBe("Show less");
+    act(() => toggle()!.click());
+    settleFolds();
+    expect(card("s7")).toBeNull();
+    expect(card("s8")).toBeNull();
+  });
+
+  it("paginates pins separately while legacy folder members remain in the flat list", () => {
+    props.projectHistory = many(36).map((row, index) => ({
+      ...row,
+      pinned: index < 12,
+    }));
+    props.sessions = props.projectHistory;
+    saveSessionFolders(A, [
+      {
+        id: "f",
+        name: "Folder",
+        sessionIds: props.sessions.slice(12, 24).map((row) => row.id),
+        collapsed: false,
+      },
+    ]);
+    act(() => render());
+    const pins = container.querySelector('[data-project-section="pinned"]')!;
+    const pinsToggle = () =>
+      pins.querySelector<HTMLButtonElement>("[data-sidebar-list-toggle]")!;
+    expect(project(A).querySelectorAll("[data-session-card]")).toHaveLength(5);
+    expect(pins.querySelectorAll("[data-session-card]")).toHaveLength(5);
+    act(() => pinsToggle().click());
+    expect(pins.querySelectorAll("[data-session-card]")).toHaveLength(10);
+    expect(project(A).querySelectorAll("[data-session-card]")).toHaveLength(5);
+    act(() => pinsToggle().click());
+    expect(pins.querySelectorAll("[data-session-card]")).toHaveLength(12);
+    act(() => pinsToggle().click());
+    expect(pins.querySelector('[data-session-card="s5"]')!.closest<HTMLElement>(".zen-fold-item")!.inert).toBe(true);
+    settleFolds();
+    expect(project(A).querySelectorAll("[data-session-card]")).toHaveLength(5);
   });
 
   it("does not truncate search results or show the toggle for short lists", () => {

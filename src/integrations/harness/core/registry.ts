@@ -10,7 +10,7 @@ import type { GeneratedSessionTitle } from "../../../features/sessions/model/ses
 import type { PrContent } from "../../../features/source-control/model/gitText";
 import { hasLiveCatalog } from "../../../features/sessions/model/models";
 import type { UserQuestionReply } from "../../../features/sessions/model/userQuestion";
-import { assertNativeSessionAccess, withNativeSessionAccess } from "./nativeAccess";
+import { translate } from "../../../shared/i18n/language";
 import type { NativeCommandProvider } from "./nativeCommands";
 import type {
   ApprovalDecision,
@@ -230,7 +230,8 @@ export function sendHarnessTurn(input: SendTurnInput & { harness: HarnessId }) {
       });
     activeTurnSessions.add(input.sessionId);
     try {
-      await withNativeSessionAccess(input, () => adapter.sendTurn(input));
+      assertHostNative(input);
+      await adapter.sendTurn(input);
     } finally {
       activeTurnSessions.delete(input.sessionId);
       if (controlled)
@@ -238,6 +239,12 @@ export function sendHarnessTurn(input: SendTurnInput & { harness: HarnessId }) {
       scheduleIdlePark(input.harness, input.sessionId);
     }
   });
+}
+
+/** Native conversations run on the Host under its writer lease, never in this process. */
+function assertHostNative(input: { nativeSession?: NativeSessionLink }): void {
+  if (input.nativeSession)
+    throw new Error(translate("Native session ownership cannot be verified on this platform"));
 }
 
 export function canCompactHarnessContext(id: HarnessId): boolean {
@@ -258,7 +265,8 @@ export function compactHarnessContext(
     }
     cancelIdlePark(input.sessionId);
     try {
-      await withNativeSessionAccess(input, () => adapter.compactContext!(input));
+      assertHostNative(input);
+      await adapter.compactContext(input);
     } finally {
       scheduleIdlePark(input.harness, input.sessionId);
     }
@@ -288,7 +296,8 @@ export function rewindHarnessLastTurn(
     }
     cancelIdlePark(input.sessionId);
     try {
-      return await withNativeSessionAccess(input, () => adapter.rewindLastTurn!(input));
+      assertHostNative(input);
+      return await adapter.rewindLastTurn(input);
     } finally {
       scheduleIdlePark(input.harness, input.sessionId);
     }
@@ -304,7 +313,7 @@ export function steerHarnessTurn(
       throw new Error(`${input.harness} is not connected yet`);
     }
     cancelIdlePark(input.sessionId);
-    await assertNativeSessionAccess(input);
+    assertHostNative(input);
     await adapter.steerTurn(input);
   });
 }

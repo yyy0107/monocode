@@ -13,17 +13,18 @@ import type {
   OrchestrationChoice,
   ProposedTask,
 } from "../model/orchestrationPlan";
-import { orchestrator } from "../model/orchestration";
 import { resizeComposer } from "../../sessions/model/composerResize";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import {
-  findModel,
   mergeModelSettings,
   modelEffortLabel,
   modelEffortSetting,
 } from "../../sessions/model/models";
 import { LAYER } from "../../../shared/lib/layers";
-import { OrchestrationActions } from "./OrchestrationActions";
+import { OrchestrationActions, OrchestrationRuntimeContext } from "./OrchestrationActions";
+import { useModelSource } from "../../sessions/ui/modelSource";
+import { OrchestrationSidebarAgents } from "./OrchestrationSidebarAgents";
+import { localizeOrchestrationMessage } from "./orchestrationMessages";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import { Popover } from "../../../shared/ui/Popover";
 import {
@@ -50,6 +51,7 @@ function AssignmentModel({
   ): void;
 }) {
   const { t: uiT } = useTranslation();
+  const modelSource = useModelSource();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -68,20 +70,20 @@ function AssignmentModel({
       .includes(query.trim().toLowerCase()),
   );
   const effortForChoice = (choice: OrchestrationChoice) => {
-    const model = findModel(choice.model);
+    const model = modelSource.find(choice.model);
     return model?.harness === choice.harness
       ? modelEffortSetting(model)
       : undefined;
   };
   const activeChoice = matches[active];
-  const activeModel = activeChoice ? findModel(activeChoice.model) : undefined;
+  const activeModel = activeChoice ? modelSource.find(activeChoice.model) : undefined;
   const effort = activeChoice ? effortForChoice(activeChoice) : undefined;
   const selectedEffortValue = effort
     ? activeChoice === selected
       ? (task.modelSettings?.[effort.id] ?? effort.value)
       : effort.value
     : undefined;
-  const selectedModel = selected ? findModel(selected.model) : undefined;
+  const selectedModel = selected ? modelSource.find(selected.model) : undefined;
   const selectedEffortLabel =
     selectedModel && selectedModel.harness === selected?.harness
       ? modelEffortLabel(selectedModel, task.modelSettings)
@@ -124,7 +126,7 @@ function AssignmentModel({
     anchor.current?.focus();
   };
   const settingsFor = (choice: OrchestrationChoice, effortValue?: string) => {
-    const model = findModel(choice.model);
+    const model = modelSource.find(choice.model);
     if (!model || model.harness !== choice.harness) return {};
     const setting = modelEffortSetting(model);
     return mergeModelSettings(model, {
@@ -133,7 +135,7 @@ function AssignmentModel({
     });
   };
   const openEffortOrPick = (choice: OrchestrationChoice) => {
-    const model = findModel(choice.model);
+    const model = modelSource.find(choice.model);
     if (
       model?.harness === choice.harness &&
       modelEffortSetting(model)?.options.length
@@ -267,7 +269,7 @@ function AssignmentModel({
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => {
                   setActive(index);
-                  const model = findModel(choice.model);
+                  const model = modelSource.find(choice.model);
                   setInEffort(
                     model?.harness === choice.harness &&
                       !!modelEffortSetting(model)?.options.length,
@@ -456,11 +458,14 @@ export function OrchestrationPreview({
   busy?: boolean;
 }) {
   const { t: uiT } = useTranslation();
-  const actions = useContext(OrchestrationActions);
+  const suppliedActions = useContext(OrchestrationActions);
+  const actions = suppliedActions?.canControl === false ? null : suppliedActions;
+  const modelSource = useModelSource();
+  const runtime = useContext(OrchestrationRuntimeContext);
   const runs = useSyncExternalStore(
-    orchestrator.subscribe,
-    orchestrator.snapshot,
-    orchestrator.snapshot,
+    runtime.subscribe,
+    runtime.snapshot,
+    runtime.snapshot,
   );
   const proposal = block.orchestration!;
   const run = runs.find(
@@ -473,10 +478,10 @@ export function OrchestrationPreview({
   const [showAll, setShowAll] = useState(false);
   useEffect(() => {
     if (actions)
-      void orchestrator
+      void runtime
         .hydrate(proposal.leadId)
         .catch((reason: unknown) => setError(String(reason)));
-  }, [actions, proposal.leadId]);
+  }, [actions, proposal.leadId, runtime]);
   const editable =
     proposal.status === "ready" && !run && !pending && !busy && !!actions;
   const planning = proposal.status === "planning";
@@ -546,6 +551,12 @@ export function OrchestrationPreview({
           </div>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          {error && editable && actions?.reload && (
+            <button className={secondary} onClick={() => {
+              actions.reload?.(proposal.leadId, block.id);
+              setError(undefined);
+            }}>{uiT("Reload proposal")}</button>
+          )}
           {!run && proposal.status === "invalid" && (
             <button
               className={secondary}
@@ -584,6 +595,19 @@ export function OrchestrationPreview({
               {uiT("View agents")}
             </button>
           )}
+          {run?.status === "paused" && actions && (
+            <button className={secondary}
+              disabled={pending || !!runtime.resumeBlocker(proposal.leadId) || runtime.resumeLeadBusy(proposal.leadId)}
+              onClick={() => void perform(() => runtime.resume(proposal.leadId))}>
+              <Play className="size-3" />{uiT("Resume")}
+            </button>
+          )}
+          {run && ["active", "paused"].includes(run.status) && actions && (
+            <button className={secondary} disabled={pending}
+              onClick={() => void perform(() => runtime.stop(proposal.leadId))}>
+              {uiT("Stop")}
+            </button>
+          )}
         </div>
       </div>
       {planning && (
@@ -595,6 +619,12 @@ export function OrchestrationPreview({
             : uiT("Checking available harnesses and models…")}
         </p>
       )}
+      {run && actions && (
+        <div className="border-t border-stroke px-3 py-2">
+          <OrchestrationSidebarAgents leadId={run.leadId}
+            summary={{ status: run.status, live: true, tasks: run.tasks }} showRunActions={false} />
+        </div>
+      )}
       {!!proposal.tasks.length && (
         <ul className="border-t border-stroke py-1">
           {visible.map((task) => {
@@ -604,7 +634,7 @@ export function OrchestrationPreview({
               (choice) =>
                 choice.harness === task.harness && choice.model === task.model,
             );
-            const taskModel = findModel(task.model);
+            const taskModel = modelSource.find(task.model);
             const taskEffort =
               taskModel?.harness === task.harness
                 ? modelEffortLabel(taskModel, task.modelSettings)
@@ -743,7 +773,7 @@ export function OrchestrationPreview({
       )}
       {(error || proposal.error) && (
         <p role="alert" className="px-3 py-2 text-[12px] text-red-400">
-          {error ?? proposal.error}
+          {localizeOrchestrationMessage(error ?? proposal.error ?? "", uiT)}
         </p>
       )}
       {!planning && (

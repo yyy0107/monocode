@@ -1,26 +1,28 @@
 import { translate } from "../../../shared/i18n/language";
-import { invoke } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
 import {
-  bindHarnessSession,
-  stopHarnessSession,
-} from "../../../integrations/harness/core/registry";
-import type {
-  NativeSessionFile,
-  NativeSessionAccess,
-  NativeSessionProbe,
-  NativeTranscript,
+  nativeProviderLabel,
+  nativeSyncBlocked,
+  nativeSyncNotice,
+  type NativeSessionFile,
+  type NativeSessionAccess,
+  type NativeSourceListing,
 } from "../../../integrations/harness/core/nativeSessions";
-import { parseCodexSession } from "../../../integrations/harness/providers/codex/codexSessionImport";
-import { parsePiSession } from "../../../integrations/harness/providers/pi/piSessionImport";
-import {
-  newSession,
-  sessionWorkCwd,
-  titleFromPrompt,
-  type Session,
-} from "../model/session";
-import { getSession, upsertSession, type SessionSummary } from "./sessionStore";
+import type { Session } from "../model/session";
+import type { SessionSummary } from "./sessionStore";
 import { sharedSessionBackend } from "./sharedSessionBackend";
+import { remoteProjectFor } from "../../connections/model/remoteProjects";
+import {
+  remoteMachineFor,
+  remoteRequest,
+  remoteSessionFor,
+} from "../../connections/model/connections";
 
+/**
+ * Native Claude Code, Codex, Pi, omp and OpenCode conversations are listed,
+ * imported, synchronized, watched and run by the Host. The desktop only shows
+ * the Host's listing and each open conversation's ownership state.
+ */
 export type NativeSessionState = {
   files: NativeSessionFile[];
   access: Record<string, NativeSessionAccess>;
@@ -28,14 +30,25 @@ export type NativeSessionState = {
   busy: boolean;
   error?: string;
   lastSynced?: number;
+  /** `${provider}:${providerSessionId}` already bound to MonoCode history. */
+  bound: ReadonlySet<string>;
+  /** Imported conversations the Host keeps in sync. */
+  importedCount?: number;
+  /** Host setting: watch managed sources while idle. */
+  autoSync: boolean;
 };
 let state: NativeSessionState = {
   files: [],
   warnings: [],
   busy: false,
   access: {},
+  bound: new Set(),
+  autoSync: true,
 };
 const listeners = new Set<() => void>();
+const accessListeners = new Map<string, Set<() => void>>();
+const accessExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const ACCESS_MAX_AGE = 15_000;
 export const nativeSessionSnapshot = () => state;
 export const subscribeNativeSessions = (listener: () => void) => {
   listeners.add(listener);
@@ -47,6 +60,15 @@ function publish(patch: Partial<NativeSessionState>) {
   state = { ...state, ...patch };
   for (const listener of listeners) listener();
 }
+const desktop = () => typeof isTauri === "function" && isTauri();
+/** The shared Host's native session manager. */
+const hostNative = () => sharedSessionBackend()?.native;
+const hostOwned = (session: Pick<Session, "cwd">) =>
+  !!sharedSessionBackend()?.ownsProject(session.cwd);
+const syncBlocked = (session: Session) => nativeSyncBlocked(session.nativeSyncStatus);
+const bindingKey = (provider: string, providerSessionId: string) =>
+  `${provider}:${providerSessionId}`;
+
 export function nativeSessionAccess(
   session: Session,
 ): NativeSessionAccess | undefined {
@@ -55,16 +77,82 @@ export function nativeSessionAccess(
 }
 export function nativeSessionReadOnly(session: Session): boolean {
   if (!session.nativeSession) return false;
+  if (syncBlocked(session)) return true;
   const access = nativeSessionAccess(session);
   return (
     !access ||
     access.state !== "idle" ||
-    (!session.busy && Date.now() - access.checkedAt > 15_000)
+    (!session.busy && Date.now() - access.checkedAt > ACCESS_MAX_AGE)
   );
+}
+
+/** Composer-visible access state; an unchanged ownership check only renews its lease. */
+export function nativeSessionAccessSnapshot(session: Session): string {
+  if (!session.nativeSession) return "";
+  const access = nativeSessionAccess(session);
+  return JSON.stringify([
+    nativeSessionReadOnly(session),
+    session.nativeSyncStatus?.state,
+    session.nativeSyncStatus?.reason,
+    access?.state,
+    access?.reason,
+    access?.holder?.pid,
+    access?.holder?.provider,
+    access?.holder?.command,
+  ]);
+}
+
+function scheduleAccessExpiry(id: string): void {
+  const timer = accessExpiryTimers.get(id);
+  if (timer !== undefined) clearTimeout(timer);
+  accessExpiryTimers.delete(id);
+  const access = state.access[id];
+  if (!accessListeners.has(id) || access?.state !== "idle") return;
+  const remaining = access.checkedAt + ACCESS_MAX_AGE + 1 - Date.now();
+  if (remaining <= 0) return;
+  accessExpiryTimers.set(id, setTimeout(() => {
+    accessExpiryTimers.delete(id);
+    for (const listener of accessListeners.get(id) ?? []) listener();
+  }, remaining));
+}
+
+/** Notify only this conversation; freshness expiration must still disable its composer. */
+export function subscribeNativeSessionAccess(id: string, listener: () => void): () => void {
+  let subscribers = accessListeners.get(id);
+  if (!subscribers) accessListeners.set(id, subscribers = new Set());
+  subscribers.add(listener);
+  scheduleAccessExpiry(id);
+  return () => {
+    subscribers.delete(listener);
+    if (subscribers.size) return;
+    accessListeners.delete(id);
+    const timer = accessExpiryTimers.get(id);
+    if (timer !== undefined) clearTimeout(timer);
+    accessExpiryTimers.delete(id);
+  };
+}
+/** The external CLI process currently writing this session, when one is identified. */
+export function nativeSessionHolder(session: Session) {
+  if (!session.nativeSession) return undefined;
+  const access = nativeSessionAccess(session);
+  return access && access.state !== "idle" ? access.holder : undefined;
 }
 export function nativeSessionAccessHint(session: Session): string | undefined {
   if (!nativeSessionReadOnly(session)) return undefined;
+  const blocked = nativeSyncNotice(session.nativeSyncStatus);
+  if (blocked) return blocked;
   const access = nativeSessionAccess(session);
+  const holder = access?.holder;
+  if (holder && access?.state === "external")
+    return translate(
+      "Open in {provider} (pid {pid}). Read-only until it exits; its messages appear here as they are written.",
+      { provider: nativeProviderLabel(holder.provider), pid: holder.pid },
+    );
+  if (holder && access?.reason === "ambiguousProcess")
+    return translate(
+      "{provider} is running in this project (pid {pid}) and may be using this session. Read-only until it exits; history keeps syncing.",
+      { provider: nativeProviderLabel(holder.provider), pid: holder.pid },
+    );
   if (access?.state === "external")
     return translate(
       "This session is still open in another client. Saved history keeps syncing. Continue there, or close that session before retrying here; a finished reply may not release it.",
@@ -73,144 +161,35 @@ export function nativeSessionAccessHint(session: Session): string | undefined {
     return translate(
       "Another MonoCode window is using this session. It will become available when that operation finishes.",
     );
-  if (access?.reason === "historyPending")
-    return translate(
-      "Refresh the native history before continuing this session.",
-    );
   if (access?.reason === "unsupportedPlatform")
     return translate(
       "Native session ownership cannot be verified on this platform. Imported history is read-only.",
     );
   if (access?.state === "unknown")
     return translate(
-      "Native session access could not be confirmed. Saved history keeps syncing; check other clients before continuing here.",
+      "Session status unavailable. Read-only for now.",
     );
-  return translate("Checking native session access…");
+  return translate("Checking session status…");
 }
 function publishAccess(id: string, access: NativeSessionAccess) {
   publish({ access: { ...state.access, [id]: access } });
+  scheduleAccessExpiry(id);
+  for (const listener of accessListeners.get(id) ?? []) listener();
 }
 
-const AUTO_KEY = "monocode.nativeSessionAutoSync";
-const AUTO_EVENT = "monocode:native-session-auto-sync";
-let autoFallback = true;
-export function nativeAutoSyncEnabled(): boolean {
-  try {
-    const value = localStorage.getItem(AUTO_KEY);
-    return value == null ? autoFallback : value !== "false";
-  } catch {
-    return autoFallback;
-  }
-}
+/** The Host's background watch setting, as last listed. */
+export const nativeAutoSyncEnabled = (): boolean => state.autoSync;
 export function setNativeAutoSync(enabled: boolean): void {
-  autoFallback = enabled;
-  try {
-    localStorage.setItem(AUTO_KEY, String(enabled));
-  } catch {
-    /* Keep the chosen preference for this window. */
-  }
-  window.dispatchEvent(new Event(AUTO_EVENT));
-}
-
-export function parseNativeSession(
-  content: string,
-  file: NativeSessionFile,
-): NativeTranscript {
-  return file.provider === "codex"
-    ? parseCodexSession(content, file)
-    : parsePiSession(content, file);
-}
-
-/** A local turn not yet present on disk must survive a failed/partial native write. */
-export function reconcileNativeSession(
-  session: Session,
-  file: NativeSessionFile,
-  transcript: NativeTranscript,
-): Session {
-  if (
-    session.busy ||
-    session.pendingSwitch ||
-    session.worktreeRemoved ||
-    session.harness !== file.provider ||
-    (session.providerSessionId &&
-      session.providerSessionId !== file.providerSessionId)
-  )
-    throw new Error(
-      translate("Session is running or its provider binding changed"),
-    );
-  if (!transcript.blocks.some((block) => block.role === "user"))
-    throw new Error(translate("Native session has no user messages yet"));
-  const tracked = new Set(session.nativeSession?.blockIds ?? []);
-  const localUsers = session.blocks.filter(
-    (block) => block.role === "user" && !tracked.has(block.id),
-  );
-  const nativeUsers = transcript.blocks.filter(
-    (block) => block.role === "user",
-  );
-  const nativeTail = nativeUsers.slice(-localUsers.length);
-  if (
-    localUsers.length &&
-    (nativeTail.length !== localUsers.length ||
-      localUsers.some((block, index) => block.text !== nativeTail[index].text))
-  )
-    throw new Error(
-      translate(
-        "Local messages are not in the native session yet; synchronization deferred",
-      ),
-    );
-  if (localUsers.length) {
-    const lastUser = transcript.blocks
-      .map((block) => block.role)
-      .lastIndexOf("user");
-    const localHasAnswer = session.blocks
-      .slice(session.blocks.map((block) => block.role).lastIndexOf("user") + 1)
-      .some((block) => block.role === "assistant");
-    if (
-      localHasAnswer &&
-      !transcript.blocks
-        .slice(lastUser + 1)
-        .some((block) => block.role === "assistant")
-    )
-      throw new Error(
-        translate(
-          "Local messages are not in the native session yet; synchronization deferred",
-        ),
-      );
-  }
-  // Keep user-owned turn panels when the corresponding native message is reread.
-  const existingUsers = session.blocks.filter((block) => block.role === "user");
-  let userIndex = 0;
-  const blocks = transcript.blocks.map((block) => {
-    if (block.role !== "user") return block;
-    const previous = existingUsers[userIndex++];
-    return previous?.text === block.text ? { ...previous, ...block } : block;
-  });
-  return {
-    ...session,
-    providerSessionId: file.providerSessionId,
-    providerAccountId:
-      file.provider === "codex"
-        ? (session.providerAccountId ?? "default")
-        : session.providerAccountId,
-    blocks,
-    nativeSession: {
-      provider: file.provider,
-      providerSessionId: file.providerSessionId,
-      createdAt: transcript.createdAt,
-      updatedAt: file.modifiedAt,
-      path: file.path,
-      revision: file.revision,
-      blockIds: blocks.map((block) => block.id),
-    },
-    model: transcript.model ?? session.model,
-    modelSettings: { ...session.modelSettings, ...transcript.modelSettings },
-  };
+  publish({ autoSync: enabled });
+  void hostNative()
+    ?.list({ autoSync: enabled })
+    .then(publishListing)
+    .catch(() => undefined);
 }
 
 type Runtime = {
-  getLive(id: string): Session | undefined;
-  /** The app's existing operation guard also blocks submission/deletion/worktree changes. */
-  lock(id: string): (() => void) | undefined;
+  /** Open conversations, for ownership probes. */
+  live(): readonly Session[];
   changed(session: Session, summary: SessionSummary, imported: boolean): void;
 };
 let runtime: Runtime | undefined;
@@ -221,19 +200,34 @@ function serialized<T>(run: () => Promise<T>): Promise<T> {
   return next;
 }
 
-async function discover(): Promise<NativeSessionFile[]> {
-  const listing = await invoke<{
-    sessions: NativeSessionFile[];
-    warnings: string[];
-  }>("native_sessions_list");
-  publish({ files: listing.sessions, warnings: listing.warnings });
-  return listing.sessions;
+function publishListing(listing: NativeSourceListing): void {
+  publish({
+    files: listing.sources,
+    warnings: listing.warnings,
+    autoSync: listing.autoSync,
+    importedCount: listing.managedCount,
+    lastSynced: listing.lastSyncedAt,
+    bound: new Set([
+      ...state.bound,
+      ...listing.sources
+        .filter((source) => source.boundSessionId)
+        .map((source) => bindingKey(source.provider, source.providerSessionId)),
+    ]),
+  });
+}
+
+async function discover(refresh = false): Promise<NativeSessionFile[]> {
+  const host = hostNative();
+  if (!host) return [];
+  const listing = await host.list(refresh ? { refresh: true } : {});
+  publishListing(listing);
+  return listing.sources;
 }
 export function discoverNativeSessions(): Promise<NativeSessionFile[]> {
   return serialized(async () => {
     publish({ busy: true, error: undefined });
     try {
-      return await discover();
+      return await discover(true);
     } catch (error) {
       publish({
         error: error instanceof Error ? error.message : String(error),
@@ -245,114 +239,78 @@ export function discoverNativeSessions(): Promise<NativeSessionFile[]> {
   });
 }
 
-async function update(
-  listedFile: NativeSessionFile,
-  id: string,
-  imported: boolean,
-  syncHistory = true,
-): Promise<string | null> {
+/** Native sessions in a project that MonoCode has not imported or started itself. */
+export function externalNativeSessions(
+  files: readonly NativeSessionFile[],
+  bound: ReadonlySet<string>,
+  belongs: (cwd: string) => boolean,
+): NativeSessionFile[] {
+  return files.filter(
+    (file) =>
+      !bound.has(bindingKey(file.provider, file.providerSessionId)) &&
+      belongs(file.cwd),
+  );
+}
+
+let discoveryRun: Promise<void> | undefined;
+let lastDiscovery = -Infinity;
+const DISCOVERY_INTERVAL = 10_000;
+let discoveryTimer: ReturnType<typeof setTimeout> | undefined;
+let discoveryPending = false;
+
+/** Coalesce refresh requests into one Host listing per interval. */
+function scheduleDiscovery(): void {
+  discoveryPending = true;
+  if (discoveryRun || discoveryTimer !== undefined) return;
+  discoveryTimer = setTimeout(() => {
+    discoveryTimer = undefined;
+    void refreshNativeDiscovery();
+  }, Math.max(0, lastDiscovery + DISCOVERY_INTERVAL - Date.now()));
+}
+
+/** Quiet sidebar refresh: no busy state, no error banner, at most every few seconds. */
+export function refreshNativeDiscovery(force = false): Promise<void> {
+  if (!desktop()) return Promise.resolve();
+  if (discoveryRun) {
+    scheduleDiscovery();
+    return discoveryRun;
+  }
+  if (!force && Date.now() - lastDiscovery < DISCOVERY_INTERVAL) {
+    scheduleDiscovery();
+    return Promise.resolve();
+  }
+  if (discoveryTimer !== undefined) clearTimeout(discoveryTimer);
+  discoveryTimer = undefined;
+  discoveryPending = false;
+  lastDiscovery = Date.now();
+  const run = discover()
+    .then(() => undefined)
+    .catch(() => undefined);
+  discoveryRun = run;
+  void run.finally(() => {
+    if (discoveryRun === run) discoveryRun = undefined;
+    if (discoveryPending) scheduleDiscovery();
+  });
+  return run;
+}
+
+/** The Host imports (or finds) the conversation; it is then listed like any Host session. */
+async function importOnHost(file: NativeSessionFile): Promise<string | null> {
+  const host = hostNative();
+  if (!host || !file.sourceId) return null;
+  const id = await host.import(file.sourceId);
+  publish({
+    bound: new Set([...state.bound, bindingKey(file.provider, file.providerSessionId)]),
+    importedCount: (state.importedCount ?? 0) + 1,
+  });
+  const shared = sharedSessionBackend();
   const owner = runtime;
-  if (!owner)
-    throw new Error(translate("Native session synchronization is unavailable"));
-  const release = owner.lock(id);
-  if (!release) {
-    if (imported)
-      throw new Error(
-        translate("Wait for the current session operation to finish"),
-      );
-    return null;
+  if (shared && owner) {
+    const session = await shared.get(id).catch(() => null);
+    const summary = session && (await shared.list(session.cwd).catch(() => [])).find((row) => row.id === id);
+    if (session && summary && runtime === owner) owner.changed(session, summary, true);
   }
-  try {
-    let current = owner.getLive(id) ?? (await getSession(id));
-    const shared = sharedSessionBackend();
-    if (current?.nativeSession && !current.busy && shared?.ownsSession(id)) {
-      const canonical = await shared.get(id);
-      if (!canonical) return null;
-      current = { ...current, title: canonical.title, titleState: canonical.titleState, linkedWorkItem: canonical.linkedWorkItem };
-    }
-    let probe: NativeSessionProbe;
-    try {
-      probe = await invoke<NativeSessionProbe>("native_session_probe", {
-        sessionId: id,
-        path: listedFile.path,
-        providerSessionId: listedFile.providerSessionId,
-      });
-    } catch (error) {
-      publishAccess(id, {
-        state: "unknown",
-        reason: "unavailable",
-        checkedAt: Date.now(),
-        path: listedFile.path,
-      });
-      throw error;
-    }
-    const file = probe.file;
-    const access = probe.access;
-    // Never expose idle before the visible history has caught up to the same snapshot.
-    if (access.state !== "idle") publishAccess(id, access);
-    if (!syncHistory && current?.nativeSession?.revision !== file.revision) {
-      if (access.state === "idle")
-        publishAccess(id, {
-          ...access,
-          state: "checking",
-          reason: "historyPending",
-        });
-      return current?.id ?? null;
-    }
-    if (!current && !imported) return null; // Deleted imports are never recreated by the timer.
-    if (
-      current?.nativeSession?.revision === file.revision &&
-      current.nativeSession.path === file.path
-    ) {
-      if (shared && access.state === "idle" && !current.busy) await shared.mirrorNative(current);
-      publishAccess(id, access);
-      return current.id;
-    }
-    const content = await invoke<string>("native_session_read", {
-      path: file.path,
-      revision: file.revision,
-    });
-    const transcript = parseNativeSession(content, file);
-    const fresh = {
-      ...newSession(file.provider, file.cwd, transcript.model),
-      id,
-      providerAccountId: file.provider === "codex" ? "default" : undefined,
-      title:
-        transcript.title ||
-        titleFromPrompt(
-          transcript.blocks.find((block) => block.role === "user")?.text ?? "",
-          file.provider,
-        ),
-    };
-    const next = reconcileNativeSession(current ?? fresh, file, transcript);
-    if (runtime !== owner) return null;
-    if (current) await stopHarnessSession(current.harness, id);
-    if (runtime !== owner) return null;
-    const summary = await upsertSession(next);
-    if (!summary) return null;
-    bindHarnessSession(
-      next.harness,
-      next.id,
-      file.providerSessionId,
-      sessionWorkCwd(next),
-      next.providerAccountId,
-      next.blocks,
-      next.nativeSession,
-    );
-    owner.changed(next, summary, imported);
-    publishAccess(id, access);
-    return next.id;
-  } catch (error) {
-    publishAccess(id, {
-      state: "unknown",
-      reason: "unavailable",
-      checkedAt: Date.now(),
-      path: listedFile.path,
-    });
-    throw error;
-  } finally {
-    release();
-  }
+  return id;
 }
 
 export function importNativeSession(
@@ -361,15 +319,7 @@ export function importNativeSession(
   return serialized(async () => {
     publish({ busy: true, error: undefined });
     try {
-      const existingId = await invoke<string | null>("session_find_native_id", {
-        harness: file.provider,
-        providerSessionId: file.providerSessionId,
-      });
-      return await update(
-        file,
-        existingId ?? `native-${file.provider}-${file.providerSessionId}`,
-        true,
-      );
+      return await importOnHost(file);
     } catch (error) {
       publish({
         error: error instanceof Error ? error.message : String(error),
@@ -381,40 +331,50 @@ export function importNativeSession(
   });
 }
 
-export function syncNativeSessions(discoverWhenEmpty = true): Promise<void> {
+export type BulkImportProgress = { done: number; total: number; failed: number };
+
+/** Import many sources in one queued run; one failure does not stop the rest. */
+export function importNativeSessions(
+  files: readonly NativeSessionFile[],
+  options: {
+    stop?: { cancelled: boolean };
+    onProgress?: (progress: BulkImportProgress) => void;
+    onImported?: (file: NativeSessionFile, id: string) => void;
+  } = {},
+): Promise<BulkImportProgress> {
   return serialized(async () => {
-    if (!runtime) return;
+    const progress = { done: 0, total: files.length, failed: 0 };
     publish({ busy: true, error: undefined });
     try {
-      const ids = await invoke<string[]>("session_list_native_ids");
-      if (!ids.length && !discoverWhenEmpty) return;
-      const files = await discover();
-      const byPath = new Map(files.map((file) => [file.path, file]));
-      const errors: string[] = [];
-      for (const id of ids) {
-        const current = runtime?.getLive(id) ?? (await getSession(id));
-        if (!current?.nativeSession || current.busy || current.pendingSwitch)
-          continue;
-        const file = byPath.get(current.nativeSession.path);
-        if (!file) {
-          errors.push(
-            `${current.title}: ${translate("Native session file is unavailable")}`,
-          );
-          continue;
-        }
-
+      for (const file of files) {
+        if (options.stop?.cancelled) break;
         try {
-          await update(file, id, false);
-        } catch (error) {
-          errors.push(
-            `${current.title}: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          const id = await importOnHost(file);
+          if (id) options.onImported?.(file, id);
+          else progress.failed++;
+        } catch {
+          // A session without user messages yet must not stop the rest.
+          progress.failed++;
         }
+        progress.done++;
+        options.onProgress?.({ ...progress });
       }
-      publish({
-        lastSynced: Date.now(),
-        error: errors.length ? errors.join("\n") : undefined,
-      });
+      return progress;
+    } finally {
+      publish({ busy: false });
+    }
+  });
+}
+
+/** "Sync now": the Host re-reads every managed conversation, then the listing refreshes. */
+export function syncNativeSessions(): Promise<void> {
+  return serialized(async () => {
+    const host = hostNative();
+    if (!host) return;
+    publish({ busy: true, error: undefined });
+    try {
+      await host.syncAll();
+      await discover(true);
     } catch (error) {
       publish({
         error: error instanceof Error ? error.message : String(error),
@@ -425,69 +385,40 @@ export function syncNativeSessions(discoverWhenEmpty = true): Promise<void> {
   });
 }
 
+/** Ownership of an open native conversation, from the Host that runs it. */
+async function hostAccess(session: Session): Promise<NativeSessionAccess | null> {
+  if (hostOwned(session)) return hostNative()?.access(session.id) ?? null;
+  const project = remoteProjectFor(session.cwd);
+  if (!project || project.local) return null;
+  const machine = await remoteMachineFor(project.environmentId);
+  if (!machine) throw new Error(translate("Session status unavailable. Read-only for now."));
+  return remoteRequest<NativeSessionAccess | null>(machine.id, "sessions.nativeAccess", {
+    sessionId: remoteSessionFor(session.id) ?? session.id,
+  });
+}
+
 let accessPoll: Promise<void> | undefined;
+/** Ownership only matters where a composer is shown: probe open native conversations. */
 export function pollNativeSessionAccess(): Promise<void> {
   if (accessPoll) return accessPoll;
-  const run = serialized(async () => {
+  const run = (async () => {
     const owner = runtime;
     if (!owner) return;
-    const ids = await invoke<string[]>("session_list_native_ids");
-    for (const id of ids) {
-      const current = owner.getLive(id) ?? (await getSession(id));
-      if (!current?.nativeSession || runtime !== owner) continue;
-      const source = current.nativeSession;
+    for (const current of owner.live()) {
+      if (!current.nativeSession || runtime !== owner) continue;
       try {
-        if (current.busy) {
-          const probe = await invoke<NativeSessionProbe>(
-            "native_session_probe",
-            {
-              sessionId: id,
-              ownOperationActive: true,
-              path: source.path,
-              providerSessionId: source.providerSessionId,
-            },
-          );
-          // A blocked -> idle transition must wait for the active MonoCode turn to settle.
-          if (
-            probe.access.state !== "idle" ||
-            nativeSessionAccess(current)?.state === "idle"
-          )
-            publishAccess(id, probe.access);
-          continue;
-        }
-        const previous = nativeSessionAccess(current);
-        const probe = await invoke<NativeSessionProbe>("native_session_probe", {
-          sessionId: id,
-          path: source.path,
-          providerSessionId: source.providerSessionId,
-        });
-        const transitioning =
-          previous?.state === "external" || previous?.state === "unknown";
-        await update(
-          probe.file,
-          id,
-          false,
-          probe.access.state !== "idle" || transitioning,
-        );
+        const access = await hostAccess(current);
+        if (access && runtime === owner) publishAccess(current.id, access);
       } catch {
-        publishAccess(id, {
+        publishAccess(current.id, {
           state: "unknown",
           reason: "unavailable",
           checkedAt: Date.now(),
-          path: source.path,
+          path: current.nativeSession.path,
         });
       }
     }
-  }).catch(() => {
-    if (runtime)
-      for (const [id, access] of Object.entries(state.access))
-        publishAccess(id, {
-          ...access,
-          state: "unknown",
-          reason: "unavailable",
-          checkedAt: Date.now(),
-        });
-  });
+  })().catch(() => undefined);
   accessPoll = run;
   void run.then(() => {
     if (accessPoll === run) accessPoll = undefined;
@@ -495,28 +426,30 @@ export function pollNativeSessionAccess(): Promise<void> {
   return run;
 }
 
-/** Install once in the desktop app; sync only imports already selected by the user. */
+/** Install once in the desktop app. */
 export function installNativeSessionSync(owner: Runtime): () => void {
   runtime = owner;
-  const run = () => {
-    if (nativeAutoSyncEnabled() && !state.busy) void syncNativeSessions(false);
-  };
-  const timer = window.setInterval(run, 30_000);
   const accessRun = () => {
     void pollNativeSessionAccess();
   };
+  const discoverRun = () => {
+    void refreshNativeDiscovery();
+  };
   const accessTimer = window.setInterval(accessRun, 5_000);
   window.addEventListener("focus", accessRun);
+  window.addEventListener("focus", discoverRun);
   accessRun();
-  window.addEventListener("focus", run);
-  window.addEventListener(AUTO_EVENT, run);
-  run();
+  discoverRun();
   return () => {
-    window.clearInterval(timer);
     window.clearInterval(accessTimer);
     window.removeEventListener("focus", accessRun);
-    window.removeEventListener("focus", run);
-    window.removeEventListener(AUTO_EVENT, run);
-    if (runtime === owner) runtime = undefined;
+    window.removeEventListener("focus", discoverRun);
+    if (runtime === owner) {
+      runtime = undefined;
+      if (discoveryTimer !== undefined) clearTimeout(discoveryTimer);
+      discoveryTimer = undefined;
+      discoveryPending = false;
+      lastDiscovery = -Infinity;
+    }
   };
 }

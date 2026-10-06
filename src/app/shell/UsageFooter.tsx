@@ -53,6 +53,7 @@ export type UsageFooterSession = {
   harness: HarnessId;
   model?: string;
   authRequired?: boolean;
+  nativeSession?: boolean;
   providerAccountId?: string;
 };
 
@@ -329,6 +330,7 @@ export function UsageFooter({
               limits={claude}
               now={now}
               accounts={claudeAccounts}
+              identitySource={session?.nativeSession ? "local" : "host"}
               accountId={claudeAccountId}
               onSelectAccount={(accountId) =>
                 selectAccount("claude", accountId)
@@ -346,6 +348,7 @@ export function UsageFooter({
               now={now}
               project={project}
               accounts={codexAccounts}
+              identitySource={session?.nativeSession ? "local" : "host"}
               accountId={codexAccountId}
               onSelectAccount={(accountId) => selectAccount("codex", accountId)}
               onAddAccount={(label) => addAccount("codex", label)}

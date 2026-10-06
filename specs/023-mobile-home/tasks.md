@@ -33,3 +33,17 @@
 - [x] T012 Add Home/pinned/project conversation long-press menus with explicit
   project ownership, title, existing actions, gesture cancellation, and shared
   opening/closing motion. Verify gesture and cross-project update regressions.
+- [x] T013 Compact aggregate Home project/conversation rows to 44px/48px
+  minimum heights; verify phone-width rendering and text truncation.
+- [x] T014 Share recent-activity project ordering with the drawer, fetch all
+  summaries while open/foregrounded, default-expand running projects while
+  preserving manual collapses and animated preview visibility, and verify
+  refresh/failure/stale-request behavior and phone layouts.
+- [x] T015 Track project-page conversation entry separately in MobileApp memory;
+  show localized Back for project rows/new drafts and Menu for other entries.
+  Preserve source through loading/failure and Settings; reuse openHome and its
+  request invalidation, with Home fallback when the current project is missing.
+- [x] T016 Verify project regular/pinned/search rows, drafts, Settings, Home,
+  sidebar/notification/assistant source reset, loading/failure and late responses.
+  Run activityUi.test.ts and sessionLoading.test.ts (60 passed) and TypeScript
+  checking (passed); record actual results and limits in verification.md.

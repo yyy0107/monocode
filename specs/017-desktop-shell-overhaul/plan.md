@@ -91,6 +91,12 @@ Linux zh-CN via `npm run tauri dev`. macOS/Windows remain unverified.
   folders/pins/reminders. Keep the existing fold CSS, cancel stale timers on
   reversal, hide closing surfaces/portals, and settle reduced motion immediately.
   AGENTS.md owns this standing UI rule for future disclosure changes.
+- Dense project session trees keep a separate five-row limit per project. Each
+  Show more click adds five to the visible count; only full lists offer Show less.
+  Keep previously revealed row controllers and the next five collapsed rows so
+  AnimatedCollapse handles both directions without per-view motion timers. Empty
+  row shells leave no gaps after closing. Search and standalone lists keep their
+  existing 32-row mounting and scroll sentinel.
 - Terminal docks reuse `useCollapseMotion` and the shared motion duration/easing
   in `animated-collapse-size`. Keep dock grid areas/tracks stable at zero size
   when closed, disable grid transitions for imperative drag painting, finish a
@@ -242,11 +248,30 @@ an active drag before hiding, and settle reduced motion immediately.
   the row. Trailing controls also self-center with intrinsic height. Their raised
   hit regions protect only the controls, leaving the top boundary continuously
   available to ResizeHandle. Verify hit testing above inactive/active tabs,
-  blank space and trailing actions, plus an actual drag from above a tab.
+blank space and trailing actions, plus an actual drag from above a tab.
+
+## General UI responsiveness — follow-up (2026-10-05)
+
+- Add per-session native access subscriptions and composer-visible snapshots that
+  omit lease renewal timestamps. Renew the stored timestamp and reschedule its
+  expiry notification; keep Host active-run, canonical-title and deletion checks.
+  Reuse the ownership probe already obtained by each poll.
+- Build a shared history overlay context and path-key buckets for all projects.
+  Reuse the existing single-project overlay logic without rescanning all history
+  and live sessions for every project.
+- Share viewport/document/reduced-motion observation between the grid arcade and
+  composer runner. Cancel hidden animation loops and automatic slides, preserving
+  game/runner state. Cache grid dimensions with ResizeObserver, reuse stamp
+  buffers, and stroke a cached Path2D after cell fills. Paint the outgoing board
+  only during its existing slide. Keep static rendering safe without browser globals.
+- Verify ownership renewal/expiry, cross-project exclusions, consumer rendering,
+  hidden animation work and model behavior with focused existing tests. Compare
+  the former and current implementations in controlled fixtures and record their
+  limits, then build the current working tree. Preserve unrelated dirty work.
 
 ## Production startup responsiveness — follow-up (2026-10-05)
 
-- Cache parsed remote bindings by their serialized localStorage value.
+- Cache parsed remote bindings/scopes by their serialized localStorage value.
   Read that value on each access to preserve cross-window freshness, and copy
   records before mutations so storage failures cannot mutate the cache.
 - Defer a pooled transcript's first show while its pane is hidden. Reset this
@@ -261,3 +286,45 @@ an active drag before hiding, and settle reduced motion immediately.
   scope/failure/revalidation and transcript consumers. Record actual production
   observations separately from controlled benchmarks; package the current tree
   without installing or restarting the user's running desktop.
+
+## Conversation sidebar grouping — follow-up (2026-10-05)
+
+- ProjectList combines conversation shortcuts with existing pinned project rows
+  under one preview count, then renders a visible Projects heading.
+- Sidebar derives shortcuts from local history and cached Host summaries with
+  existing filters; path plus session id identifies each shortcut.
+- ProjectSessionSection reuses its session actions and Host routing for shortcut
+  rows. Project children show pinned sessions as ordinary indented rows, while
+  legacy single-project consumers retain their grouped view.
+- Reuse AnimatedCollapse for every reveal; retain project reordering over visible
+  projects without dropping unrevealed rows from stored order.
+
+## Session folder removal — 2026-10-05
+
+Render ProjectSessionSection with no user-defined folders and merge open project
+sessions into history by canonical Host ID, retaining blank conversations before
+their first send. Remove folder state, mutation handlers, drop targets and folder
+UI. Keep the shared collapse component for pins/reminders and project previews.
+Remove composer/PaneTree/SessionPane callback plumbing, automation destinations
+and desktop Operator/CLI folder commands. Retain legacy storage helpers and old
+automation fields for compatibility; they no longer drive the desktop UI.
+Verify flat legacy-folder members, blank Host sessions, drag-to-pane behavior,
+selection, command removal and the existing affected suites.
+
+## Recent sidebar projects and conversations — 2026-10-05
+
+- Sort unpinned projectRailSections by openedAt descending, preserving saved
+  order for pins. Disable ordinary/group project drag sorting so the displayed
+  order continues to match recency.
+- Sidebar derives both pinned and recent shortcuts from filtered per-project
+  summaries plus missing live rows, translating shell IDs to Host IDs. Recent
+  sorting ignores pinned priority and uses project/session identity for ties.
+- ProjectList renders Recent sessions with ProjectSection's independent
+  five-entry preview and AnimatedCollapse; reuse ProjectSessionSection shortcut
+  actions and routing. Localize both recent headings.
+- Extend the existing four-request summary loader to visible multi-project
+  Sessions, preserving scope, deduplication, cached failure state and no collapsed
+  Host polling. Search clearing leaves background discovery running; hiding the
+  sidebar or changing tabs stops queued work.
+- Verify ordering after reopen, collapsed-project shortcuts, live/Host identity,
+  filters/scope, independent paging, closing/reversal and bounded loading.

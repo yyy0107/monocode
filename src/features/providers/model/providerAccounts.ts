@@ -3,6 +3,7 @@ import type { HarnessId } from "../../sessions/model/session";
 
 const ACCOUNTS_KEY = "monocode.providerAccounts.v1";
 const SELECTIONS_KEY = "monocode.providerAccountSelections.v1";
+const SHARED_DEFAULTS_KEY = "monocode.sharedProviderDefaults.cache.v1";
 const CHANGE_EVENT = "monocode-provider-accounts-changed";
 
 export const DEFAULT_PROVIDER_ACCOUNT_ID = "default";
@@ -190,15 +191,44 @@ export function providerAccountExists(
   return providerAccounts(provider).some((account) => account.id === accountId);
 }
 
+export type SharedProviderDefaults = Partial<
+  Record<ProviderAccountProvider, string>
+>;
+
+/** Cache only confirmed native preferences; the Host remains authoritative. */
+export function rememberSharedProviderDefaults(
+  defaults: SharedProviderDefaults,
+): void {
+  writeJson(SHARED_DEFAULTS_KEY, defaults);
+  announceChange();
+}
+export function sharedProviderAccountId(
+  provider: ProviderAccountProvider,
+): string {
+  const id = readRecord<SharedProviderDefaults>(SHARED_DEFAULTS_KEY)[provider];
+  return validAccountId(id) ? id : DEFAULT_PROVIDER_ACCOUNT_ID;
+}
+
 export function selectedProviderAccountId(
   provider: ProviderAccountProvider,
   project: string | undefined,
 ): string {
-  const selections = readRecord<StoredSelections>(SELECTIONS_KEY);
-  const id = selections[selectionKey(project)]?.[provider];
-  return providerAccounts(provider).some((account) => account.id === id)
-    ? id!
-    : DEFAULT_PROVIDER_ACCOUNT_ID;
+  return (
+    requestedProviderAccountId(provider, project) ??
+    sharedProviderAccountId(provider)
+  );
+}
+
+/** Explicit project choice only: let Host resolve an unspecified shared default. */
+export function requestedProviderAccountId(
+  provider: ProviderAccountProvider,
+  project: string | undefined,
+): string | undefined {
+  const id =
+    readRecord<StoredSelections>(SELECTIONS_KEY)[selectionKey(project)]?.[
+      provider
+    ];
+  return validAccountId(id) ? id : undefined;
 }
 
 export function selectProviderAccount(
@@ -229,7 +259,12 @@ export function providerAccountLabel(
 export function subscribeProviderAccounts(listener: () => void): () => void {
   const local = () => listener();
   const storage = (event: StorageEvent) => {
-    if (event.key === ACCOUNTS_KEY || event.key === SELECTIONS_KEY) listener();
+    if (
+      event.key === ACCOUNTS_KEY ||
+      event.key === SELECTIONS_KEY ||
+      event.key === SHARED_DEFAULTS_KEY
+    )
+      listener();
   };
   window.addEventListener(CHANGE_EVENT, local);
   window.addEventListener("storage", storage);

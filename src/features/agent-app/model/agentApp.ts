@@ -16,11 +16,6 @@ import {
   type Session,
 } from "../../sessions/model/session";
 import {
-  loadSessionFolders,
-  placeSessionInFolder,
-  saveSessionFolders,
-} from "../../sessions/model/sessionFolders";
-import {
   normalizeNoteTags,
   noteTitle,
   type Note,
@@ -103,8 +98,6 @@ const FIELDS = new Map<string, readonly string[]>([
   ],
   ["worktrees.list", []],
   ["worktrees.create", ["branch", "base", "existing"]],
-  ["folders.list", []],
-  ["folders.move", ["sessionId", "folderId", "newFolderName"]],
   ["notes.list", ["limit", "offset"]],
   ["notes.read", ["id"]],
   ["notes.write", ["id", "title", "body", "tags"]],
@@ -412,46 +405,6 @@ export async function handleAgentApp(
       if (existing && base)
         throw new Error("base cannot be set for an existing branch");
       return host.createWorktree(cwd, branch, base ?? "HEAD", existing);
-    }
-    case "folders.list": {
-      const cwd = requireProject(source);
-      return {
-        cwd,
-        folders: loadSessionFolders(cwd).map(({ id, name, sessionIds }) => ({
-          id,
-          name,
-          sessionIds,
-        })),
-      };
-    }
-    case "folders.move": {
-      const cwd = requireProject(source);
-      const sessionId = requiredString(input.sessionId, "sessionId", 256);
-      const folderId = optionalString(input.folderId, "folderId", 256);
-      const newFolderName = optionalString(
-        input.newFolderName,
-        "newFolderName",
-        100,
-      );
-      if (!!folderId === !!newFolderName)
-        throw new Error("Supply exactly one of folderId or newFolderName");
-      if (
-        !(await host.sessions(cwd)).some((session) => session.id === sessionId)
-      )
-        throw new Error("Session was not found in this project");
-      const folders = loadSessionFolders(cwd);
-      if (folderId && !folders.some((folder) => folder.id === folderId))
-        throw new Error("Folder was not found in this project");
-      const next = placeSessionInFolder(
-        folders,
-        sessionId,
-        folderId
-          ? { kind: "existing", folderId }
-          : { kind: "new", name: newFolderName! },
-      );
-      saveSessionFolders(cwd, next);
-      const folder = next.find((entry) => entry.sessionIds.includes(sessionId));
-      return { sessionId, folderId: folder?.id, folderName: folder?.name };
     }
     case "notes.list": {
       const limit = input.limit ?? 30;

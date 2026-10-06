@@ -630,6 +630,7 @@ describe("settings navigation", () => {
       "keybindings",
       "chat",
       "providers",
+      "import",
       "mcp",
       "skills",
       "inbox",
