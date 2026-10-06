@@ -29,6 +29,10 @@ export function signature(value: unknown): string {
 }
 export type AssistantRecord = AssistantView & {
   brainSessionId?: string;
+  /** Context a fresh brain of this generation used on its first turn. */
+  brainBaseline?: number;
+  /** The memory version the brain of this generation last saw in a finished turn. */
+  brainMemory?: { generation: number; revision: number };
   sourceCursor: number;
 };
 export type Wakeup = {
@@ -69,7 +73,42 @@ export class AssistantStore {
       CREATE TABLE IF NOT EXISTS assistant_receipts (id TEXT PRIMARY KEY, signature TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS assistant_actions (request_id TEXT PRIMARY KEY, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS assistant_sources (seq INTEGER PRIMARY KEY AUTOINCREMENT, event_key TEXT UNIQUE NOT NULL, payload TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS assistant_chains (root TEXT PRIMARY KEY, payload TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS assistant_chains (root TEXT PRIMARY KEY, payload TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS assistant_memory (name TEXT PRIMARY KEY, revision INTEGER NOT NULL, text TEXT NOT NULL);`);
+  }
+  /**
+   * A memory document: `memory` (resident), `archive`, or `topic:<name>`.
+   * Missing documents read as empty at revision 0.
+   */
+  memoryDoc(name: string): { text: string; revision: number } {
+    const row = this.host.db
+      .prepare("SELECT revision, text FROM assistant_memory WHERE name=?")
+      .get(name);
+    return row
+      ? { text: String(row.text), revision: Number(row.revision) }
+      : { text: "", revision: 0 };
+  }
+  /** Writes a memory document unless another writer changed it since `expected`. */
+  writeMemoryDoc(name: string, text: string, expected?: number): number {
+    return this.host.transaction(() => {
+      const current = this.memoryDoc(name).revision;
+      if (expected !== undefined && expected !== current)
+        throw new Error("Memory changed elsewhere. Reload before saving.");
+      this.host.db
+        .prepare(
+          "INSERT INTO assistant_memory VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET revision=excluded.revision, text=excluded.text",
+        )
+        .run(name, current + 1, text);
+      return current + 1;
+    });
+  }
+  memoryTopics(): string[] {
+    return this.host.db
+      .prepare(
+        "SELECT name FROM assistant_memory WHERE name LIKE 'topic:%' AND text<>'' ORDER BY name",
+      )
+      .all()
+      .map((row) => String(row.name).slice("topic:".length));
   }
   get(): AssistantRecord | null {
     const row = this.host.db
@@ -91,6 +130,8 @@ export class AssistantStore {
     if (!value) return null;
     const {
       brainSessionId: _brain,
+      brainBaseline: _baseline,
+      brainMemory: _memory,
       sourceCursor: _cursor,
       ...publicValue
     } = value;

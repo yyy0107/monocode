@@ -23,6 +23,8 @@ import {
   type AssistantMessage,
 } from "../../src/features/assistant/model/assistant";
 import { parseRemoteAttachments, resolveAttachments } from "../attachments";
+import { rotationReason } from "./rotation";
+import { memoryWithinBudget } from "./memory";
 import {
   buildBrainPrompt,
   privateReplyPart,
@@ -37,6 +39,8 @@ export class HostAssistant {
   readonly ready: Promise<void>;
   private timer?: ReturnType<typeof setInterval>;
   private active?: Wakeup;
+  /** The memory version shown to the brain in the running turn, if any. */
+  private injectedMemory?: { generation: number; revision: number };
   private closing = false;
   private ticking = false;
   private epoch = 0;
@@ -521,6 +525,7 @@ export class HostAssistant {
       const now = this.store.get()!;
       this.store.update({
         brainSessionId: undefined,
+        brainBaseline: undefined,
         brainGeneration: now.brainGeneration + 1,
         lifecycle: now.enabled ? "idle" : "disabled",
       });
@@ -672,7 +677,18 @@ export class HostAssistant {
           ...wakeup,
           state: error ? "interrupted" : "completed",
         });
-        this.store.update({ lifecycle: error ? "interrupted" : "idle", error });
+        this.store.update({
+          lifecycle: error ? "interrupted" : "idle",
+          error,
+          // Memory shown in a finished turn is part of the brain's context now.
+          ...(!error && this.injectedMemory
+            ? { brainMemory: this.injectedMemory }
+            : {}),
+          // The first reading of a generation is the closest to an empty brain.
+          ...(config.brainBaseline == null && brain.session.context?.used
+            ? { brainBaseline: brain.session.context.used }
+            : {}),
+        });
         if (error) {
           this.store.message({
             id: randomUUID(),
@@ -773,8 +789,24 @@ export class HostAssistant {
         this.store.writeChain(wakeup.rootCauseId, { ...chain, paused: true });
         return;
       }
+      if (config.brainSessionId) {
+        const brain = this.engine.store.session(config.brainSessionId);
+        if (
+          brain.status !== "running" &&
+          rotationReason(brain.session, Date.now(), config.brainBaseline)
+        )
+          // A fresh generation is briefed from the public chat on its first turn.
+          this.store.update({
+            brainSessionId: undefined,
+            brainBaseline: undefined,
+            brainGeneration: config.brainGeneration + 1,
+          });
+      }
       const brainId = await this.brain();
       if (!brainId) return;
+      const fresh = !this.engine.store
+        .session(brainId)
+        .session.blocks.some((b) => b.role === "user");
       await this.engine.refreshAssistantBrainProcess(brainId);
       config = this.store.get()!;
       if (
@@ -825,6 +857,15 @@ export class HostAssistant {
             ? { targetRef: a.targetRef }
             : {}),
         }));
+      const memory = this.store.memoryDoc("memory");
+      const seen = config.brainMemory;
+      const showMemory =
+        fresh ||
+        seen?.generation !== config.brainGeneration ||
+        seen.revision !== memory.revision;
+      this.injectedMemory = showMemory
+        ? { generation: config.brainGeneration, revision: memory.revision }
+        : undefined;
       const prompt = buildBrainPrompt({
         config,
         launcher,
@@ -833,6 +874,15 @@ export class HostAssistant {
         messages: this.store.latestMessages(),
         ledger,
         now: Date.now(),
+        fresh,
+        ...(showMemory
+          ? {
+              memory: {
+                ...memoryWithinBudget(memory.text),
+                topics: this.store.memoryTopics(),
+              },
+            }
+          : {}),
       });
       this.engine.assistantCommand({
         type: "send",

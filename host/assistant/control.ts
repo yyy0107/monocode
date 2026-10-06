@@ -4,6 +4,19 @@ import { isAbsolute, relative } from "node:path";
 import type { HostAssistant } from "./index";
 import { signature } from "./store";
 import {
+  addMemoryEntry,
+  archiveMemoryEntries,
+  fitMemoryBudget,
+  memoryDate,
+  memoryEntry,
+  redactSecrets,
+  removeMemoryEntry,
+  searchMemory,
+  sinceDate,
+  supersedeMemoryEntry,
+  topicName,
+} from "./memory";
+import {
   actionPermission,
   checkPolicy,
   fields,
@@ -61,6 +74,11 @@ export const ASSISTANT_ACTIONS = [
   "reminders.create",
   "reminders.list",
   "reminders.cancel",
+  "memory.read",
+  "memory.search",
+  "memory.add",
+  "memory.replace",
+  "memory.remove",
   "actions.get",
 ] as const;
 export const MAX_PENDING_REMINDERS = 50;
@@ -267,6 +285,147 @@ function reminderAction(
   });
   return result;
 }
+/** Topic notes are read on demand, so they only need a sanity cap. */
+const MAX_TOPIC_BYTES = 64 * 1024;
+/**
+ * The assistant's own notebook, like reminders: no project scope, so it is
+ * governed by assistant control rather than a project permission.
+ */
+function memoryAction(
+  assistant: HostAssistant,
+  requestId: string,
+  action: string,
+  input: Record<string, unknown>,
+): unknown {
+  const store = assistant.store,
+    config = store.get()!,
+    timeZone = config.timezone ?? "UTC",
+    now = new Date();
+  const doc = () =>
+    input.topic === undefined
+      ? "memory"
+      : `topic:${topicName(id(input.topic, "topic", 80))}`;
+  if (action === "memory.read") {
+    fields(input, ["topic"]);
+    const name = doc();
+    return {
+      text: store.memoryDoc(name).text,
+      ...(name === "memory" ? { topics: store.memoryTopics() } : {}),
+    };
+  }
+  if (action === "memory.search") {
+    fields(input, ["query", "since", "limit"]);
+    const query =
+      input.query === undefined ? "" : id(input.query, "query", 500);
+    const limit = input.limit === undefined ? 20 : Number(input.limit);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50)
+      throw new Error("limit must be between 1 and 50");
+    return searchMemory(
+      [
+        { file: "memory", text: store.memoryDoc("memory").text },
+        ...store.memoryTopics().map((topic) => ({
+          file: `topic:${topic}`,
+          text: store.memoryDoc(`topic:${topic}`).text,
+        })),
+        { file: "archive", text: store.memoryDoc("archive").text },
+      ],
+      query,
+      {
+        limit,
+        ...(input.since === undefined
+          ? {}
+          : { since: sinceDate(id(input.since, "since", 20), now, timeZone) }),
+      },
+    );
+  }
+  const sig = signature({ action, input, assistantId: config.id });
+  const previous = store.action(requestId);
+  if (previous) {
+    if (previous.signature !== sig)
+      throw new Error("Request ID was already used with different input");
+    if (previous.state === "failed")
+      throw new Error(previous.error ?? "The previous operation failed");
+    return previous.result;
+  }
+  const wakeup = assistant.currentWakeup(),
+    date = memoryDate(now, timeZone),
+    name = doc(),
+    current = store.memoryDoc(name);
+  const entry = () =>
+    memoryEntry(
+      id(input.fact, "fact", 4000),
+      date,
+      input.until === undefined ? undefined : id(input.until, "until", 20),
+    );
+  let text: string, result: Record<string, unknown>, keep: string | undefined;
+  if (action === "memory.add") {
+    fields(input, ["fact", "until", "topic"]);
+    keep = entry();
+    const added = addMemoryEntry(current.text, keep);
+    text = added.text;
+    result = { added: added.added };
+  } else if (action === "memory.replace") {
+    fields(input, ["find", "fact", "until", "topic"]);
+    keep = entry();
+    text = supersedeMemoryEntry(
+      current.text,
+      id(input.find, "find", 1000),
+      keep,
+      date,
+    );
+    result = { replaced: true };
+  } else if (action === "memory.remove") {
+    fields(input, ["find", "topic"]);
+    const removed = removeMemoryEntry(
+      current.text,
+      id(input.find, "find", 1000),
+    );
+    text = removed.text;
+    result = { removed: removed.removed };
+  } else throw new Error("Unsupported assistant action");
+  let archived: string[] = [];
+  if (name === "memory") {
+    const fitted = fitMemoryBudget(text, keep, date);
+    text = fitted.text;
+    archived = fitted.moved;
+    if (archived.length) result = { ...result, archived: archived.length };
+  } else if (new TextEncoder().encode(text).length > MAX_TOPIC_BYTES)
+    throw new Error("Topic note is full; remove or replace older entries");
+  const actionId = randomUUID();
+  store.host.transaction(() => {
+    store.writeMemoryDoc(name, text, current.revision);
+    if (archived.length)
+      store.writeMemoryDoc(
+        "archive",
+        archiveMemoryEntries(store.memoryDoc("archive").text, archived, date),
+      );
+    store.update({ activity: { action, at: now.getTime() } });
+    store.putAction({
+      id: actionId,
+      requestId,
+      signature: sig,
+      action,
+      // The log keeps what memory keeps: no credentials.
+      input: Object.fromEntries(
+        Object.entries(input).map(([key, value]) => [
+          key,
+          typeof value === "string" ? redactSecrets(value) : value,
+        ]),
+      ),
+      rootCauseId: wakeup.rootCauseId,
+      origin: {
+        kind: "assistant",
+        assistantId: config.id,
+        assistantName: config.name,
+        actionId,
+        wakeupId: wakeup.id,
+      },
+      state: "completed",
+      result,
+    });
+  });
+  return result;
+}
 export async function executeAssistantAction(
   assistant: HostAssistant,
   requestId: string,
@@ -310,6 +469,9 @@ export async function executeAssistantAction(
   } else if (action.startsWith("reminders.")) {
     if (!authorized()) throw new Error("Assistant control was revoked");
     return reminderAction(assistant, requestId, action, input);
+  } else if (action.startsWith("memory.")) {
+    if (!authorized()) throw new Error("Assistant control was revoked");
+    return memoryAction(assistant, requestId, action, input);
   } else permission = actionPermission(action);
   let projectId =
     typeof input.projectId === "string" ? id(input.projectId) : undefined;

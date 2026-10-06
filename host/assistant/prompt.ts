@@ -5,6 +5,8 @@ import type {
   AssistantReminder,
 } from "../../src/features/assistant/model/assistant";
 import type { AssistantRecord, Wakeup } from "./store";
+import { conversationBrief } from "./rotation";
+import { MEMORY_MAX_LINES } from "./memory";
 
 export const QUIET_MARKER = "<assistant_quiet/>";
 export const MESSAGE_BREAK = "<msg_break/>";
@@ -110,6 +112,10 @@ export type BrainPromptInput = {
   messages: AssistantMessage[];
   ledger: unknown[];
   now: number;
+  /** The brain's first turn in this generation: brief it on the chat so far. */
+  fresh?: boolean;
+  /** Resident memory, when this brain has not seen its current version. */
+  memory?: { text: string; droppedLines: number; topics: string[] };
 };
 
 export function buildBrainPrompt({
@@ -120,6 +126,8 @@ export function buildBrainPrompt({
   messages,
   ledger,
   now,
+  fresh = false,
+  memory,
 }: BrainPromptInput): string {
   const timeZone = config.timezone ?? "UTC";
   const chat = messages.filter(
@@ -145,10 +153,13 @@ export function buildBrainPrompt({
     .filter((r: AssistantReminder) => r.state === "pending")
     .slice(0, 10)
     .map((r) => `- ${r.id} at ${localTime(r.dueAt, timeZone)}: ${r.prompt}`);
-  const recent = chat
-    .slice(-10)
-    .map((m) => `${m.kind}: ${m.text.slice(-2000)}`)
-    .join("\n");
+  const recent = fresh
+    ? conversationBrief(earlier, (at) => localTime(at, timeZone)) ||
+      "(none yet)"
+    : chat
+        .slice(-10)
+        .map((m) => `${m.kind}: ${m.text.slice(-2000)}`)
+        .join("\n");
   const situation = [
     `Local time: ${localTime(now, timeZone)}.`,
     lastExchange
@@ -168,9 +179,22 @@ How to talk:
 - You may split a reply into several short chat messages by putting ${MESSAGE_BREAK} between them. Do not use it inside code blocks or lists.
 - Do not mention tool, action or command names; describe what you did in plain words.
 - When you promise to check back later, create a reminder with reminders.create so you actually come back. Do not create duplicates of pending follow-ups.
+Memory:
+- You have a memory that outlasts this conversation and model changes. Its first ${MEMORY_MAX_LINES} lines are shown to you whenever it changes, so keep it to facts that stay useful later: decisions, the user's preferences, how their projects work, people and where things live. Save them as you learn them; do not wait to be asked, and do not announce it.
+- memory.add {fact,until?} adds one dated entry (until is YYYY-MM-DD for facts that expire); memory.replace {find,fact} supersedes the one entry containing find; memory.remove {find} drops one that was wrong. Pass topic to keep longer notes on one subject; memory.read {topic?} reads one. Before answering about something you may have learned earlier that is not shown below, use memory.search {query,since?}; it also covers topic notes and the archive. Never save secrets, tokens or credentials.
 Use the control CLI: ${JSON.stringify(launcher)} assistant ACTION --input FILE|- --request-id ID. Actions: ${actions.join(", ")}. Discover exact IDs with agents.list, models.list, projects.list and sessions.list. Inputs for session actions include projectId and sessionId. Use sessions.create {projectId,harness,model,runtimeMode?}; sessions.send {projectId,sessionId,text}; workspace.run {projectId,command,args}; reminders.create {delayMinutes,prompt}; reminders.cancel {reminderId}; actions.get {requestId}. The Host generates real cards and provenance. If a call times out, retry the same ID and input; never replay unknown-outcome actions under a fresh ID. Use current runId/requestId for cancel/approve/answer. Do not expose tools, reasoning, credentials or internal paths. For event/schedule checks with no meaningful result, reply exactly ${QUIET_MARKER}. While you work, the user may add messages to this turn; take them into account.
 Current permissions: ${JSON.stringify(config.policy)}. Existing actions for this task (inspect these stable request IDs before recovery): ${JSON.stringify(ledger)}.
-Situation:
+${
+  memory
+    ? `Your memory (current version; earlier versions you saw are outdated):
+${memory.text || "(Empty. Nothing has been remembered yet.)"}${
+        memory.droppedLines
+          ? `\n[${memory.droppedLines} more lines did not load; move older detail into topic notes.]`
+          : ""
+      }${memory.topics.length ? `\nTopic notes: ${memory.topics.join(", ")}` : ""}
+`
+    : ""
+}Situation:
 ${situation}
 Recent public conversation:
 ${recent}

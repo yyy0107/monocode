@@ -476,9 +476,13 @@ it("denies every declared action before effects when its permission is off", asy
   for (const key of Object.keys(policy.permissions))
     policy.permissions[key as keyof typeof policy.permissions] = false;
   engine.assistant.store.update({ policy });
-  // Reminders are governed by the scheduled-check trigger, not a permission.
+  // Reminders are governed by the scheduled-check trigger and memory is the
+  // assistant's own notebook; neither reaches project data.
   for (const action of ASSISTANT_ACTIONS.filter(
-    (a) => a !== "actions.get" && !a.startsWith("reminders."),
+    (a) =>
+      a !== "actions.get" &&
+      !a.startsWith("reminders.") &&
+      !a.startsWith("memory."),
   )) {
     const command =
       action === "git.read"
@@ -1116,4 +1120,68 @@ it("validates personality settings and reads older records with defaults", async
     timezone: "UTC",
     reminders: [],
   });
+});
+it("rotates an oversized brain into a fresh generation briefed from the chat", async () => {
+  const { engine, store, turns } = await setup();
+  const first = engine.assistant.store.get()!;
+  turns[0].finish();
+  await vi.waitFor(() =>
+    expect(store.session(first.brainSessionId!).status).toBe("idle"),
+  );
+  await engine.assistant.tick();
+  const brain = store.session(first.brainSessionId!);
+  store.save(
+    {
+      ...brain,
+      revision: brain.revision + 1,
+      session: {
+        ...brain.session,
+        providerSessionId: "native-1",
+        context: { used: 200_000, window: 400_000 },
+      },
+    },
+    { type: "test.context" },
+  );
+  await engine.assistant.rpc("assistant.send", {
+    commandId: "after-growth",
+    text: "Anything new?",
+  });
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  const next = engine.assistant.store.get()!;
+  expect(next.brainGeneration).toBe(first.brainGeneration + 1);
+  expect(turns[1].input.sessionId).toBe(next.brainSessionId);
+  expect(turns[1].input.sessionId).not.toBe(first.brainSessionId);
+  expect(turns[1].input.text).toContain("<previous_conversation>");
+  expect(turns[1].input.text).toContain("Inspect the projects");
+  expect(turns[0].input.text).not.toContain("<previous_conversation>");
+});
+it("keeps memory across turns and shows it to the brain only when it changes", async () => {
+  const { engine, store, turns } = await setup();
+  const act = (requestId: string, action: string, input: Record<string, unknown>) =>
+    executeAssistantAction(engine.assistant, requestId, action, input, () => true);
+  expect(turns[0].input.text).toContain("(Empty. Nothing has been remembered yet.)");
+  const fact = { fact: "Prefers pnpm; token=abc123secret" };
+  const first = await act("remember", "memory.add", fact);
+  expect(await act("remember", "memory.add", fact)).toEqual(first);
+  await act("topic", "memory.add", { fact: "Deploys go through staging", topic: "deploys" });
+  const memory = engine.assistant.store.memoryDoc("memory").text;
+  expect(memory).toMatch(/^- \d{4}-\d{2}-\d{2} · Prefers pnpm; «redacted/);
+  expect(memory).not.toContain("abc123secret");
+  expect(JSON.stringify(engine.assistant.store.action("remember"))).not.toContain("abc123secret");
+  expect(await act("search", "memory.search", { query: "staging deploys" })).toEqual([
+    expect.objectContaining({ file: "topic:deploys" }),
+  ]);
+  const brainId = engine.assistant.store.get()!.brainSessionId!;
+  const nextTurn = async (text: string, count: number) => {
+    turns.at(-1)!.finish();
+    await vi.waitFor(() => expect(store.session(brainId).status).toBe("idle"));
+    await engine.assistant.tick();
+    await engine.assistant.rpc("assistant.send", { commandId: text, text });
+    await vi.waitFor(() => expect(turns).toHaveLength(count));
+    return turns[count - 1].input.text;
+  };
+  const second = await nextTurn("What do I prefer?", 2);
+  expect(second).toContain("Prefers pnpm");
+  expect(second).toContain("Topic notes: deploys");
+  expect(await nextTurn("Thanks", 3)).not.toContain("Your memory (current version");
 });
