@@ -39,6 +39,10 @@ export type ProviderAccount = {
   id: string;
   provider: ProviderAccountProvider;
   label: string;
+  /** Explicit CLI data directory; absent for MonoCode-managed profiles. */
+  dataHome?: string;
+  /** Effective directory reported by the desktop; never published to Host clients. */
+  resolvedDataHome?: string;
   isDefault?: boolean;
 };
 
@@ -57,6 +61,8 @@ export function providerAccounts(
   const seen = new Set<string>([DEFAULT_PROVIDER_ACCOUNT_ID]);
   const accounts = Array.isArray(stored[provider]) ? stored[provider] : [];
   let defaultLabel = DEFAULT_PROVIDER_ACCOUNT_LABEL;
+  let defaultHome: string | undefined;
+  let defaultResolvedHome: string | undefined;
   let foundDefault = false;
   const profiles = accounts.flatMap((account) => {
     const id = validAccountId(account?.id) ? account.id : "";
@@ -64,6 +70,8 @@ export function providerAccounts(
     if (id === DEFAULT_PROVIDER_ACCOUNT_ID) {
       if (label && !foundDefault) {
         defaultLabel = label;
+        defaultHome = cleanDataHome(account.dataHome);
+        defaultResolvedHome = cleanDataHome(account.resolvedDataHome);
         foundDefault = true;
       }
       return [];
@@ -72,13 +80,19 @@ export function providerAccounts(
       return [];
     }
     seen.add(id);
-    return [{ id, provider, label }];
+    const dataHome = cleanDataHome(account.dataHome);
+    const resolvedDataHome = cleanDataHome(account.resolvedDataHome);
+    return [{ id, provider, label, ...(dataHome ? { dataHome } : {}),
+      ...(resolvedDataHome ? { resolvedDataHome } : {}),
+    }];
   });
   return [
     {
       id: DEFAULT_PROVIDER_ACCOUNT_ID,
       provider,
       label: defaultLabel,
+      ...(defaultHome ? { dataHome: defaultHome } : {}),
+      ...(defaultResolvedHome ? { resolvedDataHome: defaultResolvedHome } : {}),
       isDefault: true,
     },
     ...profiles,
@@ -88,20 +102,19 @@ export function providerAccounts(
 export function newProviderAccount(
   provider: ProviderAccountProvider,
   label: string,
+  dataHome?: string,
 ): ProviderAccount {
   return {
     id: `account-${crypto.randomUUID()}`,
     provider,
     label:
       cleanLabel(label) || `Account ${providerAccounts(provider).length + 1}`,
+    ...(cleanDataHome(dataHome) ? { dataHome: cleanDataHome(dataHome) } : {}),
   };
 }
 
 export function saveProviderAccount(account: ProviderAccount): void {
-  if (
-    account.id === DEFAULT_PROVIDER_ACCOUNT_ID ||
-    !validAccountId(account.id)
-  ) {
+  if (!validAccountId(account.id)) {
     return;
   }
   const label = cleanLabel(account.label);
@@ -112,9 +125,10 @@ export function saveProviderAccount(account: ProviderAccount): void {
   );
   stored[account.provider] = serializeProviderAccounts([
     ...next,
-    { id: account.id, provider: account.provider, label },
+    { id: account.id, provider: account.provider, label, dataHome: account.dataHome,
+      resolvedDataHome: account.resolvedDataHome },
   ]);
-  writeJson(ACCOUNTS_KEY, stored);
+  writeAccounts(stored);
   announceChange();
 }
 
@@ -134,7 +148,7 @@ export function renameProviderAccount(
   stored[provider] = serializeProviderAccounts(
     accounts.map((account) => (account.id === accountId ? renamed : account)),
   );
-  writeJson(ACCOUNTS_KEY, stored);
+  writeAccounts(stored);
   announceChange();
   return renamed;
 }
@@ -153,7 +167,7 @@ export function removeProviderAccount(
   stored[provider] = serializeProviderAccounts(
     accounts.filter((account) => account.id !== accountId),
   );
-  writeJson(ACCOUNTS_KEY, stored);
+  writeAccounts(stored);
 
   const selections = readRecord<StoredSelections>(SELECTIONS_KEY);
   for (const [key, selection] of Object.entries(selections)) {
@@ -176,11 +190,17 @@ function serializeProviderAccounts(
     if (!label) return [];
     if (
       account.id === DEFAULT_PROVIDER_ACCOUNT_ID &&
-      label === DEFAULT_PROVIDER_ACCOUNT_LABEL
+      label === DEFAULT_PROVIDER_ACCOUNT_LABEL &&
+      !cleanDataHome(account.dataHome) && !cleanDataHome(account.resolvedDataHome)
     ) {
       return [];
     }
-    return [{ id: account.id, provider: account.provider, label }];
+    const dataHome = cleanDataHome(account.dataHome);
+    const resolvedDataHome = cleanDataHome(account.resolvedDataHome);
+    return [{ id: account.id, provider: account.provider, label,
+      ...(dataHome ? { dataHome } : {}),
+      ...(resolvedDataHome ? { resolvedDataHome } : {}),
+    }];
   });
 }
 
@@ -272,6 +292,46 @@ export function subscribeProviderAccounts(listener: () => void): () => void {
     window.removeEventListener(CHANGE_EVENT, local);
     window.removeEventListener("storage", storage);
   };
+}
+
+/** Recover native metadata without replacing newer local labels or selections. */
+export function restoreProviderAccounts(value: unknown): void {
+  if (!isRecord(value)) return;
+  const stored = readRecord<StoredAccounts>(ACCOUNTS_KEY);
+  for (const provider of PROVIDER_ACCOUNT_PROVIDERS) {
+    if (!Array.isArray(value[provider])) continue;
+    const existing = Array.isArray(stored[provider]) ? stored[provider]! : [];
+    const byId = new Map(existing
+      .filter(account => validAccountId(account?.id) && cleanLabel(account.label))
+      .map(account => [account.id, account]));
+    for (const entry of value[provider]) {
+      if (!isRecord(entry) || !validAccountId(entry.id) || !cleanLabel(entry.label)) continue;
+      const local = byId.get(entry.id);
+      // The native commit is authoritative for Home settings and resolution.
+      const dataHome = cleanDataHome(entry.dataHome);
+      const resolvedDataHome = cleanDataHome(entry.resolvedDataHome);
+      byId.set(entry.id, {
+        id: entry.id, provider, label: local?.label ?? cleanLabel(entry.label),
+        ...(dataHome ? { dataHome } : {}),
+        ...(resolvedDataHome ? { resolvedDataHome } : {}),
+      });
+    }
+    stored[provider] = serializeProviderAccounts([...byId.values()]);
+  }
+  writeAccounts(stored);
+  announceChange();
+}
+
+function cleanDataHome(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function writeAccounts(value: StoredAccounts): void {
+  try {
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(value));
+  } catch {
+    throw new Error("Could not save provider accounts. Browser storage is unavailable.");
+  }
 }
 
 function selectionKey(project: string | undefined): string {

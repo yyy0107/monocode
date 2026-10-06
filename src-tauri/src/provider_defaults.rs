@@ -61,7 +61,8 @@ fn set_default(dir: &Path, provider: &str, account_id: &str) -> Result<Defaults,
                     .iter()
                     .any(|v| v.get("id").and_then(|v| v.as_str()) == Some(account_id))
             });
-        if !published || !dir.join(provider).join(account_id).is_dir() {
+        if !published || !crate::provider_profiles::named_home(dir, provider, account_id)?.is_dir()
+        {
             return Err("This provider account is no longer available".into());
         }
         defaults.insert(provider.to_string(), account_id.to_string());
@@ -183,10 +184,7 @@ fn private_write(path: &Path, data: &[u8]) -> Result<(), String> {
 pub fn provider_account_import_codex(app: AppHandle, account_id: String) -> Result<(), String> {
     let _guard = ACCOUNT_WRITE.lock().map_err(|e| e.to_string())?;
     let destination = crate::harness::provider_account_path(&app, "codex", &account_id)?;
-    let source = std::env::var_os("CODEX_HOME")
-        .map(PathBuf::from)
-        .or_else(|| crate::dirs_home().map(|home| PathBuf::from(home).join(".codex")))
-        .ok_or("Could not locate the current Codex CLI profile")?;
+    let source = crate::provider_profiles::named_home(&directory(&app)?, "codex", "default")?;
     import_codex(&source, &destination)
 }
 

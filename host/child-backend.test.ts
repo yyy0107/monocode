@@ -73,6 +73,42 @@ it.each(["codex", "claude"])(
   },
 );
 
+it.each(["codex", "claude"].flatMap(provider => ["work", "default"].map(accountId => [provider, accountId])))("runs %s profile %s with a configured external Home without copying credentials", async (provider, accountId) => {
+  const directory = mkdtempSync(join(tmpdir(), "monocode-custom-home-"));
+  const home = join(directory, "external home");
+  const profiles = join(directory, "provider-accounts");
+  mkdirSync(home); mkdirSync(profiles);
+  writeFileSync(join(home, "credentials"), "keep");
+  writeFileSync(join(profiles, "accounts.json"), JSON.stringify({ [provider]: [{ id: accountId, label: "Work", dataHome: home }] }));
+  const config = join(directory, "desktop.json");
+  writeFileSync(config, JSON.stringify({ desktopDirectory: directory }));
+  const file = join(directory, "provider.cjs");
+  writeFileSync(file, `console.log(JSON.stringify({home: process.env.${provider === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"}, secure: process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR, token: process.env.${provider === "codex" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY"}}))`);
+  const backend = new HostChildBackend({}, config);
+  let received: { home?: string; secure?: string; token?: string } | undefined;
+  const release = await backend.listen<{ line: string }>("harness-stdout", ({ payload }) => { received = JSON.parse(payload.line); });
+  vi.stubEnv(provider === "codex" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY", "inherited");
+  try {
+    await backend.invoke("harness_spawn", { sessionId: "custom", command: file, args: [], cwd: directory, account: { provider, id: accountId } });
+    await vi.waitFor(() => expect(received?.home).toBe(home));
+    if (provider === "claude") expect(received?.secure).toBe(home);
+    expect(received?.token).toBeUndefined();
+    expect(readFileSync(join(home, "credentials"), "utf8")).toBe("keep");
+    expect(existsSync(join(profiles, provider, accountId))).toBe(false);
+    if (accountId === "default") {
+      received = undefined;
+      await backend.invoke("harness_spawn", { sessionId: "implicit", command: file, args: [], cwd: directory, binaryProvider: provider });
+      await vi.waitFor(() => expect(received?.home).toBe(home));
+      expect(received?.token).toBeUndefined();
+    }
+    rmSync(home, { recursive: true });
+    await expect(backend.invoke("harness_spawn", { sessionId: "missing", command: file, args: [], cwd: directory, account: { provider, id: accountId } })).rejects.toThrow("no longer available");
+    expect(existsSync(home)).toBe(false);
+  } finally {
+    release(); await backend.close(); vi.unstubAllEnvs(); rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 it("resolves every provider and runs only allowed catalog commands", async () => {
   const directory = mkdtempSync(join(tmpdir(), "monocode-catalog-test-"));
   const file = join(directory, "provider.cjs");

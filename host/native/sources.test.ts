@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parseNativeSession } from "../../src/integrations/harness/core/nativeSessionParser";
 import { compactLine, NativeReader } from "./read";
-import { findNativeSource, listNativeSessions, nativeSourceId, sourceFile, sourceFor } from "./sources";
+import { findNativeSource, listNativeSessions, nativeSources, nativeSourceId, sourceFile, sourceFor } from "./sources";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -63,6 +63,28 @@ function fixture() {
 }
 
 describe("Host native sources", () => {
+  it("does not rediscover old managed Homes after removing their profile", () => {
+    const { home, desktop } = fixture();
+    const managed = join(desktop, "provider-accounts", "codex", "removed-account");
+    const removed = join(desktop, "provider-accounts", "removed", "codex");
+    mkdirSync(join(managed, "sessions"), { recursive: true });
+    mkdirSync(removed, { recursive: true });
+    writeFileSync(join(removed, "removed-account"), "");
+    expect(nativeSources({ home, desktopDirectory: desktop, env: {} }).some(source => source.accountId === "removed-account")).toBe(false);
+    writeFileSync(join(desktop, "provider-accounts", "accounts.json"), JSON.stringify({ codex: [{ id: "default", label: "CLI", dataHome: managed }] }));
+    expect(nativeSources({ home, desktopDirectory: desktop, env: {} }).find(source => source.dataDir === managed)).toMatchObject({ accountId: "default" });
+  });
+
+  it.each(["custom", "default"])("keeps configured %s account bindings when a custom Home also matches a discovered sibling", async accountId => {
+    const { home, desktop, write, cwd, context } = fixture();
+    const codex = join(home, ".codex-work"), claude = join(home, "custom-claude");
+    write(join(claude, "projects/-work-project/99999999-aaaa.jsonl"), [{ type: "user", uuid: "custom", sessionId: "99999999-aaaa", cwd, message: { role: "user", content: "Custom" } }]);
+    writeFileSync(join(desktop, "provider-accounts/accounts.json"), JSON.stringify({ codex: [{ id: accountId, label: "Custom", dataHome: codex }], claude: [{ id: accountId, label: "Custom", dataHome: claude }] }));
+    const listing = await listNativeSessions(context);
+    expect(listing.sessions.filter(file => file.providerSessionId === "33333333-cccc")).toHaveLength(1);
+    expect(listing.sessions.find(file => file.providerSessionId === "33333333-cccc")).toMatchObject({ accountId, dataDir: codex });
+    expect(listing.sessions.find(file => file.providerSessionId === "99999999-aaaa")).toMatchObject({ accountId, dataDir: claude });
+  });
   it("lists every provider like the desktop reader, including profiles and accounts", async () => {
     const { context, claude, codex, database } = fixture();
     const listing = await listNativeSessions(context);

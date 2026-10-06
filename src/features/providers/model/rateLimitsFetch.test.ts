@@ -1,3 +1,6 @@
+// @vitest-environment happy-dom
+import { invoke } from "@tauri-apps/api/core";
+import { saveProviderAccount } from "./providerAccounts";
 import { configureSharedHost } from "../../connections/model/remoteProjects";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -41,6 +44,7 @@ vi.mock("../../../integrations/harness/core/jsonRpc", () => ({
       return Promise.resolve();
     }
     async request(method: string) {
+      if (method === "account/rateLimitResetCredit/consume") return { outcome: "nothingToReset" };
       if (method !== "account/rateLimits/read") return {};
       await new Promise((resolve) => setTimeout(resolve, 5));
       return {
@@ -79,6 +83,18 @@ describe("fetchCodexRateLimits", () => {
       10, 10, 10,
     ]);
   });
+});
+
+it("queries a configured built-in Home like a named profile even with a shared Host", async () => {
+  configureSharedHost("env", [], "shared-host");
+  saveProviderAccount({ id: "default", provider: "codex", label: "Default account", dataHome: "/data/codex" });
+  saveProviderAccount({ id: "default", provider: "claude", label: "Default account", dataHome: "/data/claude" });
+  vi.mocked(invoke).mockResolvedValue({ status: "ok", body: JSON.stringify({ five_hour: { utilization: 20 } }) });
+  expect((await fetchCodexRateLimits()).session?.usedPercent).toBe(10);
+  expect((await fetchClaudeRateLimits()).session?.usedPercent).toBe(20);
+  expect(await consumeCodexRateLimitResetCredit()).toBe("nothingToReset");
+  localStorage.clear();
+  configureSharedHost(undefined, []);
 });
 
 it("never queries or spends reset credits through the desktop environment for the shared Host CLI account", async () => {

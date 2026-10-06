@@ -13,6 +13,7 @@ import {
   selectProviderAccount,
   rememberSharedProviderDefaults,
   requestedProviderAccountId,
+  restoreProviderAccounts,
 } from "./providerAccounts";
 
 beforeEach(() => {
@@ -29,6 +30,19 @@ describe("provider accounts", () => {
         isDefault: true,
       },
     ]);
+  });
+
+  it("edits the built-in Home, preserves it on rename and can reset it without deleting the profile", () => {
+    saveProviderAccount({ id: "default", provider: "codex", label: "Default account", dataHome: "/data/codex" });
+    expect(providerAccounts("codex")[0]).toMatchObject({ dataHome: "/data/codex", isDefault: true });
+    renameProviderAccount("codex", "default", "Primary");
+    expect(providerAccounts("codex")[0]).toMatchObject({ label: "Primary", dataHome: "/data/codex" });
+    restoreProviderAccounts({ codex: [{ id: "default", label: "Primary", dataHome: "/data/codex", resolvedDataHome: "/data/codex" }] });
+    expect(providerAccounts("codex")[0].resolvedDataHome).toBe("/data/codex");
+    expect(removeProviderAccount("codex", "default")).toBe(false);
+    saveProviderAccount({ id: "default", provider: "codex", label: "Primary" });
+    expect(providerAccounts("codex")[0]).not.toHaveProperty("dataHome");
+    expect(providerAccounts("claude")[0]).not.toHaveProperty("dataHome");
   });
 
   it("stores named profiles separately per provider", () => {
@@ -115,6 +129,30 @@ describe("provider accounts", () => {
       "Keep",
       "Work",
     ]);
+  });
+
+  it("keeps custom Homes when saving, renaming and restoring native profiles", () => {
+    const account = newProviderAccount("codex", "Work", "  ~/.codex-work  ");
+    saveProviderAccount(account);
+    renameProviderAccount("codex", account.id, "Renamed");
+    expect(providerAccounts("codex")[1]).toMatchObject({ dataHome: "~/.codex-work", label: "Renamed" });
+    localStorage.clear();
+    restoreProviderAccounts({ codex: [{ ...account, label: "Disk profile" }], claude: [{ id: "work", label: "Claude", dataHome: "/data/claude" }] });
+    expect(providerAccounts("codex")[1]).toMatchObject({ dataHome: "~/.codex-work", label: "Disk profile" });
+    expect(providerAccounts("claude")[1]).toMatchObject({ dataHome: "/data/claude" });
+    renameProviderAccount("codex", account.id, "Local edit");
+    restoreProviderAccounts({ codex: [{ ...account, dataHome: "/expanded/codex-work" }] });
+    expect(providerAccounts("codex")[1]).toMatchObject({ label: "Local edit", dataHome: "/expanded/codex-work" });
+    expect(providerAccounts("codex")[0]).not.toHaveProperty("dataHome");
+  });
+
+  it("reports failed account storage instead of pretending the account was added", () => {
+    const storage = localStorage;
+    vi.stubGlobal("localStorage", { getItem: storage.getItem.bind(storage), setItem: () => { throw new Error("full"); } });
+    try {
+      expect(() => saveProviderAccount({ id: "work", provider: "codex", label: "Work" })).toThrow("Browser storage is unavailable");
+      expect(providerAccounts("codex")).toHaveLength(1);
+    } finally { vi.unstubAllGlobals(); }
   });
 
   it("remembers a selection per project and ignores unknown ids", () => {

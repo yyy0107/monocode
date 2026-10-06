@@ -14,6 +14,7 @@ import { open, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { configuredProviderAccountHomes } from "../provider-accounts";
 import type {
   NativeSessionFile,
   NativeSessionProvider,
@@ -73,9 +74,12 @@ function dirs(path: string): string[] {
 function accountDirs(desktop: string | undefined, provider: string): [string, string][] {
   if (!desktop) return [];
   const root = join(desktop, "provider-accounts", provider);
-  return dirs(root)
-    .filter((id) => validId(id) && id !== "default")
-    .map((id) => [id, join(root, id)]);
+  const homes = new Map<string, string>(dirs(root)
+    .filter((id) => validId(id) && id !== "default"
+      && !existsSync(join(desktop, "provider-accounts", "removed", provider, id)))
+    .map((id) => [id, join(root, id)]));
+  for (const [id, home] of configuredProviderAccountHomes(desktop, provider)) homes.set(id, home);
+  return [...homes];
 }
 
 export function nativeSources(context: SourceEnvironment = {}): NativeSource[] {
@@ -96,6 +100,10 @@ export function nativeSources(context: SourceEnvironment = {}): NativeSource[] {
     ...(accountId ? { accountId } : {}),
   });
   const out: NativeSource[] = [];
+  // Named Homes take precedence over duplicate default/sibling discoveries,
+  // otherwise native history loses the account binding used by the child.
+  for (const [id, dir] of accountDirs(context.desktopDirectory, "codex"))
+    out.push(jsonl("codex", dir, join(dir, "sessions"), 4, id));
   const codex = envDir("CODEX_HOME") ?? join(home, ".codex");
   out.push(jsonl("codex", codex, join(codex, "sessions"), 4));
   // The default home and sibling `~/.codex-<name>` profiles; dedupe drops repeats.
@@ -104,15 +112,13 @@ export function nativeSources(context: SourceEnvironment = {}): NativeSource[] {
     .map((name) => join(home, name));
   for (const dir of [join(home, ".codex"), ...profiles])
     out.push(jsonl("codex", dir, join(dir, "sessions"), 4));
-  for (const [id, dir] of accountDirs(context.desktopDirectory, "codex"))
-    out.push(jsonl("codex", dir, join(dir, "sessions"), 4, id));
   const pi = envDir("PI_CODING_AGENT_DIR") ?? join(home, ".pi/agent");
   out.push(jsonl("pi", pi, envDir("PI_CODING_AGENT_SESSION_DIR") ?? join(pi, "sessions"), 4));
   // Claude keeps main conversations at projects/<cwd>/<id>.jsonl; deeper files are subagents.
-  const claude = envDir("CLAUDE_CONFIG_DIR") ?? join(home, ".claude");
-  out.push(jsonl("claude", claude, join(claude, "projects"), 1));
   for (const [id, dir] of accountDirs(context.desktopDirectory, "claude"))
     out.push(jsonl("claude", dir, join(dir, "projects"), 1, id));
+  const claude = envDir("CLAUDE_CONFIG_DIR") ?? join(home, ".claude");
+  out.push(jsonl("claude", claude, join(claude, "projects"), 1));
   const omp = join(home, ".omp/agent");
   out.push(jsonl("omp", omp, join(omp, "sessions"), 4));
   const data = envDir("XDG_DATA_HOME") ?? join(home, ".local/share");

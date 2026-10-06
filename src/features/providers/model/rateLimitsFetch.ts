@@ -1,4 +1,6 @@
 import { sharedHostMachineId } from "../../connections/model/remoteProjects";
+import { providerAccounts, type ProviderAccountProvider } from "./providerAccounts";
+
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "../../../platform/tauri/fs";
 import {
@@ -18,6 +20,11 @@ import {
 } from "../../../integrations/harness/core/child";
 import { asRecord } from "../../../integrations/harness/providers/codex/codexProtocol";
 import { JsonRpcClient } from "../../../integrations/harness/core/jsonRpc";
+
+function unconfiguredHostDefault(provider: ProviderAccountProvider, accountId: string): boolean {
+  return accountId === "default" && !!sharedHostMachineId() &&
+    !providerAccounts(provider).find(account => account.id === "default")?.dataHome;
+}
 
 const USAGE_CHILD_ID = "monocode-codex-usage";
 const DISCOVERY_TIMEOUT_MS = 15_000;
@@ -85,7 +92,7 @@ type ClaudeUsageFetch = {
 export async function fetchClaudeRateLimits(
   accountId = "default",
 ): Promise<ProviderRateLimits> {
-  if (accountId === "default" && sharedHostMachineId())
+  if (unconfiguredHostDefault("claude", accountId))
     return unavailableRateLimits("claude", "Host CLI account usage is unavailable. Choose a named account.");
   try {
     const result = await invoke<ClaudeUsageFetch>("fetch_claude_usage", {
@@ -120,7 +127,7 @@ export async function fetchClaudeRateLimits(
 export async function fetchCodexRateLimits(
   accountId = "default",
 ): Promise<ProviderRateLimits> {
-  if (accountId === "default" && sharedHostMachineId())
+  if (unconfiguredHostDefault("codex", accountId))
     return unavailableRateLimits("codex", "Host CLI account usage is unavailable. Choose a named account.");
   let path: string;
   try {
@@ -167,7 +174,7 @@ export async function consumeCodexRateLimitResetCredit(
   creditId?: string,
   accountId = "default",
 ): Promise<CodexRateLimitResetOutcome> {
-  if (accountId === "default" && sharedHostMachineId())
+  if (unconfiguredHostDefault("codex", accountId))
     throw new Error("Host CLI account usage is unavailable. Choose a named account.");
   const path = (await resolveCodexBinary()).path;
   const cwd = await homeDir();

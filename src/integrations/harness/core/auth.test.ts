@@ -77,7 +77,7 @@ describe("harness login", () => {
       "/bin/claude",
       ["auth", "login"],
       "/home/alice",
-      undefined,
+      { provider: "claude", id: "default" },
       "claude",
     );
 

@@ -2,6 +2,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
 import { parseClaudeNativeTitle } from "../src/integrations/harness/core/nativeTitles";
+import { defaultProviderAccountHome, namedProviderAccountHome } from "./provider-accounts";
 
 /** Read metadata from the same credential home used by the provider child. */
 export async function readClaudeTitleFile(
@@ -10,19 +11,15 @@ export async function readClaudeTitleFile(
 ): Promise<string | null> {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(input.providerSessionId)) return null;
   let root = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-  const account = input.providerAccountId;
-  if (account && account !== "default") {
-    if (!desktopConfigPath || !/^[A-Za-z0-9_-]{1,80}$/.test(account))
-      return null;
+  const account = input.providerAccountId ?? "default";
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(account)) return null;
+  if (desktopConfigPath) {
     const config = JSON.parse(await readFile(desktopConfigPath, "utf8"));
     if (typeof config.desktopDirectory !== "string") return null;
-    root = join(
-      config.desktopDirectory,
-      "provider-accounts",
-      "claude",
-      account,
-    );
-  }
+    root = account === "default"
+      ? defaultProviderAccountHome(config.desktopDirectory, "claude") ?? root
+      : namedProviderAccountHome(config.desktopDirectory, "claude", account);
+  } else if (account !== "default") return null;
   try {
     const projects = await realpath(join(root, "projects"));
     const path = await realpath(

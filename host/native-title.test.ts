@@ -16,20 +16,19 @@ afterEach(() => {
   for (const path of directories.splice(0))
     rmSync(path, { recursive: true, force: true });
 });
-it("reads the selected Claude account's metadata without mixing credential homes", async () => {
+it.each([[false, "one"], [true, "one"], [true, "default"]] as const)("reads the selected Claude account's metadata with custom Home %s and profile %s", async (custom, selected) => {
   const root = mkdtempSync(join(tmpdir(), "monocode-native-title-"));
   directories.push(root);
   const config = join(root, "desktop.json");
   writeFileSync(config, JSON.stringify({ desktopDirectory: root }));
-  for (const account of ["one", "two"]) {
-    const project = join(
-      root,
-      "provider-accounts",
-      "claude",
-      account,
-      "projects",
-      "-project",
-    );
+  vi.stubEnv("CLAUDE_CONFIG_DIR", join(root, "inherited"));
+  const profileHome = (account: string) => custom ? join(root, `external-${account}`) : join(root, "provider-accounts", "claude", account);
+  if (custom) {
+    mkdirSync(join(root, "provider-accounts"));
+    writeFileSync(join(root, "provider-accounts/accounts.json"), JSON.stringify({ claude: ["one", "two", "default"].map(id => ({ id, label: id, dataHome: profileHome(id) })) }));
+  }
+  for (const account of ["one", "two", "default"]) {
+    const project = join(profileHome(account), "projects", "-project");
     mkdirSync(project, { recursive: true });
     writeFileSync(
       join(project, "native.jsonl"),
@@ -45,11 +44,11 @@ it("reads the selected Claude account's metadata without mixing credential homes
       {
         cwd: "/project",
         providerSessionId: "native",
-        providerAccountId: "one",
+        providerAccountId: selected,
       },
       config,
     ),
-  ).toBe("one title");
+  ).toBe(`${selected} title`);
   expect(
     await readClaudeTitleFile(
       {

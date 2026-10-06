@@ -10,6 +10,8 @@ import {
   rememberSharedProviderDefaults,
   newProviderAccount,
   saveProviderAccount,
+  restoreProviderAccounts,
+  type ProviderAccount,
   type SharedProviderDefaults,
   subscribeProviderAccounts,
   type ProviderAccountProvider,
@@ -23,27 +25,61 @@ export async function removeProviderAccountCredentials(
   await invoke("provider_account_remove", { provider, accountId });
 }
 
+let loading: Promise<void> | undefined;
+export function loadProviderAccounts(): Promise<void> {
+  if (loading) return loading;
+  loading = invoke<unknown>("provider_accounts_list")
+    .then(restoreProviderAccounts)
+    .finally(() => { loading = undefined; });
+  return loading;
+}
+
 let publication: Promise<unknown> = Promise.resolve();
-export function publishProviderAccounts(): Promise<void> {
-  const accounts = Object.fromEntries(
-    PROVIDER_ACCOUNT_PROVIDERS.map((provider) => [
-      provider,
-      providerAccounts(provider).map(({ id, label }) => ({ id, label })),
-    ]),
-  );
-  const next = publication
-    .catch(() => {})
-    .then(() => invoke<void>("provider_accounts_publish", { accounts }));
+export function publishProviderAccounts(extra?: ProviderAccount): Promise<void> {
+  const next = publication.catch(() => {}).then(() => {
+    // Snapshot inside the queue so an earlier restoration or save cannot be
+    // overwritten by a stale publication captured before it finished.
+    const accounts = Object.fromEntries(
+      PROVIDER_ACCOUNT_PROVIDERS.map((provider) => {
+        const entries = providerAccounts(provider).filter(account =>
+          extra?.provider !== provider || account.id !== extra.id,
+        );
+        if (extra?.provider === provider) entries.push(extra);
+        return [provider, entries.map(({ id, label, dataHome }) => ({ id, label, ...(dataHome ? { dataHome } : {}) }))];
+      }),
+    );
+    return invoke<void>("provider_accounts_publish", { accounts });
+  });
   publication = next;
   return next;
 }
 
-/** Keep the shared Host's copy of account labels current for phones. */
-export function initProviderAccountPublishing() {
-  void publishProviderAccounts().catch(() => {});
-  subscribeProviderAccounts(() => {
+/** Restore disk profiles before ever publishing the webview's account cache. */
+export async function initProviderAccountPublishing(): Promise<() => void> {
+  await loadProviderAccounts();
+  await publishProviderAccounts();
+  return subscribeProviderAccounts(() => {
     void publishProviderAccounts().catch(() => {});
   });
+}
+
+/** Adding a profile must not wait for (or require) an OAuth browser flow. */
+export async function addProviderAccountProfile(
+  provider: ProviderAccountProvider,
+  label: string,
+  dataHome?: string,
+): Promise<ProviderAccount> {
+  const account = newProviderAccount(provider, label, dataHome);
+  await publishProviderAccounts(account);
+  saveProviderAccount(account);
+  return account;
+}
+
+/** Commit edits before changing the cache, including the built-in profile. */
+export async function updateProviderAccountProfile(account: ProviderAccount): Promise<void> {
+  await publishProviderAccounts(account);
+  saveProviderAccount(account);
+  await loadProviderAccounts();
 }
 
 export async function loadSharedProviderDefaults(): Promise<SharedProviderDefaults> {

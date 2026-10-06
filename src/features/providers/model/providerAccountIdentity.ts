@@ -32,10 +32,10 @@ export async function readProviderAccountIdentity(
           ?.identity ?? null
       );
     }
-    return await invoke<ProviderAccountIdentity | null>(
+    return (await invoke<ProviderAccountIdentity | null>(
       "provider_account_identity",
       { provider, accountId },
-    );
+    )) ?? null;
   } catch {
     return null;
   }

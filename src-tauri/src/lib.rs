@@ -32,6 +32,7 @@ mod pasteboard;
 mod pi_usage;
 mod project_logo;
 mod provider_defaults;
+mod provider_profiles;
 mod pty;
 #[cfg(target_os = "macos")]
 mod quick_composer;
@@ -459,7 +460,8 @@ pub fn run() {
             harness_updates::harness_update_check_claim,
             harness_updates::harness_update,
             harness::provider_account_remove,
-            harness::provider_accounts_publish,
+            provider_profiles::provider_accounts_publish,
+            provider_profiles::provider_accounts_list,
             provider_defaults::provider_account_defaults,
             provider_defaults::provider_account_set_default,
             provider_defaults::provider_account_import_codex,

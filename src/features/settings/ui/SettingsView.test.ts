@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { SettingsView } from "./SettingsView";
+import { loginHarness } from "../../../integrations/harness/core/auth";
+import { AppViewDialog } from "../../workspace/ui/AppViewDialog";
 import {
   refreshUiLanguage,
   UI_LANGUAGE_KEY,
@@ -27,18 +29,29 @@ import {
 import { HARNESSES, HARNESS_TITLE } from "../../sessions/model/session";
 import { saveMaskEmails, saveShowRemainingUsage } from "../model/displayPrefs";
 
+const windowMock = vi.hoisted(() => ({
+  nativeDesktop: false,
+  startDragging: vi.fn(async () => {}),
+}));
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined),
   convertFileSrc: (path: string) => path,
-  isTauri: () => false,
+  isTauri: () => windowMock.nativeDesktop,
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
+    startDragging: windowMock.startDragging,
     isMaximized: async () => false,
     onResized: async () => () => {},
   }),
 }));
+vi.mock("../../../platform/tauri/platform", async (original) => ({
+  ...(await original<typeof import("../../../platform/tauri/platform")>()),
+  IS_LINUX: true,
+}));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
+vi.mock("../../../integrations/harness/core/auth", () => ({ loginHarness: vi.fn(async () => {}) }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(async () => true) }));
 vi.mock("../../../integrations/harness/core/availability", () => ({
   isHarnessAvailable: (id: string) => id === "claude" || id === "cursor",
@@ -97,6 +110,9 @@ function renderedSettingIds(): string[] {
 }
 
 beforeEach(() => {
+  windowMock.nativeDesktop = false;
+  windowMock.startDragging.mockClear();
+  vi.mocked(loginHarness).mockReset().mockResolvedValue(undefined);
   configureSharedHost(undefined, []);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mockLocalStorage();
@@ -119,6 +135,63 @@ afterEach(async () => {
 });
 
 describe("settings pages", () => {
+  it("drags the window from the popup header while preserving search, actions, close and body interaction", async () => {
+    windowMock.nativeDesktop = true;
+    const onClose = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(AppViewDialog, {
+          title: "Settings",
+          onClose,
+          children: createElement(SettingsView, {
+            section: "appearance",
+            cwd: "/repo",
+            sessions: [],
+            onClose,
+            onSelectSection,
+            onOpenSession: vi.fn(),
+            onArchiveSession: vi.fn(),
+            onDeleteSession: vi.fn(),
+            onOpenWhatsNew: vi.fn(),
+          }),
+        }),
+      ),
+    );
+    const dialog = document.querySelector('[role="dialog"]')!;
+    const header = dialog.querySelector(
+      '[data-app-settings] > [data-tauri-drag-region="deep"]',
+    )!;
+    const press = (target: Element) => {
+      const event = new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        detail: 1,
+      });
+      act(() => target.dispatchEvent(event));
+      return event;
+    };
+    expect(press(header.querySelector("span")!).defaultPrevented).toBe(true);
+    expect(windowMock.startDragging).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+
+    windowMock.startDragging.mockClear();
+    const close = dialog.querySelector<HTMLButtonElement>(
+      '[aria-label="Close"]',
+    )!;
+    for (const target of [
+      header.querySelector('input[aria-label="Search settings"]')!,
+      header.querySelector("button svg")!,
+      close.querySelector("svg")!,
+      dialog.querySelector("[data-setting-id]")!,
+    ]) {
+      expect(press(target).defaultPrevented).toBe(false);
+    }
+    expect(windowMock.startDragging).not.toHaveBeenCalled();
+    act(() => close.click());
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("only leaves Settings on Escape while its workspace pane is active", async () => {
     const onClose = vi.fn();
     await render("general", { active: false, onClose });
@@ -254,6 +327,94 @@ describe("settings pages", () => {
     expect(
       container.querySelectorAll('[aria-label="Reveal email"]').length,
     ).toBeGreaterThan(0);
+  });
+
+  it("shows each profile's actual local account independently from its label and refreshes identity", async () => {
+    configureSharedHost("env", [], "machine");
+    saveProviderAccount({ id: "work", provider: "codex", label: "Work", dataHome: "/homes/codex-work" });
+    saveProviderAccount({ id: "personal", provider: "codex", label: "Personal", dataHome: "/homes/codex-personal" });
+    saveProviderAccount({ id: "operator", provider: "claude", label: "Claude profile", dataHome: "/homes/claude" });
+    let workEmail = "work@example.com";
+    let hostOffline = false;
+    let localUnavailable = false;
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "provider_account_identity") {
+        const { provider, accountId } = args as { provider: string; accountId: string };
+        if (accountId === "default") return { email: "local-default@example.com", plan: "Pro" };
+        if (provider === "claude") return { name: "Claude operator", plan: "Max" };
+        if (accountId === "personal") return { email: "personal@example.com", plan: "Plus" };
+        if (localUnavailable) throw new Error("Unreadable Home");
+        return { email: workEmail, plan: "Pro" };
+      }
+      if (command === "remote_request") {
+        const { method } = args as { method: string };
+        if (method === "environment.describe") return { protocolVersion: 1, environmentId: "env", name: "fixture", providers: ["codex", "claude"], capabilities: ["providerAccounts.defaults"] };
+        if (method === "providerAccounts.list") {
+          if (hostOffline) throw new Error("Host offline");
+          return { codex: [
+            { id: "default", label: "Default", identity: { email: "host@example.com" } },
+            { id: "work", label: "Work", identity: { email: "wrong@example.com" } },
+          ], claude: [] };
+        }
+      }
+      return undefined;
+    });
+    await render("providers");
+    const identity = (provider: string, id: string) => container.querySelector(`[data-provider-account-identity="${provider}:${id}"]`)!;
+    expect(identity("codex", "work").textContent).toContain("work@example.com");
+    expect(identity("codex", "personal").textContent).toContain("personal@example.com");
+    expect(identity("claude", "operator").textContent).toContain("Claude operator");
+    expect(identity("codex", "default").textContent).toContain("local-default@example.com");
+    expect(container.textContent).not.toContain("wrong@example.com");
+    expect(container.textContent).toContain("/homes/codex-work");
+    expect(container.querySelector('[aria-label="Rename Work"]')).not.toBeNull();
+    const refresh = () => act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Refresh usage limits"]')!.click());
+    workEmail = "updated@example.com";
+    await refresh();
+    expect(identity("codex", "work").textContent).toContain("updated@example.com");
+    expect(identity("codex", "work").textContent).not.toContain("work@example.com");
+    hostOffline = true;
+    await refresh();
+    expect(identity("codex", "work").textContent).toContain("updated@example.com");
+    expect(identity("codex", "default").textContent).toContain("local-default@example.com");
+    expect(invoke).toHaveBeenCalledWith("provider_account_identity", { provider: "codex", accountId: "default" });
+    localUnavailable = true;
+    await refresh();
+    expect(identity("codex", "work").textContent).toContain("No account identity could be read from this Home. Check the path or sign in.");
+    expect(identity("codex", "work").textContent).not.toContain("updated@example.com");
+  });
+
+  it.each(["codex", "claude"] as const)("edits the built-in %s Home and reads its identity even without a Host", async provider => {
+    let dataHome = "/system/cli-home";
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "provider_accounts_list") return { [provider]: [{ id: "default", label: "Default account", resolvedDataHome: dataHome, ...(dataHome === "/custom/home" ? { dataHome } : {}) }] };
+      if (command === "provider_accounts_publish") {
+        const { accounts } = args as { accounts: Record<string, { id: string; dataHome?: string }[]> };
+        const builtin = accounts[provider].find(account => account.id === "default")!;
+        dataHome = builtin.dataHome || "/system/cli-home";
+      }
+      if (command === "provider_account_identity") return { email: `${dataHome === "/custom/home" ? "changed" : "initial"}@example.com`, plan: "Pro" };
+      return undefined;
+    });
+    await render("providers");
+    const identity = () => container.querySelector(`[data-provider-account-identity="${provider}:default"]`)!;
+    expect(identity().textContent).toContain("initial@example.com");
+    expect(container.textContent).toContain("/system/cli-home");
+    expect(container.textContent).toContain("Built-in CLI profile");
+    const row = identity().parentElement!.parentElement!;
+    expect(row.querySelector('[title="Edit account and Data Home"]')).not.toBeNull();
+    await act(async () => row.querySelector<HTMLButtonElement>('[title="Edit account and Data Home"]')!.click());
+    const homeInput = container.querySelector<HTMLInputElement>(`[aria-label="${HARNESS_TITLE[provider]} Data Home"]`)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(homeInput, "/custom/home");
+      homeInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => homeInput.closest("form")!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+    expect(providerAccounts(provider)[0]).toMatchObject({ id: "default", dataHome: "/custom/home", resolvedDataHome: "/custom/home" });
+    expect(providerAccounts(provider)).toHaveLength(1);
+    expect(identity().textContent).toContain("changed@example.com");
+    await act(async () => row.querySelector<HTMLButtonElement>('[aria-label="Sign in to Default account"]')!.click());
+    expect(loginHarness).toHaveBeenCalledWith(provider, "default");
   });
 
   it("shows account usage bars as remaining capacity", async () => {
@@ -415,6 +576,32 @@ describe("settings pages", () => {
       accountId: "account-work",
     });
     expect(providerAccounts("codex")).toHaveLength(1);
+  });
+
+  it.each(["codex", "claude"] as const)("adds a visible %s profile with an existing Home without signing in", async provider => {
+    vi.mocked(invoke).mockImplementation(async command => command === "provider_accounts_list" ? { codex: [{ id: "disk", label: "Disk account", dataHome: "/data/existing" }] } : undefined);
+    await render("providers");
+    expect(container.textContent).toContain("Disk account");
+    expect(container.textContent).toContain("/data/existing");
+    expect(container.textContent).toContain("~/.codex");
+    expect(container.textContent).toContain("~/.claude");
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")].filter(button => button.textContent === "Add account");
+    await act(async () => buttons[provider === "claude" ? 0 : 1].click());
+    const name = container.querySelector<HTMLInputElement>(`[aria-label="New ${HARNESS_TITLE[provider]} account"]`)!;
+    const home = container.querySelector<HTMLInputElement>(`[aria-label="${HARNESS_TITLE[provider]} Data Home"]`)!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(name, "Personal"); name.dispatchEvent(new Event("input", { bubbles: true }));
+      setter.call(home, `/data/${provider}`); home.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => name.closest("form")!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+    const account = providerAccounts(provider).find(account => account.label === "Personal")!;
+    expect(account.dataHome).toBe(`/data/${provider}`);
+    expect(container.querySelector('[aria-label="Rename Personal"]')).not.toBeNull();
+    expect(container.textContent).toContain(`/data/${provider}`);
+    expect(loginHarness).not.toHaveBeenCalled();
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Sign in to Personal"]')!.click());
+    expect(loginHarness).toHaveBeenCalledWith(provider, account.id);
   });
 
   it("validates and stores Codex and OpenCode binary overrides", async () => {

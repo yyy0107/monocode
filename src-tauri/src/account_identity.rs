@@ -62,7 +62,10 @@ fn capitalize(value: &str) -> String {
 fn claude_identity(dir: Option<PathBuf>) -> Option<ProviderAccountIdentity> {
     let path = match dir {
         Some(dir) => dir.join(".claude.json"),
-        None => home()?.join(".claude.json"),
+        None => std::env::var_os("CLAUDE_CONFIG_DIR")
+            .filter(|path| !path.is_empty())
+            .map(|dir| PathBuf::from(dir).join(".claude.json"))
+            .or_else(|| home().map(|home| home.join(".claude.json")))?,
     };
     parse_claude_identity(&read_json(&path)?)
 }
@@ -145,6 +148,49 @@ mod tests {
         let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(serde_json::to_vec(&claims).unwrap());
         json!({ "tokens": { "id_token": format!("header.{payload}.signature") } })
+    }
+
+    #[test]
+    fn reads_default_profile_identity_from_its_configured_home() {
+        let root = std::env::temp_dir().join(format!(
+            "monocode-default-identity-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let profiles = root.join("provider-accounts");
+        let custom = root.join("custom");
+        std::fs::create_dir_all(&profiles).unwrap();
+        std::fs::create_dir_all(&custom).unwrap();
+        std::fs::write(
+            profiles.join("accounts.json"),
+            serde_json::to_vec(&json!({
+                "codex": [{"id": "default", "label": "CLI", "dataHome": custom}],
+                "claude": [{"id": "default", "label": "CLI", "dataHome": custom}]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            custom.join("auth.json"),
+            serde_json::to_vec(&codex_auth(json!({"email": "custom@example.test"}))).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            custom.join(".claude.json"),
+            serde_json::to_vec(&json!({"oauthAccount": {"emailAddress": "claude@example.test"}}))
+                .unwrap(),
+        )
+        .unwrap();
+        let codex = crate::provider_profiles::named_home(&profiles, "codex", "default").unwrap();
+        let claude = crate::provider_profiles::named_home(&profiles, "claude", "default").unwrap();
+        assert_eq!(
+            codex_identity(Some(codex)).unwrap().email.as_deref(),
+            Some("custom@example.test")
+        );
+        assert_eq!(
+            claude_identity(Some(claude)).unwrap().email.as_deref(),
+            Some("claude@example.test")
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

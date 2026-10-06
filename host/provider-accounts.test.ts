@@ -5,6 +5,8 @@ import { join } from "node:path";
 import {
   desktopProviderAccounts,
   resolveDefaultAccount,
+  namedProviderAccountHome,
+  defaultProviderAccountHome,
 } from "./provider-accounts";
 const dirs: string[] = [];
 afterEach(() => {
@@ -88,6 +90,24 @@ it("publishes public identity from the actual Host profile and the configured na
   });
   expect(JSON.stringify(accounts)).not.toContain("never-publish");
   expect(JSON.stringify(accounts)).not.toContain(profiles);
+});
+
+it.each(["work", "default"])("reads %s identity from custom Homes without exposing paths and rejects invalid Homes", accountId => {
+  const { dir, owner, profiles } = fixture();
+  const codex = join(dir, "external-codex"), claude = join(dir, "external-claude");
+  mkdirSync(codex); mkdirSync(claude);
+  writeFileSync(join(codex, "auth.json"), JSON.stringify({ tokens: { id_token: `x.${Buffer.from(JSON.stringify({ email: "custom@example.test" })).toString("base64url")}.x` } }));
+  writeFileSync(join(claude, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "claude@example.test" } }));
+  writeFileSync(join(profiles, "accounts.json"), JSON.stringify({ codex: [{ id: accountId, label: "Work", dataHome: codex }], claude: [{ id: accountId, label: "Work", dataHome: claude }] }));
+  if (accountId === "default") vi.stubEnv("OPENAI_API_KEY", "inherited");
+  const accounts = desktopProviderAccounts(owner);
+  expect(accounts.codex?.find(account => account.id === accountId)?.identity?.email).toBe("custom@example.test");
+  expect(accounts.claude?.find(account => account.id === accountId)?.identity?.email).toBe("claude@example.test");
+  expect(JSON.stringify(accounts)).not.toContain("external-");
+  const home = () => accountId === "default" ? defaultProviderAccountHome(dir, "codex") : namedProviderAccountHome(dir, "codex", accountId);
+  expect(home()).toBe(codex);
+  writeFileSync(join(profiles, "accounts.json"), JSON.stringify({ codex: [{ id: accountId, label: "Work", dataHome: "relative" }] }));
+  expect(home).toThrow("Invalid provider account Data Home");
 });
 
 it("does not silently use the CLI login when an existing desktop account configuration is unreadable", () => {

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type {
   HostProviderAccount,
   HostProviderAccounts,
@@ -85,6 +85,44 @@ function accountsIn(
     accounts.unshift({ id: "default", label: "Default account" });
   return accounts;
 }
+/** Resolve a local Home override without exposing it through public Host metadata. */
+function configuredHome(directory: string, provider: string, id: string): string | undefined {
+  if (!ACCOUNT_PROVIDERS.includes(provider as never) || !ACCOUNT_ID.test(id))
+    throw new Error("Invalid provider account");
+  let profiles: Record<string, unknown>;
+  try { profiles = read(join(directory, "provider-accounts", "accounts.json")); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      return undefined;
+    throw new Error("Invalid provider account configuration");
+  }
+  const entries = profiles[provider];
+  const entry = Array.isArray(entries) ? entries.find(entry => record(entry).id === id) : undefined;
+  const home = record(entry).dataHome;
+  if (home === undefined) return undefined;
+  if (typeof home !== "string" || !isAbsolute(home) || home.includes("\0"))
+    throw new Error("Invalid provider account Data Home");
+  return home;
+}
+
+export function namedProviderAccountHome(directory: string, provider: string, id: string): string {
+  if (id === "default") throw new Error("Invalid provider account");
+  return configuredHome(directory, provider, id) ?? join(directory, "provider-accounts", provider, id);
+}
+
+export function defaultProviderAccountHome(directory: string, provider: string): string | undefined {
+  return configuredHome(directory, provider, "default");
+}
+
+export function configuredProviderAccountHomes(directory: string, provider: string): [string, string][] {
+  const homes = accountsIn(directory, provider)
+    .filter(account => account.id !== "default")
+    .map(account => [account.id, namedProviderAccountHome(directory, provider, account.id)] as [string, string]);
+  const builtin = defaultProviderAccountHome(directory, provider);
+  if (builtin) homes.unshift(["default", builtin]);
+  return homes;
+}
+
 /** Resolve exactly once at creation. Retained sessions must not call this. */
 export function resolveDefaultAccount(
   owner: string,
@@ -114,8 +152,9 @@ function identity(
   id: string,
 ): HostAccountIdentity | undefined {
   const named = id !== "default";
+  const defaultHome = named ? undefined : defaultProviderAccountHome(directory, provider);
   if (
-    !named &&
+    !named && !defaultHome &&
     (provider === "codex"
       ? ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"]
       : ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]
@@ -126,8 +165,8 @@ function identity(
     let value: Record<string, unknown>;
     if (provider === "codex") {
       const home = named
-        ? join(directory, "provider-accounts", provider, id)
-        : process.env.CODEX_HOME || join(homedir(), ".codex");
+        ? namedProviderAccountHome(directory, provider, id)
+        : defaultHome || process.env.CODEX_HOME || join(homedir(), ".codex");
       const token = record(read(join(home, "auth.json")).tokens).id_token;
       if (typeof token !== "string") return undefined;
       value = record(
@@ -149,9 +188,9 @@ function identity(
       });
     }
     const config = named
-      ? join(directory, "provider-accounts", provider, id, ".claude.json")
-      : process.env.CLAUDE_CONFIG_DIR
-        ? join(process.env.CLAUDE_CONFIG_DIR, ".claude.json")
+      ? join(namedProviderAccountHome(directory, provider, id), ".claude.json")
+      : defaultHome || process.env.CLAUDE_CONFIG_DIR
+        ? join((defaultHome || process.env.CLAUDE_CONFIG_DIR)!, ".claude.json")
         : join(homedir(), ".claude.json");
     value = record(read(config).oauthAccount);
     return publicIdentity({

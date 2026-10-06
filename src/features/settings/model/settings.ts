@@ -425,7 +425,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     section: "providers",
     label: "Provider accounts",
     keywords:
-      "account sign in login rename remove delete credentials profile usage limit quota exhausted",
+      "codex claude account sign in login rename remove delete credentials profile data home CODEX_HOME CLAUDE_CONFIG_DIR usage limit quota exhausted 账号 数据目录",
   },
   {
     id: "show-remaining-usage",

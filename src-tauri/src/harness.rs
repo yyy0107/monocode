@@ -931,8 +931,8 @@ pub fn harness_read_claude_title(
     provider_session_id: String,
     provider_account_id: Option<String>,
 ) -> Result<Option<String>, String> {
-    let root = match provider_account_id.as_deref().filter(|id| *id != "default") {
-        Some(id) => provider_account_path(&app, "claude", id)?,
+    let root = match provider_account_dir(&app, "claude", provider_account_id.as_deref())? {
+        Some(dir) => dir,
         None => std::env::var_os("CLAUDE_CONFIG_DIR")
             .map(PathBuf::from)
             .or_else(|| dirs_home().map(|home| PathBuf::from(home).join(".claude")))
@@ -1061,6 +1061,15 @@ pub fn harness_spawn(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     prepare_child(&mut cmd, &command);
+    let account = account.or_else(|| {
+        binary_provider
+            .as_deref()
+            .filter(|provider| matches!(*provider, "codex" | "claude"))
+            .map(|provider| HarnessAccount {
+                provider: provider.into(),
+                id: DEFAULT_PROVIDER_ACCOUNT_ID.into(),
+            })
+    });
     apply_provider_account(&app, &mut cmd, account.as_ref())?;
 
     crate::control::configure_child(&app, &session_id, &mut cmd);
@@ -1174,9 +1183,20 @@ pub(crate) fn provider_account_dir(
     provider: &str,
     account_id: Option<&str>,
 ) -> Result<Option<PathBuf>, String> {
-    let Some(account_id) = account_id.filter(|id| *id != DEFAULT_PROVIDER_ACCOUNT_ID) else {
+    let account_id = account_id.unwrap_or(DEFAULT_PROVIDER_ACCOUNT_ID);
+    if let Some(dir) = crate::provider_profiles::custom_home(
+        &crate::provider_profiles::directory(app)?,
+        provider,
+        account_id,
+    )? {
+        if !dir.is_dir() {
+            return Err("This provider account's Data Home is no longer available".into());
+        }
+        return Ok(Some(dir));
+    }
+    if account_id == DEFAULT_PROVIDER_ACCOUNT_ID {
         return Ok(None);
-    };
+    }
     let dir = provider_account_path(app, provider, account_id)?;
     std::fs::create_dir_all(&dir).map_err(|error| {
         format!(
@@ -1206,13 +1226,11 @@ pub(crate) fn provider_account_path(
     {
         return Err("Invalid provider account id".into());
     }
-    Ok(app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?
-        .join("provider-accounts")
-        .join(provider)
-        .join(account_id))
+    crate::provider_profiles::named_home(
+        &crate::provider_profiles::directory(app)?,
+        provider,
+        account_id,
+    )
 }
 
 #[tauri::command(async)]
@@ -1226,8 +1244,14 @@ pub fn provider_account_remove(
         .lock()
         .map_err(|error| error.to_string())?;
     crate::provider_defaults::ensure_removable(&app, &provider, &account_id)?;
+    let profiles = crate::provider_profiles::directory(&app)?;
     let dir = provider_account_path(&app, &provider, &account_id)?;
     host.kill_account(&provider, &account_id);
+    if crate::provider_profiles::custom_home(&profiles, &provider, &account_id)?.is_some()
+        || crate::provider_profiles::managed_home_is_referenced(&profiles, &provider, &account_id)?
+    {
+        return crate::provider_profiles::remove(&profiles, &provider, &account_id);
+    }
 
     #[cfg(target_os = "macos")]
     if provider == "claude" {
@@ -1236,7 +1260,9 @@ pub fn provider_account_remove(
 
     let metadata = match std::fs::symlink_metadata(&dir) {
         Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return crate::provider_profiles::remove(&profiles, &provider, &account_id);
+        }
         Err(error) => {
             return Err(format!(
                 "Could not inspect the {provider} account directory {}: {error}",
@@ -1254,58 +1280,8 @@ pub fn provider_account_remove(
             "Could not remove the {provider} account directory {}: {error}",
             dir.display()
         )
-    })
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct PublishedProviderAccount {
-    id: String,
-    label: String,
-}
-
-fn valid_account_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 80
-        && id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-}
-
-/// Share account labels with the desktop-owned Host so phones can choose a
-/// profile. Only ids and labels are written; credentials stay in each profile.
-#[tauri::command(async)]
-pub fn provider_accounts_publish(
-    app: AppHandle,
-    accounts: HashMap<String, Vec<PublishedProviderAccount>>,
-) -> Result<(), String> {
-    let published: HashMap<String, Vec<PublishedProviderAccount>> = accounts
-        .into_iter()
-        .filter(|(provider, _)| provider == "claude" || provider == "codex")
-        .map(|(provider, entries)| {
-            let entries = entries
-                .into_iter()
-                .filter(|entry| valid_account_id(&entry.id) && !entry.label.trim().is_empty())
-                .map(|entry| PublishedProviderAccount {
-                    id: entry.id,
-                    label: entry.label.trim().chars().take(80).collect(),
-                })
-                .collect();
-            (provider, entries)
-        })
-        .collect();
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?
-        .join("provider-accounts");
-    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-    let raw = serde_json::to_vec(&published).map_err(|error| error.to_string())?;
-    let temporary = dir.join(format!("accounts-{}.tmp", uuid::Uuid::new_v4()));
-    std::fs::write(&temporary, raw).map_err(|error| error.to_string())?;
-    std::fs::rename(&temporary, dir.join("accounts.json")).map_err(|error| {
-        let _ = std::fs::remove_file(&temporary);
-        error.to_string()
-    })
+    })?;
+    crate::provider_profiles::remove(&profiles, &provider, &account_id)
 }
 
 fn apply_provider_account(

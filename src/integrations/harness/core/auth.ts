@@ -132,8 +132,8 @@ async function runHarnessLogin(
     }, LOGIN_TIMEOUT_MS);
 
     const account =
-      accountId && accountId !== "default" && supportsProviderAccounts(harness)
-        ? { provider: harness, id: accountId }
+      supportsProviderAccounts(harness)
+        ? { provider: harness, id: accountId ?? "default" }
         : undefined;
     const spawn = account
       ? child.spawnChild(childId, path, [...args], cwd, account, harness)

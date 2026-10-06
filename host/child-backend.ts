@@ -25,6 +25,7 @@ import {
   HOST_DIAGNOSTIC_LIMIT_ERROR,
 } from "../src/integrations/harness/core/childErrors";
 import { readClaudeTitleFile } from "./native-title";
+import { defaultProviderAccountHome, namedProviderAccountHome } from "./provider-accounts";
 import type { HostStore } from "./store";
 import { claimCheckoutResource } from "./checkout-guards";
 import { randomUUID } from "node:crypto";
@@ -296,46 +297,49 @@ export class HostChildBackend implements ChildBackend {
     if (this.closing) throw new Error("Host is stopping");
     await this.kill(id);
     if (this.closing) throw new Error("Host is stopping");
-    const account = args.account as
-      { id?: string; provider?: string } | undefined;
+    const account = (args.account as { id?: string; provider?: string } | undefined)
+      ?? (["codex", "claude"].includes(String(args.binaryProvider))
+        ? { id: "default", provider: String(args.binaryProvider) } : undefined);
     const env = childEnvironment();
     Object.assign(env, this.sessionEnvironment?.(id));
-    if (account?.id && account.id !== "default") {
-      if (!this.desktopConfigPath)
+    if (account?.id && (account.id !== "default" || ["codex", "claude"].includes(account.provider ?? ""))) {
+      if (!this.desktopConfigPath && account.id !== "default")
         throw new Error("Named provider accounts require a desktop-owned Host");
       if (
         !/^[A-Za-z0-9_-]{1,80}$/.test(account.id) ||
         !["codex", "claude"].includes(account.provider ?? "")
       )
         throw new Error("Invalid provider account");
-      const config = JSON.parse(await readFile(this.desktopConfigPath, "utf8"));
-      if (typeof config.desktopDirectory !== "string")
-        throw new Error("Invalid desktop account directory");
-      const profile = join(
-        config.desktopDirectory,
-        "provider-accounts",
-        account.provider!,
-        account.id,
-      );
-      if (!(await stat(profile).catch(() => undefined))?.isDirectory())
-        throw new Error("This provider account is no longer available");
-      if (account.provider === "codex") {
-        env.CODEX_HOME = profile;
-        for (const key of [
-          "OPENAI_API_KEY",
-          "CODEX_API_KEY",
-          "CODEX_ACCESS_TOKEN",
-        ])
-          delete env[key];
-      } else {
-        env.CLAUDE_CONFIG_DIR = profile;
-        env.CLAUDE_SECURESTORAGE_CONFIG_DIR = profile;
-        for (const key of [
-          "ANTHROPIC_API_KEY",
-          "ANTHROPIC_AUTH_TOKEN",
-          "CLAUDE_CODE_OAUTH_TOKEN",
-        ])
-          delete env[key];
+      let profile: string | undefined;
+      if (this.desktopConfigPath) {
+        const config = JSON.parse(await readFile(this.desktopConfigPath, "utf8"));
+        if (typeof config.desktopDirectory !== "string")
+          throw new Error("Invalid desktop account directory");
+        profile = account.id === "default"
+          ? defaultProviderAccountHome(config.desktopDirectory, account.provider!)
+          : namedProviderAccountHome(config.desktopDirectory, account.provider!, account.id);
+      }
+      if (profile) {
+        if (!(await stat(profile).catch(() => undefined))?.isDirectory())
+          throw new Error("This provider account is no longer available");
+        if (account.provider === "codex") {
+          env.CODEX_HOME = profile;
+          for (const key of [
+            "OPENAI_API_KEY",
+            "CODEX_API_KEY",
+            "CODEX_ACCESS_TOKEN",
+          ])
+            delete env[key];
+        } else {
+          env.CLAUDE_CONFIG_DIR = profile;
+          env.CLAUDE_SECURESTORAGE_CONFIG_DIR = profile;
+          for (const key of [
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+          ])
+            delete env[key];
+        }
       }
     }
     const launch = await providerLaunch(

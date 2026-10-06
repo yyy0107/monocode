@@ -34,7 +34,7 @@ const appLoaded = import("./app/App");
 initUiLanguage();
 initAppearance();
 initSounds();
-initProviderAccountPublishing();
+const providerAccountsPrimed = initProviderAccountPublishing().catch(() => undefined);
 const sharedDefaultsPrimed = loadSharedProviderDefaults().catch(() => undefined);
 // Prime the real home directory before the first render so every `~/` file
 // reference resolves consistently. The IPC call is local and failures remain
@@ -119,6 +119,7 @@ function BootFailure({ error }: { error: unknown }) {
 async function boot() {
   try {
     await providerBinaryPathsPrimed;
+    await providerAccountsPrimed;
     await initializeSharedHost();
     await sharedDefaultsPrimed;
     const [

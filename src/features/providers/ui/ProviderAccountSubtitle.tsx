@@ -10,7 +10,9 @@ export function ProviderAccountSubtitle({
   fallback?: string;
   className?: string;
 }) {
-  if (!identity?.plan && !identity?.email) {
+  const name = identity?.name?.trim();
+  const account = identity?.email || name || fallback;
+  if (!identity?.plan && !identity?.email && !name) {
     return fallback ? (
       <span className={`min-w-0 ${className}`}>{fallback}</span>
     ) : null;
@@ -18,11 +20,13 @@ export function ProviderAccountSubtitle({
 
   return (
     <span className={`inline-flex min-w-0 items-baseline gap-1 ${className}`}>
-      {identity.plan ? <span className="shrink-0">{identity.plan}</span> : null}
-      {identity.plan && identity.email ? <span aria-hidden>·</span> : null}
-      {identity.email ? (
+      {identity?.email ? (
         <PrivateEmail key={identity.email} email={identity.email} />
+      ) : account ? (
+        <span className="min-w-0 truncate" title={account}>{account}</span>
       ) : null}
+      {identity?.plan && account ? <span aria-hidden>·</span> : null}
+      {identity?.plan ? <span className="shrink-0">{identity.plan}</span> : null}
     </span>
   );
 }

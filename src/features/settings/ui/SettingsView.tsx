@@ -1,4 +1,5 @@
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
+import { startWindowDrag } from "../../../app/shell/startWindowDrag";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { setUiLanguage, type UiLanguage } from "../../../shared/i18n/language";
@@ -24,6 +25,7 @@ import {
 } from "../../../shared/ui/icons";
 import {
   createContext,
+  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -221,18 +223,24 @@ import {
   subscribeProjectProviders,
 } from "../../sessions/model/projectProviders";
 import {
-  newProviderAccount,
   providerAccounts,
   sharedProviderAccountId,
   PROVIDER_ACCOUNT_PROVIDERS,
   removeProviderAccount,
-  renameProviderAccount,
-  saveProviderAccount,
   subscribeProviderAccounts,
   type ProviderAccount,
   type ProviderAccountProvider,
 } from "../../providers/model/providerAccounts";
-import { removeProviderAccountCredentials, loadSharedProviderDefaults, setSharedProviderDefault, importCurrentCodexAccount, requireSharedAccountHost } from "../../providers/model/providerAccountCredentials";
+import {
+  removeProviderAccountCredentials,
+  loadSharedProviderDefaults,
+  setSharedProviderDefault,
+  importCurrentCodexAccount,
+  requireSharedAccountHost,
+  loadProviderAccounts,
+  addProviderAccountProfile,
+  updateProviderAccountProfile,
+} from "../../providers/model/providerAccountCredentials";
 import {
   identityKey,
   identityOrganizationTag,
@@ -508,7 +516,11 @@ export function SettingsView({
       data-app-settings
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
-      <div className="flex h-10 shrink-0 select-none items-center border-b border-stroke">
+      <div
+        data-tauri-drag-region="deep"
+        onMouseDownCapture={startWindowDrag}
+        className="flex h-10 shrink-0 select-none items-center border-b border-stroke"
+      >
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
           <span className="shrink-0 text-content/45">{uiT("Settings")}</span>
           <span aria-hidden className="shrink-0 text-content/25">
@@ -3505,6 +3517,7 @@ type AccountEditor = {
   provider: ProviderAccountProvider;
   accountId?: string;
   label: string;
+  dataHome?: string;
 };
 
 export function ProviderAccountsSettings() {
@@ -3516,6 +3529,17 @@ export function ProviderAccountsSettings() {
   const [defaultsError, setDefaultsError] = useState<string | null>(null);
   const [defaultsReady, setDefaultsReady] = useState(false);
   const [defaultsRetry, setDefaultsRetry] = useState(0);
+  const [profilesReady, setProfilesReady] = useState(false);
+  useEffect(() => {
+    let current = true;
+    void loadProviderAccounts().then(
+      () => { if (current) setProfilesReady(true); },
+      (reason) => {
+        if (current) setError(reason instanceof Error ? reason.message : String(reason));
+      },
+    );
+    return () => { current = false; };
+  }, [defaultsRetry]);
   useEffect(() => {
     let current = true;
     setDefaultsReady(false);
@@ -3563,7 +3587,7 @@ export function ProviderAccountsSettings() {
 
   const startAdd = (provider: ProviderAccountProvider) => {
     setError(null);
-    setEditor({ provider, label: "" });
+    setEditor({ provider, label: "", dataHome: "" });
   };
 
   const startRename = (account: ProviderAccount) => {
@@ -3572,6 +3596,7 @@ export function ProviderAccountsSettings() {
       provider: account.provider,
       accountId: account.id,
       label: account.label,
+      dataHome: account.dataHome ?? "",
     });
   };
 
@@ -3585,13 +3610,16 @@ export function ProviderAccountsSettings() {
     setError(null);
     try {
       if (editor.accountId) {
-        renameProviderAccount(editor.provider, editor.accountId, editor.label);
+        await updateProviderAccountProfile({
+          id: editor.accountId, provider: editor.provider,
+          label: editor.label, dataHome: editor.dataHome,
+        });
+        clearCachedRateLimits(editor.provider, editor.accountId);
+        setVersion((value) => value + 1);
       } else if (editor.importCurrent) {
         await importCurrentCodexAccount(editor.label);
       } else {
-        const account = newProviderAccount(editor.provider, editor.label);
-        await loginHarness(editor.provider, account.id);
-        saveProviderAccount(account);
+        await addProviderAccountProfile(editor.provider, editor.label, editor.dataHome);
       }
       setEditor(null);
     } catch (caught) {
@@ -3605,10 +3633,27 @@ export function ProviderAccountsSettings() {
     }
   };
 
+  const signIn = async (account: ProviderAccount) => {
+    if (working) return;
+    setWorking(`login:${account.provider}:${account.id}`);
+    setError(null);
+    try {
+      await loginHarness(account.provider, account.id);
+      clearCachedRateLimits(account.provider, account.id);
+      setVersion((value) => value + 1);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setWorking(null);
+    }
+  };
+
   const removeAccount = async (account: ProviderAccount) => {
     if (account.isDefault || working) return;
     const confirmed = await ask(
-      `Remove “${account.label}”? Its stored credentials will be deleted and any running turns for this account will stop. Existing conversations stay in history, but cannot continue until you switch accounts.`,
+      uiT(account.dataHome
+        ? "Remove “{account}”? Its custom Data Home and credentials will be kept. Existing conversations stay in history, but cannot continue with this account."
+        : "Remove “{account}”? Its stored credentials will be deleted and any running turns for this account will stop. Existing conversations stay in history, but cannot continue until you switch accounts.", { account: account.label }),
       {
         title: `Remove ${HARNESS_TITLE[account.provider]} account`,
         kind: "warning",
@@ -3641,10 +3686,10 @@ export function ProviderAccountsSettings() {
     }
   };
 
-  const identities = useProviderAccountIdentities(
-    PROVIDER_ACCOUNT_PROVIDERS.flatMap(providerAccounts),
-    version,
-  );
+  const accounts = PROVIDER_ACCOUNT_PROVIDERS.flatMap(providerAccounts);
+  // Every row describes a desktop CLI profile, including the built-in one.
+  // Read its configured Home directly, independently of the Host connection.
+  const identities = useProviderAccountIdentities(accounts, version, "local");
   const usage = useProviderAccountUsage(version);
 
   return (
@@ -3652,9 +3697,12 @@ export function ProviderAccountsSettings() {
       id="provider-accounts"
       title={uiT("Accounts")}
       description={uiT(
-        "Create isolated sign-ins for providers that support account profiles. Account switching stays available from the usage control in the footer.",
+        "Each row is a saved CLI profile. Edit its Home or sign in directly, including the built-in profile. The badged row is the default for new conversations on desktop and phone.",
       )}
-      action={<AccountUsageRefresh usage={usage} />}
+      action={<AccountUsageRefresh usage={{ ...usage, refresh: () => {
+        setVersion((value) => value + 1);
+        usage.refresh();
+      } }} />}
     >
       {PROVIDER_ACCOUNT_PROVIDERS.map((provider) => {
         const accounts = providerAccounts(provider);
@@ -3683,19 +3731,19 @@ export function ProviderAccountsSettings() {
               {provider === "codex" && (
                 <button
                   type="button"
-                  disabled={Boolean(working)}
+                  disabled={Boolean(working) || !profilesReady}
                   onClick={() => {
                     setError(null);
                     setEditor({ provider, label: "", importCurrent: true });
                   }}
-                  className="rounded-md border border-content/10 px-2.5 py-1 text-[12px] text-content/70 hover:bg-content/10 disabled:opacity-40"
+                  className="shrink-0 rounded-md border border-content/10 px-2.5 py-1 text-[12px] text-content/70 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
                 >
                   {uiT("Import current Codex login")}
                 </button>
               )}
               <button
                 type="button"
-                disabled={Boolean(working)}
+                disabled={Boolean(working) || !profilesReady}
                 onClick={() => startAdd(provider)}
                 className="flex shrink-0 items-center gap-1.5 rounded-md border border-content/10 px-2.5 py-1 text-[12px] text-content/70 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
               >
@@ -3703,22 +3751,17 @@ export function ProviderAccountsSettings() {
                 {uiT("Add account")}
               </button>
             </div>
-            <p className="px-4 pb-3 text-[11px] text-content/50">
-              {uiT(
-                "Shared default applies to new desktop and phone conversations. Existing conversations keep their account.",
+            {defaultsReady &&
+              sharedDefault !== "default" &&
+              !accounts.some((account) => account.id === sharedDefault) && (
+                <p role="alert" className="px-4 pb-3 pl-[3.375rem] text-[11px] text-amber-400/90">
+                  {uiT("Unavailable account ({account})", {
+                    account: sharedDefault,
+                  })}
+                </p>
               )}
-              {defaultsReady &&
-                sharedDefault !== "default" &&
-                !accounts.some((account) => account.id === sharedDefault) && (
-                  <span role="alert">
-                    {" "}
-                    {uiT("Unavailable account ({account})", {
-                      account: sharedDefault,
-                    })}
-                  </span>
-                )}
-            </p>
-            <div className="border-t border-content/5 bg-content/[0.015] pl-10">
+            {/* Rows share one grid so usage meters and actions align across accounts. */}
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] bg-content/[0.015] pl-[2.375rem]">
               {accounts.map((account) => {
                 const editing =
                   editor?.provider === provider &&
@@ -3727,58 +3770,74 @@ export function ProviderAccountsSettings() {
                 const identity = identities[identityKey(account)];
                 const orgTag = identityOrganizationTag(identity);
                 const limits = usage.usage[accountUsageKey(account)];
-                return editing ? (
-                  <ProviderAccountEditor
-                    key={account.id}
-                    editor={editor}
-                    working={Boolean(working)}
-                    onLabel={(label) =>
-                      setEditor((current) =>
-                        current ? { ...current, label } : current,
-                      )
-                    }
-                    onCancel={() => setEditor(null)}
-                    onSubmit={submitEditor}
-                  />
-                ) : (
-                  <div
-                    key={account.id}
-                    className="flex h-12 items-center gap-3 border-b border-content/5 px-4 py-2 last:border-b-0"
-                  >
+                const dataHomeLabel = account.resolvedDataHome ?? account.dataHome ?? (
+                  account.isDefault
+                    ? uiT("Default CLI Data Home ({variable} or {path})", {
+                        variable: provider === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR",
+                        path: provider === "codex" ? "~/.codex" : "~/.claude",
+                      })
+                    : uiT("MonoCode isolated Data Home")
+                );
+                return (
+                  <Fragment key={account.id}>
+                  <div className="col-span-full grid grid-cols-subgrid items-center gap-x-5 border-t border-content/5 px-4 py-2.5">
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate text-[12px] text-content/85">
-                          {account.label}
+                          {account.isDefault && account.label === "Default account"
+                            ? uiT("Built-in CLI profile") : account.label}
                         </span>
+                        {account.isDefault && account.label !== "Default account" && (
+                          <span className="shrink-0 text-[9px] text-content/45">{uiT("Built-in CLI profile")}</span>
+                        )}
                         {orgTag ? (
                           <span className="max-w-[8rem] shrink-0 truncate rounded bg-content/[0.07] px-1 text-[9px] leading-4 text-content/50">
                             {orgTag}
                           </span>
                         ) : null}
+                        {defaultsReady && account.id === sharedDefault ? (
+                          <span className="shrink-0 rounded bg-accent/15 px-1.5 text-[9px] font-medium leading-4 text-accent">
+                            {uiT("Default for new conversations")}
+                          </span>
+                        ) : null}
                       </div>
-                      <div className="mt-0.5 flex min-w-0 items-center gap-2.5 text-[10px]">
-                        <AccountStatusLabel
-                          status={accountStatus(limits, usage.now)}
-                          className="shrink-0"
-                        />
+                      <div
+                        data-provider-account-identity={identityKey(account)}
+                        className="mt-1 flex min-w-0 items-baseline gap-1.5 text-[11px]"
+                      >
+                        <span className="shrink-0 text-content/45">{uiT("Actual account")}:</span>
                         <ProviderAccountSubtitle
                           identity={identity}
-                          fallback={
-                            account.isDefault
-                              ? uiT("Host CLI account")
-                              : uiT("Isolated profile")
-                          }
-                          className="truncate text-content/30"
+                          fallback={uiT(identity === undefined
+                            ? "Reading account identity…"
+                            : "No account identity could be read from this Home. Check the path or sign in.")}
+                          className="truncate text-content/75"
                         />
                       </div>
+                      <AccountStatusLabel
+                        status={accountStatus(limits, usage.now)}
+                        className="mt-0.5 max-w-full text-[10px]"
+                      />
+                      <div title={dataHomeLabel} className="mt-0.5 truncate font-mono text-[10px] text-content/40" data-provider-account-home>
+                        {dataHomeLabel}
+                      </div>
                     </div>
-                    <AccountUsageMeters limits={limits} now={usage.now} />
+                    <div className="flex justify-end">
+                      <AccountUsageMeters limits={limits} now={usage.now} />
+                    </div>
                     <div className="flex shrink-0 items-center justify-end gap-1">
-                      {defaultsReady && account.id === sharedDefault ? (
-                        <span className="mr-1 text-[10px] font-medium text-content/50">
-                          {uiT("Shared default")}
-                        </span>
-                      ) : (
+                      {(
+                        <button
+                          type="button"
+                          disabled={Boolean(working)}
+                          aria-label={uiT("Sign in to {account}", { account: account.label })}
+                          onClick={() => void signIn(account)}
+                          className="rounded-md px-2 py-1 text-[11px] text-content/60 hover:bg-content/10 disabled:opacity-35"
+                        >
+                          {uiT(working === `login:${provider}:${account.id}` ? "Waiting for browser…" : "Sign in")}
+                        </button>
+                      )}
+                      {defaultsReady && account.id === sharedDefault ? null : (
                         <button
                           type="button"
                           disabled={Boolean(working) || !defaultsReady}
@@ -3799,7 +3858,7 @@ export function ProviderAccountsSettings() {
                         aria-label={uiT("Rename {value0}", {
                           value0: String(account.label),
                         })}
-                        title={uiT("Rename account")}
+                        title={uiT("Edit account and Data Home")}
                         onClick={() => startRename(account)}
                         className="grid size-7 place-items-center rounded-md text-content/40 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.96] disabled:opacity-35"
                       >
@@ -3827,8 +3886,20 @@ export function ProviderAccountsSettings() {
                       ) : null}
                     </div>
                   </div>
+                  <div className="col-span-full">
+                  <ProviderAccountEditorDisclosure
+                    editor={editing ? editor : null}
+                    working={Boolean(working)}
+                    onLabel={label => setEditor(current => current ? { ...current, label } : current)}
+                    onDataHome={dataHome => setEditor(current => current ? { ...current, dataHome } : current)}
+                    onCancel={() => setEditor(null)}
+                    onSubmit={submitEditor}
+                  />
+                  </div>
+                  </Fragment>
                 );
               })}
+              <div className="col-span-full">
               <ProviderAccountEditorDisclosure
                 editor={adding ? editor : null}
                 working={Boolean(working)}
@@ -3837,9 +3908,11 @@ export function ProviderAccountsSettings() {
                     current ? { ...current, label } : current,
                   )
                 }
+                onDataHome={dataHome => setEditor(current => current ? { ...current, dataHome } : current)}
                 onCancel={() => setEditor(null)}
                 onSubmit={submitEditor}
               />
+              </div>
             </div>
           </div>
         );
@@ -3850,6 +3923,7 @@ export function ProviderAccountsSettings() {
           role="alert"
         >
           {uiT(error)}
+          {!profilesReady && <button type="button" className="ml-2 underline" onClick={() => setDefaultsRetry(value => value + 1)}>{uiT("Retry")}</button>}
         </p>
       ) : null}
       {defaultsError && (
@@ -3892,12 +3966,14 @@ function ProviderAccountEditor({
   editor,
   working,
   onLabel,
+  onDataHome,
   onCancel,
   onSubmit,
 }: {
   editor: AccountEditor;
   working: boolean;
   onLabel: (label: string) => void;
+  onDataHome?: (home: string) => void;
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -3905,7 +3981,7 @@ function ProviderAccountEditor({
   const adding = !editor.accountId;
   return (
     <form
-      className="flex h-12 items-center border-b border-content/5 px-4 py-2 last:border-b-0"
+      className="border-t border-content/5 px-4 py-2"
       onSubmit={onSubmit}
     >
       <div
@@ -3945,13 +4021,31 @@ function ProviderAccountEditor({
           {working ? <Loader className="size-3 animate-spin" /> : null}
           {adding
             ? working
-              ? uiT(
-                  editor.importCurrent ? "Importing…" : "Waiting for browser…",
-                )
-              : uiT(editor.importCurrent ? "Import account" : "Sign in and add")
+              ? uiT(editor.importCurrent ? "Importing…" : "Saving…")
+              : uiT(editor.importCurrent ? "Import account" : "Add account")
             : uiT("Save")}
         </button>
       </div>
+      {!editor.importCurrent && <label className="mt-2 block">
+        <span className="text-[11px] text-content/60">{uiT("Data Home (optional)")}</span>
+        <input
+          type="text"
+          value={editor.dataHome ?? ""}
+          disabled={working}
+          aria-label={uiT("{provider} Data Home", { provider: HARNESS_TITLE[editor.provider] })}
+          placeholder={editor.accountId === "default"
+            ? (editor.provider === "codex" ? "~/.codex" : "~/.claude")
+            : (editor.provider === "codex" ? "~/.codex-work" : "~/.claude-work")}
+          onChange={event => onDataHome?.(event.target.value)}
+          className="mt-1 h-8 w-full rounded-md border border-content/10 bg-content/[0.04] px-2.5 font-mono text-[12px] text-content outline-none focus:border-accent/45 disabled:opacity-50"
+        />
+        <span className="mt-1 block text-[10px] text-content/40">
+          {uiT(editor.accountId === "default"
+            ? "Leave empty to use the CLI default Home (environment override or standard directory)."
+            : "Leave empty to use a MonoCode-managed isolated Home.")}
+          {" "}{uiT("Use an absolute path or ~/. After changing Home, restart MonoCode and start a new conversation so a warm CLI cannot keep using the old Home.")}
+        </span>
+      </label>}
     </form>
   );
 }
