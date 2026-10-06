@@ -1,6 +1,6 @@
 const KEY = "monocode.sidebarSectionsCollapsed.v1";
 const CHANGED = "monocode:sidebar-sections-collapsed-changed";
-const SECTIONS = ["pinned", "recent", "groups", "projects"] as const;
+const SECTIONS = ["pinned", "recent", "workflows", "groups", "projects"] as const;
 
 export type SidebarSectionId = (typeof SECTIONS)[number];
 

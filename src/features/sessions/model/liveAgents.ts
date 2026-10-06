@@ -23,9 +23,9 @@ export type LiveAgent = {
 /** Inbox discussions and orchestration workers have their own panels and
  * never appear as live agents. */
 export function isLiveAgentSession(
-  session: Pick<Session, "inboxAsk" | "orchestrationLeadId">,
+  session: Pick<Session, "inboxAsk" | "orchestrationLeadId" | "workflowParentId">,
 ): boolean {
-  return !session.inboxAsk && !session.orchestrationLeadId;
+  return !session.inboxAsk && !session.orchestrationLeadId && !session.workflowParentId;
 }
 
 export function liveAgentsFromSessions(

@@ -9,6 +9,14 @@ Copyright 2026 Z.AI Co., Ltd. See licenses/ZCode-Apache-2.0.txt.
 The adaptation uses Monocode's Git/checkpoint APIs, themes, localization,
 comments, hunk staging, and disclosure motion.
 
+The dynamic workflow compiler, analysis, engine, script runtime, run-state
+reducer and workflow UI (timeline card, run detail pane, saved workflows) are
+adapted from ZCode (https://github.com/zai-org/ZCode), licensed under
+Apache-2.0. Copyright 2026 Z.AI Co., Ltd. See licenses/ZCode-Apache-2.0.txt.
+The adaptation runs agent nodes on Monocode providers with per-agent
+provider, model, thinking and speed settings, and uses Monocode's Host,
+sessions, sidebar, themes and localization.
+
 UI icons use Lucide, licensed under ISC, with Feather-derived icons under MIT.
 Copyright 2026 Lucide Icons and Contributors; Copyright 2013-present Cole Bemis.
 See licenses/Lucide-LICENSE.txt for the complete notices.

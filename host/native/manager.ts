@@ -651,7 +651,7 @@ export class NativeSessionManager {
       const value = this.host.store.session(id);
       const binding = value.nativeBinding;
       if (value.session.nativeSession || !binding?.path || !binding.hostRevision) return false;
-      if (value.session.assistantOwnerId || value.session.orchestrationLeadId || value.session.inboxAsk) return false;
+      if (value.session.assistantOwnerId || value.session.orchestrationLeadId || value.session.workflowParentId || value.session.inboxAsk) return false;
       const ref = { path: binding.path, providerSessionId: binding.providerSessionId, storage: binding.storage };
       const revision = this.currentRevision(ref);
       if (!revision || revision === binding.hostRevision) return false;

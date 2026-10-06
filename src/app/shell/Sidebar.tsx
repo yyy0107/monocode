@@ -624,6 +624,7 @@ function SidebarComponent(props: SidebarProps) {
         filtered.some(
           (row) =>
             !row.orchestrationLeadId &&
+            !row.workflowParentId &&
             sessionDisplayTitle(row.title, row.harness)
               .toLocaleLowerCase()
               .includes(needle),
@@ -998,6 +999,7 @@ function SidebarComponent(props: SidebarProps) {
             return filtered.filter(
               (row) =>
                 !row.orchestrationLeadId &&
+                !row.workflowParentId &&
                 (!needle ||
                   matchInfo.names.has(pathKey(path)) ||
                   sessionDisplayTitle(row.title, row.harness)
@@ -1245,6 +1247,7 @@ function SidebarComponent(props: SidebarProps) {
                   : undefined
               }
               recentPending={summariesPending}
+              workflowsSection={tab === "sessions" ? props.workflowsSection : undefined}
               onProjectHoverOpen={
                 props.onLoadProject || props.onPrefetchRemoteProject
                   ? onProjectHoverOpen

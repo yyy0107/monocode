@@ -17,6 +17,7 @@ type SummarySession = {
   cwd: string;
   archived?: boolean;
   orchestrationLeadId?: string;
+  workflowParentId?: string;
   orchestration?: { tasks: readonly { sessionId: string }[] };
   inboxAsk?: unknown;
 };
@@ -45,12 +46,12 @@ export function projectHoverSummary(input: {
   const idFor = (id: string) => input.remoteSessionId?.(id) ?? id;
   const excluded = new Set<string>();
   for (const row of [...local, ...live]) {
-    if (row.orchestrationLeadId || row.inboxAsk) excluded.add(idFor(row.id));
+    if (row.orchestrationLeadId || row.workflowParentId || row.inboxAsk) excluded.add(idFor(row.id));
     for (const task of row.orchestration?.tasks ?? [])
       excluded.add(idFor(task.sessionId));
   }
   for (const row of input.remoteSessions ?? []) {
-    if (row.orchestrationLeadId || row.inboxAsk) excluded.add(row.id);
+    if (row.orchestrationLeadId || row.workflowParentId || row.inboxAsk) excluded.add(row.id);
     for (const task of row.orchestration?.tasks ?? [])
       excluded.add(task.sessionId);
   }

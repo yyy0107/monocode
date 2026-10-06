@@ -17,6 +17,8 @@ import type { RecentProject } from "../../features/projects/model/recents";
 type SidebarTab = SidebarTabId;
 
 export type SidebarProps = {
+  /** The Workflows section (runs and saved workflows), shown in the sessions tab. */
+  workflowsSection?: ReactNode;
   cwd: string;
   recents?: RecentProject[];
   projectHistory?: SessionSummary[];

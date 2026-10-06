@@ -121,6 +121,8 @@ export type ProjectListProps = {
   pinnedEntries?: ProjectListEntry[];
   recentEntries?: ProjectListEntry[];
   recentPending?: boolean;
+  /** Content of the collapsible Workflows section; absent hides it. */
+  workflowsSection?: ReactNode;
   onProjectHoverOpen?: (path: string) => void;
 };
 
@@ -175,6 +177,7 @@ export function ProjectList({
   pinnedEntries = [],
   recentEntries,
   recentPending = false,
+  workflowsSection,
   onProjectHoverOpen,
 }: ProjectListProps) {
   const { t: uiT } = useTranslation();
@@ -217,6 +220,7 @@ export function ProjectList({
     sections: ReadonlySet<SidebarSectionId>;
   }>(() => ({ query, sections: new Set() }));
   const groupContentId = useId();
+  const workflowsContentId = useId();
   useEffect(
     () =>
       subscribeSidebarSectionsCollapsed(() =>
@@ -532,6 +536,25 @@ export function ProjectList({
               groupLogos={groupLogos}
               groupMascots={groupMascots}
             />
+          ) : null}
+
+          {workflowsSection && !compact ? (
+            <div data-project-section="workflows" className={`shrink-0 ${tree ? "mb-1" : "mb-2"}`}>
+              <ProjectSectionHeader
+                label={uiT("Workflows")}
+                expanded={sectionExpanded("workflows")}
+                contentId={workflowsContentId}
+                onToggleExpanded={() => toggleSection("workflows")}
+              />
+              <AnimatedCollapse
+                expanded={sectionExpanded("workflows")}
+                motion="height"
+                className="project-tree-collapse"
+                durationMs={PROJECT_COLLAPSE_DURATION_MS}
+              >
+                <div id={workflowsContentId}>{workflowsSection}</div>
+              </AnimatedCollapse>
+            </div>
           ) : null}
 
           {projectGroups.length > 0 ? (

@@ -9,6 +9,8 @@ import {
 import { SurfaceTabs } from "../../workspace/ui/SurfaceTabs";
 import {
   isAgentTab,
+  isWorkflowAgentTab,
+  isWorkflowRunTab,
   isAppViewTab,
   isChangesTab,
   isCommitTab,
@@ -31,6 +33,7 @@ import {
   loadDiffViewer,
   subscribeDiffViewer,
 } from "../../settings/model/settings";
+import { WorkflowAgentTabView, WorkflowRunTabView } from "../../workflows/ui/WorkflowTabs";
 import { AgentTabView } from "../../sessions/ui/AgentTabView";
 import { MarkdownPreview } from "../../sessions/ui/AgentMarkdown";
 import { BinaryFileView } from "./BinaryFileView";
@@ -201,6 +204,14 @@ function FilePaneComponent({
                   kind={file.appView.kind}
                   visible={visible && file.id === pane.activeFileId}
                   focused={focused && file.id === pane.activeFileId}
+                />
+              ) : isWorkflowRunTab(file) ? (
+                <WorkflowRunTabView file={file} />
+              ) : isWorkflowAgentTab(file) ? (
+                <WorkflowAgentTabView
+                  file={file}
+                  visible={visible && file.id === pane.activeFileId}
+                  onOpenFile={onOpenFile}
                 />
               ) : isAgentTab(file) ? (
                 <AgentTabView

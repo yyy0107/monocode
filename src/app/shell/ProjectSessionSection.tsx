@@ -7,6 +7,7 @@ import {
   useWorktreeFocus,
 } from "../../features/source-control/model/worktreeFocus";
 import { OrchestrationSidebarAgents } from "../../features/orchestration/ui/OrchestrationSidebarAgents";
+import { SessionWorkflowRunLines } from "../../features/workflows/ui/SessionWorkflowRunLines";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Archive,
@@ -417,6 +418,7 @@ function ProjectSessionSectionComponent({
   ].filter(
     (session) =>
       !session.orchestrationLeadId &&
+      !session.workflowParentId &&
       (shortcutId || searchActive || inWorktreeFocus(session, focusedWorktree)),
   );
   const visibleSessions = [
@@ -1989,6 +1991,9 @@ const SessionCard = memo(function SessionCard({
             leadId={session.id}
             summary={orchestration!}
           />
+        ) : null}
+        {!compact && !dense ? (
+          <SessionWorkflowRunLines sessionId={session.id} isActive={isActive} />
         ) : null}
         <span
           className={`relative flex items-center ${dense ? "shrink-0" : "mt-1 gap-2"}`}

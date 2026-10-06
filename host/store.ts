@@ -444,6 +444,7 @@ export function summary(value: HostSession): HostSessionSummary {
     ...(value.nativeStatus ? { nativeStatus: value.nativeStatus } : {}),
     orchestration: value.orchestration,
     orchestrationLeadId: value.session.orchestrationLeadId,
+    ...(value.session.workflowParentId ? { workflowParentId: value.session.workflowParentId } : {}),
     assistantOwnerId: value.session.assistantOwnerId,
   };
 }

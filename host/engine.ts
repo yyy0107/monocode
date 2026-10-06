@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { HostOrchestration, type HostOrchestrationOptions } from "./orchestration";
 import { HostAssistant } from "./assistant";
+import { HostWorkflows } from "./workflows/service";
+import type { WorkflowWorkerPort } from "./workflows/driver";
 import type { ControlOutcome, ControlReceiptContext, OrchestrationRun, OrchestrationTask, WorkerPreparation } from "../src/features/orchestration/model/orchestrationRuntime";
 import { assertCheckoutAvailable, claimCheckoutResource, checkoutPath, checkoutPathsOverlap } from "./checkout-guards";
 import type { LegacyRetirementManifest } from "./legacy-orchestration";
@@ -18,7 +20,7 @@ import {
   stopStreaming,
 } from "../src/integrations/harness/core/apply";
 import { canDispatchQueuedHead, dequeueQueuedMessage, queuedHead } from "../src/features/sessions/model/messageQueue";
-import { resolveModel } from "../src/features/sessions/model/models";
+import { DEFAULT_MODEL_ID, resolveModel } from "../src/features/sessions/model/models";
 import { isVisionImage } from "../src/features/sessions/model/attachments";
 import type {
   HarnessEvent,
@@ -305,6 +307,7 @@ export function parseCommand(input: unknown): HostCommand {
 
 export class HostEngine {
   readonly assistant: HostAssistant;
+  readonly workflows: HostWorkflows;
   authorizeAssistantQueued?: (origin: import("../src/features/sessions/model/session").TurnOrigin, projectId: string) => boolean;
   readonly orchestration: HostOrchestration;
   readonly ready: Promise<void>;
@@ -466,6 +469,21 @@ export class HostEngine {
       approve: (id, requestId, decision, receipt) => this.controlManaged(id, "approve", { requestId, decision }, receipt),
       answer: (id, requestId, reply, receipt) => this.controlManaged(id, "answer", { requestId, reply }, receipt),
     }, Object.keys(providers) as RemoteProvider[], options);
+    this.workflows = new HostWorkflows({
+      db: store.db,
+      dataDir: dirname(store.attachmentDir),
+      session: (id) => this.session(id),
+      mutate: (id, change, event) => this.mutateManaged(id, change, event, false),
+      workers: {
+        createWorker: (input) => this.createWorkflowWorker(input),
+        submit: (id, prompt, done) => this.submitManaged(id, prompt, done),
+        stop: (id) => this.stopManaged(id),
+      },
+      providers: () => Object.keys(providers) as RemoteProvider[],
+      createSession: (cwd, title, runtime) => this.createWorkflowLaunchSession(cwd, title, runtime),
+      ...(options.entry ? { entry: options.entry } : {}),
+      ...(options.node ? { node: options.node } : {}),
+    });
     this.assistant = new HostAssistant(this, Object.keys(providers) as RemoteProvider[], this.orchestration.ready, options);
     this.ready = this.assistant.ready;
     this.nativeSessions.start();
@@ -549,6 +567,37 @@ export class HostEngine {
       session: { id: task.sessionId, cwd, harness: task.harness, model: task.model, modelSettings: task.modelSettings ?? {}, runtimeMode: lead.session.runtimeMode, title: task.title, blocks: [] } };
     this.save({ ...value, supportsQueue: true, canSteer: !!this.provider(task.harness).steer,
       session: { ...value.session, cwd, worktreeCwd: cwd === project.cwd ? undefined : cwd, branch: preparation.workspace.branch, worktreeRemoved: false, runtimeMode: lead.session.runtimeMode, orchestrationLeadId: run.leadId } }, { type: "orchestration.workerPrepared", leadId: run.leadId });
+    if (value.session.providerSessionId) this.bindRetainedSession({ ...value.session, cwd });
+  }
+
+  /** A visible conversation that a saved workflow launched from the sidebar runs in. */
+  private async createWorkflowLaunchSession(cwd: string, title: string, runtime?: { harness?: string; model?: string }): Promise<string> {
+    const project = this.store.projects().find((entry) => entry.cwd === cwd) ?? await this.openProject(cwd);
+    const recent = this.store.sessions().filter((value) => value.projectId === project.id && !value.session.workflowParentId && !value.session.orchestrationLeadId && !value.session.assistantOwnerId)
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.session;
+    const installed = Object.keys(this.providers) as RemoteProvider[];
+    const harness = (runtime?.harness && installed.includes(runtime.harness as RemoteProvider) ? runtime.harness : recent?.harness && installed.includes(recent.harness as RemoteProvider) ? recent.harness : installed[0]) as RemoteProvider | undefined;
+    if (!harness) throw new Error("No agent provider is installed on this machine");
+    const model = runtime?.model ?? (recent?.harness === harness ? recent.model : DEFAULT_MODEL_ID[harness] || `${harness}:default`);
+    const receipt = this.command({ type: "create", commandId: `workflow-launch:${randomUUID()}`, projectId: project.id, harness, model, runtimeMode: recent?.runtimeMode ?? "auto-accept-edits" });
+    this.mutateManaged(receipt.sessionId, (value) => ({ ...value, session: { ...value.session, title, titleState: { source: "manual", epoch: 0, purpose: "initial", fallbackAttempted: false } } }), { type: "workflow.launchSession" });
+    return receipt.sessionId;
+  }
+
+  /** A hidden session that runs one dynamic workflow subagent. */
+  private createWorkflowWorker(input: Parameters<WorkflowWorkerPort["createWorker"]>[0]): void {
+    if (!this.providers[input.runtime.harness as RemoteProvider]) throw new Error(`Provider ${input.runtime.harness} is not installed on this machine`);
+    const parent = this.store.session(input.parentSessionId);
+    let retained: HostSession | undefined;
+    try { retained = this.store.session(input.sessionId); } catch { /* New subagent. */ }
+    const now = Date.now();
+    const cwd = parent.session.worktreeCwd || parent.session.cwd;
+    const value: HostSession = retained ?? { projectId: parent.projectId, revision: 0, status: "idle", createdAt: now, updatedAt: now,
+      session: { id: input.sessionId, cwd, harness: input.runtime.harness, model: input.runtime.model, modelSettings: input.runtime.modelSettings, runtimeMode: parent.session.runtimeMode, title: input.title, blocks: [] } };
+    this.save({ ...value, supportsQueue: true, canSteer: !!this.providers[input.runtime.harness as RemoteProvider]?.steer,
+      session: { ...value.session, harness: input.runtime.harness, model: input.runtime.model, modelSettings: input.runtime.modelSettings, cwd,
+        ...(parent.session.worktreeCwd ? { worktreeCwd: parent.session.worktreeCwd } : {}), ...(parent.session.branch ? { branch: parent.session.branch } : {}),
+        runtimeMode: parent.session.runtimeMode, workflowParentId: input.parentSessionId, workflowRunId: input.runId } }, { type: "workflow.workerPrepared", runId: input.runId });
     if (value.session.providerSessionId) this.bindRetainedSession({ ...value.session, cwd });
   }
 
@@ -1724,7 +1773,7 @@ export class HostEngine {
             const rawCommand = provider.commands?.rawSlashCommands && /^\s*\/\S+/.test(prompt ?? "");
             const handoff = prompt === null || rawCommand ? null : pendingHandoff(session);
             const priorRequests = handoff ? userMessagesAfterHandoff(session).slice(0, -1) : [];
-            const turnPrompt = intent === "orchestrate" ? await this.orchestration.preparePlanning(value, prompt!, retryProposalBlockId) : prompt === null ? null : this.orchestration.prompt(session.id, prompt);
+            const turnPrompt = intent === "orchestrate" ? await this.orchestration.preparePlanning(value, prompt!, retryProposalBlockId) : prompt === null ? null : this.workflows.prompt(session.id, this.orchestration.prompt(session.id, prompt));
             const input: HarnessSessionInput = {
               sessionId: session.id,
               cwd: session.cwd,
@@ -1834,8 +1883,11 @@ export class HostEngine {
         const completion = this.managedCompletions.get(session.id);
         this.managedCompletions.delete(session.id);
         if (!this.closing && completion) {
-          const result = this.store.session(session.id).session.blocks.slice(session.blocks.length).filter((block) => block.role === "assistant").map((block) => block.text).join("\n");
-          completion({ status: active.cancelled ? "cancelled" : error || active.failed || active.persistenceFailed ? "failed" : "completed", text: result.slice(-20_000), ...(error ? { error } : {}) });
+          const blocks = this.store.session(session.id).session.blocks;
+          const result = blocks.slice(session.blocks.length).filter((block) => block.role === "assistant").map((block) => block.text).join("\n");
+          const metrics = blocks.slice(Math.max(0, session.blocks.length - 1)).findLast((block) => block.role === "user")?.turnMetrics;
+          const toolCalls = blocks.slice(session.blocks.length).filter((block) => block.role === "tool").length;
+          completion({ status: active.cancelled ? "cancelled" : error || active.failed || active.persistenceFailed ? "failed" : "completed", text: result.slice(-20_000), ...(error ? { error } : {}), ...(metrics ? { metrics } : {}), toolCalls });
         }
         if (!this.closing) this.orchestration.sync();
         this.titles.settled(session.id, active.cancelled || this.closing || active.persistenceFailed);
@@ -1997,6 +2049,7 @@ export class HostEngine {
   async close(): Promise<void> {
     this.closing = true;
     this.nativeSessions.close();
+    await this.workflows.close();
     await this.assistant.close();
     await this.orchestration.close();
     this.titles.close();

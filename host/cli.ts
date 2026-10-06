@@ -81,6 +81,10 @@ async function main() {
     process.exitCode = await runControlCli(args.slice(1), "assistant");
     return;
   }
+  if (command === "workflow") {
+    process.exitCode = await runControlCli(args.slice(1), "workflow");
+    return;
+  }
   if (command === "--version") {
     console.log(version);
     return;
@@ -269,7 +273,7 @@ Connect another computer using an SSH forward to the loopback port.`);
     };
     const available = await discoverAvailableProviders();
     const engine = new HostEngine(store, hostProviders, undefined, { entry: fileURLToPath(import.meta.url) });
-    backend.configureSessionEnvironment((id) => ({ ...engine.orchestration.environment(id), ...engine.assistant.environment(id) }));
+    backend.configureSessionEnvironment((id) => ({ ...engine.workflows.environment(id), ...engine.orchestration.environment(id), ...engine.assistant.environment(id) }));
     await engine.ready;
     const secret = randomBytes(32).toString("base64url");
     let stopping = false;

@@ -70,3 +70,6 @@ mobile/ios/App/App/capacitor.config.json
 mobile/ios/App/Pods/
 mobile/ios/App/build/
 mobile/ios/App/DerivedData/
+
+# Generated TypeScript lib snapshot for the workflow compiler
+src/integrations/workflow/dynamic-workflow/compiler/libs.generated.ts

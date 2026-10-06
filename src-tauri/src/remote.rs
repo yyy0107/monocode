@@ -405,6 +405,7 @@ fn supported_remote_method(method: &str) -> bool {
             | "assistant.control"
             | "assistant.respond"
             | "assistant.memory"
+            | "workflows.request"
     )
 }
 
@@ -701,6 +702,7 @@ mod tests {
             "git.worktreeCreate",
             "attachments.upload",
             "attachments.read",
+            "workflows.request",
         ] {
             assert!(supported_remote_method(method), "{method}");
         }

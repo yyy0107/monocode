@@ -17,6 +17,8 @@ import {
 import {
   appViewTitle,
   isAgentTab,
+  isWorkflowAgentTab,
+  isWorkflowRunTab,
   isAppViewTab,
   isChangesTab,
   isCommitTab,
@@ -161,6 +163,16 @@ export function surfaceTabPresentation(
       iconName: "CHANGES",
       tooltip: "Changes captured for this session only",
     };
+  }
+
+  if (isWorkflowRunTab(file)) {
+    const name = file.path.trim() || translateUi("Workflow");
+    return { name, label: name, iconName: "AGENT", tooltip: translateUi("{name} — workflow run", { name }) };
+  }
+
+  if (isWorkflowAgentTab(file)) {
+    const name = file.path.trim() || "Agent";
+    return { name, label: name, iconName: "AGENT", tooltip: translateUi("{name} — workflow subagent", { name }) };
   }
 
   if (isAgentTab(file)) {

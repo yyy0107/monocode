@@ -109,9 +109,23 @@ import {
   Ungroup as UngroupIcon,
   WandSparkles as WandSparklesIcon,
   WholeWord as WholeWordIcon,
+  Workflow as WorkflowIcon,
   Wrench as WrenchIcon,
   X as XIcon,
   Zap as ZapIcon,
+  ArrowUpRight as ArrowUpRightIcon,
+  Ban as BanIcon,
+  ChartLine as ChartLineIcon,
+  CircleCheck as CircleCheckIcon,
+  Ellipsis as EllipsisIcon,
+  FileText as FileTextIcon,
+  Info as InfoIcon,
+  Loader2 as Loader2Icon,
+  MessageCircleQuestion as MessageCircleQuestionIcon,
+  Repeat2 as Repeat2Icon,
+  SquareKanban as SquareKanbanIcon,
+  Table as TableIcon,
+  TriangleAlert as TriangleAlertIcon,
   type LucideIcon,
   type LucideProps,
 } from "lucide-react";
@@ -277,6 +291,23 @@ export const UnfoldVertical = wrap(UnfoldVerticalIcon, "UnfoldVertical");
 export const Ungroup = wrap(UngroupIcon, "Ungroup");
 export const WandSparkles = wrap(WandSparklesIcon, "WandSparkles");
 export const WholeWord = wrap(WholeWordIcon, "WholeWord");
+export const Workflow = wrap(WorkflowIcon, "Workflow");
 export const Wrench = wrap(WrenchIcon, "Wrench");
 export const X = wrap(XIcon, "X");
 export const Zap = wrap(ZapIcon, "Zap");
+
+/** Glyphs the workflow views ported from ZCode use. */
+export const ArrowUpRight = wrap(ArrowUpRightIcon, "ArrowUpRight");
+export const Ban = wrap(BanIcon, "Ban");
+export const ChartLine = wrap(ChartLineIcon, "ChartLine");
+export const CircleCheck = wrap(CircleCheckIcon, "CircleCheck");
+export const Ellipsis = wrap(EllipsisIcon, "Ellipsis");
+export const FileText = wrap(FileTextIcon, "FileText");
+export const Info = wrap(InfoIcon, "Info");
+export const List = wrap(ListIcon, "List");
+export const Loader2 = wrap(Loader2Icon, "Loader2");
+export const MessageCircleQuestion = wrap(MessageCircleQuestionIcon, "MessageCircleQuestion");
+export const Repeat2 = wrap(Repeat2Icon, "Repeat2");
+export const SquareKanban = wrap(SquareKanbanIcon, "SquareKanban");
+export const Table = wrap(TableIcon, "Table");
+export const TriangleAlert = wrap(TriangleAlertIcon, "TriangleAlert");

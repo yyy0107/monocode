@@ -24,7 +24,7 @@ export function sidebarLiveSessions(
 ): Session[] {
   return sessions.filter(
     (session) =>
-      !session.inboxAsk && !session.orchestrationLeadId &&
+      !session.inboxAsk && !session.orchestrationLeadId && !session.workflowParentId &&
       (openSessionIds.has(session.id) || !isBlankSession(session)),
   );
 }
@@ -50,6 +50,7 @@ export function mergeHistorySummary(
     orchestration: summary.orchestration ?? previous?.orchestration,
     orchestrationLeadId:
       summary.orchestrationLeadId ?? previous?.orchestrationLeadId,
+    workflowParentId: summary.workflowParentId ?? previous?.workflowParentId,
     automationId: summary.automationId ?? previous?.automationId,
   };
   return [next, ...current.filter((entry) => entry.id !== summary.id)].sort(
@@ -123,6 +124,7 @@ export function summaryFromSession(
   return {
     id: session.id,
     orchestrationLeadId: session.orchestrationLeadId,
+    ...(session.workflowParentId ? { workflowParentId: session.workflowParentId } : {}),
     cwd: session.cwd,
     harness: session.harness,
     model: session.model,
@@ -206,6 +208,7 @@ function visibleHistoryRow(
   return (
     !context.inboxIds.has(entry.id) &&
     !entry.orchestrationLeadId &&
+    !entry.workflowParentId &&
     !context.workerIds.has(entry.id)
   );
 }
