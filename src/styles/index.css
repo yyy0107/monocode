@@ -71,6 +71,21 @@
     Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
 }
 
+/* Static so Tailwind always emits it: only xterm reads it, via JS. */
+@theme static {
+  /* Terminal-only stack. JetBrains Mono Nerd Font leads so prompt text and
+     icons share one face; the Nerd Font families after the system monos fill
+     Private Use Area glyphs (powerline arrows, git/folder icons) because
+     WebKit's fallback never reaches user-installed icon fonts on its own. */
+  --font-terminal:
+    "JetBrainsMono NFM", "JetBrainsMono Nerd Font Mono", "JetBrainsMono NF",
+    ui-monospace, SFMono-Regular, Menlo, Monaco, "Symbols Nerd Font Mono",
+    "Symbols Nerd Font", "MesloLGS NF", "MesloLGS Nerd Font Mono",
+    "FiraCode Nerd Font Mono", "Hack Nerd Font Mono",
+    "CaskaydiaCove Nerd Font Mono", Consolas, "Liberation Mono", "Courier New",
+    monospace;
+}
+
 :root {
   --motion-reorder-duration: 160ms;
   --motion-tab-close-duration: 200ms;
