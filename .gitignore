@@ -46,9 +46,9 @@ pnpm-debug.log*
 lerna-debug.log*
 *.local
 .idea/
-.vscode/settings.json
-.vscode/launch.json
-.vscode/tasks.json
+/.claude/
+/.vscode/
+/specs/
 .DS_Store
 ._*
 .Spotlight-V100
