@@ -28,8 +28,12 @@ export type UserQuestion = {
 
 export type UserQuestionPrompt = {
   requestId: number;
+  /** Persistent transcript identity; request IDs alone can be reused. */
+  historyId?: string;
   title?: string;
   questions: UserQuestion[];
+  /** Answers can be sent as a later user message after this request closes. */
+  allowLateReply?: boolean;
   /** Deadline owned by the harness; interaction can disable automatic skipping. */
   autoResolveAt?: number;
 };
@@ -41,6 +45,16 @@ export type UserQuestionReply =
       custom?: Record<string, string>;
     }
   | { kind: "skipped" };
+
+export type UserQuestionRecord = UserQuestionPrompt & {
+  decision?: "answered" | "skipped" | "cancelled";
+  reply?: Extract<UserQuestionReply, { kind: "answered" }>;
+};
+
+export type QuestionAnswer = {
+  blockId: string;
+  reply: Extract<UserQuestionReply, { kind: "answered" }>;
+};
 
 export function questionsFromUnknown(value: unknown): UserQuestion[] {
   const rec = asRecord(value);

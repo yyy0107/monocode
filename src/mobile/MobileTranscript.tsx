@@ -2,6 +2,7 @@ import { memo, useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AgentTranscript } from "../features/sessions/ui/AgentTranscript";
 import { QuestionForm } from "../features/sessions/ui/QuestionForm";
+import { questionFollowUp } from "../features/sessions/model/questionHistory";
 import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
 import { ArrowDownCircle } from "../shared/ui/icons";
 import type { Block } from "../features/sessions/model/session";
@@ -35,7 +36,7 @@ export const MobileTranscript = memo(function MobileTranscript({
 }: {
   snapshot: HostSession;
   disabled: boolean;
-  onCommand: (command: HostCommand) => void;
+  onCommand: (command: HostCommand) => void | Promise<boolean>;
   readBinaryFile?: (path: string) => Promise<Uint8Array>;
   animateFrom?: string;
 }) {
@@ -115,6 +116,10 @@ export const MobileTranscript = memo(function MobileTranscript({
           model={session.model}
           modelSettings={session.modelSettings}
           pendingQuestion={!!session.pendingQuestion}
+          pendingQuestionHistoryId={session.pendingQuestion?.historyId}
+          onQuestionFollowUp={session.harness !== "codex" ? undefined : (answer) =>
+            disabled ? false : onCommand({ type: "send", commandId: crypto.randomUUID(), sessionId,
+              text: questionFollowUp(session, answer), followUpBehavior: "steer", questionAnswer: answer })}
           onOpenFile={readBinaryFile ? openFile : undefined}
           onOpenDiff={readBinaryFile ? openFile : undefined}
           onJumpToBottomChange={setShowJump}

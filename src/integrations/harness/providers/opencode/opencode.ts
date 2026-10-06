@@ -1194,6 +1194,7 @@ async function waitQuestion(
     type: "question.resolved",
     requestId: uiId,
     decision: reply.kind,
+    ...(reply.kind === "answered" ? { reply } : {}),
   });
   showNextQuestion(live);
   if (reply.kind !== "answered") {

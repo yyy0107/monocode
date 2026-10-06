@@ -1028,6 +1028,16 @@ describe("headless session ownership", () => {
   });
 
   it("validates untrusted commands before execution", () => {
+    const lateAnswer = { type: "send", commandId: "late", sessionId: "session", text: "Answer",
+      questionAnswer: { blockId: "question", reply: { kind: "answered", answers: { q: ["local"] } } } };
+    expect(parseCommand(lateAnswer)).toMatchObject(lateAnswer);
+    for (const questionAnswer of [null, { blockId: "question", reply: { kind: "skipped" } },
+      { ...lateAnswer.questionAnswer, reply: { kind: "answered", answers: { q: [42] } } },
+      { ...lateAnswer.questionAnswer, blockId: "" }]) {
+      expect(() => parseCommand({ ...lateAnswer, questionAnswer })).toThrow();
+    }
+    expect(() => parseCommand({ ...lateAnswer, intent: "build" })).toThrow();
+    expect(() => parseCommand({ ...lateAnswer, draftBlockId: "draft" })).toThrow();
     expect(() =>
       parseCommand({ type: "send", commandId: "x", sessionId: "y", text: "" }),
     ).toThrow();
@@ -1154,4 +1164,37 @@ it.each(["codex", "claude"] as const)("pins the shared %s default at creation an
   writeFileSync(defaults, JSON.stringify({ [harness]: "removed" }));
   expect(() => create("missing-default")).toThrow("no longer available");
   expect(store.session(create("override-broken", "work").sessionId).session.providerAccountId).toBe("work");
+});
+
+it.each(["running", "idle"] as const)("submits an expired Codex question as a durable follow-up while %s", async (phase) => {
+  const { engine, store, turns, provider, id } = setup();
+  provider.steer = vi.fn(async () => {});
+  engine.command({ type: "send", commandId: "question-start", sessionId: id, text: "Work" });
+  await vi.waitFor(() => expect(turns).toHaveLength(1));
+  turns[0].input.onEvent({ type: "question.asked", requestId: 3, allowLateReply: true,
+    questions: [{ id: "q", prompt: "Which source?", multiSelect: false, allowCustom: false,
+      options: [{ id: "local", label: "Local" }] }] });
+  const blockId = store.session(id).session.pendingQuestion!.historyId!;
+  turns[0].input.onEvent({ type: "question.resolved", requestId: 3, decision: "skipped" });
+  if (phase === "idle") {
+    turns[0].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+  }
+  const command = { type: "send", commandId: "late-answer", sessionId: id, text: "untrusted client text",
+    questionAnswer: { blockId, reply: { kind: "answered", answers: { q: ["local"] } } } };
+  const receipt = engine.command(command);
+  expect(engine.command(command)).toEqual(receipt);
+  expect(store.session(id).session.blocks.find(block => block.id === blockId)?.question).toMatchObject({
+    decision: "answered", reply: { kind: "answered", answers: { q: ["local"] } },
+  });
+  if (phase === "running") {
+    await vi.waitFor(() => expect(provider.steer).toHaveBeenCalledWith(expect.objectContaining({ text: "Which source?\nLocal" })));
+    expect(turns).toHaveLength(1);
+  } else {
+    await vi.waitFor(() => expect(turns).toHaveLength(2));
+    expect(turns[1].input.text).toBe("Which source?\nLocal");
+  }
+  expect(provider.answer).not.toHaveBeenCalled();
+  expect(() => engine.command({ ...command, commandId: "duplicate-late-answer" })).toThrow("already answered");
+  turns.at(-1)!.finish();
 });

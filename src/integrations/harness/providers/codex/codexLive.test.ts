@@ -731,6 +731,7 @@ describe("codex live turn sequence", () => {
     const question = events.find((event) => event.type === "question.asked")!;
     expect(question).toMatchObject({
       callId: "async_question",
+      allowLateReply: true,
       questions: [{ id: "q1", prompt: "Which source?", allowCustom: true }],
     });
     expect(question.autoResolveAt).toBeGreaterThan(Date.now());
@@ -774,6 +775,7 @@ describe("codex live turn sequence", () => {
       type: "question.resolved",
       requestId: question.requestId,
       decision: "answered",
+      reply: { kind: "answered", answers: { q1: ["Remote"] } },
     });
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await turn;
@@ -1340,6 +1342,7 @@ describe("codex live turn sequence", () => {
         type: "question.resolved",
         requestId: request.requestId,
         decision: "answered",
+        reply: { kind: "answered", answers: { permission: ["Decline"] } },
       });
       notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
       await turn;

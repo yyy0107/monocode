@@ -7,6 +7,7 @@ import {
 import { codexCommandPresentation } from "../../../integrations/harness/providers/codex/codexProtocol";
 import { recoverCursorSubagents } from "../../../integrations/harness/providers/cursor/cursorSubagents";
 import { persistableAttachment } from "../model/attachments";
+import { restoreQuestionRecord, questionTranscriptText } from "../model/questionHistory";
 import type { ContextUsage } from "../model/contextUsage";
 import { isRemoteProjectPath, normalizeProjectPath } from "../../projects/model/recents";
 import {
@@ -837,6 +838,11 @@ function sanitizeBlock(
     role: block.role,
     text: block.text,
   };
+  const question = restoreQuestionRecord(block.question, block.id);
+  if (question) {
+    next.question = question;
+    next.text = questionTranscriptText(question);
+  }
   if (block.attachments?.length) {
     next.attachments = block.attachments.map(persistableAttachment);
   }

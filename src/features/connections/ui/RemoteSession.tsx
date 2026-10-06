@@ -91,6 +91,7 @@ type Configuration = {
 };
 
 type OptimisticTurn = {
+  questionAnswer?: ComposerTurnOptions["questionAnswer"];
   refreshTitle?: boolean;
   commandId: string;
   text: string;
@@ -854,6 +855,7 @@ function ConnectedRemoteSession({
             turn.planBlockId,
             turn.refreshTitle,
             turn.retryProposalBlockId,
+            turn.questionAnswer,
           ),
       turn,
     );
@@ -967,6 +969,7 @@ function ConnectedRemoteSession({
     planBlockId?: string,
     refreshTitle = false,
     retryProposalBlockId?: string,
+    questionAnswer?: ComposerTurnOptions["questionAnswer"],
   ): Extract<HostCommand, { type: "send" | "compact" }> =>
     text.trim().toLowerCase() === "/compact" &&
     !attachments.length &&
@@ -984,6 +987,7 @@ function ConnectedRemoteSession({
           ...(planBlockId ? { planBlockId } : {}),
           ...(refreshTitle ? { refreshTitle: true } : {}),
           ...(retryProposalBlockId ? { retryProposalBlockId } : {}),
+          ...(questionAnswer ? { questionAnswer, followUpBehavior: "steer" } : {}),
         };
 
   const submit = (
@@ -1017,6 +1021,7 @@ function ConnectedRemoteSession({
     );
     turn.refreshTitle = options?.refreshTitle;
     turn.retryProposalBlockId = options?.retryProposalBlockId;
+    turn.questionAnswer = options?.questionAnswer;
     preparingRef.current = true;
     setStarting(turn);
     if (!hostSession) {

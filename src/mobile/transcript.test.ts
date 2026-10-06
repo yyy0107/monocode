@@ -7,6 +7,7 @@ import type {
   HostCommand,
   HostSession,
 } from "../features/connections/model/protocol";
+import type { Block } from "../features/sessions/model/session";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let root: Root | undefined;
@@ -16,7 +17,8 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 function render(
-  options: { runId?: string; disabled?: boolean; block?: object } = {},
+  options: { runId?: string; disabled?: boolean; block?: object; blocks?: Block[];
+    onCommand?: (command: HostCommand) => Promise<boolean> } = {},
 ) {
   const commands: HostCommand[] = [];
   const node = document.createElement("div");
@@ -35,7 +37,7 @@ function render(
       model: "codex:test",
       modelSettings: {},
       runtimeMode: "supervised",
-      blocks: [
+      blocks: options.blocks ?? [
         {
           id: "tool",
           role: "tool",
@@ -53,7 +55,7 @@ function render(
       createElement(MobileTranscript, {
         snapshot,
         disabled: options.disabled ?? false,
-        onCommand: (command) => commands.push(command),
+        onCommand: options.onCommand ?? ((command) => { commands.push(command); }),
       }),
     );
   });
@@ -219,5 +221,66 @@ describe("mobile character streaming", () => {
   it("shows saved replies immediately without replaying the typewriter", () => {
     const node = reply(false);
     expect(node.querySelector(".agent-markdown")?.textContent).toBe(text);
+  });
+});
+
+describe("mobile question history", () => {
+  const question: Block = {
+    id: "saved-question", role: "system", text: "Which source?",
+    question: { requestId: 3, historyId: "saved-question", allowLateReply: true, decision: "skipped",
+      questions: [{ id: "q", prompt: "Which source?", allowCustom: false, multiSelect: false,
+        options: [{ id: "local", label: "Local" }, { id: "remote", label: "Remote" }] }] },
+  };
+  it.each([undefined, "new-run"])("answers a missed question from the transcript with active run %s", async runId => {
+    const { node, commands } = render({ runId, blocks: [
+      { id: "user", role: "user", text: "Work" }, question,
+      { id: "done", role: "assistant", text: "Work continued" },
+    ] });
+    const history = node.querySelector('[data-question-history="saved-question"]')!;
+    expect(history).not.toBeNull();
+    expect(history.textContent).toContain("Answer question");
+    act(() => history.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    const option = [...history.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Local")!;
+    act(() => option.click());
+    await act(async () => history.querySelector<HTMLButtonElement>('[data-question-submit]')!.click());
+    expect(commands).toEqual([expect.objectContaining({
+      type: "send", sessionId: "session", text: "Which source?\nLocal", followUpBehavior: "steer",
+      questionAnswer: { blockId: "saved-question", reply: { kind: "answered", answers: { q: ["local"] } } },
+    })]);
+    expect(commands[0]).not.toHaveProperty("runId");
+    expect(commands[0]).not.toHaveProperty("requestId");
+  });
+
+  it("shows saved answers after reopening and keeps blocking questions read-only", () => {
+    const answered: Block = { ...question, question: { ...question.question!, decision: "answered",
+      reply: { kind: "answered", answers: { q: ["remote"] } } } };
+    const { node, commands } = render({ blocks: [
+      { id: "user", role: "user", text: "Work" }, answered,
+      { ...question, id: "blocking", question: { ...question.question!, allowLateReply: false } },
+    ] });
+    for (const button of node.querySelectorAll<HTMLButtonElement>('[data-question-history] > button'))
+      act(() => button.click());
+    const history = node.querySelector('[data-question-history="saved-question"]')!;
+    expect(history.textContent).toContain("Remote");
+    expect(history.textContent).toContain("Answered");
+    expect(node.querySelector("[data-question-form]")).toBeNull();
+    expect(commands).toEqual([]);
+  });
+
+  it("keeps an unsuccessful late answer open for retry", async () => {
+    const onCommand = vi.fn(async (_command: HostCommand) => false);
+    const { node } = render({ blocks: [question], onCommand });
+    const history = node.querySelector('[data-question-history="saved-question"]')!;
+    act(() => history.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+    act(() => [...history.querySelectorAll<HTMLButtonElement>("button")]
+      .find(button => button.textContent === "Local")!.click());
+    const submit = history.querySelector<HTMLButtonElement>('[data-question-submit]')!;
+    await act(async () => submit.click());
+    expect(history.querySelector('button[aria-expanded]')?.getAttribute("aria-expanded")).toBe("true");
+    expect(submit.disabled).toBe(false);
+    await act(async () => submit.click());
+    expect(onCommand).toHaveBeenCalledTimes(2);
+    expect(onCommand.mock.calls[1][0]).toMatchObject({ type: "send", text: "Which source?\nLocal",
+      questionAnswer: { blockId: "saved-question", reply: { kind: "answered", answers: { q: ["local"] } } } });
   });
 });

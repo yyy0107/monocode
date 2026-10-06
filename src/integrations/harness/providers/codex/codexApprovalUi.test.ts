@@ -194,7 +194,7 @@ describe("Codex requests reach the chat and notifications", () => {
       const form = () => container.querySelector("[data-question-form]");
       expect(form()?.textContent).toContain(title);
       expect(form()?.textContent).toContain("Other");
-      expect(form()?.textContent).toContain("Optional question");
+      expect(form()?.textContent).toContain("Continues without an answer in 120s");
       expect(document.querySelector(".approval-toast")?.textContent).toContain(
         title,
       );
@@ -401,7 +401,7 @@ describe("Codex requests reach the chat and notifications", () => {
           }),
         ),
       );
-      expect(container.textContent).toContain("Optional question");
+      expect(container.textContent).toContain("Continues without an answer in 120s");
       await act(async () => vi.advanceTimersByTimeAsync(60_000));
       expect(container.textContent).toContain(
         "Continues without an answer in 60s",

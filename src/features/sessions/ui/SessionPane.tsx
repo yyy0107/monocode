@@ -100,6 +100,7 @@ import {
 import { markLinkedSessionUpdateSeen } from "../../inbox/model/linkedSessionSeen";
 import { RemoteSession } from "../../connections/ui/RemoteSession";
 import { isRemoteProjectPath } from "../../projects/model/recents";
+import { questionFollowUp } from "../model/questionHistory";
 import { remoteProjectFor, sessionUsesHost } from "../../connections/model/remoteProjects";
 import type { HostSession } from "../../connections/model/protocol";
 
@@ -889,6 +890,9 @@ const LocalSessionPane = memo(function LocalSessionPane({
                   model={session.model}
                   modelSettings={session.modelSettings}
                   pendingQuestion={!!session.pendingQuestion}
+                  pendingQuestionHistoryId={session.pendingQuestion?.historyId}
+                  onQuestionFollowUp={session.worktreeRemoved || session.harness !== "codex" ? undefined : (answer) =>
+                    onSubmit(session.id, questionFollowUp(session, answer), [], { questionAnswer: answer })}
                   backgroundTasks={session.backgroundTasks}
                   onApproval={session.worktreeRemoved ? undefined : approve}
                   onAddToChat={addSelectionToChat}

@@ -229,20 +229,15 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
         >
           {prompt.autoResolveAt != null ? (
             <span
-              className="mr-auto text-[11px] text-content/40"
+              className="mr-auto text-[11px] tabular-nums text-content/40"
               data-question-hint
-              title={uiT("Interact to keep this question open.")}
+              title={onInteraction ? uiT("Interact to keep this question open.") : undefined}
             >
-              {prompt.autoResolveAt - now > 60_000
-                ? uiT("Optional question")
-                : uiT("Continues without an answer in {value0}s", {
-                    value0: String(
-                      Math.max(
-                        0,
-                        Math.ceil((prompt.autoResolveAt - now) / 1000),
-                      ),
-                    ),
-                  })}
+              {uiT("Continues without an answer in {value0}s", {
+                value0: String(
+                  Math.max(0, Math.ceil((prompt.autoResolveAt - now) / 1000)),
+                ),
+              })}
             </span>
           ) : null}
           {index > 0 ? (

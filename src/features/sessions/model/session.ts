@@ -1,6 +1,6 @@
 import { translate } from "../../../shared/i18n/language";
 import { dropContextWindow, type ContextUsage } from "./contextUsage";
-import type { UserQuestionPrompt } from "./userQuestion";
+import type { QuestionAnswer, UserQuestionPrompt, UserQuestionRecord } from "./userQuestion";
 import type { HandoffComposerCard } from "./handoff";
 import type { InboxComposerCard } from "../../inbox/model/githubTasks";
 import type { InboxAskContext } from "../../inbox/model/inboxAsk";
@@ -80,6 +80,7 @@ export type EditedResendRejection = {
   providerRewound: boolean;
 };
 export type ComposerTurnOptions = {
+  questionAnswer?: QuestionAnswer;
   refreshTitle?: boolean;
   intent?: TurnIntent;
   resendEdited?: boolean;
@@ -307,6 +308,8 @@ export type Block = {
   role: BlockRole;
   origin?: TurnOrigin;
   text: string;
+  /** Persistent clarifying question and the user's accepted answer. */
+  question?: UserQuestionRecord;
   image?: GeneratedImageMeta;
   attachments?: Attachment[];
   streaming?: boolean;

@@ -22,6 +22,7 @@ import { taskListText } from "../../../features/sessions/model/taskList";
 import { isReviewablePlan } from "../../../features/sessions/model/plan";
 import { resolveModel } from "../../../features/sessions/model/models";
 import type { HarnessEvent } from "./types";
+import { questionTranscriptText } from "../../../features/sessions/model/questionHistory";
 
 /** Apply one delivery batch without copying the transcript for every token. */
 export function applyHarnessEvents(
@@ -109,18 +110,25 @@ export function applyHarnessEvent(
       );
       return { ...session, blocks };
     }
-    case "question.asked":
-      return {
-        ...session,
-        pendingQuestion: {
+    case "question.asked": {
+      const prompt = {
           requestId: event.requestId,
+          historyId: crypto.randomUUID(),
           questions: event.questions,
           ...(event.title ? { title: event.title } : {}),
+          ...(event.allowLateReply ? { allowLateReply: true } : {}),
           ...(event.autoResolveAt != null
             ? { autoResolveAt: event.autoResolveAt }
             : {}),
-        },
       };
+      return {
+        ...appendBlock(session, {
+          id: prompt.historyId, role: "system", question: prompt,
+          text: questionTranscriptText(prompt),
+        }),
+        pendingQuestion: prompt,
+      };
+    }
     case "question.updated":
       return session.pendingQuestion?.requestId === event.requestId
         ? {
@@ -129,12 +137,32 @@ export function applyHarnessEvent(
               ...session.pendingQuestion,
               autoResolveAt: event.autoResolveAt,
             },
+            blocks: session.blocks.map((block) =>
+              block.id === session.pendingQuestion?.historyId && block.question
+                ? { ...block, question: { ...block.question, autoResolveAt: event.autoResolveAt } }
+                : block),
           }
         : session;
-    case "question.resolved":
-      return session.pendingQuestion?.requestId === event.requestId
-        ? { ...session, pendingQuestion: undefined }
-        : session;
+    case "question.resolved": {
+      // The Host may clear the live prompt as soon as it accepts an answer.
+      const historyId = session.pendingQuestion?.requestId === event.requestId
+        ? session.pendingQuestion.historyId
+        : [...session.blocks].reverse().find((block) =>
+            block.question?.requestId === event.requestId && !block.question.decision)?.id;
+      return {
+        ...session,
+        pendingQuestion: session.pendingQuestion?.requestId === event.requestId
+          ? undefined : session.pendingQuestion,
+        blocks: session.blocks.map((block) => {
+          if (block.id !== historyId || !block.question) return block;
+          const question = {
+            ...block.question, decision: event.decision, autoResolveAt: undefined,
+            ...(event.reply ? { reply: event.reply } : {}),
+          };
+          return { ...block, question, text: questionTranscriptText(question) };
+        }),
+      };
+    }
     case "context":
       return {
         ...session,
@@ -517,7 +545,11 @@ export function stopStreaming(session: Session, endedAt = Date.now()): Session {
     ...settled,
     busy: false,
     pendingQuestion: undefined,
-    blocks: stampTurnDuration(settled.blocks.map(stopBlockProgress), endedAt),
+    blocks: stampTurnDuration(settled.blocks.map((block) => stopBlockProgress(
+      block.question && !block.question.decision
+        ? { ...block, question: { ...block.question, decision: "cancelled", autoResolveAt: undefined } }
+        : block,
+    )), endedAt),
   };
 }
 

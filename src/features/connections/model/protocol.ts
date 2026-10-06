@@ -1,5 +1,5 @@
 import type { Block, Session, RuntimeMode } from "../../sessions/model/session";
-import type { UserQuestionReply } from "../../sessions/model/userQuestion";
+import type { QuestionAnswer, UserQuestionReply } from "../../sessions/model/userQuestion";
 import type { AgentModel } from "../../sessions/model/models";
 import type { LinkedWorkItem } from "../../sessions/model/session";
 import type { Skill } from "../../skills/model/skillTypes";
@@ -274,6 +274,7 @@ export type HostCommand =
     }
   | {
       type: "send";
+      questionAnswer?: QuestionAnswer;
       refreshTitle?: boolean;
       commandId: string;
       sessionId: string;

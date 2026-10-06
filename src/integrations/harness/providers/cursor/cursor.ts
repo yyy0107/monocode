@@ -628,6 +628,7 @@ async function handleAskQuestion(live: Live, id: number, params: unknown) {
     type: "question.resolved",
     requestId: id,
     decision: reply.kind,
+    ...(reply.kind === "answered" ? { reply } : {}),
   });
 
   await live.acp

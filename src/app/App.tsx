@@ -11,6 +11,10 @@ import { contentTabTarget } from "./model/appViewNavigation";
 import { SessionTitleCoordinator } from "../integrations/harness/core/titleCoordinator";
 import { readHarnessSessionTitle } from "../integrations/harness/core/registry";
 import { manualSessionTitle } from "../features/sessions/model/titlePolicy";
+import {
+  questionFollowUp,
+  recordQuestionAnswer,
+} from "../features/sessions/model/questionHistory";
 import { persistManualSessionTitle } from "../features/sessions/data/sessionStore";
 import { acceptQuickLaunch } from "./model/quickLaunchSession";
 import { useWorkspaceNavigation } from "./hooks/useWorkspaceNavigation";
@@ -7404,10 +7408,30 @@ function Workspace({
     (...args: Parameters<Submit>): boolean => {
       // Reject before async preparation can make the composer clear its draft.
       if (workspaceNavigation.isSwitching(args[0])) return false;
+      const questionAnswer = args[3]?.questionAnswer;
+      if (questionAnswer) {
+        const session = sessionsRef.current.find(
+          (entry) => entry.id === args[0],
+        );
+        if (!session) return false;
+        args[1] = questionFollowUp(session, questionAnswer);
+        args[3] = { ...args[3], followUpBehavior: "steer" };
+      }
+      const recordAccepted = (accepted: boolean) => {
+        if (accepted && questionAnswer)
+          setSessions((sessions) =>
+            sessions.map((session) =>
+              session.id === args[0]
+                ? recordQuestionAnswer(session, questionAnswer)
+                : session,
+            ),
+          );
+        return accepted;
+      };
       const result = submitSession(...args);
-      if (typeof result === "boolean") return result;
+      if (typeof result === "boolean") return recordAccepted(result);
       // Deferred errors have already been displayed by submitAfterProjectSync.
-      void result.catch(() => undefined);
+      void result.then(recordAccepted).catch(() => undefined);
       return true;
     },
     [submitSession],

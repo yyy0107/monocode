@@ -146,6 +146,7 @@ function isStatusStep(block: Block): boolean {
  * neither work nor chrome, so it keeps its own row live and settled alike.
  */
 export function isActivityBlock(block: Block): boolean {
+  if (block.question) return false;
   if (isThinkingBlock(block)) return true;
   if (block.role === "system") {
     return !block.interjection && !isNoticeBlock(block);

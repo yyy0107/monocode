@@ -1133,7 +1133,7 @@ describe("clarifying questions", () => {
     },
   ];
 
-  it("parks the prompt on the session instead of an Allow/Deny row", () => {
+  it("keeps both a live prompt and a persistent question record", () => {
     let session = newSession("claude", "/repo");
     session = applyHarnessEvent(session, {
       type: "question.asked",
@@ -1141,12 +1141,18 @@ describe("clarifying questions", () => {
       title: "Which file?",
       questions,
     });
-    expect(session.pendingQuestion).toEqual({
+    expect(session.pendingQuestion).toMatchObject({
       requestId: 3,
       title: "Which file?",
       questions,
     });
-    expect(session.blocks).toEqual([]);
+    expect(session.blocks).toHaveLength(1);
+    expect(session.blocks[0]).toMatchObject({
+      id: session.pendingQuestion?.historyId,
+      role: "system",
+      text: "Which file?",
+      question: session.pendingQuestion,
+    });
   });
 
   it("clears the prompt when the user answers or skips", () => {
@@ -1160,8 +1166,11 @@ describe("clarifying questions", () => {
       type: "question.resolved",
       requestId: 3,
       decision: "answered",
+      reply: { kind: "answered", answers: { "Which file?": ["a.ts"] } },
     });
     expect(session.pendingQuestion).toBeUndefined();
+    expect(session.blocks[0].question?.reply?.answers).toEqual({ "Which file?": ["a.ts"] });
+    expect(session.blocks[0].text).toBe("Which file?\na.ts");
   });
 
   it("drops a parked prompt when the turn stops", () => {
@@ -1173,6 +1182,7 @@ describe("clarifying questions", () => {
     });
     session = stopStreaming(session);
     expect(session.pendingQuestion).toBeUndefined();
+    expect(session.blocks[0].question?.decision).toBe("cancelled");
   });
 });
 

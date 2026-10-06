@@ -987,6 +987,7 @@ describe("OpenCode child permission routing", () => {
         type: "question.resolved",
         requestId: request.requestId,
         decision: kind,
+        ...(kind === "answered" ? { reply: { kind, answers: { [question.id]: [question.options[0].id] } } } : {}),
       });
     },
   );

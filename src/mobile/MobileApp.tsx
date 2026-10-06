@@ -801,7 +801,7 @@ export function MobileApp() {
         setConfiguration(configurationForSession(result));
         setView("chat");
         if (
-          completedCommand?.type === "send" ||
+          (completedCommand?.type === "send" && !completedCommand.questionAnswer) ||
           completedCommand?.type === "create"
         ) {
           const previousDraft = parkedDrafts.current.pop();
@@ -1219,9 +1219,9 @@ export function MobileApp() {
         : t(mobileSettingsTitle(settingsPage));
   // Memoized children (transcript, drawer) get handlers that keep their
   // identity, so typing in the composer does not re-render them.
-  const onTranscriptCommand = useStableCallback((command: HostCommand) => {
-    void dispatch(command);
-  });
+  const onTranscriptCommand = useStableCallback(async (command: HostCommand) =>
+    !!(await dispatch(command)),
+  );
   const onDrawerOpenChange = useStableCallback((open: boolean) => {
     if (open) setHomeMenuOpen(false);
     if (open) setComposerPanel(null);

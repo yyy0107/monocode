@@ -47,6 +47,8 @@ import { NativeSessionManager, nativeHolding, type NativeManagerOptions } from "
 import { migrateNativeLink, restoreImportedNativeActivity } from "./native/migrate";
 import { parseRemoteAttachments, resolveAttachments, saveGeneratedImageAttachment } from "./attachments";
 import type { Attachment } from "../src/features/sessions/model/session";
+import type { UserQuestionReply } from "../src/features/sessions/model/userQuestion";
+import { questionFollowUp, recordQuestionAnswer } from "../src/features/sessions/model/questionHistory";
 
 // Streamed output is written in batches. Anything a user may need to act on
 // (approvals, questions, errors, completion) is written immediately.
@@ -87,6 +89,23 @@ function modelSettings(value: unknown): Record<string, string> {
   )
     throw new Error("Invalid model settings");
   return Object.fromEntries(entries) as Record<string, string>;
+}
+
+function parseQuestionReply(value: unknown): UserQuestionReply {
+  const reply = value as { kind?: string; answers?: unknown; custom?: unknown } | undefined;
+  if (reply?.kind === "skipped") return { kind: "skipped" };
+  if (reply?.kind !== "answered" || !reply.answers || typeof reply.answers !== "object" || Array.isArray(reply.answers))
+    throw new Error("Invalid question answers");
+  const entries = Object.entries(reply.answers);
+  if (entries.length > 50 || entries.some(([key, answer]) => key.length > 200 ||
+    !Array.isArray(answer) || answer.length > 50 || answer.some((item) => typeof item !== "string" || item.length > 10_000)))
+    throw new Error("Invalid question answers");
+  if (reply.custom != null && (typeof reply.custom !== "object" || Array.isArray(reply.custom) ||
+    Object.entries(reply.custom).length > 50 || Object.entries(reply.custom).some(([key, item]) =>
+      key.length > 200 || typeof item !== "string" || item.length > 10_000)))
+    throw new Error("Invalid custom answers");
+  return { kind: "answered", answers: Object.fromEntries(entries),
+    ...(reply.custom ? { custom: reply.custom as Record<string, string> } : {}) };
 }
 
 export function parseCommand(input: unknown): HostCommand {
@@ -205,10 +224,21 @@ export function parseCommand(input: unknown): HostCommand {
       (v.type !== "send" || v.intent !== "build")
     )
       throw new Error("Invalid plan build");
+    let questionAnswer;
+    if (v.questionAnswer !== undefined) {
+      const answer = v.questionAnswer as { blockId?: unknown; reply?: unknown } | null;
+      if (v.type !== "send" || !answer || (v.intent && v.intent !== "default") ||
+        v.draftBlockId || v.planBlockId || v.queuedMessageId || v.retryProposalBlockId)
+        throw new Error("Invalid question follow-up");
+      const reply = parseQuestionReply(answer.reply);
+      if (reply.kind !== "answered") throw new Error("Invalid question follow-up");
+      questionAnswer = { blockId: text(answer.blockId, "question block ID"), reply };
+    }
     return {
       type: v.type,
       commandId,
       sessionId,
+      ...(questionAnswer ? { questionAnswer } : {}),
       text: v.text,
       ...(attachments.length ? { attachments } : {}),
       ...(v.type === "send" && v.refreshTitle === true ? { refreshTitle: true } : {}),
@@ -253,60 +283,10 @@ export function parseCommand(input: unknown): HostCommand {
       decision: v.decision,
     };
   if (v.type === "answer") {
-    const reply = v.reply as
-      { kind?: string; answers?: unknown; custom?: unknown } | undefined;
-    if (reply?.kind === "skipped")
-      return {
-        type: "answer",
-        commandId,
-        sessionId,
-        runId,
-        requestId,
-        reply: { kind: "skipped" },
-      };
-    if (
-      reply?.kind === "answered" &&
-      reply.answers &&
-      typeof reply.answers === "object" &&
-      !Array.isArray(reply.answers)
-    ) {
-      const entries = Object.entries(reply.answers);
-      if (
-        entries.length > 50 ||
-        entries.some(
-          ([key, value]) =>
-            key.length > 200 ||
-            !Array.isArray(value) ||
-            value.length > 50 ||
-            value.some((x) => typeof x !== "string" || x.length > 10_000),
-        )
-      )
-        throw new Error("Invalid question answers");
-      if (
-        reply.custom != null &&
-        (typeof reply.custom !== "object" ||
-          Array.isArray(reply.custom) ||
-          Object.values(reply.custom).some(
-            (x) => typeof x !== "string" || x.length > 10_000,
-          ))
-      )
-        throw new Error("Invalid custom answers");
-      return {
-        type: "answer",
-        commandId,
-        sessionId,
-        runId,
-        requestId,
-        reply: {
-          kind: "answered",
-          answers: Object.fromEntries(entries),
-          ...(reply.custom
-            ? { custom: reply.custom as Record<string, string> }
-            : {}),
-        },
-      };
-    }
+    return { type: "answer", commandId, sessionId, runId, requestId,
+      reply: parseQuestionReply(v.reply) };
   }
+
   throw new Error("Unsupported command");
 }
 
@@ -972,6 +952,12 @@ export class HostEngine {
         )
           throw new Error("Wait for the branch switch to finish");
         const provider = this.provider(value.session.harness);
+        if (command.type === "send" && command.questionAnswer) {
+          const prompt = questionFollowUp(value.session, command.questionAnswer);
+          value = { ...value, session: recordQuestionAnswer(value.session, command.questionAnswer) };
+          command.text = prompt;
+          command.followUpBehavior = "steer";
+        }
         if (command.type === "configure") {
           if (value.status === "running")
             throw new Error(
@@ -1279,7 +1265,11 @@ export class HostEngine {
               throw new Error("Question is already resolved");
             value = {
               ...value,
-              session: { ...value.session, pendingQuestion: undefined },
+              session: applyHarnessEvent(value.session, {
+                type: "question.resolved", requestId: command.requestId,
+                decision: command.reply.kind,
+                ...(command.reply.kind === "answered" ? { reply: command.reply } : {}),
+              }),
             };
             effect = () =>
               provider.answer(

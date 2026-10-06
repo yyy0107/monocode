@@ -9,7 +9,7 @@ import type {
   TurnIntent,
   TurnMetrics,
 } from "../../../features/sessions/model/session";
-import type { UserQuestion } from "../../../features/sessions/model/userQuestion";
+import type { UserQuestion, UserQuestionReply } from "../../../features/sessions/model/userQuestion";
 import type { SessionModelSettings } from "../../../features/sessions/model/models";
 
 export type HarnessEvent =
@@ -122,6 +122,7 @@ export type HarnessEvent =
       questions: UserQuestion[];
       callId?: string;
       autoResolveAt?: number;
+      allowLateReply?: boolean;
     }
   | {
       type: "question.updated";
@@ -132,6 +133,7 @@ export type HarnessEvent =
       type: "question.resolved";
       requestId: number;
       decision: "answered" | "skipped" | "cancelled";
+      reply?: Extract<UserQuestionReply, { kind: "answered" }>;
     }
   | {
       type: "tasks.updated";

@@ -2,6 +2,8 @@ import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { localizeChildExitError } from "../../../integrations/harness/core/childErrors";
 import { providerSessionAccessIssue } from "../../../integrations/harness/providers/sessionAccessErrors";
 import { SessionAccessNotice } from "./SessionAccessNotice";
+import { QuestionHistoryCard } from "./QuestionHistoryCard";
+import type { QuestionAnswer } from "../model/userQuestion";
 import {
   ArrowUp,
   Check,
@@ -179,6 +181,8 @@ type Props = {
   model?: string;
   modelSettings?: Record<string, string>;
   pendingQuestion?: boolean;
+  pendingQuestionHistoryId?: string;
+  onQuestionFollowUp?: (answer: QuestionAnswer) => boolean | void | Promise<boolean | void>;
   /** Work the agent left running when it yielded; the turn waits on it. */
   backgroundTasks?: string[];
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
@@ -229,6 +233,8 @@ function AgentTranscriptComponent({
   model,
   modelSettings,
   pendingQuestion = false,
+  pendingQuestionHistoryId,
+  onQuestionFollowUp,
   backgroundTasks,
   onApproval,
   onAddToChat,
@@ -985,6 +991,8 @@ function AgentTranscriptComponent({
               <TranscriptBlock
                 key={item.block.id}
                 block={item.block}
+                questionPending={item.block.id === pendingQuestionHistoryId}
+                onQuestionFollowUp={onQuestionFollowUp}
                 harness={turnHarness}
                 layout={transcriptLayout}
                 visible={item.block.role === "user" ? visible : undefined}
@@ -1564,6 +1572,8 @@ function EditLastTurnButton({
 
 const TranscriptBlock = memo(function TranscriptBlock({
   block,
+  questionPending = false,
+  onQuestionFollowUp,
   harness,
   layout,
   visible,
@@ -1587,6 +1597,8 @@ const TranscriptBlock = memo(function TranscriptBlock({
   editing = false,
 }: {
   block: Block;
+  questionPending?: boolean;
+  onQuestionFollowUp?: (answer: QuestionAnswer) => boolean | void | Promise<boolean | void>;
   harness?: HarnessId;
   layout: TranscriptLayout;
   visible?: boolean;
@@ -1613,6 +1625,10 @@ const TranscriptBlock = memo(function TranscriptBlock({
 }) {
   const { textReveal } = useContext(TranscriptPlatformContext);
   const { t: uiT } = useTranslation();
+  if (block.question) {
+    return <QuestionHistoryCard blockId={block.id} question={block.question}
+      pending={questionPending} onAnswer={onQuestionFollowUp} />;
+  }
   if (block.role === "user") {
     return (
       <UserMessageBlock

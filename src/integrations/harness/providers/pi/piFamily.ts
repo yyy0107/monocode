@@ -1153,7 +1153,8 @@ async function handleExtensionUi(
       }
     }
     live.onEvent({ type: "question.resolved", requestId: uiId,
-      decision: value === undefined ? "skipped" : "answered" });
+      decision: value === undefined ? "skipped" : "answered",
+      ...(value !== undefined && reply.kind === "answered" ? { reply } : {}) });
     await writeChild(sessionId, JSON.stringify({ type: "extension_ui_response", id: request.id,
       ...(value === undefined ? { cancelled: true } : { value }),
     })).catch(() => undefined);

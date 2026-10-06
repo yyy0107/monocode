@@ -72,8 +72,8 @@ type PendingQuestion = {
   resolve: (reply: UserQuestionReply | "cancelled") => void;
 };
 
-// Match Codex's non-blocking question policy: a minute of grace, then a
-// minute of countdown. Interaction keeps the question open for the user.
+// Non-blocking questions stay in the composer for two minutes. Interaction
+// keeps them open; their transcript records remain available afterwards.
 const QUESTION_AUTO_RESOLVE_MS = 120_000;
 
 type Live = {
@@ -953,6 +953,7 @@ function showCodexAsyncQuestion(
     title: questionPromptTitle(questions),
     questions,
     callId: itemId,
+    allowLateReply: true,
   };
   const outcome = new Promise<UserQuestionReply | "cancelled">((resolve) => {
     live.questions.set(uiId, {
@@ -972,6 +973,7 @@ function showCodexAsyncQuestion(
     live.onEvent({
       type: "question.resolved",
       requestId: uiId,
+      ...(reply !== "cancelled" && reply.kind === "answered" ? { reply } : {}),
       decision:
         reply === "cancelled"
           ? "cancelled"
@@ -1307,6 +1309,7 @@ async function handleServerRequest(
       title: questionPromptTitle(questions),
       questions,
       callId: stringField(asRecord(params), "itemId"),
+      ...(asRecord(params)?.isBlocking === false ? { allowLateReply: true } : {}),
     };
     const outcome = new Promise<UserQuestionReply | "cancelled">((resolve) => {
       live.questions.set(uiId, {
@@ -1326,6 +1329,7 @@ async function handleServerRequest(
     live.onEvent({
       type: "question.resolved",
       requestId: uiId,
+      ...(reply !== "cancelled" && reply.kind === "answered" ? { reply } : {}),
       decision:
         reply === "cancelled"
           ? "cancelled"

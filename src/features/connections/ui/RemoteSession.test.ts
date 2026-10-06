@@ -9,6 +9,7 @@ import {
   type SessionPaneProps,
 } from "../../sessions/ui/SessionPane";
 import type { Block, Session } from "../../sessions/model/session";
+import type { QuestionAnswer } from "../../sessions/model/userQuestion";
 import type { AgentModel } from "../../sessions/model/models";
 import { rememberRemoteProject, configureSharedHost } from "../model/remoteProjects";
 import { preloadRemoteSession, RemoteSession } from "./RemoteSession";
@@ -40,6 +41,7 @@ vi.mock("../../sessions/ui/AgentTranscript", () => ({
     onRemoveDraft,
     onOpenFile,
     onOpenDiff,
+    onQuestionFollowUp,
   }: {
     blocks: Block[];
     busy: boolean;
@@ -47,6 +49,7 @@ vi.mock("../../sessions/ui/AgentTranscript", () => ({
     onRemoveDraft?: (block: Block) => void;
     onOpenFile?: (path: string) => void;
     onOpenDiff?: (path: string) => void;
+    onQuestionFollowUp?: (answer: QuestionAnswer) => unknown;
   }) =>
     createElement(
       "ol",
@@ -58,6 +61,11 @@ vi.mock("../../sessions/ui/AgentTranscript", () => ({
           "li",
           { key: block.id },
           block.text,
+          block.question && onQuestionFollowUp ? createElement("button", {
+            "aria-label": "Answer historical question",
+            onClick: () => onQuestionFollowUp({ blockId: block.id,
+              reply: { kind: "answered", answers: { source: ["local"] } } }),
+          }) : null,
           block.orchestration ? createElement(OrchestrationPreview, { block, busy }) : null,
           block.draft && onSendDraft
             ? createElement(
@@ -1170,6 +1178,26 @@ it("locks a started remote session to its worktree like a local session", async 
   expect(byLabel("Workspace Current checkout")).toBeNull();
   expect(byLabel("Branch main")).not.toBeNull();
   expect(commands).toHaveLength(0);
+});
+
+it("sends historical question answers with their durable identity from the desktop", async () => {
+  dispatch({ type: "create", commandId: "existing", projectId: "project",
+    harness: "codex", model: gpt.id, runtimeMode: "supervised" });
+  host!.session.blocks = [{ id: "question-history", role: "system", text: "Which source?",
+    question: { requestId: 7, allowLateReply: true, decision: "skipped", questions: [{
+      id: "source", prompt: "Which source?", multiSelect: false, allowCustom: false,
+      options: [{ id: "local", label: "Local" }],
+    }] } }];
+  rememberRemoteSession("shell", "host-session");
+  commands = [];
+  await render();
+  await act(async () => byLabel("Answer historical question")!.click());
+  await settle();
+  expect(commands).toHaveLength(1);
+  expect(commands[0]).toMatchObject({ type: "send", sessionId: "host-session",
+    text: "Which source?\nLocal", followUpBehavior: "steer",
+    questionAnswer: { blockId: "question-history", reply: { kind: "answered", answers: { source: ["local"] } } },
+  });
 });
 
 it("applies effort changes directly and uses them on the next turn", async () => {
