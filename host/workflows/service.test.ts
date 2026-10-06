@@ -109,17 +109,22 @@ describe("Host dynamic workflows", () => {
     expect(sent.some((input) => input.text.includes("did not conform"))).toBe(true);
   }, 30_000);
 
-  it("holds an agent-launched run in a supervised conversation until the user approves", async () => {
-    const { engine, store, parentId, claude } = setup("supervised");
+  it("holds every agent-launched run until the user adjusts and approves it", async () => {
+    const { engine, store, parentId, claude, codex } = setup();
     const script = `phase("Ask");\nconst a = await agent("asker").ask("Say hi");\nreturn a;`;
     const submitted = await engine.workflows.submit(parentId, { script, name: "Approval" }, "agent");
     expect(submitted).toMatchObject({ ok: true, status: "awaiting_approval" });
     const runId = (submitted as { runId: string }).runId;
     expect(store.session(parentId).session.blocks.at(-1)?.workflowRun?.approval).toBe("pending");
     expect(claude.send).not.toHaveBeenCalled();
-    engine.workflows.approve(runId);
+    // The user moves the agent to another provider before starting the run.
+    engine.workflows.retune(runId, { agents: { asker: { provider: "codex", model: "gpt-5.5" } } });
+    expect(store.session(parentId).session.blocks.at(-1)?.workflowRun?.settings.agents?.asker).toMatchObject({ provider: "codex" });
+    await engine.workflows.approve(runId);
     expect(await engine.workflows.wait(runId, 20)).toMatchObject({ status: "completed" });
     expect(store.session(parentId).session.blocks.at(-1)?.workflowRun?.approval).toBe("approved");
+    expect(claude.send).not.toHaveBeenCalled();
+    expect(codex.send).toHaveBeenCalledTimes(1);
   }, 30_000);
 
   it("reports compile diagnostics against the draft file without running anything", async () => {
@@ -137,8 +142,9 @@ describe("Host dynamic workflows", () => {
     await engine.workflows.wait(runId, 20);
     const revised = SCRIPT.replace('"Implement " + plan.steps[0]', '"Implement carefully " + plan.steps[0]');
     const amended = await engine.workflows.amend(parentId, runId, { script: revised }, "agent");
-    expect(amended).toMatchObject({ ok: true });
+    expect(amended).toMatchObject({ ok: true, status: "awaiting_approval" });
     const next = (amended as { runId: string }).runId;
+    await engine.workflows.approve(next);
     expect(await engine.workflows.wait(next, 20)).toMatchObject({ status: "completed", resumedFrom: runId, result: { out: "Done: Implement carefully write tests" } });
     // The planner's ask replayed from cache; only the builder ran again.
     expect(claude.send).toHaveBeenCalledTimes(1);
@@ -161,7 +167,8 @@ describe("workflow control CLI", () => {
       const script = `phase("Ask");\nreturn await agent("asker").ask("Say hi");`;
       expect(await runControlCli(["create", "--json", JSON.stringify({ name: "CLI", script })], "workflow")).toBe(0);
       const created = JSON.parse(output.at(-1)!);
-      expect(created).toMatchObject({ ok: true, result: { ok: true, status: "running" } });
+      expect(created).toMatchObject({ ok: true, result: { ok: true, status: "awaiting_approval" } });
+      await engine.workflows.approve(created.result.runId);
       expect(await runControlCli(["wait", "--json", JSON.stringify({ runId: created.result.runId, timeoutSeconds: 20 })], "workflow")).toBe(0);
       expect(JSON.parse(output.at(-1)!)).toMatchObject({ ok: true, result: { status: "completed", settled: true } });
     } finally {

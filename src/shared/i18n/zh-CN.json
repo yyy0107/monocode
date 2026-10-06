@@ -3074,5 +3074,8 @@
   "Workflow subagent · read-only": "工作流子代理 · 只读",
   "Workflow “{name}” was discarded.": "工作流“{name}”已丢弃。",
   "Workflows": "工作流",
-  "View: Workflows": "视图：工作流"
+  "View: Workflows": "视图：工作流",
+  "Adjust configuration": "调整配置",
+  "Save configuration": "保存配置",
+  "These settings apply when you start the run.": "这些设置会在你启动运行时生效。"
 }

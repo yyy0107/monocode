@@ -17,7 +17,7 @@ import {
 import type {
   OpenScopedWorkflowActorSessionSideTabRequest,
   WorkflowRunSidePaneTab,
-} from "../features/workflows/zcode/lib/workspaceSidePane";
+} from "../features/workflows/kit/lib/workspaceSidePane";
 import {
   createProjectTerminal,
   type DockSide,
@@ -563,7 +563,7 @@ vi.mock("../features/workflows/ui/WorkflowsView", async () => {
   };
 });
 
-vi.mock("../features/workflows/zcode/app-shell/WorkflowRunSidePane", async () => {
+vi.mock("../features/workflows/kit/app-shell/WorkflowRunSidePane", async () => {
   const { createElement: el } = await import("react");
   return {
     WorkflowRunSidePane: ({ tab, onOpenWorkflowActorSession }: {

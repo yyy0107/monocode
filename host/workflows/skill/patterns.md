@@ -1,4 +1,3 @@
-<!-- Adapted from ZCode (Apache-2.0) bundled-skills/dynamic-workflows. -->
 # Dynamic workflow patterns
 
 A catalogue of orchestration shapes. Each entry states when the shape is right, then shows

@@ -10,7 +10,7 @@ import {
 } from "../features/workflows/model/workflowActivity";
 import { WorkflowSidebarSection } from "../features/workflows/ui/WorkflowSidebarSection";
 import { WorkflowsView } from "../features/workflows/ui/WorkflowsView";
-import { WorkflowProjectsContext } from "../features/workflows/zcode/store/TabStoreProvider";
+import { WorkflowProjectsContext } from "../features/workflows/kit/store/TabStoreProvider";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { DesktopAssistant } from "../features/assistant/ui/DesktopAssistant";
 import {
@@ -9864,6 +9864,18 @@ function Workspace({
     setWorkflowComposerRequest(null);
     requestAddToChat(workflowComposerRequest.prompt, "plain");
   }, [active?.id, activeAppView, workflowComposerRequest]);
+  // Complete workflow instructions are sent once their conversation is ready.
+  const [workflowSendRequest, setWorkflowSendRequest] = useState<{
+    sessionId: string;
+    prompt: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!workflowSendRequest) return;
+    if (!sessions.some((entry) => entry.id === workflowSendRequest.sessionId))
+      return;
+    setWorkflowSendRequest(null);
+    onSubmit(workflowSendRequest.sessionId, workflowSendRequest.prompt);
+  }, [onSubmit, sessions, workflowSendRequest]);
   const workflowProjects = useMemo(
     () =>
       recents.map((project) => ({
@@ -9917,14 +9929,15 @@ function Workspace({
           request.sourceFileId,
         ),
       openSession: (cwd, sessionId) => onSelectRemoteSession(cwd, sessionId),
-      createViaChat: (cwd, prompt) => {
+      createViaChat: (cwd, prompt, options) => {
         const sessionId = onNewInProject(cwd);
-        setWorkflowComposerRequest({ sessionId, prompt });
+        if (options?.send) setWorkflowSendRequest({ sessionId, prompt });
+        else setWorkflowComposerRequest({ sessionId, prompt });
       },
     };
   }, [
-    focusOpenSession,
     onNewInProject,
+    focusOpenSession,
     onSelectHistorySession,
     onSelectRemoteSession,
   ]);

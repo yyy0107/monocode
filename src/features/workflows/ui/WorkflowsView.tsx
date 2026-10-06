@@ -1,9 +1,9 @@
-// The Workflows app view: ZCode's saved-workflows hub (global and per-project
+// The Workflows app view: the saved-workflows hub (global and per-project
 // groups, run with arguments, detail, run history, create via chat).
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { Workflow } from "../../../shared/ui/icons";
-import { TooltipProvider } from "../zcode/components/ui/tooltip";
-import { SavedWorkflowsSection } from "../zcode/settings/saved-workflows/SavedWorkflowsSection";
+import { TooltipProvider } from "../kit/components/ui/tooltip";
+import { SavedWorkflowsSection } from "../kit/settings/saved-workflows/SavedWorkflowsSection";
 import { useWorkflowApp } from "./workflowAppContext";
 
 export function WorkflowsView({ cwd }: { cwd: string }) {

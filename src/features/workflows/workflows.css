@@ -732,3 +732,18 @@
     transition: none;
   }
 }
+
+/* Subagent mascots stand still when motion is reduced. */
+@media (prefers-reduced-motion: reduce) {
+  .wf-mascot.mascot-active,
+  .wf-mascot .mascot-rest,
+  .wf-mascot .mascot-talk {
+    animation: none;
+  }
+  .wf-mascot .mascot-rest {
+    opacity: 1;
+  }
+  .wf-mascot .mascot-talk {
+    opacity: 0;
+  }
+}

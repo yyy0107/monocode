@@ -112,6 +112,8 @@ type AmendLaunch = {
   runId: string;
   importedCache?: ImportedRunCache;
   inheritedTokens?: number;
+  /** The predecessor still runs: stop it and rebuild the cache when the user approves. */
+  deferred?: boolean;
 };
 
 type LiveRun = {
@@ -264,6 +266,7 @@ export class HostWorkflows {
       `Before writing the script, read the authoring guide: ${join(this.skillDir, "SKILL.md")} (patterns.md and examples.md beside it go deeper).`,
       `Submit and manage runs with the workflow CLI: "$MONOCODE_WORKFLOW_CLI" workflow --help. Run \`"$MONOCODE_WORKFLOW_CLI" workflow providers --json '{}'\` to see installed providers and their models.`,
       "The run appears as a card in this conversation and in MonoCode's Workflows sidebar.",
+      "Once a workflow works and the user wants to keep it, save it with `workflow save` (scope \"project\" or \"global\"); it then appears in MonoCode's saved workflows.",
       "</monocode-workflows>",
       "",
       request || "Help me design and run a dynamic workflow for this project.",
@@ -487,8 +490,9 @@ export class HostWorkflows {
       ...(analyzed.phaseAlongside ? { phaseAlongside: analyzed.phaseAlongside } : {}),
       ...(amends ? { resumedFrom: amends } : {}),
     };
-    // An agent in a supervised conversation asks the user before the run starts.
-    const needsApproval = launchedBy === "agent" && !amends && parent.session.runtimeMode === "supervised";
+    // Every run an agent launches waits for the user, who can adjust its
+    // configuration on the card before starting it.
+    const needsApproval = launchedBy === "agent";
     const commands = [...compiled.declaredRunCommands].sort();
     const block: WorkflowRunBlock = {
       runId, name, launchedBy, source: kind, settings, createdAt: Date.now(),
@@ -538,12 +542,25 @@ export class HostWorkflows {
   }
 
   /** The user approved a held run from its card. */
-  approve(runId: string): { runId: string } {
+  async approve(runId: string): Promise<{ runId: string }> {
     const prepared = this.pending.get(runId);
     if (!prepared) throw new Error("This run is no longer waiting for approval");
     this.pending.delete(runId);
+    let amend = prepared.amend;
+    if (amend?.deferred) {
+      // Only now does the amended run stop, so its finished work can be reused.
+      await this.supersede(amend.predecessorId, runId);
+      const built = buildImportedCache(this.journal, amend.predecessorId);
+      const spent = this.journal.getRun(amend.predecessorId)?.spentTokens;
+      amend = {
+        predecessorId: amend.predecessorId,
+        runId: amend.runId,
+        ...(built.ok ? { importedCache: built.cache } : {}),
+        ...(spent ? { inheritedTokens: spent } : {}),
+      };
+    }
     this.setApproval(prepared.parentSessionId, runId, "approved");
-    this.start(prepared, compileOnce(prepared.script), prepared.amend);
+    this.start(prepared, compileOnce(prepared.script), amend);
     return { runId };
   }
 
@@ -767,12 +784,10 @@ export class HostWorkflows {
         return { ok: false, reason: "diagnostics", message: "The revised script has diagnostics; nothing was stopped or started.", diagnostics: formatDiagnostics(analyzed.analysis.diagnostics, path), ...(path ? { scriptPath: path } : {}) };
     }
     const successorId = `dwfrun-${randomUUID()}`;
-    const live = this.live.get(predecessorId);
-    if (live) {
-      live.abort.abort({ superseded: successorId });
-      await live.done;
-    }
-    const built = buildImportedCache(this.journal, predecessorId);
+    // An agent's amend waits for the user; its predecessor keeps running until then.
+    const deferred = launchedBy === "agent";
+    if (!deferred) await this.supersede(predecessorId, successorId);
+    const built = deferred ? undefined : buildImportedCache(this.journal, predecessorId);
     return this.submit(parentSessionId, {
       name: optionalString(input, "name") ?? record.name ?? "Workflow",
       ...(path && input.script === undefined ? { path } : { script }),
@@ -783,9 +798,17 @@ export class HostWorkflows {
     }, launchedBy, {
       predecessorId,
       runId: successorId,
-      ...(built.ok ? { importedCache: built.cache } : {}),
-      ...(record.spentTokens ? { inheritedTokens: record.spentTokens } : {}),
+      ...(built?.ok ? { importedCache: built.cache } : {}),
+      ...(!deferred && record.spentTokens ? { inheritedTokens: record.spentTokens } : {}),
+      ...(deferred ? { deferred } : {}),
     });
+  }
+
+  private async supersede(predecessorId: string, successorId: string): Promise<void> {
+    const live = this.live.get(predecessorId);
+    if (!live) return;
+    live.abort.abort({ superseded: successorId });
+    await live.done;
   }
 
   async resume(runId: string): Promise<{ ok: true; runId: string } | { ok: false; reason: string; message: string }> {

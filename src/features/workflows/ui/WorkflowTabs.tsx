@@ -1,13 +1,13 @@
-// Workflow views opened as workspace tabs: a run's detail (ZCode's run side
+// Workflow views opened as workspace tabs: a run's detail (the run side
 // pane: status, phases, agents with their runtimes, usage, artifacts) and a
 // subagent's read-only transcript.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { FilePaneTab, WorkflowAgentTabSource, WorkflowRunTabSource } from "../../workspace/model/layout";
 import { AgentTranscript } from "../../sessions/ui/AgentTranscript";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
-import { WorkflowRunSidePane } from "../zcode/app-shell/WorkflowRunSidePane";
-import { TooltipProvider } from "../zcode/components/ui/tooltip";
-import type { WorkflowRunSidePaneTab } from "../zcode/lib/workspaceSidePane";
+import { WorkflowRunSidePane } from "../kit/app-shell/WorkflowRunSidePane";
+import { TooltipProvider } from "../kit/components/ui/tooltip";
+import type { WorkflowRunSidePaneTab } from "../kit/lib/workspaceSidePane";
 import { watchHostSession, type HostSessionLease } from "../model/workflowSessionWatch";
 import { useWorkflowApp } from "./workflowAppContext";
 
