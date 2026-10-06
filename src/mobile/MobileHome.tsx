@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type {
   HostProject,
   HostSessionSummary,
@@ -40,6 +40,7 @@ export function MobileHome({
   now,
   unreadIds,
   loadSessions,
+  cachedSessions,
   onProject,
   onSession,
   onNewSession,
@@ -61,6 +62,7 @@ export function MobileHome({
   now: number;
   unreadIds: ReadonlySet<string>;
   loadSessions: (projectId: string) => Promise<HostSessionSummary[]>;
+  cachedSessions?: (projectId: string) => HostSessionSummary[] | undefined;
   onProject: (project: HostProject) => void;
   onSession: (id: string, project: HostProject) => void;
   onNewSession: () => void;
@@ -73,7 +75,14 @@ export function MobileHome({
   refreshKey?: number;
 }) {
   const { language, t } = useTranslation();
-  const [histories, setHistories] = useState<Record<string, History>>({});
+  const owners = project ? [project] : projects;
+  const idsKey = JSON.stringify(owners.map((item) => item.id));
+  const [histories, setHistories] = useState<Record<string, History>>(() =>
+    Object.fromEntries(owners.flatMap((item) => {
+      const sessions = cachedSessions?.(item.id);
+      return sessions ? [[item.id, { sessions, failed: false }]] : [];
+    })),
+  );
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [retry, setRetry] = useState(0);
   const hold = useRef<{ pointerId: number; x: number; y: number; timer: ReturnType<typeof setTimeout>; moved: boolean; opened: boolean } | undefined>(undefined);
@@ -86,8 +95,20 @@ export function MobileHome({
     cancelHold();
     return cancelHold;
   }, [inactive, foreground, project?.id, query]);
-  const owners = project ? [project] : projects;
-  const idsKey = JSON.stringify(owners.map((item) => item.id));
+  // Projects can arrive after mount or change when navigating within Home.
+  // Fill only missing histories before paint; live results always take priority.
+  useLayoutEffect(() => {
+    const ids: string[] = JSON.parse(idsKey);
+    setHistories((current) => {
+      let next = current;
+      for (const id of ids) {
+        if (current[id]?.sessions) continue;
+        const sessions = cachedSessions?.(id);
+        if (sessions) next = { ...next, [id]: { sessions, failed: current[id]?.failed ?? false } };
+      }
+      return next;
+    });
+  }, [idsKey, cachedSessions]);
 
   useEffect(() => {
     if (!foreground) return;
@@ -139,6 +160,7 @@ export function MobileHome({
   const pins = ordered.filter((item) => item.pinned);
   const recent = ordered.filter((item) => !item.pinned);
   const loading = owners.some((item) => !histories[item.id]);
+  const projectsLoading = loading && !owners.some((item) => histories[item.id]?.sessions);
   const failed = owners.filter((item) => histories[item.id]?.failed);
   const row = (item: HostSessionSummary) => {
     const owner = ownerById.get(item.projectId)!;
@@ -256,7 +278,12 @@ export function MobileHome({
         {!project && !needle && (
           <section className="mobile-home-projects" aria-label={t("Projects")}>
             <h2>{t("Projects")}</h2>
-            <MobileListPreview>{orderedProjects.map((item) => (
+            {projectsLoading ? (
+              <div className="mobile-loading" role="status">
+                <LoaderCircle size={17} className="mobile-spin" />
+                {t("Loading conversations…")}
+              </div>
+            ) : <MobileListPreview>{orderedProjects.map((item) => (
               <button
                 type="button"
                 className="mobile-home-project"
@@ -269,7 +296,7 @@ export function MobileHome({
                   <strong>{item.name}</strong>
                 </span>
               </button>
-            ))}</MobileListPreview>
+            ))}</MobileListPreview>}
             <button
               type="button"
               className="mobile-home-project mobile-home-add"

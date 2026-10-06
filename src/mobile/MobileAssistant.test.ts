@@ -153,6 +153,82 @@ async function mount() {
   await flush();
   return { ...data, ref, close };
 }
+it("expands activity inside the center capsule and retains it through closing and rapid restart", async () => {
+  const data = await mount();
+  const capsule = node.querySelector(".mobile-assistant-header > .mobile-header-title")!;
+  const fold = () => capsule.querySelector<HTMLElement>(".mobile-assistant-activity-collapse");
+  expect(fold()).toBeNull();
+  data.update({
+    lifecycle: "running",
+    activity: { action: "sessions.get", sessionTitle: "pi · ncmcli", at: 1 },
+  });
+  await act(async () => vi.advanceTimersByTime(2000));
+  await flush();
+  expect(fold()?.dataset.foldState).toBe("opening");
+  expect(fold()?.textContent).toBe("Reading pi · ncmcli…");
+  expect(fold()?.inert).toBe(false);
+  expect(node.querySelector(".assistant-messages .assistant-working")).toBeNull();
+  data.messages([{
+    kind: "assistant", id: "reply", revision: 1, createdAt: 1,
+    text: "A streaming reply", streaming: true,
+  }]);
+  await act(async () => vi.advanceTimersByTime(350));
+  await flush();
+  expect(fold()?.dataset.foldState).toBe("open");
+  expect(fold()?.textContent).toBe("Reading pi · ncmcli…");
+
+  data.update({ lifecycle: "idle", activity: undefined });
+  await act(async () => vi.advanceTimersByTime(250));
+  await flush();
+  expect(fold()?.dataset.foldState).toBe("closing");
+  expect(fold()?.textContent).toBe("Reading pi · ncmcli…");
+  expect(fold()?.inert).toBe(true);
+  expect(fold()?.getAttribute("aria-hidden")).toBe("true");
+  act(() => vi.advanceTimersByTime(150));
+
+  // A new send can restart activity before the closing animation finishes.
+  data.update({ lifecycle: "running", activity: { action: "files.read", at: 2 } });
+  type(node.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message assistant"]')!, "Continue");
+  act(() => button("Send").click());
+  await flush();
+  expect(fold()?.dataset.foldState).toBe("opening");
+  expect(fold()?.textContent).toBe("Going through the files…");
+  expect(fold()?.inert).toBe(false);
+  act(() => vi.advanceTimersByTime(200));
+  expect(fold()?.dataset.foldState).toBe("opening");
+  act(() => vi.advanceTimersByTime(150));
+  expect(fold()?.dataset.foldState).toBe("open");
+
+  data.update({ lifecycle: "idle", activity: undefined });
+  await act(async () => vi.advanceTimersByTime(2000));
+  await flush();
+  expect(fold()?.dataset.foldState).toBe("closing");
+  act(() => vi.advanceTimersByTime(350));
+  expect(fold()).toBeNull();
+  expect(capsule.querySelector("strong")?.textContent).toBe("Assistant");
+});
+
+it("localizes capsule activity and respects reduced motion", async () => {
+  vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+    matches: query === "(prefers-reduced-motion: reduce)",
+  }) as MediaQueryList);
+  setUiLanguage("zh-CN");
+  const data = await mount();
+  data.update({
+    lifecycle: "running",
+    activity: { action: "sessions.get", sessionTitle: "pi · ncmcli", at: 1 },
+  });
+  await act(async () => vi.advanceTimersByTime(2000));
+  await flush();
+  const fold = node.querySelector<HTMLElement>(".mobile-assistant-activity-collapse");
+  expect(fold?.dataset.foldState).toBe("open");
+  expect(fold?.textContent).toBe("正在查看「pi · ncmcli」…");
+  data.update({ lifecycle: "idle", activity: undefined });
+  await act(async () => vi.advanceTimersByTime(250));
+  await flush();
+  expect(node.querySelector(".mobile-assistant-activity-collapse")).toBeNull();
+});
+
 it("opens Reply on a stationary long press, cancels scrolling holds and closes with Back", async () => {
   const data = await mount();
   data.messages([
@@ -502,7 +578,82 @@ it("does not pull a reader to the bottom on polling, and follows messages once b
   ]);
   await act(async () => vi.advanceTimersByTime(2000));
   await flush();
-  expect(log.scrollTo).toHaveBeenCalledWith({ top: 1000 });
+  expect(log.scrollTo).toHaveBeenCalledWith({ top: 700 });
+});
+
+it("keeps new bubbles below the floating header as replies grow and the viewport shrinks", async () => {
+  const observers: Array<{ targets: Element[]; resize: () => void }> = [];
+  vi.stubGlobal("ResizeObserver", class {
+    targets: Element[] = [];
+    constructor(readonly resize: () => void) { observers.push(this); }
+    observe(target: Element) { this.targets.push(target); }
+    disconnect() { this.targets = []; }
+  });
+  const data = await mount();
+  const log = node.querySelector<HTMLElement>('[role="log"]')!;
+  log.style.scrollPaddingTop = "80px";
+  let viewport = 500, bubbleTop = 450, bubbleHeight = 200;
+  Object.defineProperties(log, {
+    scrollHeight: { get: () => bubbleTop + bubbleHeight + 20 },
+    clientHeight: { get: () => viewport },
+  });
+  const getRect = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+    if (this === log) return new DOMRect(0, 0, 400, viewport);
+    if (this.parentElement === log && this.matches(".assistant-message-row"))
+      return new DOMRect(18, bubbleTop - log.scrollTop, 300, bubbleHeight);
+    return getRect.call(this);
+  });
+  log.scrollTo = vi.fn((options: ScrollToOptions) => {
+    log.scrollTop = options.top ?? 0;
+    log.dispatchEvent(new Event("scroll"));
+  });
+  const message: AssistantMessage = {
+    kind: "assistant", id: "reply", revision: 1, createdAt: 1,
+    text: "A growing reply", streaming: true,
+  };
+  data.messages([message]);
+  await act(async () => vi.advanceTimersByTime(2000));
+  await flush();
+  expect(log.scrollTop).toBe(170);
+  const resize = () => act(() => {
+    observers.filter((observer) => observer.targets.includes(log)).at(-1)!.resize();
+  });
+
+  // Character reveal can grow the bubble between polls. Automatic scrolling
+  // stops at its start rather than pushing it behind the floating capsules.
+  bubbleHeight = 900;
+  resize();
+  expect(log.scrollTop).toBe(370);
+  expect(node.querySelector(".assistant-message-row")!.getBoundingClientRect().top).toBe(80);
+  viewport = 300;
+  resize();
+  expect(log.scrollTop).toBe(370);
+
+  // Reading farther down a long reply pauses following instead of snapping
+  // the reader back to its start on the next resize or poll.
+  log.scrollTop = 500;
+  act(() => log.dispatchEvent(new Event("scroll")));
+  vi.mocked(log.scrollTo).mockClear();
+  bubbleHeight = 1100;
+  resize();
+  data.messages([{ ...message, revision: 2, text: "More of the reply" }]);
+  await act(async () => vi.advanceTimersByTime(2000));
+  await flush();
+  expect(log.scrollTo).not.toHaveBeenCalled();
+
+  log.scrollTop = 370;
+  act(() => log.dispatchEvent(new Event("scroll")));
+  bubbleTop = 1650;
+  bubbleHeight = 80;
+  data.messages([
+    { ...message, revision: 2 },
+    { ...message, id: "next", revision: 3, text: "Next reply" },
+  ]);
+  await act(async () => vi.advanceTimersByTime(2000));
+  await flush();
+  expect(log.scrollTop).toBe(1450);
+  expect(log.lastElementChild!.getBoundingClientRect().top).toBe(200);
 });
 
 it("shows only the latest compact card for a repeated session", async () => {

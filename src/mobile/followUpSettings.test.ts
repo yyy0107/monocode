@@ -115,6 +115,9 @@ async function openSettings() {
       )[1]
       .click();
   });
+  await act(async () =>
+    node.querySelector<HTMLButtonElement>('[aria-label="Message composer"]')!.click(),
+  );
 }
 function activeDialog() {
   return node.querySelector<HTMLElement>(
@@ -225,6 +228,11 @@ describe("mobile composer settings", () => {
         node.querySelector<HTMLButtonElement>("#mobile-follow-up")!.click(),
       );
       await choose(behavior === "queue" ? "Queue" : "Steer");
+      await act(async () =>
+        node.querySelector<HTMLButtonElement>('[aria-label="Back"]')!.click(),
+      );
+      expect(node.querySelector('[aria-label="Message composer"] .mobile-settings-value')?.textContent)
+        .toBe(behavior === "queue" ? "Queue" : "Steer");
       await act(async () =>
         node.querySelector<HTMLButtonElement>('[aria-label="Back"]')!.click(),
       );

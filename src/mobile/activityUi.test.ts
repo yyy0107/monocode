@@ -402,6 +402,8 @@ describe("mobile unread indicators and notification navigation", () => {
     await act(async () => {
       node.querySelector<HTMLButtonElement>(".mobile-drawer-settings")!.click();
     });
+    expect(node.querySelector('[aria-label="Notifications"] .mobile-settings-value')?.textContent).toBe("On");
+    await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Notifications"]')!.click());
     const notificationSettings = [...node.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.trim() === "Notification settings…");
     expect(notificationSettings).toBeDefined();

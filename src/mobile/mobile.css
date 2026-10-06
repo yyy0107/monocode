@@ -1065,7 +1065,12 @@ html[data-mobile-glass="solid"] :is(
 }
 .mobile-home-dock {
   position: absolute;
-  bottom: calc(var(--mobile-safe-bottom) + 16px);
+  /* Keep Home actions at the screen bottom when the keyboard shrinks the
+     WebView, so they stay covered instead of rising above the keyboard. */
+  bottom: calc(
+    var(--mobile-safe-bottom) + 16px -
+    max(0px, var(--mobile-viewport-full, 100dvh) - 100dvh)
+  );
   inset-inline: 24px;
   display: flex;
   justify-content: center;
@@ -1648,8 +1653,21 @@ html.has-user-accent .mobile-send:not(:disabled) {
 .mobile-sheet-content {
   overflow-y: auto;
   overscroll-behavior: contain;
+  min-width: 0;
   min-height: 0;
   padding: 4px;
+}
+/* Keep touch scrolling in sheets, including nested model/project lists,
+   without the desktop scrollbar or its extra horizontal/vertical gutter. */
+:is(.mobile-sheet-content, .mobile-modal),
+:is(.mobile-sheet-content, .mobile-modal) * {
+  scrollbar-width: none;
+}
+:is(.mobile-sheet-content, .mobile-modal)::-webkit-scrollbar,
+:is(.mobile-sheet-content, .mobile-modal) ::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .mobile-sheet .mobile-form {
   gap: 14px;
@@ -1908,6 +1926,7 @@ html.has-user-accent .mobile-send:not(:disabled) {
 .mobile-sheet-row > span {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .mobile-sheet-row-text {
   display: flex;
@@ -3126,17 +3145,24 @@ button.mobile-drawer-group-status {
 .mobile-settings {
   --mobile-settings-inset: 16px;
   --mobile-settings-icon: 30px;
+  --mobile-settings-gap: 18px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 36px;
+  padding-bottom: calc(36px + var(--mobile-safe-bottom));
 }
 html.theme-light .mobile-settings {
   background: color-mix(in srgb, var(--color-content) 4%, var(--color-background-base));
 }
+.mobile-settings-group {
+  flex-shrink: 0;
+  min-width: 0;
+}
 .mobile-settings-group h2 {
-  margin: 0 var(--mobile-settings-inset) 7px;
+  margin: 0 var(--mobile-settings-inset) 10px;
   font-size: 13px;
   font-weight: 400;
+  line-height: 1.5;
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
 .mobile-settings-card {
@@ -3161,19 +3187,18 @@ html.theme-light .mobile-settings {
   background: var(--mobile-card);
   border-radius: 4px;
 }
-.mobile-connection-row {
-  min-height: 86px;
-  gap: 18px;
-  padding: 16px 20px;
-  font-size: 18px;
+.mobile-settings-row.mobile-connection-row {
+  min-height: 88px;
+  padding: 18px var(--mobile-settings-inset);
+  font-size: 17px;
 }
 .mobile-connection-row > svg {
   color: var(--color-content);
 }
 .mobile-connection-row .mobile-settings-label {
-  gap: 2px;
+  gap: 6px;
 }
-.mobile-connection-row small {
+.mobile-connection-row .mobile-settings-label small {
   font-size: 14px;
   color: color-mix(in srgb, var(--color-content) 60%, transparent);
 }
@@ -3182,7 +3207,7 @@ html.theme-light .mobile-settings {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.mobile-connection-device {
+.mobile-settings-row.mobile-connection-device {
   padding-block: 0;
 }
 .mobile-connection-details {
@@ -3191,8 +3216,8 @@ html.theme-light .mobile-settings {
   align-self: stretch;
   flex: 1;
   min-width: 0;
-  gap: 18px;
-  padding: 16px 0;
+  gap: var(--mobile-settings-gap);
+  padding: 18px 0;
   border: 0;
   background: transparent;
   color: inherit;
@@ -3301,29 +3326,34 @@ html.theme-light .mobile-settings {
   content: "";
   position: absolute;
   top: 0;
-  inset-inline: calc(var(--mobile-settings-inset) + var(--mobile-settings-icon) + 14px) 0;
+  inset-inline: calc(var(--mobile-settings-inset) + var(--mobile-settings-icon) + var(--mobile-settings-gap)) 0;
   height: 1px;
   transform: scaleY(0.5);
   background: var(--mobile-separator);
   pointer-events: none;
 }
 .mobile-settings-footer {
-  margin: 7px var(--mobile-settings-inset) 0;
-  font-size: 12.5px;
-  line-height: 1.45;
+  margin: 12px var(--mobile-settings-inset) 0;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
   color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.mobile-settings-footer .mobile-form-error {
+  margin: 0 0 12px;
 }
 .mobile-settings-row {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--mobile-settings-gap);
   width: 100%;
-  min-height: 52px;
-  padding: 8px var(--mobile-settings-inset);
+  min-height: 64px;
+  padding: 14px var(--mobile-settings-inset);
   border: 0;
   background: transparent;
   color: var(--color-content);
   font-size: 15px;
+  line-height: 1.45;
   text-align: left;
 }
 button.mobile-settings-row:active {
@@ -3367,12 +3397,13 @@ button.mobile-settings-row:active {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
+  overflow-wrap: anywhere;
 }
 .mobile-settings-label small,
 .mobile-settings-row small {
-  font-size: 12.5px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.6;
   color: color-mix(in srgb, var(--color-content) 45%, transparent);
   overflow-wrap: anywhere;
 }
@@ -3388,9 +3419,11 @@ button.mobile-settings-row:active {
 }
 .mobile-settings-row .mobile-select-trigger {
   width: auto;
-  max-width: 50%;
+  max-width: 42%;
+  min-width: 0;
   min-height: 36px;
-  padding: 6px 0 6px 10px;
+  gap: 8px;
+  padding: 6px 0;
   border: 0;
   background: transparent;
   font-size: 15px;
@@ -3398,16 +3431,38 @@ button.mobile-settings-row:active {
 }
 .mobile-settings-notifications label {
   display: grid;
-  grid-template-columns: 1fr auto;
-  column-gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 16px;
   align-items: center;
 }
 .mobile-settings-notifications label > small {
   grid-row: 2;
+  grid-column: 1 / -1;
 }
 .mobile-settings-notifications label > input {
-  grid-row: 1 / 3;
+  grid-row: 1;
   grid-column: 2;
+}
+/* Give account labels and long values their own lines on phone widths. */
+@media (max-width: 420px) {
+  .mobile-settings-row-stacked {
+    display: grid;
+    grid-template-columns: var(--mobile-settings-icon) minmax(0, 1fr);
+    row-gap: 4px;
+  }
+  .mobile-settings-row-stacked > .mobile-settings-icon {
+    grid-row: 1 / 3;
+  }
+  .mobile-settings-row-stacked > .mobile-settings-label,
+  .mobile-settings-row-stacked > .mobile-select-trigger {
+    grid-column: 2;
+  }
+  .mobile-settings-row-stacked > .mobile-select-trigger {
+    width: 100%;
+    max-width: 100%;
+    min-height: 32px;
+    padding: 4px 0;
+  }
 }
 .mobile-app input.mobile-switch {
   appearance: none;
@@ -3469,10 +3524,10 @@ button.mobile-settings-row:active {
 }
 .mobile-settings-slider {
   align-items: flex-start;
-  padding-block: 12px 8px;
+  padding-block: 16px 12px;
 }
 .mobile-settings-slider .mobile-settings-label {
-  gap: 4px;
+  gap: 8px;
   padding-top: 5px;
 }
 .mobile-settings-slider-heading {

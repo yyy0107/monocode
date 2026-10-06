@@ -9,7 +9,14 @@
   overflow: hidden;
 }
 .assistant-workspace .assistant-chat {
+  --assistant-header-height: 112px;
   font-size: 15px;
+}
+.assistant-workspace .assistant-heading {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  pointer-events: none;
 }
 .assistant-workspace .assistant-header {
   display: grid;
@@ -17,6 +24,10 @@
   min-height: 112px;
   padding: 16px 24px;
   border-bottom: 0;
+  background: transparent;
+}
+.assistant-workspace :is(.assistant-header-profile, .assistant-header-actions) {
+  pointer-events: auto;
 }
 .assistant-header-profile,
 .assistant-header-actions {
@@ -51,8 +62,29 @@
   gap: 4px;
 }
 .assistant-workspace .assistant-messages {
-  padding: 20px max(24px, calc((100% - 920px) / 2));
+  padding: calc(var(--assistant-header-height) + 20px)
+    max(24px, calc((100% - 920px) / 2)) 20px;
+  scroll-padding-top: calc(var(--assistant-header-height) + 20px);
   scrollbar-gutter: stable both-edges;
+}
+/* Auxiliary panels stay below the floating header. */
+.assistant-workspace .assistant-chat:has(
+  > .assistant-error,
+  > .assistant-details .assistant-worker,
+  .assistant-notices
+) .assistant-heading {
+  position: relative;
+}
+.assistant-workspace .assistant-chat:has(
+  > .assistant-error,
+  > .assistant-details .assistant-worker,
+  .assistant-notices
+) .assistant-messages {
+  padding-top: 20px;
+  scroll-padding-top: 20px;
+}
+.assistant-workspace .assistant-chat > .assistant-availability {
+  padding-top: calc(var(--assistant-header-height) + 24px);
 }
 .assistant-workspace .assistant-compose-dock {
   width: 100%;
@@ -108,6 +140,9 @@
   align-self: center;
 }
 @container (max-width: 560px) {
+  .assistant-workspace .assistant-chat {
+    --assistant-header-height: 88px;
+  }
   .assistant-workspace .assistant-header {
     display: flex;
     min-height: 88px;
@@ -614,6 +649,8 @@
   color: #d75555;
 }
 .assistant-chat[data-layout="desktop"] .assistant-card {
+  width: 88%;
+  min-width: 0;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px 10px;

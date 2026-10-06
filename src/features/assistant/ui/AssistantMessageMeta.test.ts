@@ -86,8 +86,8 @@ async function mount(mobile: boolean) {
     ),
   );
   await flush();
-  return () => {
-    messages = messages.map((m) =>
+  return (next?: AssistantMessage[]) => {
+    messages = next ?? messages.map((m) =>
       m.id === "user" ? { ...m, readAt: sentAt + 6000, revision: 3 } : m,
     );
   };
@@ -131,6 +131,53 @@ it.each([false, true])(
     expect(node.querySelectorAll(".assistant-message-row-user")).toHaveLength(
       1,
     );
+  },
+);
+it.each([false, true])(
+  "shows receipts only on the latest user message, including after replies and receipt updates (mobile=%s)",
+  async (mobile) => {
+    const update = await mount(mobile);
+    const older = node.querySelector(".assistant-message-row-user")!;
+    const latest: AssistantMessage = {
+      id: "latest-user",
+      kind: "user",
+      revision: 3,
+      createdAt: sentAt + 10000,
+      text: "My next message",
+      readAt: null,
+    };
+    update([
+      {
+        id: "user", kind: "user", revision: 4, createdAt: sentAt,
+        text: "My draft", readAt: sentAt + 6000,
+      },
+      latest,
+      {
+        id: "next-reply", kind: "assistant", revision: 5,
+        createdAt: sentAt + 15000, text: "Next answer",
+      },
+    ]);
+    await act(async () => vi.advanceTimersByTime(2000));
+    await flush();
+    const newest = node.querySelectorAll(".assistant-message-row-user")[1];
+    expect(older.querySelector(".assistant-read-state")).toBeNull();
+    expect(older.querySelector("time")?.dateTime).toBe(new Date(sentAt).toISOString());
+    expect(older.querySelector('button[aria-label="Copy message"]')).not.toBeNull();
+    expect(newest.querySelector(".assistant-read-state")?.textContent).toBe("Unread");
+    expect(node.querySelectorAll(".assistant-read-state")).toHaveLength(1);
+
+    update([{ ...latest, revision: 6, readAt: sentAt + 16000 }]);
+    await act(async () => vi.advanceTimersByTime(2000));
+    await flush();
+    expect(newest.querySelector(".assistant-read-state")?.textContent).toBe("Read");
+    expect(node.querySelectorAll(".assistant-read-state")).toHaveLength(1);
+
+    // Older Hosts may omit receipts on the latest message; an older receipt
+    // must stay hidden rather than becoming the displayed status again.
+    update([{ ...latest, revision: 7, readAt: undefined }]);
+    await act(async () => vi.advanceTimersByTime(2000));
+    await flush();
+    expect(node.querySelector(".assistant-read-state")).toBeNull();
   },
 );
 it("uses the native mobile clipboard and localizes receipt labels", async () => {

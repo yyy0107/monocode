@@ -21,9 +21,6 @@
   font-size: 16px;
   padding-inline: var(--mobile-safe-left) var(--mobile-safe-right);
 }
-.assistant-chat[data-layout="mobile"] .assistant-heading {
-  min-height: calc(var(--mobile-header-height) + var(--mobile-safe-top));
-}
 .assistant-chat[data-layout="mobile"] .assistant-availability {
   flex: 1;
   display: grid;
@@ -32,6 +29,34 @@
   font-size: 14px;
   text-align: center;
   opacity: 0.65;
+}
+.mobile-header.mobile-assistant-header[data-floating="true"]
+  > .mobile-header-title[data-capsule="true"] {
+  display: block;
+  padding: 0;
+  border-radius: 24px;
+}
+.mobile-assistant-profile {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 6px 16px;
+}
+.mobile-assistant-activity {
+  padding: 8px 14px 12px;
+  border-top: 1px solid var(--mobile-separator);
+}
+.mobile-assistant-activity-label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: start;
 }
 .mobile-assistant-header .mobile-assistant-identity {
   display: flex;
@@ -90,10 +115,31 @@
 }
 .assistant-chat[data-layout="mobile"] .assistant-messages {
   min-height: 0;
-  padding: 12px 18px 20px;
+  padding: calc(var(--mobile-header-height) + var(--mobile-safe-top) + 12px)
+    18px 20px;
+  scroll-padding-top: calc(
+    var(--mobile-header-height) + var(--mobile-safe-top) + 12px
+  );
   gap: 12px;
+  overflow-anchor: none;
   overscroll-behavior-y: contain;
   scrollbar-width: none;
+}
+/* Auxiliary panels keep their space below the floating controls. */
+.assistant-chat[data-layout="mobile"]:has(
+  > .assistant-error,
+  > .assistant-details .assistant-worker,
+  .mobile-assistant-notices
+) .assistant-heading {
+  min-height: calc(var(--mobile-header-height) + var(--mobile-safe-top));
+}
+.assistant-chat[data-layout="mobile"]:has(
+  > .assistant-error,
+  > .assistant-details .assistant-worker,
+  .mobile-assistant-notices
+) .assistant-messages {
+  padding-top: 12px;
+  scroll-padding-top: 12px;
 }
 .assistant-chat[data-layout="mobile"] .assistant-message {
   max-width: 88%;
@@ -137,6 +183,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   overflow-wrap: anywhere;
 }
 .assistant-chat[data-layout="mobile"] .assistant-card {
+  width: 88%;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   padding: 10px 12px;
@@ -638,6 +685,9 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   min-height: 44px;
 }
 @media (prefers-reduced-motion: reduce) {
+  .mobile-assistant-activity-label {
+    animation: none;
+  }
   .mobile-assistant-overlay,
   .mobile-assistant-compose-dock,
   .assistant-chat[data-layout="mobile"]

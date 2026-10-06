@@ -1,6 +1,6 @@
 import type { AssistantMessage, SessionReference } from "../model/assistant";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
-import { ChevronRight, Folder } from "../../../shared/ui/icons";
+import { ChevronRight, Folder, LoaderCircle } from "../../../shared/ui/icons";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import { HARNESS_TITLE, sessionDisplayTitle } from "../../sessions/model/session";
 export function AssistantSessionCard({
@@ -60,8 +60,17 @@ export function AssistantSessionCard({
             </>}
           </span>
         </div>
-        <span role="status" className="assistant-pill">
-          {t(labels[message.status])}
+        <span
+          role="status"
+          className="assistant-pill"
+          aria-label={message.status === "running" ? t(labels.running) : undefined}
+        >
+          {message.status === "running" ? (
+            <LoaderCircle
+              className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+          ) : t(labels[message.status])}
         </span>
       </div>
       {message.error && <p>{message.error}</p>}

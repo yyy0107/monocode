@@ -53,6 +53,38 @@ import { Shimmer } from "../../../shared/ui/Shimmer";
 import { Sparkles, X } from "../../../shared/ui/icons";
 import "./assistant.css";
 
+function followScrollTop(element: HTMLElement, mobile: boolean) {
+  if (!mobile) return element.scrollHeight;
+  const bottom = Math.max(0, element.scrollHeight - element.clientHeight);
+  let latest = element.lastElementChild;
+  if (latest?.matches(".assistant-working"))
+    latest = latest.previousElementSibling;
+  if (!latest?.matches(".assistant-message-row, .assistant-card, .assistant-input"))
+    return bottom;
+  const rect = latest.getBoundingClientRect();
+  if (!rect.height) return bottom;
+  const inset = Number.parseFloat(getComputedStyle(element).scrollPaddingTop) || 0;
+  // Numeric scrollTo ignores scroll-padding. Keep the latest bubble's start
+  // below the floating header even when a reply grows beyond the viewport.
+  const latestTop =
+    rect.top - element.getBoundingClientRect().top + element.scrollTop;
+  return Math.max(0, Math.min(bottom, latestTop - inset));
+}
+
+function syncHeaderHeight(chat: HTMLElement | null, mobile: boolean) {
+  const header = chat?.querySelector<HTMLElement>(mobile
+    ? ".mobile-assistant-header > .mobile-header-title"
+    : ".assistant-header");
+  if (!chat || !header) return;
+  const height = header.getBoundingClientRect().height;
+  if (!height) return;
+  // Leave the same gap above and below the capsule as it expands downward.
+  const next = `${Math.ceil(height + (mobile ? header.offsetTop * 2 : 0))}px`;
+  const property = mobile ? "--mobile-header-height" : "--assistant-header-height";
+  if (chat.style.getPropertyValue(property) !== next)
+    chat.style.setProperty(property, next);
+}
+
 export function AssistantChat({
   hostKey,
   rpc,
@@ -87,6 +119,13 @@ export function AssistantChat({
   const visibleMessages = useMemo(
     () => chrome ? compactAssistantTimeline(messages) : messages,
     [messages, chrome],
+  );
+  const latestUserMessageId = useMemo(
+    () => visibleMessages.reduce<string | undefined>(
+      (latest, message) => message.kind === "user" ? message.id : latest,
+      undefined,
+    ),
+    [visibleMessages],
   );
   const replies = useMemo(
     () =>
@@ -245,20 +284,28 @@ export function AssistantChat({
     }
   }, [hostKey, draft]);
   useLayoutEffect(() => {
-    if (followLog.current)
-      log.current?.scrollTo?.({ top: log.current.scrollHeight });
-  }, [messages]);
+    syncHeaderHeight(chat.current, !!chrome);
+    const element = log.current;
+    if (followLog.current && element)
+      element.scrollTo?.({ top: followScrollTop(element, !!chrome) });
+  }, [messages, chrome]);
   useEffect(() => {
     const element = log.current;
     if (!element || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      if (followLog.current) element.scrollTo?.({ top: element.scrollHeight });
+      syncHeaderHeight(chat.current, !!chrome);
+      if (followLog.current)
+        element.scrollTo?.({ top: followScrollTop(element, !!chrome) });
     });
     observer.observe(element);
     // Markdown grows between RPC updates while characters are being revealed.
     for (const child of element.children) observer.observe(child);
+    const header = chat.current?.querySelector(chrome
+      ? ".mobile-assistant-header > .mobile-header-title"
+      : ".assistant-header");
+    if (header) observer.observe(header);
     return () => observer.disconnect();
-  }, [!!assistant, messages]);
+  }, [!!assistant, messages, chrome]);
   const operation = async (action: () => Promise<unknown>) => {
     setBusy(true);
     setError(undefined);
@@ -458,6 +505,7 @@ export function AssistantChat({
                 : t(assistant === null ? "Set up assistant" : "Connecting…")
             }
             lifecycle={assistant?.lifecycle}
+            activity={assistant?.lifecycle === "running" ? workingLabel : undefined}
             settingsOpen={settingsOpen}
             busy={busy}
             onSettings={assistant ? openSettings : undefined}
@@ -566,11 +614,14 @@ export function AssistantChat({
                     replyMenu.cancelHold();
                     const element = log.current;
                     if (element)
-                      followLog.current =
-                        element.scrollHeight -
-                          element.scrollTop -
-                          element.clientHeight <
-                        60;
+                      followLog.current = mobile
+                        ? Math.abs(
+                            element.scrollTop - followScrollTop(element, true),
+                          ) < 60
+                        : element.scrollHeight -
+                            element.scrollTop -
+                            element.clientHeight <
+                          60;
                   }}
                 >
                   {!messages.length && (
@@ -687,6 +738,7 @@ export function AssistantChat({
                               createdAt={message.createdAt}
                               read={
                                 message.kind === "user" &&
+                                message.id === latestUserMessageId &&
                                 message.readAt !== undefined
                                   ? message.readAt !== null
                                   : undefined
@@ -697,7 +749,7 @@ export function AssistantChat({
                       )}
                     </Fragment>
                   ))}
-                  {assistant.lifecycle === "running" &&
+                  {!mobile && assistant.lifecycle === "running" &&
                     !messages.some(
                       (message) =>
                         message.kind === "assistant" && message.streaming,

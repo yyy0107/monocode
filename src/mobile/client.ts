@@ -35,6 +35,12 @@ import {
 import type { MobileStorage } from "./storage";
 import { translate } from "../shared/i18n/language";
 import type { NativeSessionAccess } from "../integrations/harness/core/nativeSessions";
+import {
+  readSessionCache,
+  removeSessionCache,
+  saveSessionCache,
+  SESSION_CACHE_PROJECT_LIMIT,
+} from "./sessionCache";
 
 export type Connection = {
   endpoint: string;
@@ -197,25 +203,63 @@ export class MobileClient {
   private previewLoads = new Map<string, Promise<HostSession | undefined>>();
   private catalogs = new Map<string, { value: HostModelCatalog; expires: number }>();
   private modelLoads = new Map<string, Promise<HostModelCatalog>>();
+  private summaries = new Map<string, HostSessionSummary[]>();
+  private summariesEnvironmentId?: string;
+  private summaryTurns = new Map<string, number>();
+  private summaryWrite?: {
+    timer: ReturnType<typeof setTimeout>;
+    environmentId: string;
+    epoch: number;
+    removeListeners: () => void;
+  };
   private cacheEpoch = 0;
   private clearCaches() {
+    this.cancelSummaryWrite();
     this.cacheEpoch += 1;
     this.snapshots.clear();
     this.sessionLoads.clear();
     this.previewLoads.clear();
     this.catalogs.clear();
     this.modelLoads.clear();
+    this.summaries.clear();
+    this.summariesEnvironmentId = undefined;
+    this.summaryTurns.clear();
   }
   private rememberSession(value: HostSession): HostSession {
     this.snapshots.delete(value.session.id);
     this.snapshots.set(value.session.id, value);
     if (this.snapshots.size > 8)
       this.snapshots.delete(this.snapshots.keys().next().value!);
+    const sessions = this.cachedSessions(value.projectId) ?? [];
+    const previous = sessions.find((item) => item.id === value.session.id);
+    if (!previous || previous.revision < value.revision ||
+      (previous.revision === value.revision && previous.updatedAt < value.updatedAt)) {
+      const lastUserMessage = [...value.session.blocks].reverse().find(
+        (block) => block.role === "user" && !block.draft && !block.internal,
+      );
+      const sentAt = lastUserMessage?.sentAt ?? lastUserMessage?.startedAt;
+      const item: HostSessionSummary = {
+        ...previous,
+        id: value.session.id, projectId: value.projectId,
+        title: value.session.title,
+        harness: value.session.harness as HostSessionSummary["harness"],
+        status: value.status, revision: value.revision, updatedAt: value.updatedAt,
+        pinned: value.pinned, archived: value.archived,
+        lastUserMessageAt: sentAt !== undefined && Number.isFinite(sentAt) && sentAt > 0 ? sentAt : null,
+      };
+      this.rememberSummaries(value.projectId, previous
+        ? sessions.map((session) => session.id === item.id ? item : session)
+        : [...sessions, item]);
+    }
     return value;
   }
   cachedSession(sessionId: string): HostSession | undefined {
     const value = this.snapshots.get(sessionId);
-    return value ? this.rememberSession(value) : undefined;
+    if (value) {
+      this.snapshots.delete(sessionId);
+      this.snapshots.set(sessionId, value);
+    }
+    return value;
   }
   private dispatching = false;
   constructor(
@@ -228,6 +272,7 @@ export class MobileClient {
     if (!saved) return false;
     const connection = JSON.parse(saved) as Connection;
     this.connection = connection;
+    this.clearCaches();
     if (connection.disabled) {
       this.setConnectionStatus({ state: "disconnected" });
       return false;
@@ -291,6 +336,7 @@ export class MobileClient {
       if (host.environmentId !== connection.environmentId) {
         changedIdentity = true;
         this.clearCaches();
+        removeSessionCache();
         const error = new Error(
           "Host identity changed. Connect to this machine again explicitly.",
         );
@@ -339,6 +385,7 @@ export class MobileClient {
     this.connection = undefined;
     this.setConnectionStatus({ state: "disconnected" });
     this.clearCaches();
+    removeSessionCache();
   }
   private async requestWith<T>(
     connection: Pick<Connection, "endpoint" | "token"> & Partial<Connection>,
@@ -393,25 +440,126 @@ export class MobileClient {
   openProject(cwd: string) {
     return this.rpc<HostProject>("projects.open", { cwd: cwd.trim() });
   }
-  sessions(projectId: string) {
-    return this.rpc<HostSessionSummary[]>("sessions.list", { projectId });
+  /** Last known list, including a bounded preview restored for this Host. */
+  cachedSessions(projectId: string): HostSessionSummary[] | undefined {
+    const connection = this.connection;
+    if (!connection || connection.disabled || this.connectionStatus.reason === "identity") return undefined;
+    if (this.summariesEnvironmentId !== connection.environmentId) {
+      this.summaries = readSessionCache(connection.environmentId);
+      this.summariesEnvironmentId = connection.environmentId;
+    }
+    const value = this.summaries.get(projectId);
+    if (value) {
+      this.summaries.delete(projectId);
+      this.summaries.set(projectId, value);
+    }
+    return value;
+  }
+  private nextSummaryTurn(projectId: string): number {
+    const turn = (this.summaryTurns.get(projectId) ?? 0) + 1;
+    this.summaryTurns.set(projectId, turn);
+    return turn;
+  }
+  private cancelSummaryWrite() {
+    const pending = this.summaryWrite;
+    if (!pending) return;
+    this.summaryWrite = undefined;
+    clearTimeout(pending.timer);
+    pending.removeListeners();
+  }
+  private flushSummaryWrite = () => {
+    const pending = this.summaryWrite;
+    if (!pending) return;
+    this.cancelSummaryWrite();
+    if (pending.epoch !== this.cacheEpoch ||
+      pending.environmentId !== this.connection?.environmentId ||
+      pending.environmentId !== this.summariesEnvironmentId ||
+      this.connection.disabled || this.connectionStatus.reason === "identity") return;
+    saveSessionCache(pending.environmentId, this.summaries);
+  };
+  private scheduleSummaryWrite() {
+    if (this.summaryWrite || !this.summariesEnvironmentId) return;
+    const page = typeof document === "undefined" ? undefined : document;
+    const browser = typeof window === "undefined" ? undefined : window;
+    const onVisibility = () => {
+      if (page?.visibilityState === "hidden") this.flushSummaryWrite();
+    };
+    // Only a pending write owns listeners, including across reconnects.
+    this.summaryWrite = {
+      timer: setTimeout(this.flushSummaryWrite, 1_000),
+      environmentId: this.summariesEnvironmentId,
+      epoch: this.cacheEpoch,
+      removeListeners: () => {
+        page?.removeEventListener("visibilitychange", onVisibility);
+        browser?.removeEventListener("pagehide", this.flushSummaryWrite);
+      },
+    };
+    page?.addEventListener("visibilitychange", onVisibility);
+    browser?.addEventListener("pagehide", this.flushSummaryWrite);
+  }
+  private rememberSummaries(projectId: string, sessions: HostSessionSummary[]) {
+    this.cachedSessions(projectId);
+    this.summaries.delete(projectId);
+    this.summaries.set(projectId, sessions);
+    if (this.summaries.size > SESSION_CACHE_PROJECT_LIMIT)
+      this.summaries.delete(this.summaries.keys().next().value!);
+    this.scheduleSummaryWrite();
+  }
+  async sessions(projectId: string) {
+    const epoch = this.cacheEpoch;
+    const environmentId = this.connection?.environmentId;
+    const turn = this.nextSummaryTurn(projectId);
+    const known = this.cachedSessions(projectId);
+    const knownById = new Map(known?.map((item) => [item.id, item]));
+    const value = await this.rpc<HostSessionSummary[]>("sessions.list", { projectId });
+    if (epoch !== this.cacheEpoch || environmentId !== this.connection?.environmentId)
+      throw new Error(translate("Host connection changed."));
+    // A newer list or metadata mutation may settle before this request.
+    if (this.summaryTurns.get(projectId) !== turn)
+      return this.cachedSessions(projectId) ?? value;
+    // Sync can discover a new conversation while the full list is in flight.
+    // Keep those newer rows without losing the rest of the project's history.
+    const merged = new Map(value.map((item) => [item.id, item]));
+    for (const item of this.cachedSessions(projectId) ?? []) {
+      const listed = merged.get(item.id);
+      if (knownById.get(item.id) !== item && (!listed || listed.revision < item.revision))
+        merged.set(item.id, item);
+    }
+    const sessions = [...merged.values()];
+    this.rememberSummaries(projectId, sessions);
+    return sessions;
   }
   activity() {
     return this.rpc<HostSessionActivity>("sessions.activity");
   }
-  updateSession(
+  async updateSession(
     projectId: string,
     sessionId: string,
     patch: MobileSessionPatch,
   ) {
-    return this.rpc<HostSessionSummary>("sessions.update", {
+    const epoch = this.cacheEpoch;
+    const summary = await this.rpc<HostSessionSummary>("sessions.update", {
       projectId,
       sessionId,
       ...patch,
     });
+    if (epoch !== this.cacheEpoch) throw new Error(translate("Host connection changed."));
+    const sessions = this.cachedSessions(projectId);
+    const current = sessions?.find((item) => item.id === sessionId);
+    const latest = current && current.revision > summary.revision ? current : summary;
+    this.nextSummaryTurn(projectId);
+    if (sessions) this.rememberSummaries(projectId, [
+      ...sessions.filter((item) => item.id !== sessionId), latest,
+    ]);
+    return latest;
   }
   async deleteSession(projectId: string, sessionId: string): Promise<void> {
+    const epoch = this.cacheEpoch;
     await this.rpc("sessions.delete", { projectId, sessionId });
+    if (epoch !== this.cacheEpoch) throw new Error(translate("Host connection changed."));
+    const sessions = this.cachedSessions(projectId);
+    this.nextSummaryTurn(projectId);
+    if (sessions) this.rememberSummaries(projectId, sessions.filter((item) => item.id !== sessionId));
     this.snapshots.delete(sessionId);
     this.sessionLoads.delete(sessionId);
     this.previewLoads.delete(sessionId);

@@ -79,6 +79,7 @@ import { MobileHeaderSearch } from "./MobileHeaderSearch";
 import {
   MobileSettings,
   mobileSettingsTitle,
+  mobileSettingsParent,
   type MobilePreferencePanel,
   type MobileSettingsPage,
 } from "./MobileSettings";
@@ -620,7 +621,7 @@ export function MobileApp() {
     const turn = ++navigation.current;
     const projectTurn = ++projectGeneration.current;
     setProject(item);
-    setSessions([]);
+    setSessions(client.cachedSessions?.(item.id) ?? []);
     const defaults = loadMobileAgentDefaults(client.connection?.environmentId);
     draftDefaults.current = defaults;
     draftConfigurationChanged.current = false;
@@ -1024,6 +1025,10 @@ export function MobileApp() {
       setBusy(false);
     }
   };
+  const changeSettingsPage = useStableCallback((next: MobileSettingsPage) => {
+    setPreferencePanel(null);
+    setSettingsPage(next);
+  });
   const navigate = (next: View) => {
     setHomeMenuOpen(false);
     if (next === "settings" && view !== "settings") settingsReturnView.current = view;
@@ -1155,7 +1160,7 @@ export function MobileApp() {
       else if (homeMenuOpen) setHomeMenuOpen(false);
       else if (view === "home" && searchOpen) setSearchOpen(false);
       else if (view === "settings" && settingsPage !== "root")
-        setSettingsPage("root");
+        changeSettingsPage(mobileSettingsParent(settingsPage));
       else if (view === "settings" && connected) navigate(settingsReturnView.current);
       else if (view === "chat") openHome(project);
       else if (view === "home" && homeProjectId) openHome();
@@ -1176,6 +1181,7 @@ export function MobileApp() {
     sessionStatusOpen,
     drawerOpen,
     settingsPage,
+    changeSettingsPage,
     busy,
     homeProjectId,
     searchOpen,
@@ -1227,6 +1233,9 @@ export function MobileApp() {
   });
   const onDrawerLoadSessions = useStableCallback((projectId: string) =>
     client.sessions(projectId),
+  );
+  const onCachedSessions = useStableCallback((projectId: string) =>
+    client.cachedSessions?.(projectId),
   );
   // A conversation in another project opens that project with it, like a
   // restored location: history loads for the drawer while the chat opens.
@@ -1322,7 +1331,7 @@ export function MobileApp() {
             label="Back"
             onClick={() =>
               settingsPage !== "root"
-                ? setSettingsPage("root")
+                ? changeSettingsPage(mobileSettingsParent(settingsPage))
                 : navigate(settingsReturnView.current)
             }
           >
@@ -1483,7 +1492,7 @@ export function MobileApp() {
       {view === "settings" ? (
         <MobileSettings
           page={settingsPage}
-          onPageChange={setSettingsPage}
+          onPageChange={changeSettingsPage}
           connection={
             client.connection
               ? {
@@ -1578,6 +1587,7 @@ export function MobileApp() {
           now={now}
           unreadIds={activity.unreadIds}
           loadSessions={onDrawerLoadSessions}
+          cachedSessions={onCachedSessions}
           onProject={onDrawerProject}
           onSession={(id, owner) => {
             void openProject(owner);
@@ -1741,6 +1751,7 @@ export function MobileApp() {
 
       {connected && view !== "settings" && (
         <MobileDrawer
+          key={`drawer:${client.connection?.environmentId}`}
           assistantName={assistantIdentity && assistantIdentity.hostId === assistantHostId ? assistantIdentity.name : undefined}
           onAssistant={() => { setDrawerOpen(false); setAssistantOpen(true); }}
           open={drawerOpen}
@@ -1748,7 +1759,7 @@ export function MobileApp() {
           onOpenChange={onDrawerOpenChange}
           projects={projects}
           project={project}
-          sessions={sessions}
+          sessions={(project && client.cachedSessions?.(project.id)) ?? sessions}
           sessionId={sessionId}
           loading={historyLoading}
           unreadIds={activity.unreadIds}
@@ -1757,6 +1768,7 @@ export function MobileApp() {
           hostStatus={hostStatus}
           projectTrigger={projectTrigger}
           loadSessions={onDrawerLoadSessions}
+          cachedSessions={onCachedSessions}
           onAddProject={onDrawerAddProject}
           onHome={onDrawerHome}
           onAllProjects={onDrawerAllProjects}

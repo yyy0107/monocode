@@ -3,9 +3,23 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileApp } from "./MobileApp";
+import { Capacitor } from "@capacitor/core";
 import { setUiLanguage, UI_LANGUAGE_KEY } from "../shared/i18n/language";
 import { ensureRandomUUID } from "./browserCrypto";
 import { LIQUID_GLASS_SELECTOR } from "./liquidGlass";
+
+const nativeBack = vi.hoisted(() => ({
+  listener: undefined as (() => void) | undefined,
+}));
+vi.mock("@capacitor/app", () => ({
+  App: {
+    addListener: async (event: string, listener: () => void) => {
+      if (event === "backButton") nativeBack.listener = listener;
+      return { remove: async () => {} };
+    },
+    exitApp: vi.fn(),
+  },
+}));
 
 const healthyStatus = vi.hoisted(() => ({
   state: "connected" as "connected" | "failed" | "disconnected",
@@ -45,6 +59,7 @@ let node: HTMLDivElement;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.clearAllMocks();
+  nativeBack.listener = undefined;
   healthyStatus.state = "connected";
   host.connection.disabled = false;
   host.connect.mockResolvedValue(undefined);
@@ -58,6 +73,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   vi.useRealTimers();
+  vi.restoreAllMocks();
   node.remove();
   setUiLanguage("en");
   localStorage.clear();
@@ -98,21 +114,45 @@ async function submit() {
 }
 
 describe("mobile connection settings", () => {
-  it("opens glass controls on their own page and retains the selected effect when navigating back", async () => {
+  it.each(["header", "native"])("returns through Appearance with %s back and retains glass settings", async (backMode) => {
+    if (backMode === "native")
+      vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+    const back = () => act(() => {
+      if (backMode === "native") nativeBack.listener!();
+      else button("Back").click();
+    });
     await render();
-    expect(node.querySelector("#mobile-glass-effect")).toBeNull();
+    expect(node.querySelector("#mobile-theme, #mobile-follow-up, #mobile-glass-effect")).toBeNull();
+    expect(node.querySelector("#mobile-language")).not.toBeNull();
+    expect(button("Notifications").querySelector(".mobile-settings-value")?.textContent).toBe("Off");
+    expect(button("Appearance").querySelector(".mobile-settings-value")?.textContent).toBe("Dark");
+    act(() => button("Appearance").click());
+    expect(node.querySelector("header strong")?.textContent).toBe("Appearance");
     act(() => button("Glass").click());
     expect(node.querySelector("#mobile-theme")).toBeNull();
     expect(node.querySelector(".mobile-glass-preview")).not.toBeNull();
     act(() => node.querySelector<HTMLButtonElement>("#mobile-glass-effect")!.click());
     act(() => [...node.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((item) => item.textContent?.trim() === "Solid")!.click());
     expect(node.querySelector<HTMLInputElement>("#mobile-glass-intensity")!.disabled).toBe(true);
-    act(() => button("Back").click());
+    act(() => node.querySelector<HTMLButtonElement>("#mobile-glass-effect")!.click());
+    back();
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
+    if (backMode === "native") {
+      expect(node.querySelector("header strong")?.textContent).toBe("Glass");
+      back();
+    }
+    expect(node.querySelector("header strong")?.textContent).toBe("Appearance");
     expect(node.querySelector("#mobile-theme")).not.toBeNull();
     expect(node.querySelector("#mobile-glass-effect")).toBeNull();
     expect(button("Glass").textContent).toContain("Solid");
     act(() => button("Glass").click());
     expect(node.querySelector("#mobile-glass-effect")!.textContent).toBe("Solid");
+    expect(node.querySelector("#mobile-glass-effect")!.getAttribute("aria-expanded")).toBe("false");
+    back();
+    back();
+    expect(node.querySelector("#mobile-theme")).toBeNull();
+    expect(node.querySelector("#mobile-language")).not.toBeNull();
+    expect(node.querySelector("header strong")?.textContent).toBe("MonoCode");
   });
 
   async function openConnectedSettings() {
@@ -278,6 +318,9 @@ describe("mobile connection settings", () => {
     });
     expect(localStorage.getItem(UI_LANGUAGE_KEY)).toBe("zh-CN");
     expect(node.querySelector("header strong")!.textContent).toBe("MonoCode");
+    expect(button("外观").querySelector(".mobile-settings-value")?.textContent).toBe("深色");
+    expect(button("通知").querySelector(".mobile-settings-value")?.textContent).toBe("关闭");
+    expect(button("编写器").querySelector(".mobile-settings-value")?.textContent).toBe("引导");
     act(() => button("添加连接").click());
     input('input[type="url"]', "http://computer:3774");
     input('input[type="password"]', "device-token");
@@ -296,6 +339,7 @@ describe("mobile connection settings", () => {
 
   it("opens appearance from the keyboard, cancels without changes and saves a selected option", async () => {
     await render();
+    act(() => button("Appearance").click());
     const appearance = node.querySelector<HTMLButtonElement>("#mobile-theme")!;
     act(() => {
       appearance.focus();
@@ -325,6 +369,8 @@ describe("mobile connection settings", () => {
     expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     expect(appearance.textContent).toBe("Light");
     expect(localStorage.getItem("monocode-mobile-theme")).toBe("light");
+    act(() => button("Back").click());
+    expect(button("Appearance").querySelector(".mobile-settings-value")?.textContent).toBe("Light");
   });
 
   it("retains failed connection input for retry and closes only after success", async () => {

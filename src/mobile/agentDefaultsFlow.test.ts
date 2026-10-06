@@ -209,6 +209,11 @@ async function settings(fromChat = false) {
     "Settings",
     fromChat ? node.querySelector(".mobile-drawer")! : dialog(),
   );
+  await click("New conversations");
+}
+async function leaveSettings() {
+  await click("Back", node.querySelector("header")!);
+  await click("Back", node.querySelector("header")!);
 }
 async function defaultsPanel() {
   const group = node.querySelector('[aria-label="New conversations"]')!;
@@ -302,6 +307,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     await render();
     await click("首页菜单");
     await click("设置", dialog());
+    await click("新会话");
     expect(node.querySelector('[aria-label="新会话"]')?.textContent).toContain(
       "Chosen",
     );
@@ -351,7 +357,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     await dismiss();
     await click("Codex account");
     await click("Default account", dialog());
-    await click("Back", node.querySelector("header")!);
+    await leaveSettings();
     await send();
     expect(host.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -393,7 +399,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     await defaultsPanel();
     await choose("Agent", HARNESS_TITLE.claude);
     await dismiss();
-    await click("Back", node.querySelector("header")!);
+    await leaveSettings();
     await input("Continue existing");
     await send();
     expect(host.dispatch).toHaveBeenCalledWith(
@@ -423,7 +429,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     expect(node.querySelector("#mobile-account-codex")?.textContent).toContain(
       "Unavailable account (work)",
     );
-    await click("Back", node.querySelector("header")!);
+    await leaveSettings();
     await click("New conversation", node.querySelector(".mobile-home")!);
     await input("Do not switch accounts");
     await send();
@@ -444,7 +450,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     await defaultsPanel();
     expect(dialog().textContent).toContain("First");
     await dismiss();
-    await click("Back", node.querySelector("header")!);
+    await leaveSettings();
     host.providerAccounts.mockRejectedValue(new Error("Network offline"));
     await settings();
     expect(node.textContent).toContain("Network offline");

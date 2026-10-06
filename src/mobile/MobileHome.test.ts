@@ -77,6 +77,54 @@ const ids = (area: string) =>
   );
 
 describe("mobile home and project history", () => {
+  it("renders cached activity order before refresh, preserves it on failure and restores it on remount", async () => {
+    const cache = new Map([
+      ["one", [session("older", "one", 10), session("pin", "one", 1, { pinned: true })]],
+      ["two", [session("latest", "two", 100)]],
+    ]);
+    const cachedSessions = (id: string) => cache.get(id);
+    let reject!: (reason: Error) => void;
+    const pending = new Promise<HostSessionSummary[]>((_resolve, fail) => { reject = fail; });
+    const loadSessions = vi.fn(() => pending);
+    const props = { cachedSessions, loadSessions };
+    await render(props);
+    const paths = () => [...node.querySelectorAll('.mobile-home-project[title]')].map(row => row.getAttribute('title'));
+    expect(paths()).toEqual([projects[1].cwd, projects[0].cwd]);
+    expect(ids(".mobile-home-pinned")).toEqual(["pin"]);
+    expect(ids(".mobile-home-recent")).toEqual(["latest", "older"]);
+    expect(node.querySelector('.mobile-loading[role="status"]')).toBeNull();
+    await act(async () => reject(new Error("Offline")));
+    expect(paths()).toEqual([projects[1].cwd, projects[0].cwd]);
+    expect(node.querySelector('[role="alert"]')).not.toBeNull();
+    act(() => root.render(null));
+    await render({ ...props, loadSessions: () => new Promise(() => {}) });
+    expect(paths()).toEqual([projects[1].cwd, projects[0].cwd]);
+    expect(ids(".mobile-home-recent")).toEqual(["latest", "older"]);
+  });
+
+  it("fills newly arriving projects from cache without replacing newer live history", async () => {
+    const cachedSessions = (id: string) => id === "one"
+      ? [session("stale", id, 1)] : [session("cached", id, 50)];
+    const loadSessions = (id: string) => id === "one"
+      ? Promise.resolve([session("live", id, 100)])
+      : new Promise<HostSessionSummary[]>(() => {});
+    await render({ projects: [projects[0]], cachedSessions, loadSessions });
+    await render({ cachedSessions, loadSessions });
+    expect(ids(".mobile-home-recent")).toEqual(["live", "cached"]);
+    expect(node.querySelector('.mobile-loading[role="status"]')).toBeNull();
+  });
+
+  it("holds uncached projects in loading state until their first histories arrive", async () => {
+    let resolve!: (sessions: HostSessionSummary[]) => void;
+    const pending = new Promise<HostSessionSummary[]>((done) => { resolve = done; });
+    await render({ loadSessions: () => pending });
+    expect(node.querySelectorAll('.mobile-home-project[title]')).toHaveLength(0);
+    expect(node.querySelector('.mobile-home-projects [role="status"]')).not.toBeNull();
+    await act(async () => resolve([]));
+    expect(node.querySelectorAll('.mobile-home-project[title]')).toHaveLength(2);
+    expect(node.querySelector('.mobile-loading[role="status"]')).toBeNull();
+  });
+
   it("sorts projects by their newest visible conversation before paging and refreshes the order", async () => {
     const owners = Array.from({ length: 7 }, (_, index) => ({
       id: `p${index}`, name: `Project ${index}`, cwd: `/p${index}`,

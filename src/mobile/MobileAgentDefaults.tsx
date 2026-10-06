@@ -8,6 +8,7 @@ import type {
 } from "../features/connections/model/protocol";
 import { MobileSettingsIcon as SettingsIcon } from "./MobileSettingsIcon";
 import { MobileSelect } from "./MobileSelect";
+import { SHEET_WIDTH } from "./MobileSheet";
 import {
   configurationLabels,
   MobileModelControls,
@@ -164,7 +165,10 @@ export function MobileAgentDefaults({
             const needsConfirmation =
               defaults.agents?.[agent]?.accountNeedsConfirmation;
             return (
-              <div key={agent} className="mobile-settings-row">
+              <div
+                key={agent}
+                className="mobile-settings-row mobile-settings-row-stacked"
+              >
                 <SettingsIcon name="account" />
                 <label
                   className="mobile-settings-label"
@@ -183,6 +187,7 @@ export function MobileAgentDefaults({
                 </label>
                 <MobileSelect
                   id={`mobile-${panelId}`}
+                  sheetWidth={SHEET_WIDTH.list}
                   label={t("{agent} account", { agent: HARNESS_TITLE[agent] })}
                   value={selected}
                   open={panel === panelId}

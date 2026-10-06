@@ -104,6 +104,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   onAllProjects,
   onProject,
   loadSessions,
+  cachedSessions,
   onSession,
   onSessionActions,
   sessionActionsId,
@@ -131,6 +132,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   onProject: (project: HostProject) => void;
   /** Reads another project's conversations; the current one arrives as `sessions`. */
   loadSessions: (projectId: string) => Promise<HostSessionSummary[]>;
+  cachedSessions?: (projectId: string) => HostSessionSummary[] | undefined;
   onSession: (id: string, project: HostProject) => void;
   onSessionActions: (
     id: string,
@@ -149,16 +151,33 @@ export const MobileDrawer = memo(function MobileDrawer({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
     () => new Set(project ? [project.id] : []),
   );
-  const [histories, setHistories] = useState<
-    Record<string, ProjectHistory | undefined>
-  >({});
-  const collapsed = useRef(new Set<string>());
   // A just-opened project can precede the next project list refresh.
   const treeProjects =
     project && !projects.some((item) => item.id === project.id)
       ? [project, ...projects]
       : projects;
   const projectIds = JSON.stringify(treeProjects.map((item) => item.id));
+  const [histories, setHistories] = useState<
+    Record<string, ProjectHistory | undefined>
+  >(() => Object.fromEntries(treeProjects.flatMap((item) => {
+    const sessions = cachedSessions?.(item.id);
+    return sessions ? [[item.id, { sessions, loading: false, failed: false }]] : [];
+  })));
+  const collapsed = useRef(new Set<string>());
+  // Home and chat can refresh the shared cache while the drawer stays closed.
+  useLayoutEffect(() => {
+    const ids: string[] = JSON.parse(projectIds);
+    setHistories((current) => {
+      let next = current;
+      for (const id of ids) {
+        if (!open && current[id]) continue;
+        const sessions = cachedSessions?.(id);
+        if (sessions && current[id]?.sessions !== sessions)
+          next = { ...next, [id]: { sessions, loading: false, failed: false } };
+      }
+      return next;
+    });
+  }, [open, projectIds, cachedSessions]);
   const historyTurn = useRef<Record<string, number>>({});
   const panel = useRef<HTMLElement>(null);
   const backdrop = useRef<HTMLDivElement>(null);
@@ -470,6 +489,10 @@ export const MobileDrawer = memo(function MobileDrawer({
     item.id === project?.id
       ? { sessions, loading: loading && !sessions.length, failed: false }
       : (histories[item.id] ?? { loading: true, failed: false });
+  const treeLoading = !tree.some((item) => item.id === project?.id
+    ? sessions.length > 0 || cachedSessions?.(item.id) !== undefined
+    : histories[item.id]?.sessions !== undefined) &&
+    tree.some((item) => projectHistory(item).loading);
   const row = (item: HostSessionSummary, owner: HostProject) => {
     // Actions edit through the current project's summary list.
     const actionable = owner.id === project?.id;
@@ -684,7 +707,12 @@ export const MobileDrawer = memo(function MobileDrawer({
             <Folder size={18} />
             <span>{t("All projects")}</span>
           </button>
-          {tree.length ? (
+          {treeLoading ? (
+            <div className="mobile-loading mobile-drawer-group-status" role="status">
+              <LoaderCircle size={15} className="mobile-spin" />
+              {t("Loading conversations…")}
+            </div>
+          ) : tree.length ? (
             <MobileListPreview
               buttonClassName="mobile-drawer-more"
               minimumVisibleCount={minimumVisibleProjects}

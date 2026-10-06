@@ -16,6 +16,7 @@ const host = vi.hoisted(() => ({
   projects: vi.fn(async () => [{ id: "project", cwd: "/project", name: "Project" }]),
   sessions: vi.fn(), models: vi.fn(), session: vi.fn(), nativeAccess: vi.fn(), dispatch: vi.fn(),
   cache: new Map<string, HostSession>(),
+  summaries: new Map<string, HostSessionSummary[]>(),
   activity: vi.fn(), updateSession: vi.fn(), markUnread: vi.fn(),
   rpc: vi.fn(),
 }));
@@ -38,6 +39,7 @@ vi.mock("./client", () => ({
     uploadAttachments = async () => [];
     cachedModels = () => undefined;
     cachedSession = (id: string) => host.cache.get(id);
+    cachedSessions = (id: string) => host.summaries.get(id);
     sessionPreviews = async () => undefined;
   },
 }));
@@ -98,6 +100,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.useFakeTimers();
   host.cache.clear();
+  host.summaries.clear();
   host.projects.mockReset().mockResolvedValue([{ id: "project", cwd: "/project", name: "Project" }]);
   host.updateSession.mockReset();
   host.markUnread.mockClear();
@@ -147,6 +150,28 @@ describe("mobile conversation loading UI", () => {
     await open("one");
   };
   const goBack = () => act(async () => node.querySelector<HTMLButtonElement>('header [aria-label="Back"]')!.click());
+
+  it("opens Home and the drawer in cached activity order while network histories are pending", async () => {
+    host.projects.mockResolvedValue([
+      { id: "project", cwd: "/project", name: "Project" },
+      { id: "newer", cwd: "/newer", name: "Newer project" },
+    ]);
+    const summary = (projectId: string, updatedAt: number): HostSessionSummary => ({
+      id: projectId, projectId, updatedAt, title: projectId, harness: "codex", status: "idle", revision: 1,
+    });
+    host.summaries.set("project", [summary("project", 1)]);
+    host.summaries.set("newer", [summary("newer", 100)]);
+    host.sessions.mockReturnValue(new Promise(() => {}));
+    await mount();
+    expect([...node.querySelectorAll('.mobile-home-project[title]')].map((row) => row.getAttribute("title")))
+      .toEqual(["/newer", "/project"]);
+    expect([...node.querySelectorAll('.mobile-home-recent [data-session-id]')].map((row) => row.getAttribute("data-session-id")))
+      .toEqual(["newer", "project"]);
+    expect(node.querySelector('.mobile-home .mobile-loading')).toBeNull();
+    await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Menu"]')!.click());
+    expect([...node.querySelectorAll('.mobile-drawer-project-link')].map((row) => row.getAttribute("title")))
+      .toEqual(["/newer", "/project"]);
+  });
 
   it("returns during project conversation loading and ignores the late response", async () => {
     const response = deferred<HostSession>();

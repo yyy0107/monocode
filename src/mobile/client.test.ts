@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
   MobileClient,
   normalizeHostUrl,
@@ -10,7 +10,12 @@ import type { MobileStorage, StorageKey } from "./storage";
 import type {
   HostSession,
   HostCommand,
+  HostSessionSummary,
 } from "../features/connections/model/protocol";
+import {
+  readSessionCache, saveSessionCache, SESSION_CACHE_KEY,
+  SESSION_CACHE_PROJECT_LIMIT, SESSION_CACHE_SESSION_LIMIT, SESSION_CACHE_SIZE_LIMIT,
+} from "./sessionCache";
 
 const http = vi.hoisted(() => ({ post: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
@@ -84,6 +89,292 @@ const send: HostCommand = {
 };
 
 beforeEach(() => vi.clearAllMocks());
+describe("mobile session summary cache", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: vi.fn((key: string, value: string) => { values.set(key, value); }),
+      removeItem: (key: string) => { values.delete(key); },
+    });
+  });
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  const summary = (extra: Partial<HostSessionSummary> = {}): HostSessionSummary => ({
+    id: "session", title: "Conversation", projectId: "project", harness: "codex",
+    revision: 1, status: "idle", updatedAt: 100, ...extra,
+  });
+  const pageLifecycle = () => {
+    const page = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    const browser = new EventTarget();
+    vi.stubGlobal("document", page);
+    vi.stubGlobal("window", browser);
+    return { page, browser };
+  };
+
+  it("coalesces streaming revisions into one delayed write while keeping live summaries immediate", async () => {
+    let value = snapshot();
+    const client = new MobileClient(memory(), transport(() => ({ kind: "snapshot", value })));
+    await client.connect(endpoint, token);
+    await client.session("session");
+    for (let revision = 2; revision <= 5; revision++) {
+      vi.advanceTimersByTime(100);
+      value = snapshot(revision);
+      await client.session("session");
+      expect(client.cachedSessions("project")?.[0].revision).toBe(revision);
+    }
+    expect(vi.getTimerCount()).toBe(1);
+    expect(localStorage.setItem).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(599);
+    expect(localStorage.setItem).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(localStorage.setItem).toHaveBeenCalledTimes(1);
+    expect(readSessionCache("host-1").get("project")?.[0].revision).toBe(5);
+    expect(vi.getTimerCount()).toBe(0);
+    value = snapshot(6);
+    await client.session("session");
+    expect(localStorage.setItem).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1_000);
+    expect(localStorage.setItem).toHaveBeenCalledTimes(2);
+    expect(readSessionCache("host-1").get("project")?.[0].revision).toBe(6);
+  });
+
+  it.each(["visibilitychange", "pagehide"])("flushes the latest summaries on %s and cleans up pending listeners", async (event) => {
+    const { page, browser } = pageLifecycle();
+    const addPage = vi.spyOn(page, "addEventListener");
+    const removePage = vi.spyOn(page, "removeEventListener");
+    const addBrowser = vi.spyOn(browser, "addEventListener");
+    const removeBrowser = vi.spyOn(browser, "removeEventListener");
+    let live = [summary()];
+    const store = memory();
+    const client = new MobileClient(store, transport(() => live));
+    await client.connect(endpoint, token);
+    await client.sessions("project");
+    vi.advanceTimersByTime(100);
+    live = [summary({ id: "latest", revision: 2, updatedAt: 200 }), summary()];
+    await client.sessions("project");
+    expect(addPage).toHaveBeenCalledTimes(1);
+    expect(addBrowser).toHaveBeenCalledTimes(1);
+    page.dispatchEvent(new Event("visibilitychange"));
+    expect(localStorage.setItem).not.toHaveBeenCalled();
+    if (event === "visibilitychange") {
+      page.visibilityState = "hidden";
+      page.dispatchEvent(new Event(event));
+    } else browser.dispatchEvent(new Event(event));
+    expect(localStorage.setItem).toHaveBeenCalledTimes(1);
+    expect(readSessionCache("host-1").get("project")).toEqual(live);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removePage).toHaveBeenCalledWith("visibilitychange", addPage.mock.calls[0][1]);
+    expect(removeBrowser).toHaveBeenCalledWith("pagehide", addBrowser.mock.calls[0][1]);
+    const restored = new MobileClient(store, transport(() => live));
+    await restored.restore();
+    expect(restored.cachedSessions("project")).toEqual(live);
+    vi.advanceTimersByTime(1_000);
+    expect(localStorage.setItem).toHaveBeenCalledTimes(1);
+    await client.sessions("project");
+    expect(addPage).toHaveBeenCalledTimes(2);
+    expect(addBrowser).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(1_000);
+    expect(localStorage.setItem).toHaveBeenCalledTimes(2);
+    expect(removePage).toHaveBeenCalledTimes(2);
+    expect(removeBrowser).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["disconnect", "identity change", "reconnect"])("cancels pending persistence on %s", async (action) => {
+    const { page, browser } = pageLifecycle();
+    const removePage = vi.spyOn(page, "removeEventListener");
+    const removeBrowser = vi.spyOn(browser, "removeEventListener");
+    let host = descriptor;
+    let live = [summary()];
+    const client = new MobileClient(memory(), async (_endpoint, _token, request) =>
+      (request as { method: string }).method === "environment.describe" ? host : live);
+    await client.connect(endpoint, token);
+    await client.sessions("project");
+    vi.advanceTimersByTime(1_000);
+    expect(readSessionCache("host-1").get("project")).toEqual(live);
+    live = [summary({ revision: 2, updatedAt: 200 })];
+    await client.sessions("project");
+    if (action === "disconnect") await client.disconnect();
+    else if (action === "identity change") {
+      host = { ...descriptor, environmentId: "host-2" };
+      await expect(client.verify()).rejects.toThrow("Host identity changed");
+    } else await client.reconnect();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removePage).toHaveBeenCalledTimes(2);
+    expect(removeBrowser).toHaveBeenCalledTimes(2);
+    page.visibilityState = "hidden";
+    page.dispatchEvent(new Event("visibilitychange"));
+    browser.dispatchEvent(new Event("pagehide"));
+    vi.advanceTimersByTime(1_000);
+    expect(localStorage.setItem).toHaveBeenCalledTimes(1);
+    if (action === "reconnect") expect(readSessionCache("host-1").get("project")?.[0].revision).toBe(1);
+    else expect(localStorage.getItem(SESSION_CACHE_KEY)).toBeNull();
+  });
+
+  it("restores lists synchronously for the same Host and replaces saved previews with live data", async () => {
+    const store = memory();
+    let live = [summary({ pinned: true, status: "running", lastUserMessageAt: 50 }), summary({ id: "archive", archived: true })];
+    const rpc = vi.fn(transport(() => live));
+    const client = new MobileClient(store, rpc);
+    await client.connect(endpoint, token);
+    expect(client.cachedSessions("project")).toBeUndefined();
+    expect(await client.sessions("project")).toEqual(live);
+    expect(client.cachedSessions("project")).toEqual(live);
+    vi.advanceTimersByTime(1_000);
+    const restored = new MobileClient(store, rpc);
+    await restored.restore();
+    expect(restored.cachedSessions("project")).toEqual(live);
+    expect(rpc.mock.calls.filter((call) => (call[2] as { method: string }).method === "sessions.list")).toHaveLength(1);
+    live = [];
+    await restored.sessions("project");
+    vi.advanceTimersByTime(1_000);
+    const empty = new MobileClient(store, rpc);
+    await empty.restore();
+    expect(empty.cachedSessions("project")).toEqual([]);
+    expect(empty.cachedSessions("unknown")).toBeUndefined();
+  });
+
+  it("ignores another Host's summaries and invalidates pending requests on connection changes", async () => {
+    let host = descriptor;
+    let resolve!: (value: HostSessionSummary[]) => void;
+    let pending = false;
+    const client = new MobileClient(memory(), async (_endpoint, _token, request) =>
+      (request as { method: string }).method === "environment.describe" ? host
+        : pending ? new Promise<HostSessionSummary[]>((done) => { resolve = done; }) : [summary()]);
+    await client.connect(endpoint, token);
+    await client.sessions("project");
+    vi.advanceTimersByTime(1_000);
+    pending = true;
+    const request = client.sessions("project");
+    host = { ...descriptor, environmentId: "host-2" };
+    await client.connect("https://other-computer.example", token);
+    expect(client.cachedSessions("project")).toBeUndefined();
+    resolve([summary()]);
+    await expect(request).rejects.toThrow("Host connection changed");
+    expect(client.cachedSessions("project")).toBeUndefined();
+  });
+
+  it("keeps newer lists and metadata mutations when older list requests finish later", async () => {
+    const responses: ((value: HostSessionSummary[]) => void)[] = [];
+    const updated = summary({ revision: 2, title: "Renamed", pinned: true, archived: true });
+    const client = new MobileClient(memory(), transport((method) => {
+      if (method === "sessions.list") return new Promise<HostSessionSummary[]>((done) => { responses.push(done); });
+      if (method === "sessions.update") return updated;
+      return { deleted: true };
+    }));
+    await client.connect(endpoint, token);
+    const older = client.sessions("project");
+    const newer = client.sessions("project");
+    responses[1]([summary()]);
+    await newer;
+    responses[0]([]);
+    expect(await older).toEqual([summary()]);
+    const beforeEdit = client.sessions("project");
+    await client.updateSession("project", "session", { title: "Renamed", pinned: true, archived: true });
+    responses[2]([summary()]);
+    expect(await beforeEdit).toEqual([updated]);
+    vi.advanceTimersByTime(1_000);
+    expect(readSessionCache("host-1").get("project")).toEqual([updated]);
+    const beforeDelete = client.sessions("project");
+    await client.deleteSession("project", "session");
+    responses[3]([summary()]);
+    expect(await beforeDelete).toEqual([]);
+    vi.advanceTimersByTime(1_000);
+    expect(readSessionCache("host-1").get("project")).toEqual([]);
+  });
+
+  it("remembers new and updated conversations from sync before the next list refresh", async () => {
+    const value = snapshot();
+    value.session.blocks = [{ id: "user", role: "user", text: "Hello", sentAt: 90 }];
+    const client = new MobileClient(memory(), transport(() => ({ kind: "snapshot", value })));
+    await client.connect(endpoint, token);
+    await client.session("session");
+    expect(client.cachedSessions("project")).toEqual([summary({ status: "running", updatedAt: 1, lastUserMessageAt: 90 })]);
+    vi.advanceTimersByTime(1_000);
+    expect(readSessionCache("host-1").get("project")).toEqual(client.cachedSessions("project"));
+    value.revision = 2;
+    value.updatedAt = 200;
+    value.status = "idle";
+    await client.session("session");
+    expect(client.cachedSessions("project")?.[0]).toMatchObject({ revision: 2, updatedAt: 200, status: "idle" });
+  });
+
+  it("keeps a newer live revision when a metadata response arrives late", async () => {
+    let resolve!: (value: HostSessionSummary) => void;
+    const latest = summary({ revision: 3, pinned: true, title: "Renamed later" });
+    const client = new MobileClient(memory(), transport((method) => method === "sessions.update"
+      ? new Promise<HostSessionSummary>((done) => { resolve = done; }) : [latest]));
+    await client.connect(endpoint, token);
+    const edit = client.updateSession("project", "session", { pinned: true });
+    await client.sessions("project");
+    resolve(summary({ revision: 2, pinned: true }));
+    expect(await edit).toEqual(latest);
+    expect(client.cachedSessions("project")).toEqual([latest]);
+    vi.advanceTimersByTime(1_000);
+    expect(readSessionCache("host-1").get("project")).toEqual([latest]);
+  });
+
+  it("merges sync updates during a list request without losing other conversations", async () => {
+    let resolve!: (value: HostSessionSummary[]) => void;
+    const value = snapshot(2);
+    const client = new MobileClient(memory(), transport((method) => method === "sessions.list"
+      ? new Promise<HostSessionSummary[]>((done) => { resolve = done; }) : { kind: "snapshot", value }));
+    await client.connect(endpoint, token);
+    const list = client.sessions("project");
+    await client.session("session");
+    resolve([summary({ id: "other" }), summary()]);
+    expect(await list).toEqual([
+      summary({ id: "other" }), summary({ revision: 2, status: "running", updatedAt: 1, lastUserMessageAt: null }),
+    ]);
+    expect(client.cachedSessions("project")).toHaveLength(2);
+  });
+
+  it("bounds stored projects, conversations and payload while retaining each project's newest activity", () => {
+    const sessions = Array.from({ length: SESSION_CACHE_SESSION_LIMIT + 10 }, (_, index) =>
+      summary({ id: `pin-${index}`, pinned: true, updatedAt: index }));
+    sessions.push(summary({ id: "latest", updatedAt: 1000 }));
+    saveSessionCache("host-1", new Map([["project", sessions]]));
+    const restored = readSessionCache("host-1").get("project")!;
+    expect(restored).toHaveLength(SESSION_CACHE_SESSION_LIMIT);
+    expect(restored.some((item) => item.id === "latest")).toBe(true);
+    saveSessionCache("host-1", new Map(Array.from({ length: SESSION_CACHE_PROJECT_LIMIT + 1 }, (_, i) => [`p${i}`, []])));
+    expect(readSessionCache("host-1").size).toBe(SESSION_CACHE_PROJECT_LIMIT);
+    expect(readSessionCache("host-1").has("p0")).toBe(false);
+    saveSessionCache("host-1", new Map([["project", sessions.map((item) => ({ ...item, title: "x".repeat(16_000) }))]]));
+    expect(localStorage.getItem(SESSION_CACHE_KEY)!.length).toBeLessThanOrEqual(SESSION_CACHE_SIZE_LIMIT);
+    expect(readSessionCache("host-1").get("project")!.length).toBeGreaterThan(0);
+  });
+
+  it("ignores corrupt storage and keeps runtime caching usable when storage throws", async () => {
+    for (const value of [
+      "{broken",
+      ...[summary({ status: "invalid" as "idle" }), summary({ updatedAt: 1e100 })].map((item) =>
+        JSON.stringify({ environmentId: "host-1", projects: [{ projectId: "project", sessions: [item] }] })),
+      "x".repeat(SESSION_CACHE_SIZE_LIMIT + 1),
+    ]) {
+      localStorage.setItem(SESSION_CACHE_KEY, value);
+      expect(readSessionCache("host-1").size).toBe(0);
+    }
+    vi.stubGlobal("localStorage", {
+      getItem: () => { throw new Error("blocked"); },
+      setItem: () => { throw new Error("blocked"); },
+      removeItem: () => { throw new Error("blocked"); },
+    });
+    const client = new MobileClient(memory(), transport(() => [summary()]));
+    await client.connect(endpoint, token);
+    await client.sessions("project");
+    expect(client.cachedSessions("project")).toEqual([summary()]);
+    vi.advanceTimersByTime(1_000);
+    expect(client.cachedSessions("project")).toEqual([summary()]);
+    await client.disconnect();
+    expect(client.cachedSessions("project")).toBeUndefined();
+  });
+});
 describe("mobile Host transport", () => {
   it("uses native POST /rpc without browser Origin, disables redirects, and unwraps the Host envelope", async () => {
     http.post.mockResolvedValue({ status: 200, data: { result: descriptor } });

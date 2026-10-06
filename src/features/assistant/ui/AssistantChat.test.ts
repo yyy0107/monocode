@@ -123,7 +123,10 @@ it("renders only public replies and one updated card without transcript logs", a
   await flush();
   expect(node.querySelectorAll('[data-session-id="target"]')).toHaveLength(1);
   expect(node.textContent).toContain("Task started");
-  expect(node.textContent).toContain("Running");
+  const runningStatus = node.querySelector('.assistant-card [role="status"]')!;
+  expect(runningStatus.getAttribute("aria-label")).toBe("Running");
+  expect(runningStatus.textContent).toBe("");
+  expect(runningStatus.querySelector("svg.animate-spin")).not.toBeNull();
   expect(node.querySelectorAll(".tool-block, .reasoning-block")).toHaveLength(
     0,
   );

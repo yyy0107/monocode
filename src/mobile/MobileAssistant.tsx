@@ -23,6 +23,7 @@ import type {
   AssistantSettingsPanelProps,
 } from "../features/assistant/ui/AssistantChatChrome";
 import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
+import { Shimmer } from "../shared/ui/Shimmer";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import {
   ArrowLeft,
@@ -61,6 +62,7 @@ function MobileAssistantHeader({
   hostName,
   harness,
   status,
+  activity,
   lifecycle,
   busy,
   onSettings,
@@ -70,6 +72,10 @@ function MobileAssistantHeader({
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useRef<HTMLButtonElement>(null);
+  const lastActivity = useRef(activity);
+  useLayoutEffect(() => {
+    if (activity) lastActivity.current = activity;
+  }, [activity]);
   useAssistantBack(2, menuOpen, () => setMenuOpen(false));
   const action = (run?: () => void) => {
     setMenuOpen(false);
@@ -90,20 +96,34 @@ function MobileAssistantHeader({
           <ArrowLeft size={22} />
         </button>
         <div className="mobile-header-title" data-capsule="true">
-          <strong>{name}</strong>
-          <span className="mobile-assistant-identity">
-            <span title={hostName}>{hostName}</span>
-            {harness && (
-              <span
-                className="mobile-assistant-agent"
-                aria-label={`${t("Agent")}: ${HARNESS_TITLE[harness]}`}
-              >
-                <HarnessIcon harness={harness} className="size-3.5" />
-                <span>{HARNESS_TITLE[harness]}</span>
-              </span>
-            )}
-            <span data-lifecycle={lifecycle}>{status}</span>
-          </span>
+          <div className="mobile-assistant-profile">
+            <strong>{name}</strong>
+            <span className="mobile-assistant-identity">
+              <span title={hostName}>{hostName}</span>
+              {harness && (
+                <span
+                  className="mobile-assistant-agent"
+                  aria-label={`${t("Agent")}: ${HARNESS_TITLE[harness]}`}
+                >
+                  <HarnessIcon harness={harness} className="size-3.5" />
+                  <span>{HARNESS_TITLE[harness]}</span>
+                </span>
+              )}
+              <span data-lifecycle={lifecycle}>{status}</span>
+            </span>
+          </div>
+          <AnimatedCollapse
+            expanded={!!activity}
+            className="mobile-assistant-activity-collapse"
+            motion="height"
+            animateContentResize
+          >
+            <div className="mobile-assistant-activity" role="status">
+              <Shimmer as="p" className="mobile-assistant-activity-label">
+                {activity ?? lastActivity.current ?? ""}
+              </Shimmer>
+            </div>
+          </AnimatedCollapse>
         </div>
         <button
           ref={menu}

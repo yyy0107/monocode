@@ -11,6 +11,7 @@ export function MobileSelect<T extends string>({
   onOpenChange,
   onChange,
   disabled = false,
+  sheetWidth = SHEET_WIDTH.menu,
 }: {
   id: string;
   label: string;
@@ -20,6 +21,7 @@ export function MobileSelect<T extends string>({
   onOpenChange: (open: boolean) => void;
   onChange: (value: T) => void;
   disabled?: boolean;
+  sheetWidth?: number;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const selected = options.find((option) => option.value === value);
@@ -53,7 +55,7 @@ export function MobileSelect<T extends string>({
         title={label}
         placement="anchor"
         anchor={trigger}
-        width={SHEET_WIDTH.menu}
+        width={sheetWidth}
         align="end"
         onClose={() => onOpenChange(false)}
       >

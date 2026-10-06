@@ -20,22 +20,31 @@ import {
 } from "../features/settings/model/appearance";
 
 export type MobileSettingsPage =
-  "root" | "connections" | "updates" | "glass" | "archive";
+  "root" | "agents" | "appearance" | "notifications" | "chat" |
+  "connections" | "updates" | "glass" | "archive";
 export type MobilePreferencePanel =
   "theme" | "accent" | "language" | "glass" | "follow-up" | "transcript-layout" |
   "agent-defaults" | "account-claude" | "account-codex" |
   "connection-menu" | "connection-edit" | "connection-delete" | null;
 
+const SETTINGS_TITLES: Record<MobileSettingsPage, string> = {
+  root: "Settings",
+  agents: "New conversations",
+  appearance: "Appearance",
+  notifications: "Notifications",
+  chat: "Message composer",
+  connections: "Connections",
+  updates: "App updates",
+  glass: "Glass",
+  archive: "Archived conversations",
+};
+
 export function mobileSettingsTitle(page: MobileSettingsPage) {
-  return page === "connections"
-    ? "Connections"
-    : page === "updates"
-      ? "App updates"
-      : page === "glass"
-        ? "Glass"
-        : page === "archive"
-          ? "Archived conversations"
-          : "Settings";
+  return SETTINGS_TITLES[page];
+}
+
+export function mobileSettingsParent(page: MobileSettingsPage): MobileSettingsPage {
+  return page === "glass" ? "appearance" : "root";
 }
 
 function GlassPreview({ label }: { label: string }) {
@@ -355,46 +364,275 @@ export function MobileSettings({
       </main>
     );
 
+  if (page === "agents")
+    return (
+      <main key="agents" className="mobile-content mobile-settings">
+        {agentDefaults}
+      </main>
+    );
+
+  if (page === "appearance")
+    return (
+      <main key="appearance" className="mobile-content mobile-settings">
+        <Group title="Appearance">
+          <div className="mobile-settings-row">
+            <SettingsIcon name="appearance" />
+            <label className="mobile-settings-label" htmlFor="mobile-theme">
+              {t("Appearance")}
+            </label>
+            <MobileSelect
+              id="mobile-theme"
+              label={t("Appearance")}
+              value={theme}
+              open={preferencePanel === "theme"}
+              onOpenChange={(open) =>
+                onPreferencePanelChange(open ? "theme" : null)
+              }
+              onChange={onThemeChange}
+              options={[
+                { value: "dark", label: t("Dark") },
+                { value: "light", label: t("Light") },
+                { value: "system", label: t("System") },
+              ]}
+            />
+          </div>
+          <div className="mobile-settings-row">
+            <SettingsIcon name="accent" />
+            <label className="mobile-settings-label" htmlFor="mobile-accent">
+              {t("Accent color")}
+            </label>
+            <AccentSelect
+              value={accentColor}
+              onChange={onAccentColorChange}
+              open={preferencePanel === "accent"}
+              onOpenChange={(open) =>
+                onPreferencePanelChange(open ? "accent" : null)
+              }
+            />
+          </div>
+          <button
+            type="button"
+            className="mobile-settings-row"
+            aria-label={t("Glass")}
+            onClick={() => onPageChange("glass")}
+          >
+            <SettingsIcon name="glass" />
+            <span className="mobile-settings-label">{t("Glass")}</span>
+            <span className="mobile-settings-value">
+              {t(glass.effect === "liquid" ? "Liquid glass" : glass.effect === "frosted" ? "Frosted glass" : "Solid")}
+            </span>
+            <ChevronRight size={18} />
+          </button>
+        </Group>
+      </main>
+    );
+
+  if (page === "notifications")
+    return (
+      <main key="notifications" className="mobile-content mobile-settings">
+        <Group title="Notifications">
+          <div className="mobile-settings-row mobile-settings-notifications">
+            <SettingsIcon name="sounds" />
+            <label className="mobile-settings-label">
+              <span>{t("Sounds")}</span>
+              <small>
+                {t(
+                  "Play a sound when a reply finishes or a conversation needs your input while the app is open.",
+                )}
+              </small>
+              <input
+                type="checkbox"
+                role="switch"
+                className="mobile-switch"
+                checked={soundsEnabled}
+                onChange={(event) =>
+                  onSoundsEnabledChange(event.currentTarget.checked)
+                }
+              />
+            </label>
+          </div>
+          <div className="mobile-settings-row mobile-settings-notifications">
+            <SettingsIcon name="notifications" />
+            <label className="mobile-settings-label">
+              <span>{t("System notifications")}</span>
+              <small>
+                {activity.permission === "unsupported"
+                  ? t("System notifications are unavailable on this platform.")
+                  : t(
+                      "Notify when a new reply is ready or a conversation needs your input.",
+                    )}
+              </small>
+              <input
+                type="checkbox"
+                role="switch"
+                className="mobile-switch"
+                checked={activity.enabled}
+                disabled={activity.permission === "unsupported"}
+                onChange={(event) =>
+                  void activity.setNotificationsEnabled(
+                    event.currentTarget.checked,
+                  )
+                }
+              />
+            </label>
+          </div>
+          {(activity.enabled || activity.canOpenSettings) &&
+          activity.permission === "prompt" ? (
+            <div className="mobile-settings-row">
+              <button
+                className="mobile-button"
+                onClick={() => void activity.requestPermission()}
+              >
+                {t("Allow notifications")}
+              </button>
+            </div>
+          ) : (activity.enabled || activity.canOpenSettings) &&
+            activity.permission === "denied" ? (
+            <div className="mobile-settings-row mobile-settings-note">
+              <span className="mobile-muted">
+                {t("Notifications are blocked in system settings.")}
+              </span>
+              {activity.canOpenSettings ? (
+                <button
+                  className="mobile-button"
+                  onClick={() => void activity.openSettings()}
+                >
+                  {t("Open settings")}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {activity.enabled &&
+          activity.permission === "granted" &&
+          activity.canOpenSettings ? (
+            <div className="mobile-settings-row">
+              <button
+                className="mobile-button"
+                onClick={() => void activity.openSettings()}
+              >
+                {t("Notification settings…")}
+              </button>
+            </div>
+          ) : null}
+          {activity.notificationError ? (
+            <p className="mobile-form-error mobile-settings-note" role="status">
+              {activity.notificationError}
+            </p>
+          ) : null}
+        </Group>
+      </main>
+    );
+
+  if (page === "chat")
+    return (
+      <main key="chat" className="mobile-content mobile-settings">
+        <Group title="Message composer">
+          <div className="mobile-settings-row">
+            <SettingsIcon name="followUp" />
+            <label className="mobile-settings-label" htmlFor="mobile-follow-up">
+              {t("Follow-up behavior")}
+            </label>
+            <MobileSelect
+              id="mobile-follow-up"
+              label={t("Follow-up behavior")}
+              value={followUpBehavior}
+              open={preferencePanel === "follow-up"}
+              onOpenChange={(open) =>
+                onPreferencePanelChange(open ? "follow-up" : null)
+              }
+              onChange={onFollowUpBehaviorChange}
+              options={[
+                { value: "queue", label: t("Queue") },
+                { value: "steer", label: t("Steer") },
+              ]}
+            />
+          </div>
+          <div className="mobile-settings-row">
+            <SettingsIcon name="layout" />
+            <label
+              className="mobile-settings-label"
+              htmlFor="mobile-transcript-layout"
+            >
+              {t("Transcript layout")}
+            </label>
+            <MobileSelect
+              id="mobile-transcript-layout"
+              label={t("Transcript layout")}
+              value={transcriptLayout}
+              open={preferencePanel === "transcript-layout"}
+              onOpenChange={(open) =>
+                onPreferencePanelChange(open ? "transcript-layout" : null)
+              }
+              onChange={onTranscriptLayoutChange}
+              options={[
+                { value: "full", label: t("Full width") },
+                { value: "chat", label: t("Chat") },
+              ]}
+            />
+          </div>
+        </Group>
+      </main>
+    );
+
   return (
-    <main className="mobile-content mobile-settings">
+    <main key="root" className="mobile-content mobile-settings">
       {connections}
-      {agentDefaults}
+      <section className="mobile-settings-group" aria-label={t("Settings")}>
+        <div className="mobile-settings-card">
+          {agentDefaults ? (
+            <button
+              type="button"
+              className="mobile-settings-row"
+              aria-label={t("New conversations")}
+              onClick={() => onPageChange("agents")}
+            >
+              <SettingsIcon name="agent" />
+              <span className="mobile-settings-label">{t("New conversations")}</span>
+              <ChevronRight size={18} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="mobile-settings-row"
+            aria-label={t("Appearance")}
+            onClick={() => onPageChange("appearance")}
+          >
+            <SettingsIcon name="appearance" />
+            <span className="mobile-settings-label">{t("Appearance")}</span>
+            <span className="mobile-settings-value">
+              {t(theme === "dark" ? "Dark" : theme === "light" ? "Light" : "System")}
+            </span>
+            <ChevronRight size={18} />
+          </button>
+          <button
+            type="button"
+            className="mobile-settings-row"
+            aria-label={t("Notifications")}
+            onClick={() => onPageChange("notifications")}
+          >
+            <SettingsIcon name="notifications" />
+            <span className="mobile-settings-label">{t("Notifications")}</span>
+            <span className="mobile-settings-value">
+              {t(activity.permission !== "unsupported" && activity.enabled ? "On" : "Off")}
+            </span>
+            <ChevronRight size={18} />
+          </button>
+          <button
+            type="button"
+            className="mobile-settings-row"
+            aria-label={t("Message composer")}
+            onClick={() => onPageChange("chat")}
+          >
+            <SettingsIcon name="followUp" />
+            <span className="mobile-settings-label">{t("Message composer")}</span>
+            <span className="mobile-settings-value">
+              {t(followUpBehavior === "queue" ? "Queue" : "Steer")}
+            </span>
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      </section>
       <Group title="General">
-        <div className="mobile-settings-row">
-          <SettingsIcon name="appearance" />
-          <label className="mobile-settings-label" htmlFor="mobile-theme">
-            {t("Appearance")}
-          </label>
-          <MobileSelect
-            id="mobile-theme"
-            label={t("Appearance")}
-            value={theme}
-            open={preferencePanel === "theme"}
-            onOpenChange={(open) =>
-              onPreferencePanelChange(open ? "theme" : null)
-            }
-            onChange={onThemeChange}
-            options={[
-              { value: "dark", label: t("Dark") },
-              { value: "light", label: t("Light") },
-              { value: "system", label: t("System") },
-            ]}
-          />
-        </div>
-        <div className="mobile-settings-row">
-          <SettingsIcon name="accent" />
-          <label className="mobile-settings-label" htmlFor="mobile-accent">
-            {t("Accent color")}
-          </label>
-          <AccentSelect
-            value={accentColor}
-            onChange={onAccentColorChange}
-            open={preferencePanel === "accent"}
-            onOpenChange={(open) =>
-              onPreferencePanelChange(open ? "accent" : null)
-            }
-          />
-        </div>
         <div className="mobile-settings-row">
           <SettingsIcon name="language" />
           <label className="mobile-settings-label" htmlFor="mobile-language">
@@ -415,157 +653,7 @@ export function MobileSettings({
             ]}
           />
         </div>
-        <div className="mobile-settings-row mobile-settings-notifications">
-          <SettingsIcon name="sounds" />
-          <label className="mobile-settings-label">
-            <span>{t("Sounds")}</span>
-            <small>
-              {t(
-                "Play a sound when a reply finishes or a conversation needs your input while the app is open.",
-              )}
-            </small>
-            <input
-              type="checkbox"
-              role="switch"
-              className="mobile-switch"
-              checked={soundsEnabled}
-              onChange={(event) =>
-                onSoundsEnabledChange(event.currentTarget.checked)
-              }
-            />
-          </label>
-        </div>
-        <div className="mobile-settings-row mobile-settings-notifications">
-          <SettingsIcon name="notifications" />
-          <label className="mobile-settings-label">
-            <span>{t("System notifications")}</span>
-            <small>
-              {activity.permission === "unsupported"
-                ? t("System notifications are unavailable on this platform.")
-                : t(
-                    "Notify when a new reply is ready or a conversation needs your input.",
-                  )}
-            </small>
-            <input
-              type="checkbox"
-              role="switch"
-              className="mobile-switch"
-              checked={activity.enabled}
-              disabled={activity.permission === "unsupported"}
-              onChange={(event) =>
-                void activity.setNotificationsEnabled(
-                  event.currentTarget.checked,
-                )
-              }
-            />
-          </label>
-        </div>
-        {(activity.enabled || activity.canOpenSettings) &&
-        activity.permission === "prompt" ? (
-          <div className="mobile-settings-row">
-            <button
-              className="mobile-button"
-              onClick={() => void activity.requestPermission()}
-            >
-              {t("Allow notifications")}
-            </button>
-          </div>
-        ) : (activity.enabled || activity.canOpenSettings) &&
-          activity.permission === "denied" ? (
-          <div className="mobile-settings-row mobile-settings-note">
-            <span className="mobile-muted">
-              {t("Notifications are blocked in system settings.")}
-            </span>
-            {activity.canOpenSettings ? (
-              <button
-                className="mobile-button"
-                onClick={() => void activity.openSettings()}
-              >
-                {t("Open settings")}
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-        {activity.enabled &&
-        activity.permission === "granted" &&
-        activity.canOpenSettings ? (
-          <div className="mobile-settings-row">
-            <button
-              className="mobile-button"
-              onClick={() => void activity.openSettings()}
-            >
-              {t("Notification settings…")}
-            </button>
-          </div>
-        ) : null}
-        {activity.notificationError ? (
-          <p className="mobile-form-error mobile-settings-note" role="status">
-            {activity.notificationError}
-          </p>
-        ) : null}
       </Group>
-      <Group title="Message composer">
-        <div className="mobile-settings-row">
-          <SettingsIcon name="followUp" />
-          <label className="mobile-settings-label" htmlFor="mobile-follow-up">
-            {t("Follow-up behavior")}
-          </label>
-          <MobileSelect
-            id="mobile-follow-up"
-            label={t("Follow-up behavior")}
-            value={followUpBehavior}
-            open={preferencePanel === "follow-up"}
-            onOpenChange={(open) =>
-              onPreferencePanelChange(open ? "follow-up" : null)
-            }
-            onChange={onFollowUpBehaviorChange}
-            options={[
-              { value: "queue", label: t("Queue") },
-              { value: "steer", label: t("Steer") },
-            ]}
-          />
-        </div>
-        <div className="mobile-settings-row">
-          <SettingsIcon name="layout" />
-          <label
-            className="mobile-settings-label"
-            htmlFor="mobile-transcript-layout"
-          >
-            {t("Transcript layout")}
-          </label>
-          <MobileSelect
-            id="mobile-transcript-layout"
-            label={t("Transcript layout")}
-            value={transcriptLayout}
-            open={preferencePanel === "transcript-layout"}
-            onOpenChange={(open) =>
-              onPreferencePanelChange(open ? "transcript-layout" : null)
-            }
-            onChange={onTranscriptLayoutChange}
-            options={[
-              { value: "full", label: t("Full width") },
-              { value: "chat", label: t("Chat") },
-            ]}
-          />
-        </div>
-      </Group>
-      <section className="mobile-settings-group" aria-label={t("Glass")}>
-        <div className="mobile-settings-card">
-          <button
-            type="button"
-            className="mobile-settings-row"
-            aria-label={t("Glass")}
-            onClick={() => onPageChange("glass")}
-          >
-            <SettingsIcon name="glass" />
-            <span className="mobile-settings-label">{t("Glass")}</span>
-            <span className="mobile-settings-value">
-              {t(glass.effect === "liquid" ? "Liquid glass" : glass.effect === "frosted" ? "Frosted glass" : "Solid")}
-            </span>
-            <ChevronRight size={18} />
-          </button>
-        </div>
-      </section>
       <section
         className="mobile-settings-group"
         aria-label={t("Archived conversations")}

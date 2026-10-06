@@ -324,6 +324,40 @@ describe("mobile sidebar projects", () => {
     updatedAt,
     ...extra,
   });
+  it("uses cached project activity on first open and refreshes the preview when reopened", async () => {
+    const cache = new Map(projects.map((owner, index) => [owner.id, [session(owner.id, index * 100)]]));
+    const cachedSessions = (id: string) => cache.get(id);
+    const loadSessions = vi.fn(() => new Promise<HostSessionSummary[]>(() => {}));
+    const props = { projects, project: undefined, sessions: [], cachedSessions, loadSessions };
+    render(true, props);
+    expect(links().map((item) => item.title)).toEqual([
+      projects[2].cwd, projects[1].cwd, projects[0].cwd,
+    ]);
+    act(() => toggle(projects[1].cwd).click());
+    expect(node.querySelector('[data-session-id="codex-chat"]')).not.toBeNull();
+    expect(node.querySelector('.mobile-drawer-group-status')).toBeNull();
+    render(false, props);
+    cache.set("android", [session("android", 500)]);
+    render(true, props);
+    expect(links().map((item) => item.title)).toEqual([
+      projects[0].cwd, projects[2].cwd, projects[1].cwd,
+    ]);
+  });
+  it("holds uncached project order in loading state until histories arrive", async () => {
+    const responses = new Map<string, (sessions: HostSessionSummary[]) => void>();
+    const loadSessions = (id: string) => new Promise<HostSessionSummary[]>((done) => { responses.set(id, done); });
+    render(true, { projects, project, sessions: [], loadSessions });
+    expect(links()).toHaveLength(0);
+    expect(node.querySelector('.mobile-drawer-sessions .mobile-loading[role="status"]')).not.toBeNull();
+    await act(async () => {
+      responses.get("android")!([session("android", 10)]);
+      responses.get("codex")!([session("codex", 100)]);
+    });
+    expect(links().map((item) => item.title)).toEqual([
+      projects[1].cwd, projects[0].cwd, projects[2].cwd,
+    ]);
+    expect(node.querySelector('.mobile-drawer-sessions .mobile-loading[role="status"]')).toBeNull();
+  });
   it("orders all projects by recent visible activity and tells same-name projects apart by parent", async () => {
     const loadSessions = vi.fn(async (id: string) =>
       id === "android"
