@@ -145,6 +145,8 @@ it("remeasures truncation when a pooled tab is shown at a new width", () => {
   textHeight = 0;
   clippedHeight = 0;
   show(false);
+  // Keep the last measurement while hidden; activation remeasures it.
+  expect(expandButton()).toBeNull();
 
   // Reattached in a narrower pane, so the same prompt exceeds four lines.
   textHeight = 120;

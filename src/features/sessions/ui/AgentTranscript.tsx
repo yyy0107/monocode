@@ -72,6 +72,7 @@ import { playCue } from "../../settings/model/sounds";
 import { legacyTaskListFromText } from "../model/taskList";
 import { resolveModel } from "../model/models";
 import { harnessForTurn } from "../model/secondOpinion";
+import { TranscriptTurnCache } from "../model/transcriptTurnCache";
 import { Shimmer } from "../../../shared/ui/Shimmer";
 import {
   hasPendingApproval,
@@ -107,8 +108,6 @@ import {
   firstFoldableIndex,
   foldableWork,
   foldedBlocks,
-  groupTurnItems,
-  groupTurns,
   initialThinkingIndex,
   isFailedStatus,
   isIncompleteTool,
@@ -674,7 +673,8 @@ function AgentTranscriptComponent({
 
   useTurnScrollAnchor(scrollerEl, visible, stickToBottom, rememberScroll);
 
-  const turns = groupTurns(blocks, managed);
+  const [turnCache] = useState(() => new TranscriptTurnCache());
+  const turns = turnCache.group(blocks, managed);
   const firstVisibleTurn = Math.max(0, turns.length - visibleTurnCount);
   const visibleTurns = turns.slice(firstVisibleTurn);
   const turnsRef = useRef(turns);
@@ -878,10 +878,7 @@ function AgentTranscriptComponent({
           const proposals = turn.filter((block) => block.orchestration);
           // Proposals are turn results, like the changes card. Keep them out
           // of the live work and append them after all of the lead's output.
-          const items = groupTurnItems(
-            turn.filter((block) => !block.orchestration),
-            { settled },
-          );
+          const items = turnCache.turnItems(turn, settled);
           // Earlier activity groups have already been followed by prose or
           // more work. Only the last one can still be the live group.
           const foldedAt = lastActivityIndex(items);
@@ -1822,6 +1819,7 @@ function UserMessageBlock({
     block.draft,
   );
   useLayoutEffect(() => {
+    if (!visible) return;
     const el = textRef.current;
     if (!el || !text) {
       setOverflows(false);
@@ -1829,15 +1827,31 @@ function UserMessageBlock({
     }
 
     const measure = () => {
+      // Reading a descendant's size makes the browser lay out an otherwise
+      // skipped historical turn. Leave it skipped until it comes into view.
+      if (
+        !el.isConnected ||
+        (el.checkVisibility &&
+          !el.checkVisibility({ contentVisibilityAuto: true }))
+      )
+        return;
       if (!expanded) {
         setOverflows(el.scrollHeight > el.clientHeight + 1);
       }
     };
 
+    const turn = el.closest(".transcript-turn");
+    const onVisible = (event: Event) => {
+      if (!(event as ContentVisibilityAutoStateChangeEvent).skipped) measure();
+    };
+    turn?.addEventListener("contentvisibilityautostatechange", onVisible);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      turn?.removeEventListener("contentvisibilityautostatechange", onVisible);
+    };
   }, [text, expanded, visible]);
 
   const toggle = () => {
