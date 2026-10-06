@@ -24,12 +24,6 @@ are not prerequisites for local work.
   Apply this rule to new or modified disclosure UI as a standing requirement;
   it does not need to be restated in each feature request.
 
-## Development Workflow
-
-Implement directly from the user's requirements and the existing code. Use a
-concise plan when useful, and keep documentation proportional to the change.
-Existing records under `specs/` are historical references. Maintain them only
-when the user requests it; they are not prerequisites for development.
 
 ## Verification
 
