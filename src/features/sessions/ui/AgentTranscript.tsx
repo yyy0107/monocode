@@ -44,6 +44,7 @@ import { PlanStepsBurst } from "./PlanStepsBurst";
 import { FilePreview } from "../../files/ui/FilePreview";
 import { PlanPreview } from "./PlanPreview";
 import { OrchestrationPreview } from "../../orchestration/ui/OrchestrationPreview";
+import { WorkflowRunCard, type WorkflowRunParent } from "../../workflows/ui/WorkflowRunCard";
 import { localizeOrchestrationMessage } from "../../orchestration/ui/orchestrationMessages";
 import { TaskListPreview } from "./TaskListPreview";
 import { HandoffButton, SecondOpinionButton } from "./SecondOpinionButton";
@@ -225,6 +226,8 @@ type Props = {
   animateFrom?: string;
   /** A shorter, bottom-origin prompt entrance for the phone composer. */
   promptMotion?: "mobile";
+  /** The conversation this transcript belongs to, for its workflow run cards. */
+  workflowParent?: WorkflowRunParent;
 };
 
 function AgentTranscriptComponent({
@@ -234,6 +237,7 @@ function AgentTranscriptComponent({
   harness,
   model,
   modelSettings,
+  workflowParent,
   pendingQuestion = false,
   pendingQuestionHistoryId,
   onQuestionFollowUp,
@@ -884,6 +888,7 @@ function AgentTranscriptComponent({
           const durationMs = userBlock?.durationMs;
           const settled = !(busy && isLastTurn);
           const proposals = turn.filter((block) => block.orchestration);
+          const workflowCards = workflowParent ? turn.filter((block) => block.workflowRun) : [];
           // Proposals are turn results, like the changes card. Keep them out
           // of the live work and append them after all of the lead's output.
           const items = turnCache.turnItems(turn, settled);
@@ -1158,6 +1163,11 @@ function AgentTranscriptComponent({
                       <OrchestrationPreview block={block} busy={!!busy} />
                     </div>
                   ))}
+              {workflowCards.map((block) => (
+                <div key={block.id} className="px-4 @md:px-6 pt-1 pb-2" data-workflow-run-card>
+                  <WorkflowRunCard block={block} parent={workflowParent!} />
+                </div>
+              ))}
               {/* The accessory keeps the pane's props, which go stale once parked. */}
               {isLastTurn && latestTurnAccessory && !parked
                 ? latestTurnAccessory
@@ -1627,6 +1637,8 @@ const TranscriptBlock = memo(function TranscriptBlock({
 }) {
   const { textReveal } = useContext(TranscriptPlatformContext);
   const { t: uiT } = useTranslation();
+  // Workflow run cards render after the turn's work, like orchestration results.
+  if (block.workflowRun) return null;
   if (block.question) {
     return <QuestionHistoryCard blockId={block.id} question={block.question}
       pending={questionPending} onAnswer={onQuestionFollowUp} />;

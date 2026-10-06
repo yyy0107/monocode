@@ -51,6 +51,23 @@ export type AgentTabSource = {
   harness: HarnessId;
 };
 
+/** A dynamic workflow run's detail view, opened beside its conversation. */
+export type WorkflowRunTabSource = {
+  runId: string;
+  /** The launching conversation (desktop session id). */
+  parentSessionId: string;
+  /** The run-card block id the run's graph hangs on. */
+  toolCallId?: string;
+  workflowName?: string;
+};
+
+/** A workflow subagent's hidden Host session, watched read-only. */
+export type WorkflowAgentTabSource = {
+  sessionId: string;
+  parentSessionId: string;
+  runId: string;
+};
+
 export type SessionChangesSource = {
   sessionId: string;
 };
@@ -61,6 +78,7 @@ export const APP_VIEW_KINDS = [
   "inbox",
   "notes",
   "automations",
+  "workflows",
   "assistant",
 ] as const;
 
@@ -73,6 +91,7 @@ export function appViewTitle(kind: AppViewKind): string {
     inbox: "Inbox",
     notes: "Notes",
     automations: "Automations",
+    workflows: "Workflows",
     assistant: "Assistant",
   }[kind];
 }
@@ -98,6 +117,8 @@ export type FilePaneTab = {
   commit?: CommitTabSource;
   /** Read-only transcript of an orchestration worker. Live only — not persisted. */
   agent?: AgentTabSource;
+  workflowRun?: WorkflowRunTabSource;
+  workflowAgent?: WorkflowAgentTabSource;
   terminal?: boolean;
   /** Foreground command when it isn't the shell. Live only — not persisted. */
   foreground?: string;
@@ -412,6 +433,14 @@ export function newAgentTab(
   return { id: crypto.randomUUID(), path: title, cwd, agent };
 }
 
+export function newWorkflowRunTab(title: string, cwd: string, workflowRun: WorkflowRunTabSource): FilePaneTab {
+  return { id: crypto.randomUUID(), path: title, cwd, workflowRun };
+}
+
+export function newWorkflowAgentTab(title: string, cwd: string, workflowAgent: WorkflowAgentTabSource): FilePaneTab {
+  return { id: crypto.randomUUID(), path: title, cwd, workflowAgent };
+}
+
 export function newTerminalFile(
   cwd: string,
   title?: string,
@@ -541,8 +570,18 @@ export function isAgentTab(
   return !!file.agent;
 }
 
+export function isWorkflowRunTab(file: FilePaneTab): file is FilePaneTab & { workflowRun: WorkflowRunTabSource } {
+  return !!file.workflowRun;
+}
+
+export function isWorkflowAgentTab(file: FilePaneTab): file is FilePaneTab & { workflowAgent: WorkflowAgentTabSource } {
+  return !!file.workflowAgent;
+}
+
 export function isVirtualDocumentTab(file: FilePaneTab): boolean {
   return (
+    isWorkflowRunTab(file) ||
+    isWorkflowAgentTab(file) ||
     isAppViewTab(file) ||
     isPlanTab(file) ||
     isReleaseNotesTab(file) ||
@@ -627,6 +666,8 @@ export function editorTabKey(file: FilePaneTab): string {
   if (file.appView) return `app:${file.appView.kind}`;
   if (file.terminal) return `terminal:${file.id}`;
   if (file.agent) return `agent:${file.agent.sessionId}`;
+  if (file.workflowRun) return `workflow-run:${file.workflowRun.runId}`;
+  if (file.workflowAgent) return `workflow-agent:${file.workflowAgent.sessionId}`;
   if (file.plan) return `plan:${file.plan.blockId}`;
   if (file.releaseNotes) return `release-notes:${file.releaseNotes.version}`;
   if (file.commit) return `commit:${file.cwd}:${file.commit.sha}`;

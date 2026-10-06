@@ -19,6 +19,8 @@ type SidebarTab = SidebarTabId;
 export type SidebarProps = {
   onOpenAssistant?: () => void;
   assistantActive?: boolean;
+  /** The Workflows section (runs and saved workflows), shown in the sessions tab. */
+  workflowsSection?: ReactNode;
   cwd: string;
   recents?: RecentProject[];
   projectHistory?: SessionSummary[];

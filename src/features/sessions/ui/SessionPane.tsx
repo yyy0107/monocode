@@ -576,6 +576,12 @@ const LocalSessionPane = memo(function LocalSessionPane({
     return () => window.removeEventListener(ADD_TO_CHAT_EVENT, onAdd);
   }, [addSelectionToChat, addToChatTarget]);
   const workCwd = sessionWorkCwd(session);
+  const workflowParent = useMemo(
+    () => session.blocks.some((block) => block.workflowRun)
+      ? { id: session.id, harness: session.harness, model: session.model, modelSettings: session.modelSettings, workflowRuns: session.workflowRuns, cwd: session.cwd }
+      : undefined,
+    [session.blocks, session.id, session.harness, session.model, session.modelSettings, session.workflowRuns, session.cwd],
+  );
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
   const dockComposer =
     remoteSessionLoading ||
@@ -889,6 +895,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
                   harness={session.harness}
                   model={session.model}
                   modelSettings={session.modelSettings}
+                  workflowParent={workflowParent}
                   pendingQuestion={!!session.pendingQuestion}
                   pendingQuestionHistoryId={session.pendingQuestion?.historyId}
                   onQuestionFollowUp={session.worktreeRemoved || session.harness !== "codex" ? undefined : (answer) =>

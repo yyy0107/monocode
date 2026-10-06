@@ -5,7 +5,9 @@ import {
 import {
   closeLeaf,
   APP_VIEW_KINDS,
-  isAgentTab,
+  isAgentTab as isWorkerTab,
+  isWorkflowAgentTab,
+  isWorkflowRunTab,
   isAppViewTab,
   isAppViewOnlyTab,
   isTerminalTab,
@@ -169,6 +171,11 @@ function parseProjectReturnTargets(raw: unknown): ProjectReturnMemory {
  * started it. Dropping them in `sanitizeFile` would strand an empty pane and
  * cost the whole workspace tab on restore, so the pane is closed here instead.
  */
+/** Orchestration workers and workflow views watch live Host state; they are not restored. */
+function isAgentTab(file: Parameters<typeof isWorkerTab>[0]) {
+  return isWorkerTab(file) || isWorkflowRunTab(file) || isWorkflowAgentTab(file);
+}
+
 function withoutAgentTabs(tabs: WorkspaceTab[]): WorkspaceTab[] {
   return tabs.flatMap((tab) => {
     if (!tab.editorPanes.some((pane) => pane.files.some(isAgentTab)))
@@ -330,7 +337,7 @@ export function withoutRetiredSessions<T extends {
     }
     if (!remaining) return [];
     for (const pane of remaining.editorPanes) {
-      const files = pane.files.filter((file) => !isAgentTab(file) ||
+      const files = pane.files.filter((file) => !isWorkerTab(file) ||
         (!retired(file.agent.sessionId) && !retired(file.agent.leadId)));
       if (files.length === pane.files.length) continue;
       if (!files.length) {

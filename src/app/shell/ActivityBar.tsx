@@ -8,6 +8,7 @@ import {
   Search,
   Settings,
   StickyNote,
+  Workflow,
   Zap,
   type IconComponent,
 } from "../../shared/ui/icons";
@@ -54,12 +55,14 @@ export type ActivityBarProps = {
   onOpenInbox?: () => void;
   onOpenNotes?: () => void;
   onOpenAutomations?: () => void;
+  onOpenWorkflows?: () => void;
   onOpenSettings?: () => void;
   onOpenNotificationSettings?: (projectPath?: string) => void;
   searchActive?: boolean;
   inboxActive?: boolean;
   notesActive?: boolean;
   automationsActive?: boolean;
+  workflowsActive?: boolean;
   settingsActive?: boolean;
   notesEnabled?: boolean;
   inboxUnseen?: boolean;
@@ -87,12 +90,14 @@ export function ActivityBar({
   onOpenInbox,
   onOpenNotes,
   onOpenAutomations,
+  onOpenWorkflows,
   onOpenSettings,
   onOpenNotificationSettings,
   searchActive = false,
   inboxActive = false,
   notesActive = false,
   automationsActive = false,
+  workflowsActive = false,
   settingsActive = false,
   notesEnabled = true,
   inboxUnseen = false,
@@ -199,6 +204,15 @@ export function ActivityBar({
             active={automationsActive}
             onClick={onOpenAutomations}
           />
+          {onOpenWorkflows ? (
+            <ActivityAction
+              row={row}
+              label={t("Workflows")}
+              icon={Workflow}
+              active={workflowsActive}
+              onClick={onOpenWorkflows}
+            />
+          ) : null}
         </div>
       ) : null}
       {!row ? <div className="min-h-0 flex-1" /> : null}

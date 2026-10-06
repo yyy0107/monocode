@@ -20,7 +20,7 @@ import {
   stopStreaming,
 } from "../src/integrations/harness/core/apply";
 import { canDispatchQueuedHead, dequeueQueuedMessage, queuedHead } from "../src/features/sessions/model/messageQueue";
-import { resolveModel } from "../src/features/sessions/model/models";
+import { DEFAULT_MODEL_ID, resolveModel } from "../src/features/sessions/model/models";
 import { isVisionImage } from "../src/features/sessions/model/attachments";
 import type {
   HarnessEvent,
@@ -464,6 +464,7 @@ export class HostEngine {
         stop: (id) => this.stopManaged(id),
       },
       providers: () => Object.keys(providers) as RemoteProvider[],
+      createSession: (cwd, title, runtime) => this.createWorkflowLaunchSession(cwd, title, runtime),
       ...(options.entry ? { entry: options.entry } : {}),
       ...(options.node ? { node: options.node } : {}),
     });
@@ -551,6 +552,20 @@ export class HostEngine {
     this.save({ ...value, supportsQueue: true, canSteer: !!this.provider(task.harness).steer,
       session: { ...value.session, cwd, worktreeCwd: cwd === project.cwd ? undefined : cwd, branch: preparation.workspace.branch, worktreeRemoved: false, runtimeMode: lead.session.runtimeMode, orchestrationLeadId: run.leadId } }, { type: "orchestration.workerPrepared", leadId: run.leadId });
     if (value.session.providerSessionId) this.bindRetainedSession({ ...value.session, cwd });
+  }
+
+  /** A visible conversation that a saved workflow launched from the sidebar runs in. */
+  private async createWorkflowLaunchSession(cwd: string, title: string, runtime?: { harness?: string; model?: string }): Promise<string> {
+    const project = this.store.projects().find((entry) => entry.cwd === cwd) ?? await this.openProject(cwd);
+    const recent = this.store.sessions().filter((value) => value.projectId === project.id && !value.session.workflowParentId && !value.session.orchestrationLeadId && !value.session.assistantOwnerId)
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.session;
+    const installed = Object.keys(this.providers) as RemoteProvider[];
+    const harness = (runtime?.harness && installed.includes(runtime.harness as RemoteProvider) ? runtime.harness : recent?.harness && installed.includes(recent.harness as RemoteProvider) ? recent.harness : installed[0]) as RemoteProvider | undefined;
+    if (!harness) throw new Error("No agent provider is installed on this machine");
+    const model = runtime?.model ?? (recent?.harness === harness ? recent.model : DEFAULT_MODEL_ID[harness] || `${harness}:default`);
+    const receipt = this.command({ type: "create", commandId: `workflow-launch:${randomUUID()}`, projectId: project.id, harness, model, runtimeMode: recent?.runtimeMode ?? "auto-accept-edits" });
+    this.mutateManaged(receipt.sessionId, (value) => ({ ...value, session: { ...value.session, title, titleState: { source: "manual", epoch: 0, purpose: "initial", fallbackAttempted: false } } }), { type: "workflow.launchSession" });
+    return receipt.sessionId;
   }
 
   /** A hidden session that runs one dynamic workflow subagent. */

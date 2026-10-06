@@ -115,6 +115,7 @@ export const MobileTranscript = memo(function MobileTranscript({
           harness={session.harness}
           model={session.model}
           modelSettings={session.modelSettings}
+          workflowParent={session.blocks.some((block) => block.workflowRun) ? { id: session.id, harness: session.harness, model: session.model, modelSettings: session.modelSettings, workflowRuns: session.workflowRuns, cwd: session.cwd } : undefined}
           pendingQuestion={!!session.pendingQuestion}
           pendingQuestionHistoryId={session.pendingQuestion?.historyId}
           onQuestionFollowUp={session.harness !== "codex" ? undefined : (answer) =>

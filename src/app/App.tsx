@@ -1,4 +1,15 @@
 import { translate } from "../shared/i18n/language";
+import {
+  WorkflowAppContext,
+  type WorkflowAppActions,
+} from "../features/workflows/ui/workflowAppContext";
+import {
+  WorkflowActivityContext,
+  workflowActivityIndex,
+} from "../features/workflows/model/workflowActivity";
+import { WorkflowSidebarSection } from "../features/workflows/ui/WorkflowSidebarSection";
+import { WorkflowsView } from "../features/workflows/ui/WorkflowsView";
+import { WorkflowProjectsContext } from "../features/workflows/zcode/store/TabStoreProvider";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { DesktopAssistant } from "../features/assistant/ui/DesktopAssistant";
 import {
@@ -200,6 +211,8 @@ import {
   openChangesTab,
   openCommitTab,
   newAgentTab,
+  newWorkflowAgentTab,
+  newWorkflowRunTab,
   openEditorTab,
   openSessionChangesTab,
   pinEditorFile,
@@ -9762,6 +9775,97 @@ function Workspace({
     setActiveTabId(tab.id);
     setComposerFocused(false);
   }, [tabs, workerDetailRequest]);
+  // Workflow run and subagent tabs open beside the launching conversation,
+  // resolved the same way orchestration worker tabs are.
+  const [workflowTabRequest, setWorkflowTabRequest] = useState<{
+    parentSessionId: string;
+    file: FilePaneTab;
+  } | null>(null);
+  useEffect(() => {
+    if (!workflowTabRequest) return;
+    const { parentSessionId, file } = workflowTabRequest;
+    const tab = tabs.find((entry) =>
+      leafIds(entry.layout).includes(parentSessionId),
+    );
+    if (!tab) {
+      if (!sessionsRef.current.some((entry) => entry.id === parentSessionId))
+        setWorkflowTabRequest(null);
+      return;
+    }
+    setWorkflowTabRequest(null);
+    setTabs((prev) =>
+      prev.map((entry) =>
+        entry.id === tab.id ? openEditorTab(entry, file) : entry,
+      ),
+    );
+    setActiveTabId(tab.id);
+    setComposerFocused(false);
+  }, [tabs, workflowTabRequest]);
+  const [workflowDraftRequest, setWorkflowDraftRequest] = useState<{
+    sessionId: string;
+    prompt: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!workflowDraftRequest) return;
+    if (!sessions.some((entry) => entry.id === workflowDraftRequest.sessionId))
+      return;
+    setWorkflowDraftRequest(null);
+    onSaveDraft(workflowDraftRequest.sessionId, workflowDraftRequest.prompt);
+  }, [onSaveDraft, sessions, workflowDraftRequest]);
+  const workflowProjects = useMemo(
+    () =>
+      recents.map((project) => ({
+        workspacePath: project.path,
+        label: project.path.split(/[\\/]/).filter(Boolean).pop() ?? project.path,
+      })),
+    [recents],
+  );
+  const workflowActivity = useMemo(
+    () => workflowActivityIndex(sessions),
+    [sessions],
+  );
+  const workflowApp = useMemo<WorkflowAppActions>(() => {
+    const openBesideParent = (parentSessionId: string, file: FilePaneTab) => {
+      void (async () => {
+        if (!focusOpenSession(parentSessionId))
+          await onSelectHistorySession(parentSessionId);
+        setWorkflowTabRequest({ parentSessionId, file });
+      })().catch(console.error);
+    };
+    return {
+      openRun: (request) =>
+        openBesideParent(
+          request.parentSessionId,
+          newWorkflowRunTab(request.workflowName ?? "Workflow", request.cwd, {
+            runId: request.runId,
+            parentSessionId: request.parentSessionId,
+            ...(request.toolCallId ? { toolCallId: request.toolCallId } : {}),
+            ...(request.workflowName
+              ? { workflowName: request.workflowName }
+              : {}),
+          }),
+        ),
+      openAgent: (request) =>
+        openBesideParent(
+          request.parentSessionId,
+          newWorkflowAgentTab(request.title, request.cwd, {
+            sessionId: request.sessionId,
+            parentSessionId: request.parentSessionId,
+            runId: request.runId,
+          }),
+        ),
+      openSession: (cwd, sessionId) => onSelectRemoteSession(cwd, sessionId),
+      createViaChat: (cwd, prompt) => {
+        const sessionId = onNewInProject(cwd);
+        setWorkflowDraftRequest({ sessionId, prompt });
+      },
+    };
+  }, [
+    focusOpenSession,
+    onNewInProject,
+    onSelectHistorySession,
+    onSelectRemoteSession,
+  ]);
   const orchestrationWorkers = useMemo(
     () => ({
       selectedId: inspectedWorkerId,
@@ -10137,6 +10241,10 @@ function Workspace({
     openAppView("automations");
   }, [openAppView]);
 
+  const onOpenWorkflows = useCallback(() => {
+    openAppView("workflows");
+  }, [openAppView]);
+
   const onLeaveAutomations = useCallback(() => {
     if (appDialogRef.current) closeAppDialog();
     else leaveAppView();
@@ -10363,6 +10471,7 @@ function Workspace({
     "View: Inbox": onOpenInbox,
     "View: Notes": notesEnabled ? onOpenNotes : undefined,
     "View: Automations": onOpenAutomations,
+    "View: Workflows": onOpenWorkflows,
     "App: Settings": () => openSettings(),
     "App: Switch Model": () =>
       window.dispatchEvent(new Event("open_model_picker")),
@@ -10888,6 +10997,8 @@ function Workspace({
             }}
           />
         );
+      case "workflows":
+        return <WorkflowsView cwd={projectCwd} />;
       case "settings":
         return (
           <SettingsView
@@ -10961,10 +11072,12 @@ function Workspace({
     onOpenNotes: notesEnabled ? onOpenNotes : undefined,
     onOpenSettings,
     onOpenAutomations,
+    onOpenWorkflows,
     searchActive: activeAppView === "search",
     inboxActive: appDialog === "inbox",
     notesActive: activeAppView === "notes",
     automationsActive: activeAppView === "automations",
+    workflowsActive: activeAppView === "workflows",
     settingsActive: activeAppView === "settings",
     notesEnabled,
     inboxUnseen,
@@ -10976,6 +11089,9 @@ function Workspace({
   const railMotion = useCollapseMotion(!sessionSidebarOpen, 200);
 
   return (
+    <WorkflowAppContext.Provider value={workflowApp}>
+    <WorkflowProjectsContext.Provider value={workflowProjects}>
+    <WorkflowActivityContext.Provider value={workflowActivity}>
     <OrchestrationActions.Provider value={orchestrationActions}>
       <OrchestrationWorkers.Provider value={orchestrationWorkers}>
         <AppViewRendererContext.Provider value={renderAppView}>
@@ -11073,6 +11189,16 @@ function Workspace({
                   }
                   onOpenAssistant={onOpenAssistant}
                   assistantActive={activeAppView === "assistant"}
+                  workflowsSection={
+                    <WorkflowSidebarSection
+                      activeSessionId={active?.id}
+                      onOpenSession={(sessionId) =>
+                        void onSelectHistorySession(sessionId)
+                      }
+                      onOpenWorkflows={onOpenWorkflows}
+                      workflowsActive={activeAppView === "workflows"}
+                    />
+                  }
                   recents={recents}
                   onSelectProject={onSelectProject}
                   onOpenProject={pickProject}
@@ -11463,6 +11589,9 @@ function Workspace({
         </AppViewRendererContext.Provider>
       </OrchestrationWorkers.Provider>
     </OrchestrationActions.Provider>
+    </WorkflowActivityContext.Provider>
+    </WorkflowProjectsContext.Provider>
+    </WorkflowAppContext.Provider>
   );
 }
 function lastUserBlockId(session: Session): string | undefined {

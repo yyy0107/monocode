@@ -127,7 +127,10 @@ export function resolveWorkflowRuntime(options: {
   const catalogModel = options.catalog?.(harness)?.find((candidate) => candidate.id === model);
   const inherited = sameHarness && model === options.session.model ? options.session.modelSettings : {};
   const base = catalogModel ? { ...Object.fromEntries((catalogModel.settings ?? []).map((setting) => [setting.id, setting.value])), ...inherited } : { ...inherited };
-  return { harness, model, modelSettings: applyThinkingAndSpeed(harness, catalogModel, base, pick("thinking"), pick("speed")) };
+  // Exact picker settings apply only to the layer's own provider and model.
+  const exact = options.layers.find((layer) => layer?.modelSettings !== undefined && (layer.provider === undefined || normalizeWorkflowHarness(layer.provider) === harness));
+  const picked = exact?.modelSettings ? { ...base, ...exact.modelSettings } : base;
+  return { harness, model, modelSettings: applyThinkingAndSpeed(harness, catalogModel, picked, pick("thinking"), pick("speed")) };
 }
 
 /** Short label for a resolved runtime, e.g. "codex · gpt-5.5 · high · fast". */

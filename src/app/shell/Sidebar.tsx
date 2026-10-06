@@ -1300,6 +1300,7 @@ function SidebarComponent(props: SidebarProps) {
                   : undefined
               }
               recentPending={summariesPending}
+              workflowsSection={tab === "sessions" ? props.workflowsSection : undefined}
               onProjectHoverOpen={
                 props.onLoadProject || props.onPrefetchRemoteProject
                   ? onProjectHoverOpen

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../features/workflows/workflows.css";
 @source "../../node_modules/streamdown/dist/*.js";
 @source "../../node_modules/@streamdown/code/dist/*.js";
 @source "../../node_modules/@streamdown/mermaid/dist/*.js";
@@ -114,6 +115,40 @@
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
     Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+}
+
+/* ZCode component tokens used by the ported dynamic-workflow UI, derived from
+   Monocode's own tint so hue, contrast and light/dark settings apply. */
+@theme {
+  --text-ui-2xs: calc(var(--ui-font-size) - 5px);
+  --tracking-wf-label: 0.09em;
+  --color-foreground: color-mix(in srgb, var(--color-content) 88%, transparent);
+  --color-foreground-inverse: var(--color-background-base);
+  --color-background: var(--color-background-base);
+  --color-border: var(--color-stroke);
+  --color-hover: var(--color-surface-hover);
+  --color-selected: var(--color-selection);
+  --color-card-border: var(--color-stroke);
+  --color-popover: var(--card-color);
+  --color-popover-foreground: var(--color-foreground);
+  --color-popover-border: var(--color-stroke);
+  --color-input: var(--card-color);
+  --color-input-focused: var(--card-color);
+  --color-input-border: var(--color-stroke);
+  --color-input-border-hover: var(--color-border-hover);
+  --color-input-border-focused: var(--color-brand);
+  --color-ring: var(--color-brand);
+  --color-primary: var(--color-content);
+  --color-primary-foreground: var(--color-background-base);
+  --color-secondary: var(--color-selection-strong);
+  --color-destructive-foreground: #ffffff;
+  --color-success: #16a34a;
+  --color-success-foreground: #ffffff;
+  --color-warning: #d97706;
+  --color-warning-foreground: #ffffff;
+  --color-workflow-rule: color-mix(in srgb, var(--color-content) 6%, transparent);
+  --color-workflow-trace: color-mix(in srgb, var(--color-content) 32%, transparent);
+  --color-workflow-trace-strong: color-mix(in srgb, var(--color-content) 57%, transparent);
 }
 
 /* Static so Tailwind always emits it: only xterm reads it, via JS. */

@@ -202,6 +202,11 @@ export const APP_COMMANDS: CommandSpec[] = [
     menu: { id: "view", group: 3 },
   },
   {
+    id: "View: Workflows",
+    title: "Workflows",
+    menu: { id: "view", group: 3 },
+  },
+  {
     id: "App: Settings",
     title: "Settings…",
     nativeEvent: "open_settings",

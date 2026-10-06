@@ -1,3 +1,4 @@
+import { resolve, sep } from "node:path";
 import {
   createServer,
   type IncomingMessage,
@@ -506,7 +507,11 @@ export function createHostServer(
             result = engine.command(params);
             break;
           case "workflows.request":
-            result = await engine.workflows.rpc(params, (projectId) => engine.store.project(projectId).cwd);
+            result = await engine.workflows.rpc(params, (projectId) => engine.store.project(projectId).cwd, (path) => {
+              const target = resolve(path);
+              return engine.store.projects().some((project) => target === resolve(project.cwd) || target.startsWith(`${resolve(project.cwd)}${sep}`))
+                || engine.store.sessions().some((value) => value.session.worktreeCwd && resolve(value.session.worktreeCwd) === target);
+            });
             break;
           case "assistant.get":
           case "assistant.configure":

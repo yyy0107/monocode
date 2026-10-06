@@ -40,6 +40,7 @@ import type { WorkflowRunsState, WorkflowRunState } from "../../src/integrations
 import {
   isValidSavedWorkflowName,
   SavedWorkflowArgsDeclarationSchema,
+  SavedWorkflowMetaSchema,
   type SavedWorkflowEntry,
   type SavedWorkflowScope,
 } from "../../src/integrations/workflow/savedWorkflow.js";
@@ -48,12 +49,13 @@ import { HostControl, WORKFLOW_ACTIONS } from "../control";
 import { analyze, clampRunConcurrency, compileOnce, evalSnippet, formatDiagnostics, scriptHash, validateFn, workflowConcurrencyCeiling } from "./compile.js";
 import { MonocodeWorkflowDriver, effectiveActorName, mintActorSessionId, personaRuntime, type WorkflowWorkerPort } from "./driver.js";
 import { buildImportedCache, preflightAmendImport, TERMINAL_RUN_STATUSES } from "./import.js";
+import { artifactItems, artifactsOf, readArtifactBytes } from "./artifact-queries.js";
 import { SqliteJournalStore } from "./journal.js";
 import { FileArtifactStore } from "./node-ports.js";
 import { runWorkflowScript } from "./runtime/harness.js";
 import { resolveWorkflowDraftName, writeWorkflowDraft } from "./saved/drafts.js";
 import { parseSavedWorkflow } from "./saved/frontmatter.js";
-import { listSavedWorkflows, resolveSavedWorkflow, saveSavedWorkflow, savedWorkflowPath, savedWorkflowRoot } from "./saved/store.js";
+import { listSavedWorkflows, moveSavedWorkflow, resolveSavedWorkflow, saveSavedWorkflow, savedWorkflowPath, savedWorkflowRoot } from "./saved/store.js";
 import { validateWorkflowArgs } from "./saved/args.js";
 import SKILL_MD from "./skill/SKILL.md?raw";
 import PATTERNS_MD from "./skill/patterns.md?raw";
@@ -65,6 +67,8 @@ export interface HostWorkflowsDeps {
   session(id: string): HostSession | undefined;
   mutate(id: string, change: (value: HostSession) => HostSession, event: unknown): HostSession;
   workers: WorkflowWorkerPort;
+  /** Create an ordinary conversation in a project folder to launch a workflow from. */
+  createSession?(cwd: string, title: string, runtime?: { harness?: HarnessId; model?: string }): Promise<string>;
   /** Installed providers. */
   providers(): readonly HarnessId[];
   /** A provider's model catalog for a project directory, when it can be discovered. */
@@ -341,11 +345,16 @@ export class HostWorkflows {
   // ———————————————————————————— Desktop / mobile RPC ————————————————————————————
 
   /** `workflows.request`: one Host method, dispatched by `action`. */
-  async rpc(params: Record<string, unknown>, projectCwd: (projectId: string) => string): Promise<unknown> {
+  async rpc(params: Record<string, unknown>, projectCwd: (projectId: string) => string, workspaceAllowed: (path: string) => boolean = () => true): Promise<unknown> {
     await this.ready;
     const action = String(params.action ?? "");
     const cwd = () => {
       if (typeof params.projectId === "string") return projectCwd(params.projectId);
+      if (typeof params.workspacePath === "string" && params.workspacePath) {
+        if (!workspaceAllowed(params.workspacePath)) throw new Error("This folder is not an open project on this machine");
+        return params.workspacePath;
+      }
+      if (params.scope === "global") return homedir();
       if (typeof params.sessionId === "string") {
         const value = this.deps.session(params.sessionId);
         if (value) return value.session.worktreeCwd || value.session.cwd;
@@ -362,14 +371,49 @@ export class HostWorkflows {
       if (!id || !this.deps.session(id)) throw new Error("A valid sessionId is required");
       return id;
     };
+    const scope = (): SavedWorkflowScope => params.scope === "global" ? "global" : "project";
     switch (action) {
-      case "saved.list": return this.savedList(cwd());
-      case "saved.get": return this.savedGet(cwd(), String(params.name ?? ""), params.scope === "global" || params.scope === "project" ? params.scope : undefined);
+      case "saved.list": {
+        const listed = listSavedWorkflows({ cwd: cwd(), ...(params.scope === "global" || params.scope === "project" ? { scope: params.scope } : {}) });
+        return { workflows: listed.entries, invalid: listed.invalid, dir: savedWorkflowRoot(cwd(), scope()).dir };
+      }
+      case "saved.get": {
+        const resolved = resolveSavedWorkflow({ cwd: cwd(), name: String(params.name ?? ""), ...(params.scope === "global" || params.scope === "project" ? { scope: params.scope } : {}) });
+        if (!resolved.ok) return resolved;
+        return { ok: true, name: resolved.name, path: resolved.path, scope: resolved.scope, meta: resolved.meta, script: resolved.script };
+      }
+      case "saved.analyze": return this.savedGet(cwd(), String(params.name ?? ""), params.scope === "global" || params.scope === "project" ? params.scope : undefined);
+      case "saved.updateMeta": {
+        const name = String(params.name ?? "");
+        const resolved = resolveSavedWorkflow({ cwd: cwd(), name, scope: scope() });
+        if (!resolved.ok) return resolved;
+        const meta = SavedWorkflowMetaSchema.parse(params.meta);
+        const saved = saveSavedWorkflow({ cwd: cwd(), name, scope: scope(), meta, script: resolved.script });
+        return { ok: true, path: saved.path };
+      }
       case "saved.save": return this.saveFromInput(cwd(), params);
-      case "saved.delete": return this.savedDelete(cwd(), String(params.name ?? ""), params.scope === "global" ? "global" : "project");
+      case "saved.delete": {
+        const name = String(params.name ?? "");
+        const resolved = resolveSavedWorkflow({ cwd: cwd(), name, scope: scope() });
+        if (!resolved.ok) return resolved;
+        await rm(resolved.path, { force: true });
+        return { ok: true, path: resolved.path };
+      }
+      case "saved.move": return moveSavedWorkflow({ cwd: cwd(), name: String(params.name ?? "") });
+      case "saved.runs": return this.savedRuns(scope() === "global" && !params.workspacePath ? undefined : cwd(), optionalString(params, "name"), typeof params.limit === "number" ? params.limit : 50);
       case "start": {
         const input = recordInput(params, "input") ?? {};
         return this.submit(sessionId(), parseSubmitInput(input), "user");
+      }
+      case "startInNewSession": {
+        if (!this.deps.createSession) throw new Error("This Host cannot create conversations for workflows");
+        const input = parseSubmitInput(recordInput(params, "input") ?? {});
+        const folder = cwd();
+        const harness = normalizeWorkflowHarness(optionalString(params, "harness"));
+        const model = optionalString(params, "model");
+        const created = await this.deps.createSession(folder, input.name ?? input.saved?.name ?? "Workflow", { ...(harness ? { harness } : {}), ...(model ? { model } : {}) });
+        const result = await this.submit(created, input, "user");
+        return { ...result, sessionId: created };
       }
       case "approve": return this.approve(runId());
       case "discard": return this.discard(runId());
@@ -377,6 +421,9 @@ export class HostWorkflows {
       case "script": return this.script(runId());
       case "nodeResult": return this.nodeResult(runId(), String(params.siteId ?? ""), Number(params.ordinal ?? 0));
       case "artifact": return (await this.readArtifact(String(params.uri ?? ""))) ?? null;
+      case "artifacts": return { artifacts: artifactsOf(runId(), this.journal) };
+      case "artifactData": return artifactItems(this.deps.db, runId(), String(params.artifactId ?? ""), { ...(typeof params.afterSequence === "number" ? { afterSequence: params.afterSequence } : {}), limit: typeof params.limit === "number" ? params.limit : 100 });
+      case "artifactRead": return readArtifactBytes(this.artifacts, this.journal, runId(), String(params.artifactId ?? ""), typeof params.version === "number" ? params.version : undefined, Number(params.offset ?? 0), Number(params.limit ?? 512 * 1024));
       case "events": return this.journal.listEvents(runId(), { ...(typeof params.after === "number" ? { afterSequence: params.after } : {}), limit: 500 });
       case "cancel": return this.cancel(runId(), "user");
       case "resume": return this.resume(runId());
@@ -562,6 +609,7 @@ export class HostWorkflows {
       cwd: prepared.cwd,
       name: prepared.name,
       parentSessionId: prepared.parentSessionId,
+      toolCallId: `workflow-${prepared.runId}`,
       ...(prepared.args ? { args: prepared.args } : {}),
       ...(prepared.resumedFrom ? { resumedFrom: prepared.resumedFrom } : {}),
       ...(resume?.importedCache ? { importedCache: resume.importedCache } : {}),
@@ -623,15 +671,15 @@ export class HostWorkflows {
         actorRuntime = { harness: runtime.harness, model: runtime.model, label: describeWorkflowRuntime(runtime) };
       } catch { /* An invalid provider fails the actor's session; the card shows that failure. */ }
     }
-    this.project(prepared.parentSessionId, prepared.runId, event, sequence, extra, actorSessionId, actorRuntime);
+    this.project(prepared.parentSessionId, prepared.runId, event, sequence, extra, actorSessionId, actorRuntime, `workflow-${prepared.runId}`);
     this.notifyWaiters(prepared.runId);
   }
 
-  private project(parentSessionId: string, runId: string, event: RunEvent, sequence: number, extra: Record<string, unknown> = {}, actorSessionId?: string, actorRuntime?: { harness: string; model: string; label: string }): void {
+  private project(parentSessionId: string, runId: string, event: RunEvent, sequence: number, extra: Record<string, unknown> = {}, actorSessionId?: string, actorRuntime?: { harness: string; model: string; label: string }, toolCallId = `workflow-${runId}`): void {
     const { type, ...payload } = event;
     const previous = this.states.get(parentSessionId) ?? this.deps.session(parentSessionId)?.session.workflowRuns;
     const next = reduceWorkflowRunsState(previous, {
-      runId, sequence, eventType: type,
+      runId, toolCallId, sequence, eventType: type,
       payload: { ...(JSON.parse(JSON.stringify(payload)) as Record<string, unknown>), ...extra },
       ...(actorSessionId ? { actorSessionId } : {}),
       ...(actorRuntime ? { actorRuntime } : {}),
@@ -910,6 +958,33 @@ export class HostWorkflows {
   }
 
   // ———————————————————————————— Saved workflows ————————————————————————————
+
+  /** Run history for the saved-workflows hub: runs in a project (or all), optionally by name. */
+  savedRuns(cwd: string | undefined, name: string | undefined, limit: number) {
+    const rows = this.deps.db.prepare(`SELECT record, created_at FROM workflow_runs
+      WHERE (? IS NULL OR json_extract(record, '$.cwd') = ?) AND (? IS NULL OR json_extract(record, '$.name') = ?)
+      ORDER BY created_at DESC LIMIT ?`).all(cwd ?? null, cwd ?? null, name ?? null, name ?? null, Math.max(1, Math.min(50, limit)) + 1);
+    const runs = rows.slice(0, Math.min(50, limit)).map((row) => {
+      const record = JSON.parse(String(row.record)) as RunRecord;
+      const createdAt = Number(row.created_at);
+      const last = this.journal.listEvents(record.runId).at(-1);
+      const state = this.runState(record);
+      return {
+        runId: record.runId,
+        ...(record.name ? { name: record.name } : {}),
+        status: this.live.has(record.runId) ? "running" : record.status,
+        ...(record.stopReason ? { stopReason: record.stopReason } : {}),
+        createdAt,
+        updatedAt: last?.timeCreated ?? createdAt,
+        spentTokens: record.spentTokens,
+        ...(record.parentSessionId ? { parentSessionId: record.parentSessionId } : {}),
+        ...(record.args ? { args: record.args } : {}),
+        ...(record.cwd ? { cwd: record.cwd } : {}),
+        ...(state?.artifacts?.length ? { artifacts: state.artifacts.slice(0, 8).map((artifact) => ({ id: artifact.id, kind: artifact.kind, ...(artifact.title ? { title: artifact.title } : {}), version: artifact.version, ...(artifact.contentType ? { contentType: artifact.contentType } : {}) })) } : {}),
+      };
+    });
+    return { runs, ...(rows.length > runs.length ? { truncated: true } : {}) };
+  }
 
   savedList(cwd: string): { workflows: (SavedWorkflowEntry & { script?: string })[]; invalid: { path: string; reason: string }[] } {
     const listed = listSavedWorkflows({ cwd });
