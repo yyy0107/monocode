@@ -430,17 +430,28 @@ function AgentTranscriptComponent({
         syncJumpVisibility(el);
         return;
       }
-      const previousTop = scrollGeometry.current.top;
-      const movement = el.scrollTop - previousTop;
       // Content growth can precede a queued event from the previous pin.
       // Browser clamping after layout changes is not reading intent either.
-      if (movement !== 0 && !scrollClampedToBottom(el, previousTop)) {
-        stickToBottom.current = movement > 0 && isNearBottom(el);
-      }
+      stickToBottom.current = followsAfterScroll(
+        el,
+        scrollGeometry.current.top,
+        stickToBottom.current,
+      );
       rememberScroll(el);
       syncJumpVisibility(el);
     },
     [rememberScroll, syncJumpVisibility, touchScroll],
+  );
+
+  const followTranscript = useCallback(
+    (el: HTMLElement | null) => {
+      if (!el) return;
+      // The browser can apply a manual scroll before dispatching its event.
+      // Reconcile that offset before a streaming commit or observer pins it.
+      syncPinned(el);
+      if (stickToBottom.current) pinTranscript(el);
+    },
+    [pinTranscript, syncPinned],
   );
 
   const jumpToBottom = useCallback(() => {
@@ -614,8 +625,8 @@ function AgentTranscriptComponent({
     if (!visible || !stickToBottom.current) return;
     const el = scroller.current;
     syncTranscriptViewport(el);
-    pinTranscript(el);
-  }, [blocks, busy, pinTranscript, visible]);
+    followTranscript(el);
+  }, [blocks, busy, followTranscript, visible]);
 
   useLayoutEffect(() => {
     const el = scrollerEl;
@@ -648,12 +659,7 @@ function AgentTranscriptComponent({
         );
         endObserver.observe(observedEnd);
       }
-      if (stickToBottom.current) {
-        pinTranscript(el);
-        syncJumpVisibility(el);
-        return;
-      }
-      rememberScroll(el);
+      followTranscript(el);
       syncJumpVisibility(el);
     };
     const observer = new ResizeObserver(onResize);
@@ -664,14 +670,7 @@ function AgentTranscriptComponent({
       observer.disconnect();
       endObserver?.disconnect();
     };
-  }, [
-    scrollerEl,
-    pinTranscript,
-    rememberScroll,
-    syncJumpVisibility,
-    visible,
-    lastUserId,
-  ]);
+  }, [scrollerEl, followTranscript, syncJumpVisibility, visible, lastUserId]);
 
   useTurnScrollAnchor(scrollerEl, visible, stickToBottom, rememberScroll);
 
@@ -693,7 +692,7 @@ function AgentTranscriptComponent({
       // the taller transcript first and unpin it partway up.
       if (stickToBottom.current) {
         syncTranscriptViewport(el);
-        pinTranscript(el);
+        followTranscript(el);
       } else {
         el.scrollTop =
           el.scrollHeight - el.clientHeight - distanceFromBottom.current;
@@ -704,7 +703,7 @@ function AgentTranscriptComponent({
     prependHeight.current = null;
     el.scrollTop += el.scrollHeight - previousHeight;
     rememberScroll(el);
-  }, [visibleTurnCount, pinTranscript, rememberScroll]);
+  }, [visibleTurnCount, followTranscript, rememberScroll]);
 
   // Short turns can leave the first paint with empty space above them, and
   // the rest of the window arriving later would then push everything down.
@@ -2337,7 +2336,20 @@ function useLivePhaseScroll(
   steps: Block[],
 ) {
   const stickToBottom = useRef(true);
+  const lastScrollTop = useRef(0);
   const wasEnabled = useRef(false);
+
+  const pin = useCallback(() => {
+    if (!el) return;
+    // Reconcile a manual scroll the browser applied before its event fired.
+    stickToBottom.current = followsAfterScroll(
+      el,
+      lastScrollTop.current,
+      stickToBottom.current,
+    );
+    if (stickToBottom.current) el.scrollTop = el.scrollHeight;
+    lastScrollTop.current = el.scrollTop;
+  }, [el]);
 
   useLayoutEffect(() => {
     if (!enabled) {
@@ -2346,26 +2358,22 @@ function useLivePhaseScroll(
     }
     if (!wasEnabled.current) {
       stickToBottom.current = true;
+      lastScrollTop.current = el?.scrollTop ?? 0;
       wasEnabled.current = true;
     }
-    if (!el || !stickToBottom.current) return;
-    el.scrollTop = el.scrollHeight;
-  }, [el, enabled, steps]);
+    pin();
+  }, [el, enabled, pin, steps]);
 
   useEffect(() => {
     if (!el || !enabled) return;
 
-    const pin = () => {
-      if (stickToBottom.current) el.scrollTop = el.scrollHeight;
-    };
-    let lastDistance = 0;
     const onScroll = () => {
-      // Only a scroll toward the end re-pins; one leaving it must not.
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      if (isNearBottom(el) && distance <= lastDistance) {
-        stickToBottom.current = true;
-      }
-      lastDistance = distance;
+      stickToBottom.current = followsAfterScroll(
+        el,
+        lastScrollTop.current,
+        stickToBottom.current,
+      );
+      lastScrollTop.current = el.scrollTop;
     };
     const onWheel = (e: WheelEvent) => {
       if (!nestedScrollAbsorbsWheel(el, e.deltaY)) return;
@@ -2384,7 +2392,7 @@ function useLivePhaseScroll(
       el.removeEventListener("wheel", onWheel);
       observer.disconnect();
     };
-  }, [el, enabled]);
+  }, [el, enabled, pin]);
 }
 
 /**
@@ -4197,6 +4205,19 @@ function riseIntoAnchor(
 
 function isNearBottom(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+}
+
+function followsAfterScroll(
+  el: HTMLElement,
+  previousTop: number,
+  following: boolean,
+): boolean {
+  const movement = el.scrollTop - previousTop;
+  if (movement === 0 || scrollClampedToBottom(el, previousTop))
+    return following;
+  // A small downward reversal while reading inside the bottom margin must
+  // not restart following. Resume only when the reader reaches the end.
+  return movement > 0 && el.scrollHeight - el.scrollTop - el.clientHeight <= 1;
 }
 
 function scrollClampedToBottom(el: HTMLElement, previousTop: number): boolean {
