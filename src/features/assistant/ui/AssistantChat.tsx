@@ -584,6 +584,9 @@ export function AssistantChat({
                 Select={ui.Select}
                 personaSupported={personaSupported}
                 reminders={assistant?.reminders}
+                memory={
+                  assistant?.memory && { rpc, ...assistant.memory }
+                }
                 onCancelReminder={
                   personaSupported
                     ? (reminderId) =>

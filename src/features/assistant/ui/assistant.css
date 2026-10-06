@@ -1166,3 +1166,63 @@
   display: flex;
   gap: 8px;
 }
+
+/* Assistant memory */
+.assistant-memory {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 12px;
+  font-size: 13px;
+}
+.assistant-memory-empty {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.7;
+}
+.assistant-memory-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.assistant-memory-list > li {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  padding: 6px 0;
+  border-top: 1px solid var(--assistant-line);
+}
+.assistant-memory-list > li:first-child {
+  border-top: 0;
+}
+.assistant-memory-list > li > input {
+  flex: 1;
+  min-width: 0;
+}
+.assistant-memory-fact {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.assistant-memory-fact > small {
+  font-size: 11px;
+  opacity: 0.6;
+}
+.assistant-memory-list .assistant-link-button {
+  flex-shrink: 0;
+  margin-left: 0;
+}
+.assistant-memory-add {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.assistant-memory-add > input {
+  flex: 1;
+  min-width: 0;
+}

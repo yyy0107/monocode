@@ -509,6 +509,7 @@ export function createHostServer(
           case "assistant.send":
           case "assistant.control":
           case "assistant.respond":
+          case "assistant.memory":
             result = await engine.assistant.rpc(input.method, params);
             break;
           case "attachments.upload":

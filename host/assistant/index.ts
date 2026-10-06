@@ -24,7 +24,17 @@ import {
 } from "../../src/features/assistant/model/assistant";
 import { parseRemoteAttachments, resolveAttachments } from "../attachments";
 import { rotationReason } from "./rotation";
-import { memoryWithinBudget } from "./memory";
+import {
+  addMemoryEntry,
+  archiveMemoryEntries,
+  fitMemoryBudget,
+  memoryDate,
+  memoryEntry,
+  memoryLines,
+  memoryWithinBudget,
+  withLineEdited,
+  withoutLine,
+} from "./memory";
 import {
   buildBrainPrompt,
   privateReplyPart,
@@ -161,6 +171,16 @@ export class HostAssistant {
         raw.limit === undefined ? 50 : Number(raw.limit),
       );
     }
+    if (method === "assistant.memory") {
+      fields(raw, []);
+      if (!this.store.get()) return null;
+      const doc = this.store.memoryDoc("memory");
+      return {
+        revision: doc.revision,
+        facts: memoryLines(doc.text),
+        topics: this.store.memoryTopics(),
+      };
+    }
     const next = this.mutations.then(() => this.mutateRpc(method, raw));
     this.mutations = next.catch(() => undefined);
     return next;
@@ -242,7 +262,15 @@ export class HostAssistant {
       });
     }
     if (method === "assistant.control") {
-      fields(raw, ["commandId", "action", "expectedGeneration", "reminderId"]);
+      fields(raw, [
+        "commandId",
+        "action",
+        "expectedGeneration",
+        "reminderId",
+        "fact",
+        "index",
+        "expectedRevision",
+      ]);
       const commandId = id(raw.commandId),
         sig = signature({ method, raw });
       const previous = this.store.receipt(commandId, sig);
@@ -254,6 +282,60 @@ export class HostAssistant {
         raw.expectedGeneration !== config.brainGeneration
       )
         throw new Error("Assistant generation changed");
+      if (
+        raw.action === "addMemory" ||
+        raw.action === "editMemory" ||
+        raw.action === "forgetMemory"
+      )
+        return this.store.host.transaction(() => {
+          const date = memoryDate(new Date(), config.timezone ?? "UTC");
+          const doc = this.store.memoryDoc("memory");
+          if (
+            raw.action !== "addMemory" &&
+            raw.expectedRevision !== doc.revision
+          )
+            throw new Error("Memory changed elsewhere. Reload before saving.");
+          const index = Number(raw.index);
+          if (
+            raw.action !== "addMemory" &&
+            !memoryLines(doc.text).some((line) => line.index === index)
+          )
+            throw new Error("Memory entry not found");
+          let text: string, keep: string | undefined;
+          if (raw.action === "forgetMemory") text = withoutLine(doc.text, index);
+          else {
+            const fact = id(raw.fact, "fact", 1000);
+            if (raw.action === "addMemory") {
+              keep = memoryEntry(fact, date);
+              text = addMemoryEntry(doc.text, keep).text;
+            } else {
+              text = withLineEdited(doc.text, index, fact, date);
+              keep = text.split("\n")[index];
+            }
+          }
+          const fitted = fitMemoryBudget(text, keep, date);
+          if (fitted.moved.length)
+            this.store.writeMemoryDoc(
+              "archive",
+              archiveMemoryEntries(
+                this.store.memoryDoc("archive").text,
+                fitted.moved,
+                date,
+              ),
+            );
+          const memoryRevision = this.store.writeMemoryDoc(
+            "memory",
+            fitted.text,
+            doc.revision,
+          );
+          const receipt = {
+            commandId,
+            revision: this.store.get()!.revision,
+            memoryRevision,
+          };
+          this.store.recordReceipt(commandId, sig, receipt);
+          return receipt;
+        });
       if (raw.action === "cancelReminder") {
         const reminderId = id(raw.reminderId, "reminder ID");
         return this.store.host.transaction(() => {

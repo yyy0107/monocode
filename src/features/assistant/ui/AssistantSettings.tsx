@@ -33,6 +33,8 @@ import {
   type RuntimeMode,
 } from "../../sessions/model/session";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
+import { AssistantMemoryEditor } from "./AssistantMemory";
+import type { AssistantRpc } from "../model/assistantClient";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import { isEffortSettingId } from "../../sessions/model/models";
 import { carryModelSettings, findRemoteModel, remoteModelControls } from "../../connections/model/remoteModels";
@@ -192,7 +194,8 @@ function CollapsibleSection({
   summary?: string;
   open: boolean;
   onToggle: () => void;
-  children: ReactNode;
+  /** A factory defers content until the section first opens. */
+  children: ReactNode | (() => ReactNode);
 }) {
   return (
     <section className="assistant-settings-section" data-open={open}>
@@ -311,12 +314,15 @@ export function AssistantSettings({
   onCancel,
   onCancelReminder,
   reminders,
+  memory,
   personaSupported = true,
   mobile = false,
   Select,
 }: {
   /** Live follow-ups; kept outside the draft so cancelling never resets edits. */
   reminders?: AssistantView["reminders"];
+  /** Live memory editing; omitted on Hosts without assistant memory. */
+  memory?: { rpc: AssistantRpc; revision: number; lines: number };
   /** Older Hosts reject personality and time zone fields. */
   personaSupported?: boolean;
   /** Cancels a follow-up the assistant promised; omitted on older Hosts. */
@@ -354,6 +360,7 @@ export function AssistantSettings({
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [eventsOpen, setEventsOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   // Watches default to every allowed project; the picker opens only on request.
   const [pickingProjects, setPickingProjects] = useState(
     () =>
@@ -1181,6 +1188,24 @@ export function AssistantSettings({
             ) : null}
           </Section>
           {executionSection}
+          {memory && (
+            <CollapsibleSection
+              title={t("Memory")}
+              summary={t("{count} remembered facts", {
+                count: memory.lines,
+              })}
+              open={memoryOpen}
+              onToggle={() => setMemoryOpen((v) => !v)}
+            >
+              {() => (
+                <AssistantMemoryEditor
+                  rpc={memory.rpc}
+                  revision={memory.revision}
+                  disabled={busy}
+                />
+              )}
+            </CollapsibleSection>
+          )}
           <CollapsibleSection
             title={t("Advanced")}
             summary={t("Permissions and wakeups")}

@@ -1185,3 +1185,44 @@ it("keeps memory across turns and shows it to the brain only when it changes", a
   expect(second).toContain("Topic notes: deploys");
   expect(await nextTurn("Thanks", 3)).not.toContain("Your memory (current version");
 });
+it("lets the user read, add, edit and forget memory without overwriting newer writes", async () => {
+  const { engine } = await setup();
+  const rpc = engine.assistant.rpc.bind(engine.assistant);
+  const read = () =>
+    rpc("assistant.memory", {}) as Promise<{
+      revision: number;
+      facts: { index: number; text: string; struck: boolean }[];
+    }>;
+  expect(await read()).toEqual({ revision: 0, facts: [], topics: [] });
+  await rpc("assistant.control", { commandId: "m1", action: "addMemory", fact: "Works in UTC+8" });
+  let memory = await read();
+  expect(memory.facts).toEqual([
+    expect.objectContaining({ text: "Works in UTC+8", struck: false }),
+  ]);
+  expect(engine.assistant.store.view()!.memory).toEqual({ revision: 1, lines: 1 });
+  const stale = memory.revision;
+  await rpc("assistant.control", {
+    commandId: "m2",
+    action: "editMemory",
+    index: memory.facts[0].index,
+    fact: "Works in Asia/Shanghai",
+    expectedRevision: stale,
+  });
+  await expect(
+    rpc("assistant.control", {
+      commandId: "m3",
+      action: "forgetMemory",
+      index: memory.facts[0].index,
+      expectedRevision: stale,
+    }),
+  ).rejects.toThrow(/changed elsewhere/);
+  memory = await read();
+  expect(memory.facts.map((fact) => fact.text)).toEqual(["Works in Asia/Shanghai"]);
+  await rpc("assistant.control", {
+    commandId: "m4",
+    action: "forgetMemory",
+    index: memory.facts[0].index,
+    expectedRevision: memory.revision,
+  });
+  expect((await read()).facts).toEqual([]);
+});

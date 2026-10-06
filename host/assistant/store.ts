@@ -10,6 +10,7 @@ import {
   type AssistantReceipt,
   type AssistantView,
 } from "../../src/features/assistant/model/assistant";
+import { memoryLines } from "./memory";
 import type { RemoteAttachment } from "../../src/features/connections/model/protocol";
 
 export function signature(value: unknown): string {
@@ -143,9 +144,14 @@ export class AssistantStore {
         "SELECT COUNT(*) AS count FROM assistant_wakeups WHERE json_extract(payload, '$.state') IN ('pending', 'backoff')",
       )
       .get()!;
+    const memory = this.memoryDoc("memory");
     return {
       ...publicValue,
       backlog: Number(sources.count) > 100 || Number(inputs.count) > 100,
+      memory: {
+        revision: memory.revision,
+        lines: memoryLines(memory.text).filter((line) => !line.struck).length,
+      },
     };
   }
   initialize(patch: AssistantPatch): AssistantRecord {

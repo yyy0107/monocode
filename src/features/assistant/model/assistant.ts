@@ -131,6 +131,24 @@ export type AssistantView = {
   nextRetryAt?: number;
   error?: string;
   backlog?: boolean;
+  /** Resident memory version; absent on Hosts without assistant memory. */
+  memory?: { revision: number; lines: number };
+};
+/** Resident memory as `assistant.memory` returns it. */
+export type AssistantMemory = {
+  revision: number;
+  facts: AssistantMemoryFact[];
+  /** Topic notes the assistant keeps; read on demand by the assistant. */
+  topics: string[];
+};
+export type AssistantMemoryFact = {
+  /** Line index in the memory document, for editing or forgetting it. */
+  index: number;
+  text: string;
+  date?: string;
+  until?: string;
+  /** Superseded by a newer entry; kept for the record. */
+  struck: boolean;
 };
 export type AssistantPatch = Partial<
   Pick<

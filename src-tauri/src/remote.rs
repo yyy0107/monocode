@@ -404,6 +404,7 @@ fn supported_remote_method(method: &str) -> bool {
             | "assistant.send"
             | "assistant.control"
             | "assistant.respond"
+            | "assistant.memory"
     )
 }
 
