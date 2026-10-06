@@ -254,6 +254,8 @@ it("keeps a note's consecutive lines on their own lines", async () => {
 });
 
 it("uses the searchable rail project picker when moving a note", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(8);
   const projects = [
     ...recents,
     { path: "/work/Third", openedAt: 3 },
@@ -277,15 +279,16 @@ it("uses the searchable rail project picker when moving a note", async () => {
   await act(async () => projectButton()!.click());
   const menu = document.querySelector('[aria-label="Project picker"]')!;
   const items = [...menu.querySelectorAll<HTMLButtonElement>("button[title]")];
+  // The note's project comes first, then pins and the remaining recent projects.
   expect(items.map((item) => item.title)).toEqual([
     "/work/Edefyn",
     "/work/Seventh",
+    "/work/Active",
+    "/work/Sixth",
+    "/work/Fifth",
     "/work/Fourth",
     "/work/Third",
     "/work/portognjeeen",
-    "/work/Fifth",
-    "/work/Sixth",
-    "/work/Active",
   ]);
   const search = menu.querySelector<HTMLInputElement>(
     'input[placeholder="Search projects..."]',
