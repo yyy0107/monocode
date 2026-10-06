@@ -804,7 +804,6 @@ function ProjectSectionHeader({
       >
         <ChevronRight
           className="project-tree-chevron size-3 shrink-0"
-          strokeWidth={1.75}
         />
         <span className="truncate">{label}</span>
       </button>
@@ -819,7 +818,7 @@ function ProjectSectionHeader({
           }}
           className="grid size-5 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/8 hover:text-content"
         >
-          <FolderPlus className="size-3.5" strokeWidth={1.75} />
+          <FolderPlus className="size-3.5" />
         </button>
       ) : null}
       {onAdd ? <AddProjectButton onOpenFolder={onAdd} /> : null}
@@ -941,7 +940,6 @@ function ProjectGroupSection({
               <ChevronRight
                 data-group-chevron
                 className={`project-tree-chevron size-3.5 ${expanded ? "" : "hidden group-hover:block group-has-[:focus-visible]:block"}`}
-                strokeWidth={1.75}
               />
             </div>
             <span className={nameClassName}>{group.name}</span>
@@ -961,7 +959,7 @@ function ProjectGroupSection({
             }}
             className="absolute right-1 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 hover:bg-content/8 hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
           >
-            <MoreHorizontal className="size-4" strokeWidth={1.75} />
+            <MoreHorizontal className="size-4" />
           </button>
         </div>
       )}
@@ -1310,7 +1308,6 @@ function ProjectCard({
           >
             <Internet
               className="size-3"
-              strokeWidth={1.75}
               aria-hidden="true"
             />
             <span
@@ -1334,7 +1331,6 @@ function ProjectCard({
           >
             <BellOff
               className="size-3.5"
-              strokeWidth={1.75}
               aria-hidden="true"
             />
           </span>
@@ -1355,7 +1351,7 @@ function ProjectCard({
               }}
               className="absolute right-7 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 hover:bg-content/8 hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
             >
-              <Plus className="size-3.5" strokeWidth={1.75} />
+              <Plus className="size-3.5" />
             </button>
           ) : null}
           <button
@@ -1376,7 +1372,7 @@ function ProjectCard({
             }}
             className="absolute right-1 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 hover:bg-content/8 hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
           >
-            <MoreHorizontal className="size-4" strokeWidth={1.75} />
+            <MoreHorizontal className="size-4" />
           </button>
           {tree ? null : (
             <button
@@ -1392,9 +1388,9 @@ function ProjectCard({
               className="absolute left-2 top-1/2 grid size-4 -translate-y-1/2 place-items-center rounded-sm text-content/55 opacity-0 pointer-events-none transition-opacity hover:text-content group-hover:pointer-events-auto group-hover:opacity-100"
             >
               {pinned ? (
-                <PinOff className="size-3.5" strokeWidth={1.75} />
+                <PinOff className="size-3.5" />
               ) : (
-                <Pin className="size-3.5" strokeWidth={1.75} />
+                <Pin className="size-3.5" />
               )}
             </button>
           )}
@@ -1657,7 +1653,7 @@ export function AddProjectButton({
         onClick={() => setOpen((value) => !value)}
         className="grid size-5 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/8 hover:text-content aria-expanded:bg-content/8 aria-expanded:text-content"
       >
-        <Plus className="size-3.5" strokeWidth={1.75} />
+        <Plus className="size-3.5" />
       </button>
       {open ? (
         <Popover
@@ -1678,7 +1674,7 @@ export function AddProjectButton({
               onOpenFolder();
             }}
           >
-            <FolderPlus className="size-3.5 shrink-0" strokeWidth={1.75} />
+            <FolderPlus className="size-3.5 shrink-0" />
             {uiT("Open folder…")}
           </button>
           <button
@@ -1690,7 +1686,7 @@ export function AddProjectButton({
               window.dispatchEvent(new Event(OPEN_REMOTE_PROJECT_EVENT));
             }}
           >
-            <Internet className="size-3.5 shrink-0" strokeWidth={1.75} />
+            <Internet className="size-3.5 shrink-0" />
             {uiT("Open folder on a machine…")}
           </button>
         </Popover>

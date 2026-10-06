@@ -58,9 +58,9 @@ export function CopyTurnButton({
         }}
       >
         {copied ? (
-          <Check className="size-3.5" strokeWidth={1.75} />
+          <Check className="size-3.5" />
         ) : (
-          <Copy className="size-3.5" strokeWidth={1.75} />
+          <Copy className="size-3.5" />
         )}
       </button>
       {error && (

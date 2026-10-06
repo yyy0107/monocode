@@ -291,7 +291,6 @@ export function SearchableProjectPicker({
               className={`size-3 shrink-0 text-content/45 transition-transform ${
                 open ? "rotate-180" : ""
               }`}
-              strokeWidth={1.75}
             />
           </>
         )}
@@ -311,7 +310,7 @@ export function SearchableProjectPicker({
           className="flex flex-col overflow-hidden"
         >
           <label className="flex h-11 shrink-0 items-center gap-2.5 border-b border-stroke px-3 text-content/45 focus-within:text-content/70">
-            <Search className="size-4 shrink-0" strokeWidth={1.75} />
+            <Search className="size-4 shrink-0" />
             <span className="sr-only">{uiT("Search projects")}</span>
             <input
               ref={searchRef}
@@ -432,7 +431,7 @@ export function SearchableProjectPicker({
                 }}
                 className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-content/75 hover:bg-content/8 hover:text-content"
               >
-                <Plus className="size-4 shrink-0" strokeWidth={1.75} />
+                <Plus className="size-4 shrink-0" />
                 <span>{uiT("New project")}</span>
               </button>
             </div>

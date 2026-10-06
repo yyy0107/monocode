@@ -929,7 +929,7 @@ export function InboxView({
                 : "text-content/40 hover:bg-content/5 hover:text-content"
             }`}
           >
-            <Plus className="size-3.5 shrink-0" strokeWidth={1.75} />
+            <Plus className="size-3.5 shrink-0" />
             <span className="min-w-0 truncate leading-normal">{uiT("Add connection")}</span>
           </button>
         ) : null}
@@ -959,7 +959,7 @@ export function InboxView({
               filterMenu || filtersActive ? "bg-selection text-content" : ""
             }`}
           >
-            <ListFilter className="size-3" strokeWidth={1.75} />
+            <ListFilter className="size-3" />
           </button>
           <button
             type="button"
@@ -975,7 +975,7 @@ export function InboxView({
             }
             className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-content/45"
           >
-            <CheckCheck className="size-3.5" strokeWidth={1.75} />
+            <CheckCheck className="size-3.5" />
           </button>
           <button
             type="button"
@@ -986,10 +986,9 @@ export function InboxView({
             {loading || revalidating ? (
               <LoaderCircle
                 className="size-3.5 animate-spin"
-                strokeWidth={1.75}
               />
             ) : (
-              <RefreshCw className="size-3.5" strokeWidth={1.75} />
+              <RefreshCw className="size-3.5" />
             )}
           </button>
         </div>
@@ -1011,7 +1010,7 @@ export function InboxView({
           <p className="px-3 py-2 text-[12px] text-content/50">{sourceError}</p>
         ) : loading && items.length === 0 ? (
           <div className="flex justify-center py-10 text-content/40">
-            <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
+            <LoaderCircle className="size-4 animate-spin" />
           </div>
         ) : visibleItems.length === 0 ? (
           <p className="px-3 py-2 text-[12px] text-content/50">
@@ -1137,7 +1136,6 @@ export function InboxView({
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
           <Inbox
             className="size-3.5 shrink-0 text-content/45"
-            strokeWidth={1.75}
           />
           <span className="min-w-0 truncate text-content">{uiT("Inbox")}</span>
         </div>
@@ -1340,7 +1338,7 @@ export function LinkedWorkItemPanel({
               })}
               onClick={onClose}
             >
-              <PanelLeft className="size-3.5" strokeWidth={1.75} />
+              <PanelLeft className="size-3.5" />
             </IconButton>
           </div>
           <div
@@ -1371,7 +1369,7 @@ export function LinkedWorkItemPanel({
               />
             ) : error ? (
               <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
-                <CircleX className="size-5 text-rose-400/90" strokeWidth={1.75} />
+                <CircleX className="size-5 text-rose-400/90" />
                 <p role="alert" className="max-w-sm text-[12px] text-content/55">
                   {error}
                 </p>
@@ -1380,7 +1378,7 @@ export function LinkedWorkItemPanel({
                   onClick={() => void openUrl(target.url)}
                   className={ACTION_OUTLINE}
                 >
-                  <ExternalLink className="size-3.5" strokeWidth={1.75} />
+                  <ExternalLink className="size-3.5" />
                   {uiT("Open on GitHub")}
                 </button>
               </div>
@@ -1388,7 +1386,6 @@ export function LinkedWorkItemPanel({
               <div className="flex h-full items-center justify-center text-content/40">
                 <LoaderCircle
                   className="size-4 animate-spin"
-                  strokeWidth={1.75}
                 />
               </div>
             )}
@@ -1428,7 +1425,7 @@ function InboxDetailBody({
   if (!item) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-        <Inbox className="mb-3 size-6 text-content/30" strokeWidth={1.75} />
+        <Inbox className="mb-3 size-6 text-content/30" />
         <p className="text-[13px] text-content/45">
           {uiT("Select an inbox item")}
         </p>
@@ -1575,7 +1572,7 @@ function InboxCard({
                 })}
                 className="inline-flex items-center gap-0.5 text-[11px] tabular-nums text-accent"
               >
-                <MessageMultiple className="size-3" strokeWidth={1.75} />
+                <MessageMultiple className="size-3" />
                 {relatedSessionCount}
               </span>
             ) : null}
@@ -1812,7 +1809,7 @@ export function GithubPrActions({
             onClick={(event) => askToRun(mergeAction, event.currentTarget)}
             className={`inline-flex items-center gap-1.5 px-3 text-[12px] font-medium hover:bg-background-base/10 disabled:cursor-default disabled:opacity-40 ${PR_ACTION_PRESS}`}
           >
-            <GitMerge className="size-3.5" strokeWidth={1.75} />
+            <GitMerge className="size-3.5" />
             {selectedMerge?.action === "merge"
               ? uiT("Merge pull request")
               : selectedMerge
@@ -1829,7 +1826,7 @@ export function GithubPrActions({
             onClick={() => setMergeMenuOpen((open) => !open)}
             className={`grid w-7 place-items-center border-l border-background-base/20 hover:bg-background-base/10 disabled:cursor-default disabled:opacity-40 ${PR_ACTION_PRESS}`}
           >
-            <ChevronDown className="size-3" strokeWidth={1.75} />
+            <ChevronDown className="size-3" />
           </button>
         </div>
       ) : null}
@@ -1840,7 +1837,7 @@ export function GithubPrActions({
           onClick={(event) => askToRun("ready", event.currentTarget)}
           className={stateButton}
         >
-          <GitPullRequest className="size-3.5" strokeWidth={1.75} />
+          <GitPullRequest className="size-3.5" />
           {uiT("Ready for review")}
         </button>
       ) : null}
@@ -1851,7 +1848,7 @@ export function GithubPrActions({
           onClick={(event) => askToRun("draft", event.currentTarget)}
           className={stateButton}
         >
-          <GitPullRequestDraft className="size-3.5" strokeWidth={1.75} />
+          <GitPullRequestDraft className="size-3.5" />
           {uiT("Convert to draft")}
         </button>
       ) : null}
@@ -1862,7 +1859,7 @@ export function GithubPrActions({
           onClick={(event) => askToRun("close", event.currentTarget)}
           className={`${stateButton} hover:text-rose-400`}
         >
-          <GitPullRequestClosed className="size-3.5" strokeWidth={1.75} />
+          <GitPullRequestClosed className="size-3.5" />
           {uiT("Close pull request")}
         </button>
       ) : null}
@@ -1873,7 +1870,7 @@ export function GithubPrActions({
           onClick={(event) => askToRun("reopen", event.currentTarget)}
           className={stateButton}
         >
-          <GitPullRequest className="size-3.5" strokeWidth={1.75} />
+          <GitPullRequest className="size-3.5" />
           {uiT("Reopen pull request")}
         </button>
       ) : null}
@@ -1985,7 +1982,6 @@ export function GithubPrActions({
               {busy ? (
                 <LoaderCircle
                   className="size-3.5 animate-spin"
-                  strokeWidth={1.75}
                 />
               ) : null}
               {busy ? confirmCopy.progress : confirmCopy.confirm}
@@ -2651,7 +2647,7 @@ export function InboxDetail({
           onClick={() => void openUrl(item.url)}
           className={`${ACTION_PANEL_HEADER} ml-auto shrink-0 disabled:opacity-40`}
         >
-          <ExternalLink className="size-3.5" strokeWidth={1.75} />
+          <ExternalLink className="size-3.5" />
           <span className="@max-[420px]/linked:hidden">
             {externalActionLabel}
           </span>
@@ -2755,7 +2751,6 @@ export function InboxDetail({
                     <span className="inline-flex min-w-0 items-center gap-1">
                       <GitCompare
                         className="size-3 shrink-0"
-                        strokeWidth={1.75}
                       />
                       <span className="min-w-0 truncate">
                         {baseRef} ← {headRef}
@@ -2774,7 +2769,7 @@ export function InboxDetail({
               {!panel && relatedSessions.length > 0 ? (
                 <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
                   <span className="mr-0.5 inline-flex shrink-0 items-center gap-1 text-[11px] text-content/45">
-                    <MessageMultiple className="size-3.5" strokeWidth={1.75} />
+                    <MessageMultiple className="size-3.5" />
                     {uiT("Related")}{" "}
                     {relatedSessions.length === 1
                       ? uiT("thread")
@@ -2863,7 +2858,7 @@ export function InboxDetail({
                     onClick={onDiscuss}
                     className={ACTION_OUTLINE}
                   >
-                    <MessageSquare className="size-3.5" strokeWidth={1.75} />{" "}
+                    <MessageSquare className="size-3.5" />{" "}
                     {uiT("Ask")}
                   </button>
                 ) : null}
@@ -2877,7 +2872,7 @@ export function InboxDetail({
                     onClick={() => void openUrl(item.url)}
                     className={`${ACTION_GHOST} disabled:opacity-40`}
                   >
-                    <ExternalLink className="size-3.5" strokeWidth={1.75} />
+                    <ExternalLink className="size-3.5" />
                     {externalActionLabel}
                   </button>
                 )}
@@ -2981,7 +2976,6 @@ export function InboxDetail({
                 <div className="flex justify-center py-10 text-content/40">
                   <LoaderCircle
                     className="size-4 animate-spin"
-                    strokeWidth={1.75}
                   />
                 </div>
               ) : diffError ? (
@@ -3027,7 +3021,6 @@ export function InboxDetail({
               <div className="flex justify-center py-10 text-content/40">
                 <LoaderCircle
                   className="size-4 animate-spin"
-                  strokeWidth={1.75}
                 />
               </div>
             ) : error ? (
@@ -3126,9 +3119,9 @@ function CopyBranchNameButton({ branch }: { branch: string }) {
       }}
     >
       {copied ? (
-        <Check className="size-3" strokeWidth={1.75} />
+        <Check className="size-3" />
       ) : (
-        <Copy className="size-3" strokeWidth={1.75} />
+        <Copy className="size-3" />
       )}
     </button>
   );
@@ -3240,7 +3233,6 @@ function InboxProjectPicker({
         </span>
         <ChevronDown
           className="size-3 shrink-0 text-content/45"
-          strokeWidth={1.75}
         />
       </button>
       {open ? (

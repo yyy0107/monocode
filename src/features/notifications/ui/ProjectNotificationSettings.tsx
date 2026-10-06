@@ -182,7 +182,7 @@ export function ProjectNotificationSettings({
           <>
             {searchable ? (
               <label className="flex h-10 items-center gap-2.5 border-b border-content/5 px-4 text-content/45 focus-within:text-content/70">
-                <Search className="size-4 shrink-0" strokeWidth={1.75} />
+                <Search className="size-4 shrink-0" />
                 <span className="sr-only">{uiT("Search projects")}</span>
                 <input
                   type="search"

@@ -154,7 +154,7 @@ export function OrchestrationSidebarAgents({
                     whenever this row is open or under the pointer. */}
                 <span className="grid size-3.5 shrink-0 place-items-center text-content/45">
                   {open ? (
-                    <ChevronDown className="size-3" strokeWidth={1.75} />
+                    <ChevronDown className="size-3" />
                   ) : (
                     <>
                       <HarnessIcon
@@ -163,7 +163,6 @@ export function OrchestrationSidebarAgents({
                       />
                       <ChevronRight
                         className="hidden size-3 group-focus-visible/agent:block group-hover/agent:block"
-                        strokeWidth={1.75}
                       />
                     </>
                   )}
@@ -189,7 +188,7 @@ export function OrchestrationSidebarAgents({
                   task.status === "failed" ||
                   task.status === "blocked" ||
                   task.status === "interrupted" ? (
-                    <CircleAlert className="size-3" strokeWidth={1.75} />
+                    <CircleAlert className="size-3" />
                   ) : working ? (
                     <TerminalSpinner className="inline-block w-3 select-none text-center text-[11px] leading-none text-accent" />
                   ) : task.status === "completed" ? (

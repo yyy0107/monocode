@@ -222,7 +222,7 @@ export function GitChangesPanel({
             className="relative ml-auto flex min-w-0 items-center gap-1"
           >
             <span className="flex min-w-0 items-center gap-1 text-[11px] text-content/50">
-              <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
+              <GitBranch className="size-3 shrink-0" />
               <span className="min-w-0 truncate">{index.branch}</span>
               {index.ahead > 0 ? (
                 <span className="shrink-0 tabular-nums text-content/40">
@@ -245,7 +245,7 @@ export function GitChangesPanel({
               className="grid size-5 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content disabled:opacity-40 aria-expanded:bg-content/10 aria-expanded:text-content"
             >
               {busy === "pull" ? (
-                <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
+                <Loader className="size-3.5 animate-spin" />
               ) : (
                 <MoreHorizontal className="size-4" strokeWidth={2} />
               )}
@@ -273,10 +273,9 @@ export function GitChangesPanel({
                   {busy === "pull" ? (
                     <Loader
                       className="size-3.5 animate-spin"
-                      strokeWidth={1.75}
                     />
                   ) : (
-                    <RefreshCw className="size-3.5" strokeWidth={1.75} />
+                    <RefreshCw className="size-3.5" />
                   )}
                   {busy === "pull" ? uiT("Pulling…") : uiT("Pull")}
                 </button>
@@ -765,11 +764,9 @@ function ChangedFiles({
               <>
                 <Loader
                   className="size-3.5 animate-spin group-hover:hidden group-focus-visible:hidden"
-                  strokeWidth={1.75}
                 />
                 <X
                   className="hidden size-3.5 group-hover:block group-focus-visible:block"
-                  strokeWidth={1.75}
                 />
               </>
             ) : (
@@ -897,12 +894,12 @@ function ChangedFiles({
                 headerActions={[
                   {
                     title: "Open All Changes",
-                    icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
+                    icon: <FileDiff className="size-3.5" />,
                     onClick: () => onOpenAllChanges("staged"),
                   },
                   {
                     title: "Unstage All Changes",
-                    icon: <Minus className="size-3.5" strokeWidth={1.75} />,
+                    icon: <Minus className="size-3.5" />,
                     onClick: () => void runAll("unstage"),
                   },
                 ]}
@@ -934,17 +931,17 @@ function ChangedFiles({
                 headerActions={[
                   {
                     title: "Open All Changes",
-                    icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
+                    icon: <FileDiff className="size-3.5" />,
                     onClick: () => onOpenAllChanges("unstaged"),
                   },
                   {
                     title: "Discard All Changes",
-                    icon: <Undo2 className="size-3.5" strokeWidth={1.75} />,
+                    icon: <Undo2 className="size-3.5" />,
                     onClick: () => void runAll("discard"),
                   },
                   {
                     title: "Stage All Changes",
-                    icon: <Plus className="size-3.5" strokeWidth={1.75} />,
+                    icon: <Plus className="size-3.5" />,
                     onClick: () => void runAll("stage"),
                   },
                 ]}
@@ -1104,10 +1101,9 @@ function GitSyncActions({
           {syncing ? (
             <Loader
               className="size-3.5 shrink-0 animate-spin"
-              strokeWidth={1.75}
             />
           ) : (
-            <CloudUpload className="size-3.5 shrink-0" strokeWidth={1.75} />
+            <CloudUpload className="size-3.5 shrink-0" />
           )}
           <span className="min-w-0 truncate">{uiT("Publish Branch")}</span>
         </button>
@@ -1121,7 +1117,6 @@ function GitSyncActions({
         >
           <RefreshCw
             className={`size-3.5 shrink-0 ${syncing ? "animate-spin" : ""}`}
-            strokeWidth={1.75}
           />
           <span className="min-w-0 truncate">{uiT("Sync Changes")}</span>
           {behind > 0 ? (
@@ -1147,10 +1142,9 @@ function GitSyncActions({
           {busy === "pr" ? (
             <Loader
               className="size-3.5 shrink-0 animate-spin"
-              strokeWidth={1.75}
             />
           ) : (
-            <GitPullRequest className="size-3.5 shrink-0" strokeWidth={1.75} />
+            <GitPullRequest className="size-3.5 shrink-0" />
           )}
           {uiT("Create PR")}
         </button>
@@ -1163,7 +1157,7 @@ function GitSyncActions({
           onClick={onViewPr}
           className={secondary}
         >
-          <ExternalLink className="size-3.5 shrink-0" strokeWidth={1.75} />
+          <ExternalLink className="size-3.5 shrink-0" />
           <span className="min-w-0 truncate">
             {pr?.number
               ? uiT("View PR #{value0}", { value0: String(pr.number) })
@@ -1206,12 +1200,10 @@ export function FileSection({
           {open ? (
             <ChevronDown
               className="size-3.5 shrink-0 text-content/50"
-              strokeWidth={1.75}
             />
           ) : (
             <ChevronRight
               className="size-3.5 shrink-0 text-content/50"
-              strokeWidth={1.75}
             />
           )}
           <span className="min-w-0 truncate text-[10px] font-semibold tracking-[0.04em] text-content/55 uppercase">
@@ -1226,9 +1218,9 @@ export function FileSection({
           onClick={onToggleView}
         >
           {view === "tree" ? (
-            <ListBullet className="size-3.5" strokeWidth={1.75} />
+            <ListBullet className="size-3.5" />
           ) : (
-            <FolderTree className="size-3.5" strokeWidth={1.75} />
+            <FolderTree className="size-3.5" />
           )}
         </IconAction>
         {headerActions.map((action) => (
@@ -1395,9 +1387,9 @@ function ChangeDirRow({
         >
           <span className="grid size-4 shrink-0 place-items-center text-content/50">
             {open ? (
-              <ChevronDown className="size-3.5" strokeWidth={1.75} />
+              <ChevronDown className="size-3.5" />
             ) : (
-              <ChevronRight className="size-3.5" strokeWidth={1.75} />
+              <ChevronRight className="size-3.5" />
             )}
           </span>
           <FileTypeIcon name={dir.name} isDir isOpen={open} size={16} />
@@ -1422,9 +1414,9 @@ function ChangeDirRow({
             }
           >
             {kind === "staged" ? (
-              <Minus className="size-3.5" strokeWidth={1.75} />
+              <Minus className="size-3.5" />
             ) : (
-              <Plus className="size-3.5" strokeWidth={1.75} />
+              <Plus className="size-3.5" />
             )}
           </IconAction>
         </div>
@@ -1577,7 +1569,7 @@ function ChangeRow({
               disabled={busy}
               onClick={() => onAction(file, "discard")}
             >
-              <Undo2 className="size-3.5" strokeWidth={1.75} />
+              <Undo2 className="size-3.5" />
             </IconAction>
           ) : null}
           {kind === "staged" ? (
@@ -1586,7 +1578,7 @@ function ChangeRow({
               disabled={busy}
               onClick={() => onAction(file, "unstage")}
             >
-              <Minus className="size-3.5" strokeWidth={1.75} />
+              <Minus className="size-3.5" />
             </IconAction>
           ) : (
             <IconAction
@@ -1594,7 +1586,7 @@ function ChangeRow({
               disabled={busy}
               onClick={() => onAction(file, "stage")}
             >
-              <Plus className="size-3.5" strokeWidth={1.75} />
+              <Plus className="size-3.5" />
             </IconAction>
           )}
         </div>

@@ -1333,7 +1333,7 @@ function TurnDuration({
             ) : null}
           </>
         ) : (
-          <Check className="size-3.5" strokeWidth={1.75} />
+          <Check className="size-3.5" />
         )}
         {fromHarness && onHandoff ? (
           <HandoffButton from={fromHarness} onPick={onHandoff} />
@@ -1432,7 +1432,7 @@ function TurnMetricsBadge({
         title={uiT("Turn metrics")}
         className="grid rounded-md p-1 text-content/40 outline-none hover:bg-content/8 hover:text-content/70 focus-visible:ring-1 focus-visible:ring-accent"
       >
-        <ChartBreakoutSquare className="size-3.5" strokeWidth={1.75} />
+        <ChartBreakoutSquare className="size-3.5" />
       </span>
       {hovered ? (
         <Popover
@@ -1526,9 +1526,9 @@ function SaveNoteButton({
         }}
       >
         {saved ? (
-          <Check className="size-3.5" strokeWidth={1.75} />
+          <Check className="size-3.5" />
         ) : (
-          <FilePlusCorner className="size-3.5" strokeWidth={1.75} />
+          <FilePlusCorner className="size-3.5" />
         )}
       </button>
       {error && (
@@ -1565,7 +1565,7 @@ function EditLastTurnButton({
           : "text-content/40 hover:bg-content/8 hover:text-content/70"
       }`}
     >
-      <Pencil className="size-3.5" strokeWidth={1.75} />
+      <Pencil className="size-3.5" />
     </button>
   );
 }
@@ -1987,7 +1987,7 @@ function UserMessageBlock({
           {block.draft ? (
             <div className="mt-2 flex items-center justify-between gap-4 border-t border-dashed border-content/20 pt-2">
               <span className="flex items-center gap-1.5 text-xs text-content/50">
-                <CircleDashed className="size-3.5" strokeWidth={1.75} />
+                <CircleDashed className="size-3.5" />
                 {uiT("Draft")}
               </span>
               <span className="flex items-center gap-1">
@@ -1998,7 +1998,7 @@ function UserMessageBlock({
                   onClick={() => onRemoveDraft?.(block)}
                   className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-content/55 hover:bg-content/10 hover:text-content"
                 >
-                  <Trash2 className="size-3.5" strokeWidth={1.75} />
+                  <Trash2 className="size-3.5" />
                   {uiT("Remove")}
                 </button>
                 <button
@@ -2155,7 +2155,6 @@ function WorkFoldLine({
         // under the cursor is no way to close what you opened.
         <ChevronRight
           className="size-3.5 rotate-90 text-content/45"
-          strokeWidth={1.75}
         />
       ) : (
         <>
@@ -2173,7 +2172,6 @@ function WorkFoldLine({
           {expandable ? (
             <ChevronRight
               className="absolute size-3.5 text-content/45 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-              strokeWidth={1.75}
             />
           ) : null}
         </>
@@ -2547,7 +2545,6 @@ function ActivityPhaseGroup({
             className={`absolute size-3.5 text-content/45 opacity-0 transition-transform duration-200 group-hover:opacity-100 ${
               open ? "rotate-90" : ""
             }`}
-            strokeWidth={1.75}
           />
         </span>
         {label}
@@ -2876,7 +2873,6 @@ function SubagentPanel({
           className={`size-3.5 shrink-0 text-content/35 transition-transform duration-200 group-hover:text-content/60 ${
             open ? "rotate-90" : ""
           }`}
-          strokeWidth={1.75}
         />
       </button>
       <div className="zen-phase-body" data-open={open}>
@@ -3204,7 +3200,6 @@ function ActivityThinkingRow({
   const icon = bare ? null : (
     <Minus
       className={`size-3.5 shrink-0 text-content/40 ${pulse}`}
-      strokeWidth={1.75}
     />
   );
   const label = (
@@ -3286,7 +3281,7 @@ function ActivityNoteRow({
   const [open, setOpen] = useState(false);
   const text = proseSummary(block.text);
   const icon = bare ? null : (
-    <Minus className="size-3.5 shrink-0 text-content/50" strokeWidth={1.75} />
+    <Minus className="size-3.5 shrink-0 text-content/50" />
   );
 
   if (!expandable) {
@@ -3426,7 +3421,6 @@ function ActivityToolRow({
           >
             <ChevronRight
               className={`size-3.5 text-red-400/60 transition-transform ${errorOpen ? "rotate-90" : ""}`}
-              strokeWidth={1.75}
             />
           </button>
         </div>
@@ -3499,7 +3493,6 @@ function MonoCodeCallRow({
       {hasError ? (
         <ChevronRight
           className={`size-3.5 shrink-0 text-red-400/60 transition-transform ${errorOpen ? "rotate-90" : ""}`}
-          strokeWidth={1.75}
         />
       ) : null}
     </>
@@ -3548,13 +3541,12 @@ function ActivityToolIcon({
     return (
       <CircleDashed
         className={`size-3.5 shrink-0 text-content/40 ${live ? "zen-tool-spin" : ""}`}
-        strokeWidth={1.75}
       />
     );
   }
 
   return (
-    <Minus className="size-3.5 shrink-0 text-content/50" strokeWidth={1.75} />
+    <Minus className="size-3.5 shrink-0 text-content/50" />
   );
 }
 
@@ -3760,7 +3752,6 @@ function ToolCall({
           />
           <ChevronRight
             className={`size-3.5 shrink-0 text-content/35 transition-transform ${open ? "rotate-90" : ""}`}
-            strokeWidth={1.75}
           />
         </button>
       ) : (
@@ -3827,7 +3818,6 @@ function ToolOpenRow({
       {children}
       <ChevronRight
         className="size-3.5 shrink-0 text-content/30"
-        strokeWidth={1.75}
       />
     </div>
   );
@@ -3960,7 +3950,6 @@ function ToolCallIcon({ state }: { state: ToolCallState }) {
     return (
       <CircleDashed
         className="size-3.5 shrink-0 text-content/40"
-        strokeWidth={1.75}
       />
     );
   }

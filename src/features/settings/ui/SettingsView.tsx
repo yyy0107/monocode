@@ -537,7 +537,7 @@ export function SettingsView({
               onClick={appearance.restoreDefaults}
               className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-content/50 hover:bg-content/10 hover:text-content"
             >
-              <RotateCcw className="size-3.5" strokeWidth={1.75} />
+              <RotateCcw className="size-3.5" />
               {uiT("Restore defaults")}
             </button>
           ) : null}
@@ -669,7 +669,7 @@ function SettingsSearch({
   return (
     <div ref={root} className="relative shrink-0">
       <label className="flex h-7 w-48 items-center gap-2 rounded-md border border-content/10 px-2 text-content/45 focus-within:border-content/20">
-        <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+        <Search className="size-3.5 shrink-0" />
         <input
           ref={input}
           role="combobox"
@@ -1914,7 +1914,7 @@ function UpdateRow({
           ) : hasUpdate ? (
             <ArrowDownCircle className="size-3.5 text-accent" aria-hidden />
           ) : (
-            <RefreshCw className="size-3.5" strokeWidth={1.75} aria-hidden />
+            <RefreshCw className="size-3.5" aria-hidden />
           )}
           {hasUpdate ? uiT("Download") : uiT("Check for updates")}
         </SecondaryButton>
@@ -2854,7 +2854,7 @@ function KeybindingsPage() {
             {rows.length} {rows.length === 1 ? uiT("binding") : uiT("bindings")}
           </span>
           <label className="flex h-7 w-44 shrink-0 items-center gap-2 rounded-md border border-content/10 px-2 text-content/45 focus-within:border-content/20">
-            <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+            <Search className="size-3.5 shrink-0" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -3067,7 +3067,7 @@ function ProviderBinaryControl({
             : "text-content/35 hover:text-content"
         }`}
       >
-        <FolderOpen className="size-3.5" strokeWidth={1.75} />
+        <FolderOpen className="size-3.5" />
       </button>
       {open ? (
         <Popover
@@ -3225,7 +3225,7 @@ function ProviderBinaryControl({
                       void inspect(overridden ? draft.trim() || null : null)
                     }
                   >
-                    <RefreshCw className="size-3.5" strokeWidth={1.75} />
+                    <RefreshCw className="size-3.5" />
                     {overridden
                       ? uiT("Retry configured path")
                       : uiT("Retry auto-detect")}
@@ -3248,7 +3248,7 @@ function ProviderBinaryControl({
                     }
                   }}
                 >
-                  <ExternalLink className="size-3.5" strokeWidth={1.75} />
+                  <ExternalLink className="size-3.5" />
                   {uiT("Open location")}
                 </SecondaryButton>
                 <SecondaryButton
@@ -3258,7 +3258,7 @@ function ProviderBinaryControl({
                   disabled={working}
                   onClick={() => setEditing(true)}
                 >
-                  <Pencil className="size-3.5" strokeWidth={1.75} />
+                  <Pencil className="size-3.5" />
                   {uiT("Edit path")}
                 </SecondaryButton>
               </div>
@@ -3306,7 +3306,6 @@ function ProvidersPage({
         icon: (
           <Globe
             className="size-3.5 shrink-0 text-content/60"
-            strokeWidth={1.75}
           />
         ),
       },
@@ -3747,7 +3746,7 @@ export function ProviderAccountsSettings() {
                 onClick={() => startAdd(provider)}
                 className="flex shrink-0 items-center gap-1.5 rounded-md border border-content/10 px-2.5 py-1 text-[12px] text-content/70 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
               >
-                <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
+                <Plus className="size-3.5" aria-hidden />
                 {uiT("Add account")}
               </button>
             </div>
@@ -3862,7 +3861,7 @@ export function ProviderAccountsSettings() {
                         onClick={() => startRename(account)}
                         className="grid size-7 place-items-center rounded-md text-content/40 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.96] disabled:opacity-35"
                       >
-                        <Pencil className="size-3.5" strokeWidth={1.75} />
+                        <Pencil className="size-3.5" />
                       </button>
                       {!account.isDefault ? (
                         <button
@@ -3880,7 +3879,7 @@ export function ProviderAccountsSettings() {
                           {removing ? (
                             <Loader className="size-3.5 animate-spin" />
                           ) : (
-                            <Trash2 className="size-3.5" strokeWidth={1.75} />
+                            <Trash2 className="size-3.5" />
                           )}
                         </button>
                       ) : null}
@@ -4768,7 +4767,6 @@ function Select({
         </span>
         <ChevronDown
           className={`size-3.5 shrink-0 text-content/50 transition-transform ${open ? "rotate-180" : ""}`}
-          strokeWidth={1.75}
         />
       </button>
       {open ? (

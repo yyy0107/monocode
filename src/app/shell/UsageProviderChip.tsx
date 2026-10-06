@@ -340,7 +340,6 @@ export function UsageProviderChip({
                   />
                   <ChevronRight
                     className="size-2.5 shrink-0"
-                    strokeWidth={1.75}
                     aria-hidden
                   />
                 </div>
@@ -350,7 +349,6 @@ export function UsageProviderChip({
               <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-content/40">
                 <RefreshCw
                   className="size-2.5 animate-spin"
-                  strokeWidth={1.75}
                   aria-hidden
                 />
                 {uiT("Updating")}
@@ -533,7 +531,6 @@ function AccountSwitchRow({
         <span className="text-[10px] text-content/40">{uiT("Switch")}</span>
         <ChevronRight
           className="size-3 shrink-0 text-content/35"
-          strokeWidth={1.75}
           aria-hidden
         />
       </button>
@@ -575,7 +572,7 @@ function ProviderAccountPicker({
           aria-label={uiT("Back to usage")}
           onClick={onBack}
         >
-          <ArrowLeft className="size-3.5" strokeWidth={1.75} aria-hidden />
+          <ArrowLeft className="size-3.5" aria-hidden />
         </button>
         <h2 className="text-[13px] font-medium">
           {providerLabel} {uiT("accounts")}
@@ -669,7 +666,7 @@ function ProviderAccountPicker({
         className="mt-2 flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[11px] text-content/55 hover:bg-content/[0.07] hover:text-content"
         onClick={onAdd}
       >
-        <Plus className="size-3.5" strokeWidth={1.75} aria-hidden />
+        <Plus className="size-3.5" aria-hidden />
         {uiT("Add account")}
       </button>
       {onManage ? (
@@ -769,7 +766,7 @@ function AddProviderAccount({
           disabled={running}
           onClick={onBack}
         >
-          <ArrowLeft className="size-3.5" strokeWidth={1.75} aria-hidden />
+          <ArrowLeft className="size-3.5" aria-hidden />
         </button>
         <h2 className="text-[13px] font-medium">
           {uiT("Add ")}
@@ -1109,7 +1106,6 @@ function BankedResetRow({
           <span className="inline-flex shrink-0 items-center gap-1.5 text-[10px] text-content/45">
             <RefreshCw
               className="size-3 animate-spin"
-              strokeWidth={1.75}
               aria-hidden
             />
             {uiT("Applying…")}

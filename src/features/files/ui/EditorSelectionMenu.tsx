@@ -61,7 +61,6 @@ export function EditorSelectionMenu({
         <MessageSquarePlus
           aria-hidden="true"
           className="size-3.5"
-          strokeWidth={1.75}
         />
         {uiT("Add to chat")}
       </button>

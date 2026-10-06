@@ -225,7 +225,7 @@ export function UnifiedDiffView({
             onClick={() => setOpen(new Set(files.map((file) => file.id)))}
             className="grid size-7 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content"
           >
-            <UnfoldVertical className="size-3.5" strokeWidth={1.75} />
+            <UnfoldVertical className="size-3.5" />
           </button>
           <button
             type="button"
@@ -235,7 +235,7 @@ export function UnifiedDiffView({
             onClick={() => setOpen(new Set())}
             className="grid size-7 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-40"
           >
-            <FoldVertical className="size-3.5" strokeWidth={1.75} />
+            <FoldVertical className="size-3.5" />
           </button>
         </span>
       </div>
@@ -400,7 +400,6 @@ const FileSection = memo(function FileSection({
         >
           <Chevron
             className="size-3.5 shrink-0 text-content/45"
-            strokeWidth={1.75}
           />
           <FileTypeIcon name={name} isDir={false} size={16} />
           <span
@@ -417,7 +416,7 @@ const FileSection = memo(function FileSection({
             disabled={busy}
             onClick={() => onDiscardFile(file.id)}
           >
-            <Undo2 className="size-3.5" strokeWidth={1.75} />
+            <Undo2 className="size-3.5" />
           </IconButton>
         ) : null}
         {file.canStage && onStageFile ? (

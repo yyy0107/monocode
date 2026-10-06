@@ -375,7 +375,7 @@ function ActivityAction({
       }
       className={`relative grid size-8 shrink-0 place-items-center rounded-md ${active ? "bg-selection text-content" : "text-content/50 hover:bg-content/10 hover:text-content"} disabled:cursor-default disabled:opacity-35`}
     >
-      <Icon className="size-4" strokeWidth={1.75} />
+      <Icon className="size-4" />
       {dot ? (
         <span
           aria-hidden

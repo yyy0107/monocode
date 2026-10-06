@@ -1,141 +1,145 @@
-/** Hugeicons chrome set. Glyphs are deep-imported so the 5MB catalog is not bundled. */
+/** Lucide chrome set (matching ZCode). Named per-glyph imports keep the bundle tree-shaken. */
 import {
-  HugeiconsIcon,
-  type HugeiconsIconProps,
-  type IconSvgElement,
-} from "@hugeicons/react";
-import Add01Icon from "@hugeicons/core-free-icons/Add01Icon";
-import AddSquareIcon from "@hugeicons/core-free-icons/AddSquareIcon";
-import AlertCircleIcon from "@hugeicons/core-free-icons/AlertCircleIcon";
-import AppWindowIcon from "@hugeicons/core-free-icons/AppWindowIcon";
-import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon";
-import FileImportIcon from "@hugeicons/core-free-icons/FileImportIcon";
-import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon";
-import ArrowExpand01Icon from "@hugeicons/core-free-icons/ArrowExpand01Icon";
-import ArrowLeft01Icon from "@hugeicons/core-free-icons/ArrowLeft01Icon";
-import ArrowLeft02Icon from "@hugeicons/core-free-icons/ArrowLeft02Icon";
-import ArrowRight01Icon from "@hugeicons/core-free-icons/ArrowRight01Icon";
-import ArrowRight02Icon from "@hugeicons/core-free-icons/ArrowRight02Icon";
-import ArrowTurnForwardIcon from "@hugeicons/core-free-icons/ArrowTurnForwardIcon";
-import ArrowUp01Icon from "@hugeicons/core-free-icons/ArrowUp01Icon";
-import BotIcon from "@hugeicons/core-free-icons/BotIcon";
-import AiIdeaIcon from "@hugeicons/core-free-icons/AiIdeaIcon";
-import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon";
-import CaseSensitiveIcon from "@hugeicons/core-free-icons/CaseSensitiveIcon";
-import Chatting01Icon from "@hugeicons/core-free-icons/Chatting01Icon";
-import CheckmarkCircle02Icon from "@hugeicons/core-free-icons/CheckmarkCircle02Icon";
-import CircleArrowDown01Icon from "@hugeicons/core-free-icons/CircleArrowDown01Icon";
-import CancelCircleIcon from "@hugeicons/core-free-icons/CancelCircleIcon";
-import ChartBreakoutSquareIcon from "@hugeicons/core-free-icons/ChartBreakoutSquareIcon";
-import CircleDashedIcon from "@hugeicons/core-free-icons/CircleDashedIcon";
-import CircleDotIcon from "@hugeicons/core-free-icons/CircleDotIcon";
-import CloudUploadIcon from "@hugeicons/core-free-icons/CloudUploadIcon";
-import Clock01Icon from "@hugeicons/core-free-icons/Clock01Icon";
-import ColorPickerIcon from "@hugeicons/core-free-icons/ColorPickerIcon";
-import Comment01Icon from "@hugeicons/core-free-icons/Comment01Icon";
-import CommentAdd01Icon from "@hugeicons/core-free-icons/CommentAdd01Icon";
-import ComputerIcon from "@hugeicons/core-free-icons/ComputerIcon";
-import Home01Icon from "@hugeicons/core-free-icons/Home01Icon";
-import ComputerTerminal01Icon from "@hugeicons/core-free-icons/ComputerTerminal01Icon";
-import Copy01Icon from "@hugeicons/core-free-icons/Copy01Icon";
-import CursorMagicSelection04Icon from "@hugeicons/core-free-icons/CursorMagicSelection04Icon";
-import DashboardSquare01Icon from "@hugeicons/core-free-icons/DashboardSquare01Icon";
-import Delete02Icon from "@hugeicons/core-free-icons/Delete02Icon";
-import DragDropVerticalIcon from "@hugeicons/core-free-icons/DragDropVerticalIcon";
-import File01Icon from "@hugeicons/core-free-icons/File01Icon";
-import FileAddIcon from "@hugeicons/core-free-icons/FileAddIcon";
-import FileDiffIcon from "@hugeicons/core-free-icons/FileDiffIcon";
-import FilePlusCornerIcon from "@hugeicons/core-free-icons/FilePlusCornerIcon";
-import FileScriptIcon from "@hugeicons/core-free-icons/FileScriptIcon";
-import FilterIcon from "@hugeicons/core-free-icons/FilterIcon";
-import FlashIcon from "@hugeicons/core-free-icons/FlashIcon";
-import Folder01Icon from "@hugeicons/core-free-icons/Folder01Icon";
-import FolderAddIcon from "@hugeicons/core-free-icons/FolderAddIcon";
-import FolderOpenIcon from "@hugeicons/core-free-icons/FolderOpenIcon";
-import FolderTreeIcon from "@hugeicons/core-free-icons/FolderTreeIcon";
-import GaugeIcon from "@hugeicons/core-free-icons/GaugeIcon";
-import GitBranchIcon from "@hugeicons/core-free-icons/GitBranchIcon";
-import GitCompareIcon from "@hugeicons/core-free-icons/GitCompareIcon";
-import GitMergeIcon from "@hugeicons/core-free-icons/GitMergeIcon";
-import GitPullRequestClosedIcon from "@hugeicons/core-free-icons/GitPullRequestClosedIcon";
-import GitPullRequestDraftIcon from "@hugeicons/core-free-icons/GitPullRequestDraftIcon";
-import GitPullRequestIcon from "@hugeicons/core-free-icons/GitPullRequestIcon";
-import GlobeIcon from "@hugeicons/core-free-icons/GlobeIcon";
-import InternetIcon from "@hugeicons/core-free-icons/InternetIcon";
-import HelpCircleIcon from "@hugeicons/core-free-icons/HelpCircleIcon";
-import ImageAdd01Icon from "@hugeicons/core-free-icons/ImageAdd01Icon";
-import InboxIcon from "@hugeicons/core-free-icons/InboxIcon";
-import NotificationOff01Icon from "@hugeicons/core-free-icons/NotificationOff01Icon";
-import KeyboardIcon from "@hugeicons/core-free-icons/KeyboardIcon";
-import LayoutAlignRightIcon from "@hugeicons/core-free-icons/LayoutAlignRightIcon";
-import LayoutBottomIcon from "@hugeicons/core-free-icons/LayoutBottomIcon";
-import LayoutTopIcon from "@hugeicons/core-free-icons/LayoutTopIcon";
-import LeftToRightListBulletIcon from "@hugeicons/core-free-icons/LeftToRightListBulletIcon";
-import ListEndIcon from "@hugeicons/core-free-icons/ListEndIcon";
-import LinkSquare02Icon from "@hugeicons/core-free-icons/LinkSquare02Icon";
-import Link01Icon from "@hugeicons/core-free-icons/Link01Icon";
-import LaptopIcon from "@hugeicons/core-free-icons/LaptopIcon";
-import SourceCodeIcon from "@hugeicons/core-free-icons/SourceCodeIcon";
-import Loading03Icon from "@hugeicons/core-free-icons/Loading03Icon";
-import MagicWand01Icon from "@hugeicons/core-free-icons/MagicWand01Icon";
-import MessageMultiple01Icon from "@hugeicons/core-free-icons/MessageMultiple01Icon";
-import MinusSignIcon from "@hugeicons/core-free-icons/MinusSignIcon";
-import MoreHorizontalIcon from "@hugeicons/core-free-icons/MoreHorizontalIcon";
-import Note01Icon from "@hugeicons/core-free-icons/Note01Icon";
-import PaintBoardIcon from "@hugeicons/core-free-icons/PaintBoardIcon";
-import PauseIcon from "@hugeicons/core-free-icons/PauseIcon";
-import PencilEdit01Icon from "@hugeicons/core-free-icons/PencilEdit01Icon";
-import PencilEdit02Icon from "@hugeicons/core-free-icons/PencilEdit02Icon";
-import PinIcon from "@hugeicons/core-free-icons/PinIcon";
-import PinOffIcon from "@hugeicons/core-free-icons/PinOffIcon";
-import PlayIcon from "@hugeicons/core-free-icons/PlayIcon";
-import PreferenceHorizontalIcon from "@hugeicons/core-free-icons/PreferenceHorizontalIcon";
-import Refresh01Icon from "@hugeicons/core-free-icons/Refresh01Icon";
-import RegexIcon from "@hugeicons/core-free-icons/RegexIcon";
-import ReplaceIcon from "@hugeicons/core-free-icons/ReplaceIcon";
-import RotateCcwIcon from "@hugeicons/core-free-icons/RotateCcwIcon";
-import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
-import Settings01Icon from "@hugeicons/core-free-icons/Settings01Icon";
-import Share02Icon from "@hugeicons/core-free-icons/Share02Icon";
-import ShieldAlertIcon from "@hugeicons/core-free-icons/ShieldAlertIcon";
-import SidebarRight01Icon from "@hugeicons/core-free-icons/SidebarRight01Icon";
-import SparklesIcon from "@hugeicons/core-free-icons/SparklesIcon";
-import SquareIcon from "@hugeicons/core-free-icons/SquareIcon";
-import SquareLock02Icon from "@hugeicons/core-free-icons/SquareLock02Icon";
-import StarIcon from "@hugeicons/core-free-icons/StarIcon";
-import UnfoldMoreIcon from "@hugeicons/core-free-icons/UnfoldMoreIcon";
-import Tick02Icon from "@hugeicons/core-free-icons/Tick02Icon";
-import TickDouble02Icon from "@hugeicons/core-free-icons/TickDouble02Icon";
-import UndoIcon from "@hugeicons/core-free-icons/UndoIcon";
-import UngroupItemsIcon from "@hugeicons/core-free-icons/UngroupItemsIcon";
-import ViewIcon from "@hugeicons/core-free-icons/ViewIcon";
-import WholeWordIcon from "@hugeicons/core-free-icons/WholeWordIcon";
-import Wrench01Icon from "@hugeicons/core-free-icons/Wrench01Icon";
+  AlertCircle as AlertCircleIcon,
+  AppWindow as AppWindowIcon,
+  Archive as ArchiveIcon,
+  ArrowDownCircle as ArrowDownCircleIcon,
+  ArrowLeft as ArrowLeftIcon,
+  ArrowUp as ArrowUpIcon,
+  BellOff as BellOffIcon,
+  Bot as BotIcon,
+  CaseSensitive as CaseSensitiveIcon,
+  ChartNoAxesCombined as ChartNoAxesCombinedIcon,
+  Check as CheckIcon,
+  CheckCheck as CheckCheckIcon,
+  CheckCircle as CheckCircleIcon,
+  ChevronDown as ChevronDownIcon,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
+  ChevronUp as ChevronUpIcon,
+  ChevronsUpDown as ChevronsUpDownIcon,
+  CircleAlert as CircleAlertIcon,
+  CircleDashed as CircleDashedIcon,
+  CircleDot as CircleDotIcon,
+  CircleHelp as CircleHelpIcon,
+  CircleX as CircleXIcon,
+  Clock as ClockIcon,
+  CloudUpload as CloudUploadIcon,
+  Code as CodeIcon,
+  Copy as CopyIcon,
+  CornerDownRight as CornerDownRightIcon,
+  Earth as EarthIcon,
+  ExternalLink as ExternalLinkIcon,
+  Eye as EyeIcon,
+  File as FileIcon,
+  FileCode as FileCodeIcon,
+  FileDiff as FileDiffIcon,
+  FileInput as FileInputIcon,
+  FilePlus as FilePlusIcon,
+  FilePlusCorner as FilePlusCornerIcon,
+  FoldVertical as FoldVerticalIcon,
+  Folder as FolderIcon,
+  FolderOpen as FolderOpenIcon,
+  FolderPlus as FolderPlusIcon,
+  FolderTree as FolderTreeIcon,
+  Gauge as GaugeIcon,
+  GitBranch as GitBranchIcon,
+  GitCompare as GitCompareIcon,
+  GitMerge as GitMergeIcon,
+  GitPullRequest as GitPullRequestIcon,
+  GitPullRequestClosed as GitPullRequestClosedIcon,
+  GitPullRequestDraft as GitPullRequestDraftIcon,
+  Globe as GlobeIcon,
+  GripVertical as GripVerticalIcon,
+  Home as HomeIcon,
+  ImagePlus as ImagePlusIcon,
+  Inbox as InboxIcon,
+  Keyboard as KeyboardIcon,
+  Laptop as LaptopIcon,
+  LayoutDashboard as LayoutDashboardIcon,
+  Lightbulb as LightbulbIcon,
+  Link as LinkIcon,
+  List as ListIcon,
+  ListEnd as ListEndIcon,
+  ListFilter as ListFilterIcon,
+  LoaderCircle as LoaderCircleIcon,
+  Lock as LockIcon,
+  Maximize2 as Maximize2Icon,
+  MessageSquare as MessageSquareIcon,
+  MessageSquarePlus as MessageSquarePlusIcon,
+  MessagesSquare as MessagesSquareIcon,
+  Minus as MinusIcon,
+  Monitor as MonitorIcon,
+  MoreHorizontal as MoreHorizontalIcon,
+  MoveLeft as MoveLeftIcon,
+  MoveRight as MoveRightIcon,
+  Palette as PaletteIcon,
+  PanelBottom as PanelBottomIcon,
+  PanelLeft as PanelLeftIcon,
+  PanelRight as PanelRightIcon,
+  PanelTop as PanelTopIcon,
+  Pause as PauseIcon,
+  PenLine as PenLineIcon,
+  Pencil as PencilIcon,
+  Pin as PinIcon,
+  PinOff as PinOffIcon,
+  Pipette as PipetteIcon,
+  Play as PlayIcon,
+  Plus as PlusIcon,
+  RefreshCw as RefreshCwIcon,
+  Regex as RegexIcon,
+  Replace as ReplaceIcon,
+  RotateCcw as RotateCcwIcon,
+  Search as SearchIcon,
+  Settings as SettingsIcon,
+  Share as ShareIcon,
+  Shield as ShieldIcon,
+  SlidersHorizontal as SlidersHorizontalIcon,
+  Sparkles as SparklesIcon,
+  Square as SquareIcon,
+  SquareDashedMousePointer as SquareDashedMousePointerIcon,
+  SquarePlus as SquarePlusIcon,
+  Star as StarIcon,
+  StickyNote as StickyNoteIcon,
+  Terminal as TerminalIcon,
+  Trash2 as Trash2Icon,
+  Undo2 as Undo2Icon,
+  UnfoldVertical as UnfoldVerticalIcon,
+  Ungroup as UngroupIcon,
+  WandSparkles as WandSparklesIcon,
+  WholeWord as WholeWordIcon,
+  Wrench as WrenchIcon,
+  X as XIcon,
+  Zap as ZapIcon,
+  type LucideIcon,
+  type LucideProps,
+} from "lucide-react";
 import { forwardRef, type CSSProperties, type Ref } from "react";
 
-/** Props shared by every chrome icon. `icon` is filled in by the named wrappers. */
-export type IconProps = Omit<HugeiconsIconProps, "icon">;
+/** Props shared by every chrome icon. */
+export type IconProps = LucideProps;
 
 export type IconComponent = ReturnType<typeof wrap>;
 
-function wrap(icon: IconSvgElement, name: string) {
+function wrap(Glyph: LucideIcon, name: string) {
   const Component = forwardRef(function Icon(
-    { strokeWidth = 1.75, style, ...props }: IconProps,
+    { strokeWidth = 2, style, ...props }: IconProps,
     ref: Ref<SVGSVGElement>,
   ) {
     return (
-      <HugeiconsIcon
+      <Glyph
         ref={ref}
-        icon={icon}
         strokeWidth={strokeWidth}
         {...props}
         data-ui-icon={name}
-        style={{
-          "--ui-icon-stroke-width": props.absoluteStrokeWidth
-            ? (strokeWidth * 24) / Number(props.size ?? 24)
-            : strokeWidth,
-          ...style,
-        } as CSSProperties}
+        style={
+          {
+            "--ui-icon-stroke-width": props.absoluteStrokeWidth
+              ? (Number(strokeWidth) * 24) / Number(props.size ?? 24)
+              : strokeWidth,
+            ...style,
+          } as CSSProperties
+        }
       />
     );
   });
@@ -143,88 +147,61 @@ function wrap(icon: IconSvgElement, name: string) {
   return Component;
 }
 
-const stroke = {
-  stroke: "currentColor",
-  strokeLinecap: "round",
-  strokeLinejoin: "round",
-  strokeWidth: "1.5",
-} as const;
-
-/** Catalog FoldVertical/UnfoldVertical use filled chevrons; keep these stroke-only. */
-const foldDashes: IconSvgElement = [
-  ["path", { d: "M2 12H4", ...stroke, key: "0" }],
-  ["path", { d: "M8 12H10", ...stroke, key: "1" }],
-  ["path", { d: "M14 12H16", ...stroke, key: "2" }],
-  ["path", { d: "M20 12H22", ...stroke, key: "3" }],
-];
-
-const FoldVerticalIcon: IconSvgElement = [
-  ...foldDashes,
-  ["path", { d: "M7 2L12 7L17 2", ...stroke, key: "4" }],
-  ["path", { d: "M7 22L12 17L17 22", ...stroke, key: "5" }],
-];
-
-const UnfoldVerticalIcon: IconSvgElement = [
-  ...foldDashes,
-  ["path", { d: "M7 7L12 2L17 7", ...stroke, key: "4" }],
-  ["path", { d: "M7 17L12 22L17 17", ...stroke, key: "5" }],
-];
-
 export const AlertCircle = wrap(AlertCircleIcon, "AlertCircle");
 export const AppWindow = wrap(AppWindowIcon, "AppWindow");
-export const Archive = wrap(Archive02Icon, "Archive");
-export const FileImport = wrap(FileImportIcon, "FileImport");
-export const ArrowDownCircle = wrap(CircleArrowDown01Icon, "ArrowDownCircle");
-export const ArrowLeft = wrap(ArrowLeft01Icon, "ArrowLeft");
-export const MoveLeft = wrap(ArrowLeft02Icon, "MoveLeft");
-export const MoveRight = wrap(ArrowRight02Icon, "MoveRight");
-export const ArrowUp = wrap(ArrowUp01Icon, "ArrowUp");
+export const Archive = wrap(ArchiveIcon, "Archive");
+export const FileImport = wrap(FileInputIcon, "FileImport");
+export const ArrowDownCircle = wrap(ArrowDownCircleIcon, "ArrowDownCircle");
+export const ArrowLeft = wrap(ArrowLeftIcon, "ArrowLeft");
+export const MoveLeft = wrap(MoveLeftIcon, "MoveLeft");
+export const MoveRight = wrap(MoveRightIcon, "MoveRight");
+export const ArrowUp = wrap(ArrowUpIcon, "ArrowUp");
 export const Bot = wrap(BotIcon, "Bot");
-export const AiIdea = wrap(AiIdeaIcon, "AiIdea");
+export const AiIdea = wrap(LightbulbIcon, "AiIdea");
 export const CaseSensitive = wrap(CaseSensitiveIcon, "CaseSensitive");
-export const Chatting = wrap(Chatting01Icon, "Chatting");
-export const Check = wrap(Tick02Icon, "Check");
-export const CheckCheck = wrap(TickDouble02Icon, "CheckCheck");
-export const CheckCircle = wrap(CheckmarkCircle02Icon, "CheckCircle");
-export const ChevronDown = wrap(ArrowDown01Icon, "ChevronDown");
-export const ChevronLeft = wrap(ArrowLeft01Icon, "ChevronLeft");
-export const ChevronRight = wrap(ArrowRight01Icon, "ChevronRight");
-export const CornerDownRight = wrap(ArrowTurnForwardIcon, "CornerDownRight");
-export const ChevronUp = wrap(ArrowUp01Icon, "ChevronUp");
-export const ChevronsUpDown = wrap(UnfoldMoreIcon, "ChevronsUpDown");
-export const CircleAlert = wrap(AlertCircleIcon, "CircleAlert");
+export const Chatting = wrap(MessagesSquareIcon, "Chatting");
+export const Check = wrap(CheckIcon, "Check");
+export const CheckCheck = wrap(CheckCheckIcon, "CheckCheck");
+export const CheckCircle = wrap(CheckCircleIcon, "CheckCircle");
+export const ChevronDown = wrap(ChevronDownIcon, "ChevronDown");
+export const ChevronLeft = wrap(ChevronLeftIcon, "ChevronLeft");
+export const ChevronRight = wrap(ChevronRightIcon, "ChevronRight");
+export const CornerDownRight = wrap(CornerDownRightIcon, "CornerDownRight");
+export const ChevronUp = wrap(ChevronUpIcon, "ChevronUp");
+export const ChevronsUpDown = wrap(ChevronsUpDownIcon, "ChevronsUpDown");
+export const CircleAlert = wrap(CircleAlertIcon, "CircleAlert");
 export const CircleDashed = wrap(CircleDashedIcon, "CircleDashed");
 export const CircleDot = wrap(CircleDotIcon, "CircleDot");
-export const CircleHelp = wrap(HelpCircleIcon, "CircleHelp");
-export const CircleX = wrap(CancelCircleIcon, "CircleX");
+export const CircleHelp = wrap(CircleHelpIcon, "CircleHelp");
+export const CircleX = wrap(CircleXIcon, "CircleX");
 export const CloudUpload = wrap(CloudUploadIcon, "CloudUpload");
-export const Clock = wrap(Clock01Icon, "Clock");
-export const Copy = wrap(Copy01Icon, "Copy");
-export const Computer = wrap(ComputerIcon, "Computer");
+export const Clock = wrap(ClockIcon, "Clock");
+export const Copy = wrap(CopyIcon, "Copy");
+export const Computer = wrap(MonitorIcon, "Computer");
 export const CursorMagicSelection = wrap(
-  CursorMagicSelection04Icon,
+  SquareDashedMousePointerIcon,
   "CursorMagicSelection",
 );
-export const DashboardSquare = wrap(DashboardSquare01Icon, "DashboardSquare");
-export const ExternalLink = wrap(LinkSquare02Icon, "ExternalLink");
-export const Link = wrap(Link01Icon, "Link");
+export const DashboardSquare = wrap(LayoutDashboardIcon, "DashboardSquare");
+export const ExternalLink = wrap(ExternalLinkIcon, "ExternalLink");
+export const Link = wrap(LinkIcon, "Link");
 export const Laptop = wrap(LaptopIcon, "Laptop");
-export const Code = wrap(SourceCodeIcon, "Code");
-export const File = wrap(File01Icon, "File");
+export const Code = wrap(CodeIcon, "Code");
+export const File = wrap(FileIcon, "File");
 export const FileDiff = wrap(FileDiffIcon, "FileDiff");
-export const FilePlus = wrap(FileAddIcon, "FilePlus");
+export const FilePlus = wrap(FilePlusIcon, "FilePlus");
 export const FilePlusCorner = wrap(FilePlusCornerIcon, "FilePlusCorner");
-export const FileScript = wrap(FileScriptIcon, "FileScript");
+export const FileScript = wrap(FileCodeIcon, "FileScript");
 export const FoldVertical = wrap(FoldVerticalIcon, "FoldVertical");
-export const Folder = wrap(Folder01Icon, "Folder");
-export const Home = wrap(Home01Icon, "Home");
+export const Folder = wrap(FolderIcon, "Folder");
+export const Home = wrap(HomeIcon, "Home");
 export const FolderOpen = wrap(FolderOpenIcon, "FolderOpen");
-export const Eye = wrap(ViewIcon, "Eye");
-export const FolderPlus = wrap(FolderAddIcon, "FolderPlus");
+export const Eye = wrap(EyeIcon, "Eye");
+export const FolderPlus = wrap(FolderPlusIcon, "FolderPlus");
 export const FolderTree = wrap(FolderTreeIcon, "FolderTree");
 export const Gauge = wrap(GaugeIcon, "Gauge");
 export const ChartBreakoutSquare = wrap(
-  ChartBreakoutSquareIcon,
+  ChartNoAxesCombinedIcon,
   "ChartBreakoutSquare",
 );
 export const GitBranch = wrap(GitBranchIcon, "GitBranch");
@@ -239,62 +216,65 @@ export const GitPullRequestDraft = wrap(
   GitPullRequestDraftIcon,
   "GitPullRequestDraft",
 );
-export const GripVertical = wrap(DragDropVerticalIcon, "GripVertical");
+export const GripVertical = wrap(GripVerticalIcon, "GripVertical");
 export const Globe = wrap(GlobeIcon, "Globe");
-export const Internet = wrap(InternetIcon, "Internet");
-export const ImagePlus = wrap(ImageAdd01Icon, "ImagePlus");
+export const Internet = wrap(EarthIcon, "Internet");
+export const ImagePlus = wrap(ImagePlusIcon, "ImagePlus");
 export const Inbox = wrap(InboxIcon, "Inbox");
-export const BellOff = wrap(NotificationOff01Icon, "BellOff");
+export const BellOff = wrap(BellOffIcon, "BellOff");
 export const Keyboard = wrap(KeyboardIcon, "Keyboard");
-export const ListBullet = wrap(LeftToRightListBulletIcon, "ListBullet");
+export const ListBullet = wrap(ListIcon, "ListBullet");
 export const ListEnd = wrap(ListEndIcon, "ListEnd");
-export const ListFilter = wrap(FilterIcon, "ListFilter");
-export const Loader = wrap(Loading03Icon, "Loader");
-export const LoaderCircle = wrap(Loading03Icon, "LoaderCircle");
-export const Lock = wrap(SquareLock02Icon, "Lock");
-export const Maximize2 = wrap(ArrowExpand01Icon, "Maximize2");
-export const MessageMultiple = wrap(MessageMultiple01Icon, "MessageMultiple");
-export const MessageSquare = wrap(Comment01Icon, "MessageSquare");
-export const MessageSquarePlus = wrap(CommentAdd01Icon, "MessageSquarePlus");
-export const Minus = wrap(MinusSignIcon, "Minus");
+export const ListFilter = wrap(ListFilterIcon, "ListFilter");
+export const Loader = wrap(LoaderCircleIcon, "Loader");
+export const LoaderCircle = wrap(LoaderCircleIcon, "LoaderCircle");
+export const Lock = wrap(LockIcon, "Lock");
+export const Maximize2 = wrap(Maximize2Icon, "Maximize2");
+export const MessageMultiple = wrap(MessagesSquareIcon, "MessageMultiple");
+export const MessageSquare = wrap(MessageSquareIcon, "MessageSquare");
+export const MessageSquarePlus = wrap(
+  MessageSquarePlusIcon,
+  "MessageSquarePlus",
+);
+export const Minus = wrap(MinusIcon, "Minus");
 export const MoreHorizontal = wrap(MoreHorizontalIcon, "MoreHorizontal");
-export const Palette = wrap(PaintBoardIcon, "Palette");
+export const Palette = wrap(PaletteIcon, "Palette");
 export const Pause = wrap(PauseIcon, "Pause");
-export const PanelBottom = wrap(LayoutBottomIcon, "PanelBottom");
-export const PanelLeft = wrap(LayoutAlignRightIcon, "PanelLeft");
-export const PanelRight = wrap(SidebarRight01Icon, "PanelRight");
-export const PanelTop = wrap(LayoutTopIcon, "PanelTop");
-export const PenLine = wrap(PencilEdit01Icon, "PenLine");
-export const Pencil = wrap(PencilEdit02Icon, "Pencil");
+export const PanelBottom = wrap(PanelBottomIcon, "PanelBottom");
+export const PanelLeft = wrap(PanelLeftIcon, "PanelLeft");
+export const PanelRight = wrap(PanelRightIcon, "PanelRight");
+export const PanelTop = wrap(PanelTopIcon, "PanelTop");
+export const PenLine = wrap(PenLineIcon, "PenLine");
+export const Pencil = wrap(PencilIcon, "Pencil");
 export const Pin = wrap(PinIcon, "Pin");
 export const PinOff = wrap(PinOffIcon, "PinOff");
 export const Play = wrap(PlayIcon, "Play");
-export const Pipette = wrap(ColorPickerIcon, "Pipette");
-export const Plus = wrap(Add01Icon, "Plus");
-export const RefreshCw = wrap(Refresh01Icon, "RefreshCw");
+export const Pipette = wrap(PipetteIcon, "Pipette");
+export const Plus = wrap(PlusIcon, "Plus");
+export const RefreshCw = wrap(RefreshCwIcon, "RefreshCw");
 export const Regex = wrap(RegexIcon, "Regex");
 export const Replace = wrap(ReplaceIcon, "Replace");
 export const RotateCcw = wrap(RotateCcwIcon, "RotateCcw");
-export const Search = wrap(Search01Icon, "Search");
-export const Settings = wrap(Settings01Icon, "Settings");
-export const Share = wrap(Share02Icon, "Share");
-export const Shield = wrap(ShieldAlertIcon, "Shield");
+export const Search = wrap(SearchIcon, "Search");
+export const Settings = wrap(SettingsIcon, "Settings");
+export const Share = wrap(ShareIcon, "Share");
+export const Shield = wrap(ShieldIcon, "Shield");
 export const SlidersHorizontal = wrap(
-  PreferenceHorizontalIcon,
+  SlidersHorizontalIcon,
   "SlidersHorizontal",
 );
 export const Sparkles = wrap(SparklesIcon, "Sparkles");
 export const Square = wrap(SquareIcon, "Square");
-export const SquarePlus = wrap(AddSquareIcon, "SquarePlus");
+export const SquarePlus = wrap(SquarePlusIcon, "SquarePlus");
 export const Star = wrap(StarIcon, "Star");
-export const StickyNote = wrap(Note01Icon, "StickyNote");
-export const Terminal = wrap(ComputerTerminal01Icon, "Terminal");
-export const Trash2 = wrap(Delete02Icon, "Trash2");
-export const Undo2 = wrap(UndoIcon, "Undo2");
+export const StickyNote = wrap(StickyNoteIcon, "StickyNote");
+export const Terminal = wrap(TerminalIcon, "Terminal");
+export const Trash2 = wrap(Trash2Icon, "Trash2");
+export const Undo2 = wrap(Undo2Icon, "Undo2");
 export const UnfoldVertical = wrap(UnfoldVerticalIcon, "UnfoldVertical");
-export const Ungroup = wrap(UngroupItemsIcon, "Ungroup");
-export const WandSparkles = wrap(MagicWand01Icon, "WandSparkles");
+export const Ungroup = wrap(UngroupIcon, "Ungroup");
+export const WandSparkles = wrap(WandSparklesIcon, "WandSparkles");
 export const WholeWord = wrap(WholeWordIcon, "WholeWord");
-export const Wrench = wrap(Wrench01Icon, "Wrench");
-export const X = wrap(Cancel01Icon, "X");
-export const Zap = wrap(FlashIcon, "Zap");
+export const Wrench = wrap(WrenchIcon, "Wrench");
+export const X = wrap(XIcon, "X");
+export const Zap = wrap(ZapIcon, "Zap");

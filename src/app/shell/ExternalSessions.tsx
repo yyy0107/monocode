@@ -88,9 +88,9 @@ export function ExternalSessions({
         className="flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs text-content/50 hover:bg-content/5 hover:text-content/75"
       >
         {expanded ? (
-          <ChevronDown className="size-3" strokeWidth={1.75} />
+          <ChevronDown className="size-3" />
         ) : (
-          <ChevronRight className="size-3" strokeWidth={1.75} />
+          <ChevronRight className="size-3" />
         )}
         <span className="min-w-0 flex-1 truncate">
           {t("External sessions ({count})", { count: files.length })}

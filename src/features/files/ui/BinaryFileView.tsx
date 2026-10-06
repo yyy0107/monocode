@@ -246,7 +246,7 @@ function ImageView({
             {copied ? (
               <Check className="size-3" strokeWidth={2} />
             ) : (
-              <Copy className="size-3" strokeWidth={1.75} />
+              <Copy className="size-3" />
             )}
           </ZoomButton>
         ) : null}
@@ -256,7 +256,7 @@ function ImageView({
             setZoom((value) => clampZoom((value === "fit" ? 1 : value) / 1.5))
           }
         >
-          <Minus className="size-3" strokeWidth={1.75} />
+          <Minus className="size-3" />
         </ZoomButton>
         <button
           type="button"
@@ -272,7 +272,7 @@ function ImageView({
             setZoom((value) => clampZoom((value === "fit" ? 1 : value) * 1.5))
           }
         >
-          <Plus className="size-3" strokeWidth={1.75} />
+          <Plus className="size-3" />
         </ZoomButton>
       </footer>
       {menu ? (
@@ -347,12 +347,12 @@ function FileCard({
         <div className="mt-4 flex items-center justify-center gap-2">
           {onRetry ? (
             <CardButton onClick={onRetry}>
-              <RotateCcw className="size-3" strokeWidth={1.75} />
+              <RotateCcw className="size-3" />
               {uiT("Retry")}
             </CardButton>
           ) : null}
           <CardButton onClick={() => void revealPath(path).catch(() => {})}>
-            <Folder className="size-3" strokeWidth={1.75} />
+            <Folder className="size-3" />
             {uiT("Reveal")}
           </CardButton>
           <CardButton onClick={() => void copyText(path).catch(() => {})}>

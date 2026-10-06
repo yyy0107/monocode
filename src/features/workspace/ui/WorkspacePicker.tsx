@@ -392,7 +392,6 @@ function WorkspaceModePicker({
               >
                 <Settings
                   className="size-4 shrink-0 text-content/45"
-                  strokeWidth={1.75}
                 />
                 <span className="flex-1">{uiT("Worktree settings")}</span>
               </button>

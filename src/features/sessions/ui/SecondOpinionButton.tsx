@@ -409,7 +409,7 @@ export function SecondOpinionButton({
           setOpen((value) => !value);
         }}
       >
-        <Icon className="size-3.5" strokeWidth={1.75} />
+        <Icon className="size-3.5" />
       </button>
       {open ? (
         <>
@@ -479,7 +479,6 @@ export function SecondOpinionButton({
                     {modelsFor(harness).length > 0 ? (
                       <ChevronRight
                         className="size-3.5 shrink-0 text-content/40"
-                        strokeWidth={1.75}
                       />
                     ) : null}
                   </button>
@@ -557,7 +556,6 @@ export function SecondOpinionButton({
                     {modelEffortSetting(model)?.options.length ? (
                       <ChevronRight
                         className="size-3.5 shrink-0 text-content/40"
-                        strokeWidth={1.75}
                       />
                     ) : null}
                   </button>

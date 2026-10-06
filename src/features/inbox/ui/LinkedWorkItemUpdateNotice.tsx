@@ -51,12 +51,12 @@ function entryKindLabel(entry: LinkedWorkItemActivityEntry): string {
 
 function ActivityIcon({ entry }: { entry: LinkedWorkItemActivityEntry }) {
   if (entry.kind === "commit") {
-    return <GitBranch className="size-3.5 shrink-0" strokeWidth={1.75} />;
+    return <GitBranch className="size-3.5 shrink-0" />;
   }
   if (entry.kind === "review") {
-    return <Check className="size-3.5 shrink-0" strokeWidth={1.75} />;
+    return <Check className="size-3.5 shrink-0" />;
   }
-  return <MessageSquare className="size-3.5 shrink-0" strokeWidth={1.75} />;
+  return <MessageSquare className="size-3.5 shrink-0" />;
 }
 
 export function LinkedWorkItemUpdateNotice({
@@ -149,7 +149,7 @@ export function LinkedWorkItemUpdateNotice({
         <div className="relative z-[1] flex items-center justify-between gap-0.5 border-b border-stroke px-3 py-2">
           <div className="flex items-center gap-1.5">
             <span className="size-2 shrink-0 rounded-full bg-accent" />
-            <KindIcon className="size-3.5 text-content/55" strokeWidth={1.75} />
+            <KindIcon className="size-3.5 text-content/55" />
             <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">
               {uiT("GitHub activity")}
             </span>
@@ -239,7 +239,6 @@ export function LinkedWorkItemUpdateNotice({
                     ? "size-3.5 shrink-0 text-violet-400/90"
                     : "size-3.5 shrink-0 text-emerald-400/90"
                 }
-                strokeWidth={1.75}
               />
               <span className="font-medium text-content/75">
                 {terminalLabel}
@@ -259,7 +258,7 @@ export function LinkedWorkItemUpdateNotice({
                 {cleanupAction === "archive" ? (
                   <Loader className="size-3 shrink-0 animate-spin" />
                 ) : (
-                  <Archive className="size-3 shrink-0" strokeWidth={1.75} />
+                  <Archive className="size-3 shrink-0" />
                 )}
                 <span className="min-w-0 truncate whitespace-nowrap">
                   {uiT("Archive session")}
@@ -275,7 +274,7 @@ export function LinkedWorkItemUpdateNotice({
                 {cleanupAction === "delete" ? (
                   <Loader className="size-3 shrink-0 animate-spin" />
                 ) : (
-                  <Trash2 className="size-3 shrink-0" strokeWidth={1.75} />
+                  <Trash2 className="size-3 shrink-0" />
                 )}
                 <span className="min-w-0 truncate whitespace-nowrap">
                   {uiT("Delete…")}

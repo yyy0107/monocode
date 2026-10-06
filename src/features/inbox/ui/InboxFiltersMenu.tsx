@@ -58,12 +58,12 @@ const KIND_OPTIONS: {
   {
     id: "issue",
     label: "Issues",
-    icon: <CircleDot className="size-3.5 shrink-0" strokeWidth={1.75} />,
+    icon: <CircleDot className="size-3.5 shrink-0" />,
   },
   {
     id: "pr",
     label: "Pull requests",
-    icon: <GitPullRequest className="size-3.5 shrink-0" strokeWidth={1.75} />,
+    icon: <GitPullRequest className="size-3.5 shrink-0" />,
   },
 ];
 

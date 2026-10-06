@@ -237,7 +237,7 @@ export function SkillsPage({
                     : `${filtered.length} ${filtered.length === 1 ? "skill" : "skills"}`}
                 </span>
                 <label className="flex h-7 w-52 min-w-0 flex-1 items-center gap-2 rounded-md border border-content/10 px-2 text-content/45 focus-within:border-content/20">
-                  <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+                  <Search className="size-3.5 shrink-0" />
                   <input
                     ref={filterInput}
                     value={query}
@@ -261,7 +261,7 @@ export function SkillsPage({
                   }}
                   className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content"
                 >
-                  <RefreshCw className="size-3.5" strokeWidth={1.75} />
+                  <RefreshCw className="size-3.5" />
                 </button>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -406,7 +406,6 @@ export function SkillsPage({
                           >
                             <Eye
                               className="size-3"
-                              strokeWidth={1.75}
                               aria-hidden="true"
                             />
                           </button>
@@ -419,7 +418,7 @@ export function SkillsPage({
                             onClick={() => onCopyPath(skill.path)}
                             className="grid size-5 shrink-0 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
                           >
-                            <Copy className="size-3" strokeWidth={1.75} />
+                            <Copy className="size-3" />
                           </button>
                           <button
                             type="button"
@@ -431,7 +430,7 @@ export function SkillsPage({
                             onClick={() => onReveal(skill.path)}
                             className="grid size-5 shrink-0 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
                           >
-                            <FolderOpen className="size-3" strokeWidth={1.75} />
+                            <FolderOpen className="size-3" />
                           </button>
                         </div>
                       </div>
@@ -470,7 +469,7 @@ export function SkillsPage({
                 onClick={() => setPreviewSkill(null)}
                 className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
-                <X className="size-3.5" strokeWidth={1.75} />
+                <X className="size-3.5" />
               </button>
             </header>
             <div className="shrink-0 space-y-3 border-b border-stroke px-4 pt-1 pb-3">

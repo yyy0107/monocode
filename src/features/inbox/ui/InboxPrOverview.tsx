@@ -108,7 +108,6 @@ export function InboxDescriptionSummary({
           className={`size-3.5 transition-transform ${
             expanded ? "rotate-180" : ""
           }`}
-          strokeWidth={1.75}
         />
         {expanded ? uiT("Show less") : uiT("Show full description")}
         {!expanded && excerpt.images > 0 ? (
@@ -163,7 +162,6 @@ export function InboxPrChangesGlance({
         {loading ? (
           <LoaderCircle
             className="size-3 animate-spin text-content/35"
-            strokeWidth={1.75}
           />
         ) : null}
         {files.length > 0 ? (
@@ -175,7 +173,7 @@ export function InboxPrChangesGlance({
             {files.length > shown.length
               ? uiT("View all {value0}", { value0: String(files.length) })
               : uiT("View diff")}
-            <ChevronRight className="size-3.5" strokeWidth={1.75} />
+            <ChevronRight className="size-3.5" />
           </button>
         ) : null}
       </div>

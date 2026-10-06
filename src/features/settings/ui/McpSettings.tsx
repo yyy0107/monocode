@@ -97,7 +97,6 @@ function McpPicker<T extends string>({
         </span>
         <ChevronDown
           className={`size-3.5 shrink-0 text-content/50 transition-transform ${open ? "rotate-180" : ""}`}
-          strokeWidth={1.75}
         />
       </button>
       {open ? (

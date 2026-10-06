@@ -267,7 +267,6 @@ export function ExplorerMenu({
         {hasSubmenu ? (
           <ChevronRight
             className="size-3.5 shrink-0 text-content/50"
-            strokeWidth={1.75}
           />
         ) : item.checked ? (
           <Check className="size-3.5 shrink-0" strokeWidth={2.25} />

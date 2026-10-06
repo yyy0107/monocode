@@ -188,7 +188,6 @@ export function InboxComments({
         {loading ? (
           <LoaderCircle
             className="size-3 animate-spin text-content/35"
-            strokeWidth={1.75}
           />
         ) : null}
       </div>
@@ -308,7 +307,7 @@ export function InboxCommentForm({
             onClick={onCancelReply}
             className="grid size-5 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content"
           >
-            <X className="size-3" strokeWidth={1.75} />
+            <X className="size-3" />
           </button>
         </div>
       ) : null}
@@ -350,7 +349,7 @@ function CommentsPending() {
   const { t: uiT } = useTranslation();
   return (
     <div className="flex items-center gap-2 border-t border-stroke pt-5 text-[12px] text-content/45">
-      <LoaderCircle className="size-3.5 animate-spin" strokeWidth={1.75} />
+      <LoaderCircle className="size-3.5 animate-spin" />
       {uiT("Loading comments")}
     </div>
   );
@@ -682,7 +681,6 @@ function InboxTimelineComment({
                   ? "text-rose-400/90"
                   : "text-content/45"
             }`}
-            strokeWidth={1.75}
           />
         }
       >

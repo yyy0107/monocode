@@ -149,7 +149,7 @@ export function GithubStarPrompt() {
         onClick={dismissPrompt}
         className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-orange-400/60 transition-[color,background-color,transform] duration-150 ease-out hover:bg-orange-300/15 hover:text-orange-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/60 active:scale-95"
       >
-        <X className="size-3" strokeWidth={1.75} />
+        <X className="size-3" />
       </button>
     </div>
   );

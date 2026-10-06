@@ -278,10 +278,9 @@ export function NotesView({
           {creating ? (
             <LoaderCircle
               className="size-3.5 animate-spin"
-              strokeWidth={1.75}
             />
           ) : (
-            <Plus className="size-3.5" strokeWidth={1.75} />
+            <Plus className="size-3.5" />
           )}
         </button>
       </div>
@@ -293,7 +292,7 @@ export function NotesView({
           <p className="px-3 py-2 text-[12px] text-content/50">{error}</p>
         ) : loading && notes.length === 0 ? (
           <div className="flex justify-center py-10 text-content/40">
-            <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
+            <LoaderCircle className="size-4 animate-spin" />
           </div>
         ) : visible.length === 0 ? (
           <p className="px-3 py-2 text-[12px] text-content/50">
@@ -342,7 +341,6 @@ export function NotesView({
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
           <File
             className="size-3.5 shrink-0 text-content/45"
-            strokeWidth={1.75}
           />
           <span className="min-w-0 truncate text-content">{uiT("Notes")}</span>
         </div>
@@ -523,7 +521,7 @@ function NoteDetail({
   if (!note) {
     return (
       <div className="flex h-full min-w-0 flex-1 flex-col items-center justify-center px-6 text-center">
-        <File className="mb-3 size-6 text-content/30" strokeWidth={1.75} />
+        <File className="mb-3 size-6 text-content/30" />
         <p className="text-[13px] text-content/45">{uiT("Select a note")}</p>
       </div>
     );
@@ -810,7 +808,7 @@ function NoteEditor({
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-8 py-8">
         <header className="flex flex-col gap-3">
           <div className="flex min-w-0 items-center gap-2 text-[12px] text-content/50">
-            <File className="size-3.5 shrink-0" strokeWidth={1.75} />
+            <File className="size-3.5 shrink-0" />
             <span>{uiT("Note")}</span>
             {note.slug ? (
               <span className="min-w-0 truncate">{note.slug}</span>
@@ -878,7 +876,7 @@ function NoteEditor({
               }}
               className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-red-400"
             >
-              <Trash2 className="size-3.5" strokeWidth={1.75} />
+              <Trash2 className="size-3.5" />
               {uiT("Delete")}
             </button>
           </div>
@@ -1070,7 +1068,7 @@ function NoteTagsEditor({
             onClick={() => onChange(tags.filter((item) => item !== tag))}
             className="grid size-4 shrink-0 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
           >
-            <X className="size-2.5" strokeWidth={1.75} />
+            <X className="size-2.5" />
           </button>
         </span>
       ))}

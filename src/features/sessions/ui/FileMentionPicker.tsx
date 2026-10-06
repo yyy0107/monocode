@@ -116,7 +116,7 @@ export function FileMentionPicker({
               >
                 <span className="shrink-0">
                   {isNoteMentionPath(file.path) ? (
-                    <StickyNote className="size-3.5" strokeWidth={1.75} />
+                    <StickyNote className="size-3.5" />
                   ) : (
                     <FileTypeIcon
                       name={file.name}

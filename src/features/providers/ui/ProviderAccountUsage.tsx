@@ -77,7 +77,6 @@ export function AccountUsageRefresh({ usage }: { usage: AccountUsage }) {
     >
       <RefreshCw
         className={`size-3.5 ${usage.refreshing ? "animate-spin" : ""}`}
-        strokeWidth={1.75}
       />
     </button>
   );

@@ -82,7 +82,7 @@ export function CreateBranchDialog({ busy, error, onCreate, onCancel }: Props) {
             className="inline-flex items-center gap-1.5 rounded-md bg-content px-3 py-1.5 text-[12px] font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
           >
             {busy ? (
-              <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
+              <Loader className="size-3.5 animate-spin" />
             ) : null}
             {uiT("Create branch")}
           </button>

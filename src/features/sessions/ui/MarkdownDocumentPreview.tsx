@@ -30,12 +30,10 @@ export const MarkdownDocumentPreview = memo(function MarkdownDocumentPreview({
               <ChevronRight
                 aria-hidden="true"
                 className="size-3.5 shrink-0 text-content/50 group-open/metadata:hidden"
-                strokeWidth={1.75}
               />
               <ChevronDown
                 aria-hidden="true"
                 className="hidden size-3.5 shrink-0 text-content/50 group-open/metadata:block"
-                strokeWidth={1.75}
               />
               {metadataLabel}
             </summary>

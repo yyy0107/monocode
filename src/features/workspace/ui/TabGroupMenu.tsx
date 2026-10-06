@@ -305,7 +305,7 @@ export function TabGroupMenu({
                 }}
                 className="grid size-7 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content"
               >
-                <Trash2 className="size-3.5" strokeWidth={1.75} />
+                <Trash2 className="size-3.5" />
               </button>
             ) : null}
           </div>
@@ -503,7 +503,7 @@ function MenuRow({
             : "text-content hover:bg-content/5"
       }`}
     >
-      <Icon className="size-3.5 shrink-0 text-content/55" strokeWidth={1.75} />
+      <Icon className="size-3.5 shrink-0 text-content/55" />
       <span
         className={`min-w-0 flex-1 leading-label ${item.description ? "py-2" : "truncate"}`}
       >
@@ -517,7 +517,6 @@ function MenuRow({
       {item.submenu ? (
         <ChevronRight
           className="size-3.5 shrink-0 text-content/50"
-          strokeWidth={1.75}
         />
       ) : null}
       {item.shortcut ? (

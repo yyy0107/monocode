@@ -229,7 +229,6 @@ function StatusIcon({ status }: { status: Status }) {
     return (
       <CircleDashed
         className="size-3.5 shrink-0 text-content/40"
-        strokeWidth={1.75}
       />
     );
   }

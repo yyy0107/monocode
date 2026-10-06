@@ -457,7 +457,7 @@ export function FileEditor({
             onClick={() => setReloadKey((value) => value + 1)}
             className="mx-auto mt-4 flex h-7 items-center gap-1.5 rounded-md bg-content/10 px-2.5 text-[12px] text-content hover:bg-content/15"
           >
-            <RotateCcw className="size-3" strokeWidth={1.75} />
+            <RotateCcw className="size-3" />
             {uiT("Retry")}
           </button>
         </div>
@@ -1110,7 +1110,7 @@ function DiffChunkNav({
           onClick={onPrev}
           className="grid size-6 place-items-center rounded text-content/70 hover:bg-content/10 hover:text-content disabled:opacity-35"
         >
-          <ChevronUp className="size-3.5" strokeWidth={1.75} />
+          <ChevronUp className="size-3.5" />
         </button>
         <span className="min-w-10 px-0.5 text-center font-mono text-[10.5px] font-medium tabular-nums text-content/55 select-none">
           {total === 0 ? "0/0" : `${index + 1}/${total}`}
@@ -1124,7 +1124,7 @@ function DiffChunkNav({
           onClick={onNext}
           className="grid size-6 place-items-center rounded text-content/70 hover:bg-content/10 hover:text-content disabled:opacity-35"
         >
-          <ChevronDown className="size-3.5" strokeWidth={1.75} />
+          <ChevronDown className="size-3.5" />
         </button>
       </div>
     </header>

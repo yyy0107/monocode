@@ -59,7 +59,6 @@ export function TranscriptSelectionMenu({
             <MessageSquarePlus
               aria-hidden="true"
               className="size-3.5"
-              strokeWidth={1.75}
             />
           </SelectionAction>
         ) : null}
@@ -72,7 +71,6 @@ export function TranscriptSelectionMenu({
             <FilePlusCorner
               aria-hidden="true"
               className="size-3.5"
-              strokeWidth={1.75}
             />
           </SelectionAction>
         ) : null}

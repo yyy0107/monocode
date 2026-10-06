@@ -187,11 +187,9 @@ export function SwitchBranchDialog({
               <>
                 <Loader
                   className="size-3.5 animate-spin group-hover:hidden group-focus-visible:hidden"
-                  strokeWidth={1.75}
                 />
                 <X
                   className="hidden size-3.5 group-hover:block group-focus-visible:block"
-                  strokeWidth={1.75}
                 />
               </>
             ) : (
@@ -222,7 +220,7 @@ export function SwitchBranchDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-content/10 px-3 py-1.5 text-[12px] font-medium text-content hover:bg-content/15 disabled:opacity-40"
           >
             {busy === "commit" ? (
-              <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
+              <Loader className="size-3.5 animate-spin" />
             ) : null}
             {uiT("Commit & switch")}
           </button>
@@ -233,7 +231,7 @@ export function SwitchBranchDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-content px-3 py-1.5 text-[12px] font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
           >
             {busy === "stash" ? (
-              <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
+              <Loader className="size-3.5 animate-spin" />
             ) : null}
             {uiT("Stash & switch")}
           </button>

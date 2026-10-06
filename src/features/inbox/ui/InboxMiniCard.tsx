@@ -53,7 +53,6 @@ export function InboxMiniCard({ card, onDismiss }: Props) {
             />
             <KindIcon
               className="size-3 shrink-0 text-content/45"
-              strokeWidth={1.75}
             />
             <span className="min-w-0 truncate text-[11px] text-content/50">
               {kindLabel} · {card.identifier}

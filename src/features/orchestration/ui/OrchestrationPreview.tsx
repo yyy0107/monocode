@@ -231,7 +231,7 @@ function AssignmentModel({
           className="flex flex-col overflow-hidden"
         >
           <label className="flex shrink-0 items-center gap-2 border-b border-stroke px-3 py-2.5 text-content/50">
-            <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+            <Search className="size-3.5 shrink-0" />
             <input
               ref={search}
               type="text"
@@ -304,7 +304,6 @@ function AssignmentModel({
                 {effortForChoice(choice)?.options.length ? (
                   <ChevronRight
                     className="size-3.5 shrink-0 text-content/40"
-                    strokeWidth={1.75}
                   />
                 ) : null}
               </button>
@@ -391,7 +390,7 @@ function WorkerHelp() {
         onBlur={() => setHovered(false)}
         className="grid size-4 shrink-0 place-items-center rounded-full text-content/35 hover:text-content/70"
       >
-        <CircleHelp className="size-3.5" strokeWidth={1.75} />
+        <CircleHelp className="size-3.5" />
       </button>
       {(hovered || open) && (
         <Popover
@@ -523,7 +522,7 @@ export function OrchestrationPreview({
           {planning || proposal.status === "starting" ? (
             <CircleDashed className="size-4 animate-spin" />
           ) : (
-            <MessageMultiple className="size-4" strokeWidth={1.75} />
+            <MessageMultiple className="size-4" />
           )}
         </span>
         <div className="min-w-0 flex-1">
@@ -574,7 +573,7 @@ export function OrchestrationPreview({
                 void perform(() => actions!.confirm(proposal.leadId, block.id))
               }
             >
-              <Play className="size-3" strokeWidth={1.75} />
+              <Play className="size-3" />
               {starting ? uiT("Starting…") : uiT("Confirm & start")}
             </button>
           )}

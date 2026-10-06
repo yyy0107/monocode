@@ -383,7 +383,7 @@ export function SearchView({
     >
       <div className="flex h-10 shrink-0 select-none items-center border-b border-stroke">
         <label className="flex min-w-0 flex-1 items-center gap-2 px-3 text-content/50">
-          <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+          <Search className="size-3.5 shrink-0" />
           <input
             ref={inputRef}
             value={query}
@@ -400,7 +400,6 @@ export function SearchView({
           {loading ? (
             <LoaderCircle
               className="size-3.5 shrink-0 animate-spin text-content/35"
-              strokeWidth={1.75}
             />
           ) : null}
         </label>
@@ -488,7 +487,7 @@ function EmptyState() {
           )}
         </div>
         <div className="absolute grid size-14 place-items-center rounded-2xl bg-content/6 backdrop-blur-sm">
-          <Search className="size-6 text-content/50" strokeWidth={1.75} />
+          <Search className="size-6 text-content/50" />
         </div>
       </div>
 
@@ -601,7 +600,6 @@ function rowCopy(
       icon: (
         <MessageSquare
           className="size-3.5 text-content/55"
-          strokeWidth={1.75}
         />
       ),
       title: <Highlight text={hit.preview || hit.title} query={query} />,

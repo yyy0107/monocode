@@ -65,12 +65,10 @@ export function GitHistoryGraph({
         {expanded ? (
           <ChevronDown
             className="ml-auto size-3.5 shrink-0 text-content/50"
-            strokeWidth={1.75}
           />
         ) : (
           <ChevronRight
             className="ml-auto size-3.5 shrink-0 text-content/50"
-            strokeWidth={1.75}
           />
         )}
       </button>

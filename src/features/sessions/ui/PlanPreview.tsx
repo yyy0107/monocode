@@ -59,12 +59,10 @@ export function PlanPreview({
         {streaming ? (
           <CircleDashed
             className="mt-0.5 size-4 shrink-0 text-content/40"
-            strokeWidth={1.75}
           />
         ) : (
           <AiIdea
             className="mt-0.5 size-4 shrink-0 text-content/40"
-            strokeWidth={1.75}
           />
         )}
         <div className="min-w-0 flex-1">
@@ -100,7 +98,7 @@ export function PlanPreview({
                   className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-content/8 px-2 font-sans text-[11px] text-content/70 hover:bg-content/12 hover:text-content"
                   onClick={onOpen}
                 >
-                  <PanelRight className="size-3" strokeWidth={1.75} />
+                  <PanelRight className="size-3" />
                   {uiT("Open")}
                 </button>
               ) : null}
@@ -115,7 +113,7 @@ export function PlanPreview({
                     }`}
                     onClick={() => onBuild()}
                   >
-                    <Play className="size-3" strokeWidth={1.75} />
+                    <Play className="size-3" />
                     {buildLabel}
                   </button>
                   {harness ? (

@@ -2206,7 +2206,7 @@ export function Composer({
                   active={plusOpen}
                   onClick={() => setPlusOpen((open) => !open)}
                 >
-                  <Plus className="size-4" strokeWidth={1.75} />
+                  <Plus className="size-4" />
                 </ToolButton>
                 <ComposerPopover
                   open={plusOpen}
@@ -2657,7 +2657,7 @@ function FileMentionRuns({
                   and this box would otherwise inherit that indent. */}
               <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 indent-0">
                 {part.file && isNoteMentionPath(part.file.path) ? (
-                  <StickyNote className="size-3.5" strokeWidth={1.75} />
+                  <StickyNote className="size-3.5" />
                 ) : (
                   <FileTypeIcon
                     name={part.file.name}

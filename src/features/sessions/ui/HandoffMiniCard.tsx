@@ -33,7 +33,6 @@ export function HandoffMiniCard({ card, onDismiss }: Props) {
           <span className="flex min-w-0 items-center gap-1.5">
             <Replace
               className="size-3.5 shrink-0 text-content/45"
-              strokeWidth={1.75}
             />
             <span className="min-w-0 truncate text-[11px] text-content/50">
               {uiT("Handoff")}
@@ -44,7 +43,6 @@ export function HandoffMiniCard({ card, onDismiss }: Props) {
             <span className="min-w-0 truncate">{HARNESS_TITLE[card.from]}</span>
             <ChevronRight
               className="size-3 shrink-0 text-content/35"
-              strokeWidth={1.75}
             />
             <HarnessIcon harness={card.to} className="size-3.5 shrink-0" />
             <span className="min-w-0 truncate">{HARNESS_TITLE[card.to]}</span>

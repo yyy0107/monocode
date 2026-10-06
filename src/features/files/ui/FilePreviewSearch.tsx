@@ -415,7 +415,7 @@ export function FilePreviewSearch({
             disabled={total === 0}
             onClick={() => step(-1)}
           >
-            <ChevronUp className="size-3.5" strokeWidth={1.75} />
+            <ChevronUp className="size-3.5" />
           </FindButton>
           <FindButton
             label={uiT("Next Match")}
@@ -423,14 +423,14 @@ export function FilePreviewSearch({
             disabled={total === 0}
             onClick={() => step(1)}
           >
-            <ChevronDown className="size-3.5" strokeWidth={1.75} />
+            <ChevronDown className="size-3.5" />
           </FindButton>
           <FindButton
             label={uiT("Close")}
             title={uiT("Close (Escape)")}
             onClick={closeSearch}
           >
-            <X className="size-3.5" strokeWidth={1.75} />
+            <X className="size-3.5" />
           </FindButton>
         </div>
       ) : null}

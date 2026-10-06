@@ -74,7 +74,7 @@ export function WindowControls() {
         onClick={handleMinimize}
         className="flex w-10 items-center justify-center text-content/60 transition-colors hover:bg-content/10 hover:text-content"
       >
-        <Minus className="size-3.5" strokeWidth={1.75} />
+        <Minus className="size-3.5" />
       </button>
       <button
         type="button"
@@ -87,9 +87,9 @@ export function WindowControls() {
         className="flex w-10 items-center justify-center text-content/60 transition-colors hover:bg-content/10 hover:text-content"
       >
         {isMaximized ? (
-          <Copy className="size-3" strokeWidth={1.75} />
+          <Copy className="size-3" />
         ) : (
-          <Square className="size-3" strokeWidth={1.75} />
+          <Square className="size-3" />
         )}
       </button>
       <button
@@ -100,7 +100,7 @@ export function WindowControls() {
         onClick={handleClose}
         className="flex w-10 items-center justify-center text-content/60 transition-colors hover:bg-red-600 hover:text-white"
       >
-        <X className="size-3.5" strokeWidth={1.75} />
+        <X className="size-3.5" />
       </button>
     </div>
   );

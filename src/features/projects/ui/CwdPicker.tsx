@@ -244,7 +244,6 @@ export function CwdPicker({
             className={`size-3 shrink-0 text-content/50 ${
               open ? "rotate-180" : ""
             }`}
-            strokeWidth={1.75}
           />
         ) : null}
       </button>
@@ -347,7 +346,6 @@ export function CwdPicker({
                 <span className="text-[13px]">{uiT("More Projects")}</span>
                 <ChevronRight
                   className="size-3.5 shrink-0"
-                  strokeWidth={1.75}
                 />
               </button>
             ) : null}

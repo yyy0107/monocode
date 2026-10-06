@@ -127,7 +127,7 @@ export function McpServerPicker({
           onClick={() => onDismiss("escape")}
           className="grid size-7 shrink-0 place-items-center rounded-md text-content/45 transition-colors hover:bg-content/8 hover:text-content focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
         >
-          <ChevronDown className="size-4" strokeWidth={1.75} />
+          <ChevronDown className="size-4" />
         </button>
       </div>
       <div

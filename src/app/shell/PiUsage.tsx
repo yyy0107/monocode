@@ -82,7 +82,6 @@ function PiProviderUsage({
         >
           <RefreshCw
             className={`size-2.5 ${fetching ? "motion-safe:animate-spin" : ""}`}
-            strokeWidth={1.75}
             aria-hidden
           />
         </button>

@@ -160,7 +160,7 @@ function PanelHeader({
           onClick={onToggle}
           className="grid size-6 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content"
         >
-          <FoldVertical className="size-3.5" strokeWidth={1.75} />
+          <FoldVertical className="size-3.5" />
         </button>
       </div>
     );
@@ -203,7 +203,7 @@ function SummaryContent({ model }: { model: SessionStatusPanelModel }) {
     case "git":
       return (
         <>
-          {icon(<GitCompare className="size-3.5" strokeWidth={1.75} />)}
+          {icon(<GitCompare className="size-3.5" />)}
           <DiffCounts
             additions={summary.additions}
             deletions={summary.deletions}
@@ -213,7 +213,7 @@ function SummaryContent({ model }: { model: SessionStatusPanelModel }) {
     case "progress":
       return (
         <>
-          {icon(<ListEnd className="size-3.5" strokeWidth={1.75} />)}
+          {icon(<ListEnd className="size-3.5" />)}
           <span className="font-mono text-[11px]">
             {summary.completed}/{summary.total}
           </span>
@@ -222,7 +222,7 @@ function SummaryContent({ model }: { model: SessionStatusPanelModel }) {
     case "plan":
       return (
         <>
-          {icon(<FileScript className="size-3.5" strokeWidth={1.75} />)}
+          {icon(<FileScript className="size-3.5" />)}
           <span className="min-w-0 flex-1 truncate">{summary.text}</span>
         </>
       );
@@ -235,7 +235,7 @@ function SummaryContent({ model }: { model: SessionStatusPanelModel }) {
             : Terminal;
       return (
         <>
-          {icon(<Icon className="size-3.5" strokeWidth={1.75} />)}
+          {icon(<Icon className="size-3.5" />)}
           <span className="min-w-0 flex-1 truncate">
             {uiT("{count} running", { count: String(summary.count) })}
           </span>
@@ -292,7 +292,7 @@ function PanelSections({
             />
             {model.git.branch ? (
               <span className="flex min-w-0 flex-1 items-center gap-1 text-content/55">
-                <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
+                <GitBranch className="size-3 shrink-0" />
                 <span className="truncate font-mono text-[11px]">
                   {model.git.branch}
                 </span>
@@ -302,7 +302,6 @@ function PanelSections({
             )}
             <ChevronRight
               className="size-3 shrink-0 text-content/35"
-              strokeWidth={1.75}
             />
           </button>
         </Section>
@@ -427,7 +426,7 @@ function Section({
   return (
     <section className="rounded-[10px] border border-content/8 bg-content/[0.035] py-1">
       <div className="flex items-center gap-1.5 px-2 pt-0.5 pb-1">
-        <Icon className="size-3.5 shrink-0 text-content/45" strokeWidth={1.75} />
+        <Icon className="size-3.5 shrink-0 text-content/45" />
         <h3 className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-content/70">
           {title}
         </h3>

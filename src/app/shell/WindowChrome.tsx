@@ -104,14 +104,14 @@ export function TabVisitNav({
   return (
     <div className="flex shrink-0 items-center">
       <IconButton label={backLabel} disabled={!canGoBack} onClick={onGoBack}>
-        <MoveLeft className="size-3.5" strokeWidth={1.75} />
+        <MoveLeft className="size-3.5" />
       </IconButton>
       <IconButton
         label={forwardLabel}
         disabled={!canGoForward}
         onClick={onGoForward}
       >
-        <MoveRight className="size-3.5" strokeWidth={1.75} />
+        <MoveRight className="size-3.5" />
       </IconButton>
       {onTogglePanel ? (
         <IconButton
@@ -119,7 +119,7 @@ export function TabVisitNav({
           active={panelActive}
           onClick={onTogglePanel}
         >
-          <PanelLeft className="size-3.5" strokeWidth={1.75} />
+          <PanelLeft className="size-3.5" />
         </IconButton>
       ) : null}
     </div>

@@ -172,7 +172,6 @@ export function AutomationsView({
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
           <Zap
             className="size-3.5 shrink-0 text-content/45"
-            strokeWidth={1.75}
           />
           <span className="min-w-0 truncate text-content">
             {uiT("Automations")}
@@ -386,7 +385,7 @@ function AutomationsContent({
             onClick={beginCreate}
             className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content"
           >
-            <Plus className="size-3.5" strokeWidth={1.75} />
+            <Plus className="size-3.5" />
           </button>
         </div>
         <div
@@ -644,7 +643,7 @@ function AutomationPicker({
           >
             <div className="flex gap-3">
               <span className="grid size-9 shrink-0 place-items-center rounded-full bg-content/8 text-content/70">
-                <Plus className="size-4" strokeWidth={1.75} />
+                <Plus className="size-4" />
               </span>
               <span className="min-w-0">
                 <span className="block text-[13px] font-medium text-content">
@@ -667,7 +666,7 @@ function AutomationPicker({
               >
                 <div className="flex gap-3">
                   <span className="grid size-9 shrink-0 place-items-center rounded-full bg-content/8 text-content/70">
-                    <Icon className="size-4" strokeWidth={1.75} />
+                    <Icon className="size-4" />
                   </span>
                   <span className="min-w-0">
                     <span className="block text-[13px] font-medium text-content">
@@ -1053,7 +1052,7 @@ function AutomationEditor({
                         : "text-content/50 hover:bg-content/5 hover:text-content"
                     }`}
                   >
-                    <MoreHorizontal className="size-3.5" strokeWidth={1.75} />
+                    <MoreHorizontal className="size-3.5" />
                   </button>
                   {menuOpen ? (
                     <Popover
@@ -1077,7 +1076,7 @@ function AutomationEditor({
                         }}
                         className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] text-red-300/90 hover:bg-red-500/15"
                       >
-                        <Trash2 className="size-3.5" strokeWidth={1.75} />
+                        <Trash2 className="size-3.5" />
                         {uiT("Delete automation")}
                       </button>
                     </Popover>
@@ -1191,7 +1190,7 @@ function AutomationEditor({
                   className="overflow-hidden"
                 >
                   <label className="flex h-11 items-center gap-2.5 border-b border-stroke px-3 text-content/45 focus-within:text-content/70">
-                    <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+                    <Search className="size-3.5 shrink-0" />
                     <span className="sr-only">{uiT("Search triggers")}</span>
                     <input
                       autoFocus
@@ -1699,7 +1698,7 @@ function TriggerMark({
   className?: string;
 }) {
   if (kind === "time") {
-    return <Clock className={className} strokeWidth={1.75} />;
+    return <Clock className={className} />;
   }
   return <InboxProviderMark provider={kind} className={className} />;
 }

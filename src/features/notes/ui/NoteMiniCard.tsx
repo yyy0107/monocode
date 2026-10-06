@@ -46,7 +46,6 @@ export function NoteMiniCard({ card, onDismiss, embedded = false }: Props) {
         <span className="flex min-w-0 items-center gap-1.5">
           <File
             className="size-3.5 shrink-0 text-content/45"
-            strokeWidth={1.75}
           />
           <span className="min-w-0 truncate text-[11px] text-content/50">
             {uiT("Note")}

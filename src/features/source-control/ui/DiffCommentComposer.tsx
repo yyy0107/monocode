@@ -63,7 +63,7 @@ export function DiffCommentComposer({
             onClick={onDismiss}
             className="grid size-5 shrink-0 place-items-center rounded text-content/45 hover:bg-content/10 hover:text-content"
           >
-            <X className="size-3" strokeWidth={1.75} />
+            <X className="size-3" />
           </button>
         </div>
         <textarea
@@ -94,7 +94,7 @@ export function DiffCommentComposer({
             disabled={!comment.trim()}
             className="inline-flex h-7 items-center gap-1.5 rounded-md bg-content px-2.5 text-[12px] font-medium text-background-base hover:opacity-80 disabled:cursor-default disabled:opacity-40"
           >
-            <MessageSquarePlus className="size-3.5" strokeWidth={1.75} />
+            <MessageSquarePlus className="size-3.5" />
             {uiT("Add to chat")}
           </button>
         </div>

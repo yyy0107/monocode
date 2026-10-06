@@ -73,5 +73,5 @@ export function InboxProviderMark({
       </svg>
     );
   }
-  return <Inbox className={className} strokeWidth={1.75} />;
+  return <Inbox className={className} />;
 }

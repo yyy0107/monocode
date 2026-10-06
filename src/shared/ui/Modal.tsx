@@ -127,7 +127,7 @@ export function ModalPanel({
               onClick={onClose}
               className="grid size-7 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              <X className="size-3.5" strokeWidth={1.75} />
+              <X className="size-3.5" />
             </button>
           </header>
           <div

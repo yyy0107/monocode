@@ -9,8 +9,7 @@ import { FilePlus, FoldVertical, UnfoldVertical } from "./icons";
 
 const SRC = fileURLToPath(new URL("../..", import.meta.url));
 const CATALOG = "shared/ui/icons.tsx";
-const SPECIFIER = /["'](@hugeicons\/[^"']+)["']/g;
-const DEEP_ICON = /^@hugeicons\/core-free-icons\/[A-Z][A-Za-z0-9]+Icon$/;
+const SPECIFIER = /from ["'](lucide-react[^"']*|@hugeicons\/[^"']+)["']/g;
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -24,8 +23,8 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
-describe("hugeicons imports", () => {
-  it("only deep-imports glyphs through chrome/icons.tsx", () => {
+describe("icon imports", () => {
+  it("only imports lucide glyphs through shared/ui/icons.tsx", () => {
     const violations: string[] = [];
 
     for (const file of sourceFiles(SRC)) {
@@ -33,9 +32,7 @@ describe("hugeicons imports", () => {
       const source = readFileSync(file, "utf8");
       for (const match of source.matchAll(SPECIFIER)) {
         const spec = match[1];
-        const allowedCatalog =
-          rel === CATALOG &&
-          (spec === "@hugeicons/react" || DEEP_ICON.test(spec));
+        const allowedCatalog = rel === CATALOG && spec === "lucide-react";
         if (allowedCatalog) continue;
         violations.push(`${rel}: ${spec}`);
       }

@@ -24,7 +24,6 @@ export function SecondOpinionCard({ card }: Props) {
         <span className="truncate">{HARNESS_TITLE[card.from]}</span>
         <ChevronRight
           className="size-3 shrink-0 text-content/35"
-          strokeWidth={1.75}
         />
         <HarnessIcon harness={card.to} className="size-3 shrink-0" />
         <span className="truncate">{HARNESS_TITLE[card.to]}</span>

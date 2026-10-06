@@ -185,7 +185,7 @@ export function ProjectSearch({
           aria-label={uiT("Back to files")}
           className="grid size-7 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content"
         >
-          <ChevronLeft className="size-4" strokeWidth={1.75} />
+          <ChevronLeft className="size-4" />
         </button>
         <span className="min-w-0 flex-1 truncate text-[12px] text-content/55">
           {uiT("Search in files")}
@@ -208,21 +208,21 @@ export function ProjectSearch({
             active={caseSensitive}
             onClick={() => setCaseSensitive((value) => !value)}
           >
-            <CaseSensitive className="size-3.5" strokeWidth={1.75} />
+            <CaseSensitive className="size-3.5" />
           </Toggle>
           <Toggle
             label={uiT("Match whole word")}
             active={wholeWord}
             onClick={() => setWholeWord((value) => !value)}
           >
-            <WholeWord className="size-3.5" strokeWidth={1.75} />
+            <WholeWord className="size-3.5" />
           </Toggle>
           <Toggle
             label={uiT("Use regular expression")}
             active={regex}
             onClick={() => setRegex((value) => !value)}
           >
-            <Regex className="size-3.5" strokeWidth={1.75} />
+            <Regex className="size-3.5" />
           </Toggle>
         </div>
         <input
@@ -246,7 +246,7 @@ export function ProjectSearch({
       <div className="flex min-h-8 shrink-0 items-center gap-2 px-3 py-1.5 text-[11px] text-content/45">
         {loading ? (
           <>
-            <LoaderCircle className="size-3 animate-spin" strokeWidth={1.75} />
+            <LoaderCircle className="size-3 animate-spin" />
             <span>{uiT("Searching…")}</span>
           </>
         ) : error ? (

@@ -53,9 +53,9 @@ export function SessionSurfaceActions({
           className="mr-1 grid size-7.5 shrink-0 self-center place-items-center rounded-md text-content/60 hover:bg-content/5 hover:text-content"
         >
           {mode === "split" ? (
-            <Maximize2 className="size-4" strokeWidth={1.75} />
+            <Maximize2 className="size-4" />
           ) : (
-            <PanelRight className="size-4" strokeWidth={1.75} />
+            <PanelRight className="size-4" />
           )}
         </button>
       ) : null}
@@ -156,7 +156,6 @@ export function SessionSurfaceToolbar({
               >
                 <MessageSquare
                   className="size-3.5 shrink-0"
-                  strokeWidth={1.75}
                 />
                 {paneFocused !== undefined ? (
                   <span
@@ -181,7 +180,7 @@ export function SessionSurfaceToolbar({
                   }}
                   className={`absolute right-1 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content group-hover:opacity-100 group-focus-within:opacity-100 ${chatActive ? "opacity-100" : "opacity-0"}`}
                 >
-                  <X className="size-3" strokeWidth={1.75} />
+                  <X className="size-3" />
                 </button>
               ) : null}
             </div>
@@ -258,7 +257,7 @@ function SessionToolToggles() {
           onClick={actions.toggleTerminal}
           className={button(actions.terminalOpen)}
         >
-          <Terminal className="size-4" strokeWidth={1.75} />
+          <Terminal className="size-4" />
         </button>
       ) : null}
       <button
@@ -271,7 +270,7 @@ function SessionToolToggles() {
         onClick={actions.toggleChanges}
         className={button(actions.changesOpen)}
       >
-        <GitCompare className="size-4" strokeWidth={1.75} />
+        <GitCompare className="size-4" />
       </button>
     </div>
   );

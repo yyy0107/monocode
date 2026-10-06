@@ -51,7 +51,7 @@ export function AppViewDialog({
             onClick={onClose}
             className="absolute right-2 top-1.5 z-[2] grid size-7 place-items-center rounded-md text-content/45 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
-            <X className="size-3.5" strokeWidth={1.75} />
+            <X className="size-3.5" />
           </button>
           {/* Each view opens with an h-10 header row; keep its actions clear of
               the close button. */}

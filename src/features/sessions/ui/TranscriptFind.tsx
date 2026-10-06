@@ -114,7 +114,6 @@ export function TranscriptFind({
       >
         <Search
           className="ml-1 size-3.5 shrink-0 text-content/50"
-          strokeWidth={1.75}
         />
         <input
           ref={input}
@@ -156,17 +155,17 @@ export function TranscriptFind({
           onClick={() => step(-1)}
           disabled={!matches.length}
         >
-          <ChevronUp className="size-3.5" strokeWidth={1.75} />
+          <ChevronUp className="size-3.5" />
         </FindButton>
         <FindButton
           label={uiT("Next match")}
           onClick={() => step(1)}
           disabled={!matches.length}
         >
-          <ChevronDown className="size-3.5" strokeWidth={1.75} />
+          <ChevronDown className="size-3.5" />
         </FindButton>
         <FindButton label={uiT("Close find")} onClick={closeFind}>
-          <X className="size-3.5" strokeWidth={1.75} />
+          <X className="size-3.5" />
         </FindButton>
       </div>
     </div>

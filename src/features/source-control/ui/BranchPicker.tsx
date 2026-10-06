@@ -375,7 +375,7 @@ export function BranchPicker({
           className="flex flex-col overflow-hidden"
         >
           <label className="flex shrink-0 items-center gap-2 border-b border-stroke px-3 py-2.5 text-content/50">
-            <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+            <Search className="size-3.5 shrink-0" />
             <input
               ref={search}
               type="text"
@@ -418,7 +418,7 @@ export function BranchPicker({
                 onClick={() => pick(createRow)}
                 className="flex h-7.5 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-content/75 hover:bg-content/8 hover:text-content disabled:opacity-60"
               >
-                <Plus className="size-4 shrink-0" strokeWidth={1.75} />
+                <Plus className="size-4 shrink-0" />
                 <span className="min-w-0 truncate">
                   {createRow.name
                     ? uiT("Create and checkout {value0}", {
@@ -494,11 +494,10 @@ function BranchList({
             }`}
           >
             {selected ? (
-              <Check className="size-3.5 shrink-0" strokeWidth={1.75} />
+              <Check className="size-3.5 shrink-0" />
             ) : (
               <GitBranch
                 className="size-3.5 shrink-0 text-content/50"
-                strokeWidth={1.75}
               />
             )}
             <span

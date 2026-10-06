@@ -309,7 +309,7 @@ export function SurfaceTabs({
               onPaneDragStart(event);
             }}
           >
-            <GripVertical className="size-3.5" strokeWidth={1.75} />
+            <GripVertical className="size-3.5" />
           </div>
         ) : null}
         {leading}
@@ -390,7 +390,7 @@ export function SurfaceTabs({
                 className="surface-tab relative flex h-7.5 min-w-0 flex-1 cursor-default items-center gap-1.5 self-center px-2 pr-7 text-left text-[13px]"
               >
                 {terminal ? (
-                  <Terminal className="size-3.5 shrink-0" strokeWidth={1.75} />
+                  <Terminal className="size-3.5 shrink-0" />
                 ) : agent ? (
                   <HarnessIcon
                     harness={agent.harness}
@@ -399,7 +399,6 @@ export function SurfaceTabs({
                 ) : changes || commit || review ? (
                   <GitCompare
                     className="size-3.5 shrink-0"
-                    strokeWidth={1.75}
                   />
                 ) : (
                   <FileTypeIcon name={iconName} isDir={false} size={14} />
@@ -437,7 +436,7 @@ export function SurfaceTabs({
                   active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
                 }`}
               >
-                <X className="size-3" strokeWidth={1.75} />
+                <X className="size-3" />
               </button>
             </div>
           );

@@ -1294,7 +1294,7 @@ function CardMaximizeButton({
         maximized ? "bg-content/8 text-content" : "text-content/55"
       }`}
     >
-      <Maximize2 className="size-3.5" strokeWidth={1.75} />
+      <Maximize2 className="size-3.5" />
     </button>
   );
 }

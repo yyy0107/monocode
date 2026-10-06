@@ -32,7 +32,6 @@ export function QuickPermissionIcon({
   return (
     <Icon
       className={`${className ?? ""} ${mode === "full-access" ? "text-amber-400/90" : ""}`}
-      strokeWidth={1.75}
     />
   );
 }

@@ -265,7 +265,6 @@ function FolderRow({ name, onOpen }: { name: string; onOpen: () => void }) {
     >
       <Folder
         className="size-3.5 shrink-0 text-content/45"
-        strokeWidth={1.75}
       />
       <span className="min-w-0 flex-1 truncate">{name}</span>
       <ChevronRight className="size-3 shrink-0 text-content/30" />

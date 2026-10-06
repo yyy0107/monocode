@@ -93,7 +93,7 @@ function NavRow({
           : "text-content/50 hover:bg-content/5 hover:text-content"
       }`}
     >
-      <Icon className="size-4 shrink-0 opacity-70" strokeWidth={1.75} />
+      <Icon className="size-4 shrink-0 opacity-70" />
       <span className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">
         {label}
       </span>

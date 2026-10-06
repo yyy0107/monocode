@@ -111,7 +111,7 @@ function ApprovalToastCard({
             {title}
           </span>
           <span className="flex shrink-0 items-center gap-1 text-[11px] text-amber-400">
-            <CircleAlert className="size-3.5" strokeWidth={1.75} />
+            <CircleAlert className="size-3.5" />
             <span>
               {notice.kind === "question" ? uiT("Question") : uiT("Approval")}
             </span>

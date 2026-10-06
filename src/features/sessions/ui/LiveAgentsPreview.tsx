@@ -122,9 +122,9 @@ export function LiveAgentsPreview({
             className="flex w-full items-center justify-center gap-1 px-2 py-1.5 text-[11px] text-content/50 hover:bg-content/8 hover:text-content"
           >
             {expanded ? (
-              <ChevronUp className="size-3" strokeWidth={1.75} />
+              <ChevronUp className="size-3" />
             ) : (
-              <ChevronDown className="size-3" strokeWidth={1.75} />
+              <ChevronDown className="size-3" />
             )}
             {expanded
               ? uiT("Show less")
@@ -218,7 +218,7 @@ function LiveAgentCard({
         }`}
       >
         {agent.needsApproval ? (
-          <CircleAlert className="size-3 shrink-0" strokeWidth={1.75} />
+          <CircleAlert className="size-3 shrink-0" />
         ) : agent.done ? (
           <Check className="size-3 shrink-0" strokeWidth={2.25} />
         ) : (

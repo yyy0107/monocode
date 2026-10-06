@@ -901,13 +901,13 @@ export const FileTree = memo(function FileTree({
             label={uiT("New File")}
             onClick={() => startCreate(false)}
           >
-            <FilePlus className="size-3.5" strokeWidth={1.75} />
+            <FilePlus className="size-3.5" />
           </HeaderIcon>
           <HeaderIcon
             label={uiT("New Folder")}
             onClick={() => startCreate(true)}
           >
-            <FolderPlus className="size-3.5" strokeWidth={1.75} />
+            <FolderPlus className="size-3.5" />
           </HeaderIcon>
           <HeaderIcon
             label={uiT("Collapse All")}
@@ -919,7 +919,7 @@ export const FileTree = memo(function FileTree({
               setExpanded(next);
             }}
           >
-            <FoldVertical className="size-3.5" strokeWidth={1.75} />
+            <FoldVertical className="size-3.5" />
           </HeaderIcon>
           {onSearch ? (
             <HeaderIcon
@@ -928,7 +928,7 @@ export const FileTree = memo(function FileTree({
               })}
               onClick={onSearch}
             >
-              <Search className="size-3.5" strokeWidth={1.75} />
+              <Search className="size-3.5" />
             </HeaderIcon>
           ) : null}
         </div>
@@ -957,9 +957,9 @@ export const FileTree = memo(function FileTree({
           >
             <span className="grid size-4 shrink-0 place-items-center text-content/50">
               {rootOpen ? (
-                <ChevronDown className="size-3.5" strokeWidth={1.75} />
+                <ChevronDown className="size-3.5" />
               ) : (
-                <ChevronRight className="size-3.5" strokeWidth={1.75} />
+                <ChevronRight className="size-3.5" />
               )}
             </span>
             <span className="min-w-0 truncate text-[11px] font-semibold tracking-[0.08em] text-content/50 uppercase">
@@ -1205,9 +1205,9 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
           <span className="grid size-4 shrink-0 place-items-center text-content/50">
             {entry.isDir ? (
               open ? (
-                <ChevronDown className="size-3.5" strokeWidth={1.75} />
+                <ChevronDown className="size-3.5" />
               ) : (
-                <ChevronRight className="size-3.5" strokeWidth={1.75} />
+                <ChevronRight className="size-3.5" />
               )
             ) : null}
           </span>
@@ -1313,7 +1313,7 @@ export function NameRow({
       >
         <span className="grid size-4 shrink-0 place-items-center text-content/50">
           {isDir ? (
-            <ChevronRight className="size-3.5" strokeWidth={1.75} />
+            <ChevronRight className="size-3.5" />
           ) : null}
         </span>
         {!isDir ? (

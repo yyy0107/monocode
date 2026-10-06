@@ -255,7 +255,6 @@ function StatusIcon({ state }: { state: RepairState }) {
   return (
     <Icon
       aria-hidden="true"
-      strokeWidth={1.75}
       className={`size-3.5 shrink-0 ${color} ${["repairing", "refreshing", "pending"].includes(state) ? "animate-spin motion-reduce:animate-none" : ""}`}
     />
   );

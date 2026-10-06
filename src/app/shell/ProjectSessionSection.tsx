@@ -1157,11 +1157,10 @@ function ProjectSessionSectionComponent({
                           )}
                           groupIcon={
                             isReminders ? (
-                              <Clock className="size-3.5" strokeWidth={1.75} />
+                              <Clock className="size-3.5" />
                             ) : (
                               <Pin
                                 className="size-3.5 text-content"
-                                strokeWidth={1.75}
                               />
                             )
                           }
@@ -1329,11 +1328,10 @@ function SessionGroupRow({
               </span>
               <ChevronDown
                 className="hidden size-3.5 text-content group-hover:block group-focus-visible:block"
-                strokeWidth={1.75}
               />
             </>
           ) : (
-            <ChevronDown className="size-3.5 text-content" strokeWidth={1.75} />
+            <ChevronDown className="size-3.5 text-content" />
           )
         ) : (
           <>
@@ -1342,7 +1340,6 @@ function SessionGroupRow({
             </span>
             <ChevronRight
               className="hidden size-3.5 group-hover:block group-focus-visible:block text-content"
-              strokeWidth={1.75}
             />
           </>
         )}
@@ -1352,7 +1349,7 @@ function SessionGroupRow({
       </span>
       <span className="relative flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-content/45">
         {!expanded && needsApproval ? (
-          <CircleAlert className="size-3 text-amber-400" strokeWidth={1.75} />
+          <CircleAlert className="size-3 text-amber-400" />
         ) : !expanded && busy ? (
           <TerminalSpinner className="inline-block w-3 select-none text-center text-[11px] leading-none text-accent" />
         ) : !expanded && done ? (
@@ -1589,7 +1586,7 @@ const SessionCard = memo(function SessionCard({
     >
       {needsApproval ? (
         <>
-          <CircleAlert className="size-3" strokeWidth={1.75} />
+          <CircleAlert className="size-3" />
           <span>
             {orchestration ? uiT("Needs input") : uiT("Need approval")}
           </span>
@@ -1606,7 +1603,7 @@ const SessionCard = memo(function SessionCard({
         </>
       ) : draft ? (
         <>
-          <CircleDashed className="size-3" strokeWidth={1.75} />
+          <CircleDashed className="size-3" />
           <span>{uiT("Draft")}</span>
         </>
       ) : (
@@ -1693,9 +1690,9 @@ const SessionCard = memo(function SessionCard({
       className="flex shrink-0 cursor-pointer items-center gap-0.5 rounded px-0.5 text-[11px] tabular-nums text-accent hover:underline"
     >
       {linkedWorkItem.kind === "pr" ? (
-        <GitPullRequest className="size-3" strokeWidth={1.75} />
+        <GitPullRequest className="size-3" />
       ) : (
-        <CircleDot className="size-3" strokeWidth={1.75} />
+        <CircleDot className="size-3" />
       )}
       <span>#{linkedWorkItem.number}</span>
     </button>
@@ -1959,7 +1956,6 @@ const SessionCard = memo(function SessionCard({
             {session.pinned && !shortcut && !plainTree ? (
               <Pin
                 className="size-3 shrink-0 text-content/45"
-                strokeWidth={1.75}
               />
             ) : null}
             <ParticleText
@@ -1992,7 +1988,7 @@ const SessionCard = memo(function SessionCard({
                   : gitLabel
               }
             >
-              <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
+              <GitBranch className="size-3 shrink-0" />
               <span className="min-w-0 truncate">{gitLabel}</span>
             </span>
           ) : dense ? null : (
@@ -2013,7 +2009,7 @@ const SessionCard = memo(function SessionCard({
                 }}
                 className="pointer-events-none grid size-5 place-items-center rounded-md text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
               >
-                <Archive className="size-3 shrink-0" strokeWidth={1.75} />
+                <Archive className="size-3 shrink-0" />
               </button>
             ) : null}
             {workItemBadge}
@@ -2025,7 +2021,7 @@ const SessionCard = memo(function SessionCard({
                 aria-label={uiT("Started by an automation")}
                 className="grid size-5 -mr-1 shrink-0 place-items-center text-amber-400"
               >
-                <Zap className="size-3" strokeWidth={1.75} />
+                <Zap className="size-3" />
               </span>
             ) : null}
             {orchestration ? (

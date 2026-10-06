@@ -341,7 +341,7 @@ export function QuickOpen({
       >
         <div className="pb-1.5">
           <label className="flex items-center gap-2.5 border-b border-stroke px-3.5 py-3.5 text-content/50">
-            <Search className="size-4 shrink-0" strokeWidth={1.75} />
+            <Search className="size-4 shrink-0" />
             <input
               ref={search}
               type="text"
@@ -510,7 +510,7 @@ function renderItem(
     const keys = shortcut?.(item.command.id);
     return (
       <>
-        <Zap className="size-4 shrink-0 text-content/50" strokeWidth={1.75} />
+        <Zap className="size-4 shrink-0 text-content/50" />
         <span className="min-w-0 flex-1 truncate">
           <MatchText
             text={item.command.label}
@@ -531,7 +531,6 @@ function renderItem(
       <>
         <MessageSquare
           className="size-4 shrink-0 text-content/50"
-          strokeWidth={1.75}
         />
         <span className="min-w-0 flex-1 truncate">
           <MatchText
@@ -551,7 +550,6 @@ function renderItem(
       <>
         <FolderOpen
           className="size-4 shrink-0 text-content/50"
-          strokeWidth={1.75}
         />
         <span className="shrink-0 truncate">
           <MatchText
@@ -571,7 +569,6 @@ function renderItem(
       <>
         <FolderPlus
           className="size-4 shrink-0 text-content/50"
-          strokeWidth={1.75}
         />
         <span className="min-w-0 flex-1 truncate">{t("Open Project…")}</span>
       </>
@@ -579,7 +576,7 @@ function renderItem(
   }
   return (
     <>
-      <Search className="size-4 shrink-0 text-content/50" strokeWidth={1.75} />
+      <Search className="size-4 shrink-0 text-content/50" />
       <span className="min-w-0 flex-1 truncate">
         {query.trim()
           ? t("Search everywhere for “{query}”", { query: query.trim() })

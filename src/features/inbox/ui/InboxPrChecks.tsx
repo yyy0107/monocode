@@ -365,7 +365,7 @@ function PrCheckRow({
             title={uiT("Fix with AI")}
             className="grid size-7 shrink-0 place-items-center rounded-lg bg-content/[0.03] text-content/65 hover:bg-selection hover:text-content focus-visible:outline focus-visible:outline-1 focus-visible:outline-content/50"
           >
-            <Sparkles className="size-3.5" strokeWidth={1.75} />
+            <Sparkles className="size-3.5" />
           </button>
         ) : (
           <span className="size-7 shrink-0" aria-hidden="true" />
@@ -384,7 +384,6 @@ function PrCheckRow({
           >
             <ChevronRight
               className={`size-3 transition-transform motion-reduce:transition-none ${expanded ? "rotate-90" : ""}`}
-              strokeWidth={1.75}
             />
           </button>
         ) : (
@@ -400,7 +399,7 @@ function PrCheckRow({
             onClick={() => void openUrl(url)}
             className={`${REFRESH_BUTTON} opacity-60 group-hover/check:opacity-100 focus-visible:opacity-100`}
           >
-            <ExternalLink className="size-3" strokeWidth={1.75} />
+            <ExternalLink className="size-3" />
           </button>
         ) : (
           <span className="size-6 shrink-0" aria-hidden="true" />
@@ -418,7 +417,6 @@ function PrCheckRow({
             >
               <LoaderCircle
                 className="size-4 shrink-0 animate-spin"
-                strokeWidth={1.75}
               />
               {uiT("Loading steps…")}
             </p>
@@ -566,7 +564,7 @@ export function InboxPrChecks({
   if (loading) {
     return (
       <div className="flex justify-center py-10 text-content/40">
-        <LoaderCircle className="size-4 animate-spin" strokeWidth={1.75} />
+        <LoaderCircle className="size-4 animate-spin" />
       </div>
     );
   }
@@ -583,7 +581,7 @@ export function InboxPrChecks({
           onClick={onRefresh}
           className="inline-flex h-7 items-center gap-1.5 rounded-md border border-content/15 px-3 text-[12px] text-content/80 hover:bg-content/5"
         >
-          <RefreshCw className="size-3.5" strokeWidth={1.75} />
+          <RefreshCw className="size-3.5" />
           {uiT("Retry")}
         </button>
       </div>
@@ -654,7 +652,7 @@ export function InboxPrChecks({
               )}
               className="primary-action inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-content/50"
             >
-              <Sparkles className="size-3.5" strokeWidth={1.75} />
+              <Sparkles className="size-3.5" />
               {uiT("Fix all failed")}
               <span
                 aria-hidden="true"
@@ -675,10 +673,9 @@ export function InboxPrChecks({
             {refreshing ? (
               <LoaderCircle
                 className="size-3.5 animate-spin"
-                strokeWidth={1.75}
               />
             ) : (
-              <RefreshCw className="size-3.5" strokeWidth={1.75} />
+              <RefreshCw className="size-3.5" />
             )}
           </button>
         </div>

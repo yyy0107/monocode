@@ -139,7 +139,7 @@ function CheckAnnotation({
               onClick={() => void openUrl(fileUrl)}
               className="-my-1 -mr-1 grid size-6 shrink-0 place-items-center rounded text-content/40 hover:bg-content/5 hover:text-content"
             >
-              <ExternalLink className="size-3" strokeWidth={1.75} />
+              <ExternalLink className="size-3" />
             </button>
           ) : null}
         </div>
@@ -167,7 +167,6 @@ function CheckAnnotation({
       >
         <Mark
           className={`mt-0.5 size-3 shrink-0 ${annotation.level === "failure" ? "text-rose-400/70" : "text-amber-400/70"}`}
-          strokeWidth={1.75}
         />
         <div className="min-w-0 flex-1">
           <p className="max-h-32 overflow-auto whitespace-pre-wrap break-words text-[12px] text-content/75">

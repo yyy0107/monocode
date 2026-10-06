@@ -165,7 +165,6 @@ export function CheckRepairForm({
       <div className="flex shrink-0 items-start gap-2.5 px-3.5 pb-3 pt-3.5">
         <Sparkles
           className="mt-0.5 size-4 shrink-0 text-content/65"
-          strokeWidth={1.75}
         />
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-medium leading-5 text-content">
@@ -189,11 +188,11 @@ export function CheckRepairForm({
           onClick={() => dismiss()}
           className="grid size-6 shrink-0 place-items-center rounded-md text-content/40 hover:bg-content/10 hover:text-content"
         >
-          <X className="size-3.5" strokeWidth={1.75} />
+          <X className="size-3.5" />
         </button>
       </div>
       <label className="mx-1.5 flex h-9 shrink-0 items-center gap-2 rounded-md bg-content/5 px-2.5 text-content/40 focus-within:text-content/65">
-        <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+        <Search className="size-3.5 shrink-0" />
         <input
           ref={searchRef}
           value={query}
@@ -251,7 +250,6 @@ export function CheckRepairForm({
             >
               <Icon
                 className="size-3.5 shrink-0 text-content/50"
-                strokeWidth={1.75}
               />
               <span
                 className="min-w-0 flex-1 truncate"
@@ -262,7 +260,6 @@ export function CheckRepairForm({
               {selected ? (
                 <Check
                   className="size-3.5 shrink-0 text-content/75"
-                  strokeWidth={1.75}
                 />
               ) : null}
             </button>
@@ -306,12 +303,11 @@ export function CheckRepairForm({
           {busy ? (
             <LoaderCircle
               className="size-3.5 animate-spin"
-              strokeWidth={1.75}
             />
           ) : null}
           {busy ? uiT("Preparing...") : uiT("Start fix")}
           {!busy ? (
-            <ChevronRight className="size-3" strokeWidth={1.75} />
+            <ChevronRight className="size-3" />
           ) : null}
         </button>
       </div>

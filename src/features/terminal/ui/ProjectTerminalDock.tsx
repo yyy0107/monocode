@@ -347,7 +347,7 @@ export function ProjectTerminalDock({
           trailing={
             <div className="relative z-21 flex shrink-0 items-center self-center gap-0.5 pr-1.5">
               <IconButton label={newTerminalLabel} onClick={onAddTerminal}>
-                <Plus className="size-3.5" strokeWidth={1.75} />
+                <Plus className="size-3.5" />
               </IconButton>
               <div ref={sideButton}>
                 <IconButton
@@ -358,11 +358,11 @@ export function ProjectTerminalDock({
                     setMenu({ x: rect.left, y: rect.bottom + 4 });
                   }}
                 >
-                  <SideIcon className="size-3.5" strokeWidth={1.75} />
+                  <SideIcon className="size-3.5" />
                 </IconButton>
               </div>
               <IconButton label={hideTerminalLabel} onClick={onHide}>
-                <HideIcon className="size-3.5" strokeWidth={1.75} />
+                <HideIcon className="size-3.5" />
               </IconButton>
             </div>
           }

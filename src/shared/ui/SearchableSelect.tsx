@@ -219,7 +219,6 @@ export function SearchableSelect({
         </span>
         <ChevronDown
           className={`shrink-0 text-content/45 transition-transform duration-150 ease-out ${variant === "pill" || variant === "row" ? "size-3" : "size-3.5"} ${open ? "rotate-180" : ""}`}
-          strokeWidth={1.75}
         />
       </button>
       {open ? (
@@ -240,7 +239,7 @@ export function SearchableSelect({
         >
           {searchable ? (
             <label className="flex h-8 shrink-0 items-center gap-2 border-b border-stroke px-2.5 text-content/45 focus-within:text-content/70">
-              <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+              <Search className="size-3.5 shrink-0" />
               <span className="sr-only">{searchPlaceholder}</span>
               <input
                 ref={search}

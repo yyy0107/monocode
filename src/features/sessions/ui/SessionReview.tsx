@@ -137,7 +137,7 @@ export function SessionReview({
       >
         <div className="flex min-w-0 items-center gap-2.5 px-3 py-2.5">
           <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-content/8 text-content/55">
-            <FileDiff className="size-4" strokeWidth={1.75} />
+            <FileDiff className="size-4" />
           </span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[12px] font-medium text-content/80">
@@ -216,9 +216,9 @@ export function SessionReview({
             className="flex h-8 w-full items-center gap-1.5 border-t border-stroke px-3 text-left text-[11px] text-content/45 hover:bg-content/5 hover:text-content/70"
           >
             {expanded ? (
-              <ChevronDown className="size-3.5" strokeWidth={1.75} />
+              <ChevronDown className="size-3.5" />
             ) : (
-              <ChevronRight className="size-3.5" strokeWidth={1.75} />
+              <ChevronRight className="size-3.5" />
             )}
             <span>
               {expanded

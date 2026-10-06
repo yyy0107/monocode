@@ -335,7 +335,6 @@ export function ProviderUsageBar({
         >
           <RefreshCw
             className={`size-2.5 ${refreshing ? "animate-spin" : ""}`}
-            strokeWidth={1.75}
             aria-hidden
           />
         </button>

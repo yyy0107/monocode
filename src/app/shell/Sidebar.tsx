@@ -1083,7 +1083,7 @@ function SidebarComponent(props: SidebarProps) {
             <div className="min-w-0 flex-1" />
             {props.onToggleSidebar ? (
               <IconButton label={toggleLabel} onClick={props.onToggleSidebar}>
-                <PanelLeft className="size-3.5" strokeWidth={1.75} />
+                <PanelLeft className="size-3.5" />
               </IconButton>
             ) : null}
           </div>
@@ -1231,7 +1231,7 @@ function SidebarComponent(props: SidebarProps) {
               onClick={onFilter}
               className={`relative z-50 grid size-6 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content ${filterMenu || filtersActive ? "bg-selection text-content" : ""}`}
             >
-              <ListFilter className="size-3" strokeWidth={1.75} />
+              <ListFilter className="size-3" />
             </button>
           </div>
         ) : null}

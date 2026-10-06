@@ -158,7 +158,7 @@ export function CommitDiff({ cwd, sha }: Props) {
   if (files == null) {
     return (
       <div className="grid h-full place-items-center text-content/40">
-        <Loader className="size-4 animate-spin" strokeWidth={1.75} />
+        <Loader className="size-4 animate-spin" />
       </div>
     );
   }
