@@ -50,7 +50,7 @@ async function mount(mobile: boolean) {
       id: "reply",
       kind: "assistant",
       revision: 2,
-      createdAt: sentAt + 5000,
+      createdAt: sentAt - 5000,
       text: "**Original**\nreply",
     },
   ];
@@ -134,7 +134,7 @@ it.each([false, true])(
   },
 );
 it.each([false, true])(
-  "shows receipts only on the latest user message, including after replies and receipt updates (mobile=%s)",
+  "shows receipts only on the latest unanswered user message (mobile=%s)",
   async (mobile) => {
     const update = await mount(mobile);
     const older = node.querySelector(".assistant-message-row-user")!;
@@ -153,8 +153,8 @@ it.each([false, true])(
       },
       latest,
       {
-        id: "next-reply", kind: "assistant", revision: 5,
-        createdAt: sentAt + 15000, text: "Next answer",
+        id: "status", kind: "status", revision: 5,
+        createdAt: sentAt + 15000, text: "Working",
       },
     ]);
     await act(async () => vi.advanceTimersByTime(2000));
@@ -178,6 +178,53 @@ it.each([false, true])(
     await act(async () => vi.advanceTimersByTime(2000));
     await flush();
     expect(node.querySelector(".assistant-read-state")).toBeNull();
+  },
+);
+it.each([
+  [false, null],
+  [false, sentAt + 1000],
+  [true, null],
+  [true, sentAt + 1000],
+] as const)(
+  "clears receipts after a reply and keeps late receipt updates hidden (mobile=%s, readAt=%s)",
+  async (mobile, readAt) => {
+    const update = await mount(mobile);
+    const user: AssistantMessage = {
+      id: "user", kind: "user", revision: 3, createdAt: sentAt,
+      text: "My draft", readAt,
+    };
+    update([user]);
+    await act(async () => vi.advanceTimersByTime(2000));
+    await flush();
+    expect(node.querySelector(".assistant-read-state")?.textContent).toBe(
+      readAt === null ? "Unread" : "Read",
+    );
+
+    update([{
+      id: "next-reply", kind: "assistant", revision: 4,
+      createdAt: sentAt + 5000, text: "Next answer",
+    }]);
+    await act(async () => vi.advanceTimersByTime(2000));
+    await flush();
+    expect(node.querySelector(".assistant-read-state")).toBeNull();
+    const row = node.querySelector(".assistant-message-row-user")!;
+    expect(row.querySelector("time")?.dateTime).toBe(new Date(sentAt).toISOString());
+    expect(row.querySelector('button[aria-label="Copy message"]')).not.toBeNull();
+
+    update([{ ...user, revision: 5, readAt: sentAt + 6000 }]);
+    await act(async () => vi.advanceTimersByTime(2000));
+    await flush();
+    expect(node.querySelector(".assistant-read-state")).toBeNull();
+
+    update([{
+      id: "latest-user", kind: "user", revision: 6,
+      createdAt: sentAt + 10000, text: "Another message", readAt: null,
+    }]);
+    await act(async () => vi.advanceTimersByTime(2000));
+    await flush();
+    expect(node.querySelectorAll(".assistant-read-state")).toHaveLength(1);
+    expect(node.querySelector(".assistant-read-state")?.textContent).toBe("Unread");
+    expect(row.querySelector(".assistant-read-state")).toBeNull();
   },
 );
 it("uses the native mobile clipboard and localizes receipt labels", async () => {

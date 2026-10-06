@@ -134,9 +134,11 @@ export function AssistantChat({
     () => chrome ? compactAssistantTimeline(messages) : messages,
     [messages, chrome],
   );
-  const latestUserMessageId = useMemo(
+  const pendingUserMessageId = useMemo(
     () => visibleMessages.reduce<string | undefined>(
-      (latest, message) => message.kind === "user" ? message.id : latest,
+      (latest, message) => message.kind === "user"
+        ? message.id
+        : message.kind === "assistant" ? undefined : latest,
       undefined,
     ),
     [visibleMessages],
@@ -773,7 +775,7 @@ export function AssistantChat({
                                 createdAt={message.createdAt}
                                 read={
                                   message.kind === "user" &&
-                                  message.id === latestUserMessageId &&
+                                  message.id === pendingUserMessageId &&
                                   message.readAt !== undefined
                                     ? message.readAt !== null
                                     : undefined
