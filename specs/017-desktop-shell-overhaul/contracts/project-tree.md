@@ -23,6 +23,14 @@ pins and reminders use the same component for both directions. Closing content
 and portals are hidden from interaction, and rapid reversal cancels stale timers.
 This follows the standing expand/collapse rule in AGENTS.md.
 
+Project-tree sections and their groups use a 420ms duration with
+`cubic-bezier(0.4, 0, 0.2, 1)` easing so the height change remains visible through
+the middle of the motion. A stable right-chevron SVG rotates 90 degrees while
+expanded and returns when closed. AnimatedCollapse accepts optional className
+and durationMs; the supplied duration controls both CSS and closing lifetime.
+Other disclosures and grid panels retain the shared 340ms default. Reduced
+motion disables the chevron transition and settles the section immediately.
+
 Terminal dock grid tracks reuse that rule through `useCollapseMotion` and shared
 size-transition styles. Closed tracks have zero size without changing grid areas.
 Terminal views stay mounted; closing docks become inert and suppress portals and
@@ -53,7 +61,13 @@ bindings scope reminder, completion and linked-update state.
 
 Search uses project label/path and session display title only, preserves existing
 filters, and fills missing summaries at concurrency <=4. Search expands matching
-ancestors temporarily, without changing saved expansion. Folder pruning requires
+ancestors temporarily, without changing saved expansion. Explicit project-name,
+row-background and disclosure clicks override that automatic expansion for the
+current query. Collapsing does not activate the project; reopening from the name
+retains project activation. Changing or clearing the query discards overrides;
+chat creation and project-scope selection explicitly reopen their sections.
+These interactions retain the shared closing lifetime, inertness and reversal.
+Folder pruning requires
 the complete successful project list, never filtered/search rows.
 Failed retries remain visible as project errors. The active file/change surface
 is separate from the Sessions project tree and follows the working-copy contract

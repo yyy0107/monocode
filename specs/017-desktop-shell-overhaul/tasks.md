@@ -1233,3 +1233,71 @@ specs/022-host-assistant/compatibility.md and specs/022-host-assistant/tasks.md.
 This closeout did not write those files and preserved their new contents. The
 earlier unchanged-file observation refers to the audit before this record update;
 no unrelated product source changed during the completed checks.
+
+## Project clicks during search — 2026-10-06
+
+- [x] Reproduce project-name clicks leaving search matches expanded and project
+  disclosures returning without changing state; establish failing regressions.
+- [x] Keep explicit search folds local to the current query, restore persisted
+  expansion after clearing, retain activation on reopening, and reopen for chat
+  creation/scope selection. Reuse AnimatedCollapse without new motion timers.
+- [x] Verify affected tests, TypeScript and isolated real-pointer fixtures.
+
+The two new search regressions failed against the original implementation.
+Final focused validation passed 95 tests across ProjectSessionSection (67),
+ProjectList (23) and AnimatedCollapse (5), using `LANG=en_US.UTF-8 npx vitest run
+--maxWorkers=2 --silent=true` with those three paths. Coverage includes names,
+row backgrounds, disclosures, independent project folds, query reset, saved
+expansion, rapid reversal, inert closing content and chat creation. `npx tsc
+--noEmit` and focused `git diff --check` passed. The initial baseline test command
+used ambiguous `--silent` placement and exited before running tests; corrected
+`--silent=true` runs produced the results above. Only the added test range was
+formatted to preserve existing edits.
+
+Chrome 154.0.8037.97 reproduced unchanged expansion from an actual name click
+with a search query. After the repair, settled-layout runs passed 30 Chrome
+name clicks and 60 WebKitGTK 2.52.6 name clicks during search. Earlier coordinate
+runs begun while filtering was still changing layout missed two Chrome clicks
+and one WebKit click; the settled runs avoid that setup ambiguity and do not
+prove clicks on moving targets are reliable. No-query baseline fixtures passed
+30 arrow/30 name clicks in each engine and 60 full-Sidebar WebKit name clicks.
+These isolated fixtures used synthetic projects/history, not the user's live
+desktop or real Host connections. Temporary fixture files, browser tab and
+server were cleaned up.
+
+The user identified project names/whole rows but has not confirmed whether a
+search query is present. Frequent no-query failure remains unreproduced; this
+repair addresses the confirmed search condition. The running stable-mode Tauri debug desktop
+was not reloaded or restarted. No production build/install, full web/Host/Rust
+suite, provider scenario, commit, push or merge was performed. The unrelated
+working-tree changes remain intact.
+
+## More visible project disclosure motion — 2026-10-06
+
+- [x] Inspect the motion curve and measure real project-section frames.
+- [x] Apply 420ms balanced height/fade motion to project-tree/group sections and
+  rotate stable chevron SVGs; reuse the shared lifecycle and reduced motion.
+- [x] Verify custom-duration closing lifetime/reversal, affected consumers and
+  real Chrome/WebKit animation frames; preserve unrelated working-tree edits.
+
+In the controlled five-row Chrome fixture, the prior 340ms ease-out completed
+about 74% of its height change by 80–85ms. The new 420ms curve completed about
+12% by the same point and continued visibly through the middle of the motion.
+Chrome 154.0.8037.97 and WebKitGTK 2.52.6 both recorded intermediate opening and
+closing heights and rotation matrices, settling at 172px/0px and 90/0 degrees.
+Chrome's reduced-motion check showed immediate settled states and a zero-second
+chevron transition. Fixtures are isolated synthetic UI, not the running desktop.
+
+Focused Vitest checks passed 100 distinct tests across AnimatedCollapse (7),
+ProjectList (23), ProjectSessionSection (67) and ProjectGroups (3). The first
+four-suite run exposed a group-mascot mounting regression; preserving the
+original collapsed-only mascot mount fixed it, and the affected ProjectGroups
+and ProjectList rerun passed all 26 tests. Custom duration tests verify that
+closing content survives past the default timeout, reversal cancels the old
+timeout, and reduced motion remains immediate. TypeScript, Prettier for the
+shared helper/tests and changed group range, and focused diff checks passed.
+Temporary fixture files, browser tab and Vite server were cleaned up.
+
+No global default-duration or grid-panel behavior changed. No full suite,
+Host/Rust checks, production rebuild/install, live desktop reload, commit, push
+or merge was performed. Earlier search-click fixes and unrelated edits remain.

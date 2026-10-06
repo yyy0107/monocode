@@ -62,7 +62,9 @@ terminal docks, persisted snapshots and existing keyboard overrides.
    restores the multi-project tree. Show the compact worktree control only for
    a concrete scope matching the active local project. Its expansion persists; clicking a collapsed project's
    name activates and expands it, clicking an open one collapses it, and
-   disclosure clicks only expand/collapse. Rows slide open and closed. Per-project new chat
+   disclosure clicks only expand/collapse. Project and group sections slide open
+   and closed over 420ms with balanced easing; their stable chevrons rotate to
+   show the change in both directions. Per-project new chat
    targets that project's remembered worktree. Projects remain until explicitly
    archived/deleted, without the previous 20-project eviction.
    Child rows indent their content to the project name; the project avatar
@@ -87,8 +89,12 @@ terminal docks, persisted snapshots and existing keyboard overrides.
    Sessions search matches project display names/paths and conversation titles
    across projects in the selected scope. It fills missing summaries with at most four
    concurrent reads, temporarily expands result ancestors, and restores saved
-   expansion after clearing. Summaries/errors are cached independently per
-   project; collapsed remote projects stop polling. Selection, folder drops and
+   expansion after clearing. Project names, row backgrounds and disclosures can
+   collapse/reopen matching projects during search; these overrides last only
+   for the current query and never overwrite saved expansion. Creating a chat or
+   selecting a project scope explicitly reopens its section. Summaries/errors
+   are cached independently per project; collapsed remote projects stop polling.
+   Selection, folder drops and
    batch actions remain project-scoped. Current-project keyboard navigation,
    worktree behavior and existing session folders/reminders remain compatible.
    Project and session rows share 32px height and the same horizontal row bounds,

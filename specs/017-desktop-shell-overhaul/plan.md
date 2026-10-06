@@ -109,6 +109,27 @@ Linux zh-CN via `npm run tauri dev`. macOS/Windows remain unverified.
 - Validate affected UI/data/navigation regressions, complete web/Host/build
   checks sequentially, and record actual browser/native QA independently.
 
+### Project clicks during search — 2026-10-06
+
+Keep query-scoped collapsed project keys in Sidebar, separate from persisted
+expandedPaths. Derive shownExpanded from matching projects minus these keys.
+Names and row backgrounds collapse an open match; reopening retains activation.
+Disclosure clicks only toggle the transient keys. A query change clears them;
+explicit chat creation or project-scope selection removes the relevant override.
+Reuse AnimatedCollapse without changing its timing or lifetime. Verify real
+pointer clicks in isolated Chrome/WebKit fixtures plus focused sidebar tests;
+do not infer the running desktop's behavior from fixture checks.
+
+### More visible project disclosure motion — 2026-10-06
+
+Give AnimatedCollapse optional className/durationMs props, passing the duration
+to useCollapseMotion and the existing CSS duration variable. Apply 420ms and
+balanced easing to project-tree/group sections only. Keep chevrons mounted and
+rotate the same SVG on expanded-state changes, with reduced-motion overrides.
+Keep the existing shared lifetime, inertness, visibility and cancellation rules;
+measure real height/rotation frames in isolated Chrome/WebKit fixtures and run
+focused shared/sidebar/group regressions.
+
 ## Hover summary follow-up (2026-10-05)
 
 - Add shared HoverSummary intent/focus handling and a 320px Popover surface
