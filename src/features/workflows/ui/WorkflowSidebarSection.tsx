@@ -1,12 +1,12 @@
 // The left sidebar's Workflows section: conversations with workflow runs (each
-// with ZCode's run lines; a line opens the run's detail tab) and the saved
+// with run lines; a line opens the run's detail tab) and the saved
 // workflows hub.
 import { useContext } from "react";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { Workflow } from "../../../shared/ui/icons";
-import { TooltipProvider } from "../zcode/components/ui/tooltip";
-import { TaskWorkflowRunLines } from "../zcode/components/workflow-run-line/TaskWorkflowRunLines";
-import { useZCodeIntl } from "../zcode/i18n/IntlProvider";
+import { TooltipProvider } from "../kit/components/ui/tooltip";
+import { TaskWorkflowRunLines } from "../kit/components/workflow-run-line/TaskWorkflowRunLines";
+import { useWorkflowIntl } from "../kit/i18n/IntlProvider";
 import { WorkflowActivityContext, workflowActivityEntries } from "../model/workflowActivity";
 import { useWorkflowApp } from "./workflowAppContext";
 
@@ -17,7 +17,7 @@ export function WorkflowSidebarSection({ activeSessionId, onOpenSession, onOpenW
   workflowsActive?: boolean;
 }) {
   const { t } = useTranslation();
-  const { intl } = useZCodeIntl();
+  const { intl } = useWorkflowIntl();
   const app = useWorkflowApp();
   const entries = workflowActivityEntries(useContext(WorkflowActivityContext));
   return (

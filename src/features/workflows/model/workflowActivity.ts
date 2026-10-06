@@ -1,5 +1,5 @@
 // Sidebar run lines: each conversation's workflow runs summarized the way
-// ZCode's sessions index does, from the run state the Host projects onto it.
+// the sessions index does, from the run state the Host projects onto it.
 import { createContext, useContext } from "react";
 import {
   deriveSessionWorkflowActivity,

@@ -35,8 +35,10 @@ export const WORKFLOW_ACTIONS = ["create", "amend", "resume", "cancel", "get", "
 export const WORKFLOW_HELP = `MonoCode dynamic workflows — run multi-agent workflow scripts from this conversation.
 Usage: "$MONOCODE_WORKFLOW_CLI" workflow ACTION [--json JSON | --input FILE|-] [--request-id ID]
 Actions:
-  create {name?,script|saved{name,args?,scope?}|path,args?,maxConcurrency?,defaults?,agents?} — start a run
+  create {name?,script|saved{name,args?,scope?}|path,args?,maxConcurrency?,defaults?,agents?} — submit a run
   amend {runId,script?|path?,name?,maxConcurrency?,defaults?,agents?} — revise a run, reusing finished work
+    Submitted runs wait (status awaiting_approval) until the user reviews the configuration
+    on the run card and starts it; tell the user, then follow the run with wait.
   resume {runId} — continue a stopped run
   cancel {runId} — stop a running run
   get {runId} — snapshot a run
