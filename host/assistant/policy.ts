@@ -86,6 +86,8 @@ for (const key of [
   "git_diff_files",
   "git_diff_stats",
   "git_file_diff",
+  "git_base_diff_files",
+  "git_base_file_diff",
   "git_head_message",
   "git_pr_status",
   "git_history",
