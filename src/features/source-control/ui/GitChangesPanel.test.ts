@@ -30,6 +30,8 @@ vi.mock("../../../platform/tauri/fs", () => ({
   gitRangeContext: vi.fn(),
   notifyGitChanged: vi.fn(),
   subscribeGitChanged: () => () => {},
+  setFsWatch: () => Promise.resolve(),
+  subscribeFsWatch: () => () => {},
   basename: (path: string) => path.split("/").pop() ?? path,
 }));
 

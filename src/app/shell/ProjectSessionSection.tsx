@@ -115,6 +115,7 @@ import { remoteProjectFor } from "../../features/connections/model/remoteProject
 import type { SidebarProps } from "./Sidebar.types";
 import { sameProjectPath } from "../../features/projects/model/recents";
 import { pathKey } from "../../shared/lib/paths";
+import { useNow } from "../../shared/hooks/useNow";
 
 type ProjectSessionSectionProps = SidebarProps & {
   searchQuery: string;
@@ -339,7 +340,7 @@ function ProjectSessionSectionComponent({
         : sessions,
     [remoteProject, remote.sessions, sessions, cwd],
   );
-  const [now, setNow] = useState(() => Date.now());
+  const now = useNow(30_000, tab === "sessions");
   const sectionRef = useRef<HTMLDivElement>(null);
   const localScrollRef = useRef<HTMLDivElement>(null);
   const sessionsScrollRef = scrollRef ?? localScrollRef;
@@ -577,12 +578,6 @@ function ProjectSessionSectionComponent({
     setPinnedSessionsCollapsed(loadPinnedSessionsCollapsed(cwd));
     setReminderSessionsCollapsed(loadReminderSessionsCollapsed(cwd));
   }, [cwd]);
-
-  useEffect(() => {
-    if (tab !== "sessions") return;
-    const id = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(id);
-  }, [tab]);
 
   useEffect(() => {
     if (!sessionMenu) return;

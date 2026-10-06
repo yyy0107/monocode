@@ -17,6 +17,7 @@ import {
   type ProviderAccountProvider,
 } from "./providerAccounts";
 import { identityKey } from "./providerAccountIdentity";
+import { useNow } from "../../../shared/hooks/useNow";
 
 const CLOCK_MS = 30_000;
 /** At or below this much headroom an account reads as "Running low". */
@@ -147,12 +148,10 @@ export function useProviderAccountUsage(
     getAllRateLimits,
   );
   const [inflight, setInflight] = useState(0);
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), CLOCK_MS);
-    return () => window.clearInterval(timer);
-  }, []);
+  const clock = useNow(CLOCK_MS);
+  // A fresh load re-reads reset windows without waiting for the next tick.
+  const [loadedAt, setLoadedAt] = useState(0);
+  const now = Math.max(clock, loadedAt);
 
   const load = useCallback(
     async (targets: ProviderAccount[], force = false) => {
@@ -166,7 +165,7 @@ export function useProviderAccountUsage(
         );
       } finally {
         setInflight((count) => count - 1);
-        setNow(Date.now());
+        setLoadedAt(Date.now());
       }
     },
     [],

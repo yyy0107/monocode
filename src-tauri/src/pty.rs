@@ -761,6 +761,11 @@ fn foreground_label(master_fd: i32, shell_pid: u32) -> Option<String> {
 
 #[cfg(unix)]
 fn process_label(pid: i32) -> Option<String> {
+    // Status is polled every second per busy terminal; procfs avoids a fork.
+    #[cfg(target_os = "linux")]
+    if let Some(args) = proc_cmdline(pid) {
+        return command_label(&args);
+    }
     use std::process::Command;
     let output = Command::new("ps")
         .args(["-p", &pid.to_string(), "-o", "args="])
@@ -775,6 +780,15 @@ fn process_label(pid: i32) -> Option<String> {
         return None;
     }
     command_label(args)
+}
+
+#[cfg(target_os = "linux")]
+fn proc_cmdline(pid: i32) -> Option<String> {
+    let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    // Arguments are NUL-separated; match `ps -o args=` spacing.
+    let args = String::from_utf8_lossy(&raw).replace('\0', " ");
+    let args = args.trim();
+    (!args.is_empty()).then(|| args.to_string())
 }
 
 #[cfg(unix)]
@@ -849,6 +863,17 @@ mod tests {
         assert_eq!(login_args("/bin/bash"), &["-l"]);
         assert_eq!(login_args("/usr/bin/fish"), &["-l"]);
         assert_eq!(login_args("/usr/local/bin/nu"), &[] as &[&str]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn procfs_label_matches_the_running_test_binary() {
+        let pid = std::process::id() as i32;
+        let args = proc_cmdline(pid).expect("own cmdline");
+        assert!(!args.contains('\0'));
+        let exe = std::env::current_exe().unwrap();
+        let name = exe.file_name().unwrap().to_str().unwrap();
+        assert_eq!(process_label(pid).as_deref(), Some(name));
     }
 
     #[test]

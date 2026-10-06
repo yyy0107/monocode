@@ -17,6 +17,7 @@ import {
   type UserQuestionPrompt,
   type UserQuestionReply,
 } from "../model/userQuestion";
+import { useNow } from "../../../shared/hooks/useNow";
 
 type Props = {
   prompt: UserQuestionPrompt;
@@ -29,15 +30,8 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [custom, setCustom] = useState<Record<string, string>>({});
-  const [now, setNow] = useState(Date.now);
+  const now = useNow(1000, prompt.autoResolveAt != null);
   const body = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (prompt.autoResolveAt == null) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [prompt.requestId, prompt.autoResolveAt]);
 
   const interact = () => {
     if (prompt.autoResolveAt != null) onInteraction?.(prompt.requestId);

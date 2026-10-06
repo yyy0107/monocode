@@ -7,6 +7,7 @@ import {
   mergeHistorySummary,
   mergeProjectHistorySummary,
   replaceProjectHistory,
+  reuseEqualSummaries,
 } from "./sessionHistory";
 import { pathKey } from "../../../shared/lib/paths";
 import { newSession } from "../model/session";
@@ -621,5 +622,30 @@ describe("pinned sessions", () => {
     ];
     const rows = historyWithLiveSessions(history, [], "/tmp/project-a");
     expect(rows.map((row) => row.id)).toEqual(["pin", "new"]);
+  });
+});
+
+describe("reuseEqualSummaries", () => {
+  it("keeps the previous array when a live overlay produced the same rows", () => {
+    const stored = summary("a", "/p", 5);
+    const live = { ...summary("b", "/p"), createdAt: 0, updatedAt: 1_000 };
+    const previous = [live, stored];
+    const next = [{ ...live, updatedAt: 2_000 }, { ...stored }];
+    expect(reuseEqualSummaries(previous, next)).toBe(previous);
+  });
+
+  it("swaps only the rows whose content changed", () => {
+    const a = summary("a", "/p", 5);
+    const b = summary("b", "/p", 4);
+    const renamed = { ...b, title: "renamed" };
+    const result = reuseEqualSummaries([a, b], [{ ...a }, renamed]);
+    expect(result[0]).toBe(a);
+    expect(result[1]).toBe(renamed);
+  });
+
+  it("refreshes a live row once its clock moves past the slack", () => {
+    const live = { ...summary("b", "/p"), createdAt: 0, updatedAt: 0 };
+    const later = { ...live, updatedAt: 120_000 };
+    expect(reuseEqualSummaries([live], [later])[0]).toBe(later);
   });
 });

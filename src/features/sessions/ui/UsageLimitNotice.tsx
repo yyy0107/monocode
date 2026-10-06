@@ -1,8 +1,8 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
-import { useEffect, useState } from "react";
 import { Clock, Gauge, Play, X } from "../../../shared/ui/icons";
 import type { UsageLimit } from "../model/session";
 import { formatUsageLimitReset } from "../model/usageLimit";
+import { useNow } from "../../../shared/hooks/useNow";
 
 const BUTTON =
   "flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content";
@@ -19,14 +19,9 @@ export function UsageLimitNotice({
   onDismiss?: () => void;
 }) {
   const { t: uiT } = useTranslation();
-  const [now, setNow] = useState(Date.now);
-  const waiting = limit.resetsAt != null && limit.resetsAt > now;
   // Tick the countdown, and flip to "Resume" once the window resets.
-  useEffect(() => {
-    if (!waiting) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
-  }, [waiting]);
+  const now = useNow(30_000, limit.resetsAt != null && limit.resetsAt > Date.now());
+  const waiting = limit.resetsAt != null && limit.resetsAt > now;
 
   return (
     <div className="px-2 text-content/55" data-usage-limit>

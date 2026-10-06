@@ -1,4 +1,9 @@
-import { listDir, type FsEntry } from "../../../platform/tauri/fs";
+import {
+  listDir,
+  setFsWatch,
+  subscribeFsWatch,
+  type FsEntry,
+} from "../../../platform/tauri/fs";
 import { pathSegments } from "./fileName";
 import { joinPath, parentPath } from "../../../shared/lib/paths";
 
@@ -39,8 +44,45 @@ export function listCachedDir(path: string): Promise<FsEntry[]> {
   if (hit) return Promise.resolve(hit);
   return listDir(path).then((entries) => {
     dirs.set(path, entries);
+    scheduleWatchSync();
     return entries;
   });
+}
+
+/** Folders the OS watches for the explorer; each costs one inotify watch. */
+const WATCH_LIMIT = 512;
+let watchSyncQueued = false;
+let watchedKey = "";
+let unsubscribeWatch: (() => void) | null = null;
+
+function scheduleWatchSync() {
+  if (watchSyncQueued) return;
+  watchSyncQueued = true;
+  queueMicrotask(() => {
+    watchSyncQueued = false;
+    // Re-listing moves a key to the end; compare a sorted set, not the order.
+    const paths = [...dirs.keys()].slice(-WATCH_LIMIT).sort();
+    const key = paths.join("\n");
+    if (key === watchedKey) return;
+    watchedKey = key;
+    unsubscribeWatch ??= subscribeFsWatch(({ entries }) => {
+      const changed = entries.filter((path) => dirs.has(path));
+      if (changed.length > 0) void refreshChangedDirs(changed);
+    });
+    void setFsWatch("file-tree", paths);
+  });
+}
+
+/** Re-list only the folders the OS reported, then repaint the trees. */
+async function refreshChangedDirs(paths: string[]) {
+  await Promise.all(
+    paths.map((path) =>
+      refreshDir(path).catch(() => {
+        forgetDir(path);
+      }),
+    ),
+  );
+  for (const listener of listeners) listener();
 }
 
 export function refreshDir(path: string): Promise<FsEntry[]> {
@@ -52,6 +94,7 @@ export function forgetDir(path: string) {
   for (const key of [...dirs.keys()]) {
     if (key === path || key.startsWith(`${path}/`)) dirs.delete(key);
   }
+  scheduleWatchSync();
 }
 
 /** Re-list every cached folder. Agent writes and window focus use this. */

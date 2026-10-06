@@ -250,19 +250,31 @@ export function sanitizeLinkedWorkItem(
 export function sanitizeSessionForPersist(
   session: Session,
 ): SessionUpsertPayload {
-  const firstUser = session.blocks.findIndex((block) => block.role === "user");
   return {
     ...persistableMeta(session),
-    blocks: session.blocks
-      .map((block, index) =>
-        sanitizeBlock(
-          index === firstUser && session.orchestrationLeadId
-            ? { ...block, orchestrationLeadId: session.orchestrationLeadId }
-            : block,
-        ),
-      )
-      .filter((block): block is Block => block != null),
+    blocks: persistBlocks(session, 0).blocks,
   };
+}
+
+/** Sanitized blocks from `from` on, and how many each session block kept. */
+function persistBlocks(
+  session: Session,
+  from: number,
+): { blocks: Block[]; kept: boolean[] } {
+  const firstUser = session.blocks.findIndex((block) => block.role === "user");
+  const blocks: Block[] = [];
+  const kept: boolean[] = [];
+  for (let index = from; index < session.blocks.length; index++) {
+    const block = session.blocks[index];
+    const next = sanitizeBlock(
+      index === firstUser && session.orchestrationLeadId
+        ? { ...block, orchestrationLeadId: session.orchestrationLeadId }
+        : block,
+    );
+    kept.push(next != null);
+    if (next) blocks.push(next);
+  }
+  return { blocks, kept };
 }
 
 /**
@@ -274,6 +286,92 @@ export function sanitizeSessionForPersist(
 const sessionWriteQueues = new Map<string, Promise<unknown>>();
 const sessionWriteLeadById = new Map<string, string>();
 const deletedSessionIds = new Set<string>();
+/** Bumped on delete: stripping a deleted lead can rewrite stored prefixes. */
+let deletedSessionsVersion = 0;
+
+/**
+ * What this window last stored per session, by block identity. A later write
+ * sends only the blocks after the first one that changed, so finishing a turn
+ * in a multi-megabyte transcript does not re-serialize all of it.
+ */
+type WrittenTranscript = {
+  tokens: number[];
+  /** `keptBefore[i]`: stored blocks produced by the first `i` session blocks. */
+  keptBefore: number[];
+  leadId: string | undefined;
+  deletedVersion: number;
+};
+const writtenTranscripts = new Map<string, WrittenTranscript>();
+/** Below this many reusable blocks a full write costs about the same. */
+const MIN_TAIL_PREFIX = 8;
+
+function sharedPrefix(a: readonly number[], b: readonly number[]): number {
+  const limit = Math.min(a.length, b.length);
+  let index = 0;
+  while (index < limit && a[index] === b[index]) index++;
+  return index;
+}
+
+function withoutDeletedLeads(blocks: Block[]): Block[] {
+  return blocks.map((block) =>
+    block.orchestrationLeadId &&
+    deletedSessionIds.has(block.orchestrationLeadId)
+      ? { ...block, orchestrationLeadId: undefined }
+      : block,
+  );
+}
+
+function isStaleBlocksError(error: unknown): boolean {
+  return String(error).includes("stale-blocks");
+}
+
+async function writeSession(session: Session): Promise<SessionSummary> {
+  const tokens = session.blocks.map(blockToken);
+  const written = writtenTranscripts.get(session.id);
+  const reusable =
+    written &&
+    written.leadId === session.orchestrationLeadId &&
+    written.deletedVersion === deletedSessionsVersion
+      ? sharedPrefix(written.tokens, tokens)
+      : 0;
+  const meta = persistableMeta(session);
+  const attempt = async (from: number) => {
+    const { blocks, kept } = persistBlocks(session, from);
+    const keptBefore = from > 0 ? written!.keptBefore.slice(0, from + 1) : [0];
+    for (const each of kept) {
+      keptBefore.push(keptBefore[keptBefore.length - 1] + (each ? 1 : 0));
+    }
+    const summary = await invoke<SessionSummary>("session_upsert", {
+      session: { ...meta, blocks: withoutDeletedLeads(blocks) },
+      ...(from > 0
+        ? {
+            blocksFrom: written!.keptBefore[from],
+            baseBlocksLen: written!.keptBefore[written!.tokens.length],
+          }
+        : {}),
+    });
+    writtenTranscripts.set(session.id, {
+      tokens,
+      keptBefore,
+      leadId: session.orchestrationLeadId,
+      deletedVersion: deletedSessionsVersion,
+    });
+    return summary;
+  };
+  try {
+    if (reusable < MIN_TAIL_PREFIX) return await attempt(0);
+    try {
+      return await attempt(reusable);
+    } catch (error) {
+      // Another writer changed the stored transcript; send all of it.
+      if (!isStaleBlocksError(error)) throw error;
+      return await attempt(0);
+    }
+  } catch (error) {
+    writtenTranscripts.delete(session.id);
+    throw error;
+  }
+}
 
 function enqueueSessionWrite<T>(
   sessionId: string,
@@ -301,7 +399,6 @@ export async function upsertSession(
   if (!shouldPersistSession(session) || deletedSessionIds.has(session.id)) {
     return null;
   }
-  const payload = sanitizeSessionForPersist(session);
   if (session.orchestrationLeadId) {
     sessionWriteLeadById.set(session.id, session.orchestrationLeadId);
   } else {
@@ -309,18 +406,7 @@ export async function upsertSession(
   }
   const summary = await enqueueSessionWrite(session.id, async () => {
     if (deletedSessionIds.has(session.id)) return null;
-    const result = await invoke<SessionSummary>("session_upsert", {
-      session: {
-        ...payload,
-        blocks: payload.blocks.map((block) =>
-          block.orchestrationLeadId &&
-          deletedSessionIds.has(block.orchestrationLeadId)
-            ? { ...block, orchestrationLeadId: undefined }
-            : block,
-        ),
-      },
-    });
-    return result;
+    return writeSession(session);
   });
   return summary ? normalizeSummary(summary) : null;
 }
@@ -605,6 +691,8 @@ export async function deleteSession(
   const shared = sharedSessionBackend();
   if (shared?.ownsSession(sessionId)) return shared.delete(sessionId);
   deletedSessionIds.add(sessionId);
+  deletedSessionsVersion++;
+  writtenTranscripts.delete(sessionId);
   try {
     // A lead with workers still has writes in flight. Finish those before
     // the deletion transaction strips their ownership metadata.

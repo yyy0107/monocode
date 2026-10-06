@@ -433,6 +433,54 @@ export function subscribeGitChanged(listener: () => void): () => void {
   return () => window.removeEventListener(GIT_CHANGED, listener);
 }
 
+export type FsWatchChange = {
+  /** Watched folders whose entries were added, removed or renamed. */
+  entries: string[];
+  /** Watched folders where an existing file's contents changed. */
+  contents: string[];
+  /** Project paths whose git HEAD, index or branches moved. */
+  git: string[];
+};
+
+const fsWatchListeners = new Set<(change: FsWatchChange) => void>();
+let fsWatchBridge: Promise<unknown> | null = null;
+
+/**
+ * Watch local folders (non-recursively) and projects' git metadata for one
+ * consumer. Remote paths are skipped; their machines have no local watcher.
+ */
+export function setFsWatch(
+  key: string,
+  dirs: readonly string[],
+  git: readonly string[] = [],
+): Promise<void> {
+  const local = (paths: readonly string[]) =>
+    paths.filter((path) => path && path !== "~" && !isRemotePath(path));
+  return invokeLocal<void>("fs_watch_set", {
+    key,
+    dirs: local(dirs),
+    git: local(git),
+  }).catch(() => undefined);
+}
+
+export function subscribeFsWatch(
+  listener: (change: FsWatchChange) => void,
+): () => void {
+  fsWatchListeners.add(listener);
+  fsWatchBridge ??= import("@tauri-apps/api/event")
+    .then(({ listen }) =>
+      listen<FsWatchChange>("fs-watch-changed", ({ payload }) => {
+        // Commits, checkouts and staging from a terminal reach every git UI.
+        if (payload.git.length > 0) notifyGitChanged();
+        for (const each of fsWatchListeners) each(payload);
+      }),
+    )
+    .catch(() => undefined);
+  return () => {
+    fsWatchListeners.delete(listener);
+  };
+}
+
 export function createPath(
   parent: string,
   name: string,

@@ -26,6 +26,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -59,6 +60,8 @@ import {
   gitUnstageAll,
   gitUnstageFile,
   notifyGitChanged,
+  setFsWatch,
+  subscribeFsWatch,
   subscribeGitChanged,
   type GitChangedFile,
   type GitDiffIndex,
@@ -82,8 +85,11 @@ import { MOD } from "../../../platform/tauri/platform";
 import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { isRemoteProjectPath } from "../../projects/model/recents";
+import { pathKey } from "../../../shared/lib/paths";
 
-const GIT_POLL_MS = 2000;
+/** Fallback only: the OS watcher reports git metadata and listed folders, so
+ * polling just catches edits in folders nobody has expanded. */
+const GIT_POLL_MS = 5000;
 
 function confirmNative(message: string, okLabel?: string): Promise<boolean> {
   return ask(message, {
@@ -1655,6 +1661,7 @@ function useDiffIndex(
   );
   const [nonce, setNonce] = useState(0);
   const reload = useCallback(() => setNonce((value) => value + 1), []);
+  const watchKey = `git-index:${useId()}`;
   const indexRef = useRef(index);
   indexRef.current = index;
 
@@ -1718,14 +1725,27 @@ function useDiffIndex(
     window.addEventListener("focus", onResume);
     document.addEventListener("visibilitychange", onResume);
     const unsubGit = subscribeGitChanged(onResume);
+    // Git metadata changes arrive through subscribeGitChanged; folder edits
+    // inside this project come straight from the watcher.
+    void setFsWatch(watchKey, [], [cwd]);
+    const root = pathKey(cwd);
+    const unsubWatch = subscribeFsWatch(({ entries, contents }) => {
+      const touched = [...entries, ...contents].some((path) => {
+        const key = pathKey(path);
+        return key === root || key.startsWith(`${root}/`);
+      });
+      if (touched) onResume();
+    });
     return () => {
       cancelled = true;
       window.clearInterval(timer);
       window.removeEventListener("focus", onResume);
       document.removeEventListener("visibilitychange", onResume);
       unsubGit();
+      unsubWatch();
+      void setFsWatch(watchKey, []);
     };
-  }, [cwd, enabled, nonce]);
+  }, [cwd, enabled, nonce, watchKey]);
 
   return { index, reload };
 }

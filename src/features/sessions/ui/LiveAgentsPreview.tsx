@@ -1,5 +1,5 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { formatLiveElapsed, type LiveAgent } from "../model/liveAgents";
 import { projectKey, projectName } from "../../../shared/lib/paths";
@@ -21,6 +21,7 @@ import {
 import { HarnessIcon } from "./HarnessIcon";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
 import { TerminalSpinner } from "./TerminalSpinner";
+import { useNow } from "../../../shared/hooks/useNow";
 
 const LIVE_AGENT_MIN = 2;
 const LIVE_AGENT_CAP = 4;
@@ -58,17 +59,12 @@ export function LiveAgentsPreview({
   const groupCustomColors = groupCustomColorsProp ?? loadedGroupCustomColors;
   const groupMascots = groupMascotsProp ?? loadedGroupMascots;
   const [expanded, setExpanded] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
   const lockList = useLockOverscroll<HTMLDivElement>();
   const ticking =
     agents.length >= minimumAgents &&
     agents.some((agent) => !agent.done && agent.startedAt != null);
 
-  useEffect(() => {
-    if (!ticking) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [ticking]);
+  const now = useNow(1000, ticking);
 
   if (agents.length < minimumAgents) return null;
 

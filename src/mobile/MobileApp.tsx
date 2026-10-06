@@ -125,6 +125,7 @@ import {
   applyThemePreference,
   saveThemePreference,
 } from "../features/settings/model/appearance";
+import { useNow } from "../shared/hooks/useNow";
 
 const client = new MobileClient(mobileStorage);
 
@@ -366,7 +367,7 @@ export function MobileApp() {
       clearTimeout(timer);
     };
   }, [checkNativeAccess, nativeAccessKey]);
-  const [now, setNow] = useState(() => Date.now());
+  const now = useNow(30_000, foreground && (drawerOpen || view === "home"));
   const [theme, setTheme] = useState(
     () => localStorage.getItem("monocode-mobile-theme") || "dark",
   );
@@ -462,13 +463,6 @@ export function MobileApp() {
       void listener?.then((handle) => handle.remove());
     };
   }, []);
-
-  useEffect(() => {
-    if (!foreground || (!drawerOpen && view !== "home")) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, [foreground, drawerOpen, view]);
 
   useEffect(() => {
     if (!connected || !foreground || (view === "settings" && !drawerOpen)) return;

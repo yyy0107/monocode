@@ -10,6 +10,7 @@ pub mod control_cli;
 mod cursor_store;
 mod external_editor;
 mod fs;
+mod fs_watch;
 mod gitlab;
 mod harness;
 mod harness_updates;
@@ -229,6 +230,7 @@ pub fn run() {
         )
         .manage(harness::HarnessHost::new())
         .manage(pty::PtyHost::new())
+        .manage(fs_watch::FsWatch::default())
         .manage(remote::RemoteConnections::default())
         .manage(window_transfer::WindowTransferState::new())
         .setup(|app| {
@@ -311,6 +313,7 @@ pub fn run() {
             fs::resolve_project_location,
             fs::open_path_with_default_app,
             fs::list_dir,
+            fs_watch::fs_watch_set,
             fs::list_project_files,
             fs::git_diff_stats,
             fs::git_diff_index,
@@ -587,6 +590,7 @@ pub fn run() {
                 .iter()
                 .any(|window| window.label() != label);
             control::window_closed(handle, &label);
+            fs_watch::window_closed(handle, &label);
             if !other_window {
                 reap_harness_children(handle);
             }

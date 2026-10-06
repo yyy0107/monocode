@@ -212,10 +212,19 @@ pub struct SessionRecord {
     pub updated_at: i64,
 }
 
+/// Sent back when a tail write no longer matches the stored transcript; the
+/// client then retries with every block.
+pub const STALE_BLOCKS: &str = "stale-blocks";
+
+/// `blocks_from` turns `session.blocks` into a tail: the stored transcript keeps
+/// its first `blocks_from` blocks and the rest are replaced. `base_blocks_len`
+/// is how many blocks the client believes are stored, guarding the splice.
 #[tauri::command(async)]
 pub fn session_upsert(
     store: State<'_, SessionStore>,
-    session: SessionUpsert,
+    mut session: SessionUpsert,
+    blocks_from: Option<usize>,
+    base_blocks_len: Option<usize>,
 ) -> Result<SessionSummary, String> {
     validate_id(&session.id, "session")?;
     if session.cwd.trim().is_empty() {
@@ -247,7 +256,15 @@ pub fn session_upsert(
     // One commit for the row, its title state and worker links instead of a
     // separate fsync per statement while the store lock is held.
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    let summary = upsert_session(&tx, &session).map_err(|e| e.to_string())?;
+    let unchanged = match blocks_from {
+        Some(from) => Some(
+            splice_stored_blocks(&tx, &mut session, from, base_blocks_len)
+                .map_err(|e| e.to_string())?
+                .ok_or(STALE_BLOCKS)?,
+        ),
+        None => None,
+    };
+    let summary = upsert_session_with(&tx, &session, unchanged).map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(summary)
 }
@@ -1152,7 +1169,51 @@ fn orchestration_summary(conn: &Connection, id: &str) -> rusqlite::Result<Option
     ))
 }
 
+/// Replace `session.blocks` (a tail) with the stored prefix plus that tail.
+/// Returns whether the transcript is unchanged, or `None` when the stored
+/// transcript is not the one the client built the tail against.
+fn splice_stored_blocks(
+    conn: &Connection,
+    session: &mut SessionUpsert,
+    from: usize,
+    base_len: Option<usize>,
+) -> rusqlite::Result<Option<bool>> {
+    let Value::Array(tail) = std::mem::take(&mut session.blocks) else {
+        return Ok(None);
+    };
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT blocks_json FROM sessions WHERE id = ?1",
+            params![session.id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(Ok(mut blocks)) = stored.map(|raw| serde_json::from_str::<Vec<Value>>(&raw)) else {
+        return Ok(None);
+    };
+    if base_len != Some(blocks.len()) || from > blocks.len() {
+        return Ok(None);
+    }
+    let unchanged = blocks[from..] == tail[..];
+    blocks.truncate(from);
+    blocks.extend(tail);
+    session.blocks = Value::Array(blocks);
+    Ok(Some(unchanged))
+}
+
+/// Tests write whole transcripts; the command goes through `upsert_session_with`.
+#[cfg(test)]
 fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Result<SessionSummary> {
+    upsert_session_with(conn, session, None)
+}
+
+/// `blocks_unchanged` skips re-reading and comparing the stored transcript
+/// when the caller already knows the answer.
+fn upsert_session_with(
+    conn: &Connection,
+    session: &SessionUpsert,
+    blocks_unchanged: Option<bool>,
+) -> rusqlite::Result<SessionSummary> {
     if crate::legacy_orchestration::is_retired(conn, &session.id)? {
         return Err(rusqlite::Error::InvalidParameterName(
             "This legacy orchestration conversation has been deleted".into(),
@@ -1214,11 +1275,23 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
     let has_user_message = has_user_block(&session.blocks);
     let is_draft = has_draft_block(&session.blocks);
 
-    let existing: Option<(i64, i64, String, i64, i64)> = conn
+    // Skip loading the stored transcript when the caller already compared it.
+    let existing: Option<(i64, i64, Option<String>, i64, i64)> = conn
         .query_row(
-            "SELECT created_at, updated_at, blocks_json, archived, pinned FROM sessions WHERE id = ?1",
-            params![session.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            "SELECT created_at, updated_at,
+                    CASE WHEN ?2 THEN NULL ELSE blocks_json END,
+                    archived, pinned
+             FROM sessions WHERE id = ?1",
+            params![session.id, blocks_unchanged.is_some()],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .optional()?;
     let created_at = existing
@@ -1233,7 +1306,13 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
                 .unwrap_or(now)
         });
     let updated_at = match &existing {
-        Some((_, prev_updated, prev_blocks, _, _)) if json_eq(prev_blocks, &session.blocks) => {
+        Some((_, prev_updated, prev_blocks, _, _))
+            if blocks_unchanged.unwrap_or_else(|| {
+                prev_blocks
+                    .as_deref()
+                    .is_some_and(|raw| json_eq(raw, &session.blocks))
+            }) =>
+        {
             *prev_updated
         }
         _ => session
@@ -2182,6 +2261,85 @@ mod tests {
             linked_work_item: None,
             automation_id: None,
         }
+    }
+
+    fn stored_blocks(conn: &Connection, id: &str) -> Value {
+        let raw: String = conn
+            .query_row(
+                "SELECT blocks_json FROM sessions WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        serde_json::from_str(&raw).unwrap()
+    }
+
+    #[test]
+    fn tail_writes_splice_onto_the_stored_prefix() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let mut full = sample("s", "/tmp/a", "Tail");
+        full.blocks = json!([
+            { "id": "u1", "role": "user", "text": "hi" },
+            { "id": "a1", "role": "assistant", "text": "partial" },
+        ]);
+        upsert_session(&conn, &full).unwrap();
+
+        let mut tail = sample("s", "/tmp/a", "Tail");
+        tail.blocks = json!([
+            { "id": "a1", "role": "assistant", "text": "done" },
+            { "id": "u2", "role": "user", "text": "next" },
+        ]);
+        assert_eq!(
+            splice_stored_blocks(&conn, &mut tail, 1, Some(2)).unwrap(),
+            Some(false)
+        );
+        upsert_session_with(&conn, &tail, Some(false)).unwrap();
+        assert_eq!(
+            stored_blocks(&conn, "s"),
+            json!([
+                { "id": "u1", "role": "user", "text": "hi" },
+                { "id": "a1", "role": "assistant", "text": "done" },
+                { "id": "u2", "role": "user", "text": "next" },
+            ])
+        );
+    }
+
+    #[test]
+    fn tail_writes_against_a_different_transcript_are_stale() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        upsert_session(&conn, &sample("s", "/tmp/a", "Stale")).unwrap();
+        let mut tail = sample("s", "/tmp/a", "Stale");
+        assert_eq!(
+            splice_stored_blocks(&conn, &mut tail, 1, Some(3)).unwrap(),
+            None
+        );
+        let mut tail = sample("s", "/tmp/a", "Stale");
+        assert_eq!(
+            splice_stored_blocks(&conn, &mut tail, 2, Some(1)).unwrap(),
+            None
+        );
+        let mut missing = sample("other", "/tmp/a", "Stale");
+        assert_eq!(
+            splice_stored_blocks(&conn, &mut missing, 0, Some(0)).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn unchanged_tail_keeps_updated_at() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let first = upsert_session(&conn, &sample("s", "/tmp/a", "Same")).unwrap();
+        conn.execute("UPDATE sessions SET updated_at = 5 WHERE id = 's'", [])
+            .unwrap();
+        let mut tail = sample("s", "/tmp/a", "Same");
+        let unchanged = splice_stored_blocks(&conn, &mut tail, 0, Some(1)).unwrap();
+        assert_eq!(unchanged, Some(true));
+        let next = upsert_session_with(&conn, &tail, unchanged).unwrap();
+        assert_eq!(next.updated_at, 5);
+        assert!(first.updated_at >= 5);
     }
 
     #[test]

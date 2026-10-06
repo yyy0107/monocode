@@ -495,6 +495,7 @@ import { hiddenApprovalNotices } from "../features/notifications/model/approvalT
 import { useSessionReminders } from "../features/notifications/hooks/useSessionReminders";
 import { ReminderNotices } from "../features/sessions/ui/ReminderNotices";
 import { useUnseenFinishedSessions } from "../features/sessions/hooks/useUnseenFinishedSessions";
+import { useStableSummaries } from "../features/sessions/hooks/useStableSummaries";
 import {
   loadNotificationsEnabled,
   NOTIFICATION_CLICK_EVENT,
@@ -803,6 +804,24 @@ function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
   if (a.size !== b.size) return false;
   for (const value of a) {
     if (!b.has(value)) return false;
+  }
+  return true;
+}
+
+function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((item, index) => item === b[index]);
+}
+
+function sameWorktreeTabStats(
+  a: ReadonlyMap<string, { tabs: number; busy: boolean }>,
+  b: ReadonlyMap<string, { tabs: number; busy: boolean }>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [key, entry] of a) {
+    const other = b.get(key);
+    if (!other || other.tabs !== entry.tabs || other.busy !== entry.busy) {
+      return false;
+    }
   }
   return true;
 }
@@ -3746,7 +3765,7 @@ function Workspace({
 
   /** Open tabs per workspace in the sidebar's project, keyed by worktree
    * path, so the switcher can show what each worktree still has open. */
-  const worktreeTabStats = useMemo(() => {
+  const nextWorktreeTabStats = useMemo(() => {
     const stats = new Map<string, { tabs: number; busy: boolean }>();
     if (!sidebarCwd || sidebarCwd === "~" || isRemoteProjectPath(sidebarCwd))
       return stats;
@@ -3763,7 +3782,13 @@ function Workspace({
     }
     return stats;
   }, [tabs, sessions, sidebarCwd, tabWorkspace, workspaceNavigation.revision]);
-  const deckProjectTabs = useMemo(() => {
+  // Rebuilt on every streamed frame; the sidebar only cares when counts move.
+  const worktreeTabStatsRef = useRef(nextWorktreeTabStats);
+  if (!sameWorktreeTabStats(worktreeTabStatsRef.current, nextWorktreeTabStats)) {
+    worktreeTabStatsRef.current = nextWorktreeTabStats;
+  }
+  const worktreeTabStats = worktreeTabStatsRef.current;
+  const nextDeckProjectTabs = useMemo(() => {
     // A projectless session belongs to no project, so it stands on its own
     // rather than trailing the last project's tabs.
     const active = tabs.find((tab) => tab.id === activeTabId);
@@ -3789,6 +3814,12 @@ function Workspace({
     tabWorkspace,
     workspaceNavigation.revision,
   ]);
+  // Rebuilt on every streamed frame; tab navigation callbacks key off it.
+  const deckProjectTabsRef = useRef(nextDeckProjectTabs);
+  if (!sameItems(deckProjectTabsRef.current, nextDeckProjectTabs)) {
+    deckProjectTabsRef.current = nextDeckProjectTabs;
+  }
+  const deckProjectTabs = deckProjectTabsRef.current;
 
   const onNext = useCallback(() => {
     const index = deckProjectTabs.findIndex((t) => t.id === activeTabId);
@@ -9849,7 +9880,7 @@ function Workspace({
     [paletteOpen, history, sessions],
   );
 
-  const sidebarHistory = useMemo(
+  const liveSidebarHistory = useMemo(
     () =>
       historyWithLiveSessions(
         history,
@@ -9867,7 +9898,7 @@ function Workspace({
       ),
     [history, projectBranches, sessions, sidebarCwd, orchestrationRuns],
   );
-  const treeHistory = useMemo(() => {
+  const liveTreeHistory = useMemo(() => {
     return allProjectHistoryWithLiveSessions(
       history,
       sessions,
@@ -9878,6 +9909,8 @@ function Workspace({
       orchestrationRuns,
     );
   }, [history, sessions, sidebarCwd, projectBranches, orchestrationRuns]);
+  const sidebarHistory = useStableSummaries(liveSidebarHistory);
+  const treeHistory = useStableSummaries(liveTreeHistory);
   const {
     unseen: inboxUnseen,
     linkedSessionUpdateIds,
@@ -9886,7 +9919,7 @@ function Workspace({
     onAppeared: onInboxAppeared,
   });
   linkedSessionUpdatesRef.current = linkedSessionUpdates;
-  const inboxRelatedSessions = useMemo(() => {
+  const liveInboxRelatedSessions = useMemo(() => {
     const byId = new Map<string, SessionSummary>();
     for (const session of storedLinkedSessions) byId.set(session.id, session);
     for (const session of history) {
@@ -9915,11 +9948,13 @@ function Workspace({
       (a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id),
     );
   }, [history, sessions, storedLinkedSessions]);
-  const repairSessions = useMemo(
+  const inboxRelatedSessions = useStableSummaries(liveInboxRelatedSessions);
+  const liveRepairSessions = useMemo(
     () => ciRepairSessions(history, sessions),
     [history, sessions],
   );
-  const openProjectSessions = useMemo(
+  const repairSessions = useStableSummaries(liveRepairSessions);
+  const liveOpenProjectSessions = useMemo(
     () =>
       sessions
         .filter((session) => !session.inboxAsk && !session.orchestrationLeadId)
@@ -9936,6 +9971,7 @@ function Workspace({
         ),
     [projectBranches, sessions, sidebarCwd],
   );
+  const openProjectSessions = useStableSummaries(liveOpenProjectSessions);
 
   const onToggleSidebar = useCallback(() => {
     setSessionSidebarOpen((open) => {

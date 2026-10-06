@@ -274,10 +274,12 @@ function overlayProjectHistory(
 ): SessionSummary[] {
   let rows = initialRows;
   const hint = projectGitHint(rows, gitOverlayForCwd(cwd, git));
+  const indexById = new Map(rows.map((row, index) => [row.id, index]));
+  const added: SessionSummary[] = [];
   for (const session of sessions) {
     const live = session.busy || sessionNeedsInput(session);
     if (!shouldPersistSession(session) && !live) continue;
-    const storedIndex = rows.findIndex((row) => row.id === session.id);
+    const storedIndex = indexById.get(session.id) ?? -1;
     if (storedIndex >= 0) {
       const stored = rows[storedIndex];
       const draft = !!sessionDraftBlock(session);
@@ -309,8 +311,10 @@ function overlayProjectHistory(
       ...hint,
       ...(session.branch ? { branch: session.branch } : {}),
     };
-    rows = mergeHistorySummary(rows, summaryFromSession(session, sessionHint));
+    added.push(summaryFromSession(session, sessionHint));
   }
+  // Merging reorders rows, so it waits until every stored index is used.
+  for (const summary of added) rows = mergeHistorySummary(rows, summary);
   return rows
     .map((row) => {
       const run = context.byLead.get(row.id);
@@ -322,4 +326,54 @@ function overlayProjectHistory(
         : row;
     })
     .sort(compareSessionSummaries);
+}
+/** Live rows restamp `updatedAt` every overlay; a minute is below the list's clock. */
+const LIVE_UPDATED_AT_SLACK_MS = 60_000;
+
+function sameSummaryValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function sameSummary(a: SessionSummary, b: SessionSummary): boolean {
+  if (a === b) return true;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    const left = a[key as keyof SessionSummary];
+    const right = b[key as keyof SessionSummary];
+    if (
+      key === "updatedAt" &&
+      a.createdAt === 0 &&
+      b.createdAt === 0 &&
+      Math.abs(a.updatedAt - b.updatedAt) < LIVE_UPDATED_AT_SLACK_MS
+    ) {
+      continue;
+    }
+    if (!sameSummaryValue(left, right)) return false;
+  }
+  return true;
+}
+
+/**
+ * Keep the previous rows (and array) when a live overlay produced the same
+ * content, so memoized lists skip the frames where only transcripts streamed.
+ */
+export function reuseEqualSummaries(
+  previous: readonly SessionSummary[] | undefined,
+  next: SessionSummary[],
+): SessionSummary[] {
+  if (!previous) return next;
+  let changed = previous.length !== next.length;
+  const byId = new Map(previous.map((row) => [row.id, row]));
+  const rows = next.map((row) => {
+    const prior = byId.get(row.id);
+    if (prior && sameSummary(prior, row)) return prior;
+    changed = true;
+    return row;
+  });
+  if (!changed && rows.every((row, index) => row === previous[index])) {
+    return previous as SessionSummary[];
+  }
+  return rows;
 }
