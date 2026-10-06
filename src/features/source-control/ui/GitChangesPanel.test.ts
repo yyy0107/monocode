@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, Profiler } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -50,6 +50,7 @@ vi.mock("../../inbox/model/inboxSelfActivity", () => ({
 }));
 
 import { GitChangesPanel } from "./GitChangesPanel";
+import { loadGraphPanelHeight, saveGraphPanelHeight } from "./GitHistoryGraph";
 import {
   gitDiffIndex,
   gitPrCreate,
@@ -207,6 +208,66 @@ async function renderPanel(cwd = "/repo") {
   );
   await act(async () => {});
 }
+
+it("paints graph height without React commits or persistence during a drag", async () => {
+  vi.mocked(gitDiffIndex).mockResolvedValue(index());
+  let frame: FrameRequestCallback | undefined;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frame = callback;
+    return 1;
+  });
+  vi.stubGlobal("cancelAnimationFrame", () => {
+    frame = undefined;
+  });
+  const commits = vi.fn();
+  await act(async () => {
+    root.render(
+      createElement(
+        Profiler,
+        { id: "changes", onRender: commits },
+        createElement(GitChangesPanel, {
+          cwd: "/repo",
+          enabled: true,
+          onOpenFile: vi.fn(),
+          onOpenAllChanges: vi.fn(),
+          onOpenCommit: vi.fn(),
+        }),
+      ),
+    );
+  });
+  Object.defineProperty(container.firstElementChild, "clientHeight", {
+    value: 800,
+  });
+  const handle = container.querySelector<HTMLElement>(
+    '[aria-label="Resize graph"]',
+  )!;
+  handle.setPointerCapture = vi.fn();
+  handle.releasePointerCapture = vi.fn();
+  const pane = handle.parentElement!.nextElementSibling as HTMLElement;
+  const initial = loadGraphPanelHeight();
+  const pointer = (type: string, clientY: number) =>
+    act(() => {
+      (type === "pointerdown" ? handle : window).dispatchEvent(
+        new PointerEvent(type, {
+          pointerId: 1,
+          clientY,
+          bubbles: true,
+        }),
+      );
+    });
+  pointer("pointerdown", 300);
+  commits.mockClear();
+  pointer("pointermove", 280);
+  pointer("pointermove", 260);
+  act(() => frame?.(0));
+  expect(pane.style.height).toBe(`${initial + 40}px`);
+  expect(commits).not.toHaveBeenCalled();
+  expect(loadGraphPanelHeight()).toBe(initial);
+  pointer("pointerup", 230);
+  expect(pane.style.height).toBe(`${initial + 70}px`);
+  expect(loadGraphPanelHeight()).toBe(initial + 70);
+  saveGraphPanelHeight(initial);
+});
 
 async function openBranchMenu() {
   const toggle = container.querySelector<HTMLButtonElement>(

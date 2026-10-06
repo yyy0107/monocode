@@ -2794,6 +2794,25 @@ header[data-tauri-drag-region] button {
   overflow: hidden;
 }
 
+/* Pixel-height motion keeps the contents in block flow throughout the fold. */
+.zen-fold-item[data-collapse-motion="height"] {
+  display: flow-root;
+  opacity: 1;
+  animation: none;
+}
+
+.zen-fold-item[data-collapse-motion="height"]:not([data-fold-state="open"]) {
+  overflow: hidden;
+}
+
+.zen-fold-item[data-collapse-motion="height"][data-fold-state="closed"] {
+  height: 0;
+}
+
+.zen-fold-item[data-collapse-motion="height"] > div {
+  display: flow-root;
+}
+
 @keyframes zen-fold-open {
   from {
     grid-template-rows: 0fr;

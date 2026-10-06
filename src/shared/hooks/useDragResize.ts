@@ -68,7 +68,7 @@ export function useDragResize({
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || stopDrag.current) return;
     event.preventDefault();
     event.stopPropagation();
     const handle = event.currentTarget;
@@ -81,20 +81,32 @@ export function useDragResize({
     const previousCursor = document.body.style.cursor;
     document.body.style.cursor = "col-resize";
     document.documentElement.classList.add("is-resizing");
+    let pending = startW;
+    let frame: number | null = null;
 
     const onMove = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return;
-      apply(
-        clamp(startW + (ev.clientX - startX) * (direction === "left" ? -1 : 1)),
+      pending = clamp(
+        startW + (ev.clientX - startX) * (direction === "left" ? -1 : 1),
       );
+      if (frame != null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        if (widthRef.current !== pending) apply(pending);
+      });
     };
 
     const stop = () => {
       if (stopDrag.current !== stop) return;
       stopDrag.current = null;
+      if (frame != null) cancelAnimationFrame(frame);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("blur", stop);
+      handle.removeEventListener("lostpointercapture", stop);
+      // Flush the latest sample even when release/collapse beats the queued frame.
+      commit(pending);
       restoreSelection();
       document.body.style.cursor = previousCursor;
       document.documentElement.classList.remove("is-resizing");
@@ -104,11 +116,15 @@ export function useDragResize({
       } catch {
         /* already released */
       }
-      commit(widthRef.current);
     };
 
     const onUp = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return;
+      if (ev.type === "pointerup") {
+        pending = clamp(
+          startW + (ev.clientX - startX) * (direction === "left" ? -1 : 1),
+        );
+      }
       stop();
     };
 
@@ -116,6 +132,8 @@ export function useDragResize({
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
+    window.addEventListener("blur", stop);
+    handle.addEventListener("lostpointercapture", stop);
   };
 
   useEffect(() => () => stopDrag.current?.(), []);

@@ -8,8 +8,11 @@ let container: HTMLDivElement;
 let root: Root;
 let resize: ReturnType<typeof useDragResize>;
 let onCommit: ReturnType<typeof vi.fn>;
+let pendingFrame: FrameRequestCallback | undefined;
+let renders: number;
 
 function Probe() {
+  renders += 1;
   resize = useDragResize({
     min: 260,
     max: () => 560,
@@ -56,6 +59,13 @@ function pointer(type: string, clientX: number) {
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  renders = 0;
+  pendingFrame = undefined;
+  vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
+    pendingFrame = callback;
+    return 1;
+  }));
+  vi.stubGlobal("cancelAnimationFrame", () => { pendingFrame = undefined; });
   onCommit = vi.fn();
   container = document.createElement("div");
   document.body.append(container);
@@ -74,20 +84,26 @@ afterEach(() => {
 });
 
 describe("pane drag resizing", () => {
-  it("writes width immediately during a normal drag and commits on release", () => {
+  it("coalesces width writes per frame without rendering and commits only on release", () => {
     startDrag();
+    const beforeMoves = renders;
     act(() => {
       window.dispatchEvent(
         new PointerEvent("pointermove", { pointerId: 1, clientX: 390 }),
       );
-      expect(pane().style.width).toBe("390px");
+      window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 420 }));
+      expect(pane().style.width).toBe("260px");
       expect(resize.width).toBe(260);
     });
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    act(() => pendingFrame?.(0));
+    expect(pane().style.width).toBe("420px");
+    expect(renders).toBe(beforeMoves);
     expect(onCommit).not.toHaveBeenCalled();
-    pointer("pointerup", 390);
-    expect(resize.width).toBe(390);
+    pointer("pointerup", 420);
+    expect(resize.width).toBe(420);
     expect(resize.dragging).toBe(false);
-    expect(onCommit).toHaveBeenCalledExactlyOnceWith(390);
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith(420);
   });
 
   it("keeps finishDrag stable and finishes at the last valid width", () => {
@@ -96,7 +112,7 @@ describe("pane drag resizing", () => {
     startDrag();
     expect(resize.finishDrag).toBe(finishDrag);
     pointer("pointermove", 800);
-    expect(pane().style.width).toBe("560px");
+    expect(pane().style.width).toBe("260px");
     expect(document.body.style.cursor).toBe("col-resize");
     expect(document.documentElement.classList.contains("is-resizing")).toBe(true);
     const blockedSelection = new Event("selectstart", { cancelable: true });
@@ -141,5 +157,20 @@ describe("pane drag resizing", () => {
     expect(pane().style.width).toBe("390px");
     expect(resize.width).toBe(390);
     expect(onCommit).toHaveBeenCalledExactlyOnceWith(390);
+  });
+
+  it("flushes the release position before a frame and cleans up on lost capture", () => {
+    startDrag();
+    pointer("pointermove", 390);
+    pointer("pointerup", 430);
+    expect(pane().style.width).toBe("430px");
+    expect(pendingFrame).toBeUndefined();
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith(430);
+    startDrag();
+    pointer("pointermove", 300);
+    act(() => handle().dispatchEvent(new PointerEvent("lostpointercapture", { pointerId: 1 })));
+    expect(onCommit).toHaveBeenLastCalledWith(470);
+    expect(resize.dragging).toBe(false);
+    expect(pendingFrame).toBeUndefined();
   });
 });

@@ -137,6 +137,7 @@ export function GitChangesPanel({
   const { index, reload } = useDiffIndex(cwd, enabled);
   const files = index?.files ?? [];
   const paneRef = useRef<HTMLDivElement>(null);
+  const graphPaneRef = useRef<HTMLDivElement>(null);
   const branchMenuRef = useRef<HTMLDivElement>(null);
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
   // Shared across the header and the changed-files list so no two Git
@@ -309,7 +310,9 @@ export function GitChangesPanel({
       {graphExpanded ? (
         <GraphResizeSash
           height={graphHeight}
-          onHeightPaint={setGraphHeight}
+          onHeightPaint={(next) => {
+            if (graphPaneRef.current) graphPaneRef.current.style.height = `${next}px`;
+          }}
           onHeightCommit={(next) => {
             setGraphHeight(next);
             saveGraphPanelHeight(next);
@@ -322,6 +325,7 @@ export function GitChangesPanel({
         />
       ) : null}
       <div
+        ref={graphPaneRef}
         className={`shrink-0 overflow-hidden border-t border-stroke ${
           graphExpanded ? "min-h-0" : "h-7"
         }`}
