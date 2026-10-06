@@ -264,6 +264,7 @@ export class HostWorkflows {
       `Before writing the script, read the authoring guide: ${join(this.skillDir, "SKILL.md")} (patterns.md and examples.md beside it go deeper).`,
       `Submit and manage runs with the workflow CLI: "$MONOCODE_WORKFLOW_CLI" workflow --help. Run \`"$MONOCODE_WORKFLOW_CLI" workflow providers --json '{}'\` to see installed providers and their models.`,
       "The run appears as a card in this conversation and in MonoCode's Workflows sidebar.",
+      "Once a workflow works and the user wants to keep it, save it with `workflow save` (scope \"project\" or \"global\"); it then appears in MonoCode's saved workflows.",
       "</monocode-workflows>",
       "",
       request || "Help me design and run a dynamic workflow for this project.",

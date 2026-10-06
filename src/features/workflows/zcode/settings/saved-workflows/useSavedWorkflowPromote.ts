@@ -64,7 +64,7 @@ export function useSavedWorkflowPromote(params: {
       pendingRef.current = true;
       setPending(true);
       try {
-        app.createViaChat(target.workspacePath, `/workflow ${buildSavedWorkflowPromotePrompt(request)}`);
+        app.createViaChat(target.workspacePath, buildSavedWorkflowPromotePrompt(request), { send: true });
         return { ok: true, sessionId: "" };
       } finally {
         pendingRef.current = false;

@@ -68,7 +68,7 @@ export function workflowSavedDraftNote(options: {
   savedPath: string;
   draft: string;
 }): string {
-  return `NOTE: The workflow was NOT executed. A working copy of the saved workflow '${options.savedName}' (${options.savedPath}) was written to ${options.draft}. Edit that copy in place and resubmit with \`path: "${options.draft}"\` (pass its \`args\` again); to change the saved definition itself, use SaveWorkflow.`;
+  return `NOTE: The workflow was NOT executed. A working copy of the saved workflow '${options.savedName}' (${options.savedPath}) was written to ${options.draft}. Edit that copy in place and resubmit with \`path: "${options.draft}"\` (pass its \`args\` again); to change the saved definition itself, use \`workflow save\`.`;
 }
 
 /** 启动成功后追加的一句：下一次修订从编辑这个文件开始。 */
