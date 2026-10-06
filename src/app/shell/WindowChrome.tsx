@@ -1,14 +1,20 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import { useShortcutLabel } from "../commands/useCommandShortcut";
-import { MoveLeft, MoveRight, PanelLeft } from "../../shared/ui/icons";
+import {
+  ArrowLeft,
+  ArrowRight,
+  ChevronDown,
+  ChevronUp,
+  PanelLeft,
+} from "../../shared/ui/icons";
 import { IS_MAC } from "../../platform/tauri/platform";
 import { startWindowDrag } from "./startWindowDrag";
 import { WindowControls } from "./WindowControls";
 
 /**
  * Window chrome shared by every shell layout now that the workspace tab strip
- * is gone: the drag bar, back/forward/sidebar cluster and its reserved space.
+ * is gone: the drag bar, product icon, navigation controls and reserved space.
  */
 
 export function IconButton({
@@ -16,6 +22,8 @@ export function IconButton({
   active,
   accent,
   disabled,
+  expanded,
+  controls,
   onClick,
   onOpenContextMenu,
   children,
@@ -24,6 +32,8 @@ export function IconButton({
   active?: boolean;
   accent?: boolean;
   disabled?: boolean;
+  expanded?: boolean;
+  controls?: string;
   onClick?: () => void;
   onOpenContextMenu?: (x: number, y: number) => void;
   children: ReactNode;
@@ -35,6 +45,8 @@ export function IconButton({
       aria-label={label}
       aria-pressed={active || accent}
       aria-disabled={disabled}
+      aria-expanded={expanded}
+      aria-controls={controls}
       data-tauri-drag-region="false"
       onClick={() => {
         if (disabled) return;
@@ -90,6 +102,8 @@ export function TabVisitNav({
   onGoForward,
   onTogglePanel,
   panelActive = false,
+  onToggleNavigation,
+  navigationExpanded = true,
 }: {
   canGoBack?: boolean;
   canGoForward?: boolean;
@@ -97,22 +111,51 @@ export function TabVisitNav({
   onGoForward?: () => void;
   onTogglePanel?: () => void;
   panelActive?: boolean;
+  onToggleNavigation?: () => void;
+  navigationExpanded?: boolean;
 }) {
+  const { t } = useTranslation();
   const backLabel = useShortcutLabel("Back", "Tab: Back");
   const forwardLabel = useShortcutLabel("Forward", "Tab: Forward");
   const panelLabel = useShortcutLabel("Toggle Sidebar", "App: Toggle Sidebar");
   return (
     <div className="flex shrink-0 items-center">
+      <div className="flex w-10 shrink-0 items-center pl-1">
+        <img
+          src="/monocode.png"
+          alt="MonoCode"
+          draggable={false}
+          className="size-6"
+        />
+      </div>
       <IconButton label={backLabel} disabled={!canGoBack} onClick={onGoBack}>
-        <MoveLeft className="size-4" />
+        <ArrowLeft className="size-4" />
       </IconButton>
       <IconButton
         label={forwardLabel}
         disabled={!canGoForward}
         onClick={onGoForward}
       >
-        <MoveRight className="size-4" />
+        <ArrowRight className="size-4" />
       </IconButton>
+      {onToggleNavigation ? (
+        <IconButton
+          label={t(
+            navigationExpanded
+              ? "Collapse navigation menu"
+              : "Expand navigation menu",
+          )}
+          expanded={navigationExpanded}
+          controls="sidebar-navigation-menu"
+          onClick={onToggleNavigation}
+        >
+          {navigationExpanded ? (
+            <ChevronUp className="size-4" />
+          ) : (
+            <ChevronDown className="size-4" />
+          )}
+        </IconButton>
+      ) : null}
       {onTogglePanel ? (
         <IconButton
           label={panelLabel}
@@ -127,16 +170,19 @@ export function TabVisitNav({
 }
 
 const WINDOW_NAVIGATION_LEFT = IS_MAC ? 78 : 6;
-const WINDOW_NAVIGATION_WIDTH = 84;
+const WINDOW_NAVIGATION_WIDTH = 40 + 112;
 export const WINDOW_NAVIGATION_END =
-  WINDOW_NAVIGATION_LEFT + 48 + WINDOW_NAVIGATION_WIDTH;
+  WINDOW_NAVIGATION_LEFT + WINDOW_NAVIGATION_WIDTH;
 export const WINDOW_DRAG_BAR_HEIGHT = 40;
 
 /** Keep native window dragging independent of the active page or pane layout. */
 export function WindowDragBar({
+  windowCenter,
   windowActions,
   ...props
 }: Parameters<typeof TabVisitNav>[0] & {
+  /** Centered window-wide destination and its notification preview. */
+  windowCenter?: ReactNode;
   /** Window-wide actions shown just before the window controls. */
   windowActions?: ReactNode;
 }) {
@@ -145,20 +191,32 @@ export function WindowDragBar({
       data-window-drag-bar
       data-tauri-drag-region="deep"
       onMouseDownCapture={startWindowDrag}
-      className="shell-chrome relative flex shrink-0 select-none items-center"
+      className="shell-chrome relative grid shrink-0 grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] select-none items-center"
       style={{ height: WINDOW_DRAG_BAR_HEIGHT }}
     >
       <WindowNavigation {...props} />
-      <div className="min-w-0 flex-1 self-stretch" />
-      {windowActions ? (
-        <div
-          data-tauri-drag-region="false"
-          className="flex shrink-0 items-center"
-        >
-          {windowActions}
-        </div>
-      ) : null}
-      {!IS_MAC ? <WindowControls /> : null}
+      <div
+        className="self-stretch"
+        style={{ minWidth: WINDOW_NAVIGATION_END }}
+      />
+      <div
+        data-window-center
+        data-tauri-drag-region="false"
+        className="flex min-w-0 items-center justify-center"
+      >
+        {windowCenter}
+      </div>
+      <div className="flex min-w-0 items-center justify-end self-stretch">
+        {windowActions ? (
+          <div
+            data-tauri-drag-region="false"
+            className="flex shrink-0 items-center"
+          >
+            {windowActions}
+          </div>
+        ) : null}
+        {!IS_MAC ? <WindowControls /> : null}
+      </div>
     </header>
   );
 }
@@ -172,7 +230,7 @@ export function WindowNavigation(props: Parameters<typeof TabVisitNav>[0]) {
       data-tauri-drag-region="false"
       className="absolute z-20 flex h-10 items-center"
       style={{
-        left: WINDOW_NAVIGATION_LEFT + 48,
+        left: WINDOW_NAVIGATION_LEFT,
         top: 0,
       }}
     >

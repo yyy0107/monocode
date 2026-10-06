@@ -123,6 +123,7 @@ function FilePaneComponent({
     loadDiffViewer,
   );
   const activeFile = pane.files.find((file) => file.id === pane.activeFileId);
+  const assistantPage = activeFile?.appView?.kind === "assistant";
   const sessionReview =
     activeFile && isSessionChangesTab(activeFile) ? activeFile : undefined;
   const unifiedReview =
@@ -137,7 +138,7 @@ function FilePaneComponent({
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
       onMouseDown={() => onFocus(pane.id)}
     >
-      {showTabs || tabsTrailing ? (
+      {!assistantPage && (showTabs || tabsTrailing) ? (
         <SurfaceTabs
           files={pane.files}
           activeFileId={pane.activeFileId}

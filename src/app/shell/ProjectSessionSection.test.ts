@@ -29,6 +29,7 @@ import {
 import type { RemoteProjectSessions } from "../../features/connections/model/connections";
 import type { HostSessionSummary } from "../../features/connections/model/protocol";
 import type { SessionSummary } from "../../features/sessions/data/sessionStore";
+import { replaceProjectHistory } from "../../features/sessions/data/sessionHistory";
 
 const remoteState = vi.hoisted(() => ({
   rows: new Map<string, HostSessionSummary[]>(),
@@ -1864,6 +1865,37 @@ describe("recent sidebar conversations", () => {
     [...recent().querySelectorAll<HTMLElement>("[data-session-card]")].map(
       (row) => row.dataset.sessionCard,
     );
+
+  it("shows one recent shortcut per session after repeated canonical history loads through a project alias", () => {
+    const alias = "/home/me/alpha";
+    const conversation = summary("same-session", A, "问题咨询");
+    props.projectHistory = [conversation];
+    props.sessions = [conversation];
+    props.activeSessionId = conversation.id;
+    props.recents = [{ path: A, openedAt: 1 }];
+    saveProjectTreeExpanded([]);
+    act(() => render());
+    expect(recentIds()).toEqual([conversation.id]);
+
+    for (let refresh = 0; refresh < 3; refresh++) {
+      props.projectHistory = replaceProjectHistory(
+        props.projectHistory,
+        alias,
+        [{ ...conversation, updatedAt: conversation.updatedAt + refresh + 1 }],
+      );
+      act(() => render());
+      expect(recentIds()).toEqual([conversation.id]);
+    }
+
+    const otherConversation = summary("another-session", A, "问题咨询");
+    props.projectHistory = replaceProjectHistory(
+      props.projectHistory,
+      alias,
+      [conversation, otherConversation],
+    );
+    act(() => render());
+    expect(recentIds().sort()).toEqual([otherConversation.id, conversation.id]);
+  });
 
   const recentCard = (path: string, id: string) =>
     recent().querySelector<HTMLElement>(

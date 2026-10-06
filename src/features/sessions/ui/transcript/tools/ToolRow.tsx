@@ -16,9 +16,8 @@ import {
 import { TranscriptPlatformContext } from "../../TranscriptPlatform";
 import { ToolOutput } from "./ToolBody";
 import {
-  ActivityToolIcon,
   ApprovalControls,
-  ToolCallIcon,
+  ToolKindIcon,
   ToolCallStatusIcon,
   ToolCallSummary,
   ToolOpenRow,
@@ -35,7 +34,7 @@ export function ToolRow({
   cwd,
   live = false,
   variant,
-  bare = false,
+  compact = false,
   onApproval,
   onOpenFile,
   onOpenDiff,
@@ -44,8 +43,8 @@ export function ToolRow({
   cwd?: string;
   live?: boolean;
   variant: "activity" | "standalone";
-  /** The rail is the bullet, so the row draws no icon of its own. */
-  bare?: boolean;
+  /** Keep file targets in compact chips within an activity trail. */
+  compact?: boolean;
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
@@ -69,15 +68,11 @@ export function ToolRow({
   const open = expandable && (override ?? autoOpen);
   const toggle = () => setOverride(!open);
 
-  const icon = activity ? (
-    bare ? null : (
-      <ActivityToolIcon state={state} live={live} />
-    )
-  ) : (
-    <ToolCallIcon state={state} />
+  const icon = (
+    <ToolKindIcon renderer={renderer} state={state} live={live} />
   );
   const statusIcon =
-    activity && !pending ? <ToolCallStatusIcon state={state} /> : null;
+    !pending ? <ToolCallStatusIcon state={state} /> : null;
   const summary =
     renderer === "question" ? (
       <span
@@ -92,7 +87,7 @@ export function ToolRow({
         label={label}
         preview={block.tool?.preview}
         cwd={cwd}
-        chip={activity && bare}
+        chip={activity && compact}
         failed={failed}
         status={state}
         onOpenFile={onOpenFile}

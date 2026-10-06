@@ -14,8 +14,7 @@ import { HarnessIcon } from "./HarnessIcon";
 const MENU_WIDTH = 228;
 
 type Props = {
-  x: number;
-  y: number;
+  anchor: HTMLElement;
   harnesses: HarnessId[];
   filters: SessionSidebarFilters;
   onChange: (filters: SessionSidebarFilters) => void;
@@ -30,8 +29,7 @@ const TIME_OPTIONS: { id: SessionTimeFilter; label: string }[] = [
 ];
 
 export function SessionFiltersMenu({
-  x,
-  y,
+  anchor,
   harnesses,
   filters,
   onChange,
@@ -65,8 +63,9 @@ export function SessionFiltersMenu({
 
   return (
     <Popover
-      anchor={{ x, y }}
-      gap={0}
+      anchor={anchor}
+      align="end"
+      gap={2}
       width={MENU_WIDTH}
       maxHeight={480}
       onDismiss={onClose}
@@ -172,7 +171,7 @@ function FilterItem({
       className="flex h-7 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] leading-none text-content hover:bg-content/5"
     >
       {icon}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="min-w-0 flex-1 truncate leading-label">{label}</span>
       {checked ? (
         <Check className="size-3.5 shrink-0" strokeWidth={2.25} />
       ) : null}

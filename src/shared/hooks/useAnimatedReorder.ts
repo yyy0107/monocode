@@ -18,19 +18,25 @@ export type ReorderExternalDrop<T extends string> = {
   onEnd?: (id: T) => void;
 };
 
-/** Direct manipulation for a row or column of equal-sized items. */
+export type ReorderOptions<T extends string> = {
+  activationDistance?: number;
+  collapsedSize?: (id: T, node: HTMLElement) => number | undefined;
+};
+
+/** Direct manipulation for a row or column, optionally compacting the dragged item. */
 export function useAnimatedReorder<T extends string>(
   ids: T[],
   onReorder: (ids: T[], movedId: T) => void,
   axis: "x" | "y" = "x",
   externalDrop?: ReorderExternalDrop<T>,
+  options?: ReorderOptions<T>,
 ) {
   const nodes = useRef(new Map<T, HTMLElement>());
   const [draggingId, setDraggingId] = useState<T | null>(null);
-  const latest = useRef({ ids, onReorder, externalDrop });
+  const latest = useRef({ ids, onReorder, externalDrop, options });
   useLayoutEffect(() => {
-    latest.current = { ids, onReorder, externalDrop };
-  }, [ids, onReorder, externalDrop]);
+    latest.current = { ids, onReorder, externalDrop, options };
+  }, [ids, onReorder, externalDrop, options]);
   const cleanup = useRef<(() => void) | null>(null);
   const finishSettling = useRef<(() => void) | null>(null);
   const suppressClickUntil = useRef(0);
@@ -88,6 +94,7 @@ export function useAnimatedReorder<T extends string>(
       const transition = `transform ${duration}ms ${easing}`;
       let restoreSelection: (() => void) | undefined;
       let active = false;
+      let collapsedLayout = false;
       let settling = false;
       let destination = from;
       let frame = 0;
@@ -134,6 +141,18 @@ export function useAnimatedReorder<T extends string>(
         const reordered = moveItem(items, from, to);
         for (let index = 0; index < tabs.length; index++) {
           if (index === from) continue;
+          if (collapsedLayout) {
+            // Expanded siblings keep their own sizes while making room for only
+            // the compact dragged item and the adjacent gap.
+            const offset =
+              index > from && index <= to
+                ? rects[from].start - rects[from + 1].start
+                : index >= to && index < from
+                  ? rects[from].end - rects[from - 1].end
+                  : 0;
+            tabs[index].style.transform = transform(offset);
+            continue;
+          }
           const slot = reordered.indexOf(items[index]);
           tabs[index].style.transform = transform(
             rects[slot].start - rects[index].start,
@@ -183,9 +202,31 @@ export function useAnimatedReorder<T extends string>(
         if (ev.pointerId !== pointerId || settling) return;
         pointerPosition = ev[coordinate];
         if (!active) {
-          if (Math.abs(pointerPosition - startPosition) < 5) return;
+          if (
+            Math.abs(pointerPosition - startPosition) <
+            (latest.current.options?.activationDistance ?? 5)
+          )
+            return;
           active = true;
-          setDraggingId(id);
+          const collapsedSize = latest.current.options?.collapsedSize?.(
+            id,
+            handle,
+          );
+          if (
+            collapsedSize !== undefined &&
+            collapsedSize >= 0 &&
+            collapsedSize <= rects[from].size
+          ) {
+            collapsedLayout = true;
+            const delta = rects[from].size - collapsedSize;
+            rects[from].size = collapsedSize;
+            rects[from].end -= delta;
+            for (let index = from + 1; index < rects.length; index++) {
+              rects[index].start -= delta;
+              rects[index].end -= delta;
+            }
+          }
+          flushSync(() => setDraggingId(id));
           handle.setPointerCapture(pointerId);
           restoreSelection = suppressTextSelection();
           setGrabbing(true);
@@ -227,7 +268,11 @@ export function useAnimatedReorder<T extends string>(
         const to = commit ? destination : from;
         preview(to);
         handle.style.transition = transition;
-        handle.style.transform = transform(rects[to].start - rects[from].start);
+        handle.style.transform = transform(
+          collapsedLayout && to > from
+            ? rects[to].end - rects[from].end
+            : rects[to].start - rects[from].start,
+        );
         const finish = () => {
           // Clear the preview and commit the order before the next browser paint.
           flushSync(() => {

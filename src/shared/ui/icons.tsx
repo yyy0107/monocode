@@ -5,6 +5,7 @@ import {
   Archive as ArchiveIcon,
   ArrowDownCircle as ArrowDownCircleIcon,
   ArrowLeft as ArrowLeftIcon,
+  ArrowRight as ArrowRightIcon,
   ArrowUp as ArrowUpIcon,
   BellOff as BellOffIcon,
   Bot as BotIcon,
@@ -153,6 +154,7 @@ export const Archive = wrap(ArchiveIcon, "Archive");
 export const FileImport = wrap(FileInputIcon, "FileImport");
 export const ArrowDownCircle = wrap(ArrowDownCircleIcon, "ArrowDownCircle");
 export const ArrowLeft = wrap(ArrowLeftIcon, "ArrowLeft");
+export const ArrowRight = wrap(ArrowRightIcon, "ArrowRight");
 export const MoveLeft = wrap(MoveLeftIcon, "MoveLeft");
 export const MoveRight = wrap(MoveRightIcon, "MoveRight");
 export const ArrowUp = wrap(ArrowUpIcon, "ArrowUp");

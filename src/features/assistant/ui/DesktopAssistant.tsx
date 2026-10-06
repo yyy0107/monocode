@@ -1,12 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { AssistantChat } from "./AssistantChat";
 import {
   remoteRequest,
-  useRemoteMachines,
   refreshRemoteProjectSessions,
 } from "../../connections/model/connections";
 import {
-  sharedHostEnvironment,
   sharedHostMachineId,
   configureSharedHost,
   rememberRemoteProject,
@@ -15,29 +13,23 @@ import { sharedSessionBackend } from "../../sessions/data/sharedSessionBackend";
 import type { SessionReference } from "../model/assistant";
 import type { AssistantTarget } from "../model/assistantNavigation";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { useDesktopAssistantHosts } from "../model/useDesktopAssistantHosts";
 export function DesktopAssistant({
+  selectedMachineId,
+  onSelectMachine,
   onLocalSession,
   onRemoteSession,
 }: {
+  selectedMachineId?: string;
+  onSelectMachine: (id: string) => void;
   onLocalSession: (id: string, project: string) => Promise<void> | void;
   onRemoteSession: (project: string, id: string) => void;
 }) {
   const { t } = useTranslation();
-  const { machines } = useRemoteMachines();
-  const localId = sharedHostMachineId(),
-    localEnvironment = sharedHostEnvironment();
-  const choices = [...machines];
-  if (localId && localEnvironment && !choices.some((m) => m.id === localId))
-    choices.unshift({
-      id: localId,
-      environmentId: localEnvironment,
-      name: t("Local"),
-      endpoint: "",
-      providers: [],
-      capabilities: ["assistant.v1"],
-    } as (typeof machines)[number]);
-  const [selected, setSelected] = useState(localId ?? "");
-  const machine = choices.find((m) => m.id === selected) ?? choices[0];
+  const choices = useDesktopAssistantHosts();
+  const localId = sharedHostMachineId();
+  const machine =
+    choices.find((m) => m.id === (selectedMachineId ?? localId)) ?? choices[0];
   const rpc = useCallback(
     <T,>(method: string, params?: object) =>
       machine
@@ -68,7 +60,7 @@ export function DesktopAssistant({
         className="assistant-host-select"
         aria-label={t("Host")}
         value={machine?.id ?? ""}
-        onChange={(e) => setSelected(e.target.value)}
+        onChange={(e) => onSelectMachine(e.target.value)}
       >
         {choices.map((m) => (
           <option key={m.id} value={m.id}>

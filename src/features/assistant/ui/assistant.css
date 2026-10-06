@@ -517,10 +517,10 @@
   align-self: flex-start;
   min-width: 0;
   max-width: 100%;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  padding: 9px 14px;
+  border: 1px solid var(--assistant-line);
+  border-radius: 12px 12px 12px 2px;
+  background: var(--assistant-fill);
 }
 .assistant-markdown > :first-child {
   margin-top: 0;

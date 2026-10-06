@@ -319,15 +319,49 @@ html.has-native-glass:not(.theme-light) #root {
 }
 
 /* ZCode segmented toggle: a pill track with a background-colored thumb. */
+.sidebar-segment {
+  position: relative;
+}
+
+.sidebar-segment::before {
+  content: "";
+  position: absolute;
+  inset-block: 0.125rem;
+  left: 0.125rem;
+  width: calc(
+    (100% - 0.25rem - (var(--sidebar-tab-count) - 1) * 1px) /
+      var(--sidebar-tab-count)
+  );
+  border-radius: inherit;
+  background: var(--color-background-base);
+  pointer-events: none;
+  transform: translateX(calc(var(--sidebar-active-tab) * (100% + 1px)));
+  transition: transform 220ms var(--motion-ease-out);
+}
+
+/* The selected button carries its own fill while its wrapper is being dragged. */
+.sidebar-segment[data-reordering]::before {
+  display: none;
+}
+
+.sidebar-segment[data-resizing]::before {
+  transition: none;
+}
+
 .sidebar-segment .surface-tab {
   border: 0;
   border-radius: 9999px;
+  transition-property: color;
 }
 
 .sidebar-segment .surface-tab:is([aria-selected="true"], [data-selected="true"]),
 .sidebar-segment .workspace-tab > .surface-tab[aria-selected="true"]:hover {
-  background: var(--color-background-base);
+  background: transparent;
   color: var(--color-content);
+}
+
+.sidebar-segment[data-reordering] .workspace-tab > .surface-tab[aria-selected="true"] {
+  background: var(--color-background-base);
 }
 
 .sidebar-segment .workspace-tab:not([data-reordering])
@@ -386,6 +420,10 @@ html.has-native-glass:not(.theme-light) #root {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .sidebar-segment::before {
+    transition: none;
+  }
+
   .tab-motion,
   .tab-motion > button,
   .surface-tab {
@@ -405,14 +443,26 @@ html.has-native-glass:not(.theme-light) #root {
 .workspace-tab:not([data-reordering])
   > button:not([aria-selected="true"]):hover,
 .workspace-tab[data-dragging] > button:not([aria-selected="true"]),
-.project-reorder-item:not([data-reordering], [data-selected]):hover,
-.project-reorder-item[data-dragging]:not([data-selected]) {
+.project-reorder-item:not([data-reordering], [data-selected]):hover {
   background: var(--color-surface-hover);
   color: var(--color-content);
 }
 
+.reorder-item:is([data-dragging], [data-settling]) > .project-tree-header,
+.project-reorder-item:is([data-dragging], [data-settling]) {
+  background: var(--color-background-base);
+  box-shadow: 0 0 0 1px var(--color-stroke) inset, var(--shadow-lg);
+  cursor: grabbing;
+}
+
+.reorder-item:is([data-dragging], [data-settling]) > .project-tree-header > button,
+.project-reorder-item:is([data-dragging], [data-settling]) > button {
+  cursor: grabbing;
+}
+
 /* Keep project controls from appearing as rows pass beneath the pointer. */
-.project-reorder-item[data-reordering] [data-no-drag] {
+.project-reorder-item[data-reordering] [data-no-drag],
+.reorder-item[data-reordering] .project-tree-header [data-no-drag] {
   visibility: hidden;
 }
 
@@ -1776,7 +1826,7 @@ html.theme-light {
 [data-composer-layout="desktop"] .composer-workspace-bar {
   flex-wrap: wrap;
   gap: 12px;
-  padding: 6px;
+  padding: 6px 6px 6px 12px;
   font-size: 14px;
   line-height: 20px;
 }
@@ -3537,6 +3587,37 @@ html.theme-light .drag-ghost-card {
     grid-template-columns var(--collapse-duration) var(--collapse-easing);
 }
 
+.sidebar-transition {
+  transition-property: width;
+}
+
+/* Isolate the fixed-width sidebar's layout and paint as its viewport narrows. */
+.sidebar-transition-clip {
+  contain: layout paint;
+}
+
+.sidebar-transition-content {
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    transform var(--collapse-duration) var(--collapse-easing),
+    opacity var(--collapse-duration) var(--collapse-easing);
+}
+
+.sidebar-transition[data-expanded="false"] {
+  pointer-events: none;
+}
+
+.sidebar-transition[data-expanded="false"] .sidebar-transition-content {
+  opacity: 0.65;
+  transform: translateX(-12px);
+}
+
+.sidebar-transition[data-resizing],
+.sidebar-transition[data-resizing] .sidebar-transition-content {
+  transition: none;
+}
+
 .zen-fold-item[data-fold-state="closed"] {
   display: grid;
   grid-template-rows: 0fr;
@@ -3802,7 +3883,8 @@ html.theme-light .drag-ghost-card {
     animation: none;
   }
 
-  .animated-collapse-size {
+  .animated-collapse-size,
+  .sidebar-transition-content {
     transition: none;
   }
 

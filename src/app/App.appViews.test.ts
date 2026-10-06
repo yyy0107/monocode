@@ -135,9 +135,11 @@ vi.mock("./shell/MenuBar", async () => {
     MENU_BAR_HEIGHT: 36,
     MenuBar: ({
       dispatch,
+      windowCenter,
       windowActions,
     }: {
       dispatch: (id: string) => void;
+      windowCenter?: ReactNode;
       windowActions?: ReactNode;
     }) =>
       el(
@@ -160,6 +162,7 @@ vi.mock("./shell/MenuBar", async () => {
             id,
           ),
         ),
+        loadMenuBarVisible() ? el("div", { "data-window-center": true }, windowCenter) : null,
         loadMenuBarVisible() ? windowActions : null,
         loadMenuBarVisible() ? el(WindowControls) : null,
       ),
@@ -205,7 +208,6 @@ vi.mock("./shell/Sidebar", async () => {
     Sidebar: ({
       navigation,
       footer,
-      onOpenAssistant,
       onOpenFile,
       onOpenDiff,
       cwd,
@@ -226,7 +228,6 @@ vi.mock("./shell/Sidebar", async () => {
     }: {
       navigation?: import("react").ReactNode;
       footer?: import("react").ReactNode;
-      onOpenAssistant: () => void;
       onOpenFile: (
         path: string,
         navigation?: { line: number; column?: number },
@@ -260,11 +261,6 @@ vi.mock("./shell/Sidebar", async () => {
         },
         navigation,
         footer,
-        el(
-          "button",
-          { "data-open-assistant": true, onClick: onOpenAssistant },
-          "Assistant",
-        ),
         ...["first", "recent", "replacement"].map((id) =>
           el(
             "button",
@@ -395,15 +391,17 @@ vi.mock("./shell/ActivityBar", async () => {
   const { createElement: el } = await import("react");
   return {
     ActivityBar: ({
+      layout,
       onOpenSettings,
       onOpenNotes,
     }: {
+      layout?: string;
       onOpenSettings: () => void;
       onOpenNotes?: () => void;
     }) =>
       el(
         "div",
-        null,
+        { "data-activity-bar": layout },
         el(
           "button",
           { "data-open-settings": true, onClick: onOpenSettings },
@@ -848,6 +846,8 @@ describe("terminal dock disclosure motion", () => {
 describe("App workspace app views", () => {
   it("opens Assistant as a reusable workspace page and retains its draft across chat switches", async () => {
     await mount();
+    expect(container.querySelector('[data-sidebar] [data-open-assistant]')).toBeNull();
+    expect(container.querySelector('[data-window-center] [data-open-assistant]')).not.toBeNull();
     await click("[data-open-assistant]");
     const assistantTab = activeTabId();
     expect(assistantTab).not.toBe(firstId);
@@ -855,6 +855,7 @@ describe("App workspace app views", () => {
       workspace().querySelector('[data-app-view="assistant"]'),
     ).not.toBeNull();
     expect(container.querySelector(".assistant-overlay")).toBeNull();
+    expect(workspace().querySelector('[role="tablist"]')).toBeNull();
     const draft = container.querySelector<HTMLTextAreaElement>(
       '[aria-label="Assistant draft"]',
     )!;
@@ -896,7 +897,7 @@ describe("App workspace app views", () => {
         chrome.querySelector('[aria-label="Window controls"]'),
       ).not.toBeNull();
       const sidebarToggle = dragBar.querySelector<HTMLButtonElement>(
-        "[data-window-navigation] button:last-child",
+        '[data-window-navigation] button[aria-label^="Toggle Sidebar"]',
       )!;
       expect(sidebarToggle.getAttribute("aria-pressed")).toBe("true");
       await act(async () => sidebarToggle.click());
@@ -933,6 +934,38 @@ describe("App workspace app views", () => {
       expect(dialog.style.top).toBe("36px");
     },
   );
+
+  it("folds only the navigation menu and supports reversing before the animation ends", async () => {
+    saveMenuBarVisible(false);
+    await mount();
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[aria-controls="sidebar-navigation-menu"]',
+    )!;
+    const fold = () => container.querySelector<HTMLElement>("#sidebar-navigation-menu .zen-fold-item");
+    const menu = container.querySelector('[data-activity-bar="sidebar-top"]');
+    const footer = container.querySelector('[data-activity-bar="sidebar-footer"]');
+    const sidebarToggle = container.querySelector('[data-window-navigation] [aria-label^="Toggle Sidebar"]')!;
+    expect(container.querySelector('[data-window-navigation] img[alt="MonoCode"]')).not.toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(fold()?.dataset.foldState).toBe("closing");
+    expect(fold()?.inert).toBe(true);
+    expect(container.querySelector('[data-activity-bar="sidebar-top"]')).toBe(menu);
+    expect(container.querySelector('[data-activity-bar="sidebar-footer"]')).toBe(footer);
+    expect(sidebarToggle.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => toggle.click());
+    expect(fold()?.dataset.foldState).toBe("opening");
+    expect(fold()?.inert).toBe(false);
+    expect(container.querySelector('[data-activity-bar="sidebar-top"]')).toBe(menu);
+    await act(async () => toggle.click());
+    act(() => fold()!.dispatchEvent(new Event("animationend", { bubbles: true })));
+    expect(fold()).toBeNull();
+    expect(container.querySelector('[data-activity-bar="sidebar-top"]')).toBeNull();
+    await act(async () => toggle.click());
+    expect(fold()?.dataset.foldState).toBe("opening");
+    expect(container.querySelector('[data-activity-bar="sidebar-top"]')).not.toBeNull();
+  });
 
   it("closes and unmounts Notes when it is disabled, without disturbing Settings", async () => {
     await mount();
@@ -1544,6 +1577,54 @@ describe("App multi-project history", () => {
           command === "session_list_by_project" && args.cwd === "/repo",
       ),
     ).toHaveLength(1);
+  });
+
+  it("preserves a newer canonical rename when an alias history read finishes", async () => {
+    let finishAlias!: (rows: unknown[]) => void;
+    const aliasRead = new Promise<unknown[]>((resolve) => {
+      finishAlias = resolve;
+    });
+    let row = {
+      ...newSession("codex", "/project-b"),
+      id: "inactive-chat",
+      blocks: [
+        { id: "prompt", role: "user" as const, text: "Work on this project" },
+      ],
+      title: "Original",
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const staleRow = { ...row };
+    mocks.invoke.mockImplementation(async (command, args) => {
+      if (command === "session_list_by_project") {
+        if (args.cwd === "/project-a") return aliasRead;
+        if (args.cwd === "/project-b") return [row];
+      }
+      if (command === "session_get") return row;
+      if (command === "session_upsert") {
+        row = { ...row, ...args.session, updatedAt: Date.now() };
+        return row;
+      }
+      return [];
+    });
+    await mount();
+    await click('[data-load-project="/project-b"]');
+    await click('[data-load-project="/project-a"]');
+    await click('[data-rename-history="inactive-chat"]');
+    expect(row.title).toContain("Renamed");
+    expect(
+      mocks.invoke.mock.calls.filter(
+        ([command, args]) =>
+          command === "session_list_by_project" && args.cwd === "/project-b",
+      ),
+    ).toHaveLength(2);
+
+    await act(async () => finishAlias([staleRow]));
+    const historyRows = container.querySelectorAll(
+      '[data-open-history="inactive-chat"]',
+    );
+    expect(historyRows).toHaveLength(1);
+    expect(historyRows[0].textContent).toBe(row.title);
   });
 
   it("creates a chat in an inactive project's remembered worktree", async () => {

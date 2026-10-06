@@ -817,3 +817,26 @@ it("explains an unsupported Host bridge and reconnects on retry", async () => {
   ).toHaveLength(2);
   expect(node.querySelector(".assistant-conversation")).not.toBeNull();
 });
+
+it("only acknowledges messages while the assistant page and document are visible", async () => {
+  const rpc = chatRpc(configuredView(), [
+    { kind: "assistant", id: "reply", revision: 1, createdAt: 1, text: "Hello" },
+  ]);
+  const render = (visible: boolean) => act(() => root.render(
+    createElement(SurfaceVisibilityContext.Provider, { value: visible },
+      createElement(AssistantChat, { hostKey: "read-host", hostName: "Host", rpc: rpc as any, onOpen: () => {} })),
+  ));
+  const state = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  try {
+    render(false);
+    await flush();
+    expect(localStorage.getItem("monocode.assistant-read:read-host")).toBeNull();
+    render(true);
+    expect(localStorage.getItem("monocode.assistant-read:read-host")).toBeNull();
+    state.mockReturnValue("visible");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(localStorage.getItem("monocode.assistant-read:read-host")).toBe("1");
+  } finally {
+    state.mockRestore();
+  }
+});

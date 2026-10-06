@@ -1,3 +1,4 @@
+import { markAssistantRead } from "../model/assistantUnread";
 import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 import {
   Fragment,
@@ -119,6 +120,16 @@ export function AssistantChat({
   // Undefined means the first sync is pending; null confirms setup is needed.
   const [assistant, setAssistant] = useState<AssistantView | null>();
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
+  useEffect(() => {
+    if (!visible || chrome) return;
+    const markRead = () => {
+      if (document.visibilityState !== "hidden")
+        markAssistantRead(hostKey, messages);
+    };
+    markRead();
+    document.addEventListener("visibilitychange", markRead);
+    return () => document.removeEventListener("visibilitychange", markRead);
+  }, [hostKey, messages, visible, chrome]);
   const visibleMessages = useMemo(
     () => chrome ? compactAssistantTimeline(messages) : messages,
     [messages, chrome],

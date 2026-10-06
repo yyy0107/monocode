@@ -33,6 +33,10 @@ type Props = {
   canGoBack?: boolean;
   canGoForward?: boolean;
   sidebarOpen?: boolean;
+  navigationExpanded?: boolean;
+  onToggleNavigation?: () => void;
+  /** Centered window-wide destination and its notification preview. */
+  windowCenter?: ReactNode;
   /** Window-wide actions shown just before the window controls. */
   windowActions?: ReactNode;
 };
@@ -49,6 +53,9 @@ export function MenuBar({
   canGoBack = false,
   canGoForward = false,
   sidebarOpen = false,
+  navigationExpanded,
+  onToggleNavigation,
+  windowCenter,
   windowActions,
 }: Props) {
   const { t: uiT } = useTranslation();
@@ -194,8 +201,10 @@ export function MenuBar({
         closeMenu();
         setRevealed(false);
       }}
-      className={`shell-chrome flex shrink-0 select-none items-center gap-0.5 border-b border-stroke text-[12px] ${
-        visible ? "relative pl-2" : "sidebar-glass absolute z-30 px-2"
+      className={`shell-chrome shrink-0 select-none items-center gap-0.5 border-b border-stroke text-[12px] ${
+        visible
+          ? "relative grid grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] px-2"
+          : "sidebar-glass absolute z-30 flex px-2"
       }`}
       style={{
         height: MENU_BAR_HEIGHT,
@@ -209,63 +218,75 @@ export function MenuBar({
           : {}),
       }}
     >
-      {visible ? (
-        <nav
-          aria-label={uiT("Window navigation")}
-          data-window-navigation
-          data-tauri-drag-region="false"
-          className="mr-2 flex shrink-0 items-center"
-        >
-          <TabVisitNav
-            canGoBack={canGoBack}
-            canGoForward={canGoForward}
-            onGoBack={() => onPick("Tab: Back")}
-            onGoForward={() => onPick("Tab: Forward")}
-            onTogglePanel={() => onPick("App: Toggle Sidebar")}
-            panelActive={sidebarOpen}
-          />
-        </nav>
-      ) : null}
-      {available.map(({ id, label }) => {
-        const isActive = activeMenu === id;
-        return (
-          <button
-            key={id}
-            ref={(node) => {
-              if (node) buttons.current.set(id, node);
-              else buttons.current.delete(id);
-            }}
-            type="button"
+      <div className="flex shrink-0 items-center gap-0.5">
+        {visible ? (
+          <nav
+            aria-label={uiT("Window navigation")}
+            data-window-navigation
             data-tauri-drag-region="false"
-            aria-haspopup="menu"
-            aria-expanded={isActive}
-            onClick={() => (isActive ? closeMenu() : openMenu(id))}
-            onMouseEnter={() => {
-              if (activeMenu && activeMenu !== id) openMenu(id);
-            }}
-            className={`rounded px-2 py-0.5 transition-colors ${
-              isActive
-                ? "bg-selection-hover text-content"
-                : "text-content/70 hover:bg-content/10 hover:text-content"
-            }`}
+            className="mr-2 flex shrink-0 items-center"
           >
-            {uiT(label)}
-          </button>
-        );
-      })}
+            <TabVisitNav
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              onGoBack={() => onPick("Tab: Back")}
+              onGoForward={() => onPick("Tab: Forward")}
+              onTogglePanel={() => onPick("App: Toggle Sidebar")}
+              panelActive={sidebarOpen}
+              navigationExpanded={navigationExpanded}
+              onToggleNavigation={onToggleNavigation}
+            />
+          </nav>
+        ) : null}
+        {available.map(({ id, label }) => {
+          const isActive = activeMenu === id;
+          return (
+            <button
+              key={id}
+              ref={(node) => {
+                if (node) buttons.current.set(id, node);
+                else buttons.current.delete(id);
+              }}
+              type="button"
+              data-tauri-drag-region="false"
+              aria-haspopup="menu"
+              aria-expanded={isActive}
+              onClick={() => (isActive ? closeMenu() : openMenu(id))}
+              onMouseEnter={() => {
+                if (activeMenu && activeMenu !== id) openMenu(id);
+              }}
+              className={`rounded px-2 py-0.5 transition-colors ${
+                isActive
+                  ? "bg-selection-hover text-content"
+                  : "text-content/70 hover:bg-content/10 hover:text-content"
+              }`}
+            >
+              {uiT(label)}
+            </button>
+          );
+        })}
+      </div>
 
       {visible ? (
         <>
-          <div className="min-w-0 flex-1" />
-          {windowActions ? (
-            <div
-              data-tauri-drag-region="false"
-              className="flex shrink-0 items-center"
-            >
-              {windowActions}
-            </div>
-          ) : null}
-          <WindowControls />
+          <div
+            data-window-center
+            data-tauri-drag-region="false"
+            className="flex min-w-0 items-center justify-center"
+          >
+            {windowCenter}
+          </div>
+          <div className="flex min-w-0 items-center justify-end self-stretch">
+            {windowActions ? (
+              <div
+                data-tauri-drag-region="false"
+                className="flex shrink-0 items-center"
+              >
+                {windowActions}
+              </div>
+            ) : null}
+            <WindowControls />
+          </div>
         </>
       ) : null}
 

@@ -21,7 +21,6 @@ import { basename } from "../../platform/tauri/fs";
 import { useShortcutLabel } from "../commands/useCommandShortcut";
 import { useDragResize } from "../../shared/hooks/useDragResize";
 import { useLockOverscroll } from "../../shared/hooks/useLockOverscroll";
-import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
 import { useProjectDiffStats } from "../../features/source-control/hooks/useProjectDiffStats";
 import { useGitFileStatuses } from "../../features/source-control/hooks/useGitFileStatuses";
 import { SidebarWorktreeSwitcher } from "../../features/source-control/ui/SidebarWorktreeSwitcher";
@@ -30,14 +29,11 @@ import { ProjectSearch } from "../../features/projects/ui/ProjectSearch";
 import { SearchableProjectPicker } from "../../features/projects/ui/SearchableProjectPicker";
 import { SourceControl } from "../../features/source-control/ui/SourceControl";
 import {
-  loadSidebarTabOrder,
   loadSidebarWidth,
-  saveSidebarTabOrder,
   saveSidebarWidth,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MIN,
   SIDEBAR_WIDTH_MAX,
-  type SidebarTabId,
 } from "../../features/settings/model/appearance";
 import {
   collectRailProjects,
@@ -79,11 +75,11 @@ import {
   remotePath,
   remoteProjectFor,
 } from "../../features/connections/model/remoteProjects";
-import { formatInteger } from "../../shared/lib/numbers";
 import type { SessionSummary } from "../../features/sessions/data/sessionStore";
 import { SessionFiltersMenu } from "../../features/sessions/ui/SessionFiltersMenu";
 import { IconButton, WindowNavigationSpace } from "./WindowChrome";
 import { SidebarTransition } from "./SidebarTransition";
+import { SidebarTabs } from "./SidebarTabs";
 import { ResizeHandle } from "../../shared/ui/ResizeHandle";
 import { ProjectList, AddProjectButton } from "./ProjectList";
 import { ProjectSessionSection } from "./ProjectSessionSection";
@@ -93,12 +89,6 @@ import {
   projectHoverSummary,
   type ProjectHoverSummary,
 } from "../model/projectHoverSummary";
-
-const TAB_LABELS: Record<SidebarTabId, string> = {
-  sessions: "Sessions",
-  files: "Explorer",
-  changes: "Changes",
-};
 
 const NO_SESSIONS: readonly SessionSummary[] = [];
 
@@ -121,11 +111,6 @@ function SidebarComponent(props: SidebarProps) {
     defaultWidth: SIDEBAR_WIDTH_DEFAULT,
     initial: loadSidebarWidth(),
     onCommit: saveSidebarWidth,
-  });
-  const [tabOrder, setTabOrder] = useState(loadSidebarTabOrder);
-  const sortable = useAnimatedReorder(tabOrder, (next) => {
-    setTabOrder(next);
-    saveSidebarTabOrder(next);
   });
   const [expandedPaths, setExpandedPaths] = useState(() =>
     loadProjectTreeExpanded(cwd),
@@ -150,7 +135,7 @@ function SidebarComponent(props: SidebarProps) {
     null,
   );
   const [filters, setFilters] = useState(loadSessionSidebarFilters);
-  const [filterMenu, setFilterMenu] = useState<{ x: number; y: number } | null>(
+  const [filterMenu, setFilterMenu] = useState<HTMLButtonElement | null>(
     null,
   );
   const [labels, setLabels] = useState(loadTabGroupLabels);
@@ -1044,10 +1029,8 @@ function SidebarComponent(props: SidebarProps) {
   }
   const filtersActive = hasActiveSessionFilters(filters);
   const onFilter = (event: MouseEvent<HTMLButtonElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    setFilterMenu(
-      filterMenu ? null : { x: rect.right - 228, y: rect.bottom + 2 },
-    );
+    const trigger = event.currentTarget;
+    setFilterMenu((current) => (current ? null : trigger));
   };
   const projectHeader = props.recents !== undefined;
   const showWorktreeSwitcher =
@@ -1088,7 +1071,6 @@ function SidebarComponent(props: SidebarProps) {
         style={{ width: resize.dragging ? "100%" : resize.width }}
       >
         {props.navigation}
-        {props.onOpenAssistant && <button type="button" className={`mx-2 mb-1 flex h-8 items-center rounded-lg px-2.5 text-left text-ui-base transition-colors hover:bg-surface-hover ${props.assistantActive ? "bg-selection" : ""}`} aria-current={props.assistantActive ? "page" : undefined} onClick={props.onOpenAssistant}>{t("Assistant")}</button>}
         {!props.chromeInMenuBar ? (
           <div
             className="flex h-10 shrink-0 select-none items-center pr-2"
@@ -1162,50 +1144,15 @@ function SidebarComponent(props: SidebarProps) {
             <AddProjectButton onOpenFolder={props.onOpenProject} />
           ) : null}
         </div>
-        <div
-          role="tablist"
-          aria-label={t("Workspace")}
-          className="sidebar-segment mx-2 mb-1 flex h-7 shrink-0 items-center gap-px rounded-full bg-surface p-0.5"
-        >
-          {tabOrder.map((id) => (
-            <div
-              key={id}
-              ref={(el) => sortable.setItemRef(id, el)}
-              className="reorder-item workspace-tab relative flex min-w-0 flex-1 touch-none items-stretch"
-              onPointerDown={(event) => {
-                if (event.button === 0) sortable.onItemPointerDown(id, event);
-              }}
-            >
-              <button
-                type="button"
-                role="tab"
-                title={t(TAB_LABELS[id])}
-                aria-selected={tab === id}
-                aria-label={
-                  id === "changes" && (additions || deletions)
-                    ? `${t("Changes")} ${additions ? `+${additions}` : ""} ${deletions ? `-${deletions}` : ""}`.trim()
-                    : undefined
-                }
-                onClick={() => {
-                  if (!sortable.consumeClick()) props.onTabChange(id);
-                }}
-                className="surface-tab flex h-6 min-w-0 flex-1 items-center justify-center self-center px-2 text-ui-sm leading-none"
-              >
-                {id === "changes" && (additions || deletions) ? (
-                  <DiffStat additions={additions} deletions={deletions} />
-                ) : (
-                  <span className="block truncate leading-label">
-                    {t(
-                      id === "files" && props.recents !== undefined
-                        ? "Files"
-                        : TAB_LABELS[id],
-                    )}
-                  </span>
-                )}
-              </button>
-            </div>
-          ))}
-        </div>
+        <SidebarTabs
+          key={pathKey(cwd)}
+          tab={tab}
+          onTabChange={props.onTabChange}
+          additions={additions}
+          deletions={deletions}
+          filesLabel={props.recents !== undefined ? t("Files") : undefined}
+          resizing={resize.dragging}
+        />
         {tab === "sessions" ? (
           <div className="flex h-9 shrink-0 items-center gap-1 border-b border-stroke px-2">
             <div className="relative flex h-7 min-w-0 flex-1 items-center">
@@ -1335,8 +1282,7 @@ function SidebarComponent(props: SidebarProps) {
         {props.footer}
         {filterMenu ? (
           <SessionFiltersMenu
-            x={filterMenu.x}
-            y={filterMenu.y}
+            anchor={filterMenu}
             harnesses={harnessesInSessions(filterSummaries)}
             filters={filters}
             onChange={(next: SessionSidebarFilters) => {
@@ -1352,32 +1298,3 @@ function SidebarComponent(props: SidebarProps) {
 }
 
 export const Sidebar = memo(SidebarComponent);
-
-function DiffStat({
-  additions,
-  deletions,
-}: {
-  additions: number;
-  deletions: number;
-}) {
-  const { t } = useTranslation();
-  const label = [
-    additions > 0 ? `+${formatInteger(additions)}` : "",
-    deletions > 0 ? `-${formatInteger(deletions)}` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  return (
-    <span
-      title={t("{value0} uncommitted", { value0: label })}
-      className="flex shrink-0 items-center gap-1.5 font-sans text-[11px] font-semibold tabular-nums"
-    >
-      {additions > 0 ? (
-        <span className="text-emerald-400">+{formatInteger(additions)}</span>
-      ) : null}
-      {deletions > 0 ? (
-        <span className="text-red-400">-{formatInteger(deletions)}</span>
-      ) : null}
-    </span>
-  );
-}

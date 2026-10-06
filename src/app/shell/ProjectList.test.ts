@@ -18,19 +18,27 @@ import {
   saveProjectGroups,
   setProjectGroupAssignment,
 } from "../../features/projects/model/projectGroups";
-import { loadPinnedProjects, savePinnedProjects } from "../../features/projects/model/recents";
+import {
+  loadPinnedProjects,
+  loadProjectRailOrder,
+  savePinnedProjects,
+  saveProjectRailOrder,
+} from "../../features/projects/model/recents";
+import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
 
 const { reorderPointerDown, reorderState } = vi.hoisted(() => ({
   reorderPointerDown: vi.fn(),
   reorderState: { draggingId: null as string | null },
 }));
 vi.mock("../../shared/hooks/useAnimatedReorder", () => ({
-  useAnimatedReorder: () => ({
-    draggingId: reorderState.draggingId,
+  useAnimatedReorder: vi.fn((ids: string[]) => ({
+    draggingId: ids.includes(reorderState.draggingId ?? "")
+      ? reorderState.draggingId
+      : null,
     setItemRef: vi.fn(),
     onItemPointerDown: reorderPointerDown,
     consumeClick: () => false,
-  }),
+  })),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -66,6 +74,7 @@ beforeEach(() => {
   localStorage.clear();
   configureSharedHost(undefined, []);
   reorderPointerDown.mockClear();
+  vi.mocked(useAnimatedReorder).mockClear();
   reorderState.draggingId = null;
   vi.mocked(useProjectDiffStats).mockClear();
   vi.mocked(useRemoteMachines)
@@ -251,7 +260,113 @@ it("keeps expand, select, new session and child actions independent", async () =
         new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
       ),
   );
-  expect(reorderPointerDown).not.toHaveBeenCalled();
+  expect(reorderPointerDown).toHaveBeenCalledExactlyOnceWith(
+    "/work/beta",
+    expect.objectContaining({ type: "pointerdown" }),
+  );
+});
+
+it.each([false, true])(
+  "lets unpinned project headers start a reorder (grouped: %s)",
+  async (grouped) => {
+    if (grouped) {
+      saveProjectGroups([{ id: "team", name: "Team", collapsed: false }]);
+      setProjectGroupAssignment("/work/beta", "team");
+    }
+    await renderTree();
+    const header = projectNameButton("/work/beta").closest<HTMLElement>(
+      "[data-project-header]",
+    )!;
+    act(() =>
+      header.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      ),
+    );
+    expect(reorderPointerDown).toHaveBeenCalledExactlyOnceWith(
+      "/work/beta",
+      expect.objectContaining({ type: "pointerdown" }),
+    );
+    const call = vi.mocked(useAnimatedReorder).mock.calls.find(([ids]) =>
+      ids.includes("/work/beta"),
+    )!;
+    expect(call[2]).toBe("y");
+    expect(call[4]?.activationDistance).toBe(8);
+    Object.defineProperty(header, "offsetHeight", { value: 32 });
+    expect(call[4]?.collapsedSize?.("/work/beta", header.parentElement!)).toBe(32);
+  },
+);
+
+it("temporarily folds only the dragged project's children and animates them back", async () => {
+  const props = await renderTree();
+  reorderState.draggingId = "/work/beta";
+  await renderTree(props);
+  const beta = container.querySelector('[data-project-path="/work/beta"]')!;
+  const fold = beta.querySelector<HTMLElement>(".zen-fold-item")!;
+  expect(fold.dataset.foldState).toBe("closing");
+  expect(fold.inert).toBe(true);
+  expect(fold.getAttribute("aria-hidden")).toBe("true");
+  expect(beta.querySelector('[aria-expanded="true"]')).not.toBeNull();
+  expect(
+    container.querySelector<HTMLElement>(
+      '[data-project-path="/work/alpha"] .zen-fold-item',
+    )?.dataset.foldState,
+  ).toBe("open");
+  act(() => fold.dispatchEvent(new Event("animationend", { bubbles: true })));
+  expect(beta.querySelector("[data-project-children]")).toBeNull();
+
+  reorderState.draggingId = null;
+  await renderTree(props);
+  const reopening = beta.querySelector<HTMLElement>(".zen-fold-item")!;
+  expect(reopening.dataset.foldState).toBe("opening");
+  expect(reopening.inert).toBe(false);
+  expect(beta.querySelector("[data-project-children]")).not.toBeNull();
+  expect(props.onToggleProject).not.toHaveBeenCalled();
+});
+
+it("persists each project subset without moving pins, other groups or recent sessions", async () => {
+  const paths = [
+    "/work/alpha",
+    "/work/beta",
+    "/work/gamma",
+    "/work/delta",
+    "/work/epsilon",
+  ];
+  saveProjectRailOrder(paths);
+  savePinnedProjects([paths[0]]);
+  saveProjectGroups([{ id: "team", name: "Team", collapsed: false }]);
+  setProjectGroupAssignment(paths[1], "team");
+  setProjectGroupAssignment(paths[3], "team");
+  await renderTree({
+    recents: paths.map((path, index) => ({ path, openedAt: 5 - index })),
+    recentEntries: [{ id: "session", content: "Recent conversation" }],
+  });
+  const reorder = (subset: string[]) => {
+    const call = vi.mocked(useAnimatedReorder).mock.calls.find(([ids]) =>
+      ids.includes(subset[0]),
+    )!;
+    vi.mocked(useAnimatedReorder).mockClear();
+    act(() => call[1](subset));
+  };
+  reorder([paths[3], paths[1]]);
+  expect(loadProjectRailOrder()).toEqual([
+    paths[0],
+    paths[3],
+    paths[2],
+    paths[1],
+    paths[4],
+  ]);
+  reorder([paths[4], paths[2]]);
+  expect(loadProjectRailOrder()).toEqual([
+    paths[0],
+    paths[3],
+    paths[4],
+    paths[1],
+    paths[2],
+  ]);
+  expect(
+    vi.mocked(useAnimatedReorder).mock.calls.some(([ids]) => ids.length === 0),
+  ).toBe(true);
+  expect(loadPinnedProjects()).toEqual([paths[0]]);
 });
 
 it("keeps unavailable project disclosures aligned while their names remain selectable", async () => {
@@ -614,22 +729,22 @@ it("suppresses pointer-origin focus and hides summaries during project drag", as
   expect(projectSummary("/work/beta")).toBeNull();
 });
 
-it("updates recent project order after a project is reopened", async () => {
-  localStorage.setItem("monocode.projectRailOrder", JSON.stringify([
+it("preserves manual recent project order after a project is reopened", async () => {
+  saveProjectRailOrder([
     "/work/gamma", "/work/beta", "/work/alpha",
-  ]));
+  ]);
   const props = await renderTree();
   const paths = () => [...container.querySelectorAll<HTMLElement>(
     '[data-project-section="projects"] [data-project-path]',
   )].map((row) => row.dataset.projectPath);
-  expect(paths()).toEqual(["/work/alpha", "/work/beta", "/work/gamma"]);
+  expect(paths()).toEqual(["/work/gamma", "/work/beta", "/work/alpha"]);
   await renderTree({
     ...props,
-    recents: props.recents.map((row) => row.path === "/work/gamma"
+    recents: props.recents.map((row) => row.path === "/work/alpha"
       ? { ...row, openedAt: 4 }
       : row),
   });
-  expect(paths()).toEqual(["/work/gamma", "/work/alpha", "/work/beta"]);
+  expect(paths()).toEqual(["/work/gamma", "/work/beta", "/work/alpha"]);
 });
 
 it("supports summary hover for compact project avatars and projects inside groups", async () => {

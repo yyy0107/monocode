@@ -1,3 +1,4 @@
+import { DesktopAssistantButton } from "../features/assistant/ui/DesktopAssistantButton";
 import { translate } from "../shared/i18n/language";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { DesktopAssistant } from "../features/assistant/ui/DesktopAssistant";
@@ -89,6 +90,10 @@ import {
   type CSSProperties,
 } from "react";
 import { Sidebar } from "./shell/Sidebar";
+import {
+  SIDEBAR_MOTION_STYLE,
+  SIDEBAR_TRANSITION_MS,
+} from "./shell/SidebarTransition";
 import { ApprovalToasts } from "../features/sessions/ui/ApprovalToasts";
 import { HarnessUpdateNotice } from "../features/providers/ui/HarnessUpdateNotice";
 import { WhatsNewDialog } from "./shell/WhatsNewDialog";
@@ -574,7 +579,7 @@ import { SessionSurfaceActions } from "../features/workspace/ui/SessionSurfaceTo
 import { SessionPane } from "../features/sessions/ui/SessionPane";
 import { SessionSurface } from "../features/sessions/ui/SessionSurface";
 import { ProjectTerminalDock } from "../features/terminal/ui/ProjectTerminalDock";
-import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
+import { AnimatedCollapse, useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 import { lazySurface } from "../shared/ui/lazySurface";
 import { preloadNavigationWhenIdle } from "./model/preloadNavigation";
@@ -1033,6 +1038,11 @@ function Workspace({
   const [sessionSidebarOpen, setSessionSidebarOpen] = useState(
     loadSessionSidebarOpen,
   );
+  const [navigationExpanded, setNavigationExpanded] = useState(true);
+  const onToggleNavigation = useCallback(
+    () => setNavigationExpanded((expanded) => !expanded),
+    [],
+  );
   const tabCloseScope = "project" as const;
   const currentProjectDock = findProjectTerminal(projectTerminals, projectCwd);
   const dockVisible = !!currentProjectDock?.open;
@@ -1188,11 +1198,14 @@ function Workspace({
           return next;
         }),
       success: (cwd, rows, startedAt) => {
+        const fetchedIds = new Set(rows.map((row) => row.id));
         setHistory((current) => {
           // A chat persisted during this read is newer than the fetched snapshot.
+          // Alias reads can return the same chat under its canonical project path.
           const changed = current.filter(
             (entry) =>
-              sameProjectPath(entry.cwd, cwd) && entry.updatedAt >= startedAt,
+              (sameProjectPath(entry.cwd, cwd) || fetchedIds.has(entry.id)) &&
+              entry.updatedAt >= startedAt,
           );
           let next = replaceProjectHistory(current, cwd, rows);
           for (const entry of changed) {
@@ -10701,7 +10714,9 @@ function Workspace({
     [openSettings],
   );
 
-  const onOpenAssistant = useCallback(() => {
+  const [assistantMachineId, setAssistantMachineId] = useState<string>();
+  const onOpenAssistant = useCallback((machineId?: string) => {
+    if (machineId) setAssistantMachineId(machineId);
     workspaceNavigation.cancel();
     setPaletteOpen(false);
     const next = openAppViewTab(tabsRef.current, "assistant");
@@ -10842,6 +10857,8 @@ function Workspace({
       case "assistant":
         return (
           <DesktopAssistant
+            selectedMachineId={assistantMachineId}
+            onSelectMachine={setAssistantMachineId}
             onLocalSession={onSelectHistorySession}
             onRemoteSession={onSelectRemoteSession}
           />
@@ -10981,6 +10998,13 @@ function Workspace({
       />
     ) : null;
 
+  const windowCenter = (
+    <DesktopAssistantButton
+      active={activeAppView === "assistant"}
+      onOpen={onOpenAssistant}
+    />
+  );
+
   const updateStatus = useUpdateStatus();
   const activityBarProps = {
     updateStatus,
@@ -11013,7 +11037,7 @@ function Workspace({
     onOpenWhatsNew,
     onDismissUpdate: () => setUpdateNotice(null),
   } satisfies ActivityBarProps;
-  const railMotion = useCollapseMotion(!sessionSidebarOpen, 200);
+  const railMotion = useCollapseMotion(!sessionSidebarOpen, SIDEBAR_TRANSITION_MS);
 
   return (
     <OrchestrationActions.Provider value={orchestrationActions}>
@@ -11046,6 +11070,11 @@ function Workspace({
                     canGoBack={tabVisitNav.canBack}
                     canGoForward={tabVisitNav.canForward}
                     sidebarOpen={sessionSidebarOpen}
+                    navigationExpanded={navigationExpanded}
+                    onToggleNavigation={
+                      sessionSidebarOpen ? onToggleNavigation : undefined
+                    }
+                    windowCenter={windowCenter}
                     windowActions={surfaceModeToggle}
                   />
                 ) : null}
@@ -11057,6 +11086,11 @@ function Workspace({
                     onGoForward={onRailForward}
                     onTogglePanel={onToggleSidebar}
                     panelActive={sessionSidebarOpen}
+                    navigationExpanded={navigationExpanded}
+                    onToggleNavigation={
+                      sessionSidebarOpen ? onToggleNavigation : undefined
+                    }
+                    windowCenter={windowCenter}
                     windowActions={surfaceModeToggle}
                   />
                 ) : null}
@@ -11074,7 +11108,7 @@ function Workspace({
                   className="animated-collapse-size grid h-full min-h-0 shrink-0"
                   style={
                     {
-                      "--collapse-duration": "200ms",
+                      ...SIDEBAR_MOTION_STYLE,
                       gridTemplateColumns: sessionSidebarOpen ? "0px" : "48px",
                     } as CSSProperties
                   }
@@ -11103,7 +11137,11 @@ function Workspace({
                 </div>
                 <Sidebar
                   navigation={
-                    <ActivityBar layout="sidebar-top" {...activityBarProps} />
+                    <div id="sidebar-navigation-menu" className="shrink-0">
+                      <AnimatedCollapse expanded={navigationExpanded}>
+                        <ActivityBar layout="sidebar-top" {...activityBarProps} />
+                      </AnimatedCollapse>
+                    </div>
                   }
                   footer={
                     <ActivityBar
@@ -11111,8 +11149,6 @@ function Workspace({
                       {...activityBarProps}
                     />
                   }
-                  onOpenAssistant={onOpenAssistant}
-                  assistantActive={activeAppView === "assistant"}
                   recents={recents}
                   onSelectProject={onSelectProject}
                   onOpenProject={pickProject}
