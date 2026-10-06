@@ -1226,3 +1226,72 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Assistant habits */
+.assistant-habits {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 12px;
+  font-size: 13px;
+}
+.assistant-habits-empty {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.7;
+}
+.assistant-habit-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.assistant-habit-list > li {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 0;
+  border-top: 1px solid var(--assistant-line);
+}
+.assistant-habit-list > li:first-child {
+  border-top: 0;
+}
+.assistant-habit-list > li[data-paused] .assistant-habit-summary {
+  opacity: 0.6;
+}
+.assistant-habit-summary {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.assistant-habit-summary > small {
+  font-size: 11px;
+  opacity: 0.7;
+}
+.assistant-habit-summary > small[data-outcome="failed"] {
+  color: #e04b44;
+  opacity: 1;
+}
+.assistant-habit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+.assistant-habit-actions .assistant-link-button {
+  margin-left: 0;
+  padding: 0;
+}
+.assistant-habit-add {
+  justify-self: start;
+}
+.assistant-habit-editor {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.assistant-habit-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

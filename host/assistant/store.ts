@@ -48,6 +48,8 @@ export type Wakeup = {
   attempts: number;
   refs?: string[];
   attachments?: RemoteAttachment[];
+  /** The habit this run belongs to, for recording its outcome. */
+  habitId?: string;
   /** A user input delivered into this running wakeup by steering. */
   mergedInto?: string;
 };
@@ -124,6 +126,7 @@ export class AssistantStore {
       // The schedule zone was chosen from the user's device before this field existed.
       timezone: value.timezone ?? value.schedules?.[0]?.timezone ?? "UTC",
       reminders: value.reminders ?? [],
+      habits: value.habits ?? [],
     };
   }
   view(): AssistantView | null {
@@ -164,6 +167,7 @@ export class AssistantStore {
       persona: defaultAssistantPersona(),
       timezone: patch.timezone ?? patch.schedules?.[0]?.timezone ?? "UTC",
       reminders: [],
+      habits: [],
       revision: 1,
       chatRevision: 0,
       enabled: true,

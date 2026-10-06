@@ -3,6 +3,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, relative } from "node:path";
 import type { HostAssistant } from "./index";
 import { signature } from "./store";
+import { createHabit, deleteHabit, updateHabit } from "./habits";
 import {
   addMemoryEntry,
   archiveMemoryEntries,
@@ -79,6 +80,10 @@ export const ASSISTANT_ACTIONS = [
   "memory.add",
   "memory.replace",
   "memory.remove",
+  "habits.list",
+  "habits.create",
+  "habits.update",
+  "habits.delete",
   "actions.get",
 ] as const;
 export const MAX_PENDING_REMINDERS = 50;
@@ -285,6 +290,57 @@ function reminderAction(
   });
   return result;
 }
+/** The recorded result of an own action, or undefined when the request is new. */
+function replayed(
+  assistant: HostAssistant,
+  requestId: string,
+  sig: string,
+): { result: unknown } | undefined {
+  const previous = assistant.store.action(requestId);
+  if (!previous) return undefined;
+  if (previous.signature !== sig)
+    throw new Error("Request ID was already used with different input");
+  if (previous.state === "failed")
+    throw new Error(previous.error ?? "The previous operation failed");
+  return { result: previous.result };
+}
+/** Applies an action on the assistant's own state and logs it in one transaction. */
+function recordOwnAction(
+  assistant: HostAssistant,
+  requestId: string,
+  sig: string,
+  action: string,
+  input: Record<string, unknown>,
+  result: unknown,
+  apply: () => void,
+): unknown {
+  const store = assistant.store,
+    config = store.get()!,
+    wakeup = assistant.currentWakeup(),
+    actionId = randomUUID();
+  store.host.transaction(() => {
+    apply();
+    store.update({ activity: { action, at: Date.now() } });
+    store.putAction({
+      id: actionId,
+      requestId,
+      signature: sig,
+      action,
+      input,
+      rootCauseId: wakeup.rootCauseId,
+      origin: {
+        kind: "assistant",
+        assistantId: config.id,
+        assistantName: config.name,
+        actionId,
+        wakeupId: wakeup.id,
+      },
+      state: "completed",
+      result,
+    });
+  });
+  return result;
+}
 /** Topic notes are read on demand, so they only need a sanity cap. */
 const MAX_TOPIC_BYTES = 64 * 1024;
 /**
@@ -339,16 +395,9 @@ function memoryAction(
     );
   }
   const sig = signature({ action, input, assistantId: config.id });
-  const previous = store.action(requestId);
-  if (previous) {
-    if (previous.signature !== sig)
-      throw new Error("Request ID was already used with different input");
-    if (previous.state === "failed")
-      throw new Error(previous.error ?? "The previous operation failed");
-    return previous.result;
-  }
-  const wakeup = assistant.currentWakeup(),
-    date = memoryDate(now, timeZone),
+  const replay = replayed(assistant, requestId, sig);
+  if (replay) return replay.result;
+  const date = memoryDate(now, timeZone),
     name = doc(),
     current = store.memoryDoc(name);
   const entry = () =>
@@ -391,40 +440,71 @@ function memoryAction(
     if (archived.length) result = { ...result, archived: archived.length };
   } else if (new TextEncoder().encode(text).length > MAX_TOPIC_BYTES)
     throw new Error("Topic note is full; remove or replace older entries");
-  const actionId = randomUUID();
-  store.host.transaction(() => {
-    store.writeMemoryDoc(name, text, current.revision);
-    if (archived.length)
-      store.writeMemoryDoc(
-        "archive",
-        archiveMemoryEntries(store.memoryDoc("archive").text, archived, date),
-      );
-    store.update({ activity: { action, at: now.getTime() } });
-    store.putAction({
-      id: actionId,
-      requestId,
-      signature: sig,
-      action,
-      // The log keeps what memory keeps: no credentials.
-      input: Object.fromEntries(
-        Object.entries(input).map(([key, value]) => [
-          key,
-          typeof value === "string" ? redactSecrets(value) : value,
-        ]),
-      ),
-      rootCauseId: wakeup.rootCauseId,
-      origin: {
-        kind: "assistant",
-        assistantId: config.id,
-        assistantName: config.name,
-        actionId,
-        wakeupId: wakeup.id,
-      },
-      state: "completed",
-      result,
-    });
-  });
-  return result;
+  return recordOwnAction(
+    assistant,
+    requestId,
+    sig,
+    action,
+    // The log keeps what memory keeps: no credentials.
+    Object.fromEntries(
+      Object.entries(input).map(([key, value]) => [
+        key,
+        typeof value === "string" ? redactSecrets(value) : value,
+      ]),
+    ),
+    result,
+    () => {
+      store.writeMemoryDoc(name, text, current.revision);
+      if (archived.length)
+        store.writeMemoryDoc(
+          "archive",
+          archiveMemoryEntries(store.memoryDoc("archive").text, archived, date),
+        );
+    },
+  );
+}
+/**
+ * Recurring calendar tasks the assistant keeps for the user, governed like
+ * reminders by the scheduled-check trigger.
+ */
+function habitAction(
+  assistant: HostAssistant,
+  requestId: string,
+  action: string,
+  input: Record<string, unknown>,
+): unknown {
+  const store = assistant.store,
+    config = store.get()!,
+    habits = config.habits ?? [];
+  if (action === "habits.list") {
+    fields(input, []);
+    return habits;
+  }
+  if (!config.triggers.schedule)
+    throw new Error("Scheduled checks are disabled");
+  const sig = signature({ action, input, assistantId: config.id });
+  const replay = replayed(assistant, requestId, sig);
+  if (replay) return replay.result;
+  const now = Date.now(),
+    timeZone = config.timezone ?? "UTC";
+  let next: typeof habits, result: unknown;
+  if (action === "habits.create") {
+    const created = createHabit(habits, input, now, timeZone);
+    next = created.habits;
+    result = { habitId: created.habit.id, nextRunAt: created.habit.nextRunAt };
+  } else if (action === "habits.update") {
+    const { habitId, ...change } = input;
+    const target = id(habitId, "habit ID");
+    next = updateHabit(habits, target, change, now, timeZone);
+    result = { nextRunAt: next.find((habit) => habit.id === target)!.nextRunAt };
+  } else if (action === "habits.delete") {
+    fields(input, ["habitId"]);
+    next = deleteHabit(habits, id(input.habitId, "habit ID"));
+    result = { deleted: true };
+  } else throw new Error("Unsupported assistant action");
+  return recordOwnAction(assistant, requestId, sig, action, input, result, () =>
+    store.update({ habits: next }),
+  );
 }
 export async function executeAssistantAction(
   assistant: HostAssistant,
@@ -472,6 +552,9 @@ export async function executeAssistantAction(
   } else if (action.startsWith("memory.")) {
     if (!authorized()) throw new Error("Assistant control was revoked");
     return memoryAction(assistant, requestId, action, input);
+  } else if (action.startsWith("habits.")) {
+    if (!authorized()) throw new Error("Assistant control was revoked");
+    return habitAction(assistant, requestId, action, input);
   } else permission = actionPermission(action);
   let projectId =
     typeof input.projectId === "string" ? id(input.projectId) : undefined;

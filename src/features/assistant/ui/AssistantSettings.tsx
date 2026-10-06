@@ -34,6 +34,8 @@ import {
 } from "../../sessions/model/session";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { AssistantMemoryEditor } from "./AssistantMemory";
+import { AssistantHabits, type HabitControl } from "./AssistantHabits";
+import type { AssistantHabit } from "../model/assistantHabits";
 import type { AssistantRpc } from "../model/assistantClient";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import { isEffortSettingId } from "../../sessions/model/models";
@@ -315,12 +317,19 @@ export function AssistantSettings({
   onCancelReminder,
   reminders,
   memory,
+  habits,
   personaSupported = true,
   mobile = false,
   Select,
 }: {
   /** Live follow-ups; kept outside the draft so cancelling never resets edits. */
   reminders?: AssistantView["reminders"];
+  /** Live habit editing; omitted on Hosts without habits. */
+  habits?: {
+    items: AssistantHabit[];
+    timeZone: string;
+    control: (input: HabitControl) => Promise<void>;
+  };
   /** Live memory editing; omitted on Hosts without assistant memory. */
   memory?: { rpc: AssistantRpc; revision: number; lines: number };
   /** Older Hosts reject personality and time zone fields. */
@@ -361,6 +370,7 @@ export function AssistantSettings({
   const [eventsOpen, setEventsOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
+  const [habitsOpen, setHabitsOpen] = useState(false);
   // Watches default to every allowed project; the picker opens only on request.
   const [pickingProjects, setPickingProjects] = useState(
     () =>
@@ -1202,6 +1212,23 @@ export function AssistantSettings({
                   rpc={memory.rpc}
                   revision={memory.revision}
                   disabled={busy}
+                />
+              )}
+            </CollapsibleSection>
+          )}
+          {habits && (
+            <CollapsibleSection
+              title={t("Habits")}
+              summary={t("{count} habits", { count: habits.items.length })}
+              open={habitsOpen}
+              onToggle={() => setHabitsOpen((v) => !v)}
+            >
+              {() => (
+                <AssistantHabits
+                  habits={habits.items}
+                  timeZone={habits.timeZone}
+                  disabled={busy}
+                  control={habits.control}
                 />
               )}
             </CollapsibleSection>

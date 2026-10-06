@@ -4,6 +4,7 @@ import type {
   RemoteAttachment,
 } from "../../connections/model/protocol";
 import type { UserQuestionPrompt } from "../../sessions/model/userQuestion";
+import type { AssistantHabit } from "./assistantHabits";
 
 export const ASSISTANT_PERMISSIONS = [
   "catalog.read",
@@ -110,6 +111,8 @@ export type AssistantView = {
   /** IANA time zone used for the assistant's sense of local time. */
   timezone?: string;
   reminders?: AssistantReminder[];
+  /** Calendar tasks; absent on Hosts without habits. */
+  habits?: AssistantHabit[];
   activity?: AssistantActivity;
   revision: number;
   chatRevision: number;

@@ -476,12 +476,13 @@ it("denies every declared action before effects when its permission is off", asy
   for (const key of Object.keys(policy.permissions))
     policy.permissions[key as keyof typeof policy.permissions] = false;
   engine.assistant.store.update({ policy });
-  // Reminders are governed by the scheduled-check trigger and memory is the
-  // assistant's own notebook; neither reaches project data.
+  // Reminders and habits are governed by the scheduled-check trigger and
+  // memory is the assistant's own notebook; none reaches project data.
   for (const action of ASSISTANT_ACTIONS.filter(
     (a) =>
       a !== "actions.get" &&
       !a.startsWith("reminders.") &&
+      !a.startsWith("habits.") &&
       !a.startsWith("memory."),
   )) {
     const command =
@@ -1225,4 +1226,64 @@ it("lets the user read, add, edit and forget memory without overwriting newer wr
     expectedRevision: memory.revision,
   });
   expect((await read()).facts).toEqual([]);
+});
+it("keeps habits from the assistant and the user and records each run's outcome", async () => {
+  const { engine, store, turns } = await setup();
+  const assistant = engine.assistant;
+  assistant.store.update({ triggers: { user: true, event: false, schedule: true } });
+  const created = (await executeAssistantAction(
+    assistant,
+    "habit",
+    "habits.create",
+    {
+      name: "PR sweep",
+      prompt: "Check open PRs",
+      schedule: { scheduleKind: "weekdays", time: "09:00" },
+    },
+    () => true,
+  )) as { habitId: string; nextRunAt: number };
+  expect(created.nextRunAt).toBeGreaterThan(Date.now());
+  await expect(
+    executeAssistantAction(
+      assistant,
+      "habit-bad",
+      "habits.create",
+      { name: "x", prompt: "y", schedule: { scheduleKind: "monthly" } },
+      () => true,
+    ),
+  ).rejects.toThrow("scheduleKind");
+  await assistant.rpc("assistant.control", {
+    commandId: "pause",
+    action: "updateHabit",
+    habitId: created.habitId,
+    habit: { enabled: false },
+  });
+  expect(assistant.store.get()!.habits![0]).toMatchObject({ enabled: false });
+  turns[0].finish();
+  const brain = assistant.store.get()!.brainSessionId!;
+  await vi.waitFor(() => expect(store.session(brain).status).toBe("idle"));
+  await assistant.tick();
+  await assistant.rpc("assistant.control", {
+    commandId: "run-now",
+    action: "runHabit",
+    habitId: created.habitId,
+  });
+  await assistant.tick();
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  expect(turns[1].input.text).toContain('Your habit "PR sweep" is due');
+  expect(turns[1].input.text).toContain("Habits you keep:");
+  turns[1].finish();
+  await vi.waitFor(() => expect(store.session(brain).status).toBe("idle"));
+  await assistant.tick();
+  // The fake provider says nothing, so the run had nothing worth posting.
+  expect(assistant.store.get()!.habits![0]).toMatchObject({
+    lastOutcome: "quiet",
+    lastRunAt: expect.any(Number),
+  });
+  await assistant.rpc("assistant.control", {
+    commandId: "delete",
+    action: "deleteHabit",
+    habitId: created.habitId,
+  });
+  expect(assistant.store.get()!.habits).toEqual([]);
 });

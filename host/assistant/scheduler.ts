@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { AssistantStore } from "./store";
 import { localTime } from "./prompt";
+import { habitWakeupText } from "./habits";
+import {
+  MISSED_RUN_GRACE_MS,
+  nextHabitRunAt,
+} from "../../src/features/assistant/model/assistantHabits";
 export function nextInterval(
   previous: number,
   intervalMinutes: number,
@@ -76,5 +81,33 @@ export function enqueueSchedules(
     });
     if (reminders.some((r, i) => r !== config.reminders?.[i]))
       store.update({ reminders });
+    const timeZone = config.timezone ?? "UTC";
+    const habits = (config.habits ?? []).map((habit) => {
+      if (!habit.enabled || habit.nextRunAt > now) return habit;
+      // A Host that was off past the grace skips the run instead of catching up.
+      if (now - habit.nextRunAt <= MISSED_RUN_GRACE_MS) {
+        const rootCauseId = `habit:${habit.id}:${habit.nextRunAt}`;
+        store.enqueue(
+          {
+            id: randomUUID(),
+            kind: "schedule",
+            text: habitWakeupText(habit),
+            rootCauseId,
+            state: "pending",
+            createdAt: now,
+            attempts: 0,
+            habitId: habit.id,
+          },
+          rootCauseId,
+        );
+        store.writeChain(rootCauseId, { count: 0, paused: false, startedAt: now });
+      }
+      return {
+        ...habit,
+        nextRunAt: nextHabitRunAt(habit.schedule, now, timeZone),
+      };
+    });
+    if (habits.some((h, i) => h !== config.habits?.[i]))
+      store.update({ habits });
   });
 }

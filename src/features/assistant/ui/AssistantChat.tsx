@@ -587,6 +587,20 @@ export function AssistantChat({
                 memory={
                   assistant?.memory && { rpc, ...assistant.memory }
                 }
+                habits={
+                  assistant?.habits && {
+                    items: assistant.habits,
+                    timeZone: assistant.timezone ?? "UTC",
+                    control: async (input) => {
+                      await rpc("assistant.control", {
+                        commandId: crypto.randomUUID(),
+                        ...input,
+                      });
+                      // The change is in; polling catches up if this refresh fails.
+                      await sync().catch(() => {});
+                    },
+                  }
+                }
                 onCancelReminder={
                   personaSupported
                     ? (reminderId) =>

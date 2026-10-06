@@ -25,6 +25,12 @@ import {
 import { parseRemoteAttachments, resolveAttachments } from "../attachments";
 import { rotationReason } from "./rotation";
 import {
+  createHabit,
+  deleteHabit,
+  habitWakeupText,
+  updateHabit,
+} from "./habits";
+import {
   addMemoryEntry,
   archiveMemoryEntries,
   fitMemoryBudget,
@@ -270,6 +276,8 @@ export class HostAssistant {
         "fact",
         "index",
         "expectedRevision",
+        "habitId",
+        "habit",
       ]);
       const commandId = id(raw.commandId),
         sig = signature({ method, raw });
@@ -333,6 +341,52 @@ export class HostAssistant {
             revision: this.store.get()!.revision,
             memoryRevision,
           };
+          this.store.recordReceipt(commandId, sig, receipt);
+          return receipt;
+        });
+      if (
+        ["createHabit", "updateHabit", "deleteHabit", "runHabit"].includes(
+          String(raw.action),
+        )
+      )
+        return this.store.host.transaction(() => {
+          const current = this.store.get()!,
+            habits = current.habits ?? [],
+            now = Date.now(),
+            timeZone = current.timezone ?? "UTC";
+          if (raw.action === "createHabit")
+            this.store.update({
+              habits: createHabit(habits, raw.habit, now, timeZone).habits,
+            });
+          else {
+            const habitId = id(raw.habitId, "habit ID");
+            const habit = habits.find((h) => h.id === habitId);
+            if (!habit) throw new Error("Habit not found");
+            if (raw.action === "updateHabit")
+              this.store.update({
+                habits: updateHabit(habits, habitId, raw.habit, now, timeZone),
+              });
+            else if (raw.action === "deleteHabit")
+              this.store.update({ habits: deleteHabit(habits, habitId) });
+            else {
+              // An extra run now; the schedule stays as it is.
+              const rootCauseId = `habit:${habitId}:run:${commandId}`;
+              this.store.enqueue(
+                {
+                  id: randomUUID(),
+                  kind: "schedule",
+                  text: habitWakeupText(habit),
+                  rootCauseId,
+                  state: "pending",
+                  createdAt: now,
+                  attempts: 0,
+                  habitId,
+                },
+                rootCauseId,
+              );
+            }
+          }
+          const receipt = { commandId, revision: this.store.get()!.revision };
           this.store.recordReceipt(commandId, sig, receipt);
           return receipt;
         });
@@ -712,18 +766,20 @@ export class HostAssistant {
             (b) => b.role === "user" && !b.text.startsWith(STEER_PREFIX),
           ) + 1,
         );
+        let posted = false;
         if (wakeup.kind !== "user") {
           const reply = turn.findLast(
             (b) => b.role === "assistant" && b.text.trim(),
           );
           if (reply)
             splitReply(reply.text).forEach((part, index) => {
-              if (!privateReplyPart(part, false))
-                this.store.message({
-                  id: replyMessageId(config!.brainGeneration, reply.id, index),
-                  kind: "assistant",
-                  text: part,
-                });
+              if (privateReplyPart(part, false)) return;
+              posted = true;
+              this.store.message({
+                id: replyMessageId(config!.brainGeneration, reply.id, index),
+                kind: "assistant",
+                text: part,
+              });
             });
         }
         this.store.update({ activity: undefined });
@@ -759,6 +815,18 @@ export class HostAssistant {
           ...wakeup,
           state: error ? "interrupted" : "completed",
         });
+        if (wakeup.habitId)
+          this.store.update({
+            habits: (this.store.get()!.habits ?? []).map((habit) =>
+              habit.id === wakeup.habitId
+                ? {
+                    ...habit,
+                    lastRunAt: wakeup.createdAt,
+                    lastOutcome: error ? "failed" : posted ? "posted" : "quiet",
+                  }
+                : habit,
+            ),
+          });
         this.store.update({
           lifecycle: error ? "interrupted" : "idle",
           error,
