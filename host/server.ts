@@ -330,6 +330,7 @@ export function createHostServer(
                 "attachments.read",
                 "sessions.draft",
                 "sessions.plan",
+                "sessions.handoff",
                 "sessions.queue",
                 "sessions.activity",
                 "sessions.nativeAccess",

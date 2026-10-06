@@ -197,7 +197,7 @@ describe("remote host API", () => {
     const s = await setup();
     const capabilities = (await s.call("environment.describe")).value.result.capabilities;
     expect(capabilities).toEqual(expect.arrayContaining([
-      "sessions.nativeAccess", "sessions.refreshNative", "nativeSources.list", "nativeSources.import", "nativeSources.syncAll",
+      "sessions.nativeAccess", "sessions.refreshNative", "sessions.handoff", "nativeSources.list", "nativeSources.import", "nativeSources.syncAll",
     ]));
     expect((await s.call("nativeSources.syncAll")).value.result).toEqual({ synced: 0 });
     expect(capabilities).not.toContain("sessions.refreshDesktopNative");

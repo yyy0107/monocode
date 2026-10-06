@@ -129,6 +129,7 @@ let host: HostSession | undefined;
 let catalog: HostModelCatalog | Error;
 let providers: HostDescriptor["providers"];
 let orchestrationCapability: boolean;
+let handoffCapability: boolean;
 let commands: HostCommand[];
 let projectKey: string;
 let syncDelay: Promise<void> | undefined;
@@ -158,6 +159,7 @@ beforeEach(async () => {
   catalog = { models: { codex: [gpt] }, errors: {} };
   providers = ["codex"];
   orchestrationCapability = false;
+  handoffCapability = true;
   projectKey = rememberRemoteProject("env", {
     id: "project",
     name: "repo",
@@ -183,7 +185,7 @@ beforeEach(async () => {
         environmentId: "env",
         name: "home",
         providers,
-        capabilities: ["attachments.upload", "sessions.plan", "sessions.draft", ...(orchestrationCapability ? ["sessions.orchestration"] : [])],
+        capabilities: ["attachments.upload", "sessions.plan", "sessions.draft", ...(orchestrationCapability ? ["sessions.orchestration"] : []), ...(handoffCapability ? ["sessions.handoff"] : [])],
       };
     if (method === "models.list") {
       if (catalog instanceof Error) throw catalog.message;
@@ -316,6 +318,7 @@ function dispatch(command: HostCommand) {
       revision: host.revision + 1,
       session: {
         ...host.session,
+        harness: command.harness ?? host.session.harness,
         model: command.model,
         modelSettings: command.modelSettings,
         runtimeMode: command.runtimeMode,
@@ -641,6 +644,17 @@ async function chooseEffort(label: string) {
     ),
   ].find((item) => item.textContent?.includes(label))!;
   await act(async () => option.click());
+  await settle();
+}
+
+async function chooseModel(provider: string, model: string) {
+  await act(async () => container.querySelector<HTMLButtonElement>("[data-model-picker-trigger]")!.click());
+  const tab = document.body.querySelector<HTMLButtonElement>(`[role="tab"][aria-label="${provider}"]`);
+  expect(tab).not.toBeNull();
+  await act(async () => tab!.click());
+  const option = document.body.querySelector<HTMLButtonElement>(`[role="option"][aria-label="${model}, ${provider}"]`);
+  expect(option?.disabled).toBe(false);
+  await act(async () => option!.click());
   await settle();
 }
 
@@ -1224,6 +1238,188 @@ it("applies effort changes directly and uses them on the next turn", async () =>
   expect(byLabel("Reasoning:")?.getAttribute("aria-label")).toBe(
     "Reasoning: Low",
   );
+});
+
+it("switches an existing Host conversation to another available provider before its next turn", async () => {
+  providers = ["codex", "cursor"];
+  catalog = { models: { codex: [gpt], cursor: [cursor] }, errors: {} };
+  await render();
+  await send("Earlier work");
+  await chooseModel("Cursor", cursor.name);
+  expect(commands.at(-1)).toMatchObject({
+    type: "configure", sessionId: "host-session", harness: "cursor",
+    model: cursor.id, modelSettings: {}, runtimeMode: "supervised",
+  });
+  expect(host?.session.harness).toBe("cursor");
+  expect(container.textContent).toContain("Earlier work");
+  expect(byLabel("Cursor Composer Test")).not.toBeNull();
+  expect(byLabel("Reasoning:")).toBeNull();
+  await send("Continue with Cursor");
+  expect(commands.at(-1)).toMatchObject({ type: "send", sessionId: "host-session", text: "Continue with Cursor" });
+  expect(commands.filter(command => command.type === "create")).toHaveLength(1);
+  expect(commands.filter(command => command.type === "configure")).toHaveLength(1);
+});
+
+it("keeps existing sessions on their provider when an older Host does not support handoff", async () => {
+  handoffCapability = false;
+  providers = ["codex", "cursor"];
+  catalog = { models: { codex: [gpt], cursor: [cursor] }, errors: {} };
+  await render();
+  await send("Earlier work");
+  await act(async () => container.querySelector<HTMLButtonElement>("[data-model-picker-trigger]")!.click());
+  expect(document.body.querySelector('[role="tab"][aria-label="Codex"]')).not.toBeNull();
+  expect(document.body.querySelector('[role="tab"][aria-label="Cursor"]')).toBeNull();
+  expect(commands.filter(command => command.type === "configure")).toHaveLength(0);
+});
+
+it.each([false, true])("treats matching model IDs on different providers as a handoff (same settings: %s)", async (sameSettings) => {
+  providers = ["codex", "cursor"];
+  const sharedId = "shared-model";
+  catalog = { models: { codex: [{ ...gpt, id: sharedId }], cursor: [{ ...cursor, id: sharedId, settings: sameSettings ? gpt.settings : [] }] }, errors: {} };
+  await render({ ...shell(), harness: "codex", model: sharedId });
+  await send("Earlier work");
+  await chooseModel("Cursor", cursor.name);
+  expect(commands.at(-1)).toMatchObject({ type: "configure", harness: "cursor", model: sharedId,
+    modelSettings: sameSettings ? { reasoningEffort: "high" } : {} });
+  if (!sameSettings) expect(byLabel("Reasoning:")).toBeNull();
+});
+
+it("holds a provider switch during a running turn and applies it once the turn ends", async () => {
+  providers = ["codex", "cursor"];
+  catalog = { models: { codex: [gpt], cursor: [cursor] }, errors: {} };
+  dispatch({ type: "create", commandId: "existing", projectId: "project", harness: "codex", model: gpt.id, runtimeMode: "supervised" });
+  host = { ...host!, status: "running", runId: "run", supportsQueue: true,
+    session: { ...host!.session, busy: true, blocks: [{ id: "old", role: "user", text: "Earlier work" }] } };
+  rememberRemoteSession("shell", "host-session");
+  commands = [];
+  await render();
+  await chooseModel("Cursor", cursor.name);
+  expect(commands).toHaveLength(0);
+  await type("Wait for Cursor");
+  await act(async () => byLabel("Send")!.click());
+  expect(commands).toHaveLength(0);
+  expect(container.querySelector("textarea")?.value).toBe("Wait for Cursor");
+  await type("");
+  await act(async () => byLabel("Stop")!.click());
+  host = { ...host!, revision: host!.revision + 1, status: "idle", runId: undefined,
+    session: { ...host!.session, busy: false } };
+  await vi.waitFor(() => expect(commands.at(-1)).toMatchObject({ type: "configure", harness: "cursor" }), { timeout: 4_000 });
+  await settle();
+  await send("Continue after the turn");
+  expect(commands.at(-1)).toMatchObject({ type: "send", text: "Continue after the turn" });
+});
+
+it("retries an accepted provider switch with its original command while waiting for a snapshot", async () => {
+  providers = ["codex", "cursor"];
+  catalog = { models: { codex: [gpt], cursor: [cursor] }, errors: {} };
+  const original = vi.mocked(invoke).getMockImplementation()!;
+  let accepted: ReturnType<typeof dispatch> | undefined;
+  const attempts: HostCommand[] = [];
+  vi.mocked(invoke).mockImplementation(async (command, input) => {
+    const request = input as { method?: string; params?: HostCommand } | undefined;
+    if (request?.method === "commands.dispatch" && request.params?.type === "configure") {
+      attempts.push(request.params);
+      if (accepted) return accepted;
+      accepted = dispatch(request.params);
+      throw new Error("Response lost after host accepted the request");
+    }
+    return original(command, input);
+  });
+  await render();
+  await send("Earlier work");
+  let release!: () => void;
+  syncDelay = new Promise<void>(resolve => { release = resolve; });
+  await chooseModel("Cursor", cursor.name);
+  const retry = [...container.querySelectorAll("button")].find(button => button.textContent === "Retry")!;
+  expect(retry).toBeTruthy();
+  await act(async () => retry.click());
+  await settle();
+  expect(attempts).toHaveLength(2);
+  expect(attempts[1]).toEqual(attempts[0]);
+  await act(async () => { release(); syncDelay = undefined; });
+  await settle();
+  await send("Continue after retry");
+  expect(commands.at(-1)).toMatchObject({ type: "send", text: "Continue after retry" });
+});
+
+it("keeps the receipt's provider identity when a newer provider is selected before retrying a settings change", async () => {
+  providers = ["codex", "cursor"];
+  catalog = { models: { codex: [gpt], cursor: [cursor] }, errors: {} };
+  const original = vi.mocked(invoke).getMockImplementation()!;
+  let accepted: ReturnType<typeof dispatch> | undefined;
+  const attempts: HostCommand[] = [];
+  vi.mocked(invoke).mockImplementation(async (command, input) => {
+    const request = input as { method?: string; params?: HostCommand } | undefined;
+    if (request?.method === "commands.dispatch" && request.params?.type === "configure") {
+      attempts.push(request.params);
+      if (accepted?.commandId === request.params.commandId) return accepted;
+      if (!accepted) {
+        accepted = dispatch(request.params);
+        throw new Error("Response lost after host accepted the request");
+      }
+    }
+    return original(command, input);
+  });
+  await render();
+  await send("Earlier work");
+  let release!: () => void;
+  syncDelay = new Promise<void>(resolve => { release = resolve; });
+  await chooseEffort("Low");
+  expect(attempts[0]).toMatchObject({ type: "configure", harness: "codex", modelSettings: { reasoningEffort: "low" } });
+  await chooseModel("Cursor", cursor.name);
+  expect(attempts).toHaveLength(1);
+  const retry = [...container.querySelectorAll("button")].find(button => button.textContent === "Retry")!;
+  await act(async () => retry.click());
+  await settle();
+  expect(attempts).toHaveLength(3);
+  expect(attempts[1]).toEqual(attempts[0]);
+  expect(attempts[2]).toMatchObject({ type: "configure", harness: "cursor", model: cursor.id });
+  await act(async () => { release(); syncDelay = undefined; });
+  await settle();
+  await send("Continue with Cursor after retry");
+  expect(host?.session.harness).toBe("cursor");
+  expect(commands.at(-1)).toMatchObject({ type: "send", text: "Continue with Cursor after retry" });
+});
+
+it("honors a switch back selected before the first provider change is confirmed", async () => {
+  providers = ["codex", "cursor"];
+  catalog = { models: { codex: [gpt], cursor: [cursor] }, errors: {} };
+  await render({ ...shell(), harness: "codex", model: gpt.id, modelSettings: { reasoningEffort: "medium" } });
+  await send("Earlier work");
+  let release!: () => void;
+  dispatchDelay = new Promise<void>(resolve => { release = resolve; });
+  await chooseModel("Cursor", cursor.name);
+  await chooseModel("Codex", gpt.name);
+  await act(async () => { release(); dispatchDelay = undefined; });
+  await settle();
+  expect(commands.filter(command => command.type === "configure").map(command => command.harness)).toEqual(["cursor", "codex"]);
+  expect(host?.session.harness).toBe("codex");
+  await send("Continue with Codex");
+  expect(commands.at(-1)).toMatchObject({ type: "send", text: "Continue with Codex" });
+});
+
+it("restores the current provider after a definitive switch rejection without automatically retrying", async () => {
+  providers = ["codex", "cursor"];
+  catalog = { models: { codex: [gpt], cursor: [cursor] }, errors: {} };
+  const original = vi.mocked(invoke).getMockImplementation()!;
+  const attempts: HostCommand[] = [];
+  vi.mocked(invoke).mockImplementation(async (command, input) => {
+    const request = input as { method?: string; params?: HostCommand } | undefined;
+    if (request?.method === "commands.dispatch" && request.params?.type === "configure") {
+      attempts.push(request.params);
+      throw new Error("Host rejected request: Wait for the provider session to finish syncing");
+    }
+    return original(command, input);
+  });
+  await render();
+  await send("Earlier work");
+  await chooseModel("Cursor", cursor.name);
+  expect(attempts).toHaveLength(1);
+  expect(byLabel("Codex GPT Test")).not.toBeNull();
+  expect(container.textContent).toContain("Wait for the provider session to finish syncing");
+  await send("Continue with the original provider");
+  expect(commands.at(-1)).toMatchObject({ type: "send", text: "Continue with the original provider" });
+  expect(host?.session.harness).toBe("codex");
 });
 
 it("keeps a saved model's effort editable when the host catalog fails", async () => {

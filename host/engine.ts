@@ -28,6 +28,8 @@ import {
   HARNESS_LABEL,
   RUNTIME_MODES,
   canReplaceSessionTitle,
+  formatSessionTitle,
+  sessionDisplayTitle,
   titleFromPrompt,
   type Session,
 } from "../src/features/sessions/model/session";
@@ -49,6 +51,14 @@ import { parseRemoteAttachments, resolveAttachments, saveGeneratedImageAttachmen
 import type { Attachment } from "../src/features/sessions/model/session";
 import type { UserQuestionReply } from "../src/features/sessions/model/userQuestion";
 import { questionFollowUp, recordQuestionAnswer } from "../src/features/sessions/model/questionHistory";
+import {
+  appendReadyHandoff,
+  buildDeterministicHandoff,
+  consumeHandoff,
+  pendingHandoff,
+  userMessagesAfterHandoff,
+  wrapHandoffPrompt,
+} from "../src/features/sessions/model/handoff";
 
 // Streamed output is written in batches. Anything a user may need to act on
 // (approvals, questions, errors, completion) is written immediately.
@@ -172,10 +182,13 @@ export function parseCommand(input: unknown): HostCommand {
   if (v.type === "configure") {
     if (!RUNTIME_MODES.includes(v.runtimeMode as never))
       throw new Error("Invalid permission mode");
+    if (v.harness !== undefined && !isRemoteProvider(v.harness))
+      throw new Error("Invalid provider");
     return {
       type: "configure",
       commandId,
       sessionId,
+      ...(v.harness !== undefined ? { harness: v.harness as RemoteProvider } : {}),
       model: text(v.model, "model", 200),
       modelSettings: modelSettings(v.modelSettings),
       runtimeMode: v.runtimeMode as Session["runtimeMode"],
@@ -327,6 +340,9 @@ export class HostEngine {
   private closing = false;
   private readonly titles: SessionTitleCoordinator;
   private parked = new Map<string, { harness: string; timer: ReturnType<typeof setTimeout> }>();
+  /** Drain old adapters before reusing this conversation ID with another agent. */
+  private providerStops = new Map<string, Set<RemoteProvider>>();
+  private providerCleanups = new Map<string, Promise<void>>();
   /** Writer lock and external-CLI checks for native sessions. */
   readonly native = new NativeSessionGuard(() => dirname(this.store.attachmentDir));
   /** Host owner of native histories: sources, sync, watching and turn settlement. */
@@ -959,10 +975,60 @@ export class HostEngine {
           command.followUpBehavior = "steer";
         }
         if (command.type === "configure") {
-          if (value.status === "running")
+          if (value.status === "running" || this.running.has(command.sessionId))
             throw new Error(
               "Wait for the current turn before changing settings",
             );
+          const harness = command.harness ?? value.session.harness;
+          if (harness !== value.session.harness) {
+            const incoming = this.provider(harness);
+            const outgoing = value.session.harness as RemoteProvider;
+            const providerAccountId = resolveDefaultAccount(
+              join(dirname(this.store.attachmentDir), "desktop-owner.json"), harness,
+            );
+            const previous = value.session;
+            const history = { ...previous, blocks: previous.blocks.filter((block) => !block.draft) };
+            const handedOff = history.blocks.some((block) => block.role === "user")
+              ? appendReadyHandoff(history, outgoing, harness, buildDeterministicHandoff(history))
+              : history;
+            value = {
+              ...value,
+              canSteer: !!incoming.steer,
+              nativeBinding: undefined,
+              nativeStatus: undefined,
+              session: {
+                ...handedOff,
+                blocks: [...handedOff.blocks, ...previous.blocks.filter((block) => block.draft)],
+                harness,
+                title: titleStateFor(previous).source !== "manual" && previous.title.startsWith(`${HARNESS_LABEL[outgoing]} · `)
+                  ? formatSessionTitle(harness, sessionDisplayTitle(previous.title, outgoing))
+                  : previous.title,
+                providerSessionId: undefined,
+                providerAccountId,
+                nativeSession: undefined,
+                nativeSyncStatus: undefined,
+                pendingSwitch: undefined,
+                pendingQuestion: undefined,
+                modelSettingOptions: undefined,
+                context: undefined,
+                usageLimit: undefined,
+                backgroundTasks: undefined,
+                titleState: { ...titleStateFor(previous), epoch: titleStateFor(previous).epoch + 1 },
+              },
+            };
+            effect = () => {
+              this.titles.cancel(command.sessionId);
+              this.nativeSessions.detach(command.sessionId);
+              this.native.forget(command.sessionId);
+              this.boundSessions.delete(command.sessionId);
+              const parked = this.parked.get(command.sessionId);
+              if (parked) { clearTimeout(parked.timer); this.parked.delete(command.sessionId); }
+              const stops = this.providerStops.get(command.sessionId) ?? new Set<RemoteProvider>();
+              stops.add(outgoing);
+              this.providerStops.set(command.sessionId, stops);
+              void this.cleanPreviousProviders(command.sessionId).catch(() => undefined);
+            };
+          }
           value = {
             ...value,
             session: {
@@ -1602,6 +1668,28 @@ export class HostEngine {
     }
   }
 
+  private cleanPreviousProviders(id: string): Promise<void> {
+    const active = this.providerCleanups.get(id);
+    if (active) return active;
+    const stops = this.providerStops.get(id);
+    if (!stops?.size) return Promise.resolve();
+    const cleanup = Promise.resolve().then(async () => {
+      // Picker changes can arrive again while an adapter is still stopping.
+      while (stops.size) {
+        const harness = stops.values().next().value!;
+        await this.provider(harness).stop(id);
+        stops.delete(harness);
+      }
+      this.providerStops.delete(id);
+      this.checkoutReleases.get(id)?.();
+      this.checkoutReleases.delete(id);
+    }).finally(() => {
+      if (this.providerCleanups.get(id) === cleanup) this.providerCleanups.delete(id);
+    });
+    this.providerCleanups.set(id, cleanup);
+    return cleanup;
+  }
+
   private run(
     value: HostSession,
     prompt: string | null,
@@ -1613,9 +1701,6 @@ export class HostEngine {
     const parked = this.parked.get(session.id);
     if (parked) { clearTimeout(parked.timer); this.parked.delete(session.id); }
     const provider = this.provider(session.harness);
-    if (!this.boundSessions.has(session.id) && session.providerSessionId) {
-      this.bindRetainedSession(session);
-    }
     const active = {
       runId: runId!,
       done: Promise.resolve(),
@@ -1631,8 +1716,14 @@ export class HostEngine {
       .then(async () => {
         let error: string | undefined;
         try {
+          await this.cleanPreviousProviders(session.id);
           if (!this.closing && !active.cancelled) {
+            if (!this.boundSessions.has(session.id) && session.providerSessionId)
+              this.bindRetainedSession(session);
             if (!this.checkoutReleases.has(session.id)) this.checkoutReleases.set(session.id, claimCheckoutResource(this.store, `host-provider:${session.id}:${randomUUID()}`, session.cwd));
+            const rawCommand = provider.commands?.rawSlashCommands && /^\s*\/\S+/.test(prompt ?? "");
+            const handoff = prompt === null || rawCommand ? null : pendingHandoff(session);
+            const priorRequests = handoff ? userMessagesAfterHandoff(session).slice(0, -1) : [];
             const turnPrompt = intent === "orchestrate" ? await this.orchestration.preparePlanning(value, prompt!, retryProposalBlockId) : prompt === null ? null : this.orchestration.prompt(session.id, prompt);
             const input: HarnessSessionInput = {
               sessionId: session.id,
@@ -1660,7 +1751,7 @@ export class HostEngine {
               const prepared = await this.skills.prepare(turnPrompt!, { harness: session.harness as RemoteProvider, cwd: session.worktreeCwd || session.cwd, sessionId: session.id }, provider);
               if (!this.closing && !active.cancelled) await provider.send({
                 ...input,
-                text: prepared,
+                text: handoff ? wrapHandoffPrompt(handoff.text, handoff.from, prepared, priorRequests) : prepared,
                 attachments: attachments?.map((file) =>
                   session.harness !== "codex" &&
                   isVisionImage(file.mimeType) &&
@@ -1676,6 +1767,12 @@ export class HostEngine {
               if (intent === "orchestrate" && !active.cancelled && !active.failed && !this.closing) {
                 const repair = this.orchestration.repairPlanning(session.id);
                 if (repair) await provider.send({ ...input, text: repair, attachments: [] });
+              }
+              // A failed or cancelled delivery keeps the context packet for retry.
+              if (handoff && !active.cancelled && !active.failed && !active.persistenceFailed && !this.closing) {
+                this.mutateManaged(session.id,
+                  (current) => ({ ...current, session: consumeHandoff(current.session) }),
+                  { type: "handoff.delivered" }, false);
               }
             }
           }
@@ -1904,6 +2001,7 @@ export class HostEngine {
     await this.orchestration.close();
     this.titles.close();
     this.skills.close();
+    await Promise.allSettled([...this.providerStops.keys()].map(id => this.cleanPreviousProviders(id)));
     await Promise.all([...this.parked.entries()].map(async ([id, entry]) => { clearTimeout(entry.timer); await this.provider(entry.harness).stop(id); }));
     this.parked.clear();
     for (const editor of this.editors.values()) clearTimeout(editor.timer);

@@ -255,6 +255,8 @@ export type HostCommand =
       type: "configure";
       commandId: string;
       sessionId: string;
+      /** Change agents with a context handoff; omitted by older clients. */
+      harness?: RemoteProvider;
       model: string;
       modelSettings: Record<string, string>;
       runtimeMode: RuntimeMode;

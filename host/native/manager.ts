@@ -108,6 +108,8 @@ export class NativeSessionManager {
   private readonly parsed = new Map<string, { revision: string; transcript: NativeTranscript }>();
   /** Lazily bound sessions whose source lookup already ran in this process. */
   private readonly lookedUp = new Set<string>();
+  /** A provider switch invalidates reads that started for the old native source. */
+  private readonly generations = new Map<string, number>();
   private managed?: { at: number; ids: string[] };
   private autoSyncValue?: boolean;
   private lastSyncedAt?: number;
@@ -183,6 +185,20 @@ export class NativeSessionManager {
   touch(id: string): void {
     this.touched.set(id, Date.now());
     this.track(id);
+  }
+
+  /** Stop tracking an outgoing provider after its link has been removed from storage. */
+  detach(id: string): void {
+    this.generations.set(id, (this.generations.get(id) ?? 0) + 1);
+    this.clearRetry(id);
+    clearTimeout(this.debounce.get(id));
+    this.debounce.delete(id);
+    this.watchers.get(id)?.watcher.close();
+    this.watchers.delete(id);
+    this.resolved.delete(id);
+    this.lookedUp.delete(id);
+    this.touched.delete(id);
+    this.managed = undefined;
   }
 
   /** A managed session the cached ID list has not seen yet (saved by another writer). */
@@ -382,7 +398,10 @@ export class NativeSessionManager {
 
   /** Bring an idle (or preparing) managed session up to its source. */
   refresh(id: string, options: { force?: boolean } = {}): Promise<NativeSyncStatus | undefined> {
-    return this.serial(id, () => this.syncNow(id, { force: options.force }));
+    const generation = this.generations.get(id);
+    return this.serial(id, () => generation === this.generations.get(id)
+      ? this.syncNow(id, { force: options.force })
+      : Promise.resolve(this.host.store.sessionIfExists(id)?.nativeStatus));
   }
 
   private status(value: HostSession, next: Omit<NativeSyncStatus, "checkedAt">): HostSession {
@@ -408,6 +427,13 @@ export class NativeSessionManager {
     const value = this.host.store.sessionIfExists(id);
     if (!value?.session.nativeSession) return undefined;
     if (!nativeManaged(value)) return value.nativeStatus;
+    const generation = this.generations.get(id);
+    const currentSource = () => {
+      const current = this.host.store.sessionIfExists(id)?.session;
+      return generation === this.generations.get(id) &&
+        current?.harness === value.session.harness &&
+        current.nativeSession?.providerSessionId === value.session.nativeSession!.providerSessionId;
+    };
     if (this.host.busy(id) && options.turnBlockId === undefined && !options.hostTurn) {
       // Never replace history under a running turn; settlement reads it.
       this.setStatus(id, { ...(value.nativeStatus ?? { state: "ready" }), pendingChange: true }, { type: "native.pending" });
@@ -428,6 +454,7 @@ export class NativeSessionManager {
       if (!hostTurn && options.turnBlockId === undefined && !unchanged && (!value.nativeStatus || value.nativeStatus.state === "ready"))
         this.setStatus(id, { ...(value.nativeStatus ?? {}), state: "syncing", revision: value.nativeStatus?.revision ?? value.session.nativeSession.revision }, { type: "native.syncing" });
       const { file: read, transcript } = await this.read(file);
+      if (!currentSource()) return this.host.store.sessionIfExists(id)?.nativeStatus;
       this.resolved.set(id, read);
       let diverged: string[] | undefined;
       let deferred: string | undefined;
@@ -483,6 +510,7 @@ export class NativeSessionManager {
       this.after(id);
       return saved.nativeStatus;
     } catch (error) {
+      if (!currentSource()) return this.host.store.sessionIfExists(id)?.nativeStatus;
       const reason = error instanceof NativeSyncError ? error.reason : "persistFailed";
       this.fail(id, reason, (error as Error).message);
       if (options.turnBlockId !== undefined) throw error;
@@ -617,7 +645,9 @@ export class NativeSessionManager {
    * Returns true when the session is now managed.
    */
   promoteIfChanged(id: string): Promise<boolean> {
+    const generation = this.generations.get(id);
     return this.serial(id, async () => {
+      if (generation !== this.generations.get(id)) return false;
       const value = this.host.store.session(id);
       const binding = value.nativeBinding;
       if (value.session.nativeSession || !binding?.path || !binding.hostRevision) return false;
@@ -633,6 +663,7 @@ export class NativeSessionManager {
       }
       const { file: read, transcript } = await this.read(file);
       const hostIds = new Set((await this.hostTranscript(read, binding.hostRevision)).blocks.map((block) => block.id));
+      if (generation !== this.generations.get(id)) return false;
       const external = transcript.blocks.filter((block) => !hostIds.has(block.id));
       if (!external.length) {
         // Metadata rows (titles, summaries) only: keep warm reuse.
@@ -640,6 +671,7 @@ export class NativeSessionManager {
         return false;
       }
       await this.host.stopProvider(id);
+      if (generation !== this.generations.get(id)) return false;
       this.host.mutate(id, (current) => {
         const blocks = current.session.blocks;
         const turnIndex = blocks.findLastIndex((block) => block.role === "user" && !block.draft);
