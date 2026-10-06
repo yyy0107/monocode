@@ -198,6 +198,40 @@ describe("FileTree render isolation", () => {
     expect(row("added.ts")).not.toBeNull();
     expect(row("first.ts")).toBeNull();
   });
+
+  it.each(["root", "folder"])(
+    "keeps %s children inert during closing and supports rapid reopening",
+    async (target) => {
+      vi.useFakeTimers();
+      directories.set(cwd, [folder("docs")]);
+      directories.set(`${cwd}/docs`, [
+        { name: "nested.ts", path: `${cwd}/docs/nested.ts`, isDir: false },
+      ]);
+      await refreshDir(cwd);
+      saveExpanded(cwd, new Set([cwd, `${cwd}/docs`]));
+      await act(async () => render());
+      const nested = row("docs/nested.ts");
+      const toggle =
+        target === "root"
+          ? container.querySelector<HTMLButtonElement>("[data-explorer-root]")!
+          : row("docs");
+
+      act(() => toggle.click());
+      expect(row("docs/nested.ts")).toBe(nested);
+      expect(
+        nested.closest('[data-fold-state="closing"]')?.hasAttribute("inert"),
+      ).toBe(true);
+
+      act(() => toggle.click());
+      expect(row("docs/nested.ts")).toBe(nested);
+      expect(nested.closest("[inert]")).toBeNull();
+      expect(nested.closest('[data-fold-state="opening"]')).not.toBeNull();
+
+      act(() => toggle.click());
+      await act(async () => vi.advanceTimersByTimeAsync(400));
+      expect(row("docs/nested.ts")).toBeNull();
+    },
+  );
 });
 
 describe("FileTree excluded files", () => {

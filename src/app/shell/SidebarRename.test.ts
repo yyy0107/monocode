@@ -8,6 +8,7 @@ import { Sidebar } from "./Sidebar";
 import { loadSessionFolders } from "../../features/sessions/model/sessionFolders";
 import { useProjectDiffStats } from "../../features/source-control/hooks/useProjectDiffStats";
 import { copyText } from "../../platform/tauri/clipboard";
+import { SIDEBAR_WIDTH_DEFAULT } from "../../features/settings/model/appearance";
 
 // Keep native services out of these menu/input interaction tests.
 vi.mock("../../features/source-control/ui/SidebarWorktreeSwitcher", () => ({ SidebarWorktreeSwitcher: () => null }));
@@ -1361,7 +1362,7 @@ describe("single sidebar layout and width", () => {
     props.chromeInMenuBar = true;
     act(render);
     const workspaceRow = container.querySelector("aside")!.firstElementChild!;
-    expect(workspaceRow.classList.contains("h-10")).toBe(true);
+    expect(workspaceRow.classList.contains("h-8")).toBe(true);
     expect(workspaceRow.querySelector('button[aria-label^="Quick Open"]')).not.toBeNull();
     expect(workspaceRow.nextElementSibling!.getAttribute("role")).toBe("tablist");
     expect(container.querySelector("[data-window-navigation-space]")).toBeNull();
@@ -1423,7 +1424,7 @@ describe("single sidebar layout and width", () => {
     props.open = true;
     act(render);
     const shell = container.querySelector<HTMLElement>("[data-sidebar-transition]")!;
-    expect(shell.style.width).toBe("260px");
+    expect(shell.style.width).toBe(`${SIDEBAR_WIDTH_DEFAULT}px`);
     expect(shell.hasAttribute("inert")).toBe(false);
     act(() => vi.advanceTimersByTime(1000));
     expect(container.querySelector("aside")).toBe(aside);
@@ -1439,6 +1440,7 @@ describe("single sidebar layout and width", () => {
   });
 
   it("finishes a live resize before collapse and restores its saved width", () => {
+    const resizedWidth = SIDEBAR_WIDTH_DEFAULT + 130;
     let frame: FrameRequestCallback | undefined;
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       frame = callback;
@@ -1450,48 +1452,49 @@ describe("single sidebar layout and width", () => {
     handle.setPointerCapture = vi.fn();
     handle.releasePointerCapture = vi.fn();
     act(() => {
-      handle.dispatchEvent(new PointerEvent("pointerdown", { button: 0, pointerId: 1, clientX: 260, bubbles: true }));
-      window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 390 }));
+      handle.dispatchEvent(new PointerEvent("pointerdown", { button: 0, pointerId: 1, clientX: SIDEBAR_WIDTH_DEFAULT, bubbles: true }));
+      window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: resizedWidth }));
     });
     act(() => frame?.(0));
     const shell = container.querySelector<HTMLElement>("[data-sidebar-transition]")!;
-    expect(shell.style.width).toBe("390px");
+    expect(shell.style.width).toBe(`${resizedWidth}px`);
     expect(shell.classList.contains("transition-none")).toBe(true);
     props.open = false;
     act(render);
     expect(shell.style.width).toBe("0px");
-    expect(localStorage.getItem("monocode.sidebarWidth")).toBe("390");
+    expect(localStorage.getItem("monocode.sidebarWidth")).toBe(String(resizedWidth));
     expect(document.documentElement.classList.contains("is-resizing")).toBe(false);
     act(() => {
       window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 500 }));
       window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 500 }));
     });
-    expect(localStorage.getItem("monocode.sidebarWidth")).toBe("390");
+    expect(localStorage.getItem("monocode.sidebarWidth")).toBe(String(resizedWidth));
     props.open = true;
     act(render);
-    expect(shell.style.width).toBe("390px");
-    expect(container.querySelector<HTMLElement>("aside")!.style.width).toBe("390px");
+    expect(shell.style.width).toBe(`${resizedWidth}px`);
+    expect(container.querySelector<HTMLElement>("aside")!.style.width).toBe(`${resizedWidth}px`);
   });
 
   it("commits resize width, restores it after remount and resets on double click", () => {
+    const resizedWidth = SIDEBAR_WIDTH_DEFAULT + 130;
     vi.stubGlobal("innerWidth", 1500);
     act(render);
     const handle = container.querySelector<HTMLElement>('[aria-label="Resize sidebar"]')!;
     handle.setPointerCapture = vi.fn();
     handle.releasePointerCapture = vi.fn();
     act(() => {
-      handle.dispatchEvent(new PointerEvent("pointerdown", { button: 0, pointerId: 1, clientX: 260, bubbles: true }));
-      window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 390 }));
-      window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: 390 }));
+      handle.dispatchEvent(new PointerEvent("pointerdown", { button: 0, pointerId: 1, clientX: SIDEBAR_WIDTH_DEFAULT, bubbles: true }));
+      window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: resizedWidth }));
+      window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, clientX: resizedWidth }));
     });
-    expect(localStorage.getItem("monocode.sidebarWidth")).toBe("390");
-    expect(container.querySelector("aside")!.style.width).toBe("390px");
+    expect(localStorage.getItem("monocode.sidebarWidth")).toBe(String(resizedWidth));
+    expect(container.querySelector("aside")!.style.width).toBe(`${resizedWidth}px`);
     act(() => root.unmount());
     root = createRoot(container);
     act(render);
-    expect(container.querySelector("aside")!.style.width).toBe("390px");
+    expect(container.querySelector("aside")!.style.width).toBe(`${resizedWidth}px`);
     act(() => container.querySelector('[aria-label="Resize sidebar"]')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
-    expect(container.querySelector("aside")!.style.width).toBe("260px");
-    expect(localStorage.getItem("monocode.sidebarWidth")).toBe("260");
+    expect(container.querySelector("aside")!.style.width).toBe(`${SIDEBAR_WIDTH_DEFAULT}px`);
+    expect(localStorage.getItem("monocode.sidebarWidth")).toBe(String(SIDEBAR_WIDTH_DEFAULT));
   });
 });

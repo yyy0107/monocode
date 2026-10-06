@@ -1,9 +1,15 @@
 // @vitest-environment happy-dom
-import { act, createElement, type ComponentProps } from "react";
+import { act, createElement, Fragment, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { ActivityBar } from "./ActivityBar";
-import { probeForUpdate, readAppVersion } from "../model/updater";
+import { ActivityBar, type ActivityBarLayout } from "./ActivityBar";
+import { useUpdateStatus } from "./useUpdateStatus";
+import {
+  installPendingUpdate,
+  probeForUpdate,
+  readAppVersion,
+  type UpdaterSnapshot,
+} from "../model/updater";
 import {
   savePinnedProjects,
   saveProjectRailOrder,
@@ -32,6 +38,7 @@ beforeEach(() => {
   setUiLanguage("en");
   vi.mocked(probeForUpdate).mockReset().mockResolvedValue(null);
   vi.mocked(readAppVersion).mockClear();
+  vi.mocked(installPendingUpdate).mockReset();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -54,8 +61,25 @@ afterEach(() => {
   localStorage.clear();
   vi.unstubAllGlobals();
 });
-async function render() {
-  await act(async () => root.render(createElement(ActivityBar, props)));
+function ActivityBarWindow({ layouts }: { layouts: ActivityBarLayout[] }) {
+  const updateStatus = useUpdateStatus();
+  return createElement(
+    Fragment,
+    null,
+    ...layouts.map((layout) =>
+      createElement(ActivityBar, {
+        ...props,
+        layout,
+        updateStatus,
+        key: layout,
+      }),
+    ),
+  );
+}
+async function render(layouts: ActivityBarLayout[] = [props.layout ?? "rail"]) {
+  await act(async () =>
+    root.render(createElement(ActivityBarWindow, { layouts })),
+  );
 }
 function action(label: string) {
   return container.querySelector<HTMLButtonElement>(
@@ -245,6 +269,57 @@ it("opens the update install action from the updates icon", async () => {
   expect(document.body.textContent).not.toContain("Update to 0.7.1");
   await act(async () => action("Updates").click());
   expect(document.body.textContent).toContain("Update to 0.7.1");
+});
+
+it("shares one update probe and keeps the install lock across activity layouts", async () => {
+  vi.mocked(probeForUpdate).mockResolvedValue({ version: "0.7.1" } as Awaited<
+    ReturnType<typeof probeForUpdate>
+  >);
+  let reportProgress!: (snapshot: UpdaterSnapshot) => void;
+  let finishInstall!: (snapshot: UpdaterSnapshot) => void;
+  vi.mocked(installPendingUpdate).mockImplementation(
+    (onProgress) =>
+      new Promise((resolve) => {
+        reportProgress = onProgress!;
+        finishInstall = resolve;
+      }),
+  );
+  await render(["rail", "sidebar-top", "sidebar-footer"]);
+  expect(probeForUpdate).toHaveBeenCalledOnce();
+  expect(readAppVersion).toHaveBeenCalledOnce();
+  await act(async () => action("Updates").click());
+  const installButton = () =>
+    document.querySelector<HTMLButtonElement>(
+      '[role="dialog"][aria-label="Updates"] button',
+    )!;
+  act(() => installButton().click());
+  expect(installPendingUpdate).toHaveBeenCalledOnce();
+
+  // The install has not even reported downloading yet. Switching layouts
+  // unmounts its old button, but the workspace still owns the install lock.
+  await render(["sidebar-top", "sidebar-footer"]);
+  await act(async () => action("Updates").click());
+  expect(installButton().disabled).toBe(true);
+  expect(installButton().textContent).toContain("Downloading…");
+  act(() => installButton().click());
+  expect(installPendingUpdate).toHaveBeenCalledOnce();
+
+  act(() =>
+    reportProgress({
+      phase: "downloading",
+      currentVersion: "0.7.0",
+      availableVersion: "0.7.1",
+      progress: 42,
+    }),
+  );
+  await render(["rail"]);
+  await act(async () => action("Updates").click());
+  expect(installButton().textContent).toContain("Downloading 42%");
+  expect(installButton().disabled).toBe(true);
+  expect(probeForUpdate).toHaveBeenCalledOnce();
+  await act(async () =>
+    finishInstall({ phase: "downloading", currentVersion: "0.7.0" }),
+  );
 });
 
 it("localizes shell labels and tooltips while preserving project names", async () => {

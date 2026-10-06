@@ -10,9 +10,11 @@ import { useTranslation } from "../../shared/i18n/useTranslation";
 export function SidebarUpdate({
   snapshot,
   onSnapshot,
+  onInstall,
 }: {
   snapshot: UpdaterSnapshot;
   onSnapshot: (next: UpdaterSnapshot) => void;
+  onInstall?: () => void | Promise<void>;
 }) {
   const { t } = useTranslation();
   const busy = snapshot.phase === "downloading";
@@ -24,11 +26,12 @@ export function SidebarUpdate({
     if (busy || installing.current) return;
     installing.current = true;
     try {
-      await installPendingUpdate(onSnapshot);
+      if (onInstall) await onInstall();
+      else await installPendingUpdate(onSnapshot);
     } finally {
       installing.current = false;
     }
-  }, [busy, onSnapshot]);
+  }, [busy, onSnapshot, onInstall]);
 
   const label = busy
     ? snapshot.progress != null

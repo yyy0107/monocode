@@ -91,7 +91,7 @@ export function ModalPanel({
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
         onMouseDown={(event) => event.stopPropagation()}
-        className={`relative isolate flex flex-col overflow-hidden rounded-2xl border border-content/7 shadow-2xl ${fitViewport ? "max-h-[calc(100dvh-32px)]" : ""} ${className ?? ""}`}
+        className={`relative isolate flex flex-col overflow-hidden rounded-2xl border border-stroke shadow-md ${fitViewport ? "max-h-[calc(100dvh-32px)]" : ""} ${className ?? ""}`}
       >
         <GlassBackdrop />
         <div className="modal-panel relative z-[1] flex min-h-0 flex-1 flex-col">
@@ -107,14 +107,14 @@ export function ModalPanel({
             >
               <h2
                 id={titleId}
-                className="text-xl font-medium leading-tight text-content"
+                className="text-ui-lg font-medium leading-tight text-content"
               >
                 {title}
               </h2>
               {description ? (
                 <p
                   id={descriptionId}
-                  className="mt-0.5 truncate text-[12px] leading-snug text-content/50"
+                  className="mt-0.5 truncate text-ui-sm leading-snug text-foreground-subtle"
                 >
                   {description}
                 </p>
@@ -125,7 +125,7 @@ export function ModalPanel({
               type="button"
               aria-label={uiT("Close")}
               onClick={onClose}
-              className="grid size-7 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="grid size-7 shrink-0 place-items-center rounded-lg text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-hover"
             >
               <X className="size-3.5" />
             </button>
@@ -150,7 +150,7 @@ export function Modal(props: Props) {
   return createPortal(
     <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>
       <div
-        className="modal-backdrop absolute inset-0 bg-black/40"
+        className="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-xs"
         onMouseDown={props.onClose}
       />
       <ModalPanel {...props} />

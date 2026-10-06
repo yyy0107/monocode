@@ -547,79 +547,81 @@ export function SettingsView({
 
       <div className="flex min-h-0 min-w-0 flex-1">
         <SettingsNav section={section} onSelect={selectSection} />
-        {section === "skills" ? (
-          <SkillsPage
-            key={cwd}
-            cwd={cwd}
-            header={
-              <PageHeader
-                title={settingsSectionLabel(section)}
-                description={settingsSectionDescription(section)}
-              />
-            }
-          />
-        ) : (
-          <RevealedSetting.Provider value={revealed}>
-            <div
-              ref={lockOverscroll}
-              className="@container/settings min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
-            >
-              <div className="mx-auto w-full max-w-5xl px-5 py-6 pb-16 @min-[560px]/settings:px-8 @min-[560px]/settings:py-8">
+        <div className="m-3 ml-1 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-stroke bg-background-base">
+          {section === "skills" ? (
+            <SkillsPage
+              key={cwd}
+              cwd={cwd}
+              header={
                 <PageHeader
                   title={settingsSectionLabel(section)}
                   description={settingsSectionDescription(section)}
                 />
-                {section === "general" ? (
-                  <GeneralPage onOpenWhatsNew={onOpenWhatsNew} />
-                ) : null}
-                {section === "connections" ? <ConnectionsSettings /> : null}
-                {section === "appearance" ? (
-                  <AppearancePage appearance={appearance} />
-                ) : null}
-                {section === "chat" ? <ChatPage /> : null}
-                {section === "keybindings" ? <KeybindingsPage /> : null}
-                {section === "import" ? (
-                  <NativeSessionsPanel onOpenSession={onOpenSession} />
-                ) : null}
-                {section === "mcp" ? (
-                  <McpSettings cwd={cwd} recents={recents} />
-                ) : null}
-                {section === "providers" ? (
-                  <ProvidersPage cwd={cwd} recents={recents} />
-                ) : null}
-                {section === "worktrees" ? (
-                  <WorktreesPage
-                    cwd={cwd}
-                    recents={recents}
-                    liveSessions={liveSessions}
-                    onRemove={onRemoveWorktree}
-                    onCheckRemove={onCheckWorktreeRemoval}
-                    onDeleteSessions={onDeleteWorktreeSessions}
+              }
+            />
+          ) : (
+            <RevealedSetting.Provider value={revealed}>
+              <div
+                ref={lockOverscroll}
+                className="@container/settings min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
+              >
+                <div className="mx-auto w-full max-w-5xl px-5 py-6 pb-16 @min-[560px]/settings:px-8 @min-[560px]/settings:py-8">
+                  <PageHeader
+                    title={settingsSectionLabel(section)}
+                    description={settingsSectionDescription(section)}
                   />
-                ) : null}
-                {section === "inbox" ? (
-                  <InboxPage
-                    cwd={cwd}
-                    recents={recents}
-                    notificationProjectPath={notificationProjectPath}
-                    notificationSettingsRequest={notificationSettingsRequest}
-                  />
-                ) : null}
-                {section === "archive" ? (
-                  <ArchivePage
-                    cwd={cwd}
-                    sessions={sessions}
-                    onOpenSession={onOpenSession}
-                    onArchiveSession={onArchiveSession}
-                    onDeleteSession={onDeleteSession}
-                    onRestoreProject={onRestoreProject}
-                    onDeleteProject={onDeleteProject}
-                  />
-                ) : null}
+                  {section === "general" ? (
+                    <GeneralPage onOpenWhatsNew={onOpenWhatsNew} />
+                  ) : null}
+                  {section === "connections" ? <ConnectionsSettings /> : null}
+                  {section === "appearance" ? (
+                    <AppearancePage appearance={appearance} />
+                  ) : null}
+                  {section === "chat" ? <ChatPage /> : null}
+                  {section === "keybindings" ? <KeybindingsPage /> : null}
+                  {section === "import" ? (
+                    <NativeSessionsPanel onOpenSession={onOpenSession} />
+                  ) : null}
+                  {section === "mcp" ? (
+                    <McpSettings cwd={cwd} recents={recents} />
+                  ) : null}
+                  {section === "providers" ? (
+                    <ProvidersPage cwd={cwd} recents={recents} />
+                  ) : null}
+                  {section === "worktrees" ? (
+                    <WorktreesPage
+                      cwd={cwd}
+                      recents={recents}
+                      liveSessions={liveSessions}
+                      onRemove={onRemoveWorktree}
+                      onCheckRemove={onCheckWorktreeRemoval}
+                      onDeleteSessions={onDeleteWorktreeSessions}
+                    />
+                  ) : null}
+                  {section === "inbox" ? (
+                    <InboxPage
+                      cwd={cwd}
+                      recents={recents}
+                      notificationProjectPath={notificationProjectPath}
+                      notificationSettingsRequest={notificationSettingsRequest}
+                    />
+                  ) : null}
+                  {section === "archive" ? (
+                    <ArchivePage
+                      cwd={cwd}
+                      sessions={sessions}
+                      onOpenSession={onOpenSession}
+                      onArchiveSession={onArchiveSession}
+                      onDeleteSession={onDeleteSession}
+                      onRestoreProject={onRestoreProject}
+                      onDeleteProject={onDeleteProject}
+                    />
+                  ) : null}
+                </div>
               </div>
-            </div>
-          </RevealedSetting.Provider>
-        )}
+            </RevealedSetting.Provider>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -4413,8 +4415,8 @@ function Group({
         {action ? <div className="shrink-0 pb-0.5">{action}</div> : null}
       </div>
       <div
-        className={`overflow-hidden rounded-xl border bg-content/3 transition-colors ${
-          flash ? "border-accent/60" : "border-content/10"
+        className={`overflow-hidden rounded-xl border bg-card transition-colors ${
+          flash ? "border-accent/60" : "border-stroke"
         }`}
       >
         {children}

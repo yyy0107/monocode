@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  installPendingUpdate,
   probeForUpdate,
   readAppVersion,
   type UpdaterSnapshot,
@@ -9,12 +10,24 @@ export function isUpdateActionable(snapshot: UpdaterSnapshot): boolean {
   return snapshot.phase === "available" || snapshot.phase === "downloading";
 }
 
-/** The activity bar owns the automatic update probe for the window. */
+/** The workspace owns one updater across all activity-bar layouts and pop-outs. */
 export function useUpdateStatus() {
   const [snapshot, setSnapshot] = useState<UpdaterSnapshot>({
     phase: "idle",
     currentVersion: "…",
   });
+
+  const installing = useRef(false);
+  const install = useCallback(async () => {
+    if (installing.current) return;
+    installing.current = true;
+    setSnapshot((current) => ({ ...current, phase: "downloading" }));
+    try {
+      await installPendingUpdate(setSnapshot);
+    } finally {
+      installing.current = false;
+    }
+  }, []);
 
   // The automatic probe runs on mount whether or not it ends up rendering
   // anything, so a newly published version still surfaces on its own. The
@@ -50,5 +63,12 @@ export function useUpdateStatus() {
     };
   }, []);
 
-  return { snapshot, setSnapshot, actionable: isUpdateActionable(snapshot) };
+  return {
+    snapshot,
+    setSnapshot,
+    actionable: isUpdateActionable(snapshot),
+    install,
+  };
 }
+
+export type UpdateStatus = ReturnType<typeof useUpdateStatus>;

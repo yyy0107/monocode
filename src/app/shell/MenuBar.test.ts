@@ -72,6 +72,7 @@ beforeEach(() => {
     return 0;
   });
   localStorage.clear();
+  saveMenuBarVisible(true);
   setUiLanguage("en");
   windowMock.isMaximized.mockResolvedValue(false);
   vi.clearAllMocks();
@@ -219,7 +220,7 @@ describe("MenuBar", () => {
     ).not.toBeNull();
   });
 
-  it("stays visible with every menu by default", () => {
+  it("stays visible with every menu when pinned", () => {
     render();
     const labels = Array.from(
       container.querySelectorAll("[data-menu-bar] > button"),
@@ -272,6 +273,14 @@ describe("MenuBar", () => {
     ).toBeNull();
     tapAlt();
     expect(container.querySelector("[data-menu-bar]")).toBeNull();
+  });
+
+  it("starts hidden without a saved preference and reveals on Alt", () => {
+    localStorage.clear();
+    render();
+    expect(container.querySelector("[data-menu-bar]")).toBeNull();
+    tapAlt();
+    expect(menuButton("File")).toBeDefined();
   });
 
   it("checks the menu bar item while it is pinned", () => {

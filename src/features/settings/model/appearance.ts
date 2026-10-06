@@ -156,7 +156,7 @@ export const SIDEBAR_BLUR_DEFAULT = 24;
 
 export const SIDEBAR_WIDTH_MIN = 260;
 export const SIDEBAR_WIDTH_MAX = 560;
-export const SIDEBAR_WIDTH_DEFAULT = 260;
+export const SIDEBAR_WIDTH_DEFAULT = 264;
 
 export const BODY_GLASS_DEFAULT = !IS_LINUX;
 

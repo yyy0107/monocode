@@ -1,13 +1,13 @@
 .composer-popover[data-model-picker]
   :is(input, button[role="option"], button[role="menuitemradio"]),
 .composer-popover[data-model-control] button[role="menuitemradio"] {
-  font-size: 14px;
+  font-size: var(--text-ui-base);
   line-height: 20px;
 }
 
 .composer-popover[data-model-picker] .model-picker-group-label,
 .composer-popover[data-model-control] [role="group"] > div:first-child {
-  font-size: 12px;
+  font-size: var(--text-ui-sm);
   letter-spacing: normal;
   text-transform: none;
 }

@@ -829,7 +829,7 @@ function PaneTreeComponent({
                     data-pane-card={asCard ? "" : undefined}
                     className={
                       asCard
-                        ? "mb-2 mr-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-content/10 bg-background-base"
+                        ? "mb-1 mr-1 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-stroke bg-background-base"
                         : "flex min-h-0 min-w-0 flex-1 flex-col"
                     }
                   >
@@ -1009,15 +1009,17 @@ function paneEnterFrom({ rect, axis }: LayoutLeaf): PaneEnterFrom {
   return "fade";
 }
 
-const PANE_CARD_OUTER = 6;
-const PANE_CARD_GAP = 3;
+// ZCode panel rhythm: 4px window inset (none beside the sidebar and drag
+// strip) and 4px between neighbouring panels.
+const PANE_CARD_OUTER = 4;
+const PANE_CARD_GAP = 2;
 
 /** Outer window edges get the full gutter; shared edges split the gap between two cards. */
 function paneCardInset(rect: LayoutLeaf["rect"]): CSSProperties {
   const side = (atEdge: boolean) => (atEdge ? PANE_CARD_OUTER : PANE_CARD_GAP);
   return {
-    paddingLeft: side(rect.x < PANE_BOUNDARY_EPSILON),
-    paddingTop: side(rect.y < PANE_BOUNDARY_EPSILON),
+    paddingLeft: rect.x < PANE_BOUNDARY_EPSILON ? 0 : PANE_CARD_GAP,
+    paddingTop: rect.y < PANE_BOUNDARY_EPSILON ? 0 : PANE_CARD_GAP,
     paddingRight: side(rect.x + rect.w > 1 - PANE_BOUNDARY_EPSILON),
     paddingBottom: side(rect.y + rect.h > 1 - PANE_BOUNDARY_EPSILON),
   };

@@ -68,14 +68,14 @@ export function IconButton({
             }
           : undefined
       }
-      className={`grid size-6.5 place-items-center rounded-md ${
+      className={`grid size-7 place-items-center rounded-lg transition-colors ${
         disabled
-          ? "text-content/25"
+          ? "text-foreground-subtlest opacity-60"
           : accent
-            ? "text-accent hover:bg-content/10"
+            ? "text-accent hover:bg-surface-hover"
             : active
-              ? "text-content hover:bg-content/10"
-              : "text-content/50 hover:bg-content/10 hover:text-content"
+              ? "text-content hover:bg-surface-hover"
+              : "text-foreground-subtle hover:bg-surface-hover hover:text-content"
       }`}
     >
       {children}
@@ -104,14 +104,14 @@ export function TabVisitNav({
   return (
     <div className="flex shrink-0 items-center">
       <IconButton label={backLabel} disabled={!canGoBack} onClick={onGoBack}>
-        <MoveLeft className="size-3.5" />
+        <MoveLeft className="size-4" />
       </IconButton>
       <IconButton
         label={forwardLabel}
         disabled={!canGoForward}
         onClick={onGoForward}
       >
-        <MoveRight className="size-3.5" />
+        <MoveRight className="size-4" />
       </IconButton>
       {onTogglePanel ? (
         <IconButton
@@ -119,7 +119,7 @@ export function TabVisitNav({
           active={panelActive}
           onClick={onTogglePanel}
         >
-          <PanelLeft className="size-3.5" />
+          <PanelLeft className="size-4" />
         </IconButton>
       ) : null}
     </div>
@@ -127,7 +127,7 @@ export function TabVisitNav({
 }
 
 const WINDOW_NAVIGATION_LEFT = IS_MAC ? 78 : 6;
-const WINDOW_NAVIGATION_WIDTH = 78;
+const WINDOW_NAVIGATION_WIDTH = 84;
 export const WINDOW_NAVIGATION_END =
   WINDOW_NAVIGATION_LEFT + 48 + WINDOW_NAVIGATION_WIDTH;
 export const WINDOW_DRAG_BAR_HEIGHT = 40;

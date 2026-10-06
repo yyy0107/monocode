@@ -447,6 +447,15 @@ function SidebarComponent(props: SidebarProps) {
     (path: string) => {
       const key = pathKey(path);
       if (hoverRequests.current.has(key)) return;
+      // Recent shortcuts and expanded sections may already be loading this
+      // history. Opening their summary should reuse that request.
+      if (
+        searchInFlight.current.has(key) ||
+        expansionRequests.current.has(key)
+      ) {
+        setHoverRevision((value) => value + 1);
+        return;
+      }
       const remote = isRemoteProjectPath(path) || !!remoteProjectFor(path);
       // A known local list needs no extra read. Remote cards refresh once on
       // deliberate opening, through the same deduped cache used by pollers.
@@ -534,7 +543,11 @@ function SidebarComponent(props: SidebarProps) {
             }
           : {}),
         loaded,
-        pending: hoverRequests.current.has(key) || !!remoteState?.pending,
+        pending:
+          hoverRequests.current.has(key) ||
+          searchInFlight.current.has(key) ||
+          expansionRequests.current.has(key) ||
+          !!remoteState?.pending,
         failed:
           failedPaths.has(key) ||
           searchFailed.has(key) ||
@@ -556,6 +569,7 @@ function SidebarComponent(props: SidebarProps) {
     failedPaths,
     remoteRevision,
     searchFailed,
+    searchRevision,
     hoverFailed,
     hoverRevision,
     props.onLoadProject,
@@ -1070,10 +1084,11 @@ function SidebarComponent(props: SidebarProps) {
       }
     >
       <aside
-        className="body-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-stroke"
+        className="sidebar-glass relative flex h-full min-h-0 shrink-0 flex-col"
         style={{ width: resize.dragging ? "100%" : resize.width }}
       >
-        {props.onOpenAssistant && <button type="button" className={`mx-2 my-1 rounded-lg px-3 py-2 text-left text-sm hover:bg-content/10 ${props.assistantActive ? "bg-content/10" : ""}`} aria-current={props.assistantActive ? "page" : undefined} onClick={props.onOpenAssistant}>{t("Assistant")}</button>}
+        {props.navigation}
+        {props.onOpenAssistant && <button type="button" className={`mx-2 mb-1 flex h-8 items-center rounded-lg px-2.5 text-left text-ui-base transition-colors hover:bg-surface-hover ${props.assistantActive ? "bg-selection" : ""}`} aria-current={props.assistantActive ? "page" : undefined} onClick={props.onOpenAssistant}>{t("Assistant")}</button>}
         {!props.chromeInMenuBar ? (
           <div
             className="flex h-10 shrink-0 select-none items-center pr-2"
@@ -1090,7 +1105,7 @@ function SidebarComponent(props: SidebarProps) {
         ) : null}
         <div
           data-project-header
-          className={`flex ${props.chromeInMenuBar ? "h-10" : "h-8"} min-w-0 shrink-0 items-center gap-1 border-b border-stroke ${projectHeader ? "pl-1.5" : "pl-3"} pr-2`}
+          className={`flex h-8 min-w-0 shrink-0 items-center gap-1 ${projectHeader ? "pl-1.5" : "pl-3"} pr-2`}
         >
           {projectHeader ? (
             <div
@@ -1150,7 +1165,7 @@ function SidebarComponent(props: SidebarProps) {
         <div
           role="tablist"
           aria-label={t("Workspace")}
-          className="flex h-9 shrink-0 items-center gap-px border-b border-stroke px-2"
+          className="sidebar-segment mx-2 mb-1 flex h-7 shrink-0 items-center gap-px rounded-full bg-surface p-0.5"
         >
           {tabOrder.map((id) => (
             <div
@@ -1174,7 +1189,7 @@ function SidebarComponent(props: SidebarProps) {
                 onClick={() => {
                   if (!sortable.consumeClick()) props.onTabChange(id);
                 }}
-                className="surface-tab flex h-6 min-w-0 flex-1 items-center justify-center self-center px-2 text-[12px] leading-none"
+                className="surface-tab flex h-6 min-w-0 flex-1 items-center justify-center self-center px-2 text-ui-sm leading-none"
               >
                 {id === "changes" && (additions || deletions) ? (
                   <DiffStat additions={additions} deletions={deletions} />
@@ -1238,7 +1253,7 @@ function SidebarComponent(props: SidebarProps) {
         {!projectHeader && showWorktreeSwitcher ? (
           <div
             data-active-worktree-toolbar
-            className="flex h-8 shrink-0 items-center border-b border-stroke px-3"
+            className="flex h-8 shrink-0 items-center px-3"
           >
             {renderWorktreeSwitcher()}
             <ChevronDown className="ml-auto size-3 opacity-30" />
@@ -1317,6 +1332,7 @@ function SidebarComponent(props: SidebarProps) {
             />
           )}
         </div>
+        {props.footer}
         {filterMenu ? (
           <SessionFiltersMenu
             x={filterMenu.x}

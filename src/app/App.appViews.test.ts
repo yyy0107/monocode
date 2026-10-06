@@ -3,7 +3,7 @@ import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import { newSession } from "../features/sessions/model/session";
+import { newSession, type Session } from "../features/sessions/model/session";
 import {
   newAppViewWorkspaceTab,
   newTab,
@@ -198,6 +198,8 @@ vi.mock("./shell/Sidebar", async () => {
   const { createElement: el } = await import("react");
   return {
     Sidebar: ({
+      navigation,
+      footer,
       onOpenAssistant,
       onOpenFile,
       onOpenDiff,
@@ -217,6 +219,8 @@ vi.mock("./shell/Sidebar", async () => {
       activeSessionId,
       tab,
     }: {
+      navigation?: import("react").ReactNode;
+      footer?: import("react").ReactNode;
       onOpenAssistant: () => void;
       onOpenFile: (
         path: string,
@@ -249,6 +253,8 @@ vi.mock("./shell/Sidebar", async () => {
           "data-active-session": activeSessionId,
           "data-sidebar-tab": tab,
         },
+        navigation,
+        footer,
         el(
           "button",
           { "data-open-assistant": true, onClick: onOpenAssistant },
@@ -448,15 +454,12 @@ vi.mock("../features/sessions/ui/SessionPane", async () => {
       session,
       composerFocused,
       onClose,
+      renderHeader,
     }: {
-      session: {
-        id: string;
-        cwd: string;
-        worktreeCwd?: string;
-        branch?: string;
-      };
+      session: Session;
       composerFocused: boolean;
       onClose: (sessionId: string) => void;
+      renderHeader?: (session: Session) => ReactNode;
     }) =>
       el(
         "div",
@@ -467,6 +470,7 @@ vi.mock("../features/sessions/ui/SessionPane", async () => {
           "data-session-branch": session.branch,
           "data-composer-focused": composerFocused,
         },
+        renderHeader?.(session),
         el(
           "button",
           {
@@ -488,17 +492,20 @@ vi.mock("../features/files/ui/FileEditor", async () => {
       path,
       cwd,
       showDiff,
+      active,
       navigation,
     }: {
       path: string;
       cwd: string;
       showDiff: boolean;
+      active: boolean;
       navigation?: { line: number; column?: number } | null;
     }) =>
       el("div", {
         "data-file-editor": path,
         "data-file-cwd": cwd,
         "data-file-diff": showDiff,
+        "data-file-active": active,
         "data-file-navigation-line": navigation?.line,
         "data-file-navigation-column": navigation?.column,
       }),
@@ -1238,6 +1245,9 @@ describe("App workspace app views", () => {
   });
 
   it("restores each chat's view mode and selected tool when switching chats", async () => {
+    const activeEditorPath = () => workspace()
+      .querySelector('[data-file-editor][data-file-active="true"]')
+      ?.getAttribute("data-file-editor");
     await mount();
     await click('[data-command="View: Notes"]');
     expect(
@@ -1254,6 +1264,7 @@ describe("App workspace app views", () => {
     await selectSession("recent");
     await click('[data-command="View: Notes"]');
     await click("[data-open-file]");
+    expect(activeEditorPath()).toBe("/repo/file.ts");
     expect(
       container
         .querySelector("[data-window-chrome] [data-surface-mode-toggle]")
@@ -1275,10 +1286,7 @@ describe("App workspace app views", () => {
         .querySelector("[data-window-chrome] [data-surface-mode-toggle]")
         ?.getAttribute("aria-label"),
     ).toBe("Enter full view");
-    expect(
-      workspace().querySelector('[data-file-tab-id] [aria-selected="true"]')
-        ?.textContent,
-    ).toBe("file.ts");
+    expect(activeEditorPath()).toBe("/repo/file.ts");
   });
 
   it("closes a conversation together with its owned tool pages", async () => {

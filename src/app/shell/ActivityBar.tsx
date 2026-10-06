@@ -12,7 +12,10 @@ import {
   type IconComponent,
 } from "../../shared/ui/icons";
 import { useTranslation } from "../../shared/i18n/useTranslation";
-import { useShortcutLabel } from "../commands/useCommandShortcut";
+import {
+  useCommandShortcut,
+  useShortcutLabel,
+} from "../commands/useCommandShortcut";
 import { Popover } from "../../shared/ui/Popover";
 import {
   collectRailProjects,
@@ -25,9 +28,17 @@ import type { InstalledUpdate } from "../model/updateNotice";
 import { ProjectList } from "./ProjectList";
 import { SidebarUpdate } from "./SidebarUpdate";
 import { UpdateRailCard } from "./UpdateRailCard";
-import { useUpdateStatus } from "./useUpdateStatus";
+import type { UpdateStatus } from "./useUpdateStatus";
+
+/**
+ * `rail` is the compact strip shown while the sidebar is collapsed. With the
+ * sidebar open, the same destinations render as ZCode-style rows: the
+ * navigation block at the top and the account/updates block at the bottom.
+ */
+export type ActivityBarLayout = "rail" | "sidebar-top" | "sidebar-footer";
 
 export type ActivityBarProps = {
+  layout?: ActivityBarLayout;
   chromeInMenuBar?: boolean;
   cwd: string;
   recents: RecentProject[];
@@ -52,6 +63,7 @@ export type ActivityBarProps = {
   settingsActive?: boolean;
   notesEnabled?: boolean;
   inboxUnseen?: boolean;
+  updateStatus?: UpdateStatus;
   updateNotice?: InstalledUpdate | null;
   onOpenWhatsNew?: (version: string) => void;
   onDismissUpdate?: () => void;
@@ -59,6 +71,7 @@ export type ActivityBarProps = {
 
 /** Window-wide destinations stay available beside every workspace pane. */
 export function ActivityBar({
+  layout = "rail",
   chromeInMenuBar = false,
   cwd,
   recents,
@@ -83,11 +96,17 @@ export function ActivityBar({
   settingsActive = false,
   notesEnabled = true,
   inboxUnseen = false,
+  updateStatus,
   updateNotice,
   onOpenWhatsNew,
   onDismissUpdate,
 }: ActivityBarProps) {
   const { t } = useTranslation();
+  const row = layout !== "rail";
+  const showTop = layout !== "sidebar-footer";
+  const showBottom = layout !== "sidebar-top";
+  const popoverSide = row ? "top" : "right";
+  const quickOpenShortcut = useCommandShortcut("App: Go to File");
   const quickOpenLabel = useShortcutLabel("Quick Open", "App: Go to File");
   const settingsLabel = useShortcutLabel("Settings", "App: Settings");
   const [popup, setPopup] = useState<"projects" | "agents" | "updates" | null>(
@@ -101,7 +120,8 @@ export function ActivityBar({
   const projectsAnchor = useRef<HTMLButtonElement>(null);
   const agentsAnchor = useRef<HTMLButtonElement>(null);
   const updatesAnchor = useRef<HTMLButtonElement>(null);
-  const { snapshot, setSnapshot, actionable } = useUpdateStatus();
+  const snapshot = updateStatus?.snapshot;
+  const actionable = updateStatus?.actionable ?? false;
   const showUpdates =
     actionable || Boolean(updateNotice && onOpenWhatsNew && onDismissUpdate);
   const selectProject = (path: string) => {
@@ -126,91 +146,116 @@ export function ActivityBar({
   return (
     <nav
       aria-label={t("Activity bar")}
-      data-activity-bar
-      className="shell-chrome sidebar-glass flex h-full w-12 shrink-0 flex-col items-center border-r border-stroke pb-1.5"
+      data-activity-bar={layout}
+      className={
+        row
+          ? `flex shrink-0 flex-col gap-1 px-2 ${layout === "sidebar-top" ? "pb-3 pt-1" : "py-2"}`
+          : "shell-chrome sidebar-glass flex h-full w-12 shrink-0 flex-col items-center pb-1.5"
+      }
     >
-      {!chromeInMenuBar ? (
+      {!row && !chromeInMenuBar ? (
         <div className="h-10 w-full shrink-0" data-tauri-drag-region="deep" />
       ) : null}
-      <div className="flex shrink-0 flex-col gap-1.5 pt-1.5">
-        <ActivityAction
-          label={quickOpenLabel}
-          icon={Search}
-          active={searchActive}
-          onClick={onSearch}
-        />
-        <ActivityAction
-          label={inboxUnseen ? t("Inbox, new items") : t("Inbox")}
-          icon={Inbox}
-          active={inboxActive}
-          dot={inboxUnseen}
-          onClick={onOpenInbox}
-          onOpenContextMenu={(x, y, trigger) => {
-            setPopup(null);
-            inboxTrigger.current = trigger;
-            setInboxMenu({ x, y });
-          }}
-        />
-        {notesEnabled ? (
+      {showTop ? (
+        <div
+          className={`flex shrink-0 flex-col ${row ? "gap-1" : "gap-1.5 pt-1.5"}`}
+        >
           <ActivityAction
-            label={t("Notes")}
-            icon={StickyNote}
-            active={notesActive}
-            onClick={onOpenNotes}
+            row={row}
+            label={quickOpenLabel}
+            text={t("Search")}
+            hint={quickOpenShortcut}
+            icon={Search}
+            active={searchActive}
+            onClick={onSearch}
           />
-        ) : null}
-        <ActivityAction
-          label={t("Automations")}
-          icon={Zap}
-          active={automationsActive}
-          onClick={onOpenAutomations}
-        />
-      </div>
-      <div className="my-2 h-px w-7 shrink-0 bg-stroke" />
-      <div className="min-h-0 flex-1" />
-      <div className="flex shrink-0 flex-col gap-1.5 pt-1.5">
-        <ActivityAction
-          ref={projectsAnchor}
-          label={t("All projects")}
-          icon={Folder}
-          active={popup === "projects"}
-          expanded={onShowProjects ? undefined : popup === "projects"}
-          onClick={onShowProjects ?? (() => togglePopup("projects"))}
-        />
-        {liveAgents.length > 0 ? (
           <ActivityAction
-            ref={agentsAnchor}
-            label={t("Working agents, {count}", { count: liveAgents.length })}
-            icon={Bot}
-            dot={liveAgents.some((agent) => agent.needsApproval)}
-            active={popup === "agents"}
-            expanded={popup === "agents"}
-            onClick={() => togglePopup("agents")}
+            row={row}
+            label={inboxUnseen ? t("Inbox, new items") : t("Inbox")}
+            text={t("Inbox")}
+            icon={Inbox}
+            active={inboxActive}
+            dot={inboxUnseen}
+            onClick={onOpenInbox}
+            onOpenContextMenu={(x, y, trigger) => {
+              setPopup(null);
+              inboxTrigger.current = trigger;
+              setInboxMenu({ x, y });
+            }}
           />
-        ) : null}
-        {showUpdates ? (
+          {notesEnabled ? (
+            <ActivityAction
+              row={row}
+              label={t("Notes")}
+              icon={StickyNote}
+              active={notesActive}
+              onClick={onOpenNotes}
+            />
+          ) : null}
           <ActivityAction
-            ref={updatesAnchor}
-            label={t("Updates")}
-            icon={snapshot.phase === "downloading" ? Loader : ArrowDownCircle}
-            dot
-            active={popup === "updates"}
-            expanded={popup === "updates"}
-            onClick={() => togglePopup("updates")}
+            row={row}
+            label={t("Automations")}
+            icon={Zap}
+            active={automationsActive}
+            onClick={onOpenAutomations}
           />
-        ) : null}
-        <ActivityAction
-          label={settingsLabel}
-          icon={Settings}
-          active={settingsActive}
-          onClick={onOpenSettings}
-        />
-      </div>
+        </div>
+      ) : null}
+      {!row ? <div className="min-h-0 flex-1" /> : null}
+      {showBottom ? (
+        <div
+          className={`flex shrink-0 flex-col ${row ? "gap-1" : "gap-1.5 pt-1.5"}`}
+        >
+          <ActivityAction
+            row={row}
+            ref={projectsAnchor}
+            label={t("All projects")}
+            icon={Folder}
+            active={popup === "projects"}
+            expanded={onShowProjects ? undefined : popup === "projects"}
+            onClick={onShowProjects ?? (() => togglePopup("projects"))}
+          />
+          {liveAgents.length > 0 ? (
+            <ActivityAction
+              row={row}
+              ref={agentsAnchor}
+              label={t("Working agents, {count}", { count: liveAgents.length })}
+              text={t("Working agents")}
+              icon={Bot}
+              dot={liveAgents.some((agent) => agent.needsApproval)}
+              active={popup === "agents"}
+              expanded={popup === "agents"}
+              onClick={() => togglePopup("agents")}
+            />
+          ) : null}
+          {showUpdates ? (
+            <ActivityAction
+              row={row}
+              ref={updatesAnchor}
+              label={t("Updates")}
+              text={t("Updates")}
+              icon={snapshot?.phase === "downloading" ? Loader : ArrowDownCircle}
+              dot
+              active={popup === "updates"}
+              expanded={popup === "updates"}
+              onClick={() => togglePopup("updates")}
+            />
+          ) : null}
+          <ActivityAction
+            row={row}
+            label={settingsLabel}
+            text={t("Settings")}
+            icon={Settings}
+            active={settingsActive}
+            onClick={onOpenSettings}
+          />
+        </div>
+      ) : null}
       {popup === "projects" ? (
         <Popover
           anchor={projectsAnchor}
-          side="right"
-          align="end"
+          side={popoverSide}
+          align={row ? "start" : "end"}
           width={280}
           maxHeight={600}
           onDismiss={(reason) => {
@@ -243,8 +288,8 @@ export function ActivityBar({
       {popup === "agents" ? (
         <Popover
           anchor={agentsAnchor}
-          side="right"
-          align="end"
+          side={popoverSide}
+          align={row ? "start" : "end"}
           width={280}
           maxHeight={500}
           onDismiss={(reason) => {
@@ -269,8 +314,8 @@ export function ActivityBar({
       {popup === "updates" && showUpdates ? (
         <Popover
           anchor={updatesAnchor}
-          side="right"
-          align="end"
+          side={popoverSide}
+          align={row ? "start" : "end"}
           width={280}
           onDismiss={(reason) => {
             setPopup(null);
@@ -293,8 +338,12 @@ export function ActivityBar({
               }}
             />
           ) : null}
-          {actionable ? (
-            <SidebarUpdate snapshot={snapshot} onSnapshot={setSnapshot} />
+          {actionable && updateStatus ? (
+            <SidebarUpdate
+              snapshot={updateStatus.snapshot}
+              onSnapshot={updateStatus.setSnapshot}
+              onInstall={updateStatus.install}
+            />
           ) : null}
         </Popover>
       ) : null}
@@ -314,7 +363,10 @@ export function ActivityBar({
 }
 
 function ActivityAction({
+  row = false,
   label,
+  text = label,
+  hint,
   icon: Icon,
   active = false,
   dot = false,
@@ -323,7 +375,11 @@ function ActivityAction({
   onOpenContextMenu,
   ref,
 }: {
+  row?: boolean;
   label: string;
+  /** Visible row text; the tooltip keeps `label` with its shortcut. */
+  text?: string;
+  hint?: string | null;
   icon: IconComponent;
   active?: boolean;
   dot?: boolean;
@@ -373,10 +429,30 @@ function ActivityAction({
             }
           : undefined
       }
-      className={`relative grid size-8 shrink-0 place-items-center rounded-md ${active ? "bg-selection text-content" : "text-content/50 hover:bg-content/10 hover:text-content"} disabled:cursor-default disabled:opacity-35`}
+      className={
+        row
+          ? `relative flex h-8 w-full shrink-0 items-center gap-2 rounded-lg px-2.5 text-left text-ui-base transition-colors ${active ? "bg-selection text-content" : "text-content hover:bg-surface-hover"} disabled:cursor-default disabled:opacity-35`
+          : `relative grid size-8 shrink-0 place-items-center rounded-lg transition-colors ${active ? "bg-selection text-content" : "text-foreground-subtle hover:bg-surface-hover hover:text-content"} disabled:cursor-default disabled:opacity-35`
+      }
     >
-      <Icon className="size-4" />
-      {dot ? (
+      <Icon className="size-4 shrink-0" />
+      {row ? (
+        <>
+          <span className="min-w-0 flex-1 truncate">{text}</span>
+          {hint ? (
+            <span className="shrink-0 text-ui-xs text-foreground-subtlest">
+              {hint}
+            </span>
+          ) : null}
+        </>
+      ) : null}
+      {dot && row ? (
+        <span
+          aria-hidden
+          className="size-1.5 shrink-0 rounded-full bg-sky-500"
+        />
+      ) : null}
+      {dot && !row ? (
         <span
           aria-hidden
           className="absolute right-1 top-1 size-1.5 rounded-full bg-accent"

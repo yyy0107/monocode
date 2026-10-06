@@ -10,7 +10,6 @@ import { OrchestrationSidebarAgents } from "../../features/orchestration/ui/Orch
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Archive,
-  Check,
   ChevronDown,
   ChevronRight,
   CircleAlert,
@@ -1043,7 +1042,7 @@ function ProjectSessionSectionComponent({
     <div ref={sectionRef} data-project-session-section={pathKey(cwd)}>
       {!shortcutId && (status === "error" || (remoteProject && remote.error)) &&
       projectSessions.length > 0 ? (
-        <p role="status" className="px-3 py-1 text-[11px] text-content/50">
+        <p role="status" className="px-3 py-1 text-[11px] text-foreground-subtle">
           {uiT("Couldn’t load sessions")}
           {onRetry ? (
             <button
@@ -1057,7 +1056,7 @@ function ProjectSessionSectionComponent({
         </p>
       ) : null}
       {!shortcutId && remoteProject && remote.offline && projectSessions.length > 0 ? (
-        <p role="status" className="px-3 py-1 text-[11px] text-content/50">
+        <p role="status" className="px-3 py-1 text-[11px] text-foreground-subtle">
           {uiT("Offline — showing cached sessions")}
         </p>
       ) : null}
@@ -1068,7 +1067,7 @@ function ProjectSessionSectionComponent({
           ))}
         </div>
       ) : !cwd || cwd === "~" ? (
-        <p className="px-3 py-2 text-[12px] text-content/50">
+        <p className="px-3 py-2 text-ui-sm text-foreground-subtle">
           {uiT("No project folder")}
         </p>
       ) : (
@@ -1081,12 +1080,12 @@ function ProjectSessionSectionComponent({
               cannot claim "No sessions yet" before the rows have landed.
             */}
           {pendingFirstLoad ? (
-            <p role="status" className="px-3 py-1 text-[12px] text-content/50">
+            <p role="status" className="px-3 py-1 text-ui-sm text-foreground-subtle">
               {uiT("Loading sessions…")}
             </p>
           ) : (status === "error" || (remoteProject && remote.error)) &&
             projectSessions.length === 0 ? (
-            <p className="px-3 py-2 text-[12px] text-content/50">
+            <p className="px-3 py-2 text-ui-sm text-foreground-subtle">
               {uiT("Couldn’t load sessions")}
               {onRetry ? (
                 <button
@@ -1103,13 +1102,13 @@ function ProjectSessionSectionComponent({
             // just typed, so it stays a quiet line of text. Only the genuine
             // "this project has nothing in it" case earns the illustration.
             narrowedByUser ? (
-              <p className="px-3 py-2 text-[12px] text-content/50">
+              <p className="px-3 py-2 text-ui-sm text-foreground-subtle">
                 {searchNarrowed
                   ? uiT("No matching sessions")
                   : uiT("No sessions match these filters")}
               </p>
             ) : remoteProject && remote.offline ? (
-              <p className="px-3 py-2 text-[12px] text-content/45">
+              <p className="px-3 py-2 text-ui-sm text-content/45">
                 {uiT(
                   "This project’s machine isn’t connected on this computer.",
                 )}
@@ -1139,7 +1138,7 @@ function ProjectSessionSectionComponent({
                         !dense && (expanded || beforeUngrouped) ? "mb-1.5" : ""
                       }`}
                     >
-                      <div className="overflow-hidden rounded-md bg-content/5">
+                      <div className="overflow-hidden rounded-lg bg-content/5">
                         <SessionGroupRow
                           dense={dense}
                           label={isReminders ? uiT("Reminders") : uiT("Pinned")}
@@ -1228,7 +1227,7 @@ function ProjectSessionSectionComponent({
                           : TREE_PREVIEW_COUNT,
                       )
                     }
-                    className="flex h-8 w-full items-center rounded-md pl-8 pr-2 text-left text-[13px] text-content/45 hover:bg-content/5 hover:text-content"
+                    className="flex h-8 w-full items-center rounded-lg pl-8 pr-2 text-left text-ui-caption text-content/45 hover:bg-surface-hover hover:text-content"
                   >
                     {hiddenSessions ? uiT("Show more") : uiT("Show less")}
                   </button>
@@ -1307,16 +1306,16 @@ function SessionGroupRow({
       data-tauri-drag-region="false"
       onClick={onToggle}
       className={`group relative flex w-full touch-none items-center gap-1.5 ${dense ? "pl-8 pr-2" : "px-2"} h-8 text-left ${
-        expanded ? "rounded-md" : ""
+        expanded ? "rounded-lg" : ""
       } ${
         expanded
-          ? "text-content hover:bg-content/10"
-          : "text-content/80 hover:bg-content/10 hover:text-content"
+          ? "text-content hover:bg-surface-hover"
+          : "text-content/80 hover:bg-surface-hover hover:text-content"
       }`}
     >
       <span
         className={`relative grid size-4 shrink-0 place-items-center ${
-          accent ? "" : "text-content/50"
+          accent ? "" : "text-foreground-subtle"
         }`}
         style={accent ? { color: accent } : undefined}
       >
@@ -1344,7 +1343,7 @@ function SessionGroupRow({
           </>
         )}
       </span>
-      <span className="relative min-w-0 flex-1 truncate text-[13px] font-semibold leading-snug text-content">
+      <span className="relative min-w-0 flex-1 truncate text-ui-caption font-semibold leading-snug text-content">
         {label}
       </span>
       <span className="relative flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-content/45">
@@ -1353,7 +1352,7 @@ function SessionGroupRow({
         ) : !expanded && busy ? (
           <TerminalSpinner className="inline-block w-3 select-none text-center text-[11px] leading-none text-accent" />
         ) : !expanded && done ? (
-          <Check className="size-3 text-emerald-400" strokeWidth={2.25} />
+          <span className="size-1.5 rounded-full bg-sky-500" />
         ) : null}
         <span>{count}</span>
       </span>
@@ -1555,6 +1554,7 @@ const SessionCard = memo(function SessionCard({
     enabled: dense && !orchestrationTooltipOpen && !dragging,
   });
   const orchestration = session.orchestration;
+  const failed = orchestration?.tasks.some((task) => task.status === "failed");
   const draft = !!session.draft;
   const orchestrationExpanded =
     !dense && !!orchestration && (isActive || isSelected || busy);
@@ -1575,11 +1575,13 @@ const SessionCard = memo(function SessionCard({
     ? "text-amber-400"
     : busy
       ? "text-accent"
-      : done
-        ? "text-emerald-400"
-        : draft
-          ? "text-content/55"
-          : "text-content/45";
+      : failed
+        ? "text-destructive"
+        : done
+          ? "text-sky-500"
+          : draft
+            ? "text-content/55"
+            : "text-content/45";
   const status = (
     <span
       className={`flex shrink-0 items-center gap-1 text-[11px] tabular-nums ${statusClass}`}
@@ -1596,9 +1598,14 @@ const SessionCard = memo(function SessionCard({
           <TerminalSpinner className="inline-block w-3 select-none text-center text-[11px] leading-none text-accent" />
           <span>{uiT("Working...")}</span>
         </>
+      ) : failed ? (
+        <>
+          <span className="size-1.5 rounded-full bg-destructive" />
+          <span>{uiT("Failed")}</span>
+        </>
       ) : done ? (
         <>
-          <Check className="size-3" strokeWidth={2.25} />
+          <span className="size-1.5 rounded-full bg-sky-500" />
           <span>{uiT("Done")}</span>
         </>
       ) : draft ? (
@@ -1616,7 +1623,7 @@ const SessionCard = memo(function SessionCard({
     ? resolveModel(session.harness, session.model).name
     : undefined;
   const summaryStatus =
-    needsApproval || busy || done || draft ? (
+    needsApproval || busy || failed || done || draft ? (
       status
     ) : (
       <span className={`shrink-0 text-[11px] ${statusClass}`}>
@@ -1632,10 +1639,17 @@ const SessionCard = memo(function SessionCard({
     <span role="img" aria-label={uiT("Working...")}>
       <TerminalSpinner className="w-3 shrink-0 text-center text-[11px] leading-none text-accent" />
     </span>
+  ) : failed ? (
+    <span
+      role="img"
+      aria-label={uiT("Failed")}
+      className="size-1.5 shrink-0 rounded-full bg-destructive"
+    />
   ) : done ? (
-    <Check
+    <span
+      role="img"
       aria-label={uiT("Done")}
-      className="size-3 shrink-0 text-emerald-400"
+      className="size-1.5 shrink-0 rounded-full bg-sky-500"
     />
   ) : draft ? (
     <CircleDashed
@@ -1650,7 +1664,7 @@ const SessionCard = memo(function SessionCard({
         value0: String(linkedWorkItem?.kind === "pr" ? "PR" : "issue"),
       })}
       aria-label={uiT("Linked work item updated")}
-      className="size-1.5 shrink-0 rounded-full bg-accent"
+      className="size-1.5 shrink-0 rounded-full bg-sky-500"
     />
   ) : null;
   const workItemBadge = linkedWorkItem ? (
@@ -1877,7 +1891,7 @@ const SessionCard = memo(function SessionCard({
               }
             : undefined
         }
-        className={`relative border flex w-full cursor-default select-none touch-none rounded-md text-left ${dense ? `h-8 flex-row items-center gap-1 ${shortcut ? "px-2" : compact ? "pl-[54px] pr-2" : "pl-8 pr-2"}` : `flex-col px-2.5 ${cardPaddingY}`} ${
+        className={`relative border flex w-full cursor-default select-none touch-none rounded-lg text-left ${dense ? `h-8 flex-row items-center gap-1 ${shortcut ? "px-2" : compact ? "pl-[54px] pr-2" : "pl-8 pr-2"}` : `flex-col px-2.5 ${cardPaddingY}`} ${
           dragging ? "opacity-0" : ""
         } ${
           isSelected
@@ -1887,11 +1901,11 @@ const SessionCard = memo(function SessionCard({
               : isActive
                 ? `bg-selection text-content ${draft ? "border-content/30 border-dashed" : "border-transparent"}`
                 : draft
-                  ? "border-content/25 border-dashed text-content/80 hover:bg-content/5 hover:text-content"
+                  ? "border-content/25 border-dashed text-content/80 hover:bg-surface-hover hover:text-content"
                   : `text-content/80 hover:text-content border-transparent ${
                       orchestrationExpanded
-                        ? "bg-content/5 hover:bg-content/10"
-                        : "hover:bg-content/5"
+                        ? "bg-content/5 hover:bg-surface-hover"
+                        : "hover:bg-surface-hover"
                     }`
         }`}
       >
@@ -1925,7 +1939,7 @@ const SessionCard = memo(function SessionCard({
                   harness={session.harness}
                   className="size-3.5 shrink-0"
                 />
-                <span className="min-w-0 truncate text-[11px] text-content/50">
+                <span className="min-w-0 truncate text-[11px] text-foreground-subtle">
                   {model}
                 </span>
               </span>
@@ -1960,7 +1974,7 @@ const SessionCard = memo(function SessionCard({
             ) : null}
             <ParticleText
               text={title}
-              className={`min-w-0 flex-1 line-clamp-1 text-[13px] leading-snug text-content ${dense ? "font-normal" : "font-semibold"}`}
+              className={`min-w-0 flex-1 line-clamp-1 text-ui-caption leading-snug text-content ${dense ? "font-normal" : "font-semibold"}`}
             />
             {dense || (compact && !orchestrationExpanded) ? (
               <span className="flex shrink-0 items-center gap-1.5">
@@ -2007,7 +2021,7 @@ const SessionCard = memo(function SessionCard({
                   event.stopPropagation();
                   onArchive(session.id, !session.archived);
                 }}
-                className="pointer-events-none grid size-5 place-items-center rounded-md text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+                className="pointer-events-none grid size-5 place-items-center rounded-lg text-foreground-subtle opacity-0 hover:bg-surface-hover hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
               >
                 <Archive className="size-3 shrink-0" />
               </button>
@@ -2061,7 +2075,7 @@ const SessionCard = memo(function SessionCard({
                     setOrchestrationTooltipOpen(false);
                     onSelect(session.id, event);
                   }}
-                  className="grid size-5 shrink-0 place-items-center rounded-md text-fuchsia-300/65 hover:bg-content/10 hover:text-fuchsia-200/90"
+                  className="grid size-5 shrink-0 place-items-center rounded-lg text-fuchsia-300/65 hover:bg-surface-hover hover:text-fuchsia-200/90"
                 >
                   <Share className="size-3" />
                 </button>
@@ -2072,7 +2086,7 @@ const SessionCard = memo(function SessionCard({
       </div>
       <HoverSummary hover={metadataHover} role="tooltip">
         <div className="flex items-start gap-3">
-          <h3 className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-snug text-content [overflow-wrap:anywhere]">
+          <h3 className="min-w-0 flex-1 break-words text-ui-caption font-semibold leading-snug text-content [overflow-wrap:anywhere]">
             {title}
           </h3>
           {summaryStatus}
@@ -2141,7 +2155,7 @@ const SessionCard = memo(function SessionCard({
               return (
                 <div
                   key={task.sessionId}
-                  className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-1"
+                  className="flex min-w-0 items-center gap-1.5 rounded-lg px-1 py-1"
                 >
                   <HarnessIcon
                     harness={task.harness}
@@ -2237,7 +2251,7 @@ function SessionRenameRow({
   return (
     <div
       data-session-rename-row={session.id}
-      className={`flex w-full rounded-md ${dense ? `h-8 items-center ${compact ? "pl-[46px] pr-2" : "pl-6 pr-2"}` : "flex-col px-2.5 py-2"} ${
+      className={`flex w-full rounded-lg ${dense ? `h-8 items-center ${compact ? "pl-[46px] pr-2" : "pl-6 pr-2"}` : "flex-col px-2.5 py-2"} ${
         needsApproval
           ? "bg-amber-400/10 text-content"
           : isActive
@@ -2251,7 +2265,7 @@ function SessionRenameRow({
         onChange={(e) => setValue(e.target.value)}
         onBlur={() => finish(true)}
         onKeyDown={onKeyDown}
-        className="w-full rounded bg-content/10 px-2 py-1 text-[13px] font-semibold leading-snug text-content outline-none ring-1 ring-accent/40"
+        className="w-full rounded bg-content/10 px-2 py-1 text-ui-caption font-semibold leading-snug text-content outline-none ring-1 ring-accent/40"
       />
     </div>
   );

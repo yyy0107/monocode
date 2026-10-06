@@ -86,6 +86,45 @@ it("paces a burst of tool calls so each enters after the one before it", () => {
   expect(stages()).toEqual(["settled", "entering", "entering", "entering"]);
 });
 
+it("keeps a closing phase inert until motion ends and supports rapid reopening", () => {
+  render([
+    { id: "user", role: "user", text: "Review the diff" },
+    { id: "intro", role: "assistant", text: "Checking the repo first." },
+    tool("first"),
+    tool("second"),
+  ]);
+  const body = container.querySelector<HTMLElement>(".zen-phase-body")!;
+  const toggle = body.previousElementSibling as HTMLButtonElement;
+  const content = body.querySelector<HTMLElement>(".zen-fold-item")!;
+  const steps = [...body.querySelectorAll(".zen-phase-step")];
+  expect(steps).toHaveLength(2);
+
+  act(() => toggle.click());
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(content.dataset.foldState).toBe("closing");
+  expect(content.inert).toBe(true);
+  expect(content.getAttribute("aria-hidden")).toBe("true");
+  expect([...body.querySelectorAll(".zen-phase-step")]).toEqual(steps);
+
+  act(() => vi.advanceTimersByTime(200));
+  act(() => toggle.click());
+  // Passing the original close deadline must not remove reopened content.
+  act(() => vi.advanceTimersByTime(150));
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(content.dataset.foldState).toBe("opening");
+  expect(content.inert).toBe(false);
+  expect(content.hasAttribute("aria-hidden")).toBe(false);
+  expect(body.querySelector(".zen-fold-item")).toBe(content);
+  expect([...body.querySelectorAll(".zen-phase-step")]).toEqual(steps);
+
+  act(() => toggle.click());
+  expect(content.dataset.foldState).toBe("closing");
+  expect(body.contains(steps[0])).toBe(true);
+  act(() => content.dispatchEvent(new Event("animationend", { bubbles: true })));
+  expect(body.querySelector(".zen-fold-item")).toBeNull();
+  expect(body.querySelector(".zen-phase-step")).toBeNull();
+});
+
 it("reveals the desktop's Chinese reply character by character through the shared renderer", () => {
   const user: Block = { id: "user", role: "user", text: "Reply in Chinese" };
   const text =

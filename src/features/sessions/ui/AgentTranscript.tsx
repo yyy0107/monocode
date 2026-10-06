@@ -54,6 +54,7 @@ import { SecondOpinionCard } from "./SecondOpinionCard";
 import { NoteMiniCard } from "../../notes/ui/NoteMiniCard";
 
 import { TerminalSpinner } from "./TerminalSpinner";
+import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { Popover } from "../../../shared/ui/Popover";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
 import type { ApprovalDecision } from "../../../integrations/harness";
@@ -864,9 +865,9 @@ function AgentTranscriptComponent({
       ref={setScroller}
       className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-[13px] leading-5"
     >
-      <div className="mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-1 pb-8">
+      <div className="mx-auto flex w-full min-w-0 max-w-4xl @[1280px]:max-w-6xl flex-col gap-1 pb-8">
         {firstVisibleTurn > 0 ? (
-          <div className="flex justify-center px-4 py-3">
+          <div className="flex justify-center px-4 @md:px-6 py-3">
             <button
               type="button"
               className="rounded-md bg-content/8 px-2.5 py-1.5 font-sans text-[12px] text-content/60 hover:bg-content/12 hover:text-content"
@@ -1150,7 +1151,7 @@ function AgentTranscriptComponent({
                   .map((block) => (
                     <div
                       key={block.id}
-                      className="px-4 pt-1 pb-2"
+                      className="px-4 @md:px-6 pt-1 pb-2"
                       data-orchestration-result
                     >
                       <OrchestrationPreview block={block} busy={!!busy} />
@@ -1220,7 +1221,7 @@ function InitialThinking({
   const { t: uiT } = useTranslation();
   return (
     <div
-      className={`min-w-0 pt-3 pb-1 font-sans text-sm text-content/50 ${embedded ? "" : "px-4"}`}
+      className={`min-w-0 pt-3 pb-1 font-sans text-sm text-content/50 ${embedded ? "" : "px-4 @md:px-6"}`}
     >
       {live ? (
         <Shimmer duration={1.6}>{uiT("Thinking…")}</Shimmer>
@@ -1322,7 +1323,7 @@ function TurnDuration({
   return (
     <div
       aria-label={label}
-      className="flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden px-4 pt-1 pb-3 font-sans text-sm text-content/40"
+      className="flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden px-4 @md:px-6 pt-1 pb-3 font-sans text-sm text-content/40"
     >
       <span className="flex shrink-0 items-center gap-1">
         {output ? (
@@ -1675,7 +1676,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   if (block.role === "tasks") {
     if (!block.taskList?.items.length) return null;
     return (
-      <div className={embedded ? "py-1" : "px-4 py-1"}>
+      <div className={embedded ? "py-1" : "px-4 @md:px-6 py-1"}>
         <TaskListPreview
           items={block.taskList.items}
           explanation={block.taskList.explanation}
@@ -1689,13 +1690,13 @@ const TranscriptBlock = memo(function TranscriptBlock({
     const legacyTasks = legacyTaskListFromText(block.text);
     if (legacyTasks) {
       return (
-        <div className={embedded ? "py-1" : "px-4 py-1"}>
+        <div className={embedded ? "py-1" : "px-4 @md:px-6 py-1"}>
           <TaskListPreview items={legacyTasks} />
         </div>
       );
     }
     return (
-      <div className={embedded ? "py-1" : "px-4 py-1"}>
+      <div className={embedded ? "py-1" : "px-4 @md:px-6 py-1"}>
         <PlanPreview
           text={block.text}
           streaming={block.streaming}
@@ -1740,7 +1741,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
         : undefined;
     if (harness && issue) {
       return (
-        <div className={`${embedded ? "" : "px-4"} py-2`}>
+        <div className={`${embedded ? "" : "px-4 @md:px-6"} py-2`}>
           <SessionAccessNotice
             harness={harness}
             issue={issue}
@@ -1750,7 +1751,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
       );
     }
     return (
-      <div className={`${embedded ? "" : "px-4"} py-2 text-content/50`}>
+      <div className={`${embedded ? "" : "px-4 @md:px-6"} py-2 text-content/50`}>
         <pre className="min-w-0 whitespace-pre-wrap break-words">
           {localizeOrchestrationMessage(localizeChildExitError(block.text, uiT), uiT)}
         </pre>
@@ -1763,7 +1764,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   return (
     <div
       data-selectable-agent-response={block.streaming ? undefined : block.id}
-      className={`min-w-0 pb-1 text-content ${embedded ? "" : "px-4"} ${underLine ? "pt-1" : "pt-3"}`}
+      className={`min-w-0 pb-1 text-content ${embedded ? "" : "px-4 @md:px-6"} ${underLine ? "pt-1" : "pt-3"}`}
     >
       <AgentMarkdown
         text={block.text}
@@ -1879,7 +1880,7 @@ function UserMessageBlock({
       data-prompt-anchor={block.id}
       data-message-layout={layout}
       data-editing-last-turn={editing ? "true" : undefined}
-      className="user-message-row group/usermsg flex flex-col items-end overflow-visible pt-1 pr-4 pb-5 pl-[18%]"
+      className="user-message-row group/usermsg flex flex-col items-end overflow-visible pt-1 pr-4 @md:pr-6 pb-5 pl-[18%]"
     >
       <div className="user-message-hover-zone flex w-fit max-w-full min-w-0 flex-col items-end overflow-visible">
         {block.origin?.kind === "assistant" && (
@@ -2071,51 +2072,14 @@ function TurnRow({
   folded: boolean;
   children: ReactNode | (() => ReactNode);
 }) {
-  const [foldState, setFoldState] = useState<
-    "open" | "opening" | "closing" | "closed"
-  >(folded ? "closed" : "open");
-
-  useLayoutEffect(() => {
-    setFoldState((current) => {
-      if (folded) {
-        return current === "closed" || current === "closing"
-          ? current
-          : "closing";
-      }
-      return current === "open" || current === "opening" ? current : "opening";
-    });
-  }, [folded]);
-
-  useEffect(() => {
-    if (foldState !== "opening" && foldState !== "closing") return;
-    // Hidden tabs and reduced-motion styles may never fire animationend.
-    const timer = window.setTimeout(() => {
-      setFoldState(folded ? "closed" : "open");
-    }, 350);
-    return () => window.clearTimeout(timer);
-  }, [foldState, folded]);
-
-  if (folded && foldState === "closed") return null;
-
   return (
-    // `inert` keeps folded work out of tab order and off the screen reader.
-    <div
-      className="zen-fold-item"
-      data-fold-state={foldState}
-      inert={folded}
-      onAnimationEnd={(event) => {
-        if (event.target !== event.currentTarget) return;
-        setFoldState(folded ? "closed" : "open");
-      }}
-    >
-      {/* Keep padding off the Grid item itself. Otherwise its 4px bottom
-       * padding survives a 0fr track and every folded row leaves a gap. */}
-      <div>
+    <AnimatedCollapse expanded={!folded}>
+      {() => (
         <div className="pb-1">
           {typeof children === "function" ? children() : children}
         </div>
-      </div>
-    </div>
+      )}
+    </AnimatedCollapse>
   );
 }
 
@@ -2148,34 +2112,24 @@ function WorkFoldLine({
   onToggle: () => void;
 }) {
   const { t: uiT } = useTranslation();
+  const iconTone = expandable
+    ? `transition-opacity ${open ? "opacity-0" : "group-hover:opacity-0 group-focus-within:opacity-0"}`
+    : "";
   const icon = (
     <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-      {open ? (
-        // Open, the chevron stays put: it is the way back, and hunting for it
-        // under the cursor is no way to close what you opened.
-        <ChevronRight
-          className="size-3.5 rotate-90 text-content/45"
+      {harness ? (
+        <HarnessIcon
+          harness={harness}
+          className={`size-3.5 shrink-0 ${iconTone}`}
         />
       ) : (
-        <>
-          {harness ? (
-            <HarnessIcon
-              harness={harness}
-              className={`size-3.5 shrink-0 ${expandable ? "group-hover:opacity-0" : ""}`}
-            />
-          ) : (
-            <ActivityPhaseIcon
-              kind={kind}
-              className={expandable ? "group-hover:opacity-0" : ""}
-            />
-          )}
-          {expandable ? (
-            <ChevronRight
-              className="absolute size-3.5 text-content/45 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-            />
-          ) : null}
-        </>
+        <ActivityPhaseIcon kind={kind} className={iconTone} />
       )}
+      {expandable ? (
+        <ChevronRight
+          className={`zen-disclosure-chevron absolute size-3.5 ${open ? "rotate-90" : ""}`}
+        />
+      ) : null}
     </span>
   );
   // While the agent runs, the clock shimmers here rather than at the bottom,
@@ -2183,11 +2137,11 @@ function WorkFoldLine({
   const label = live ? (
     title
   ) : (
-    <span className="min-w-0 flex-1 truncate font-sans text-sm text-content/50 transition-colors duration-200 group-hover:text-content/80">
+    <span className="min-w-0 flex-1 truncate font-sans text-sm text-foreground-subtlest transition-colors duration-200 group-hover:text-content/80">
       {title}
     </span>
   );
-  const row = `flex w-full min-w-0 items-center gap-1.5 px-4 py-1 text-left${
+  const row = `flex w-full min-w-0 items-center gap-1.5 px-4 @md:px-6 py-1 text-left${
     open ? " zen-fold-drop" : ""
   }`;
 
@@ -2247,7 +2201,9 @@ const ActivityPhases = memo(function ActivityPhases({
   const phases = useMemo(() => buildActivityPhases(blocks), [blocks]);
 
   return (
-    <div className={`flex min-w-0 flex-col gap-1 ${padded ? "px-4" : ""}`}>
+    <div
+      className={`flex min-w-0 flex-col gap-1 ${padded ? "px-4 @md:px-6" : ""}`}
+    >
       {phases.map((phase, index) => (
         <ActivityPhaseGroup
           key={phase.id}
@@ -2500,7 +2456,7 @@ function ActivityPhaseGroup({
   ) : (
     // Dimmed to sit with the icons: the work is chrome around the answer, and
     // only the answer reads at full strength.
-    <span className="min-w-0 flex-1 truncate font-sans text-sm text-content/50 transition-colors duration-200 group-hover:text-content/80">
+    <span className="min-w-0 flex-1 truncate font-sans text-sm text-foreground-subtlest transition-colors duration-200 group-hover:text-content/80">
       {title}
     </span>
   );
@@ -2534,15 +2490,21 @@ function ActivityPhaseGroup({
          */}
         <span className="relative flex size-3.5 shrink-0 items-center justify-center">
           {monoCodePhase ? (
-            <MonoCodeMark className="size-3.5 group-hover:opacity-0" />
+            <MonoCodeMark
+              className={`size-3.5 ${open ? "opacity-0" : "group-hover:opacity-0 group-focus-within:opacity-0"}`}
+            />
           ) : (
             <ActivityPhaseIcon
               kind={phase.kind}
-              className="group-hover:opacity-0"
+              className={
+                open
+                  ? "opacity-0"
+                  : "group-hover:opacity-0 group-focus-within:opacity-0"
+              }
             />
           )}
           <ChevronRight
-            className={`absolute size-3.5 text-content/45 opacity-0 transition-transform duration-200 group-hover:opacity-100 ${
+            className={`zen-disclosure-chevron absolute size-3.5 ${
               open ? "rotate-90" : ""
             }`}
           />
@@ -2550,48 +2512,50 @@ function ActivityPhaseGroup({
         {label}
       </button>
       <div className="zen-phase-body" data-open={open}>
-        {open ? (
-          <div
-            ref={setLiveScroller}
-            className={active || !open ? "zen-phase-live" : undefined}
-          >
-            <div className="flex min-w-0 flex-col">
-              {headline ? (
-                <div className="zen-phase-step py-1">
-                  <AgentMarkdown
-                    className={
-                      headline.role === "reasoning"
-                        ? "agent-reasoning"
-                        : undefined
-                    }
-                    text={headline.text}
-                    cwd={cwd}
-                    onOpenFile={onOpenFile}
-                  />
-                </div>
-              ) : null}
-              {phase.steps.map((block) => {
-                const arriving = active && !settled.current?.has(block.id);
-                return (
-                  <PhaseStep
-                    key={block.id}
-                    live={active}
-                    turn={arriving ? turnFor(block.id) : undefined}
-                  >
-                    <ActivityRow
-                      block={block}
+        <AnimatedCollapse expanded={open}>
+          {() => (
+            <div
+              ref={setLiveScroller}
+              className={active || !open ? "zen-phase-live" : undefined}
+            >
+              <div className="flex min-w-0 flex-col">
+                {headline ? (
+                  <div className="zen-phase-step py-1">
+                    <AgentMarkdown
+                      className={
+                        headline.role === "reasoning"
+                          ? "agent-reasoning"
+                          : undefined
+                      }
+                      text={headline.text}
                       cwd={cwd}
-                      live={active}
-                      onApproval={onApproval}
                       onOpenFile={onOpenFile}
-                      onOpenDiff={onOpenDiff}
                     />
-                  </PhaseStep>
-                );
-              })}
+                  </div>
+                ) : null}
+                {phase.steps.map((block) => {
+                  const arriving = active && !settled.current?.has(block.id);
+                  return (
+                    <PhaseStep
+                      key={block.id}
+                      live={active}
+                      turn={arriving ? turnFor(block.id) : undefined}
+                    >
+                      <ActivityRow
+                        block={block}
+                        cwd={cwd}
+                        live={active}
+                        onApproval={onApproval}
+                        onOpenFile={onOpenFile}
+                        onOpenDiff={onOpenDiff}
+                      />
+                    </PhaseStep>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ) : null}
+          )}
+        </AnimatedCollapse>
       </div>
     </div>
   );
@@ -2707,7 +2671,7 @@ function SubagentStack({
   onOpenDiff?: (path: string) => void;
 }) {
   return (
-    <div className={`flex min-w-0 flex-col ${embedded ? "" : "px-4"}`}>
+    <div className={`flex min-w-0 flex-col ${embedded ? "" : "px-4 @md:px-6"}`}>
       {blocks.map((block) => (
         <SubagentRow
           key={block.id}
@@ -2818,7 +2782,7 @@ function SubagentPanel({
         </span>
       )}
       {model || status ? (
-        <span className="flex min-w-0 max-w-[55%] shrink-0 items-baseline gap-2 font-sans text-[12px] text-content/40">
+        <span className="flex min-w-0 max-w-[55%] shrink-0 items-baseline gap-2 font-sans text-ui-sm text-content/40">
           {model ? (
             <span
               className="truncate"
@@ -2870,45 +2834,47 @@ function SubagentPanel({
         <SubagentMascot name={name} state={state} active={active} />
         {label}
         <ChevronRight
-          className={`size-3.5 shrink-0 text-content/35 transition-transform duration-200 group-hover:text-content/60 ${
+          className={`zen-disclosure-chevron size-3.5 shrink-0 ${
             open ? "rotate-90" : ""
           }`}
         />
       </button>
       <div className="zen-phase-body" data-open={open}>
-        {open ? (
-          /*
-           * No scroll window of its own. Each phase inside already keeps the
-           * group the run is working in to a short pinned window; wrapping a
-           * second window around them nests one 17.5rem scroller inside
-           * another, and the inner one can never reach its own last row.
-           */
-          <div className="flex min-w-0 flex-col pb-1">
-            <ActivityPhases
-              blocks={stepBlocks}
-              cwd={cwd}
-              done={!active}
-              padded={false}
-              onOpenFile={onOpenFile}
-              onOpenDiff={onOpenDiff}
-            />
-            {report ? (
-              <div className="zen-phase-step py-1">
-                {failed ? (
-                  <pre className="min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-red-400/80">
-                    {report}
-                  </pre>
-                ) : (
-                  <AgentMarkdown
-                    text={report}
-                    cwd={cwd}
-                    onOpenFile={onOpenFile}
-                  />
-                )}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+        <AnimatedCollapse expanded={open}>
+          {() => (
+            /*
+             * No scroll window of its own. Each phase inside already keeps the
+             * group the run is working in to a short pinned window; wrapping a
+             * second window around them nests one 17.5rem scroller inside
+             * another, and the inner one can never reach its own last row.
+             */
+            <div className="flex min-w-0 flex-col pb-1">
+              <ActivityPhases
+                blocks={stepBlocks}
+                cwd={cwd}
+                done={!active}
+                padded={false}
+                onOpenFile={onOpenFile}
+                onOpenDiff={onOpenDiff}
+              />
+              {report ? (
+                <div className="zen-phase-step py-1">
+                  {failed ? (
+                    <pre className="min-w-0 whitespace-pre-wrap break-words font-mono text-ui-sm leading-5 text-red-400/80">
+                      {report}
+                    </pre>
+                  ) : (
+                    <AgentMarkdown
+                      text={report}
+                      cwd={cwd}
+                      onOpenFile={onOpenFile}
+                    />
+                  )}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </AnimatedCollapse>
       </div>
     </div>
   );
@@ -3095,12 +3061,15 @@ function ActivityRow({
 /** A status row folded into the trail: one muted line, nothing to open. */
 function ActivityStatusRow({ block }: { block: Block }) {
   const { t } = useTranslation();
-  const text = localizeOrchestrationMessage(localizeChildExitError(block.text, t), t);
+  const text = localizeOrchestrationMessage(
+    localizeChildExitError(block.text, t),
+    t,
+  );
   return (
     <div className="flex min-w-0 items-center gap-1.5 py-1">
       <span
         title={text}
-        className="min-w-0 flex-1 truncate font-sans text-sm text-content/50"
+        className="min-w-0 flex-1 truncate font-sans text-sm text-foreground-subtlest"
       >
         {text.trim()}
       </span>
@@ -3130,7 +3099,7 @@ function ActivityInterjectionRow({ block }: { block: Block }) {
         </span>
       ) : null}
       {summary ? (
-        <span className="text-content/50 transition-colors duration-200 group-hover:text-content/75">
+        <span className="text-foreground-subtlest transition-colors duration-200 group-hover:text-content/75">
           {" · "}
           {summary}
         </span>
@@ -3198,13 +3167,11 @@ function ActivityThinkingRow({
   // reasoning streams in — the line itself does.
   const pulse = block.streaming ? "zen-thinking-pulse" : "";
   const icon = bare ? null : (
-    <Minus
-      className={`size-3.5 shrink-0 text-content/40 ${pulse}`}
-    />
+    <Minus className={`size-3.5 shrink-0 text-content/40 ${pulse}`} />
   );
   const label = (
     <span
-      className={`min-w-0 flex-1 truncate font-sans text-sm text-content/50 ${
+      className={`min-w-0 flex-1 truncate font-sans text-sm text-foreground-subtlest ${
         bare ? pulse : ""
       }`}
     >
@@ -3239,15 +3206,18 @@ function ActivityThinkingRow({
       >
         {icon}
         <span
-          className={`min-w-0 flex-1 truncate font-sans text-sm text-content/50 transition-colors duration-200 group-hover:text-content/75 ${
+          className={`min-w-0 flex-1 truncate font-sans text-sm text-foreground-subtlest transition-colors duration-200 group-hover:text-content/75 ${
             bare ? pulse : ""
           }`}
         >
           {text}
         </span>
+        <ChevronRight
+          className={`zen-disclosure-chevron size-3.5 shrink-0 ${open ? "rotate-90 opacity-100" : ""}`}
+        />
       </button>
-      {open ? (
-        <div className={`min-w-0 pb-2 ${bare ? "" : "pl-5"}`}>
+      <AnimatedCollapse expanded={open}>
+        <div className="zen-detail-panel">
           <AgentMarkdown
             className="agent-reasoning"
             text={block.text}
@@ -3255,7 +3225,7 @@ function ActivityThinkingRow({
             onOpenFile={onOpenFile}
           />
         </div>
-      ) : null}
+      </AnimatedCollapse>
     </div>
   );
 }
@@ -3281,7 +3251,7 @@ function ActivityNoteRow({
   const [open, setOpen] = useState(false);
   const text = proseSummary(block.text);
   const icon = bare ? null : (
-    <Minus className="size-3.5 shrink-0 text-content/50" />
+    <Minus className="size-3.5 shrink-0 text-foreground-subtlest" />
   );
 
   if (!expandable) {
@@ -3420,7 +3390,7 @@ function ActivityToolRow({
             className="-m-1 shrink-0 rounded p-1"
           >
             <ChevronRight
-              className={`size-3.5 text-red-400/60 transition-transform ${errorOpen ? "rotate-90" : ""}`}
+              className={`zen-disclosure-chevron size-3.5 text-red-400/60 ${errorOpen ? "rotate-90 opacity-100" : ""}`}
             />
           </button>
         </div>
@@ -3437,13 +3407,11 @@ function ActivityToolRow({
       {pending ? (
         <ApprovalControls block={block} onApproval={onApproval} />
       ) : null}
-      {errorOpen && errorDetail ? (
-        <pre
-          className={`min-w-0 whitespace-pre-wrap break-words py-1 font-mono text-[12px] leading-5 text-red-400/80 ${bare ? "" : "pl-5"}`}
-        >
+      <AnimatedCollapse expanded={errorOpen && !!errorDetail}>
+        <pre className="zen-detail-panel whitespace-pre-wrap break-words text-red-400/80">
           {errorDetail}
         </pre>
-      ) : null}
+      </AnimatedCollapse>
     </div>
   );
 }
@@ -3478,12 +3446,12 @@ function MonoCodeCallRow({
   const summary = (
     <>
       <span
-        className={`shrink-0 font-sans text-sm ${state === "rejected" ? "text-red-400" : "text-content/50"}`}
+        className={`shrink-0 font-sans text-sm ${state === "rejected" ? "text-red-400" : "text-foreground-subtlest"}`}
       >
         {verb}
       </span>
       <span
-        className={`flex min-w-0 max-w-full items-center gap-1 rounded bg-content/6 px-1 font-mono text-[13px] ${state === "rejected" ? "text-red-400" : "text-content/70"}`}
+        className={`flex min-w-0 max-w-full items-center gap-1 rounded bg-content/6 px-1 font-mono text-ui-caption ${state === "rejected" ? "text-red-400" : "text-content/70"}`}
         title={command}
       >
         <MonoCodeMark className="size-3.5" />
@@ -3515,13 +3483,13 @@ function MonoCodeCallRow({
       ) : (
         <div className="flex min-w-0 items-center gap-1.5 py-1">{summary}</div>
       )}
-      {errorOpen && hasError ? (
-        <pre className="min-w-0 whitespace-pre-wrap break-words py-1 pl-5 font-mono text-[12px] leading-5 text-red-400/80">
+      <AnimatedCollapse expanded={errorOpen && hasError}>
+        <pre className="zen-detail-panel whitespace-pre-wrap break-words text-red-400/80">
           {output}
         </pre>
-      ) : null}
+      </AnimatedCollapse>
       {pendingApproval ? (
-        <pre className="max-h-32 min-w-0 overflow-auto whitespace-pre-wrap break-all py-1 pl-5 font-mono text-[12px] leading-5 text-content/70">
+        <pre className="max-h-32 min-w-0 overflow-auto whitespace-pre-wrap break-all py-1 pl-5 font-mono text-ui-sm leading-5 text-content/70">
           {call.command}
         </pre>
       ) : null}
@@ -3545,9 +3513,7 @@ function ActivityToolIcon({
     );
   }
 
-  return (
-    <Minus className="size-3.5 shrink-0 text-content/50" />
-  );
+  return <Minus className="size-3.5 shrink-0 text-foreground-subtlest" />;
 }
 
 /** Failure stays marked. Running and success do not get a trailing icon. */
@@ -3662,7 +3628,7 @@ function ToolCall({
     isSearchTool(block.tool?.kind, label, preview);
   const expandable = !compact && !!detail && detail !== label;
 
-  const frame = embedded ? "py-0.5" : "px-4 py-1";
+  const frame = embedded ? "py-0.5" : "px-4 @md:px-6 py-1";
 
   const appCall = monoCodeToolCall(block);
   if (appCall) {
@@ -3740,7 +3706,7 @@ function ToolCall({
             value1: String(label),
           })}
           onClick={() => setOpen((value) => !value)}
-          className="flex w-full min-w-0 items-center gap-2 rounded-lg py-1.5 text-left"
+          className="group flex w-full min-w-0 items-center gap-2 rounded-lg py-1.5 text-left"
         >
           <ToolCallIcon state={state} />
           <ToolCallSummary
@@ -3751,7 +3717,7 @@ function ToolCall({
             onOpenFile={onOpenFile}
           />
           <ChevronRight
-            className={`size-3.5 shrink-0 text-content/35 transition-transform ${open ? "rotate-90" : ""}`}
+            className={`zen-disclosure-chevron size-3.5 shrink-0 ${open ? "rotate-90 opacity-100" : ""}`}
           />
         </button>
       ) : (
@@ -3772,11 +3738,11 @@ function ToolCall({
           />
         </div>
       )}
-      {open && expandable ? (
-        <pre className="mt-1.5 min-w-0 whitespace-pre-wrap break-words px-2.5 font-mono text-[12px] leading-5 text-content/55">
+      <AnimatedCollapse expanded={open && expandable}>
+        <pre className="zen-detail-panel whitespace-pre-wrap break-words">
           {expanded}
         </pre>
-      ) : null}
+      </AnimatedCollapse>
       <ApprovalControls block={block} onApproval={onApproval} />
     </div>
   );
@@ -3806,7 +3772,7 @@ function ToolOpenRow({
       tabIndex={0}
       aria-label={uiT("Show tool details: {value0}", { value0: label })}
       data-tool-open-row=""
-      className={`${className} cursor-pointer`}
+      className={`group ${className} cursor-pointer`}
       onClick={() => onOpen(block)}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
@@ -3816,9 +3782,7 @@ function ToolOpenRow({
       }}
     >
       {children}
-      <ChevronRight
-        className="size-3.5 shrink-0 text-content/30"
-      />
+      <ChevronRight className="zen-disclosure-chevron size-3.5 shrink-0" />
     </div>
   );
 }
@@ -3850,7 +3814,7 @@ function ToolCallSummary({
   if (!action || !target) {
     return (
       <span
-        className={`min-w-0 flex-1 truncate font-mono text-[13px] ${
+        className={`min-w-0 flex-1 truncate font-mono text-ui-caption ${
           failed ? "text-red-400" : chip ? "text-content/65" : "text-content/80"
         }`}
         title={label}
@@ -3870,7 +3834,7 @@ function ToolCallSummary({
     previewMatchesFile &&
     (preview.contentOnly ||
       preview.lines?.some((line) => line.kind !== "context"));
-  const actionTone = failed ? "text-red-400" : "text-content/50";
+  const actionTone = failed ? "text-red-400" : "text-foreground-subtlest";
   const targetTone = failed
     ? "text-red-400"
     : chip
@@ -3878,7 +3842,7 @@ function ToolCallSummary({
       : "text-content/85";
 
   return (
-    <span className="flex min-w-0 flex-1 items-center gap-1.5 font-mono text-[13px]">
+    <span className="flex min-w-0 flex-1 items-center gap-1.5 font-mono text-ui-caption">
       <span className={`shrink-0 font-sans text-sm ${actionTone}`}>
         {action}
       </span>
@@ -3947,11 +3911,7 @@ function ToolCallIcon({ state }: { state: ToolCallState }) {
     return <X className="size-3.5 shrink-0 text-red-400" strokeWidth={2} />;
   }
   if (state === "pending") {
-    return (
-      <CircleDashed
-        className="size-3.5 shrink-0 text-content/40"
-      />
-    );
+    return <CircleDashed className="size-3.5 shrink-0 text-content/40" />;
   }
   return null;
 }
@@ -3995,7 +3955,7 @@ function HandoffDivider({ block }: { block: Block }) {
   const label = preparing ? "Preparing a handoff" : HARNESS_TITLE[meta.to];
 
   return (
-    <div className="px-4 py-5">
+    <div className="px-4 @md:px-6 py-5">
       <div className="flex items-center gap-3">
         <div className="h-px min-w-4 flex-1 bg-content/12" />
         <div
@@ -4088,7 +4048,7 @@ function InterjectionDivider({ block }: { block: Block }) {
   if (!meta) return null;
   const { label, severityText, severityClass } = interjectionChrome(meta);
   return (
-    <div className="px-4 py-4">
+    <div className="px-4 @md:px-6 py-4">
       <div className="flex items-center gap-3">
         <div className="h-px min-w-4 flex-1 bg-content/12" />
         <div

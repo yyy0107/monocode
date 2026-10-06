@@ -25,6 +25,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -69,6 +70,7 @@ import {
 } from "../../features/projects/model/projectGroups";
 import { ProjectMascot } from "../../features/projects/ui/ProjectMascot";
 import { Shimmer } from "../../shared/ui/Shimmer";
+import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
 import { notificationMuteStatus } from "../../features/notifications/ui/notificationMuteActions";
 import { useProjectNotificationPreferences } from "../../features/notifications/hooks/useProjectNotificationPreferences";
 import { useNotificationProjects } from "../../features/notifications/hooks/useNotificationProjects";
@@ -123,6 +125,16 @@ export type ProjectListProps = {
 };
 
 const PROJECT_COLLAPSE_DURATION_MS = 280;
+
+function updateScrollMask(element: HTMLDivElement) {
+  const fade = Math.min(32, element.clientHeight / 2);
+  const top = element.scrollTop > 0 ? fade : 0;
+  const bottom =
+    element.scrollTop + element.clientHeight < element.scrollHeight - 1
+      ? fade
+      : 0;
+  element.style.maskImage = `linear-gradient(to bottom, transparent, black ${top}px, black calc(100% - ${bottom}px), transparent)`;
+}
 
 const ProjectSummaryContext = createContext<{
   summaries?: ReadonlyMap<string, ProjectHoverSummary>;
@@ -264,6 +276,20 @@ export function ProjectList({
   const notificationProjects = useNotificationProjects([...allProjects.keys()]);
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const scrollRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    if (!scrollable) {
+      element.style.maskImage = "";
+      return;
+    }
+    updateScrollMask(element);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => updateScrollMask(element));
+    observer.observe(element);
+    for (const child of element.children) observer.observe(child);
+    return () => observer.disconnect();
+  });
   const summaryPinFocus = useRef<string | undefined>(undefined);
   useEffect(() => {
     const path = summaryPinFocus.current;
@@ -432,6 +458,11 @@ export function ProjectList({
             else if (externalScrollRef) externalScrollRef.current = el;
           }}
           className={`flex flex-col gap-1 pb-2 ${scrollable ? "min-h-0 flex-1 overflow-y-auto overscroll-none" : "shrink-0"}`}
+          onScroll={
+            scrollable
+              ? (event) => updateScrollMask(event.currentTarget)
+              : undefined
+          }
         >
           {sections.pinned.length > 0 || pinnedEntries.length > 0 ? (
             <ProjectSection
@@ -800,7 +831,7 @@ function ProjectSectionHeader({
         aria-expanded={expanded}
         aria-controls={contentId}
         onClick={onToggleExpanded}
-        className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-0.5 text-left text-xs text-content/50 hover:bg-content/5 hover:text-content"
+        className="flex min-w-0 flex-1 items-center gap-1 rounded-lg px-1 py-0.5 text-left text-xs text-foreground-subtle hover:bg-surface-hover hover:text-content"
       >
         <ChevronRight
           className="project-tree-chevron size-3 shrink-0"
@@ -816,7 +847,7 @@ function ProjectSectionHeader({
             const rect = event.currentTarget.getBoundingClientRect();
             onAddGroup(rect.left, rect.bottom);
           }}
-          className="grid size-5 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/8 hover:text-content"
+          className="grid size-5 shrink-0 place-items-center rounded-lg text-foreground-subtle hover:bg-surface-hover hover:text-content"
         >
           <FolderPlus className="size-3.5" />
         </button>
@@ -893,7 +924,7 @@ function ProjectGroupSection({
 
   return (
     <div
-      className={`shrink-0 overflow-hidden rounded-md ${
+      className={`shrink-0 overflow-hidden rounded-lg ${
         tree
           ? `mb-1 last:mb-0 ${expanded ? "bg-content/5" : ""}`
           : expanded && !compact
@@ -906,7 +937,7 @@ function ProjectGroupSection({
     >
       {compact ? null : (
         <div
-          className="project-reorder-item group relative flex h-8 items-stretch rounded-md px-2 opacity-65 cursor-default"
+          className="project-reorder-item group relative flex h-8 items-stretch rounded-lg px-2 opacity-65 cursor-default"
           onContextMenu={(event) => {
             event.preventDefault();
             event.currentTarget
@@ -957,7 +988,7 @@ function ProjectGroupSection({
               event.stopPropagation();
               openMenu(event.currentTarget);
             }}
-            className="absolute right-1 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 hover:bg-content/8 hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
+            className="absolute right-1 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-lg text-content/55 hover:bg-surface-hover hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
           >
             <MoreHorizontal className="size-4" />
           </button>
@@ -1013,7 +1044,7 @@ function ProjectGroupSection({
 }
 
 const nameClassName =
-  "min-w-0 flex-1 truncate text-sm font-medium leading-tight";
+  "min-w-0 flex-1 truncate text-ui-base font-medium leading-tight";
 
 function ProjectCard({
   compact,
@@ -1103,7 +1134,7 @@ function ProjectCard({
   );
   const labelClassName = (
     machine
-      ? "min-w-0 max-w-[75%] shrink-0 truncate text-sm font-medium leading-tight"
+      ? "min-w-0 max-w-[75%] shrink-0 truncate text-ui-base font-medium leading-tight"
       : nameClassName
   ).replace("font-medium", tree ? "font-normal" : "font-medium");
   const treeAvatar = tree ? (
@@ -1131,11 +1162,11 @@ function ProjectCard({
       ref={tree ? undefined : (el) => sortable?.setItemRef(item.path, el)}
       data-selected={selected || undefined}
       data-project-header={tree ? "" : undefined}
-      className={`${tree ? "project-tree-header project-reorder-item" : "reorder-item project-reorder-item"} group relative flex touch-none items-stretch rounded-md ${compact ? "size-8" : "px-2 h-8"} ${
+      className={`${tree ? "project-tree-header project-reorder-item" : "reorder-item project-reorder-item"} group relative flex touch-none items-stretch rounded-lg ${compact ? "size-8" : "px-2 h-8"} ${
         tree
           ? selected
-            ? "text-content hover:bg-content/5"
-            : "text-content/80 hover:bg-content/5 hover:text-content"
+            ? "text-content hover:bg-surface-hover"
+            : "text-content/80 hover:bg-surface-hover hover:text-content"
           : selected
             ? "bg-selection-strong text-content"
             : "opacity-65"
@@ -1293,6 +1324,22 @@ function ProjectCard({
                 title={uiT("Needs approval")}
                 className="size-1.5 shrink-0 rounded-full bg-amber-400"
               />
+            ) : busy ? (
+              <span role="img" aria-label={uiT("Working...")}>
+                <TerminalSpinner className="inline-block w-3 shrink-0 select-none text-center text-ui-sm leading-none text-brand" />
+              </span>
+            ) : summary?.historyState === "error" ? (
+              <span
+                role="img"
+                aria-label={uiT("Couldn’t load sessions")}
+                className="size-1.5 shrink-0 rounded-full bg-destructive"
+              />
+            ) : summary && summary.unread > 0 ? (
+              <span
+                role="img"
+                aria-label={uiT("Unread")}
+                className="size-1.5 shrink-0 rounded-full bg-sky-500"
+              />
             ) : null}
           </>
         )}
@@ -1349,7 +1396,7 @@ function ProjectCard({
                 event.stopPropagation();
                 tree.onNewInProject?.(item.path);
               }}
-              className="absolute right-7 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 hover:bg-content/8 hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
+              className="absolute right-7 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-lg text-content/55 hover:bg-surface-hover hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
             >
               <Plus className="size-3.5" />
             </button>
@@ -1370,7 +1417,7 @@ function ProjectCard({
                 event.detail === 0 ? rect.bottom : event.clientY,
               );
             }}
-            className="absolute right-1 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-md text-content/55 hover:bg-content/8 hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
+            className="absolute right-1 top-1/2 hidden size-6 -translate-y-1/2 place-items-center rounded-lg text-content/55 hover:bg-surface-hover hover:text-content group-hover:grid group-has-[:focus-visible]:grid"
           >
             <MoreHorizontal className="size-4" />
           </button>
@@ -1412,7 +1459,7 @@ function ProjectCard({
             mascots={groupMascots}
             className="mt-0.5 size-4 shrink-0"
           />
-          <span className="min-w-0 flex-1 text-[13px] font-medium leading-relaxed [overflow-wrap:anywhere]">
+          <span className="min-w-0 flex-1 text-ui-caption font-medium leading-relaxed [overflow-wrap:anywhere]">
             {name}
           </span>
           <button
@@ -1425,7 +1472,7 @@ function ProjectCard({
               if (hoverSummary.onPin) hoverSummary.onPin(item.path);
               else onTogglePin(item.path);
             }}
-            className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
+            className="grid size-6 shrink-0 place-items-center rounded-lg text-content/45 hover:bg-surface-hover hover:text-content focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
           >
             {pinned ? (
               <PinOff className="size-3.5" />
@@ -1476,7 +1523,7 @@ function ProjectCard({
               </p>
             ) : summary.historyState === "error" ? (
               <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[11px]">
-                <p role="status" className="min-w-0 flex-1 text-content/50">
+                <p role="status" className="min-w-0 flex-1 text-foreground-subtle">
                   {uiT("Project summary unavailable")}
                 </p>
                 {hoverSummary.onOpen && summary.canRetry !== false ? (
@@ -1484,7 +1531,7 @@ function ProjectCard({
                     type="button"
                     aria-label={uiT("Retry")}
                     onClick={() => hoverSummary.onOpen?.(item.path)}
-                    className="shrink-0 rounded-md px-1.5 py-0.5 text-content/65 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
+                    className="shrink-0 rounded-lg px-1.5 py-0.5 text-content/65 hover:bg-surface-hover hover:text-content focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
                   >
                     {uiT("Retry")}
                   </button>
@@ -1528,7 +1575,7 @@ function ProjectCard({
               hover.close();
               onOpenMenu(item.path, rect.left, rect.bottom, trigger);
             }}
-            className="-mx-1 flex w-[calc(100%+8px)] items-center gap-2 rounded-md px-1 py-1.5 text-left text-content/75 hover:bg-content/8 hover:text-content focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
+            className="-mx-1 flex w-[calc(100%+8px)] items-center gap-2 rounded-lg px-1 py-1.5 text-left text-content/75 hover:bg-surface-hover hover:text-content focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
           >
             <Settings className="size-3.5 text-content/45" aria-hidden="true" />
             {uiT("Edit project")}
@@ -1640,7 +1687,7 @@ export function AddProjectButton({
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const item =
-    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] text-content/80 hover:bg-content/8 hover:text-content";
+    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-ui-caption text-content/80 hover:bg-surface-hover hover:text-content";
   return (
     <>
       <button
@@ -1651,7 +1698,7 @@ export function AddProjectButton({
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="grid size-5 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/8 hover:text-content aria-expanded:bg-content/8 aria-expanded:text-content"
+        className="grid size-5 shrink-0 place-items-center rounded-lg text-foreground-subtle hover:bg-surface-hover hover:text-content aria-expanded:bg-content/8 aria-expanded:text-content"
       >
         <Plus className="size-3.5" />
       </button>

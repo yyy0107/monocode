@@ -87,10 +87,10 @@ function NavRow({
       type="button"
       onClick={onClick}
       aria-current={active ? "true" : undefined}
-      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${
+      className={`flex h-8 w-full items-center gap-2 rounded-xl px-2 text-left ${
         active
-          ? "bg-selection text-content"
-          : "text-content/50 hover:bg-content/5 hover:text-content"
+          ? "bg-surface-hover text-content"
+          : "text-foreground-subtle hover:bg-surface-hover hover:text-content"
       }`}
     >
       <Icon className="size-4 shrink-0 opacity-70" />

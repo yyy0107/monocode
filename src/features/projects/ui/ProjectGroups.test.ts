@@ -112,7 +112,7 @@ it("renders assigned projects in persistent collapsible groups", async () => {
   const header = button("Client work, 1 project");
   expect(header.getAttribute("aria-expanded")).toBe("true");
   expect(group.classList).toContain("overflow-hidden");
-  expect(group.classList).toContain("rounded-md");
+  expect(group.classList).toContain("rounded-lg");
   expect(group.classList).toContain("bg-content/5");
   expect(group.getAttribute("style")).toBeNull();
   expect(

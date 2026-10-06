@@ -1,27 +1,26 @@
 /* Pill trigger and floating card menu, matching the desktop session pickers. */
 .review-source-select,
 .review-source-menu {
-  background: var(--color-background-base);
-  border-color: color-mix(in srgb, var(--color-content) 10%, transparent);
+  background: var(--color-menu);
+  border-color: var(--color-stroke);
+  font-size: var(--text-ui-caption);
 }
 
 .review-source-select {
+  background: var(--color-surface);
   transition: background-color 120ms var(--motion-ease-out);
 }
 
 .review-source-select:hover,
 .review-source-select[aria-expanded="true"] {
-  background: color-mix(
-    in srgb,
-    var(--color-background-base),
-    var(--color-content) 4%
-  );
+  background: var(--color-surface-hover);
 }
 
 .review-source-menu {
+  border-radius: 8px;
   box-shadow:
-    0 10px 28px -6px rgb(0 0 0 / 0.16),
-    0 2px 6px rgb(0 0 0 / 0.06);
+    0 4px 6px -1px rgb(0 0 0 / 0.1),
+    0 2px 4px -2px rgb(0 0 0 / 0.1);
   opacity: 1;
   transform: none;
   transition:

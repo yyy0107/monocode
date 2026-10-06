@@ -801,7 +801,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
           </button>
         </div>
       ) : null}
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="@container relative flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           ref={transcriptScope}
           className="@container relative min-h-0 flex-1"
@@ -1024,7 +1024,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
             ref={composerDockMotion.dockedRef}
             data-session-composer
             inert={btw.open}
-            className="mx-auto w-full max-w-4xl shrink-0"
+            className="mx-auto w-full max-w-4xl @[1280px]:max-w-6xl shrink-0"
           >
             {composer}
           </div>

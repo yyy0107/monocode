@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { WorktreeFocus } from "../../features/source-control/model/worktreeFocus";
 import type { SidebarTabId } from "../../features/settings/model/appearance";
 import type {
@@ -109,6 +110,10 @@ export type SidebarProps = {
   onNew?: () => string | void;
   onToggleSidebar?: () => void;
   chromeInMenuBar?: boolean;
+  /** Window-wide destinations shown above the project tree. */
+  navigation?: ReactNode;
+  /** Settings, updates and other account rows pinned to the bottom. */
+  footer?: ReactNode;
   onOpenInboxItem?: (item: LinkedWorkItem, sessionId: string) => void;
   onGoToFile?: () => void;
   unseenFinishedIds?: Set<string>;

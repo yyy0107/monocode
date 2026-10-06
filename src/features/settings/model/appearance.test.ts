@@ -324,7 +324,7 @@ describe("single sidebar persistence", () => {
   beforeEach(mockLocalStorage);
 
   it("loads committed widths and bounds invalid stored values", () => {
-    expect(loadSidebarWidth()).toBe(SIDEBAR_WIDTH_DEFAULT);
+    expect(loadSidebarWidth()).toBe(264);
     saveSidebarWidth(375.6);
     expect(localStorage.getItem("monocode.sidebarWidth")).toBe("376");
     expect(loadSidebarWidth()).toBe(376);

@@ -69,6 +69,16 @@ describe("tool error disclosure", () => {
 
     act(() => trigger?.click());
     expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    const closing = container.querySelector('[data-fold-state="closing"]');
+    expect(closing?.hasAttribute("inert")).toBe(true);
+    expect(closing?.getAttribute("aria-hidden")).toBe("true");
+    expect(closing?.textContent).toContain("Server.setupListenHandle");
+    // Reopening during the exit retains the same detail and cancels the close.
+    act(() => trigger?.click());
+    expect(container.querySelector('[data-fold-state="closing"]')).toBeNull();
+    expect(closing?.hasAttribute("inert")).toBe(false);
+    act(() => trigger?.click());
+    act(() => closing?.dispatchEvent(new Event("animationend", { bubbles: true })));
     expect(container.textContent).not.toContain("Server.setupListenHandle");
   });
 });

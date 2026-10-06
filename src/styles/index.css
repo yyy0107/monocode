@@ -32,7 +32,51 @@
     var(--theme-hue) var(--theme-saturation) var(--content-lightness)
   );
   /* Structural separators: use border-stroke, divide-stroke, or bg-stroke. */
-  --color-stroke: color-mix(in srgb, var(--color-content) 7%, transparent);
+  --color-stroke: color-mix(
+    in srgb,
+    var(--color-content) var(--stroke-strength),
+    transparent
+  );
+  /* ZCode (Zai) surface ladder, derived from the tint so hue settings apply. */
+  --color-window: var(--window-color);
+  --color-panel: var(--panel-color);
+  --color-card: var(--card-color);
+  --color-menu: var(--card-color);
+  --color-menu-hover: var(--menu-hover-color);
+  --color-surface: color-mix(
+    in srgb,
+    var(--color-content) var(--surface-strength),
+    transparent
+  );
+  --color-surface-hover: color-mix(
+    in srgb,
+    var(--color-content) var(--surface-hover-strength),
+    transparent
+  );
+  --color-border-hover: color-mix(
+    in srgb,
+    var(--color-content) calc(var(--stroke-strength) + 5%),
+    transparent
+  );
+  --color-foreground-subtle: color-mix(
+    in srgb,
+    var(--color-content) 60%,
+    transparent
+  );
+  --color-foreground-subtlest: color-mix(
+    in srgb,
+    var(--color-content) var(--subtlest-strength),
+    transparent
+  );
+  --color-brand: var(--brand-color);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-destructive: #ef4444;
+  --text-ui-xl: calc(var(--ui-font-size) + 4px);
+  --text-ui-lg: calc(var(--ui-font-size) + 2px);
+  --text-ui-base: var(--ui-font-size);
+  --text-ui-caption: calc(var(--ui-font-size) - 1px);
+  --text-ui-sm: calc(var(--ui-font-size) - 2px);
+  --text-ui-xs: calc(var(--ui-font-size) - 4px);
   /* Interactive fills keep their dark-theme contrast but use gentler ink in
      light mode. Prefer these over content opacity for selected/raised UI. */
   --color-selection-subtle: color-mix(
@@ -60,14 +104,15 @@
     var(--color-content) var(--selection-emphasis-strength),
     transparent
   );
-  --color-accent: hsl(211 92% 62%);
+  --color-accent: var(--accent-color);
   --color-skill: #e8c547;
   --color-mention: #38bdf8;
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+    "Courier New", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+    "Noto Sans CJK SC", monospace;
   --font-sans:
-    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
     Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
 }
 
@@ -95,21 +140,47 @@
   --theme-hue: 240;
   --theme-saturation: 0%;
   --theme-dark-lightness: 9%;
+  --ui-font-size: 14px;
+  /* Zai Dark: #2b2b2b window frame, #161616 content panels, #202020 headers,
+     #2b2b2b cards and menus, #363636 menu hover. */
+  --window-color: hsl(
+    var(--theme-hue) var(--theme-saturation)
+      calc(var(--background-lightness) + 8.3%)
+  );
+  --panel-color: hsl(
+    var(--theme-hue) var(--theme-saturation)
+      calc(var(--background-lightness) + 3.9%)
+  );
+  --card-color: hsl(
+    var(--theme-hue) var(--theme-saturation)
+      calc(var(--background-lightness) + 8.3%)
+  );
+  --menu-hover-color: hsl(
+    var(--theme-hue) var(--theme-saturation)
+      calc(var(--background-lightness) + 12.6%)
+  );
+  --stroke-strength: 10%;
+  --surface-strength: 5%;
+  --surface-hover-strength: 10%;
+  --subtlest-strength: 30%;
+  --brand-color: #ffffff;
+  --brand-foreground: #000000;
+  --accent-color: #4099ff;
   --sidebar-opacity: 0.85;
   --popover-opacity: 0.02;
   --chat-background-empty-opacity: 0.24;
   --chat-background-session-opacity: 0.24;
-  --selection-subtle-strength: 8%;
+  --selection-subtle-strength: 5%;
   --selection-strength: 10%;
-  --selection-strong-strength: 12%;
-  --selection-hover-strength: 15%;
-  --selection-emphasis-strength: 20%;
+  --selection-strong-strength: 10%;
+  --selection-hover-strength: 10%;
+  --selection-emphasis-strength: 15%;
   --background-lightness: var(--theme-dark-lightness);
-  --content-lightness: 92%;
-  --link-color: #7dd3fc;
+  --content-lightness: 83%;
+  --link-color: #4099ff;
   --color-skill: #e8c547;
   --color-mention: #38bdf8;
-  --color-markdown-heading: #f9a8c9;
+  --color-markdown-heading: var(--color-content);
 }
 
 html {
@@ -117,17 +188,29 @@ html {
 }
 
 html.theme-light {
+  /* Zai Light: #ececee window frame, #f8f8f8 content panels, white cards. */
   --background-lightness: 97%;
-  --content-lightness: 18%;
-  --link-color: hsl(211 92% 40%);
+  --content-lightness: 15%;
+  --window-color: hsl(var(--theme-hue) var(--theme-saturation) 93%);
+  --panel-color: hsl(var(--theme-hue) var(--theme-saturation) 100%);
+  --card-color: hsl(var(--theme-hue) var(--theme-saturation) 100%);
+  --menu-hover-color: hsl(var(--theme-hue) var(--theme-saturation) 94%);
+  --stroke-strength: 10%;
+  --surface-strength: 3%;
+  --surface-hover-strength: 5%;
+  --subtlest-strength: 40%;
+  --brand-color: #000000;
+  --brand-foreground: #ffffff;
+  --accent-color: #0066dd;
+  --link-color: #0066dd;
   --color-skill: #a07c10;
   --color-mention: #0284c7;
-  --color-markdown-heading: #be185d;
-  --selection-subtle-strength: 5%;
-  --selection-strength: 6%;
-  --selection-strong-strength: 7%;
-  --selection-hover-strength: 10%;
-  --selection-emphasis-strength: 14%;
+  --color-markdown-heading: var(--color-content);
+  --selection-subtle-strength: 3%;
+  --selection-strength: 5%;
+  --selection-strong-strength: 5%;
+  --selection-hover-strength: 5%;
+  --selection-emphasis-strength: 10%;
   color-scheme: light;
 }
 
@@ -139,7 +222,7 @@ body,
   width: 100%;
   height: 100%;
   margin: 0;
-  background: var(--color-background-base);
+  background: var(--color-window);
   color: var(--color-content);
   overflow: hidden;
   overscroll-behavior: none;
@@ -160,31 +243,25 @@ html:not(.is-mac) #root {
 }
 
 html:not(.is-mac) ::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 
 html:not(.is-mac) ::-webkit-scrollbar-track {
   background: transparent;
 }
 
+/* ZCode: pill thumb in the border color inside a 3px transparent ring. */
 html:not(.is-mac) ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--color-content) 16%, transparent);
-  background-clip: content-box;
-  border: 1px solid transparent;
+  min-height: 32px;
+  background: var(--color-stroke);
+  background-clip: padding-box;
+  border: 3px solid transparent;
   border-radius: 9999px;
 }
 
 html:not(.is-mac) ::-webkit-scrollbar-thumb:hover {
-  background-color: color-mix(in srgb, var(--color-content) 32%, transparent);
-}
-
-html:not(.is-mac) ::-webkit-scrollbar-thumb:vertical {
-  border-left-width: 5px;
-}
-
-html:not(.is-mac) ::-webkit-scrollbar-thumb:horizontal {
-  border-top-width: 5px;
+  background-color: var(--color-border-hover);
 }
 
 html:not(.is-mac) ::-webkit-scrollbar-corner {
@@ -225,11 +302,11 @@ html.has-native-glass:not(.theme-light) #root {
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+  color: var(--color-foreground-subtle);
 }
 
 .surface-tab:hover {
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: var(--color-surface);
   color: var(--color-content);
 }
 
@@ -237,21 +314,26 @@ html.has-native-glass:not(.theme-light) #root {
   [aria-selected="true"],
   [data-selected="true"]
 ) {
-  border-color: color-mix(in srgb, var(--color-content) 12%, transparent);
-  background: color-mix(
-    in srgb,
-    var(--color-background-base) 94%,
-    var(--color-content)
-  );
+  background: var(--color-surface-hover);
   color: var(--color-content);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-content) 5%, transparent);
 }
 
-html.theme-light .surface-tab:is(
-  [aria-selected="true"],
-  [data-selected="true"]
-) {
-  background: color-mix(in srgb, var(--color-background-base) 25%, white);
+/* ZCode segmented toggle: a pill track with a background-colored thumb. */
+.sidebar-segment .surface-tab {
+  border: 0;
+  border-radius: 9999px;
+}
+
+.sidebar-segment .surface-tab:is([aria-selected="true"], [data-selected="true"]),
+.sidebar-segment .workspace-tab > .surface-tab[aria-selected="true"]:hover {
+  background: var(--color-background-base);
+  color: var(--color-content);
+}
+
+.sidebar-segment .workspace-tab:not([data-reordering])
+  > button:not([aria-selected="true"]):hover {
+  background: transparent;
+  color: var(--color-content);
 }
 
 [data-tab-slot-id]:has(
@@ -325,7 +407,7 @@ html.theme-light .surface-tab:is(
 .workspace-tab[data-dragging] > button:not([aria-selected="true"]),
 .project-reorder-item:not([data-reordering], [data-selected]):hover,
 .project-reorder-item[data-dragging]:not([data-selected]) {
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: var(--color-surface-hover);
   color: var(--color-content);
 }
 
@@ -346,19 +428,12 @@ html.theme-light .surface-tab:is(
   display: flex;
 }
 
-.sidebar-glass {
-  background: color-mix(in srgb, var(--color-background-base) 90%, black);
+/* ZCode: the sidebar and window chrome sit directly on the window frame. */
+.sidebar-glass,
+.shell-chrome {
+  background: var(--color-window);
   transition: background-color var(--motion-feedback-duration)
     var(--motion-ease-out);
-}
-
-html.theme-light .sidebar-glass {
-  background: var(--color-background-base);
-}
-
-/* Only the activity, menu and status bars opt into this surface. */
-html.theme-light .shell-chrome {
-  background: hsl(var(--theme-hue) var(--theme-saturation) 92%);
 }
 
 html.has-native-glass:not(.theme-light) .sidebar-glass {
@@ -380,7 +455,7 @@ html.has-native-glass:not(.theme-light) .sidebar-glass {
 }
 
 .body-glass {
-  background: var(--color-background-base);
+  background: var(--color-window);
   transition: background-color var(--motion-feedback-duration)
     var(--motion-ease-out);
 }
@@ -649,21 +724,23 @@ html.has-chat-background.chat-background-effect-ready.chat-background-gradient-b
   width: fit-content;
 }
 
-/* User messages share the phone's bubble in both transcript layouts. */
-.user-message-row .user-message-bubble {
+/* ZCode user bubble: rounded-xl with a tight top-right corner, 1px border,
+   surface fill. */
+:where(.user-message-row:not(.mobile-desktop-transcript *)) .user-message-bubble {
   min-height: 38px;
-  padding: 8px 13px;
-  border-radius: 19px 19px 6px 19px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 12px 2px 12px 12px;
 }
 
-.user-message-row .user-message-bubble:not([data-draft="true"]) {
-  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+:where(.user-message-row:not(.mobile-desktop-transcript *)) .user-message-bubble:not([data-draft="true"]) {
+  background: var(--color-surface);
 }
 
 .user-message-row .user-message-bubble > pre,
 .user-message-row .user-message-with-link {
-  font-size: 15px;
-  line-height: 1.45;
+  font-size: var(--text-ui-base);
+  line-height: 1.6;
 }
 
 .user-message-row .user-message-actions {
@@ -1585,12 +1662,19 @@ html.theme-light .explorer-file-drag-preview {
   pointer-events: none;
 }
 
-.resize-handle:hover::after {
-  background: color-mix(in srgb, var(--color-content) 25%, transparent);
+.resize-handle::after {
+  border-radius: 9999px;
+  transition: background-color var(--motion-feedback-duration)
+    var(--motion-ease-out);
 }
 
+.resize-handle:hover::after,
 .resize-handle[data-dragging]::after {
-  background: var(--color-accent);
+  background: color-mix(
+    in srgb,
+    var(--color-foreground-subtlest) 50%,
+    transparent
+  );
 }
 
 .resize-handle[data-resize-edge="left"],
@@ -1668,19 +1752,11 @@ html.is-resizing * {
 
 /* ZCode draft composer tokens, expressed in Monocode's theme colors. */
 :root {
-  --composer-input: color-mix(
-    in srgb,
-    var(--color-background-base) 91%,
-    var(--color-content)
-  );
-  --composer-surface: color-mix(in srgb, var(--color-content) 5%, transparent);
-  --composer-border: color-mix(in srgb, var(--color-content) 10%, transparent);
-  --composer-border-hover: color-mix(
-    in srgb,
-    var(--color-content) 15%,
-    transparent
-  );
-  --composer-hover: color-mix(in srgb, var(--color-content) 5%, transparent);
+  --composer-input: var(--color-card);
+  --composer-surface: var(--color-surface);
+  --composer-border: var(--color-stroke);
+  --composer-border-hover: var(--color-border-hover);
+  --composer-hover: var(--color-surface);
   --composer-muted: color-mix(in srgb, var(--color-content) 45%, transparent);
   --composer-placeholder: color-mix(
     in srgb,
@@ -1690,8 +1766,6 @@ html.is-resizing * {
 }
 
 html.theme-light {
-  --composer-input: color-mix(in srgb, var(--color-background-base) 12%, white);
-  --composer-surface: color-mix(in srgb, var(--color-content) 3%, transparent);
   --composer-placeholder: color-mix(
     in srgb,
     var(--color-content) 40%,
@@ -2112,32 +2186,19 @@ html.theme-light [data-composer-layout="compact"] [data-composer-box] {
 }
 
 /* Solid primary actions share the composer submit treatment. */
+/* ZCode brand: white on dark, black on light. */
 .primary-action:not(:disabled) {
-  background: white;
-  color: black;
+  background: var(--color-brand);
+  color: var(--color-brand-foreground);
 }
 
 .primary-action:not(:disabled):hover {
-  background: color-mix(in srgb, white 90%, transparent);
+  background: color-mix(in srgb, var(--color-brand) 80%, transparent);
 }
 
 .primary-action:disabled {
-  background: color-mix(in srgb, white 30%, transparent);
-  color: color-mix(in srgb, black 40%, transparent);
-}
-
-html.theme-light .primary-action:not(:disabled) {
-  background: var(--color-content);
-  color: var(--color-background-base);
-}
-
-html.theme-light .primary-action:not(:disabled):hover {
-  background: color-mix(in srgb, var(--color-content) 90%, transparent);
-}
-
-html.theme-light .primary-action:disabled {
-  background: color-mix(in srgb, var(--color-content) 25%, transparent);
-  color: color-mix(in srgb, var(--color-background-base) 75%, transparent);
+  background: color-mix(in srgb, var(--color-brand) 30%, transparent);
+  color: color-mix(in srgb, var(--color-brand-foreground) 50%, transparent);
 }
 
 html.has-user-accent .primary-action:not(:disabled) {
@@ -2257,9 +2318,23 @@ header[data-tauri-drag-region] button {
 .agent-markdown [data-streamdown="table-wrapper"] {
   gap: 0;
   padding: 0;
-  border-color: color-mix(in srgb, var(--color-content) 10%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  border-color: var(--color-stroke);
+  border-radius: 12px;
+  background: var(--color-card);
+}
+
+/* ZCode inline code: rounded-md chip at ui-sm. */
+.agent-markdown [data-streamdown="inline-code"] {
+  border-radius: 6px;
+  padding: 2px 6px;
+  background: var(--color-surface-hover);
+  font-size: var(--text-ui-sm);
+  letter-spacing: normal;
+}
+
+.agent-markdown [data-streamdown="code-block-body"],
+.agent-markdown pre {
+  letter-spacing: normal;
 }
 
 .agent-markdown [data-streamdown="code-block"] {
@@ -2468,12 +2543,41 @@ header[data-tauri-drag-region] button {
   border-top: 0;
 }
 
+/* ZCode headings: semibold, sized on the ui scale, 24px above / 16px below. */
+.agent-markdown
+  :is(
+    [data-streamdown="heading-1"],
+    [data-streamdown="heading-2"],
+    [data-streamdown="heading-3"],
+    [data-streamdown="heading-4"]
+  ) {
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+  font-weight: 600;
+  color: var(--color-content);
+}
+
+.agent-markdown
+  :is(
+    [data-streamdown="heading-1"],
+    [data-streamdown="heading-2"],
+    [data-streamdown="heading-3"],
+    [data-streamdown="heading-4"]
+  ):first-child {
+  margin-top: 0;
+}
+
 .agent-markdown [data-streamdown="heading-1"] {
-  font-size: 22px;
+  font-size: var(--text-ui-xl);
 }
 
 .agent-markdown [data-streamdown="heading-2"] {
-  font-size: 18px;
+  font-size: var(--text-ui-lg);
+}
+
+.agent-markdown [data-streamdown="heading-3"],
+.agent-markdown [data-streamdown="heading-4"] {
+  font-size: var(--text-ui-base);
 }
 
 .whats-new-md.agent-markdown [data-streamdown="heading-3"] {
@@ -2497,14 +2601,15 @@ header[data-tauri-drag-region] button {
 .agent-markdown [data-streamdown="code-block-header"] {
   height: auto;
   min-height: 36px;
-  padding: 8px 10px;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+  padding: 8px 12px;
+  color: var(--color-foreground-subtle);
 }
 
 .agent-markdown [data-streamdown="code-block-header"] > span {
   margin-left: 0;
-  font-size: 12px;
+  font-size: var(--text-ui-sm);
   font-weight: 500;
+  text-transform: lowercase;
 }
 
 .agent-markdown .markdown-code-shell [data-streamdown="code-block-header"] {
@@ -2531,11 +2636,10 @@ header[data-tauri-drag-region] button {
 .agent-markdown [data-streamdown="code-block-body"] {
   padding: 10px 8px 10px 0;
   border: 0;
-  border-top: 1px solid
-    color-mix(in srgb, var(--color-content) 10%, transparent);
+  border-top: 1px solid var(--color-stroke);
   border-radius: 0;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--text-ui-caption);
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -2758,11 +2862,7 @@ header[data-tauri-drag-region] button {
 
 /* Several chats side by side: each pane is a card on a tinted gutter. */
 .pane-card-gutter {
-  background: color-mix(
-    in srgb,
-    var(--color-content) 4%,
-    var(--color-background-base)
-  );
+  background: var(--color-window);
 }
 
 .pane-card {
@@ -2773,28 +2873,18 @@ header[data-tauri-drag-region] button {
   flex: 1 1 0%;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-content) 9%, transparent);
+  border: 1px solid var(--color-stroke);
   border-radius: 12px;
   background: var(--color-background-base);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
-  transition:
-    border-color var(--motion-feedback-duration) var(--motion-ease-out),
-    box-shadow var(--motion-feedback-duration) var(--motion-ease-out);
+  transition: border-color var(--motion-feedback-duration)
+    var(--motion-ease-out);
 }
 
 .pane-card[data-focused="true"] {
-  border-color: color-mix(in srgb, var(--color-content) 20%, transparent);
-  box-shadow: 0 4px 14px rgb(0 0 0 / 0.08);
-}
-
-html.theme-light .pane-card {
-  background: color-mix(in srgb, var(--color-background-base) 35%, white);
+  border-color: var(--color-border-hover);
 }
 
 /* A dock shares the chat card's frame; the resize strip sits in their gutter. */
-.project-terminal-card {
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.08);
-}
 
 .project-terminal-card-gutter > .resize-handle:is(
   [data-resize-edge="left"], [data-resize-edge="right"]
@@ -3203,21 +3293,38 @@ html.theme-light .drag-ghost-card {
  * agent moves on.
  */
 .zen-phase-body {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition:
-    grid-template-rows 320ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 220ms ease;
+  min-width: 0;
 }
 
-.zen-phase-body[data-open="false"] {
-  grid-template-rows: 0fr;
+.zen-detail-panel,
+.zen-phase-body > .zen-fold-item > div > div {
+  min-width: 0;
+  margin-block: 4px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 12px;
+  background: var(--color-panel);
+  padding: 12px 16px;
+  color: var(--color-foreground-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
+  line-height: 1.75;
+}
+
+.zen-disclosure-chevron {
+  color: var(--color-foreground-subtlest);
   opacity: 0;
+  transition: opacity 150ms ease, transform 150ms ease;
 }
 
-.zen-phase-body > * {
-  min-height: 0;
-  overflow: hidden;
+.group:is(:hover, :focus-within) .zen-disclosure-chevron,
+.zen-disclosure-chevron.rotate-90 {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zen-disclosure-chevron {
+    transition: none;
+  }
 }
 
 /*
@@ -3227,11 +3334,11 @@ html.theme-light .drag-ghost-card {
  * flips to auto. The class stays on while the group is closed so settling
  * a turn collapses from the window, not a flash of the full list.
  */
-.zen-phase-body > .zen-phase-live {
+.zen-phase-body .zen-phase-live {
   max-height: min(17.5rem, 45vh);
 }
 
-.zen-phase-body[data-open="true"] > .zen-phase-live {
+.zen-phase-body[data-open="true"] .zen-phase-live {
   overflow: auto;
   overscroll-behavior: contain;
   overflow-anchor: none;
@@ -3297,6 +3404,12 @@ html.theme-light .drag-ghost-card {
  * 23px is the chevron's own centre (16px of row padding plus half a 14px
  * icon), and the curve is a quarter circle tangent to both.
  */
+@container (min-width: 28rem) {
+  .transcript-turn {
+    --transcript-rail-left: 31px;
+  }
+}
+
 .zen-fold-drop,
 .zen-fold-rail {
   position: relative;
@@ -3311,7 +3424,7 @@ html.theme-light .drag-ghost-card {
 .zen-fold-drop::after {
   content: "";
   position: absolute;
-  left: 23px;
+  left: var(--transcript-rail-left, 23px);
   top: 22px;
   bottom: -4px;
   width: 1px;
@@ -3322,7 +3435,7 @@ html.theme-light .drag-ghost-card {
 .zen-fold-rail::before {
   content: "";
   position: absolute;
-  left: 23px;
+  left: var(--transcript-rail-left, 23px);
   top: 0;
   bottom: 0;
   width: 1px;
@@ -3339,7 +3452,7 @@ html.theme-light .drag-ghost-card {
 .zen-fold-rail::after {
   content: "";
   position: absolute;
-  left: 23px;
+  left: var(--transcript-rail-left, 23px);
   top: 6px;
   width: 8px;
   height: 8px;
@@ -3714,18 +3827,16 @@ html.theme-light .drag-ghost-card {
 
 /* Appearance controls popover background opacity in both color schemes. The
    main window remains opaque in light mode. */
+/* ZCode menus and dialogs are solid surfaces; only native glass windows keep
+   the user's translucent popover setting. */
 .popover-backdrop {
-  background: color-mix(
-    in srgb,
-    var(--color-background-base) calc(var(--popover-opacity) * 100%),
-    transparent
-  );
+  background: var(--color-menu);
 }
 
-html.theme-light .popover-backdrop {
+html.has-native-glass .popover-backdrop {
   background: color-mix(
     in srgb,
-    var(--color-background-base) calc(var(--popover-opacity) * 100%),
+    var(--color-menu) calc(var(--popover-opacity) * 100%),
     transparent
   );
 }
@@ -3733,11 +3844,35 @@ html.theme-light .popover-backdrop {
 /* Animate content only; its sibling glass stays still. Finish at `none` and
    do not retain the animation's transform/opacity compositing state with a
    forwards fill. Hover repaints should happen in the ordinary resting state. */
+/* ZCode menu items: rounded-md rows that highlight with the menu-hover fill. */
+[data-popover-side]
+  :is(
+    [role="menuitem"],
+    [role="menuitemradio"],
+    [role="menuitemcheckbox"],
+    [role="option"]
+  ) {
+  border-radius: 6px;
+}
+
+[data-popover-side]
+  :is(
+    [role="menuitem"],
+    [role="menuitemradio"],
+    [role="menuitemcheckbox"],
+    [role="option"]
+  ):is(:hover, [data-highlighted], [aria-selected="true"]):not(
+    :disabled,
+    [aria-disabled="true"]
+  ) {
+  background: var(--color-menu-hover);
+}
+
 @keyframes popover-open {
   from {
     opacity: 0;
     transform: translate(var(--popover-shift, 0), var(--popover-lift, 0))
-      scale(0.94);
+      scale(0.95);
   }
   to {
     opacity: 1;
@@ -3746,7 +3881,7 @@ html.theme-light .popover-backdrop {
 }
 
 .popover-open {
-  animation: popover-open 170ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation: popover-open 100ms ease-out backwards;
 }
 
 .popover-open[data-popover-side="bottom"] {

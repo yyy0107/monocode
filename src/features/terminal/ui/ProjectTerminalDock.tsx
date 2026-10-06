@@ -310,7 +310,7 @@ export function ProjectTerminalDock({
   return (
     <section
       data-project-terminal-dock={dock.side}
-      className="project-terminal-card-gutter pane-card-gutter relative flex h-full min-h-0 min-w-0 flex-col p-1.5"
+      className="project-terminal-card-gutter pane-card-gutter relative flex h-full min-h-0 min-w-0 flex-col pb-1 pr-1"
       onMouseDown={visible ? onFocus : undefined}
     >
       <ResizeHandle

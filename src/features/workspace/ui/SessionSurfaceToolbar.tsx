@@ -152,7 +152,7 @@ export function SessionSurfaceToolbar({
                     ? (event) => setRenameAnchor(event.currentTarget)
                     : undefined
                 }
-                className={`surface-tab flex h-7.5 min-w-0 flex-1 items-center gap-1.5 self-center px-2 text-[13px] ${onClosePane ? "pr-7" : ""}`}
+                className={`surface-tab flex h-7 min-w-0 flex-1 items-center gap-1.5 self-center px-2 text-ui-caption ${onClosePane ? "pr-7" : ""}`}
               >
                 <MessageSquare
                   className="size-3.5 shrink-0"
@@ -188,7 +188,7 @@ export function SessionSurfaceToolbar({
               <span
                 data-session-project-chip
                 title={session.cwd}
-                className="ml-1 max-w-32 shrink-0 self-center truncate rounded-md bg-content/6 px-1.5 py-0.5 text-[12px] text-content/55"
+                className="ml-1 max-w-32 shrink-0 self-center truncate rounded border border-stroke bg-window px-1.5 py-0.5 text-ui-xs text-foreground-subtle"
               >
                 {project}
               </span>

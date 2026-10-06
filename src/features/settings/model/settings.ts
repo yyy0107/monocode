@@ -964,7 +964,7 @@ const MENU_BAR_CHANGE_EVENT = "monocode:menu-bar-change";
 
 /** Windows/Linux in-window menu bar; hidden means it appears on an Alt tap. */
 export function loadMenuBarVisible(): boolean {
-  return readFlag(MENU_BAR_VISIBLE_KEY) ?? true;
+  return readFlag(MENU_BAR_VISIBLE_KEY) ?? false;
 }
 
 export function saveMenuBarVisible(value: boolean): boolean {

@@ -1,7 +1,6 @@
 import { translate as translateUi } from "../../../shared/i18n/language";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
-  ChevronDown,
   ChevronRight,
   FilePlus,
   FolderPlus,
@@ -72,6 +71,7 @@ import {
 } from "../../../shared/lib/drag";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { FileTypeIcon } from "./FileTypeIcon";
+import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 
 const GIT_STATUS_COLOR: Record<string, string> = {
   modified: "text-amber-400",
@@ -292,6 +292,7 @@ export const FileTree = memo(function FileTree({
   const rootOpen = expanded.has(cwd);
 
   const toggle = (path: string) => {
+    setMenu(null);
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
@@ -912,6 +913,7 @@ export const FileTree = memo(function FileTree({
           <HeaderIcon
             label={uiT("Collapse All")}
             onClick={() => {
+              setMenu(null);
               setCreating(null);
               setRenaming(null);
               const next = new Set([cwd]);
@@ -932,7 +934,7 @@ export const FileTree = memo(function FileTree({
             </HeaderIcon>
           ) : null}
         </div>
-        <div className="flex h-8 shrink-0 items-center">
+        <div className="flex h-7 shrink-0 items-center">
           <button
             type="button"
             data-explorer-root
@@ -951,16 +953,14 @@ export const FileTree = memo(function FileTree({
                 e.clientY,
               );
             }}
-            className={`flex min-w-0 flex-1 items-center gap-1 h-full pl-2 text-left ${
+            className={`flex min-w-0 flex-1 items-center gap-1 h-full rounded-lg pl-2 text-left hover:bg-surface-hover ${
               dragOverPath === cwd ? "bg-selection" : ""
             }`}
           >
             <span className="grid size-4 shrink-0 place-items-center text-content/50">
-              {rootOpen ? (
-                <ChevronDown className="size-3.5" />
-              ) : (
-                <ChevronRight className="size-3.5" />
-              )}
+              <ChevronRight
+                className={`size-3.5 transition-transform motion-reduce:transition-none ${rootOpen ? "rotate-90" : ""}`}
+              />
             </span>
             <span className="min-w-0 truncate text-[11px] font-semibold tracking-[0.08em] text-content/50 uppercase">
               {name}
@@ -976,7 +976,7 @@ export const FileTree = memo(function FileTree({
               {opError}
             </p>
           ) : null}
-          {rootOpen ? (
+          <AnimatedCollapse expanded={rootOpen}>
             <div
               role="tree"
               aria-label={uiT("{value0} files", { value0: String(name) })}
@@ -989,7 +989,7 @@ export const FileTree = memo(function FileTree({
                 error={error}
               />
             </div>
-          ) : null}
+          </AnimatedCollapse>
         </div>
       </div>
       {menu ? (
@@ -1194,21 +1194,19 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
           }}
           onContextMenu={(e) => onItemContextMenu(entry, e)}
           style={{ paddingLeft: 8 + depth * 12 }}
-          className={`flex h-7.5 w-full cursor-default items-center gap-1 pr-2 text-left text-[14px] leading-none data-[explorer-dragging]:opacity-50 ${
+          className={`flex h-7 w-full cursor-default items-center gap-1 rounded-lg pr-2 text-left text-ui-base leading-none data-[explorer-dragging]:opacity-50 ${
             selected
               ? "bg-selection text-content"
-              : "text-content hover:bg-content/5"
+              : "text-content hover:bg-surface-hover"
           } ${cutPath === entry.path ? "opacity-50" : ""} ${
             dragOverPath === entry.path ? "bg-selection" : ""
           }`}
         >
           <span className="grid size-4 shrink-0 place-items-center text-content/50">
             {entry.isDir ? (
-              open ? (
-                <ChevronDown className="size-3.5" />
-              ) : (
-                <ChevronRight className="size-3.5" />
-              )
+              <ChevronRight
+                className={`size-3.5 transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
+              />
             ) : null}
           </span>
           {!entry.isDir ? (
@@ -1225,14 +1223,16 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
           </span>
         </button>
       )}
-      {entry.isDir && open ? (
-        <TreeChildren
-          parent={entry.path}
-          depth={depth + 1}
-          entries={children}
-          loading={children === null && !error}
-          error={error}
-        />
+      {entry.isDir ? (
+        <AnimatedCollapse expanded={open}>
+          <TreeChildren
+            parent={entry.path}
+            depth={depth + 1}
+            entries={children}
+            loading={children === null && !error}
+            error={error}
+          />
+        </AnimatedCollapse>
       ) : null}
     </div>
   );
@@ -1309,7 +1309,7 @@ export function NameRow({
     <div>
       <div
         style={{ paddingLeft: 8 + depth * 12 }}
-        className="flex h-7.5 w-full items-center gap-1 bg-content/10 pr-2"
+        className="flex h-7 w-full items-center gap-1 rounded-lg bg-surface-hover pr-2"
       >
         <span className="grid size-4 shrink-0 place-items-center text-content/50">
           {isDir ? (

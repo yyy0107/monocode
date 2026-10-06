@@ -63,7 +63,7 @@ export function WindowControls() {
     <div
       role="group"
       aria-label={uiT("Window controls")}
-      className="flex h-full shrink-0 items-stretch border-l border-stroke"
+      className="flex h-full shrink-0 items-center gap-1 px-2"
       data-tauri-drag-region="false"
     >
       <button
@@ -72,7 +72,7 @@ export function WindowControls() {
         aria-label={uiT("Minimize window")}
         data-tauri-drag-region="false"
         onClick={handleMinimize}
-        className="flex w-10 items-center justify-center text-content/60 transition-colors hover:bg-content/10 hover:text-content"
+        className="grid size-7 place-items-center rounded-lg text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-content"
       >
         <Minus className="size-3.5" />
       </button>
@@ -84,7 +84,7 @@ export function WindowControls() {
         }
         data-tauri-drag-region="false"
         onClick={handleToggleMaximize}
-        className="flex w-10 items-center justify-center text-content/60 transition-colors hover:bg-content/10 hover:text-content"
+        className="grid size-7 place-items-center rounded-lg text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-content"
       >
         {isMaximized ? (
           <Copy className="size-3" />
@@ -98,7 +98,7 @@ export function WindowControls() {
         aria-label={uiT("Close window")}
         data-tauri-drag-region="false"
         onClick={handleClose}
-        className="flex w-10 items-center justify-center text-content/60 transition-colors hover:bg-red-600 hover:text-white"
+        className="grid size-7 place-items-center rounded-lg text-foreground-subtle transition-colors hover:bg-red-600 hover:text-white"
       >
         <X className="size-3.5" />
       </button>

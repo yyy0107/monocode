@@ -288,7 +288,7 @@ export function SurfaceTabs({
   }, [activeFileId, sortable.draggingId]);
 
   return (
-    <div className="flex h-9 min-w-0 shrink-0 border-b border-stroke">
+    <div className="flex h-10 min-w-0 shrink-0 border-b border-stroke/50">
       <div
         ref={lockOverscroll}
         role="tablist"
@@ -301,7 +301,7 @@ export function SurfaceTabs({
             title={uiT("Drag to reorder pane")}
             aria-label={uiT("Drag to reorder pane")}
             tabIndex={-1}
-            className="grid h-7.5 w-5 shrink-0 cursor-grab place-items-center rounded-md text-content/35 hover:bg-content/5 hover:text-content/70 active:cursor-grabbing touch-none"
+            className="grid h-7 w-5 shrink-0 cursor-grab place-items-center rounded-md text-content/35 hover:bg-content/5 hover:text-content/70 active:cursor-grabbing touch-none"
             onPointerDown={(event) => {
               if (event.button !== 0) return;
               event.preventDefault();
@@ -387,7 +387,7 @@ export function SurfaceTabs({
                   onSelectFile(file.id);
                 }}
                 onDoubleClick={() => onPinFile?.(file.id)}
-                className="surface-tab relative flex h-7.5 min-w-0 flex-1 cursor-default items-center gap-1.5 self-center px-2 pr-7 text-left text-[13px]"
+                className="surface-tab relative flex h-7 min-w-0 flex-1 cursor-default items-center gap-1.5 self-center px-2 pr-7 text-left text-ui-caption"
               >
                 {terminal ? (
                   <Terminal className="size-3.5 shrink-0" />

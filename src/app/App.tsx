@@ -5,7 +5,8 @@ import {
   AppViewRendererContext,
   type AppViewRenderer,
 } from "../features/workspace/ui/AppViewHost";
-import { ActivityBar } from "./shell/ActivityBar";
+import { ActivityBar, type ActivityBarProps } from "./shell/ActivityBar";
+import { useUpdateStatus } from "./shell/useUpdateStatus";
 import { createProjectHistoryLoader } from "./model/projectHistoryLoader";
 import { contentTabTarget } from "./model/appViewNavigation";
 import { SessionTitleCoordinator } from "../integrations/harness/core/titleCoordinator";
@@ -10940,6 +10941,40 @@ function Workspace({
       />
     ) : null;
 
+  const updateStatus = useUpdateStatus();
+  const activityBarProps = {
+    updateStatus,
+    onShowProjects,
+    cwd: sidebarCwd,
+    recents,
+    busyPaths: sessions.flatMap((session) =>
+      session.busy && session.cwd ? [session.cwd] : [],
+    ),
+    liveAgents,
+    activeSessionId: active?.id,
+    onSelectAgent: onSelectLiveAgent,
+    onSelectProject,
+    onOpenProject: pickProject,
+    onRemoveProject,
+    onSearch: onGoToFile,
+    onOpenInbox,
+    onOpenNotes: notesEnabled ? onOpenNotes : undefined,
+    onOpenSettings,
+    onOpenAutomations,
+    searchActive: activeAppView === "search",
+    inboxActive: appDialog === "inbox",
+    notesActive: activeAppView === "notes",
+    automationsActive: activeAppView === "automations",
+    settingsActive: activeAppView === "settings",
+    notesEnabled,
+    inboxUnseen,
+    onOpenNotificationSettings,
+    updateNotice,
+    onOpenWhatsNew,
+    onDismissUpdate: () => setUpdateNotice(null),
+  } satisfies ActivityBarProps;
+  const railMotion = useCollapseMotion(!sessionSidebarOpen, 200);
+
   return (
     <OrchestrationActions.Provider value={orchestrationActions}>
       <OrchestrationWorkers.Provider value={orchestrationWorkers}>
@@ -10994,38 +11029,48 @@ function Workspace({
                 ) : null}
               </div>
               <div className="flex min-h-0 min-w-0 flex-1">
-                <ActivityBar
-                  onShowProjects={onShowProjects}
-                  chromeInMenuBar
-                  cwd={sidebarCwd}
-                  recents={recents}
-                  busyPaths={sessions.flatMap((session) =>
-                    session.busy && session.cwd ? [session.cwd] : [],
-                  )}
-                  liveAgents={liveAgents}
-                  activeSessionId={active?.id}
-                  onSelectAgent={onSelectLiveAgent}
-                  onSelectProject={onSelectProject}
-                  onOpenProject={pickProject}
-                  onRemoveProject={onRemoveProject}
-                  onSearch={onGoToFile}
-                  onOpenInbox={onOpenInbox}
-                  onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-                  onOpenSettings={onOpenSettings}
-                  onOpenAutomations={onOpenAutomations}
-                  searchActive={activeAppView === "search"}
-                  inboxActive={appDialog === "inbox"}
-                  notesActive={activeAppView === "notes"}
-                  automationsActive={activeAppView === "automations"}
-                  settingsActive={activeAppView === "settings"}
-                  notesEnabled={notesEnabled}
-                  inboxUnseen={inboxUnseen}
-                  onOpenNotificationSettings={onOpenNotificationSettings}
-                  updateNotice={updateNotice}
-                  onOpenWhatsNew={onOpenWhatsNew}
-                  onDismissUpdate={() => setUpdateNotice(null)}
-                />
+                <div
+                  data-fold-state={railMotion.foldState}
+                  className="animated-collapse-size grid h-full min-h-0 shrink-0"
+                  style={
+                    {
+                      "--collapse-duration": "200ms",
+                      gridTemplateColumns: sessionSidebarOpen ? "0px" : "48px",
+                    } as CSSProperties
+                  }
+                  aria-hidden={sessionSidebarOpen || undefined}
+                  inert={sessionSidebarOpen || undefined}
+                  onTransitionEnd={(event) => {
+                    if (
+                      event.target === event.currentTarget &&
+                      event.propertyName === "grid-template-columns"
+                    )
+                      railMotion.finish();
+                  }}
+                >
+                  <div className="min-w-0 overflow-hidden">
+                    <SurfaceVisibilityContext.Provider value={!sessionSidebarOpen}>
+                      {!sessionSidebarOpen ||
+                      railMotion.foldState !== "closed" ? (
+                        <ActivityBar
+                          layout="rail"
+                          chromeInMenuBar
+                          {...activityBarProps}
+                        />
+                      ) : null}
+                    </SurfaceVisibilityContext.Provider>
+                  </div>
+                </div>
                 <Sidebar
+                  navigation={
+                    <ActivityBar layout="sidebar-top" {...activityBarProps} />
+                  }
+                  footer={
+                    <ActivityBar
+                      layout="sidebar-footer"
+                      {...activityBarProps}
+                    />
+                  }
                   onOpenAssistant={onOpenAssistant}
                   assistantActive={activeAppView === "assistant"}
                   recents={recents}
@@ -11112,16 +11157,14 @@ function Workspace({
                   linkedSessionUpdateIds={linkedSessionUpdateIds}
                 />
 
-                <div
-                  className={`body-glass flex min-h-0 min-w-0 flex-1 flex-col ${sessionSidebarOpen ? "pl-4" : ""}`}
-                >
+                <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
                   <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                     <main className="relative flex min-h-0 min-w-0 flex-1">
                       <div
                         ref={dockGridRef}
                         data-terminal-dock-layout
                         data-fold-state={dockMotion.foldState}
-                        className={`animated-collapse-size grid h-full min-h-0 min-w-0 flex-1 ${dockVisible || dockMotion.foldState === "closing" ? "pane-card-gutter" : ""}`}
+                        className="animated-collapse-size pane-card-gutter grid h-full min-h-0 min-w-0 flex-1"
                         onTransitionEnd={(event) => {
                           if (
                             event.target === event.currentTarget &&
@@ -11194,14 +11237,12 @@ function Workspace({
                               >
                                 <div
                                   className={`flex min-h-0 min-w-0 flex-1 flex-col ${
-                                    (dockVisible ||
-                                      dockMotion.foldState === "closing") &&
                                     leafIds(tab.layout).filter((id) =>
                                       sessions.some(
                                         (session) => session.id === id,
                                       ),
                                     ).length <= 1
-                                      ? "pane-card m-1.5"
+                                      ? "pane-card mb-1 mr-1"
                                       : "h-full"
                                   }`}
                                 >

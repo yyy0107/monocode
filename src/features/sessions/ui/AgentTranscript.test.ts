@@ -580,7 +580,7 @@ describe("AgentTranscript collapsed work", () => {
     // here would nest one 17.5rem scroller inside the window each phase
     // already keeps, and the inner one could never reach its last row.
     expect(markup).toContain(
-      'data-open="true"><div class="flex min-w-0 flex-col pb-1">',
+      'data-open="true"><div class="zen-fold-item" data-fold-state="open"><div><div class="flex min-w-0 flex-col pb-1">',
     );
     // A settled group stays folded behind its header, so opening a long run
     // no longer dumps every call it made on screen at once.

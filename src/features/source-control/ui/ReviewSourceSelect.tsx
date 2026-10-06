@@ -176,7 +176,7 @@ export function ReviewSourceSelect({
   };
 
   const rowClass = (highlight: boolean) =>
-    `flex h-9 w-full shrink-0 items-center gap-2 rounded-lg px-2.5 text-left text-[14px] outline-none hover:bg-content/5 ${highlight ? "bg-content/5" : ""}`;
+    `flex h-9 w-full shrink-0 items-center gap-2 rounded-lg px-2.5 text-left text-ui-base outline-none hover:bg-menu-hover ${highlight ? "bg-menu-hover" : ""}`;
 
   return (
     <>
@@ -193,12 +193,12 @@ export function ReviewSourceSelect({
           event.preventDefault();
           if (!open) openMenu(true);
         }}
-        className="review-source-select flex h-8 min-w-0 shrink items-center gap-1.5 rounded-full border px-3.5 text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-content/25"
+        className="review-source-select flex h-8 min-w-0 shrink items-center gap-1.5 rounded-full border px-3.5 text-left text-ui-caption outline-none focus-visible:ring-2 focus-visible:ring-content/25"
       >
         <span className="min-w-0 truncate" title={selectedLabel}>
           {selectedLabel}
         </span>
-        <ChevronDown className="size-3.5 shrink-0 text-content/55" />
+        <ChevronDown className="size-3.5 shrink-0 text-foreground-subtle" />
         {trailing}
       </button>
       {visible && (open || foldState !== "closed") ? (
@@ -297,14 +297,14 @@ export function ReviewSourceSelect({
             setSubmenu(false);
             setKeyboardNavigation(true);
           }}
-          className="review-source-menu flex w-44 flex-col gap-0.5 overflow-y-auto rounded-2xl border p-1.5 text-content"
+          className="review-source-menu flex w-44 flex-col gap-0.5 overflow-y-auto rounded-lg border p-1.5 text-content"
         >
           {groups.map((group, groupIndex) => (
             <Fragment key={groupIndex}>
               {groupIndex > 0 ? (
                 <div
                   role="separator"
-                  className="mx-2.5 my-1 h-px shrink-0 bg-content/8"
+                  className="mx-2.5 my-1 h-px shrink-0 bg-stroke"
                 />
               ) : null}
               {group.map((entry) => {
@@ -342,7 +342,7 @@ export function ReviewSourceSelect({
                     >
                       {entry.label}
                     </span>
-                    <ChevronRight className="size-4 shrink-0 text-content/45" />
+                    <ChevronRight className="size-4 shrink-0 text-foreground-subtle" />
                   </button>
                 ) : (
                   <button
@@ -372,7 +372,7 @@ export function ReviewSourceSelect({
                     </span>
                     <span className="grid size-4 shrink-0 place-items-center">
                       {isSelected(entry) ? (
-                        <Check className="size-4 text-content/60" />
+                        <Check className="size-4 text-foreground-subtle" />
                       ) : null}
                     </span>
                   </button>
@@ -406,14 +406,14 @@ export function ReviewSourceSelect({
               sub.finish();
           }}
           ref={commitList}
-          className="review-source-menu review-source-commits flex max-h-[400px] flex-col gap-0.5 overflow-y-auto overscroll-contain rounded-2xl border p-1.5 text-content"
+          className="review-source-menu review-source-commits flex max-h-[400px] flex-col gap-0.5 overflow-y-auto overscroll-contain rounded-lg border p-1.5 text-content"
         >
           {commits == null ? (
-            <div className="px-2.5 py-2 text-[13px] text-content/50">
+            <div className="px-2.5 py-2 text-ui-caption text-foreground-subtle">
               {t("Loading…")}
             </div>
           ) : !commits.length ? (
-            <div className="px-2.5 py-2 text-[13px] text-content/50">
+            <div className="px-2.5 py-2 text-ui-caption text-foreground-subtle">
               {history?.error ?? t("No commits yet")}
             </div>
           ) : (
@@ -437,12 +437,12 @@ export function ReviewSourceSelect({
                   className={rowClass(inSubmenu && index === commitIndex)}
                 >
                   <span className="min-w-0 truncate">{commit.subject}</span>
-                  <span className="shrink-0 text-[13px] text-content/45">
+                  <span className="shrink-0 text-ui-caption text-foreground-subtle">
                     {formatMobileRelativeTime(commit.timestamp * 1000)}
                   </span>
                   <span className="ml-auto grid size-4 shrink-0 place-items-center">
                     {selected ? (
-                      <Check className="size-4 text-content/60" />
+                      <Check className="size-4 text-foreground-subtle" />
                     ) : null}
                   </span>
                 </button>
