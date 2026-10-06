@@ -10,11 +10,13 @@ import {
 import { LAYER } from "../../../shared/lib/layers";
 import { Check, ChevronRight } from "../../../shared/ui/icons";
 import { Popover } from "../../../shared/ui/Popover";
+import type { PopoverAlign, PopoverSide } from "../../../shared/lib/popover";
 
 type MenuAction = {
   kind: "item";
   id: string;
   label: string;
+  icon?: ReactNode;
   description?: string;
   shortcut?: string;
   disabled?: boolean;
@@ -36,6 +38,8 @@ type Props = (
   header?: ReactNode;
   width?: number;
   layer?: number;
+  side?: PopoverSide;
+  align?: PopoverAlign;
   onPick: (id: string) => void;
   onClose: () => void;
   onMouseEnter?: () => void;
@@ -69,6 +73,8 @@ export function ExplorerMenu({
   header,
   width = MENU_WIDTH,
   layer,
+  side,
+  align,
   onPick,
   onClose,
   onMouseEnter,
@@ -245,8 +251,13 @@ export function ExplorerMenu({
                 : "text-content hover:bg-content/5"
         }`}
       >
+        {item.icon ? (
+          <span aria-hidden className="grid size-4 shrink-0 place-items-center">
+            {item.icon}
+          </span>
+        ) : null}
         <span className="min-w-0 flex-1">
-          <span className="block truncate">{item.label}</span>
+          <span className="block truncate leading-normal">{item.label}</span>
           {item.description ? (
             <span className="mt-1 block text-[11px] leading-snug text-content/50">
               {item.description}
@@ -274,7 +285,8 @@ export function ExplorerMenu({
       <Popover
         ref={menuRef}
         anchor={anchor ?? { x: x ?? 0, y: y ?? 0 }}
-        side={anchor ? "right" : undefined}
+        side={side ?? (anchor ? "right" : undefined)}
+        align={align}
         gap={anchor ? 4 : 0}
         layer={layer ?? (anchor ? LAYER.submenu : undefined)}
         data-menu-owner={ownerId}

@@ -4,7 +4,7 @@ import { RATE_LIMIT_POLL_MS } from "../../features/providers/model/rateLimits";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { UsageFooter } from "./UsageFooter";
+import { ProviderUsageBar } from "./ProviderUsageBar";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 let container: HTMLDivElement;
@@ -43,8 +43,7 @@ afterEach(() => {
 async function show(model: string, id = "pi-session") {
   await act(async () =>
     root.render(
-      createElement(UsageFooter, {
-        providers: [],
+      createElement(ProviderUsageBar, {
         session: { id, harness: "pi", model },
       }),
     ),
@@ -154,8 +153,7 @@ it("ignores a disposed Strict Mode request without blocking its replacement", as
       createElement(
         StrictMode,
         null,
-        createElement(UsageFooter, {
-          providers: [],
+        createElement(ProviderUsageBar, {
           session: {
             id: "strict",
             harness: "pi",

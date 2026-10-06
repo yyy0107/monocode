@@ -13,6 +13,10 @@ export const LAYER = {
   dialog: 90,
   /** Menus opened from controls inside a modal dialog. */
   dialogPopover: 91,
+  /** Native window dragging and controls remain available above dialogs. */
+  windowChrome: 95,
+  /** Labels that follow the pointer during a drag. */
+  dragLabel: 96,
   /** Toasts, which outrank whatever they interrupt. */
   toast: 100,
 } as const;

@@ -1,5 +1,9 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import {
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import {
   GitCompare,
   Maximize2,
@@ -18,7 +22,8 @@ import { SurfaceTabs } from "./SurfaceTabs";
 import { startWindowDrag } from "../../../app/shell/startWindowDrag";
 import { WindowNavigationSpace } from "../../../app/shell/WindowChrome";
 import { projectName } from "../../../shared/lib/paths";
-import { SessionTitleMenu } from "./SessionTitleMenu";
+import { SessionRenamePopover } from "./SessionTitleMenu";
+import { SessionOverflowMenu } from "./SessionOverflowMenu";
 import { useSessionHeaderActions } from "./SessionHeaderActions";
 
 export type SessionSurfaceMode = "split" | "unified";
@@ -63,7 +68,6 @@ export function SessionSurfaceToolbar({
   session,
   panes,
   focusedId,
-  mode,
   showTools,
   dirtyFileIds,
   fileErrorCounts,
@@ -73,7 +77,6 @@ export function SessionSurfaceToolbar({
   onCloseOtherFiles,
   onPinFile,
   onReorderFiles,
-  onModeChange,
   windowControls,
   reserveWindowNavigationSpace = false,
   onPaneDragStart,
@@ -83,7 +86,6 @@ export function SessionSurfaceToolbar({
   session: Session;
   panes: EditorPane[];
   focusedId: string;
-  mode: SessionSurfaceMode;
   showTools: boolean;
   dirtyFileIds: Set<string>;
   fileErrorCounts: Map<string, number>;
@@ -93,7 +95,6 @@ export function SessionSurfaceToolbar({
   onCloseOtherFiles: (paneId: string, fileId: string) => void;
   onPinFile?: (fileId: string) => void;
   onReorderFiles: (paneId: string, ids: string[]) => void;
-  onModeChange?: (mode: SessionSurfaceMode) => void;
   windowControls?: ReactNode;
   reserveWindowNavigationSpace?: boolean;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
@@ -102,6 +103,8 @@ export function SessionSurfaceToolbar({
 }) {
   const { t } = useTranslation();
   const closePaneLabel = useShortcutLabel("Close Pane", "Pane: Close");
+  const actions = useSessionHeaderActions();
+  const [renameAnchor, setRenameAnchor] = useState<HTMLElement | null>(null);
   const files = showTools ? panes.flatMap((pane) => pane.files) : [];
   const owner = (fileId: string) =>
     panes.find((pane) => pane.files.some((file) => file.id === fileId));
@@ -144,6 +147,11 @@ export function SessionSurfaceToolbar({
                 aria-selected={chatActive}
                 title={title || t("Chat")}
                 onClick={() => onFocus(session.id)}
+                onDoubleClick={
+                  actions
+                    ? (event) => setRenameAnchor(event.currentTarget)
+                    : undefined
+                }
                 className={`surface-tab flex h-7.5 min-w-0 flex-1 items-center gap-1.5 self-center px-2 text-[13px] ${onClosePane ? "pr-7" : ""}`}
               >
                 <MessageSquare
@@ -177,7 +185,6 @@ export function SessionSurfaceToolbar({
                 </button>
               ) : null}
             </div>
-            <SessionTitleMenu sessionId={session.id} title={title} />
             {project && project !== "~" ? (
               <span
                 data-session-project-chip
@@ -211,14 +218,20 @@ export function SessionSurfaceToolbar({
         trailing={
           <>
             <SessionToolToggles />
-            <SessionSurfaceActions
-              mode={mode}
-              onModeChange={panes.length > 0 ? onModeChange : undefined}
-              windowControls={windowControls}
-            />
+            <SessionOverflowMenu session={session} onRename={setRenameAnchor} />
+            {windowControls}
           </>
         }
       />
+      {renameAnchor ? (
+        <SessionRenamePopover
+          key={session.id}
+          sessionId={session.id}
+          title={title}
+          anchor={renameAnchor}
+          onClose={() => setRenameAnchor(null)}
+        />
+      ) : null}
     </div>
   );
 }

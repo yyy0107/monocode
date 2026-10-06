@@ -378,6 +378,19 @@ describe("project return snapshots", () => {
 });
 
 describe("collectWorkspaceSnapshot", () => {
+  it("saves open empty panes and background work without retaining abandoned blanks", () => {
+    const blank = (id: string) => ({ ...newSession("codex", "/repo"), id });
+    const tab = newTab("open-blank");
+    const snapshot = collectWorkspaceSnapshot(
+      [tab],
+      [blank("open-blank"), blank("abandoned"), { ...blank("working"), busy: true }, chat("history", "/repo")],
+      tab.id,
+      "/repo",
+      new Map(),
+    );
+    expect(snapshot.sessions.map((session) => session.id)).toEqual(["open-blank", "working", "history"]);
+  });
+
   it("stores tabs, stubs, and the focused tab — not transcripts", () => {
     const session = chat("s1", "/tmp/a");
     session.worktreeCwd = "/tmp/a-worktrees/feature";
@@ -761,9 +774,24 @@ describe("hydrateWorkspaceSnapshot", () => {
     expect(
       workspace?.sessions.find((session) => session.id === "s1")?.blocks,
     ).toEqual(loaded.get("s1")?.blocks);
-    expect(
-      workspace?.sessions.find((session) => session.id === "s2")?.blocks,
-    ).toEqual([]);
+    expect(workspace?.sessions.find((session) => session.id === "s2")).toBeUndefined();
+  });
+
+  it("drops legacy orphan stubs while retaining open blanks and loaded parked conversations", () => {
+    const open = { ...newSession("codex", "/repo"), id: "open" };
+    const tab = newTab(open.id);
+    const snapshot = collectWorkspaceSnapshot([tab], [open], tab.id, "/repo", new Map());
+    snapshot.sessions.push(
+      { ...snapshot.sessions[0], id: "orphan", title: "codex" },
+      { ...snapshot.sessions[0], id: "missing", title: "Old conversation" },
+      { ...snapshot.sessions[0], id: "parked" },
+    );
+    const parked = chat("parked", "/repo");
+    const restored = hydrateWorkspaceSnapshot(snapshot, new Map([[parked.id, parked]]))!;
+    expect(restored.sessions.map((session) => session.id)).toEqual(["open", "parked"]);
+    expect(restored.sessions.find((session) => session.id === "open")?.blocks).toEqual([]);
+    expect(restored.sessions.find((session) => session.id === "parked")?.blocks).toEqual(parked.blocks);
+    expect(restored.tabs[0].layout).toEqual(tab.layout);
   });
 
   it("marks in-flight chats interrupted and adds a tab if they were parked", () => {

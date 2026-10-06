@@ -62,10 +62,15 @@ export type SidebarProps = {
   onRemoteSessionDeleted?: (sessionId: string, project?: string) => void;
   onSessionNavigationOrder?: (ids: readonly string[]) => void;
   onPrefetchSession?: (sessionId: string) => void;
+  /**
+   * Split a sidebar session onto a pane. `hostProject` is set when
+   * `sessionId` is a Host session id that still needs a local shell.
+   */
   onPlaceSessionOnPane?: (
     sessionId: string,
     targetId: string,
     edge: PaneEdge,
+    hostProject?: string,
   ) => void;
   onRenameSession?: (sessionId: string, title: string) => void;
   onArchiveSession?: (sessionId: string, archived: boolean) => void;

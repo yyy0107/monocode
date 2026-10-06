@@ -9,7 +9,6 @@ import type { ProjectHoverSummary } from "../model/projectHoverSummary";
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import {
   BellOff,
-  ChevronDown,
   ChevronRight,
   FolderPlus,
   FolderOpen,
@@ -25,6 +24,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -80,8 +80,16 @@ import {
 } from "../../features/connections/model/connections";
 import { remoteProjectFor } from "../../features/connections/model/remoteProjects";
 import { useProjectMenu } from "./useProjectMenu";
+import {
+  loadSidebarSectionsCollapsed,
+  saveSidebarSectionsCollapsed,
+  subscribeSidebarSectionsCollapsed,
+  type SidebarSectionId,
+} from "../../features/settings/model/sidebarSections";
 
 import { ProjectAvatar } from "./ProjectAvatar";
+type ProjectListEntry = { id: string; content: ReactNode | (() => ReactNode) };
+
 export type ProjectListProps = {
   cwd: string;
   recents: RecentProject[];
@@ -95,6 +103,8 @@ export type ProjectListProps = {
   onOpenNotificationSettings?: (projectPath?: string) => void;
   expandedPaths?: ReadonlySet<string>;
   onToggleProject?: (path: string) => void;
+  /** Activate the workspace after a name-triggered disclosure finishes. */
+  onActivateProject?: (path: string) => void;
   canExpandProject?: (path: string) => boolean;
   renderProjectChildren?: (path: string) => ReactNode;
   onNewInProject?: (path: string) => void;
@@ -106,11 +116,13 @@ export type ProjectListProps = {
   searchActive?: boolean;
   /** Full project counts, independent of the current sidebar filter/preview. */
   projectSummaries?: ReadonlyMap<string, ProjectHoverSummary>;
-  pinnedEntries?: { id: string; content: ReactNode }[];
-  recentEntries?: { id: string; content: ReactNode }[];
+  pinnedEntries?: ProjectListEntry[];
+  recentEntries?: ProjectListEntry[];
   recentPending?: boolean;
   onProjectHoverOpen?: (path: string) => void;
 };
+
+const PROJECT_COLLAPSE_DURATION_MS = 280;
 
 const ProjectSummaryContext = createContext<{
   summaries?: ReadonlyMap<string, ProjectHoverSummary>;
@@ -133,6 +145,7 @@ export function ProjectList({
   onOpenNotificationSettings,
   expandedPaths,
   onToggleProject,
+  onActivateProject,
   canExpandProject,
   renderProjectChildren,
   onNewInProject,
@@ -150,11 +163,18 @@ export function ProjectList({
 }: ProjectListProps) {
   const { t: uiT } = useTranslation();
   const searchActive = searchActiveProp ?? !active;
+  const pendingActivation = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    // An external project selection supersedes any disclosure still entering.
+    pendingActivation.current = undefined;
+  }, [cwd]);
   const tree =
     !compact && expandedPaths !== undefined
       ? {
           expandedPaths,
           onToggleProject,
+          onActivateProject,
+          pendingActivation,
           canExpandProject,
           renderProjectChildren,
           onNewInProject,
@@ -173,6 +193,24 @@ export function ProjectList({
   const [projectGroupAssignments, setProjectGroupAssignments] = useState(
     loadProjectGroupAssignments,
   );
+  const [collapsedSections, setCollapsedSections] = useState(
+    loadSidebarSectionsCollapsed,
+  );
+  const [searchCollapsedSections, setSearchCollapsedSections] = useState<{
+    query: string;
+    sections: ReadonlySet<SidebarSectionId>;
+  }>(() => ({ query, sections: new Set() }));
+  const groupContentId = useId();
+  useEffect(
+    () =>
+      subscribeSidebarSectionsCollapsed(() =>
+        setCollapsedSections(loadSidebarSectionsCollapsed()),
+      ),
+    [],
+  );
+  useEffect(() => {
+    setSearchCollapsedSections({ query, sections: new Set() });
+  }, [query, searchActive]);
   useEffect(
     () =>
       subscribeProjectPathsChanged(() => {
@@ -191,6 +229,33 @@ export function ProjectList({
     onRemoveProject,
     onOpenNotificationSettings,
   });
+  useEffect(() => {
+    // Project menus live outside the section's visibility context.
+    projectMenu.close();
+  }, [collapsedSections, searchCollapsedSections]);
+  const sectionExpanded = (section: SidebarSectionId) =>
+    compact ||
+    !(searchActive
+      ? searchCollapsedSections.query === query &&
+        searchCollapsedSections.sections.has(section)
+      : collapsedSections.has(section));
+  const toggleSection = (section: SidebarSectionId) => {
+    projectMenu.close();
+    if (searchActive) {
+      setSearchCollapsedSections((previous) => {
+        const sections = new Set(
+          previous.query === query ? previous.sections : [],
+        );
+        if (!sections.delete(section)) sections.add(section);
+        return { query, sections };
+      });
+      return;
+    }
+    const next = new Set(collapsedSections);
+    if (!next.delete(section)) next.add(section);
+    saveSidebarSectionsCollapsed(next);
+    setCollapsedSections(next);
+  };
   const notificationPreferences = useProjectNotificationPreferences();
   const allProjects = useMemo(
     () => collectRailProjects(recents, cwd),
@@ -372,6 +437,8 @@ export function ProjectList({
             <ProjectSection
               compact={compact}
               label={uiT(tree ? "Pinned items" : "Pinned")}
+              expanded={sectionExpanded("pinned")}
+              onToggleExpanded={() => toggleSection("pinned")}
               leadingEntries={pinnedEntries}
               items={sections.pinned}
               muteStatuses={muteStatuses}
@@ -399,6 +466,8 @@ export function ProjectList({
               compact={compact}
               label={uiT("Recent sessions")}
               section="recent"
+              expanded={sectionExpanded("recent")}
+              onToggleExpanded={() => toggleSection("recent")}
               leadingEntries={recentEntries}
               items={[]}
               emptyLabel={
@@ -431,59 +500,75 @@ export function ProjectList({
           ) : null}
 
           {projectGroups.length > 0 ? (
-            <div className={`shrink-0 ${tree ? "mb-1" : "mb-2"}`}>
+            <div
+              data-project-section="groups"
+              className={`shrink-0 ${tree ? "mb-1" : "mb-2"}`}
+            >
               {compact ? null : (
                 <ProjectSectionHeader
                   label={uiT("Groups")}
+                  expanded={sectionExpanded("groups")}
+                  contentId={groupContentId}
+                  onToggleExpanded={() => toggleSection("groups")}
                   onAddGroup={(x, y) => projectMenu.createGroup(x, y)}
                 />
               )}
-              <div
-                className={
-                  compact
-                    ? "flex flex-col items-center gap-1"
-                    : `flex flex-col px-2 ${tree ? "gap-1" : "gap-px"}`
-                }
+              <AnimatedCollapse
+                expanded={sectionExpanded("groups")}
+                motion="height"
+                className="project-tree-collapse"
+                durationMs={PROJECT_COLLAPSE_DURATION_MS}
               >
-                {groupedProjectSections.grouped.map(({ group, items }) => (
-                  <ProjectGroupSection
-                    compact={compact}
-                    key={group.id}
-                    group={group}
-                    items={items}
-                    muteStatuses={muteStatuses}
-                    cwd={cwd}
-                    busy={busy}
-                    statsEnabled={statsEnabled ?? !compact}
-                    tree={tree}
-                    searchActive={searchActive}
-                    onSelect={onSelectProject}
-                    onTogglePin={toggleProjectPin}
-                    onContextMenu={onProjectContextMenu}
-                    onOpenMenu={projectMenu.open}
-                    onToggleCollapsed={() =>
-                      updateProjectGroup(group.id, (current) => ({
-                        ...current,
-                        collapsed: !current.collapsed,
-                      }))
-                    }
-                    onOpenGroupMenu={(x, y) =>
-                      projectMenu.openGroupMenu(group.id, x, y)
-                    }
-                    groupLabels={groupLabels}
-                    groupColors={groupColors}
-                    groupCustomColors={groupCustomColors}
-                    groupLogos={groupLogos}
-                    groupMascots={groupMascots}
-                  />
-                ))}
-              </div>
+                <div
+                  id={groupContentId}
+                  className={
+                    compact
+                      ? "flex flex-col items-center gap-1"
+                      : "flex flex-col gap-px px-2"
+                  }
+                >
+                  {groupedProjectSections.grouped.map(({ group, items }) => (
+                    <ProjectGroupSection
+                      compact={compact}
+                      key={group.id}
+                      group={group}
+                      items={items}
+                      muteStatuses={muteStatuses}
+                      cwd={cwd}
+                      busy={busy}
+                      statsEnabled={statsEnabled ?? !compact}
+                      tree={tree}
+                      searchActive={searchActive}
+                      onSelect={onSelectProject}
+                      onTogglePin={toggleProjectPin}
+                      onContextMenu={onProjectContextMenu}
+                      onOpenMenu={projectMenu.open}
+                      onToggleCollapsed={() =>
+                        updateProjectGroup(group.id, (current) => ({
+                          ...current,
+                          collapsed: !current.collapsed,
+                        }))
+                      }
+                      onOpenGroupMenu={(x, y) =>
+                        projectMenu.openGroupMenu(group.id, x, y)
+                      }
+                      groupLabels={groupLabels}
+                      groupColors={groupColors}
+                      groupCustomColors={groupCustomColors}
+                      groupLogos={groupLogos}
+                      groupMascots={groupMascots}
+                    />
+                  ))}
+                </div>
+              </AnimatedCollapse>
             </div>
           ) : null}
 
           <ProjectSection
             compact={compact}
             label={uiT("Recent projects")}
+            expanded={sectionExpanded("projects")}
+            onToggleExpanded={() => toggleSection("projects")}
             items={groupedProjectSections.ungrouped}
             muteStatuses={muteStatuses}
             emptyLabel={
@@ -523,7 +608,9 @@ export function ProjectList({
 type SortableHandle = ReturnType<typeof useAnimatedReorder>;
 type ProjectTree = {
   expandedPaths: ReadonlySet<string>;
+  pendingActivation: { current: string | undefined };
   onToggleProject?: (path: string) => void;
+  onActivateProject?: (path: string) => void;
   canExpandProject?: (path: string) => boolean;
   renderProjectChildren?: (path: string) => ReactNode;
   onNewInProject?: (path: string) => void;
@@ -534,6 +621,8 @@ function ProjectSection({
   compact,
   hideHeader = false,
   label,
+  expanded,
+  onToggleExpanded,
   items,
   leadingEntries = [],
   section,
@@ -560,8 +649,10 @@ function ProjectSection({
   compact: boolean;
   hideHeader?: boolean;
   label: string;
+  expanded: boolean;
+  onToggleExpanded: () => void;
   items: RecentProject[];
-  leadingEntries?: { id: string; content: ReactNode }[];
+  leadingEntries?: ProjectListEntry[];
   section?: "recent";
   muteStatuses: ReadonlyMap<string, string | null>;
   emptyLabel?: string;
@@ -589,10 +680,16 @@ function ProjectSection({
   groupMascots: Record<string, string>;
 }) {
   const { t: uiT } = useTranslation();
+  const contentId = useId();
   const preview = useSidebarListPreview(
     items.length + leadingEntries.length,
     String(searchActive),
     searchActive,
+  );
+  const mountedEntries = leadingEntries.slice(0, preview.mountedCount);
+  const mountedItems = items.slice(
+    0,
+    Math.max(0, preview.mountedCount - leadingEntries.length),
   );
   const sortable = useAnimatedReorder(
     items
@@ -603,82 +700,114 @@ function ProjectSection({
   );
   return (
     <div
-      className={compact ? "shrink-0" : `shrink-0 ${tree ? "mb-4" : "mb-2"}`}
+      className={compact ? "shrink-0" : `shrink-0 ${tree ? "mb-1" : "mb-2"}`}
       data-project-section={section ?? (pinned ? "pinned" : "projects")}
     >
       {compact || hideHeader ? null : (
-        <ProjectSectionHeader label={label} onAdd={onAdd} />
+        <ProjectSectionHeader
+          label={label}
+          onAdd={onAdd}
+          expanded={expanded}
+          contentId={contentId}
+          onToggleExpanded={onToggleExpanded}
+        />
       )}
-      {items.length === 0 && leadingEntries.length === 0 && emptyLabel ? (
-        <p className="px-4 pb-1 text-[11px] leading-tight text-content/40">
-          {uiT(emptyLabel)}
-        </p>
-      ) : null}
-      <div
-        className={
-          compact
-            ? "flex flex-col items-center gap-1"
-            : `flex flex-col px-2 ${tree ? "gap-[3px]" : "gap-px"}`
-        }
+      <AnimatedCollapse
+        expanded={compact || hideHeader || expanded}
+        motion="height"
+        className="project-tree-collapse"
+        durationMs={PROJECT_COLLAPSE_DURATION_MS}
       >
-        {leadingEntries.map((entry, index) => (
-          <AnimatedCollapse key={entry.id} expanded={index < preview.count}>
-            {entry.content}
-          </AnimatedCollapse>
-        ))}
-        {items.map((item, index) => (
-          <AnimatedCollapse
-            key={item.path}
-            expanded={index + leadingEntries.length < preview.count}
+        <div id={contentId}>
+          {items.length === 0 && leadingEntries.length === 0 && emptyLabel ? (
+            <p className="px-4 pb-1 text-[11px] leading-tight text-content/40">
+              {uiT(emptyLabel)}
+            </p>
+          ) : null}
+          <div
+            className={
+              compact
+                ? "flex flex-col items-center gap-1"
+                : "flex flex-col gap-px px-2"
+            }
           >
-            <ProjectCard
-              compact={compact}
-              key={item.path}
-              item={item}
-              muteStatus={muteStatuses.get(pathKey(item.path)) ?? undefined}
-              selected={
-                (!searchActive || !!tree) && sameProjectPath(item.path, cwd)
-              }
-              busy={isBusyPath(item.path, busy)}
-              statsEnabled={
-                statsEnabled && (!tree || sameProjectPath(item.path, cwd))
-              }
-              tree={tree}
-              pinned={pinned}
-              sortable={pinned ? sortable : undefined}
-              onSelect={onSelect}
-              onTogglePin={onTogglePin}
-              onContextMenu={onContextMenu}
-              onOpenMenu={onOpenMenu}
-              groupLabels={groupLabels}
-              groupColors={groupColors}
-              groupCustomColors={groupCustomColors}
-              groupLogos={groupLogos}
-              groupMascots={groupMascots}
-            />
-          </AnimatedCollapse>
-        ))}
-        {preview.button}
-      </div>
+            {mountedEntries.map((entry, index) => (
+              <AnimatedCollapse key={entry.id} expanded={index < preview.count}>
+                {entry.content}
+              </AnimatedCollapse>
+            ))}
+            {mountedItems.map((item, index) => (
+              <AnimatedCollapse
+                key={item.path}
+                expanded={index + leadingEntries.length < preview.count}
+              >
+                <ProjectCard
+                  compact={compact}
+                  key={item.path}
+                  item={item}
+                  muteStatus={muteStatuses.get(pathKey(item.path)) ?? undefined}
+                  selected={
+                    (!searchActive || !!tree) && sameProjectPath(item.path, cwd)
+                  }
+                  busy={isBusyPath(item.path, busy)}
+                  statsEnabled={
+                    statsEnabled && (!tree || sameProjectPath(item.path, cwd))
+                  }
+                  tree={tree}
+                  pinned={pinned}
+                  sortable={pinned ? sortable : undefined}
+                  onSelect={onSelect}
+                  onTogglePin={onTogglePin}
+                  onContextMenu={onContextMenu}
+                  onOpenMenu={onOpenMenu}
+                  groupLabels={groupLabels}
+                  groupColors={groupColors}
+                  groupCustomColors={groupCustomColors}
+                  groupLogos={groupLogos}
+                  groupMascots={groupMascots}
+                />
+              </AnimatedCollapse>
+            ))}
+            {preview.button}
+          </div>
+        </div>
+      </AnimatedCollapse>
     </div>
   );
 }
 
 function ProjectSectionHeader({
   label,
+  expanded,
+  contentId,
+  onToggleExpanded,
   onAdd,
   onAddGroup,
 }: {
   label: string;
+  expanded: boolean;
+  contentId: string;
+  onToggleExpanded: () => void;
   onAdd?: () => void;
   onAddGroup?: (x: number, y: number) => void;
 }) {
   const { t: uiT } = useTranslation();
   return (
-    <div className="flex items-center gap-1 px-3 pb-1.5 pt-1">
-      <span className="min-w-0 flex-1 truncate px-1 text-xs text-content/50">
-        {label}
-      </span>
+    <div className="flex items-center gap-1 px-3 py-0.5">
+      <button
+        type="button"
+        data-sidebar-section-toggle
+        aria-expanded={expanded}
+        aria-controls={contentId}
+        onClick={onToggleExpanded}
+        className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1 py-0.5 text-left text-xs text-content/50 hover:bg-content/5 hover:text-content"
+      >
+        <ChevronRight
+          className="project-tree-chevron size-3 shrink-0"
+          strokeWidth={1.75}
+        />
+        <span className="truncate">{label}</span>
+      </button>
       {onAddGroup ? (
         <button
           type="button"
@@ -797,31 +926,23 @@ function ProjectGroupSection({
           >
             <div className="grid size-4 shrink-0 place-items-center">
               {!expanded ? (
-                <>
-                  <span
-                    data-group-mascot
-                    className="grid size-4 place-items-center group-hover:hidden group-has-[:focus-visible]:hidden"
-                  >
-                    <ProjectMascot
-                      project={group.id}
-                      color={projectGroupColor(group)}
-                      name={group.mascot ?? null}
-                      className="size-3"
-                    />
-                  </span>
-                  <ChevronRight
-                    data-group-chevron
-                    className="hidden size-3.5 group-hover:block group-has-[:focus-visible]:block"
-                    strokeWidth={1.75}
+                <span
+                  data-group-mascot
+                  className="grid size-4 place-items-center group-hover:hidden group-has-[:focus-visible]:hidden"
+                >
+                  <ProjectMascot
+                    project={group.id}
+                    color={projectGroupColor(group)}
+                    name={group.mascot ?? null}
+                    className="size-3"
                   />
-                </>
-              ) : (
-                <ChevronDown
-                  data-group-chevron
-                  className="size-3.5"
-                  strokeWidth={1.75}
-                />
-              )}
+                </span>
+              ) : null}
+              <ChevronRight
+                data-group-chevron
+                className={`project-tree-chevron size-3.5 ${expanded ? "" : "hidden group-hover:block group-has-[:focus-visible]:block"}`}
+                strokeWidth={1.75}
+              />
             </div>
             <span className={nameClassName}>{group.name}</span>
           </button>
@@ -844,16 +965,21 @@ function ProjectGroupSection({
           </button>
         </div>
       )}
-      <AnimatedCollapse expanded={expanded}>
+      <AnimatedCollapse
+        expanded={expanded}
+        motion={tree ? "height" : undefined}
+        className={tree ? "project-tree-collapse" : undefined}
+        durationMs={tree ? PROJECT_COLLAPSE_DURATION_MS : undefined}
+      >
         <div
           data-project-group-items
           className={
             compact
               ? "flex flex-col items-center gap-1"
-              : `flex flex-col ${tree ? "gap-[3px] px-1 py-[3px]" : "gap-px p-1"}`
+              : `flex flex-col gap-px ${tree ? "px-1 py-px" : "p-1"}`
           }
         >
-          {items.map((item, index) => (
+          {items.slice(0, preview.mountedCount).map((item, index) => (
             <AnimatedCollapse key={item.path} expanded={index < preview.count}>
               <ProjectCard
                 compact={compact}
@@ -997,6 +1123,10 @@ function ProjectCard({
   const expanded =
     expandable && (tree?.expandedPaths.has(pathKey(item.path)) ?? false);
   const needsApproval = tree?.needsApproval.has(pathKey(item.path)) ?? false;
+  useEffect(() => {
+    if (!expanded && tree?.pendingActivation.current === pathKey(item.path))
+      tree.pendingActivation.current = undefined;
+  }, [expanded, item.path, tree?.pendingActivation]);
 
   const header = (
     <div
@@ -1029,7 +1159,20 @@ function ProjectCard({
         }
         if (sortable?.consumeClick()) return;
         hover.close();
-        onSelect(item.path);
+        if (
+          !expanded &&
+          expandable &&
+          tree?.onActivateProject &&
+          tree.onToggleProject
+        ) {
+          // Workspace/editor initialization must not block the disclosure frames.
+          tree.pendingActivation.current = pathKey(item.path);
+          tree.onToggleProject(item.path);
+        } else {
+          if (tree?.pendingActivation.current === pathKey(item.path))
+            tree.pendingActivation.current = undefined;
+          onSelect(item.path);
+        }
       }}
       onContextMenu={(event) => onContextMenu(item.path, event)}
       onKeyDown={(event) => {
@@ -1056,6 +1199,8 @@ function ProjectCard({
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
+            if (tree.pendingActivation.current === pathKey(item.path))
+              tree.pendingActivation.current = undefined;
             tree.onToggleProject?.(item.path);
           }}
           className="grid w-4 shrink-0 place-items-center rounded-sm text-content/55 outline-none hover:text-content"
@@ -1066,17 +1211,10 @@ function ProjectCard({
           >
             {treeAvatar}
           </span>
-          {expanded ? (
-            <ChevronDown
-              data-project-chevron
-              className="hidden size-3.5 group-hover:block group-has-[:focus-visible]:block"
-            />
-          ) : (
-            <ChevronRight
-              data-project-chevron
-              className="hidden size-3.5 group-hover:block group-has-[:focus-visible]:block"
-            />
-          )}
+          <ChevronRight
+            data-project-chevron
+            className="project-tree-chevron hidden size-3.5 group-hover:block group-has-[:focus-visible]:block"
+          />
         </button>
       ) : tree ? (
         <span
@@ -1410,10 +1548,23 @@ function ProjectCard({
       className="reorder-item shrink-0"
     >
       {header}
-      <AnimatedCollapse expanded={expanded}>
-        <div data-project-children={pathKey(item.path)}>
-          {tree.renderProjectChildren?.(item.path)}
-        </div>
+      <AnimatedCollapse
+        expanded={expanded}
+        motion="height"
+        className="project-tree-collapse"
+        durationMs={PROJECT_COLLAPSE_DURATION_MS}
+        animateContentResize
+        onEntered={() => {
+          if (tree.pendingActivation.current !== pathKey(item.path)) return;
+          tree.pendingActivation.current = undefined;
+          tree.onActivateProject?.(item.path);
+        }}
+      >
+        {() => (
+          <div data-project-children={pathKey(item.path)}>
+            {tree.renderProjectChildren?.(item.path)}
+          </div>
+        )}
       </AnimatedCollapse>
     </div>
   ) : (

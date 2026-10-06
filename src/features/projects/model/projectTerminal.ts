@@ -1,9 +1,14 @@
 import type { CSSProperties } from "react";
 import {
+  closeLeaf,
+  isolateTerminalPanes,
+  leafIds,
   newEditorPane,
   nextTerminalTitleFromFiles,
+  placePane,
   type EditorPane,
   type FilePaneTab,
+  type PaneEdge,
   type WorkspaceTab,
 } from "../../workspace/model/layout";
 import {
@@ -324,4 +329,80 @@ function projectPathsOf(
     if (cwd) paths.add(normalizeProjectPath(cwd));
   }
   return paths;
+}
+
+/**
+ * Take every terminal out of a dock as one pane on `targetId`'s edge. The
+ * terminals keep their ids, so their shells keep running. Null when the
+ * target is not in this tab.
+ */
+export function moveDockToPane(
+  tab: WorkspaceTab,
+  dock: ProjectTerminalDock,
+  targetId: string,
+  edge: PaneEdge,
+): WorkspaceTab | null {
+  if (dock.pane.files.length === 0) return null;
+  if (!leafIds(tab.layout).includes(targetId)) return null;
+  const isolated = isolateTerminalPanes(tab);
+  const pane = newEditorPane(dock.pane.files[0]);
+  const moved: EditorPane = {
+    ...pane,
+    files: dock.pane.files,
+    activeFileId: dock.pane.activeFileId,
+  };
+  return {
+    ...isolated,
+    layout: placePane(isolated.layout, moved.id, targetId, edge),
+    focusedId: moved.id,
+    diffFocused: false,
+    terminalPanes: [...(isolated.terminalPanes ?? []), moved],
+  };
+}
+
+/**
+ * A split terminal pane joins the project's dock, opening one on `side` when
+ * there is none. Null when the pane is not a terminal pane or is the tab's
+ * only pane.
+ */
+export function movePaneToDock(
+  tab: WorkspaceTab,
+  docks: ProjectTerminalDock[],
+  paneId: string,
+  projectPath: string,
+  side: DockSide,
+  viewport?: { width: number; height: number },
+): { tab: WorkspaceTab; docks: ProjectTerminalDock[] } | null {
+  const pane = (tab.terminalPanes ?? []).find((entry) => entry.id === paneId);
+  if (!pane || pane.files.length === 0) return null;
+  const closed = closeLeaf(tab, paneId);
+  if (!closed) return null;
+  const nextTab: WorkspaceTab = {
+    ...closed,
+    terminalPanes: (closed.terminalPanes ?? []).filter(
+      (entry) => entry.id !== paneId,
+    ),
+  };
+  const existing = findProjectTerminal(docks, projectPath);
+  const nextDocks = existing
+    ? mapProjectTerminal(docks, projectPath, (dock) => ({
+        ...dock,
+        open: true,
+        pane: {
+          ...dock.pane,
+          files: [...dock.pane.files, ...pane.files],
+          activeFileId: pane.activeFileId,
+        },
+      }))
+    : [
+        ...docks,
+        {
+          projectPath: normalizeProjectPath(projectPath),
+          pane: { ...pane, id: crypto.randomUUID() },
+          side,
+          size: clampDockSize(side, defaultDockSize(side), viewport),
+          open: true,
+        },
+      ];
+  return { tab: nextTab, docks: nextDocks };
 }

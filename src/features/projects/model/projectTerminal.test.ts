@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { leaf, newTab, newTerminalFile } from "../../workspace/model/layout";
+import {
+  leaf,
+  leafIds,
+  newTab,
+  newTerminalFile,
+} from "../../workspace/model/layout";
 import {
   addTerminalToDock,
   applyDockGridStyle,
@@ -9,6 +14,8 @@ import {
   dockGridStyle,
   findProjectTerminal,
   mapProjectTerminal,
+  moveDockToPane,
+  movePaneToDock,
   nextDockTerminalTitle,
   patchProjectTerminals,
   projectTerminalFileIds,
@@ -223,5 +230,60 @@ describe("splitProjectTerminalsForMove", () => {
     const allA = splitProjectTerminalsForMove(docks, [a1, a2], [b1], sessions);
     expect(allA.moving.map((dock) => dock.projectPath)).toEqual(["/tmp/a"]);
     expect(allA.remaining.map((dock) => dock.projectPath)).toEqual(["/tmp/b"]);
+  });
+});
+
+describe("moving terminals between the dock and the split", () => {
+  it("keeps terminal ids when the dock becomes a split pane and returns", () => {
+    const first = newTerminalFile("/repo");
+    const second = newTerminalFile("/repo");
+    const dock = addTerminalToDock(
+      createProjectTerminal("/repo", first, "left"),
+      second,
+    );
+    const tab = newTab("chat");
+
+    const split = moveDockToPane(tab, dock, "chat", "bottom");
+    expect(split).not.toBeNull();
+    const pane = split!.terminalPanes[0];
+    expect(pane.files.map((file) => file.id)).toEqual([first.id, second.id]);
+    expect(pane.activeFileId).toBe(second.id);
+    expect(leafIds(split!.layout)).toEqual(["chat", pane.id]);
+    expect(split!.focusedId).toBe(pane.id);
+
+    const back = movePaneToDock(split!, [], pane.id, "/repo", "left");
+    expect(back).not.toBeNull();
+    expect(leafIds(back!.tab.layout)).toEqual(["chat"]);
+    expect(back!.tab.terminalPanes).toEqual([]);
+    expect(back!.docks).toHaveLength(1);
+    expect(back!.docks[0]).toMatchObject({ side: "left", open: true });
+    expect(back!.docks[0].pane.files.map((file) => file.id)).toEqual([
+      first.id,
+      second.id,
+    ]);
+  });
+
+  it("appends to an existing dock and refuses to empty the tab", () => {
+    const docked = newTerminalFile("/repo");
+    const dock = withDockOpen(createProjectTerminal("/repo", docked), false);
+    const moving = newTerminalFile("/repo");
+    const split = moveDockToPane(
+      newTab("chat"),
+      createProjectTerminal("/repo", moving),
+      "chat",
+      "right",
+    )!;
+    const paneId = split.terminalPanes[0].id;
+
+    const back = movePaneToDock(split, [dock], paneId, "/repo", "bottom")!;
+    expect(back.docks[0].open).toBe(true);
+    expect(back.docks[0].pane.files.map((file) => file.id)).toEqual([
+      docked.id,
+      moving.id,
+    ]);
+    expect(back.docks[0].pane.activeFileId).toBe(moving.id);
+
+    const alone = { ...split, layout: leaf(paneId) };
+    expect(movePaneToDock(alone, [], paneId, "/repo", "bottom")).toBeNull();
   });
 });

@@ -59,7 +59,7 @@ import {
   setExternalPaneDrop,
 } from "../../features/workspace/model/paneDrop";
 import type { PaneEdge } from "../../features/workspace/model/layout";
-import { suppressTextSelection } from "../../shared/lib/drag";
+import { createDragGhost, suppressTextSelection } from "../../shared/lib/drag";
 import {
   compareSessionSummaries,
   filterSessionsByArchive,
@@ -232,20 +232,28 @@ function ProjectSessionSectionComponent({
       refreshRemoteProjectSessions();
     }
   };
+  // Host rows that are already open (or native) are local sessions; the rest
+  // open through a local shell bound to their Host session.
+  const opensLocally = (sessionId: string) =>
+    (hostProject?.local &&
+      remote.sessions.find((row) => row.id === sessionId)?.nativeSession) ||
+    openSessions.some(
+      (row) => row.id === sessionId && sameProjectPath(row.cwd, cwd),
+    );
   const onSelectSession = remoteProject
     ? (sessionId: string) =>
-        (hostProject?.local &&
-          remote.sessions.find((row) => row.id === sessionId)?.nativeSession) ||
-        openSessions.some(
-          (row) => row.id === sessionId && sameProjectPath(row.cwd, cwd),
-        )
+        opensLocally(sessionId)
           ? onSelectLocalSession?.(sessionId)
           : onSelectRemoteSession?.(cwd, sessionId)
     : onSelectLocalSession;
   const onPrefetchSession = remoteProject ? undefined : onPrefetchLocalSession;
-  const onPlaceSessionOnPane = remoteProject
-    ? undefined
-    : onPlaceLocalSessionOnPane;
+  const onPlaceSessionOnPane =
+    remoteProject && onPlaceLocalSessionOnPane
+      ? (sessionId: string, targetId: string, edge: PaneEdge) =>
+          opensLocally(sessionId)
+            ? onPlaceLocalSessionOnPane(sessionId, targetId, edge)
+            : onPlaceLocalSessionOnPane(sessionId, targetId, edge, cwd)
+      : onPlaceLocalSessionOnPane;
   const onRenameSession = remoteProject
     ? (sessionId: string, title: string) => {
         void remoteChange(sessionId, { title });
@@ -1115,7 +1123,7 @@ function ProjectSessionSectionComponent({
           ) : (
             <ul
               data-session-list
-              className={`flex flex-col ${dense ? "w-full gap-[3px] px-0 py-[3px]" : "gap-px px-1 pb-1"}`}
+              className={`flex flex-col ${dense ? "w-full gap-px px-0 py-px" : "gap-px px-1 pb-1"}`}
             >
               {sessionListEntries.map((entry, index) => {
                 if (entry.kind === "pinned" || entry.kind === "reminders") {
@@ -1172,7 +1180,7 @@ function ProjectSessionSectionComponent({
                         />
                         <AnimatedCollapse expanded={expanded}>
                           <ul
-                            className={`flex flex-col ${dense ? "w-full gap-[3px] px-0 pt-[3px]" : "gap-px p-1"}`}
+                            className={`flex flex-col ${dense ? "w-full gap-px px-0 pt-px" : "gap-px p-1"}`}
                           >
                             <SessionGroupPreview
                               sessions={entry.sessions}
@@ -1736,6 +1744,7 @@ const SessionCard = memo(function SessionCard({
     let active = false;
     let lastX = startX;
     let lastY = startY;
+    let label: ReturnType<typeof createDragGhost> | undefined;
     handle.setPointerCapture(pointerId);
     const restoreSelection = suppressTextSelection();
 
@@ -1746,6 +1755,12 @@ const SessionCard = memo(function SessionCard({
         if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
         active = true;
         setDragging(true);
+        label = createDragGhost(
+          handle,
+          startX,
+          startY,
+          uiT("Open in split view"),
+        );
         setExternalPaneDrop({
           fromId: session.id,
           overId: null,
@@ -1753,6 +1768,7 @@ const SessionCard = memo(function SessionCard({
         });
       }
       const over = paneDropFromPoint(ev.clientX, ev.clientY);
+      label?.move(ev.clientX, ev.clientY, !!over && over.id !== session.id);
       if (!over || over.id === session.id) {
         setExternalPaneDrop({
           fromId: session.id,
@@ -1781,6 +1797,7 @@ const SessionCard = memo(function SessionCard({
       window.removeEventListener("pointercancel", onUp);
       window.removeEventListener("keydown", onKey);
       restoreSelection();
+      label?.dispose();
       setDragging(false);
       setExternalPaneDrop(null);
       try {
@@ -1870,7 +1887,7 @@ const SessionCard = memo(function SessionCard({
             : undefined
         }
         className={`relative border flex w-full cursor-default select-none touch-none rounded-md text-left ${dense ? `h-8 flex-row items-center gap-1 ${shortcut ? "px-2" : compact ? "pl-[54px] pr-2" : "pl-8 pr-2"}` : `flex-col px-2.5 ${cardPaddingY}`} ${
-          dragging ? "opacity-40" : ""
+          dragging ? "opacity-0" : ""
         } ${
           isSelected
             ? `bg-accent/15 text-content ${draft ? "border-content/30 border-dashed" : "border-transparent"}`

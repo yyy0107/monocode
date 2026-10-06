@@ -2741,6 +2741,224 @@ header[data-tauri-drag-region] button {
   --pane-enter-opacity: 0;
 }
 
+/* Several chats side by side: each pane is a card on a tinted gutter. */
+.pane-card-gutter {
+  background: color-mix(
+    in srgb,
+    var(--color-content) 4%,
+    var(--color-background-base)
+  );
+}
+
+.pane-card {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-content) 9%, transparent);
+  border-radius: 12px;
+  background: var(--color-background-base);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  transition:
+    border-color var(--motion-feedback-duration) var(--motion-ease-out),
+    box-shadow var(--motion-feedback-duration) var(--motion-ease-out);
+}
+
+.pane-card[data-focused="true"] {
+  border-color: color-mix(in srgb, var(--color-content) 20%, transparent);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.08);
+}
+
+html.theme-light .pane-card {
+  background: color-mix(in srgb, var(--color-background-base) 35%, white);
+}
+
+/* A dock shares the chat card's frame; the resize strip sits in their gutter. */
+.project-terminal-card {
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.08);
+}
+
+.project-terminal-card-gutter > .resize-handle:is(
+  [data-resize-edge="left"], [data-resize-edge="right"]
+) {
+  width: 12px;
+}
+
+.project-terminal-card-gutter > .resize-handle[data-resize-edge="left"] {
+  left: -6px;
+}
+
+.project-terminal-card-gutter > .resize-handle[data-resize-edge="right"] {
+  right: -6px;
+}
+
+.project-terminal-card-gutter > .resize-handle:is(
+  [data-resize-edge="top"], [data-resize-edge="bottom"]
+) {
+  height: 12px;
+}
+
+.project-terminal-card-gutter > .resize-handle[data-resize-edge="top"] {
+  top: -6px;
+}
+
+.project-terminal-card-gutter > .resize-handle[data-resize-edge="bottom"] {
+  bottom: -6px;
+}
+
+.project-terminal-card-gutter > .resize-handle::after {
+  inset: 0;
+  margin: auto;
+  border-radius: 9999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane-card {
+    transition: none;
+  }
+}
+
+/* Split drop target: a frosted half of the pane that slides between edges. */
+.pane-drop-hint {
+  animation: pane-drop-hint-in 140ms var(--motion-ease-out);
+}
+
+.pane-drop-hint-target {
+  position: absolute;
+  padding: 6px;
+  transition:
+    left 180ms var(--motion-ease-out),
+    top 180ms var(--motion-ease-out),
+    width 180ms var(--motion-ease-out),
+    height 180ms var(--motion-ease-out);
+}
+
+.pane-drop-hint-panel {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--user-accent-color, var(--color-accent));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-background-base) 55%, transparent);
+  backdrop-filter: blur(10px) saturate(1.1);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.16);
+}
+
+.pane-drop-hint-label {
+  border-radius: 9999px;
+  background: var(--user-accent-color, var(--color-accent));
+  color: var(--user-accent-foreground, #fff);
+  padding: 5px 13px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.3;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
+}
+
+/* Follows the pointer while a sidebar conversation is dragged out. */
+.drag-label {
+  position: fixed;
+  left: 0;
+  top: 0;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  white-space: nowrap;
+  border: 1px solid var(--color-stroke);
+  border-radius: 6px;
+  background: var(--color-background-base);
+  color: var(--color-content);
+  padding: 5px 10px;
+  font-size: 13px;
+  line-height: 1.3;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.16);
+  opacity: 0;
+  transition: opacity 120ms var(--motion-ease-out);
+}
+
+.drag-label[data-visible="true"] {
+  opacity: 1;
+}
+
+/* A sidebar row lifted out of its list while dragged. */
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
+.drag-ghost-card {
+  position: fixed;
+  left: 0;
+  top: 0;
+  margin: 0;
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--color-content) 8%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) 92%,
+    var(--color-content)
+  );
+  color: var(--color-content);
+  box-shadow:
+    0 10px 28px rgb(0 0 0 / 0.16),
+    0 2px 6px rgb(0 0 0 / 0.08);
+  transition: opacity 120ms var(--motion-ease-out);
+}
+
+html.theme-light .drag-ghost-card {
+  background: color-mix(in srgb, var(--color-background-base) 30%, white);
+}
+
+.drag-ghost-label {
+  opacity: 0;
+}
+
+.drag-ghost[data-target="true"] .drag-ghost-card {
+  opacity: 0;
+}
+
+.drag-ghost[data-target="true"] .drag-ghost-label {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drag-ghost-card {
+    transition: none;
+  }
+}
+
+.drag-label[data-target="true"] {
+  border-color: var(--user-accent-color, var(--color-accent));
+}
+
+@keyframes pane-drop-hint-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane-drop-hint {
+    animation: none;
+  }
+  .pane-drop-hint-target,
+  .drag-label {
+    transition: none;
+  }
+}
+
 @keyframes linked-panel-reveal {
   from {
     opacity: 0;
@@ -3179,6 +3397,20 @@ header[data-tauri-drag-region] button {
   --collapse-easing: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Respond on the first frame instead of slowly accelerating after a click. */
+.zen-fold-item.project-tree-collapse {
+  --collapse-easing: cubic-bezier(0.2, 0.65, 0.3, 1);
+}
+
+.project-tree-chevron {
+  transform: rotate(0deg);
+  transition: transform 280ms cubic-bezier(0.2, 0.65, 0.3, 1);
+}
+
+[aria-expanded="true"] .project-tree-chevron {
+  transform: rotate(90deg);
+}
+
 .animated-collapse-size {
   transition:
     grid-template-rows var(--collapse-duration) var(--collapse-easing),
@@ -3451,6 +3683,10 @@ header[data-tauri-drag-region] button {
   }
 
   .animated-collapse-size {
+    transition: none;
+  }
+
+  .project-tree-chevron {
     transition: none;
   }
 

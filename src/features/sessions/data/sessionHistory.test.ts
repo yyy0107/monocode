@@ -8,6 +8,7 @@ import {
   mergeProjectHistorySummary,
   replaceProjectHistory,
   reuseEqualSummaries,
+  sidebarLiveSessions,
 } from "./sessionHistory";
 import { pathKey } from "../../../shared/lib/paths";
 import { newSession } from "../model/session";
@@ -28,6 +29,24 @@ function summary(id: string, cwd: string, updatedAt = 1): SessionSummary {
     deletions: 0,
   };
 }
+
+describe("sidebarLiveSessions", () => {
+  it("keeps open blank panes, drafts and background work without resurrecting orphan blanks", () => {
+    const blank = (id: string) => ({ ...newSession("codex", "/repo"), id });
+    const sessions = [
+      blank("orphan"),
+      blank("open-blank"),
+      { ...blank("working"), busy: true },
+      { ...blank("draft"), blocks: [{ id: "d", role: "user" as const, text: "Unsent", draft: true }] },
+      { ...blank("history"), blocks: [{ id: "u", role: "user" as const, text: "Existing conversation" }] },
+      { ...blank("worker"), orchestrationLeadId: "lead" },
+    ];
+    expect(sidebarLiveSessions(sessions, new Set(["open-blank", "worker"])).map((session) => session.id))
+      .toEqual(["open-blank", "working", "draft", "history"]);
+    expect(sidebarLiveSessions(sessions, new Set()).map((session) => session.id))
+      .toEqual(["working", "draft", "history"]);
+  });
+});
 
 describe("historyWithLiveSessions", () => {
   const run: OrchestrationRun = {

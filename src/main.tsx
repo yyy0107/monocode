@@ -26,6 +26,7 @@ import { initUiLanguage } from "./shared/i18n/languageSync";
 import { initializeSharedHost } from "./features/connections/model/sharedHost";
 import { useTranslation } from "./shared/i18n/useTranslation";
 import { WindowResizeHandles } from "./app/shell/WindowResizeHandles";
+import { WindowDragBar } from "./app/shell/WindowChrome";
 
 performance.mark("monocode:bootstrap");
 // Let local boot IPC overlap loading/evaluating the workspace UI.
@@ -107,12 +108,15 @@ function BootFailure({ error }: { error: unknown }) {
   const { t } = useTranslation();
   useLayoutEffect(dismissBootSplash, []);
   return (
-    <div className="flex h-screen flex-col items-center justify-center gap-4 p-8 text-content">
-      <p>{t("Could not connect to shared conversations.")}</p>
-      <pre className="max-w-xl whitespace-pre-wrap text-sm text-content/60">
-        {String(error)}
-      </pre>
-      <button onClick={() => void boot()}>{t("Retry")}</button>
+    <div className="flex h-screen flex-col text-content">
+      <WindowDragBar />
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-8">
+        <p>{t("Could not connect to shared conversations.")}</p>
+        <pre className="max-w-xl whitespace-pre-wrap text-sm text-content/60">
+          {String(error)}
+        </pre>
+        <button onClick={() => void boot()}>{t("Retry")}</button>
+      </div>
     </div>
   );
 }

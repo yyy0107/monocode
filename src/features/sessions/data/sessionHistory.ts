@@ -3,6 +3,7 @@ import { summarizeOrchestration } from "../../orchestration/model/orchestrationS
 import { fuzzyMatch } from "../../../shared/lib/fuzzy";
 import { pathKey, projectName } from "../../../shared/lib/paths";
 import { sameProjectPath } from "../../projects/model/recents";
+import { isBlankSession } from "../../projects/model/projectReturn";
 import {
   sessionDisplayTitle,
   sessionDraftBlock,
@@ -15,6 +16,18 @@ export type SessionGitHint = {
   repo?: string;
   branch?: string;
 };
+
+/** Empty conversations belong to an open pane, not retained history/cache. */
+export function sidebarLiveSessions(
+  sessions: readonly Session[],
+  openSessionIds: ReadonlySet<string>,
+): Session[] {
+  return sessions.filter(
+    (session) =>
+      !session.inboxAsk && !session.orchestrationLeadId &&
+      (openSessionIds.has(session.id) || !isBlankSession(session)),
+  );
+}
 
 export function compareSessionSummaries(
   a: SessionSummary,
@@ -327,6 +340,7 @@ function overlayProjectHistory(
     })
     .sort(compareSessionSummaries);
 }
+
 /** Live rows restamp `updatedAt` every overlay; a minute is below the list's clock. */
 const LIVE_UPDATED_AT_SLACK_MS = 60_000;
 

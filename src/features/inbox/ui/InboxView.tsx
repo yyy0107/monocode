@@ -930,7 +930,7 @@ export function InboxView({
             }`}
           >
             <Plus className="size-3.5 shrink-0" strokeWidth={1.75} />
-            <span className="min-w-0 truncate">{uiT("Add connection")}</span>
+            <span className="min-w-0 truncate leading-normal">{uiT("Add connection")}</span>
           </button>
         ) : null}
       </div>

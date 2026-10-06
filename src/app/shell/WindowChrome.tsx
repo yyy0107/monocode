@@ -3,10 +3,12 @@ import { useTranslation } from "../../shared/i18n/useTranslation";
 import { useShortcutLabel } from "../commands/useCommandShortcut";
 import { MoveLeft, MoveRight, PanelLeft } from "../../shared/ui/icons";
 import { IS_MAC } from "../../platform/tauri/platform";
+import { startWindowDrag } from "./startWindowDrag";
+import { WindowControls } from "./WindowControls";
 
 /**
  * Window chrome shared by every shell layout now that the workspace tab strip
- * is gone: the fixed back/forward/sidebar cluster and its reserved space.
+ * is gone: the drag bar, back/forward/sidebar cluster and its reserved space.
  */
 
 export function IconButton({
@@ -128,6 +130,38 @@ const WINDOW_NAVIGATION_LEFT = IS_MAC ? 78 : 6;
 const WINDOW_NAVIGATION_WIDTH = 78;
 export const WINDOW_NAVIGATION_END =
   WINDOW_NAVIGATION_LEFT + 48 + WINDOW_NAVIGATION_WIDTH;
+export const WINDOW_DRAG_BAR_HEIGHT = 40;
+
+/** Keep native window dragging independent of the active page or pane layout. */
+export function WindowDragBar({
+  windowActions,
+  ...props
+}: Parameters<typeof TabVisitNav>[0] & {
+  /** Window-wide actions shown just before the window controls. */
+  windowActions?: ReactNode;
+}) {
+  return (
+    <header
+      data-window-drag-bar
+      data-tauri-drag-region="deep"
+      onMouseDownCapture={startWindowDrag}
+      className="shell-chrome relative flex shrink-0 select-none items-center"
+      style={{ height: WINDOW_DRAG_BAR_HEIGHT }}
+    >
+      <WindowNavigation {...props} />
+      <div className="min-w-0 flex-1 self-stretch" />
+      {windowActions ? (
+        <div
+          data-tauri-drag-region="false"
+          className="flex shrink-0 items-center"
+        >
+          {windowActions}
+        </div>
+      ) : null}
+      {!IS_MAC ? <WindowControls /> : null}
+    </header>
+  );
+}
 
 export function WindowNavigation(props: Parameters<typeof TabVisitNav>[0]) {
   const { t: uiT } = useTranslation();
@@ -139,7 +173,7 @@ export function WindowNavigation(props: Parameters<typeof TabVisitNav>[0]) {
       className="absolute z-20 flex h-10 items-center"
       style={{
         left: WINDOW_NAVIGATION_LEFT + 48,
-        top: "var(--menu-bar-h, 0px)",
+        top: 0,
       }}
     >
       <TabVisitNav {...props} />

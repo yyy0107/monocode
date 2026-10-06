@@ -60,3 +60,49 @@ export function paneDropFromPoint(
   if (!id || !pane) return null;
   return { id, edge: paneEdgeFromPoint(x, y, pane.getBoundingClientRect()) };
 }
+
+/**
+ * A split terminal dragged toward the project's terminal dock: over the open
+ * dock, or over the bottom band where a closed dock would open.
+ */
+export type TerminalDockDrop = "dock" | "band" | null;
+
+let dockDrop: TerminalDockDrop = null;
+const dockListeners = new Set<() => void>();
+
+export function setTerminalDockDrop(next: TerminalDockDrop) {
+  if (dockDrop === next) return;
+  dockDrop = next;
+  for (const listener of dockListeners) listener();
+}
+
+function subscribeTerminalDockDrop(listener: () => void) {
+  dockListeners.add(listener);
+  return () => {
+    dockListeners.delete(listener);
+  };
+}
+
+export function useTerminalDockDrop() {
+  return useSyncExternalStore(
+    subscribeTerminalDockDrop,
+    () => dockDrop,
+    () => null,
+  );
+}
+
+/** Height of the bottom strip that docks a dragged terminal when no dock is open. */
+export const TERMINAL_DOCK_BAND = 56;
+
+/** Whether the point is over the open terminal dock. */
+export function overOpenTerminalDock(x: number, y: number): boolean {
+  const el = document.elementFromPoint(x, y);
+  return !!el?.closest("[data-project-terminal-dock]:not([inert] *)");
+}
+
+/** An open dock that can receive terminals is on screen. */
+export function terminalDockOpen(): boolean {
+  return !!document.querySelector(
+    "[data-project-terminal-dock]:not([inert] *)",
+  );
+}

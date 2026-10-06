@@ -27,6 +27,7 @@ vi.mock("@xterm/xterm", () => ({
       active: { type: "normal" },
       onBufferChange: () => ({ dispose() {} }),
     };
+    element = undefined;
     open() {}
     focus() {}
     dispose() {}
@@ -41,14 +42,23 @@ vi.mock("@xterm/xterm", () => ({
     attachCustomWheelEventHandler() {}
   },
 }));
-import { TerminalView } from "./TerminalView";
+import { TERMINAL_HANDOFF_MS, TerminalView } from "./TerminalView";
 
 afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
+/** Let an unclaimed terminal's handoff window lapse and its teardown run. */
+async function lapseHandoff() {
+  await act(async () => {
+    vi.advanceTimersByTime(TERMINAL_HANDOFF_MS + 1);
+  });
+}
+
 function setup() {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
     "ResizeObserver",
@@ -87,10 +97,44 @@ it("does not let StrictMode cleanup kill the replacement shell", async () => {
     });
     host.remove();
   }
+  expect(pty.killPty).not.toHaveBeenCalled();
+  await lapseHandoff();
   expect(pty.killPty).toHaveBeenCalledTimes(1);
 });
 
-it("waits for a pending same-id startup and cleanup before starting again", async () => {
+it("keeps the shell when a terminal moves between the dock and a pane", async () => {
+  const { host, root } = setup();
+  // A new `key` remounts a fresh view with the same PTY id, as moving a
+  // terminal between the dock and a split pane does.
+  const view = (key: string) =>
+    createElement(TerminalView, {
+      key,
+      id: "moved",
+      cwd: "/tmp",
+      active: true,
+    });
+  try {
+    await act(async () => {
+      root.render(view("dock"));
+    });
+    await act(async () => {
+      root.render(view("pane"));
+    });
+    await lapseHandoff();
+    expect(pty.subscribePty).toHaveBeenCalledTimes(1);
+    expect(pty.spawnPty).toHaveBeenCalledTimes(1);
+    expect(pty.killPty).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    await lapseHandoff();
+    host.remove();
+  }
+  expect(pty.killPty).toHaveBeenCalledTimes(1);
+});
+
+it("waits for a closed terminal's teardown before starting its id again", async () => {
   const { host, root } = setup();
   const operations: string[] = [];
   let releaseSpawn!: () => void;
@@ -113,21 +157,18 @@ it("waits for a pending same-id startup and cleanup before starting again", asyn
   pty.killPty.mockImplementation(async () => {
     operations.push("kill");
   });
-  // A new `key` remounts a fresh instance with the same PTY id, as moving a
-  // terminal between the dock and a file pane does.
-  const view = (key: string) =>
-    createElement(TerminalView, {
-      key,
-      id: "moved",
-      cwd: "/tmp",
-      active: true,
-    });
+  const view = () =>
+    createElement(TerminalView, { id: "reopened", cwd: "/tmp", active: true });
   try {
     await act(async () => {
-      root.render(view("dock"));
+      root.render(view());
     });
     await act(async () => {
-      root.render(view("pane"));
+      root.render(null);
+    });
+    await lapseHandoff();
+    await act(async () => {
+      root.render(view());
     });
     expect(operations).toEqual(["subscribe", "spawn old"]);
     await act(async () => {
@@ -145,6 +186,7 @@ it("waits for a pending same-id startup and cleanup before starting again", asyn
     await act(async () => {
       root.unmount();
     });
+    await lapseHandoff();
     host.remove();
   }
 });
@@ -173,6 +215,7 @@ it("does not hold a different terminal behind another one's teardown", async () 
     await act(async () => {
       root.unmount();
     });
+    await lapseHandoff();
     host.remove();
   }
 });

@@ -32,6 +32,7 @@ import { pathKey } from "../../../shared/lib/paths";
 import { parseRemotePath, remotePath } from "../../connections/model/remoteProjects";
 import { isRetiredSession } from "../../sessions/model/retiredSessions";
 import {
+  isBlankSession,
   reconcileProjectReturn,
   type ProjectReturnMemory,
 } from "../../projects/model/projectReturn";
@@ -102,7 +103,10 @@ export function collectWorkspaceSnapshot(
         .filter((tab): tab is WorkspaceTab => tab != null),
     ),
     sessions: sessions
-      .filter((session) => !droppedIds.has(session.id))
+      .filter((session) =>
+        !droppedIds.has(session.id) &&
+        (keptIds.has(session.id) || !isBlankSession(session)),
+      )
       .map(sessionStub)
       .filter((stub): stub is WorkspaceSessionStub => stub != null),
     activeTabId,
@@ -382,7 +386,16 @@ export function hydrateWorkspaceSnapshot(
     return next;
   };
 
-  for (const stub of parsed.sessions) take(stub.id);
+  const openSessionIds = new Set(parsed.tabs.flatMap((tab) => leafIds(tab.layout)));
+  for (const stub of parsed.sessions) {
+    // Old snapshots included every retained session. A missing transcript with
+    // no open pane must not become another empty "New session" on startup.
+    if (!openSessionIds.has(stub.id) && !interruptedIds.has(stub.id)) {
+      const record = loaded.get(stub.id);
+      if (!record || isBlankSession(record)) continue;
+    }
+    take(stub.id);
+  }
 
   const tabs: WorkspaceTab[] = [];
   for (const tab of parsed.tabs) {

@@ -13,10 +13,12 @@ import { LAYER } from "../../../shared/lib/layers";
 export function AppViewDialog({
   title,
   onClose,
+  topInset = 0,
   children,
 }: {
   title: string;
   onClose: () => void;
+  topInset?: number;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -26,7 +28,7 @@ export function AppViewDialog({
     <div
       data-app-view-dialog
       className="fixed inset-0"
-      style={{ zIndex: LAYER.dialog }}
+      style={{ zIndex: LAYER.dialog, top: topInset }}
     >
       <div
         className="modal-backdrop absolute inset-0 bg-black/40"
@@ -36,7 +38,7 @@ export function AppViewDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="app-view-dialog absolute left-1/2 top-1/2 isolate flex h-[min(780px,calc(100dvh-64px))] w-[min(1080px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-content/7 shadow-2xl"
+        className="app-view-dialog absolute left-1/2 top-1/2 isolate flex h-[min(780px,calc(100%-64px))] w-[min(1080px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-content/7 shadow-2xl"
       >
         <GlassBackdrop />
         <div className="modal-panel relative z-[1] flex min-h-0 flex-1 flex-col">

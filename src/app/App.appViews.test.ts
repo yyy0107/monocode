@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -129,7 +129,13 @@ vi.mock("./shell/MenuBar", async () => {
   const { WindowControls } = await import("./shell/WindowControls");
   return {
     MENU_BAR_HEIGHT: 36,
-    MenuBar: ({ dispatch }: { dispatch: (id: string) => void }) =>
+    MenuBar: ({
+      dispatch,
+      windowActions,
+    }: {
+      dispatch: (id: string) => void;
+      windowActions?: ReactNode;
+    }) =>
       el(
         "nav",
         { "data-menu": true },
@@ -149,13 +155,15 @@ vi.mock("./shell/MenuBar", async () => {
             id,
           ),
         ),
+        loadMenuBarVisible() ? windowActions : null,
         loadMenuBarVisible() ? el(WindowControls) : null,
       ),
   };
 });
-vi.mock("./shell/WindowChrome", async () => {
+vi.mock("./shell/WindowChrome", async (original) => {
   const { createElement: el } = await import("react");
   return {
+    ...(await original<typeof import("./shell/WindowChrome")>()),
     WindowNavigation: () => null,
     WindowNavigationSpace: () => null,
     TitleBar: ({
@@ -241,7 +249,11 @@ vi.mock("./shell/Sidebar", async () => {
           "data-active-session": activeSessionId,
           "data-sidebar-tab": tab,
         },
-        el("button", { "data-open-assistant": true, onClick: onOpenAssistant }, "Assistant"),
+        el(
+          "button",
+          { "data-open-assistant": true, onClick: onOpenAssistant },
+          "Assistant",
+        ),
         ...["first", "recent", "replacement"].map((id) =>
           el(
             "button",
@@ -386,13 +398,13 @@ vi.mock("./shell/ActivityBar", async () => {
           { "data-open-settings": true, onClick: onOpenSettings },
           "Settings",
         ),
-        el("button", { "data-open-notes": true, onClick: onOpenNotes }, "Notes"),
+        el(
+          "button",
+          { "data-open-notes": true, onClick: onOpenNotes },
+          "Notes",
+        ),
       ),
   };
-});
-vi.mock("./shell/UsageFooter", async () => {
-  const { createElement: el } = await import("react");
-  return { UsageFooter: () => el("footer", { "data-footer": true }, "Usage") };
 });
 vi.mock("../features/terminal/ui/ProjectTerminalDock", async () => {
   const { createElement: el } = await import("react");
@@ -502,8 +514,12 @@ vi.mock("../features/source-control/ui/WorkingTreeDiff", async () => {
 vi.mock("../features/assistant/ui/DesktopAssistant", async () => {
   const { createElement: el } = await import("react");
   return {
-    DesktopAssistant: () => el("section", { "data-app-view": "assistant" },
-      el("textarea", { "aria-label": "Assistant draft" })),
+    DesktopAssistant: () =>
+      el(
+        "section",
+        { "data-app-view": "assistant" },
+        el("textarea", { "aria-label": "Assistant draft" }),
+      ),
   };
 });
 
@@ -540,7 +556,13 @@ vi.mock("../features/settings/ui/SettingsView", async () => {
 vi.mock("../features/inbox/ui/InboxView", async () => {
   const { createElement: el, useEffect } = await import("react");
   return {
-    InboxView: ({ active }: { active: boolean }) => {
+    InboxView: ({
+      active,
+      onClose,
+    }: {
+      active: boolean;
+      onClose: () => void;
+    }) => {
       useEffect(() => {
         mocks.viewMounted("inbox");
       }, []);
@@ -548,6 +570,7 @@ vi.mock("../features/inbox/ui/InboxView", async () => {
         "section",
         { "data-app-view": "inbox", "data-focused": active },
         "Inbox",
+        el("button", { "data-leave-view": true, onClick: onClose }),
       );
     },
     LinkedWorkItemPanel: () => null,
@@ -775,39 +798,88 @@ describe("App workspace app views", () => {
     await click("[data-open-assistant]");
     const assistantTab = activeTabId();
     expect(assistantTab).not.toBe(firstId);
-    expect(workspace().querySelector('[data-app-view="assistant"]')).not.toBeNull();
+    expect(
+      workspace().querySelector('[data-app-view="assistant"]'),
+    ).not.toBeNull();
     expect(container.querySelector(".assistant-overlay")).toBeNull();
-    const draft = container.querySelector<HTMLTextAreaElement>('[aria-label="Assistant draft"]')!;
+    const draft = container.querySelector<HTMLTextAreaElement>(
+      '[aria-label="Assistant draft"]',
+    )!;
     draft.value = "Keep this draft";
     await selectSession("recent");
     await click("[data-open-assistant]");
     expect(activeTabId()).toBe(assistantTab);
-    expect(container.querySelectorAll('[data-app-view="assistant"]')).toHaveLength(1);
-    expect(container.querySelector('[aria-label="Assistant draft"]')).toBe(draft);
+    expect(
+      container.querySelectorAll('[data-app-view="assistant"]'),
+    ).toHaveLength(1);
+    expect(container.querySelector('[aria-label="Assistant draft"]')).toBe(
+      draft,
+    );
     expect(draft.value).toBe("Keep this draft");
     await pressKey("w", true);
     expect(container.querySelector('[data-app-view="assistant"]')).toBeNull();
     expect(workspace(recentId)).not.toBeNull();
   });
 
-  it("retains native window controls when the menu bar and global workspace tabs are hidden", async () => {
-    const visibleControls = () =>
-      [...container.querySelectorAll('[aria-label="Window controls"]')].filter(
-        (controls) => !controls.closest('[aria-hidden="true"]'),
+  it.each([false, true])(
+    "keeps shared top chrome across pages with a restored app-only workspace: %s",
+    async (onlyApp) => {
+      const visibleControls = () =>
+        [
+          ...container.querySelectorAll('[aria-label="Window controls"]'),
+        ].filter((controls) => !controls.closest('[aria-hidden="true"]'));
+      saveMenuBarVisible(false);
+      await mount(onlyApp);
+      expect(container.querySelector("[data-title-bar]")).toBeNull();
+      const chrome = container.querySelector<HTMLElement>(
+        "[data-window-chrome]",
+      )!;
+      const dragBar = chrome.querySelector<HTMLElement>(
+        "[data-window-drag-bar]",
+      )!;
+      expect(dragBar.getAttribute("data-tauri-drag-region")).toBe("deep");
+      expect(dragBar.closest("[data-workspace-tab]")).toBeNull();
+      expect(
+        chrome.querySelector('[aria-label="Window controls"]'),
+      ).not.toBeNull();
+      const sidebarToggle = dragBar.querySelector<HTMLButtonElement>(
+        "[data-window-navigation] button:last-child",
+      )!;
+      expect(sidebarToggle.getAttribute("aria-pressed")).toBe("true");
+      await act(async () => sidebarToggle.click());
+      expect(sidebarToggle.getAttribute("aria-pressed")).not.toBe("true");
+      await click("[data-open-assistant]");
+      expect(container.querySelector("[data-window-drag-bar]")).toBe(dragBar);
+      for (const command of [
+        "View: Inbox",
+        "View: Notes",
+        "View: Search Everywhere",
+        "App: Settings",
+      ]) {
+        await click(`[data-command="${command}"]`);
+        expect(container.querySelector("[data-window-drag-bar]")).toBe(dragBar);
+        expect(visibleControls()).toHaveLength(1);
+      }
+      const dialog = document.querySelector<HTMLElement>(
+        "[data-app-view-dialog]",
+      )!;
+      expect(dialog.style.top).toBe("40px");
+      expect(Number(chrome.style.zIndex)).toBeGreaterThan(
+        Number(dialog.style.zIndex),
       );
-    saveMenuBarVisible(false);
-    await mount();
-    expect(container.querySelector("[data-title-bar]")).toBeNull();
-    expect(visibleControls()).toHaveLength(1);
-    await click('[aria-label="Minimize window"]');
-    await click('[aria-label="Maximize window"]');
-    await click('[aria-label="Close window"]');
-    expect(mocks.windowMinimize).toHaveBeenCalledOnce();
-    expect(mocks.windowMaximize).toHaveBeenCalledOnce();
-    expect(mocks.windowClose).toHaveBeenCalledOnce();
-    await act(async () => saveMenuBarVisible(true));
-    expect(visibleControls()).toHaveLength(1);
-  });
+      expect(visibleControls()).toHaveLength(1);
+      await click('[aria-label="Minimize window"]');
+      await click('[aria-label="Maximize window"]');
+      await click('[aria-label="Close window"]');
+      expect(mocks.windowMinimize).toHaveBeenCalledOnce();
+      expect(mocks.windowMaximize).toHaveBeenCalledOnce();
+      expect(mocks.windowClose).toHaveBeenCalledOnce();
+      await act(async () => saveMenuBarVisible(true));
+      expect(visibleControls()).toHaveLength(1);
+      expect(container.querySelector("[data-window-drag-bar]")).toBeNull();
+      expect(dialog.style.top).toBe("36px");
+    },
+  );
 
   it("closes a session's Notes tool when Notes is disabled", async () => {
     await mount();
@@ -824,7 +896,9 @@ describe("App workspace app views", () => {
       workspace().querySelector(`[data-file-tab-id="${notesId}"]`),
     ).toBeNull();
     expect(
-      document.querySelector('[data-app-view-dialog] [data-app-view="settings"]'),
+      document.querySelector(
+        '[data-app-view-dialog] [data-app-view="settings"]',
+      ),
     ).not.toBeNull();
   });
 
@@ -859,25 +933,22 @@ describe("App workspace app views", () => {
     ).not.toBeNull();
   });
 
-  it("mounts Inbox in a pane and keeps the sidebar, footer and terminal dock visible", async () => {
+  it("opens Inbox as a dialog over the chat and closes it without a tool tab", async () => {
     await mount();
     await click('[data-command="View: Inbox"]');
-    const inbox = container.querySelector('[data-app-view="inbox"]');
-    expect(inbox).not.toBeNull();
-    expect(inbox?.closest("[data-pane-id]")).not.toBeNull();
-    expect(inbox?.closest('[aria-hidden="true"]')).toBeNull();
-    for (const selector of [
-      "[data-sidebar]",
-      "[data-footer]",
-      "[data-terminal-dock]",
-    ]) {
-      const shell = container.querySelector(selector);
-      expect(shell, selector).not.toBeNull();
-      expect(shell?.closest(".hidden")).toBeNull();
-    }
-    expect(ownedFileTabs()[0].textContent).toBe("Inbox");
+    const dialog = document.querySelector("[data-app-view-dialog]");
+    const inbox = dialog?.querySelector('[data-app-view="inbox"]');
+    expect(inbox?.getAttribute("data-focused")).toBe("true");
+    expect(container.querySelector('[data-app-view="inbox"]')).toBeNull();
+    expect(ownedFileTabs()).toHaveLength(0);
     expect(activeTabId()).toBe(firstId);
-    expect(container.querySelector("[data-title-bar]")).toBeNull();
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>("[data-leave-view]")!.click(),
+    );
+    expect(document.querySelector("[data-app-view-dialog]")).toBeNull();
+    expect(
+      workspace(firstId).querySelector('[data-session="first"]'),
+    ).not.toBeNull();
   });
 
   it.each(["pane", "workspace"])(
@@ -1130,7 +1201,7 @@ describe("App workspace app views", () => {
       await mount();
       await click('[data-command="View: Notes"]');
       if (mode === "unified")
-        await clickInWorkspace("[data-surface-mode-toggle]");
+        await click("[data-window-chrome] [data-surface-mode-toggle]");
       await pressKey("w", true);
       expect(
         workspace(firstId).querySelector('[data-app-view="notes"]'),
@@ -1170,27 +1241,28 @@ describe("App workspace app views", () => {
     await mount();
     await click('[data-command="View: Notes"]');
     expect(
-      workspace()
-        .querySelector("[data-surface-mode-toggle]")
+      container
+        .querySelector("[data-window-chrome] [data-surface-mode-toggle]")
         ?.getAttribute("aria-label"),
     ).toBe("Enter full view");
-    await clickInWorkspace("[data-surface-mode-toggle]");
+    await click("[data-window-chrome] [data-surface-mode-toggle]");
     expect(
-      workspace()
-        .querySelector("[data-surface-mode-toggle]")
+      container
+        .querySelector("[data-window-chrome] [data-surface-mode-toggle]")
         ?.getAttribute("aria-label"),
     ).toBe("Use split view");
     await selectSession("recent");
-    await click('[data-command="View: Inbox"]');
+    await click('[data-command="View: Notes"]');
+    await click("[data-open-file]");
     expect(
-      workspace()
-        .querySelector("[data-surface-mode-toggle]")
+      container
+        .querySelector("[data-window-chrome] [data-surface-mode-toggle]")
         ?.getAttribute("aria-label"),
     ).toBe("Enter full view");
     await selectSession("first");
     expect(
-      workspace()
-        .querySelector("[data-surface-mode-toggle]")
+      container
+        .querySelector("[data-window-chrome] [data-surface-mode-toggle]")
         ?.getAttribute("aria-label"),
     ).toBe("Use split view");
     expect(
@@ -1199,14 +1271,14 @@ describe("App workspace app views", () => {
     ).toBe("Notes");
     await selectSession("recent");
     expect(
-      workspace()
-        .querySelector("[data-surface-mode-toggle]")
+      container
+        .querySelector("[data-window-chrome] [data-surface-mode-toggle]")
         ?.getAttribute("aria-label"),
     ).toBe("Enter full view");
     expect(
       workspace().querySelector('[data-file-tab-id] [aria-selected="true"]')
         ?.textContent,
-    ).toBe("Inbox");
+    ).toBe("file.ts");
   });
 
   it("closes a conversation together with its owned tool pages", async () => {

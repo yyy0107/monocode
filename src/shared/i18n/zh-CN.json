@@ -1,4 +1,5 @@
 {
+  "More actions": "更多操作",
   "Built-in CLI profile": "内置 CLI 配置",
   "Default for new conversations": "新会话默认账号",
   "Edit account and Data Home": "编辑账号与数据 Home",
@@ -1479,7 +1480,6 @@
   "Run now": "立即运行",
   "Run the hooks configured in your settings.json files — PreToolUse command rewrites, blocks, notifications, and the rest — just as the Claude Code CLI would. Turn this off if a hook is misbehaving and you need the session back. Takes effect on the next turn.": "像 Claude Code 命令行工具一样执行 settings.json 中配置的钩子，包括 PreToolUse 命令重写、阻止、通知等。如果钩子异常，可关闭此项以恢复会话。下一轮生效。",
   "Running low": "即将耗尽",
-  "Running terminals": "运行中的终端",
   "SSH address": "SSH 地址",
   "SSH password or passphrase": "SSH 密码或密钥口令",
   "SSH port": "SSH 端口",
@@ -2331,6 +2331,8 @@
   "Use split view": "使用分屏视图",
   "Session tabs": "会话标签",
   "Split view": "分屏视图",
+  "Open in split view": "在分屏视图中打开",
+  "Move to terminal panel": "移到终端面板",
   "Full view": "完整视图",
   "Each conversation keeps its own file and page tabs. Choose the default layout; the conversation toolbar can switch it at any time.": "每个会话独立保存文件和页面标签。选择默认布局，也可随时通过会话工具栏切换。",
   "Assistant": "助理",

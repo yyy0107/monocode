@@ -32,6 +32,17 @@ import type { TerminalMetaPatch } from "../model/terminalTab";
 import { lazySurface } from "../../../shared/ui/lazySurface";
 import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
+import {
+  createDragLabel,
+  suppressTextSelection,
+} from "../../../shared/lib/drag";
+import {
+  paneDropFromPoint,
+  setExternalPaneDrop,
+  useTerminalDockDrop,
+} from "../../workspace/model/paneDrop";
+import type { PaneEdge } from "../../workspace/model/layout";
+import { DropTargetHint } from "../../workspace/ui/DropTargetHint";
 
 const TerminalView = lazySurface(async () => {
   const module = await import("./TerminalView");
@@ -52,7 +63,11 @@ type Props = {
   onCloseOtherTerminals: (fileId: string) => void;
   onReorderTerminals: (ids: string[]) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
+  /** Take the dock's terminals into the split layout beside `targetId`. */
+  onMoveToPane?: (targetId: string, edge: PaneEdge) => void;
 };
+
+const DRAG_THRESHOLD = 5;
 
 const SIDE_ITEMS: { id: DockSide; label: string }[] = [
   { id: "bottom", label: "Dock Bottom" },
@@ -89,6 +104,7 @@ export function ProjectTerminalDock({
   onCloseOtherTerminals,
   onReorderTerminals,
   onTerminalMetaChange,
+  onMoveToPane,
 }: Props) {
   const { t: uiT } = useTranslation();
   const newTerminalLabel = useShortcutLabel("New Terminal", "Terminal: New");
@@ -110,7 +126,12 @@ export function ProjectTerminalDock({
   const sizeRef = useRef(dock.size);
   sizeRef.current = dock.size;
   const pending = useRef(dock.size);
+  const painted = useRef(dock.size);
   const frame = useRef<number | null>(null);
+  const dockDrop = useTerminalDockDrop();
+  const [moving, setMoving] = useState(false);
+  const onMoveToPaneRef = useRef(onMoveToPane);
+  onMoveToPaneRef.current = onMoveToPane;
   const SideIcon = sideIcon(dock.side);
   const HideIcon = hideIcon(dock.side);
 
@@ -140,6 +161,8 @@ export function ProjectTerminalDock({
     if (frame.current != null) return;
     frame.current = requestAnimationFrame(() => {
       frame.current = null;
+      if (painted.current === pending.current) return;
+      painted.current = pending.current;
       onSizePaint(pending.current);
     });
   };
@@ -149,11 +172,16 @@ export function ProjectTerminalDock({
       cancelAnimationFrame(frame.current);
       frame.current = null;
     }
+    // Land the final sample before App restores the collapse transitions.
+    if (visible && painted.current !== pending.current) {
+      painted.current = pending.current;
+      onSizePaint(pending.current);
+    }
     onSizeCommit(pending.current);
   };
 
   const onResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || !visible) return;
+    if (event.button !== 0 || !visible || drag.current) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -164,11 +192,12 @@ export function ProjectTerminalDock({
       target: event.currentTarget,
     };
     pending.current = sizeRef.current;
+    painted.current = sizeRef.current;
     setDragging(true);
   };
 
   const onResizePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!drag.current) return;
+    if (!drag.current || event.pointerId !== drag.current.pointerId) return;
     const point = vertical ? event.clientY : event.clientX;
     const delta = point - drag.current.start;
     const signed =
@@ -187,9 +216,87 @@ export function ProjectTerminalDock({
     }
   };
 
+  const onResizePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!drag.current || event.pointerId !== drag.current.pointerId) return;
+    onResizePointerMove(event);
+    finishResize();
+  };
+
+  const onResizePointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerId === drag.current?.pointerId) finishResize();
+  };
+
   useLayoutEffect(() => {
     if (!visible) finishResize();
   }, [visible]);
+
+  /** Drag the dock by its grip onto a pane to open its terminals in the split. */
+  const onDockDragStart = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || !visible) return;
+    const handle = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const fromId = dock.pane.id;
+    const active = dock.pane.files.find(
+      (file) => file.id === dock.pane.activeFileId,
+    );
+    let dragging = false;
+    let lastX = startX;
+    let lastY = startY;
+    let label: ReturnType<typeof createDragLabel> | undefined;
+    handle.setPointerCapture(pointerId);
+    const restoreSelection = suppressTextSelection();
+
+    const onMove = (ev: PointerEvent) => {
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+      if (!dragging) {
+        if (Math.hypot(lastX - startX, lastY - startY) < DRAG_THRESHOLD) return;
+        dragging = true;
+        setMoving(true);
+        label = createDragLabel(
+          active?.path ?? uiT("Terminal"),
+          uiT("Open in split view"),
+        );
+      }
+      const over = paneDropFromPoint(lastX, lastY);
+      label?.move(lastX, lastY, !!over);
+      setExternalPaneDrop({
+        fromId,
+        overId: over?.id ?? null,
+        edge: over?.edge ?? "left",
+      });
+    };
+    const onUp = () => finish(true);
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      finish(false);
+    };
+    function finish(commit: boolean) {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("keydown", onKey);
+      restoreSelection();
+      label?.dispose();
+      setMoving(false);
+      setExternalPaneDrop(null);
+      try {
+        handle.releasePointerCapture(pointerId);
+      } catch {
+        /* already released */
+      }
+      if (!dragging || !commit) return;
+      const over = paneDropFromPoint(lastX, lastY);
+      if (over) onMoveToPaneRef.current?.(over.id, over.edge);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("keydown", onKey);
+  };
 
   const resizeEdge =
     dock.side === "top"
@@ -203,15 +310,7 @@ export function ProjectTerminalDock({
   return (
     <section
       data-project-terminal-dock={dock.side}
-      className={`relative flex h-full min-h-0 min-w-0 flex-col bg-transparent ${
-        dock.side === "top"
-          ? "border-b"
-          : dock.side === "bottom"
-            ? "border-t"
-            : dock.side === "left"
-              ? "border-r"
-              : "border-l"
-      } border-stroke`}
+      className="project-terminal-card-gutter pane-card-gutter relative flex h-full min-h-0 min-w-0 flex-col p-1.5"
       onMouseDown={visible ? onFocus : undefined}
     >
       <ResizeHandle
@@ -222,18 +321,17 @@ export function ProjectTerminalDock({
         aria-valuenow={dock.size}
         onPointerDown={onResizePointerDown}
         onPointerMove={onResizePointerMove}
-        onPointerUp={finishResize}
-        onPointerCancel={finishResize}
+        onPointerUp={onResizePointerUp}
+        onPointerCancel={onResizePointerCancel}
+        onLostPointerCapture={onResizePointerCancel}
         onDoubleClick={() => {
           pending.current = defaultDockSize(dock.side);
           commit();
         }}
       />
       <div
-        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-        style={{
-          paddingLeft: dock.side === "right" ? 16 : undefined,
-        }}
+        data-focused={focused}
+        className={`project-terminal-card pane-card ${moving ? "opacity-40" : ""}`}
       >
         <SurfaceTabs
           files={dock.pane.files}
@@ -245,6 +343,7 @@ export function ProjectTerminalDock({
           onCloseFile={onCloseTerminal}
           onCloseOtherFiles={onCloseOtherTerminals}
           onReorder={onReorderTerminals}
+          onPaneDragStart={onMoveToPane ? onDockDragStart : undefined}
           trailing={
             <div className="relative z-21 flex shrink-0 items-center self-center gap-0.5 pr-1.5">
               <IconButton label={newTerminalLabel} onClick={onAddTerminal}>
@@ -290,6 +389,9 @@ export function ProjectTerminalDock({
             </div>
           ))}
         </div>
+        {dockDrop === "dock" && visible ? (
+          <DropTargetHint label={uiT("Move to terminal panel")} />
+        ) : null}
       </div>
       {menu ? (
         <ExplorerMenu

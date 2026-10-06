@@ -1,8 +1,9 @@
 import { createContext, useContext } from "react";
+import type { ProviderAccountProvider } from "../../providers/model/providerAccounts";
 
 /**
  * Window-level actions a chat column's header offers, Claude Desktop style:
- * the title menu and the terminal / changes toggles. App owns the handlers;
+ * the overflow menu and the terminal / changes toggles. App owns the handlers;
  * headers only read them, so the pane tree needs no extra props.
  */
 export type SessionHeaderActions = {
@@ -10,6 +11,13 @@ export type SessionHeaderActions = {
   archive: (sessionId: string) => void;
   /** Start a new chat in a column to the right of this one. */
   splitRight: (sessionId: string) => void;
+  /** Switch the provider account a conversation (or its successor) uses. */
+  selectProviderAccount?: (
+    sessionId: string,
+    provider: ProviderAccountProvider,
+    accountId: string,
+  ) => void;
+  manageProviderAccounts?: (provider: ProviderAccountProvider) => void;
   terminalAvailable: boolean;
   terminalOpen: boolean;
   toggleTerminal: () => void;

@@ -3,8 +3,6 @@ import { newTerminalFile } from "../../workspace/model/layout";
 import {
   applyTerminalMeta,
   defaultTerminalTitle,
-  listRunningTerminals,
-  runningTerminalChipLabel,
   scanOscCwd,
   terminalTabLabel,
 } from "./terminalTab";
@@ -48,40 +46,6 @@ describe("applyTerminalMeta", () => {
       foreground: "vite",
     });
     expect(applyTerminalMeta(file, { foreground: "vite" })).toBe(file);
-  });
-});
-
-describe("listRunningTerminals", () => {
-  it("skips idle shells", () => {
-    const idle = newTerminalFile("/repo");
-    const running = applyTerminalMeta(newTerminalFile("/repo", "dev"), {
-      foreground: "vite",
-    });
-    expect(listRunningTerminals([idle, running])).toEqual([
-      {
-        id: running.id,
-        process: "vite",
-        cwd: "/repo",
-        label: "repo",
-      },
-    ]);
-  });
-});
-
-describe("runningTerminalChipLabel", () => {
-  it("joins unique names and collapses duplicates", () => {
-    expect(
-      runningTerminalChipLabel([
-        { id: "a", process: "vite", cwd: "/a", label: "a" },
-        { id: "b", process: "jest", cwd: "/b", label: "b" },
-      ]),
-    ).toBe("vite · jest");
-    expect(
-      runningTerminalChipLabel([
-        { id: "a", process: "vite", cwd: "/a", label: "a" },
-        { id: "b", process: "vite", cwd: "/b", label: "b" },
-      ]),
-    ).toBe("vite ×2");
   });
 });
 

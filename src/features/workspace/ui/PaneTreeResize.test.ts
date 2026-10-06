@@ -11,7 +11,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../../sessions/model/session";
 import { PaneTree } from "./PaneTree";
 
-const paneRenders = vi.hoisted(() => ({ session: vi.fn(), file: vi.fn() }));
+const paneRenders = vi.hoisted(() => ({
+  session: vi.fn(),
+  file: vi.fn(),
+  layout: vi.fn(),
+}));
+vi.mock("./SessionSurfacePane", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./SessionSurfacePane")>();
+  return {
+    SessionSurfacePane: (
+      props: ComponentProps<typeof actual.SessionSurfacePane>,
+    ) => {
+      paneRenders.layout();
+      return createElement(actual.SessionSurfacePane, props);
+    },
+  };
+});
 vi.mock("../../files/ui/FilePane", () => ({
   FilePane: memo((props: { tabsTrailing?: ReactNode }) => {
     paneRenders.file(props);
@@ -37,6 +52,7 @@ let pendingFrame: FrameRequestCallback | undefined;
 beforeEach(() => {
   paneRenders.session.mockClear();
   paneRenders.file.mockClear();
+  paneRenders.layout.mockClear();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     pendingFrame = callback;
@@ -150,13 +166,14 @@ function pointer(
   type: string,
   clientX: number,
   clientY: number,
+  pointerId = 1,
 ) {
   act(() =>
     target.dispatchEvent(
       new PointerEvent(type, {
         bubbles: true,
         button: 0,
-        pointerId: 1,
+        pointerId,
         clientX,
         clientY,
       }),
@@ -183,10 +200,10 @@ describe("workspace split resize handles", () => {
         },
       ],
       onOpenSessionFile: vi.fn(),
-      onSurfaceModeChange: vi.fn(),
     });
     expect(paneRenders.session).toHaveBeenCalledTimes(1);
     expect(paneRenders.file).toHaveBeenCalledTimes(1);
+    expect(paneRenders.layout).toHaveBeenCalledTimes(2);
     pointer(handle, "pointerdown", 600, 500);
     for (let frame = 1; frame <= 10; frame += 1) {
       pointer(handle, "pointermove", 600 + frame * 10, 500);
@@ -195,6 +212,7 @@ describe("workspace split resize handles", () => {
     pointer(handle, "pointerup", 700, 500);
     expect(paneRenders.session).toHaveBeenCalledTimes(1);
     expect(paneRenders.file).toHaveBeenCalledTimes(1);
+    expect(paneRenders.layout).toHaveBeenCalledTimes(2);
   });
 
   it("uses the latest file handlers and keeps the source session after focus and session changes", () => {
@@ -302,5 +320,170 @@ describe("workspace split resize handles", () => {
     expect(pendingFrame).toBeUndefined();
     expect(onRatio).not.toHaveBeenCalled();
     expect(capture.has(1)).toBe(false);
+  });
+
+  it("coalesces a diff/assistant horizontal split and lands the release sample without rendering its panes", () => {
+    const { handle, separator, onRatio } = render("down", {
+      editorPanes: ["first", "second"].map((id, index) => ({
+        id,
+        activeFileId: id,
+        files: [
+          { id, path: index ? "app:assistant" : "changes", cwd: "/project" },
+        ],
+      })),
+    });
+    pointer(handle, "pointerdown", 600, 500);
+    pointer(handle, "pointermove", 600, 560);
+    pointer(handle, "pointermove", 600, 620);
+    expect(separator.getAttribute("aria-valuenow")).toBe("50");
+    expect(onRatio).not.toHaveBeenCalled();
+    act(() => pendingFrame?.(0));
+    expect(separator.getAttribute("aria-valuenow")).toBe("65");
+    pointer(handle, "pointermove", 600, 660);
+    pointer(handle, "pointerup", 600, 700);
+    expect(onRatio).toHaveBeenCalledExactlyOnceWith("split", 0, 0.75);
+    expect(separator.getAttribute("aria-valuenow")).toBe("75");
+    expect(
+      container.querySelector<HTMLElement>('[data-pane-id="first"]')!.style
+        .height,
+    ).toBe("75%");
+    expect(pendingFrame).toBeUndefined();
+    expect(paneRenders.layout).toHaveBeenCalledTimes(2);
+    expect(paneRenders.file).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the preview across a streaming render and uses the latest commit callback", () => {
+    const { handle, separator, rerender } = render("right");
+    pointer(handle, "pointerdown", 600, 500);
+    pointer(handle, "pointermove", 750, 500);
+    act(() => pendingFrame?.(0));
+    const latestCommit = vi.fn();
+    rerender({ onRatio: latestCommit });
+    expect(separator.getAttribute("aria-valuenow")).toBe("65");
+    pointer(handle, "pointerup", 800, 500);
+    expect(latestCommit).toHaveBeenCalledExactlyOnceWith("split", 0, 0.7);
+  });
+
+  it("updates nested grid tracks, pane placements and neighbouring dividers together", () => {
+    const { handle, separator } = render("right", {
+      sessions: [
+        {
+          id: "first",
+          title: "Chat",
+          cwd: "/project",
+          blocks: [],
+        } as unknown as Session,
+      ],
+      layout: {
+        type: "split",
+        id: "split",
+        dir: "right",
+        sizes: [0.5, 0.5],
+        children: [
+          { type: "leaf", id: "first" },
+          {
+            type: "split",
+            id: "nested",
+            dir: "down",
+            sizes: [0.5, 0.5],
+            children: [
+              { type: "leaf", id: "second" },
+              { type: "leaf", id: "third" },
+            ],
+          },
+        ],
+      },
+    });
+    pointer(handle, "pointerdown", 600, 500);
+    pointer(handle, "pointermove", 750, 500);
+    act(() => pendingFrame?.(0));
+    const grid = container.querySelector<HTMLElement>(
+      "[data-pane-tree-layout]",
+    )!;
+    expect(grid.style.gridTemplateColumns).toBe(
+      "minmax(0, 0.65fr) minmax(0, 0.35fr)",
+    );
+    expect(
+      container.querySelector<HTMLElement>('[data-pane-id="first"]')!.style
+        .gridRow,
+    ).toBe("1 / 3");
+    const nested = container.querySelector<HTMLElement>(
+      '[data-pane-sash="nested:0"]',
+    )!;
+    expect(nested.style.left).toBe("65%");
+    expect(nested.style.width).toBe("35%");
+    expect(separator.style.left).toBe("65%");
+    pointer(handle, "pointercancel", 750, 500);
+    expect(grid.style.gridTemplateColumns).toBe(
+      "minmax(0, 0.5fr) minmax(0, 0.5fr)",
+    );
+    expect(grid.style.transitionProperty).toBe("");
+  });
+
+  it("ignores other pointers and cancels pending work when capture is lost or the layout unmounts", () => {
+    const { handle, separator, capture, onRatio } = render("right");
+    pointer(handle, "pointerdown", 600, 500);
+    pointer(handle, "pointermove", 800, 500, 2);
+    pointer(handle, "pointerup", 800, 500, 2);
+    expect(capture.has(1)).toBe(true);
+    expect(pendingFrame).toBeUndefined();
+    pointer(handle, "pointermove", 750, 500);
+    act(() => pendingFrame?.(0));
+    pointer(handle, "lostpointercapture", 750, 500);
+    expect(separator.getAttribute("aria-valuenow")).toBe("50");
+    expect(onRatio).not.toHaveBeenCalled();
+    pointer(handle, "pointerdown", 600, 500);
+    pointer(handle, "pointermove", 750, 500);
+    act(() => root.render(null));
+    expect(pendingFrame).toBeUndefined();
+    expect(capture.size).toBe(0);
+    expect(onRatio).not.toHaveBeenCalled();
+  });
+
+  it("cancels a live preview before unified collapse and preserves stable zero-sized tracks", () => {
+    const { handle, capture, onRatio, rerender } = render("right", {
+      sessions: [
+        {
+          id: "first",
+          title: "Chat",
+          cwd: "/project",
+          blocks: [],
+        } as unknown as Session,
+      ],
+      editorPanes: [
+        {
+          id: "second",
+          activeFileId: "file",
+          files: [{ id: "file", path: "/project/example.ts", cwd: "/project" }],
+        },
+      ],
+    });
+    pointer(handle, "pointerdown", 600, 500);
+    pointer(handle, "pointermove", 750, 500);
+    act(() => pendingFrame?.(0));
+    pointer(handle, "pointermove", 800, 500);
+    rerender({ surfaceMode: "unified", focusedId: "second" });
+    const grid = container.querySelector<HTMLElement>(
+      "[data-pane-tree-layout]",
+    )!;
+    expect(grid.style.gridTemplateColumns).toBe(
+      "minmax(0, 0fr) minmax(0, 1fr)",
+    );
+    expect(grid.style.transitionProperty).toBe("");
+    expect(
+      container.querySelector<HTMLElement>('[data-pane-id="first"]')!.dataset
+        .foldState,
+    ).toBe("closing");
+    expect(capture.size).toBe(0);
+    expect(pendingFrame).toBeUndefined();
+    expect(onRatio).not.toHaveBeenCalled();
+    rerender({ surfaceMode: "split" });
+    expect(grid.style.gridTemplateColumns).toBe(
+      "minmax(0, 0.5fr) minmax(0, 0.5fr)",
+    );
+    expect(
+      container.querySelector<HTMLElement>('[data-pane-id="first"]')!.dataset
+        .foldState,
+    ).toBe("opening");
   });
 });

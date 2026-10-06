@@ -299,9 +299,130 @@ describe("named project/session tree", () => {
     expect(card("a")).toBeNull();
     expect(fold(A)).toBeNull();
     act(() => header(B).click());
-    expect(props.onSelectProject).toHaveBeenCalledWith(B);
+    expect(props.onSelectProject).not.toHaveBeenCalled();
     expect(fold(B)?.dataset.foldState).toBe("opening");
     expect(card("b")).not.toBeNull();
+    act(() => fold(B)!.dispatchEvent(new Event("animationend", { bubbles: true })));
+    expect(props.onSelectProject).toHaveBeenCalledExactlyOnceWith(B);
+  });
+
+  it("lets search matches collapse and reopen from their names without changing saved expansion", () => {
+    vi.useFakeTimers();
+    saveProjectTreeExpanded([A]);
+    act(() => render());
+    query("Hidden");
+    const name = () =>
+      project(B).querySelector<HTMLButtonElement>("[data-project-select]")!;
+    const fold = () => project(B).querySelector<HTMLElement>(".zen-fold-item");
+    expect(card("b")).not.toBeNull();
+    act(() => name().click());
+    expect(fold()?.dataset.foldState).toBe("closing");
+    expect(fold()?.inert).toBe(true);
+    expect(props.onSelectProject).not.toHaveBeenCalled();
+    expect(loadProjectTreeExpanded(A)).toEqual(new Set([A]));
+    act(() => vi.advanceTimersByTime(200));
+    act(() => name().click());
+    expect(fold()?.dataset.foldState).toBe("opening");
+    expect(fold()?.inert).toBe(false);
+    expect(props.onSelectProject).not.toHaveBeenCalled();
+    expect(loadProjectTreeExpanded(A)).toEqual(new Set([A]));
+    act(() => vi.advanceTimersByTime(150));
+    expect(card("b")).not.toBeNull();
+    act(() => fold()!.dispatchEvent(new Event("animationend", { bubbles: true })));
+    expect(props.onSelectProject).toHaveBeenCalledExactlyOnceWith(B);
+    query("");
+    settleFolds();
+    expect(card("a")).not.toBeNull();
+    expect(card("b")).toBeNull();
+  });
+
+  it("cancels queued workspace activation when an opening project is folded", () => {
+    vi.useFakeTimers();
+    saveProjectTreeExpanded([]);
+    act(() => render());
+    const name = () =>
+      project(B).querySelector<HTMLButtonElement>("[data-project-select]")!;
+    act(() => name().click());
+    expect(props.onSelectProject).not.toHaveBeenCalled();
+    act(() => name().click());
+    expand(B);
+    act(() => vi.advanceTimersByTime(300));
+    expect(project(B).querySelector(".project-tree-collapse")?.getAttribute("data-fold-state")).toBe("open");
+    expect(props.onSelectProject).not.toHaveBeenCalled();
+  });
+
+  it("activates only the latest project after overlapping name-triggered disclosures", () => {
+    vi.useFakeTimers();
+    saveProjectTreeExpanded([]);
+    act(() => render());
+    act(() =>
+      project(B).querySelector<HTMLButtonElement>("[data-project-select]")!.click(),
+    );
+    act(() =>
+      project(A).querySelector<HTMLButtonElement>("[data-project-select]")!.click(),
+    );
+    expect(props.onSelectProject).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(300));
+    expect(props.onSelectProject).toHaveBeenCalledExactlyOnceWith(A);
+    expect(loadProjectTreeExpanded(A)).toEqual(new Set([A, B]));
+  });
+
+  it("keeps search disclosure overrides temporary and resets them when the query changes", () => {
+    saveProjectTreeExpanded([A]);
+    act(() => render());
+    query("conversation");
+    const toggle = (path: string) =>
+      project(path).querySelector<HTMLButtonElement>("[aria-expanded]")!;
+    act(() => toggle(A).click());
+    expect(toggle(A).getAttribute("aria-expanded")).toBe("false");
+    expect(toggle(B).getAttribute("aria-expanded")).toBe("true");
+    settleFolds();
+    expect(card("a")).toBeNull();
+    expect(card("b")).not.toBeNull();
+    expect(loadProjectTreeExpanded(A)).toEqual(new Set([A]));
+    query("Alpha");
+    expect(card("a")).not.toBeNull();
+    expect(toggle(A).getAttribute("aria-expanded")).toBe("true");
+    act(() =>
+      project(A).querySelector<HTMLElement>("[data-project-header]")!.click(),
+    );
+    expect(toggle(A).getAttribute("aria-expanded")).toBe("false");
+    query("conversation");
+    act(() => toggle(B).click());
+    settleFolds();
+    expect(card("b")).toBeNull();
+    query("");
+    query("conversation");
+    expect(toggle(B).getAttribute("aria-expanded")).toBe("true");
+    expect(card("b")).not.toBeNull();
+    expect(props.onSelectProject).not.toHaveBeenCalled();
+    expect(loadProjectTreeExpanded(A)).toEqual(new Set([A]));
+  });
+
+  it("reopens a temporarily collapsed search result when creating a session", () => {
+    props.onNewInProject = vi.fn(() => "new-b");
+    act(() => render());
+    query("Hidden");
+    act(() =>
+      project(B)
+        .querySelector<HTMLButtonElement>("[data-project-select]")!
+        .click(),
+    );
+    settleFolds();
+    expect(card("b")).toBeNull();
+    act(() =>
+      project(B)
+        .querySelector<HTMLButtonElement>('[aria-label="New session in beta"]')!
+        .click(),
+    );
+    expect(props.onNewInProject).toHaveBeenCalledExactlyOnceWith(B);
+    expect(card("b")).not.toBeNull();
+    expect(
+      project(B)
+        .querySelector("[aria-expanded]")
+        ?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(loadProjectTreeExpanded(A)).toEqual(new Set([A, B]));
   });
 
   it("expands projects activated outside the tree and focuses the unified query on request", () => {
@@ -693,14 +814,13 @@ describe("named project/session tree", () => {
     );
     expect(lists).toHaveLength(2);
     for (const list of lists) {
-      expect(list.classList.contains("gap-[3px]")).toBe(true);
+      expect(list.classList.contains("gap-px")).toBe(true);
       if (list.hasAttribute("data-session-list")) {
-        expect(list.classList.contains("py-[3px]")).toBe(true);
+        expect(list.classList.contains("py-px")).toBe(true);
       } else {
-        expect(list.classList.contains("pt-[3px]")).toBe(true);
-        expect(list.classList.contains("py-[3px]")).toBe(false);
+        expect(list.classList.contains("pt-px")).toBe(true);
+        expect(list.classList.contains("py-px")).toBe(false);
       }
-      expect(list.classList.contains("gap-px")).toBe(false);
     }
     const groups = project(A).querySelectorAll<HTMLElement>(
       "[data-pinned-sessions],[data-reminder-sessions],[data-session-folder]",
@@ -1420,6 +1540,34 @@ describe("named project/session tree", () => {
     props = { ...props, openSessions: [...props.openSessions!] };
     act(() => render());
     expect(card("host-new")).not.toBeNull();
+  });
+
+  it("drags a Host session of a local project onto a workspace pane", () => {
+    configureSharedHost("machine", [{ id: "project", cwd: B, name: "beta" }]);
+    remoteState.rows.set(B, [hostRow("b", "Host conversation")]);
+    saveProjectTreeExpanded([A, B]);
+    props.onPlaceSessionOnPane = vi.fn();
+    act(() => render());
+    const from = card("b");
+    from.setPointerCapture = vi.fn();
+    from.releasePointerCapture = vi.fn();
+    const pane = document.createElement("div");
+    pane.dataset.paneId = "workspace-pane";
+    vi.spyOn(document, "elementFromPoint").mockReturnValue(pane);
+    act(() => {
+      from.dispatchEvent(new PointerEvent("pointerdown", {
+        pointerId: 1, button: 0, clientX: 1, clientY: 1, bubbles: true,
+      }));
+      window.dispatchEvent(new PointerEvent("pointermove", {
+        pointerId: 1, clientX: 20, clientY: 20, bubbles: true,
+      }));
+      window.dispatchEvent(new PointerEvent("pointerup", {
+        pointerId: 1, clientX: 20, clientY: 20, bubbles: true,
+      }));
+    });
+    expect(props.onPlaceSessionOnPane).toHaveBeenCalledWith(
+      "b", "workspace-pane", expect.any(String), B,
+    );
   });
 
   it("ignores drops onto another session while still allowing workspace pane drops", () => {

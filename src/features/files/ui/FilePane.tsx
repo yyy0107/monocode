@@ -67,6 +67,8 @@ type Props = {
   showTabs?: boolean;
   /** Shell actions attached to this pane's tab row. */
   tabsTrailing?: ReactNode;
+  /** Window chrome clearance before the first tab. */
+  tabsLeading?: ReactNode;
   dirtyFileIds: Set<string>;
   fileErrorCounts: Map<string, number>;
   sessions: Session[];
@@ -96,6 +98,7 @@ function FilePaneComponent({
   visible = true,
   showTabs = true,
   tabsTrailing,
+  tabsLeading,
   dirtyFileIds,
   fileErrorCounts,
   sessions,
@@ -146,6 +149,7 @@ function FilePaneComponent({
           onPinFile={onPinFile}
           onReorder={(ids) => onReorderFiles(pane.id, ids)}
           onPaneDragStart={onPaneDragStart}
+          leading={tabsLeading}
           trailing={tabsTrailing}
         />
       ) : null}
@@ -264,6 +268,7 @@ export const FilePane = memo(FilePaneComponent, (previous, next) => {
     previous.visible !== next.visible ||
     previous.showTabs !== next.showTabs ||
     previous.tabsTrailing !== next.tabsTrailing ||
+    previous.tabsLeading !== next.tabsLeading ||
     previous.dirtyFileIds !== next.dirtyFileIds ||
     previous.fileErrorCounts !== next.fileErrorCounts ||
     previous.onFocus !== next.onFocus ||

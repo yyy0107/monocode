@@ -12,6 +12,10 @@ import type { Session } from "../../sessions/model/session";
 import type { EditorPane } from "../model/layout";
 import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 import { PaneTree } from "./PaneTree";
+import {
+  SessionHeaderActionsContext,
+  type SessionHeaderActions,
+} from "./SessionHeaderActions";
 
 const lifetime = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }));
 vi.mock("../../files/ui/FilePane", () => ({
@@ -20,11 +24,13 @@ vi.mock("../../files/ui/FilePane", () => ({
     visible,
     showTabs,
     tabsTrailing,
+    tabsLeading,
   }: {
     pane: EditorPane;
     visible: boolean;
     showTabs: boolean;
     tabsTrailing?: ReactNode;
+    tabsLeading?: ReactNode;
   }) => {
     useEffect(() => {
       lifetime.mounts += 1;
@@ -41,6 +47,7 @@ vi.mock("../../files/ui/FilePane", () => ({
         "data-show-tabs": showTabs,
       },
       createElement("input", { defaultValue: "terminal/editor local state" }),
+      showTabs ? tabsLeading : undefined,
       showTabs ? tabsTrailing : undefined,
     );
   },
@@ -129,7 +136,6 @@ beforeEach(() => {
     fileErrorCounts: new Map(),
     focusedId: "tools",
     surfaceMode: "split",
-    onSurfaceModeChange: vi.fn(),
     composerFocused: false,
     recents: [],
     onFocus: vi.fn(),
@@ -181,9 +187,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function render(patch: Partial<typeof props> = {}) {
+function render(
+  patch: Partial<typeof props> = {},
+  headerActions: SessionHeaderActions | null = null,
+) {
   props = { ...props, ...patch };
-  act(() => root.render(createElement(PaneTree, props)));
+  act(() =>
+    root.render(
+      createElement(
+        SessionHeaderActionsContext.Provider,
+        { value: headerActions },
+        createElement(PaneTree, props),
+      ),
+    ),
+  );
 }
 const layout = () =>
   container.querySelector<HTMLElement>("[data-pane-tree-layout]")!;
@@ -193,6 +210,70 @@ const click = (element: Element) =>
   act(() => element.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
 describe("session surface layout", () => {
+  const headerActions = (): SessionHeaderActions => ({
+    rename: vi.fn(),
+    archive: vi.fn(),
+    splitRight: vi.fn(),
+    terminalAvailable: false,
+    terminalOpen: false,
+    toggleTerminal: vi.fn(),
+    changesOpen: false,
+    toggleChanges: vi.fn(),
+  });
+
+  it("hides the owning top bar's menu when its workspace tab is hidden", () => {
+    const actions = headerActions();
+    props.sessions = [{ ...props.sessions[0], harness: "grok" }];
+    render({}, actions);
+    click(container.querySelector('[data-session-overflow-menu="chat"]')!);
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    render({ visible: false }, actions);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    render({ visible: true }, actions);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("routes each split chat's overflow actions to that chat", () => {
+    const actions = headerActions();
+    render(
+      {
+        sessions: [
+          { ...props.sessions[0], harness: "grok" },
+          {
+            ...props.sessions[0],
+            id: "other-chat",
+            title: "Other chat",
+            harness: "grok",
+          },
+        ],
+        layout: {
+          type: "split",
+          id: "chats",
+          dir: "right",
+          sizes: [0.5, 0.5],
+          children: [
+            { type: "leaf", id: "chat" },
+            { type: "leaf", id: "other-chat" },
+          ],
+        },
+        editorPanes: [],
+        focusedId: "other-chat",
+      },
+      actions,
+    );
+    expect(
+      container.querySelectorAll("[data-session-overflow-menu]"),
+    ).toHaveLength(2);
+    click(container.querySelector('[data-session-overflow-menu="chat"]')!);
+    click(document.querySelectorAll('[role="menuitem"]')[1]);
+    expect(actions.splitRight).toHaveBeenCalledExactlyOnceWith("chat");
+    click(
+      container.querySelector('[data-session-overflow-menu="other-chat"]')!,
+    );
+    click([...document.querySelectorAll('[role="menuitem"]')].at(-1)!);
+    expect(actions.archive).toHaveBeenCalledExactlyOnceWith("other-chat");
+  });
+
   it("uses one split heading while retaining pane drag and close controls", () => {
     render();
     expect(
@@ -225,15 +306,13 @@ describe("session surface layout", () => {
     expect(props.onClose).toHaveBeenCalledTimes(3);
   });
 
-  it("provides split/full controls, a persistent Chat tab and owned tool selection", () => {
+  it("keeps a persistent Chat tab and owned tool selection across split/full views", () => {
     render();
     expect(
       container.querySelector("[data-session-chat-tab]")?.textContent,
     ).toBe("My session");
-    const toggle = container.querySelector("[data-surface-mode-toggle]")!;
-    expect(toggle.getAttribute("aria-label")).toBe("Enter full view");
-    click(toggle);
-    expect(props.onSurfaceModeChange).toHaveBeenCalledWith("unified");
+    // The full/split toggle lives in the window top bar, not a pane header.
+    expect(container.querySelector("[data-surface-mode-toggle]")).toBeNull();
 
     render({ surfaceMode: "unified" });
     expect(
@@ -244,11 +323,6 @@ describe("session surface layout", () => {
         .querySelector('[data-file-pane="tools"]')
         ?.getAttribute("data-show-tabs"),
     ).toBe("false");
-    expect(
-      container
-        .querySelector("[data-surface-mode-toggle]")
-        ?.getAttribute("aria-label"),
-    ).toBe("Use split view");
     click(
       container.querySelector('[data-file-tab-id="terminal"] [role="tab"]')!,
     );
@@ -470,7 +544,7 @@ describe("session surface layout", () => {
     expect(props.onRatio).toHaveBeenCalledWith("split", 0, 0.65);
   });
 
-  it("keeps one native controls group and navigation clearance in the owning top bar", () => {
+  it("puts each column's header on the top row and hands window chrome to the corner panes", () => {
     const minimize = vi.fn();
     const controls = createElement(
       "div",
@@ -486,20 +560,36 @@ describe("session surface layout", () => {
       ),
     );
     render({ windowControls: controls, reserveWindowNavigationSpace: true });
+    // Split view: the chat header lives in the chat column, not above the
+    // whole layout, and owns the top-left navigation clearance.
     const header = container.querySelector("[data-session-surface-tabs]")!;
+    expect(header.closest('[data-pane-id="chat"]')).not.toBeNull();
     expect(
       header.querySelector("[data-window-navigation-space]"),
     ).not.toBeNull();
     expect(container.querySelectorAll("[data-native-controls]")).toHaveLength(
       1,
     );
-    // The owning chat's full-width top bar carries the window controls.
-    const nativeControls = header.querySelector("[data-native-controls]")!;
-    expect(nativeControls).not.toBeNull();
-    expect(header.querySelector("[data-surface-mode-toggle]")).not.toBeNull();
-    expect(nativeControls.closest("[data-pane-id]")).toBeNull();
+    // The top-right card carries the window controls after its maximize toggle.
+    const nativeControls = container.querySelector("[data-native-controls]")!;
+    expect(nativeControls.closest('[data-pane-id="tools"]')).not.toBeNull();
     click(nativeControls.querySelector('[aria-label="Minimize window"]')!);
     expect(minimize).toHaveBeenCalledOnce();
+    // A maximized card takes over both corners; restoring hands them back.
+    click(pane("tools").querySelector("[data-card-maximize]")!);
+    expect(
+      pane("tools").querySelector("[data-window-navigation-space]"),
+    ).not.toBeNull();
+    expect(container.querySelectorAll("[data-native-controls]")).toHaveLength(
+      1,
+    );
+    click(pane("tools").querySelector("[data-card-maximize]")!);
+    expect(
+      pane("tools").querySelector("[data-window-navigation-space]"),
+    ).toBeNull();
+    expect(
+      pane("chat").querySelector("[data-window-navigation-space]"),
+    ).not.toBeNull();
     render({ surfaceMode: "unified" });
     expect(container.querySelectorAll("[data-native-controls]")).toHaveLength(
       1,

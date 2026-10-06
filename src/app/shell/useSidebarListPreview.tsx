@@ -13,14 +13,29 @@ export function useSidebarListPreview(
   const [preview, setPreview] = useState({
     key: resetKey,
     count: SIDEBAR_PREVIEW_COUNT,
+    mountedCount: SIDEBAR_PREVIEW_COUNT * 2,
   });
   if (preview.key !== resetKey)
-    setPreview({ key: resetKey, count: SIDEBAR_PREVIEW_COUNT });
+    setPreview({
+      key: resetKey,
+      count: SIDEBAR_PREVIEW_COUNT,
+      mountedCount: SIDEBAR_PREVIEW_COUNT * 2,
+    });
   const count = disabled
     ? total
     : preview.key === resetKey
       ? preview.count
       : SIDEBAR_PREVIEW_COUNT;
+  // Prepare only the next page; keep previously revealed rows for closing/reversal.
+  const mountedCount = Math.min(
+    total,
+    disabled
+      ? total
+      : Math.max(
+          count + SIDEBAR_PREVIEW_COUNT,
+          preview.key === resetKey ? preview.mountedCount : 0,
+        ),
+  );
   const hasMore = count < total;
   const button =
     !disabled && total > SIDEBAR_PREVIEW_COUNT ? (
@@ -29,18 +44,23 @@ export function useSidebarListPreview(
         data-sidebar-list-toggle
         data-no-drag
         aria-expanded={count > SIDEBAR_PREVIEW_COUNT}
-        onClick={() =>
+        onClick={() => {
+          const nextCount = hasMore
+            ? count + SIDEBAR_PREVIEW_COUNT
+            : SIDEBAR_PREVIEW_COUNT;
           setPreview({
             key: resetKey,
-            count: hasMore
-              ? count + SIDEBAR_PREVIEW_COUNT
-              : SIDEBAR_PREVIEW_COUNT,
-          })
-        }
+            count: nextCount,
+            mountedCount: Math.max(
+              mountedCount,
+              nextCount + SIDEBAR_PREVIEW_COUNT,
+            ),
+          });
+        }}
         className="flex min-h-8 w-full shrink-0 items-center justify-start rounded-md pl-8 pr-2 text-[12px] text-content/45 hover:bg-content/5 hover:text-content"
       >
         {t(hasMore ? "Show more items" : "Show less")}
       </button>
     ) : null;
-  return { count, button };
+  return { count, mountedCount, button };
 }

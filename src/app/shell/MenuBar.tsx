@@ -1,5 +1,6 @@
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import {
+  type ReactNode,
   useCallback,
   useEffect,
   useRef,
@@ -32,6 +33,8 @@ type Props = {
   canGoBack?: boolean;
   canGoForward?: boolean;
   sidebarOpen?: boolean;
+  /** Window-wide actions shown just before the window controls. */
+  windowActions?: ReactNode;
 };
 
 export const MENU_BAR_HEIGHT = 36;
@@ -46,6 +49,7 @@ export function MenuBar({
   canGoBack = false,
   canGoForward = false,
   sidebarOpen = false,
+  windowActions,
 }: Props) {
   const { t: uiT } = useTranslation();
   const visible = useSyncExternalStore(
@@ -253,6 +257,14 @@ export function MenuBar({
       {visible ? (
         <>
           <div className="min-w-0 flex-1" />
+          {windowActions ? (
+            <div
+              data-tauri-drag-region="false"
+              className="flex shrink-0 items-center"
+            >
+              {windowActions}
+            </div>
+          ) : null}
           <WindowControls />
         </>
       ) : null}

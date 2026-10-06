@@ -98,6 +98,20 @@
         opacity: 0;
       }
 
+      /* Keep the native drag region available before the bundle runs. */
+      #boot-splash-drag-region {
+        position: absolute;
+        top: 0;
+        right: 0;
+        left: 0;
+        height: 40px;
+        pointer-events: auto;
+      }
+
+      #boot-splash.boot-splash-out #boot-splash-drag-region {
+        pointer-events: none;
+      }
+
       #boot-splash svg {
         width: 72px;
         height: 72px;
@@ -213,6 +227,7 @@
   </head>
   <body>
     <div id="boot-splash" aria-hidden="true">
+      <div id="boot-splash-drag-region" data-tauri-drag-region="deep"></div>
       <svg
         viewBox="0 0 1024 1024"
         fill="currentColor"

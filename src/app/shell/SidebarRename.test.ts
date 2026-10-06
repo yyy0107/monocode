@@ -1439,6 +1439,11 @@ describe("single sidebar layout and width", () => {
   });
 
   it("finishes a live resize before collapse and restores its saved width", () => {
+    let frame: FrameRequestCallback | undefined;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frame = callback;
+      return 1;
+    });
     vi.stubGlobal("innerWidth", 1500);
     act(render);
     const handle = container.querySelector<HTMLElement>('[aria-label="Resize sidebar"]')!;
@@ -1448,6 +1453,7 @@ describe("single sidebar layout and width", () => {
       handle.dispatchEvent(new PointerEvent("pointerdown", { button: 0, pointerId: 1, clientX: 260, bubbles: true }));
       window.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, clientX: 390 }));
     });
+    act(() => frame?.(0));
     const shell = container.querySelector<HTMLElement>("[data-sidebar-transition]")!;
     expect(shell.style.width).toBe("390px");
     expect(shell.classList.contains("transition-none")).toBe(true);

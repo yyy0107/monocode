@@ -694,6 +694,78 @@ it("shows a remote project's host path and machine connection in its summary", a
 });
 
 
+it("only prepares visible shortcuts from a large history and animates the next page", async () => {
+  const prepare = vi.fn((index: number) =>
+    createElement(
+      "button",
+      { "data-history-entry": index },
+      `Conversation ${index}`,
+    ),
+  );
+  const entries = Array.from({ length: 2000 }, (_, index) => ({
+    id: `entry-${index}`,
+    content: () => prepare(index),
+  }));
+  const props = await renderTree({ recentEntries: entries });
+  const prepared = () => [...new Set(prepare.mock.calls.map(([index]) => index))];
+  expect(prepared()).toEqual([0, 1, 2, 3, 4]);
+  await renderTree({ ...props, expandedPaths: new Set() });
+  expect(prepared()).toEqual([0, 1, 2, 3, 4]);
+  const recent = container.querySelector('[data-project-section="recent"]')!;
+  await act(async () =>
+    recent
+      .querySelector<HTMLButtonElement>("[data-sidebar-list-toggle]")!
+      .click(),
+  );
+  expect(prepared()).toEqual(Array.from({ length: 10 }, (_, index) => index));
+  expect(
+    recent
+      .querySelector('[data-history-entry="9"]')
+      ?.closest<HTMLElement>(".zen-fold-item")?.dataset.foldState,
+  ).toBe("opening");
+  await renderTree({
+    ...props,
+    recentEntries: [entries[1999]],
+    searchActive: true,
+  });
+  expect(container.querySelector('[data-history-entry="1999"]')).not.toBeNull();
+});
+
+it("does not let a queued disclosure override an external project selection", async () => {
+  vi.useFakeTimers();
+  const onActivateProject = vi.fn();
+  const props = await renderTree({
+    expandedPaths: new Set(),
+    onActivateProject,
+  });
+  act(() => projectNameButton("/work/beta").click());
+  await renderTree({
+    ...props,
+    expandedPaths: new Set(["/work/beta"]),
+    cwd: "/work/gamma",
+  });
+  act(() => vi.advanceTimersByTime(300));
+  expect(onActivateProject).not.toHaveBeenCalled();
+});
+
+it("does not prepare session sections for closed projects", async () => {
+  const prepare = vi.fn((path: string) =>
+    createElement("button", { "data-session": path }, "Conversation"),
+  );
+  const props = await renderTree({
+    expandedPaths: new Set(),
+    renderProjectChildren: prepare,
+  });
+  expect(prepare).not.toHaveBeenCalled();
+  await renderTree({
+    ...props,
+    expandedPaths: new Set(["/work/alpha"]),
+  });
+  expect(new Set(prepare.mock.calls.map(([path]) => path))).toEqual(
+    new Set(["/work/alpha"]),
+  );
+});
+
 it("reveals projects in batches of five independently for pins, groups and loose projects", async () => {
   const recents = Array.from({ length: 36 }, (_, index) => ({
     path: `/work/project-${index}`,

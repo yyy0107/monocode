@@ -327,18 +327,21 @@ export function QuickOpen({
 
   return createPortal(
     <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>
-      <div className="absolute inset-0" onMouseDown={onClose} />
+      <div
+        className="modal-backdrop absolute inset-0 bg-black/40"
+        onMouseDown={onClose}
+      />
       <div
         role="dialog"
         aria-label={dialogLabel}
         data-file-picker
         data-quick-open-mode={mode}
         onMouseDown={(e) => e.stopPropagation()}
-        className="popover-backdrop absolute left-1/2 top-[12%] flex w-[min(560px,calc(100vw-24px))] -translate-x-1/2 flex-col overflow-hidden rounded-lg border border-content/10 backdrop-blur-xl"
+        className="popover-backdrop absolute left-1/2 top-[max(24px,calc(50%-310px))] flex w-[min(760px,calc(100vw-48px))] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-content/10 shadow-2xl backdrop-blur-xl"
       >
         <div className="pb-1.5">
-          <label className="flex items-center gap-2 border-b border-stroke px-2 py-2.5 text-content/50">
-            <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+          <label className="flex items-center gap-2.5 border-b border-stroke px-3.5 py-3.5 text-content/50">
+            <Search className="size-4 shrink-0" strokeWidth={1.75} />
             <input
               ref={search}
               type="text"
@@ -351,7 +354,7 @@ export function QuickOpen({
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"
-              className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none placeholder:text-content/40"
+              className="min-w-0 flex-1 bg-transparent text-[14px] text-content outline-none placeholder:text-content/40"
               onChange={(e) => {
                 setQuery(e.target.value);
                 setActive(0);
@@ -362,7 +365,7 @@ export function QuickOpen({
           <div
             role="tablist"
             aria-label={uiT("Quick open modes")}
-            className="flex items-center gap-1 px-2 py-1.5"
+            className="flex items-center gap-1 px-3 py-2"
           >
             {MODES.filter(
               ({ mode: entry }) =>
@@ -643,7 +646,7 @@ function OptionList({
       role="listbox"
       aria-label={label}
       onMouseMove={onListMouseMove}
-      className="max-h-[min(380px,50vh)] overflow-y-auto overscroll-none px-1.5 pb-1.5"
+      className="max-h-[min(520px,60vh)] overflow-y-auto overscroll-none px-1.5 pb-1.5"
     >
       {items.map((item, index) => {
         const highlighted = index === active;

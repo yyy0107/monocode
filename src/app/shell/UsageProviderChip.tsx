@@ -75,6 +75,12 @@ type UsageWindowEntry = {
 type ResetActionState =
   "idle" | "confirming" | "using" | CodexRateLimitResetOutcome | "error";
 
+export type UsageInline = {
+  expanded: boolean;
+  onExpand: () => void;
+  onCollapse: () => void;
+};
+
 export function UsageProviderChip({
   limits,
   now,
@@ -88,6 +94,7 @@ export function UsageProviderChip({
   onReconnect,
   presentation,
   identitySource,
+  inline,
 }: {
   limits: ProviderRateLimits;
   now: number;
@@ -101,11 +108,20 @@ export function UsageProviderChip({
   onManageAccounts?: () => void;
   onConsumeReset?: (creditId?: string) => Promise<CodexRateLimitResetOutcome>;
   onReconnect?: () => Promise<void>;
+  /** Render inside another menu: the chip expands into the details in place. */
+  inline?: UsageInline;
 }) {
   const { t: uiT } = useTranslation();
   const showRemaining = useShowRemainingUsage();
   const trigger = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
+  const [chipOpen, setChipOpen] = useState(false);
+  const open = inline ? inline.expanded : chipOpen;
+  const setOpen = (value: boolean | ((current: boolean) => boolean)) => {
+    const next = typeof value === "function" ? value(open) : value;
+    if (!inline) setChipOpen(next);
+    else if (next) inline.onExpand();
+    else inline.onCollapse();
+  };
   const [accountView, setAccountView] = useState<"usage" | "accounts" | "add">(
     "usage",
   );
@@ -234,67 +250,246 @@ export function UsageProviderChip({
     }
   };
 
-  return (
+  const detailsLabel = uiT("{value0} usage details", {
+    value0: String(providerLabel),
+  });
+  const panelPadding = accountView === "usage" && loginView ? "" : "p-2.5";
+  const panel = (
     <>
-      <button
-        ref={trigger}
-        type="button"
-        className="-mx-1 inline-flex h-5 min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap rounded px-1 text-content/55 transition-[background-color,color,transform] duration-150 ease-out hover:bg-content/10 hover:text-content focus-visible:outline-2 focus-visible:outline-accent active:scale-[0.97]"
-        aria-label={uiT("{value0} usage details", {
-          value0: String(providerLabel),
-        })}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        title={
-          tooltip ||
-          limits.error ||
-          (disconnected
-            ? uiT("Not connected")
-            : loading
-              ? uiT("Loading usage…")
-              : uiT("Usage details"))
-        }
-        onClick={() => setOpen((value) => !value)}
-      >
-        <HarnessIcon harness={iconHarness} className="size-3 shrink-0" />
-        {loading ? (
-          <span className="animate-pulse text-content/35">···</span>
-        ) : disconnected ? (
-          <span className="text-content/35">{uiT("not connected")}</span>
-        ) : windows.length === 0 ? (
-          <span className="text-content/35">{emptyUsageLabel(limits)}</span>
-        ) : (
-          <>
-            {accounts.length > 1 && activeAccount ? (
-              <span className="max-w-24 truncate text-content/45">
-                {activeAccount.label}
+      {accountView === "accounts" ? (
+        <ProviderAccountPicker
+          providerLabel={providerLabel}
+          accounts={accounts}
+          identities={identities}
+          accountId={accountId ?? ""}
+          usageFor={usageFor}
+          now={now}
+          onBack={() => setAccountView("usage")}
+          onAdd={() => setAccountView("add")}
+          onManage={
+            onManageAccounts
+              ? () => {
+                  setOpen(false);
+                  onManageAccounts();
+                }
+              : undefined
+          }
+          onSelect={(nextAccountId) => {
+            onSelectAccount?.(nextAccountId);
+            setOpen(false);
+          }}
+        />
+      ) : accountView === "add" ? (
+        <AddProviderAccount
+          providerLabel={providerLabel}
+          onBack={() => setAccountView("accounts")}
+          onAdd={onAddAccount}
+          onComplete={() => setOpen(false)}
+        />
+      ) : loginView ? (
+        <>
+          {canManageAccounts ? (
+            <AccountSwitchRow
+              accountLabel={activeAccountLabel}
+              onClick={() => setAccountView("accounts")}
+            />
+          ) : null}
+          <ProviderSignInPanel
+            harness={limits.provider}
+            state={reconnectState}
+            error={reconnectError}
+            onSignIn={() => void reconnect()}
+          />
+        </>
+      ) : (
+        <>
+          <div className="flex items-start gap-2.5 px-1 pb-2.5 pt-0.5">
+            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-content/[0.06] ring-1 ring-inset ring-content/[0.07]">
+              <HarnessIcon harness={iconHarness} className="size-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-[13px] font-medium leading-4">
+                {providerLabel} {uiT("usage")}
+              </h2>
+              <p className="mt-0.5 text-[10px] leading-4 text-content/40">
+                {updatedLabel(limits, now)}
+              </p>
+              {presentation?.sourceLabel ? (
+                <p className="mt-0.5 text-[10px] leading-4 text-content/55">
+                  {presentation.sourceLabel}
+                </p>
+              ) : null}
+              {canManageAccounts ? (
+                <div className="pointer-events-none relative mt-1 -ml-1 inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 text-[10px] text-content/55">
+                  {/* Keep account switching separate from email revelation. */}
+                  <button
+                    type="button"
+                    className="pointer-events-auto absolute inset-0 rounded hover:bg-content/10 focus-visible:outline-2 focus-visible:outline-accent"
+                    aria-label={uiT("Switch {value0} account", {
+                      value0: String(providerLabel),
+                    })}
+                    onClick={() => setAccountView("accounts")}
+                  />
+                  <span className="max-w-[60%] shrink-0 truncate">
+                    {activeAccountLabel}
+                  </span>
+                  <ProviderAccountSubtitle
+                    key={activeAccount && identityKey(activeAccount)}
+                    identity={activeIdentity}
+                    className="text-content/35"
+                  />
+                  <ChevronRight
+                    className="size-2.5 shrink-0"
+                    strokeWidth={1.75}
+                    aria-hidden
+                  />
+                </div>
+              ) : null}
+            </div>
+            {limits.status === "fetching" ? (
+              <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-content/40">
+                <RefreshCw
+                  className="size-2.5 animate-spin"
+                  strokeWidth={1.75}
+                  aria-hidden
+                />
+                {uiT("Updating")}
               </span>
             ) : null}
-            {tightest ? <MiniBar usedPct={tightest.usedPercent} /> : null}
-            <span className="flex min-w-0 items-center gap-1 tabular-nums">
-              {windows.map((entry, index) => (
-                <span
+          </div>
+
+          {limits.status === "error" && windows.length > 0 ? (
+            <p className="mb-2 rounded-lg bg-amber-400/10 px-2.5 py-2 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
+              {uiT("Couldn’t refresh. Showing the last available snapshot.")}
+            </p>
+          ) : null}
+
+          {windows.length > 0 ? (
+            <div className="flex flex-col gap-1.5">
+              {windows.map((entry) => (
+                <UsageWindowCard
                   key={entry.key}
-                  className="inline-flex items-center gap-1"
-                >
-                  {index > 0 ? (
-                    <span className="text-content/25">·</span>
-                  ) : null}
-                  <span>
-                    {formatUsagePercent(
-                      showRemaining
-                        ? 100 - clampUsedPercent(entry.window.usedPercent)
-                        : entry.window.usedPercent,
-                    )}{" "}
-                    {formatRateLimitWindowChipLabel(entry.window, now)}
-                  </span>
-                </span>
+                  kind={entry.key}
+                  window={entry.window}
+                  now={now}
+                />
               ))}
-            </span>
-          </>
-        )}
-      </button>
-      {open ? (
+            </div>
+          ) : (
+            <EmptyUsageState limits={limits} loading={loading} />
+          )}
+
+          {suggestion && onSelectAccount ? (
+            <SwitchSuggestion
+              account={suggestion}
+              limits={usageFor(suggestion)}
+              exhausted={activeStatus.tone === "exhausted"}
+              now={now}
+              onSwitch={() => {
+                onSelectAccount(suggestion.id);
+                setOpen(false);
+              }}
+            />
+          ) : null}
+
+          {limits.provider === "codex" ? (
+            <BankedResets
+              limits={limits}
+              now={now}
+              action={resetAction}
+              activeResetKey={activeResetKey}
+              error={resetError}
+              mascotProject={mascotProject}
+              mascotName={mascotName}
+              mascotColor={mascotColor}
+              onConfirm={(creditId) => {
+                setActiveResetKey(creditId);
+                setResetAction("confirming");
+              }}
+              onCancel={() => {
+                setActiveResetKey(null);
+                setResetAction("idle");
+              }}
+              onUse={useReset}
+              canUse={Boolean(onConsumeReset)}
+            />
+          ) : null}
+        </>
+      )}
+    </>
+  );
+
+  return (
+    <>
+      {inline?.expanded ? null : (
+        <button
+          ref={trigger}
+          type="button"
+          className={`${inline ? "flex h-7 flex-1 rounded-lg px-2" : "-mx-1 inline-flex h-5 shrink-0 rounded px-1"} min-w-0 items-center gap-1.5 whitespace-nowrap text-content/55 transition-[background-color,color,transform] duration-150 ease-out hover:bg-content/10 hover:text-content focus-visible:outline-2 focus-visible:outline-accent active:scale-[0.97]`}
+          aria-label={uiT("{value0} usage details", {
+            value0: String(providerLabel),
+          })}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          title={
+            tooltip ||
+            limits.error ||
+            (disconnected
+              ? uiT("Not connected")
+              : loading
+                ? uiT("Loading usage…")
+                : uiT("Usage details"))
+          }
+          onClick={() => setOpen((value) => !value)}
+        >
+          <HarnessIcon harness={iconHarness} className="size-3 shrink-0" />
+          {loading ? (
+            <span className="animate-pulse text-content/35">···</span>
+          ) : disconnected ? (
+            <span className="text-content/35">{uiT("not connected")}</span>
+          ) : windows.length === 0 ? (
+            <span className="text-content/35">{emptyUsageLabel(limits)}</span>
+          ) : (
+            <>
+              {accounts.length > 1 && activeAccount ? (
+                <span className="max-w-24 truncate text-content/45">
+                  {activeAccount.label}
+                </span>
+              ) : null}
+              {tightest ? <MiniBar usedPct={tightest.usedPercent} /> : null}
+              <span className="flex min-w-0 items-center gap-1 tabular-nums">
+                {windows.map((entry, index) => (
+                  <span
+                    key={entry.key}
+                    className="inline-flex items-center gap-1"
+                  >
+                    {index > 0 ? (
+                      <span className="text-content/25">·</span>
+                    ) : null}
+                    <span>
+                      {formatUsagePercent(
+                        showRemaining
+                          ? 100 - clampUsedPercent(entry.window.usedPercent)
+                          : entry.window.usedPercent,
+                      )}{" "}
+                      {formatRateLimitWindowChipLabel(entry.window, now)}
+                    </span>
+                  </span>
+                ))}
+              </span>
+            </>
+          )}
+        </button>
+      )}
+      {open && inline ? (
+        <div
+          role="group"
+          aria-label={detailsLabel}
+          className={`text-content ${panelPadding}`}
+        >
+          {panel}
+        </div>
+      ) : open ? (
         <Popover
           anchor={trigger}
           side="top"
@@ -305,174 +500,11 @@ export function UsageProviderChip({
           autoFocus
           onDismiss={dismiss}
           role="dialog"
-          aria-label={uiT("{value0} usage details", {
-            value0: String(providerLabel),
-          })}
+          aria-label={detailsLabel}
           tabIndex={-1}
-          className={`overflow-y-auto text-content ${accountView === "usage" && loginView ? "" : "p-2.5"}`}
+          className={`overflow-y-auto text-content ${panelPadding}`}
         >
-          {accountView === "accounts" ? (
-            <ProviderAccountPicker
-              providerLabel={providerLabel}
-              accounts={accounts}
-              identities={identities}
-              accountId={accountId ?? ""}
-              usageFor={usageFor}
-              now={now}
-              onBack={() => setAccountView("usage")}
-              onAdd={() => setAccountView("add")}
-              onManage={
-                onManageAccounts
-                  ? () => {
-                      setOpen(false);
-                      onManageAccounts();
-                    }
-                  : undefined
-              }
-              onSelect={(nextAccountId) => {
-                onSelectAccount?.(nextAccountId);
-                setOpen(false);
-              }}
-            />
-          ) : accountView === "add" ? (
-            <AddProviderAccount
-              providerLabel={providerLabel}
-              onBack={() => setAccountView("accounts")}
-              onAdd={onAddAccount}
-              onComplete={() => setOpen(false)}
-            />
-          ) : loginView ? (
-            <>
-              {canManageAccounts ? (
-                <AccountSwitchRow
-                  accountLabel={activeAccountLabel}
-                  onClick={() => setAccountView("accounts")}
-                />
-              ) : null}
-              <ProviderSignInPanel
-                harness={limits.provider}
-                state={reconnectState}
-                error={reconnectError}
-                onSignIn={() => void reconnect()}
-              />
-            </>
-          ) : (
-            <>
-              <div className="flex items-start gap-2.5 px-1 pb-2.5 pt-0.5">
-                <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-content/[0.06] ring-1 ring-inset ring-content/[0.07]">
-                  <HarnessIcon harness={iconHarness} className="size-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-[13px] font-medium leading-4">
-                    {providerLabel} {uiT("usage")}
-                  </h2>
-                  <p className="mt-0.5 text-[10px] leading-4 text-content/40">
-                    {updatedLabel(limits, now)}
-                  </p>
-                  {presentation?.sourceLabel ? (
-                    <p className="mt-0.5 text-[10px] leading-4 text-content/55">
-                      {presentation.sourceLabel}
-                    </p>
-                  ) : null}
-                  {canManageAccounts ? (
-                    <div className="pointer-events-none relative mt-1 -ml-1 inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 text-[10px] text-content/55">
-                      {/* Keep account switching separate from email revelation. */}
-                      <button
-                        type="button"
-                        className="pointer-events-auto absolute inset-0 rounded hover:bg-content/10 focus-visible:outline-2 focus-visible:outline-accent"
-                        aria-label={uiT("Switch {value0} account", {
-                          value0: String(providerLabel),
-                        })}
-                        onClick={() => setAccountView("accounts")}
-                      />
-                      <span className="max-w-[60%] shrink-0 truncate">
-                        {activeAccountLabel}
-                      </span>
-                      <ProviderAccountSubtitle
-                        key={activeAccount && identityKey(activeAccount)}
-                        identity={activeIdentity}
-                        className="text-content/35"
-                      />
-                      <ChevronRight
-                        className="size-2.5 shrink-0"
-                        strokeWidth={1.75}
-                        aria-hidden
-                      />
-                    </div>
-                  ) : null}
-                </div>
-                {limits.status === "fetching" ? (
-                  <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-content/40">
-                    <RefreshCw
-                      className="size-2.5 animate-spin"
-                      strokeWidth={1.75}
-                      aria-hidden
-                    />
-                    {uiT("Updating")}
-                  </span>
-                ) : null}
-              </div>
-
-              {limits.status === "error" && windows.length > 0 ? (
-                <p className="mb-2 rounded-lg bg-amber-400/10 px-2.5 py-2 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
-                  {uiT(
-                    "Couldn’t refresh. Showing the last available snapshot.",
-                  )}
-                </p>
-              ) : null}
-
-              {windows.length > 0 ? (
-                <div className="flex flex-col gap-1.5">
-                  {windows.map((entry) => (
-                    <UsageWindowCard
-                      key={entry.key}
-                      kind={entry.key}
-                      window={entry.window}
-                      now={now}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <EmptyUsageState limits={limits} loading={loading} />
-              )}
-
-              {suggestion && onSelectAccount ? (
-                <SwitchSuggestion
-                  account={suggestion}
-                  limits={usageFor(suggestion)}
-                  exhausted={activeStatus.tone === "exhausted"}
-                  now={now}
-                  onSwitch={() => {
-                    onSelectAccount(suggestion.id);
-                    setOpen(false);
-                  }}
-                />
-              ) : null}
-
-              {limits.provider === "codex" ? (
-                <BankedResets
-                  limits={limits}
-                  now={now}
-                  action={resetAction}
-                  activeResetKey={activeResetKey}
-                  error={resetError}
-                  mascotProject={mascotProject}
-                  mascotName={mascotName}
-                  mascotColor={mascotColor}
-                  onConfirm={(creditId) => {
-                    setActiveResetKey(creditId);
-                    setResetAction("confirming");
-                  }}
-                  onCancel={() => {
-                    setActiveResetKey(null);
-                    setResetAction("idle");
-                  }}
-                  onUse={useReset}
-                  canUse={Boolean(onConsumeReset)}
-                />
-              ) : null}
-            </>
-          )}
+          {panel}
         </Popover>
       ) : null}
     </>

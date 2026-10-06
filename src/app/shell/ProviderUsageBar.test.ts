@@ -29,7 +29,7 @@ import type {
   RateLimitProvider,
 } from "../../features/providers/model/rateLimits";
 import { clearCachedRateLimits } from "../../features/providers/model/rateLimitsCache";
-import { UsageFooter } from "./UsageFooter";
+import { ProviderUsageBar } from "./ProviderUsageBar";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -90,20 +90,20 @@ function connectedLimits(provider: RateLimitProvider): ProviderRateLimits {
   };
 }
 
-describe("UsageFooter provider authentication", () => {
+describe("ProviderUsageBar provider authentication", () => {
   it("reuses usage on remount and only fetches again on Refresh", async () => {
     rateLimitsFetch.fetchCodexRateLimits.mockResolvedValue(
       connectedLimits("codex"),
     );
     await act(async () =>
-      root.render(createElement(UsageFooter, { providers: ["codex"] })),
+      root.render(createElement(ProviderUsageBar, { providers: ["codex"] })),
     );
     expect(rateLimitsFetch.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
 
     act(() => root.unmount());
     root = createRoot(container);
     await act(async () =>
-      root.render(createElement(UsageFooter, { providers: ["codex"] })),
+      root.render(createElement(ProviderUsageBar, { providers: ["codex"] })),
     );
     document.dispatchEvent(new Event("visibilitychange"));
     expect(rateLimitsFetch.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
@@ -115,8 +115,7 @@ describe("UsageFooter provider authentication", () => {
   it("keeps a healthy Grok provider label non-interactive", () => {
     act(() =>
       root.render(
-        createElement(UsageFooter, {
-          providers: [],
+        createElement(ProviderUsageBar, {
           session: {
             id: "grok-session",
             harness: "grok",
@@ -132,7 +131,7 @@ describe("UsageFooter provider authentication", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it("opens Grok sign-in from its footer provider popover", async () => {
+  it("opens Grok sign-in from its provider popover", async () => {
     let finishLogin: (() => void) | undefined;
     auth.loginHarness.mockImplementation(
       () =>
@@ -142,8 +141,7 @@ describe("UsageFooter provider authentication", () => {
     );
     act(() =>
       root.render(
-        createElement(UsageFooter, {
-          providers: [],
+        createElement(ProviderUsageBar, {
           session: {
             id: "grok-session",
             harness: "grok",
@@ -189,7 +187,7 @@ describe("UsageFooter provider authentication", () => {
 
     await act(async () => {
       root.render(
-        createElement(UsageFooter, {
+        createElement(ProviderUsageBar, {
           providers: ["claude", "codex"],
         }),
       );

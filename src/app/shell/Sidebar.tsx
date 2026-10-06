@@ -137,6 +137,15 @@ function SidebarComponent(props: SidebarProps) {
     saveProjectTreeExpanded(initialExpansion.current);
   }, []);
   const [query, setQuery] = useState("");
+  const [searchCollapse, setSearchCollapse] = useState<{
+    query: string;
+    paths: ReadonlySet<string>;
+  }>(() => ({ query: "", paths: new Set() }));
+  useEffect(() => {
+    setSearchCollapse((previous) =>
+      previous.query === query ? previous : { query, paths: new Set() },
+    );
+  }, [query]);
   const [sessionProjectPath, setSessionProjectPath] = useState<string | null>(
     null,
   );
@@ -639,7 +648,13 @@ function SidebarComponent(props: SidebarProps) {
     failedPaths,
     searchFailed,
   ]);
-  const shownExpanded = searchActive ? matchInfo.matched : expandedPaths;
+  const shownExpanded = useMemo(() => {
+    if (!searchActive) return expandedPaths;
+    const next = new Set(matchInfo.matched);
+    if (searchCollapse.query === query)
+      for (const key of searchCollapse.paths) next.delete(key);
+    return next;
+  }, [searchActive, expandedPaths, matchInfo.matched, searchCollapse, query]);
   const shownExpandedKey = [...shownExpanded].sort().join("\0");
   useEffect(() => {
     if (
@@ -674,6 +689,14 @@ function SidebarComponent(props: SidebarProps) {
 
   const expandProject = (path: string) => {
     const key = pathKey(path);
+    if (searchActive) {
+      setSearchCollapse((previous) => {
+        if (previous.query !== query || !previous.paths.has(key)) return previous;
+        const paths = new Set(previous.paths);
+        paths.delete(key);
+        return { query, paths };
+      });
+    }
     const next = new Set(expandedPaths);
     next.add(key);
     setExpandedPaths(next);
@@ -681,16 +704,25 @@ function SidebarComponent(props: SidebarProps) {
   };
   const selectProject = (path: string) => {
     // A second click on an open project collapses it, like its disclosure.
-    if (!searchActive && shownExpanded.has(pathKey(path))) {
+    if (shownExpanded.has(pathKey(path))) {
       toggleProject(path);
       return;
     }
-    expandProject(path);
+    if (searchActive) toggleProject(path);
+    else expandProject(path);
     props.onSelectProject?.(path);
   };
   const toggleProject = (path: string) => {
-    if (searchActive) return;
     const key = pathKey(path);
+    if (searchActive) {
+      // Search opens matches by default; explicit folds belong only to this query.
+      setSearchCollapse((previous) => {
+        const paths = new Set(previous.query === query ? previous.paths : []);
+        if (!paths.delete(key)) paths.add(key);
+        return { query, paths };
+      });
+      return;
+    }
     const next = new Set(expandedPaths);
     if (!next.delete(key)) next.add(key);
     setExpandedPaths(next);
@@ -1240,13 +1272,13 @@ function SidebarComponent(props: SidebarProps) {
               projectSummaries={projectSummaries}
               pinnedEntries={tab === "sessions" ? pinnedSessions.map((session) => ({
                 id: `${pathKey(session.cwd)}:${session.id}`,
-                content: renderChildren(session.cwd, session.id),
+                content: () => renderChildren(session.cwd, session.id),
               })) : undefined}
               recentEntries={
                 props.recents !== undefined && tab === "sessions"
                   ? recentSessions.map((session) => ({
                       id: `${pathKey(session.cwd)}:${session.id}`,
-                      content: renderChildren(session.cwd, session.id),
+                      content: () => renderChildren(session.cwd, session.id),
                     }))
                   : undefined
               }
@@ -1258,6 +1290,7 @@ function SidebarComponent(props: SidebarProps) {
               }
               expandedPaths={shownExpanded}
               onToggleProject={toggleProject}
+              onActivateProject={props.onSelectProject}
               renderProjectChildren={
                 tab === "sessions" ? renderChildren : renderWorkingCopy
               }

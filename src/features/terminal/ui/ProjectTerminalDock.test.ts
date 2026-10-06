@@ -127,3 +127,47 @@ it("commits and releases an active resize before closing, cancelling queued pain
   expect(sash.releasePointerCapture).toHaveBeenCalledWith(7);
   expect(document.body.style.cursor).not.toBe("row-resize");
 });
+
+it("flushes the final pointer sample before committing, ignores other pointers and keeps the terminal mounted", async () => {
+  let frame: FrameRequestCallback | undefined;
+  vi.stubGlobal(
+    "requestAnimationFrame",
+    vi.fn((callback: FrameRequestCallback) => {
+      frame = callback;
+      return 42;
+    }),
+  );
+  vi.stubGlobal("cancelAnimationFrame", () => {
+    frame = undefined;
+  });
+  await render(true);
+  const sash = container.querySelector<HTMLElement>('[role="separator"]')!;
+  sash.setPointerCapture = vi.fn();
+  sash.hasPointerCapture = vi.fn(() => true);
+  sash.releasePointerCapture = vi.fn();
+  const pointer = (type: string, clientY: number, pointerId = 7) =>
+    act(() => {
+      sash.dispatchEvent(
+        new PointerEvent(type, { pointerId, clientY, bubbles: true }),
+      );
+    });
+  pointer("pointerdown", 100);
+  pointer("pointermove", 0, 2);
+  pointer("pointerup", 0, 2);
+  expect(props.onSizePaint).not.toHaveBeenCalled();
+  expect(props.onSizeCommit).not.toHaveBeenCalled();
+  pointer("pointermove", 80);
+  pointer("pointermove", 60);
+  expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+  expect(props.onSizePaint).not.toHaveBeenCalled();
+  pointer("pointerup", 40);
+  expect(props.onSizePaint).toHaveBeenCalledExactlyOnceWith(280);
+  expect(props.onSizeCommit).toHaveBeenCalledExactlyOnceWith(280);
+  expect(vi.mocked(props.onSizePaint).mock.invocationCallOrder[0]).toBeLessThan(
+    vi.mocked(props.onSizeCommit).mock.invocationCallOrder[0],
+  );
+  expect(frame).toBeUndefined();
+  expect(sash.releasePointerCapture).toHaveBeenCalledWith(7);
+  expect(lifetime.mount).toHaveBeenCalledTimes(1);
+  expect(lifetime.unmount).not.toHaveBeenCalled();
+});

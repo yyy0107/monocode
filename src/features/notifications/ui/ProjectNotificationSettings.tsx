@@ -1,6 +1,6 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronRight, Folder, Minus } from "../../../shared/ui/icons";
+import { Check, ChevronRight, Folder, Minus, Search, X } from "../../../shared/ui/icons";
 import { NotificationMuteControl } from "./NotificationMuteControl";
 import { SecondaryButton } from "../../../shared/ui/SecondaryButton";
 import { ProjectLogoIcon } from "../../projects/ui/ProjectLogoIcon";
@@ -25,6 +25,9 @@ import {
   resolveTabGroupMascot,
 } from "../../workspace/model/tabGroups";
 import type { RecentProject } from "../../projects/model/recents";
+
+/** Above this count the list gets a filter and its own bounded scroll area. */
+const SEARCH_THRESHOLD = 6;
 
 type Props = {
   cwd: string;
@@ -59,8 +62,18 @@ export function ProjectNotificationSettings({
   const [selected, setSelected] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const searchable = projects.length > SEARCH_THRESHOLD;
+  const needle = searchable ? query.trim().toLocaleLowerCase() : "";
+  const visibleProjects = needle
+    ? projects.filter((project) =>
+        `${project.name}\n${project.detail}`
+          .toLocaleLowerCase()
+          .includes(needle),
+      )
+    : projects;
   const selectedIds = selected.filter((id) =>
-    projects.some((project) => project.id === id),
+    visibleProjects.some((project) => project.id === id),
   );
   const targetCard = useRef<HTMLFieldSetElement>(null);
   const focusedRequest = useRef<{ path: string; request: number } | null>(null);
@@ -77,11 +90,15 @@ export function ProjectNotificationSettings({
       return;
     }
     if (
-      (focusedRequest.current?.path === notificationProjectPath &&
-        focusedRequest.current.request === notificationSettingsRequest) ||
-      !targetCard.current
+      focusedRequest.current?.path === notificationProjectPath &&
+      focusedRequest.current.request === notificationSettingsRequest
     )
       return;
+    if (!targetCard.current) {
+      // A filter may hide the requested project; clear it and retry on render.
+      if (targetId && query) setQuery("");
+      return;
+    }
     setExpanded(targetId ?? null);
     targetCard.current.scrollIntoView?.({ block: "nearest" });
     targetCard.current.focus({ preventScroll: true });
@@ -89,7 +106,7 @@ export function ProjectNotificationSettings({
       path: notificationProjectPath,
       request: notificationSettingsRequest,
     };
-  }, [notificationProjectPath, notificationSettingsRequest, targetId]);
+  }, [notificationProjectPath, notificationSettingsRequest, targetId, query]);
 
   function setCategory(
     projectId: string,
@@ -163,19 +180,58 @@ export function ProjectNotificationSettings({
         ) : null}
         {projects.length ? (
           <>
+            {searchable ? (
+              <label className="flex h-10 items-center gap-2.5 border-b border-content/5 px-4 text-content/45 focus-within:text-content/70">
+                <Search className="size-4 shrink-0" strokeWidth={1.75} />
+                <span className="sr-only">{uiT("Search projects")}</span>
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape" && query) {
+                      event.stopPropagation();
+                      setQuery("");
+                    }
+                  }}
+                  placeholder={uiT("Search projects...")}
+                  className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none placeholder:text-content/35 [&::-webkit-search-cancel-button]:hidden"
+                />
+                {query ? (
+                  <button
+                    type="button"
+                    aria-label={uiT("Clear")}
+                    onClick={() => setQuery("")}
+                    className="grid size-5 shrink-0 place-items-center rounded text-content/40 hover:bg-content/8 hover:text-content/70"
+                  >
+                    <X className="size-3.5" aria-hidden="true" />
+                  </button>
+                ) : null}
+                <span className="shrink-0 text-[12px] tabular-nums text-content/35">
+                  {needle
+                    ? `${visibleProjects.length}/${projects.length}`
+                    : projects.length}
+                </span>
+              </label>
+            ) : null}
             {selecting ? (
               <div className="flex min-h-9 flex-wrap items-center justify-between gap-3 border-b border-content/5 px-4 py-3.5">
                 <label className="flex cursor-pointer items-center gap-2.5 text-[12px] text-content/55 hover:text-content/80">
                   <ProjectSelection
                     label={uiT("Select all projects")}
-                    checked={selectedIds.length === projects.length}
+                    checked={
+                      visibleProjects.length > 0 &&
+                      selectedIds.length === visibleProjects.length
+                    }
                     mixed={
                       selectedIds.length > 0 &&
-                      selectedIds.length < projects.length
+                      selectedIds.length < visibleProjects.length
                     }
                     onChange={(checked) =>
                       setSelected(
-                        checked ? projects.map((project) => project.id) : [],
+                        checked
+                          ? visibleProjects.map((project) => project.id)
+                          : [],
                       )
                     }
                   />
@@ -192,8 +248,22 @@ export function ProjectNotificationSettings({
                 ) : null}
               </div>
             ) : null}
-            <div>
-              {projects.map((project) => {
+            <div
+              className={
+                searchable
+                  ? "max-h-[min(560px,60vh)] overflow-y-auto overscroll-contain"
+                  : undefined
+              }
+            >
+              {needle && visibleProjects.length === 0 ? (
+                <p
+                  role="status"
+                  className="px-4 py-3.5 text-[12px] text-content/45"
+                >
+                  {uiT("No matching projects")}
+                </p>
+              ) : null}
+              {visibleProjects.map((project) => {
                 const path =
                   project.paths.find(
                     (path) =>
@@ -231,7 +301,7 @@ export function ProjectNotificationSettings({
                     className="min-w-0 border-b border-content/5 outline-none last:border-b-0 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent/50"
                   >
                     <legend className="sr-only">{project.name}</legend>
-                    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-3.5">
+                    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2.5">
                       <div className="flex min-w-[min(100%,200px)] flex-1 items-center gap-3">
                         {selecting ? (
                           <ProjectSelection
@@ -294,7 +364,7 @@ export function ProjectNotificationSettings({
                             >
                               {project.name}
                             </p>
-                            <p className="mt-1 text-[12px] leading-relaxed text-content/45">
+                            <p className="mt-0.5 text-[12px] leading-relaxed text-content/45">
                               {project.kind === "local"
                                 ? uiT("Local project · ")
                                 : ""}

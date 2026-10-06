@@ -145,252 +145,338 @@ function oscColors() {
   };
 }
 
+/**
+ * How long a released terminal waits for another view to adopt it before its
+ * shell is killed. Moving a terminal between the dock and a split pane mounts
+ * a new view in the same commit, well inside this window.
+ */
+export const TERMINAL_HANDOFF_MS = 1000;
+
+type MetaRef = { current: ((patch: TerminalMetaPatch) => void) | undefined };
+
+/** One xterm and its PTY, owned by whichever view currently shows it. */
+type LiveTerminal = {
+  term: Terminal;
+  spawned: boolean;
+  runningProcess: string | null;
+  applySize: () => void;
+  attach: (outer: HTMLElement, host: HTMLElement, meta: MetaRef) => object;
+  release: (owner: object) => void;
+};
+
+const liveTerminals = new Map<string, LiveTerminal & { parked?: number }>();
+
+function claimTerminal(id: string, cwd: string): LiveTerminal {
+  const existing = liveTerminals.get(id);
+  if (existing) {
+    if (existing.parked !== undefined) clearTimeout(existing.parked);
+    existing.parked = undefined;
+    return existing;
+  }
+  const created = createLiveTerminal(id, cwd);
+  liveTerminals.set(id, created);
+  return created;
+}
+
+function createLiveTerminal(id: string, cwd: string): LiveTerminal & { parked?: number } {
+  // xterm renders into its own node, which moves between views' hosts.
+  const node = document.createElement("div");
+  node.style.width = "100%";
+  node.style.height = "100%";
+  const term = new Terminal({
+    cursorBlink: true,
+    cursorStyle: "bar",
+    fontFamily: monoFont(),
+    fontSize: 13,
+    lineHeight: 1,
+    letterSpacing: 0,
+    scrollback: 5000,
+    allowTransparency: true,
+    smoothScrollDuration: 0,
+    theme: terminalTheme(isLightScheme()),
+    macOptionIsMeta: IS_MAC,
+  });
+  term.open(node);
+  let closed = false;
+  let outer: HTMLElement | null = null;
+  let host: HTMLElement | null = null;
+  let meta: MetaRef = { current: undefined };
+  let owner: object | null = null;
+
+  const onCopy = (event: ClipboardEvent) => {
+    const text = term.getSelection();
+    if (!text) return;
+    event.clipboardData?.setData("text/plain", text);
+    event.preventDefault();
+  };
+  const onPaste = (event: ClipboardEvent) => {
+    const text = event.clipboardData?.getData("text/plain");
+    if (!text) return;
+    event.preventDefault();
+    term.paste(text);
+  };
+  node.addEventListener("copy", onCopy);
+  node.addEventListener("paste", onPaste);
+
+  term.attachCustomKeyEventHandler((event) => {
+    const shortcutData = IS_MAC ? macTerminalShortcutData(event) : null;
+    if (shortcutData) {
+      if (event.type === "keydown") {
+        event.preventDefault();
+        event.stopPropagation();
+        term.input(shortcutData);
+      }
+      return false;
+    }
+    if (IS_MAC && isMacTerminalClearShortcut(event)) {
+      if (event.isComposing) return false;
+      if (event.type === "keydown") {
+        event.preventDefault();
+        term.clear();
+      }
+      return false;
+    }
+
+    const mod = event.metaKey || event.ctrlKey;
+    if (!mod || event.altKey) return true;
+    const key = event.key.toLowerCase();
+    if (key === "c") {
+      if (term.hasSelection()) return false;
+      if (event.metaKey && !event.ctrlKey) return false;
+      return true;
+    }
+    if (key === "v") return false;
+    return true;
+  });
+
+  let oscBuffer = "";
+
+  const live: LiveTerminal & { parked?: number } = {
+    term,
+    spawned: false,
+    runningProcess: null,
+    applySize: () => {},
+    attach: () => ({}),
+    release: () => {},
+  };
+
+  let unsubscribe = () => {};
+  let didStart = false;
+  const start = () => {
+    if (closed) return;
+    unsubscribe = subscribePty(
+      id,
+      (data) => {
+        if (closed) return;
+        const onMeta = meta.current;
+        if (onMeta) {
+          const text = new TextDecoder().decode(data);
+          const scanned = scanOscCwd(text, oscBuffer);
+          oscBuffer = scanned.rest;
+          if (scanned.cwd) {
+            const patch: TerminalMetaPatch = { cwd: scanned.cwd };
+            if (!live.runningProcess) {
+              patch.title = defaultTerminalTitle(scanned.cwd);
+            }
+            onMeta(patch);
+          }
+        }
+        term.write(data);
+      },
+      (code) => {
+        if (closed) return;
+        const status = code == null ? "" : ` (${code})`;
+        term.writeln(`\r\n[process exited${status}]`);
+      },
+    );
+    didStart = true;
+    return spawnPty(id, cwd, term.cols, term.rows);
+  };
+
+  const starting = (stoppingPtys.get(id) ?? Promise.resolve())
+    .then(start)
+    .then(() => {
+      if (!closed) live.spawned = true;
+    })
+    .catch((error) => {
+      live.spawned = false;
+      if (!closed) {
+        const message = error instanceof Error ? error.message : String(error);
+        term.writeln(`\x1b[31m${message}\x1b[0m`);
+      }
+      throw error;
+    });
+  void starting.catch(() => undefined);
+
+  const dataSub = term.onData((data) => {
+    void starting
+      .then(() => (closed ? undefined : writePty(id, data)))
+      .catch(() => undefined);
+  });
+
+  const replyOsc = (code: 10 | 11 | 12, hex: string) => {
+    const reply = oscColorReply(code, hex);
+    if (reply) {
+      void starting
+        .then(() => (closed ? undefined : writePty(id, reply)))
+        .catch(() => undefined);
+    }
+    return true;
+  };
+  const oscFg = term.parser.registerOscHandler(10, (data) =>
+    isOscColorQuery(data) ? replyOsc(10, oscColors().fg) : false,
+  );
+  const oscBg = term.parser.registerOscHandler(11, (data) =>
+    isOscColorQuery(data) ? replyOsc(11, oscColors().bg) : false,
+  );
+  const oscCursor = term.parser.registerOscHandler(12, (data) =>
+    isOscColorQuery(data) ? replyOsc(12, oscColors().cursor) : false,
+  );
+
+  const onSchemeChange = () => {
+    term.options.theme = terminalTheme(isLightScheme());
+  };
+  window.addEventListener(SCHEME_CHANGE_EVENT, onSchemeChange);
+
+  term.attachCustomWheelEventHandler(() => {
+    if (term.element?.classList.contains("enable-mouse-events")) return true;
+    return term.buffer.active.type !== "alternate";
+  });
+
+  let lastCols = 0;
+  let lastRows = 0;
+  let raf = 0;
+  let tuiMode = false;
+
+  const fitMode = (): TerminalFitMode =>
+    term.buffer.active.type === "alternate" ? "tui" : "shell";
+
+  const syncAltScreenMode = () => {
+    const next = fitMode() === "tui";
+    if (next === tuiMode) return;
+    tuiMode = next;
+    if (outer) applyTerminalChrome(term, outer, next);
+    if (!next) resetGridStretch(term);
+    lastCols = 0;
+    lastRows = 0;
+    schedule();
+  };
+
+  const applySize = () => {
+    if (closed || !host) return;
+    const next = fitTerminal(term, host, fitMode());
+    if (!next) return;
+    const { cols, rows } = next;
+    if (cols === lastCols && rows === lastRows) return;
+    lastCols = cols;
+    lastRows = rows;
+    void starting
+      .then(() => (closed ? undefined : resizePty(id, cols, rows)))
+      .catch(() => {
+        lastCols = 0;
+        lastRows = 0;
+      });
+  };
+
+  const schedule = () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      applySize();
+    });
+  };
+
+  live.applySize = applySize;
+  const renderSub = term.onRender(() => {
+    if (!live.spawned) applySize();
+  });
+  const bufferSub = term.buffer.onBufferChange(syncAltScreenMode);
+  const observer = new ResizeObserver(schedule);
+  let frame = 0;
+
+  const dispose = () => {
+    if (liveTerminals.get(id) === live) liveTerminals.delete(id);
+    closed = true;
+    cancelAnimationFrame(frame);
+    if (raf) cancelAnimationFrame(raf);
+    observer.disconnect();
+    node.removeEventListener("copy", onCopy);
+    node.removeEventListener("paste", onPaste);
+    window.removeEventListener(SCHEME_CHANGE_EVENT, onSchemeChange);
+    dataSub.dispose();
+    oscFg.dispose();
+    oscBg.dispose();
+    oscCursor.dispose();
+    renderSub.dispose();
+    bufferSub.dispose();
+    const stopping = starting
+      .catch(() => undefined)
+      .then(() => {
+        unsubscribe();
+        return didStart ? killPty(id) : undefined;
+      })
+      .finally(() => {
+        if (stoppingPtys.get(id) === stopping) stoppingPtys.delete(id);
+      });
+    stoppingPtys.set(id, stopping);
+    term.dispose();
+    node.remove();
+    live.spawned = false;
+  };
+
+  live.attach = (nextOuter, nextHost, nextMeta) => {
+    if (outer && outer !== nextOuter) {
+      outer.classList.remove("monocode-terminal--alt-screen");
+    }
+    outer = nextOuter;
+    host = nextHost;
+    meta = nextMeta;
+    if (node.parentElement !== nextHost) nextHost.appendChild(node);
+    applyTerminalChrome(term, nextOuter, tuiMode);
+    observer.disconnect();
+    observer.observe(nextHost);
+    // A new host may have a different size; refit once it has laid out.
+    lastCols = 0;
+    lastRows = 0;
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(applySize);
+    owner = {};
+    return owner;
+  };
+
+  live.release = (released) => {
+    if (owner !== released) return;
+    owner = null;
+    observer.disconnect();
+    outer?.classList.remove("monocode-terminal--alt-screen");
+    outer = null;
+    host = null;
+    meta = { current: undefined };
+    live.parked = window.setTimeout(dispose, TERMINAL_HANDOFF_MS);
+  };
+
+  syncAltScreenMode();
+  return live;
+}
+
 export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
   const outerRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<Terminal | null>(null);
-  const spawned = useRef(false);
-  const applySizeRef = useRef<() => void>(() => {});
+  const liveRef = useRef<LiveTerminal | null>(null);
   const onMetaChangeRef = useRef(onMetaChange);
   onMetaChangeRef.current = onMetaChange;
-  const runningProcessRef = useRef<string | null>(null);
 
   useEffect(() => {
     const outer = outerRef.current;
     const host = hostRef.current;
     if (!outer || !host) return;
-
-    const term = new Terminal({
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontFamily: monoFont(),
-      fontSize: 13,
-      lineHeight: 1,
-      letterSpacing: 0,
-      scrollback: 5000,
-      allowTransparency: true,
-      smoothScrollDuration: 0,
-      theme: terminalTheme(isLightScheme()),
-      macOptionIsMeta: IS_MAC,
-    });
-    term.open(host);
-    termRef.current = term;
-    let closed = false;
-
-    const onCopy = (event: ClipboardEvent) => {
-      const text = term.getSelection();
-      if (!text) return;
-      event.clipboardData?.setData("text/plain", text);
-      event.preventDefault();
-    };
-    const onPaste = (event: ClipboardEvent) => {
-      const text = event.clipboardData?.getData("text/plain");
-      if (!text) return;
-      event.preventDefault();
-      term.paste(text);
-    };
-    host.addEventListener("copy", onCopy);
-    host.addEventListener("paste", onPaste);
-
-    term.attachCustomKeyEventHandler((event) => {
-      const shortcutData = IS_MAC ? macTerminalShortcutData(event) : null;
-      if (shortcutData) {
-        if (event.type === "keydown") {
-          event.preventDefault();
-          event.stopPropagation();
-          term.input(shortcutData);
-        }
-        return false;
-      }
-      if (IS_MAC && isMacTerminalClearShortcut(event)) {
-        if (event.isComposing) return false;
-        if (event.type === "keydown") {
-          event.preventDefault();
-          term.clear();
-        }
-        return false;
-      }
-
-      const mod = event.metaKey || event.ctrlKey;
-      if (!mod || event.altKey) return true;
-      const key = event.key.toLowerCase();
-      if (key === "c") {
-        if (term.hasSelection()) return false;
-        if (event.metaKey && !event.ctrlKey) return false;
-        return true;
-      }
-      if (key === "v") return false;
-      return true;
-    });
-
-    let oscBuffer = "";
-
-    let unsubscribe = () => {};
-    let didStart = false;
-    const start = () => {
-      if (closed) return;
-      unsubscribe = subscribePty(
-        id,
-        (data) => {
-          if (closed) return;
-          const onMeta = onMetaChangeRef.current;
-          if (onMeta) {
-            const text = new TextDecoder().decode(data);
-            const scanned = scanOscCwd(text, oscBuffer);
-            oscBuffer = scanned.rest;
-            if (scanned.cwd) {
-              const patch: TerminalMetaPatch = { cwd: scanned.cwd };
-              if (!runningProcessRef.current) {
-                patch.title = defaultTerminalTitle(scanned.cwd);
-              }
-              onMeta(patch);
-            }
-          }
-          term.write(data);
-        },
-        (code) => {
-          if (closed) return;
-          const status = code == null ? "" : ` (${code})`;
-          term.writeln(`\r\n[process exited${status}]`);
-        },
-      );
-      didStart = true;
-      return spawnPty(id, cwd, term.cols, term.rows);
-    };
-
-    const starting = (stoppingPtys.get(id) ?? Promise.resolve())
-      .then(start)
-      .then(() => {
-        if (!closed) spawned.current = true;
-      })
-      .catch((error) => {
-        spawned.current = false;
-        if (!closed) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          term.writeln(`\x1b[31m${message}\x1b[0m`);
-        }
-        throw error;
-      });
-    void starting.catch(() => undefined);
-
-    const dataSub = term.onData((data) => {
-      void starting
-        .then(() => (closed ? undefined : writePty(id, data)))
-        .catch(() => undefined);
-    });
-
-    const replyOsc = (code: 10 | 11 | 12, hex: string) => {
-      const reply = oscColorReply(code, hex);
-      if (reply) {
-        void starting
-          .then(() => (closed ? undefined : writePty(id, reply)))
-          .catch(() => undefined);
-      }
-      return true;
-    };
-    const oscFg = term.parser.registerOscHandler(10, (data) =>
-      isOscColorQuery(data) ? replyOsc(10, oscColors().fg) : false,
-    );
-    const oscBg = term.parser.registerOscHandler(11, (data) =>
-      isOscColorQuery(data) ? replyOsc(11, oscColors().bg) : false,
-    );
-    const oscCursor = term.parser.registerOscHandler(12, (data) =>
-      isOscColorQuery(data) ? replyOsc(12, oscColors().cursor) : false,
-    );
-
-    const onSchemeChange = () => {
-      term.options.theme = terminalTheme(isLightScheme());
-    };
-    window.addEventListener(SCHEME_CHANGE_EVENT, onSchemeChange);
-
-    term.attachCustomWheelEventHandler(() => {
-      if (term.element?.classList.contains("enable-mouse-events")) return true;
-      return term.buffer.active.type !== "alternate";
-    });
-
-    let lastCols = 0;
-    let lastRows = 0;
-    let raf = 0;
-    let tuiMode = false;
-
-    const fitMode = (): TerminalFitMode =>
-      term.buffer.active.type === "alternate" ? "tui" : "shell";
-
-    const syncAltScreenMode = () => {
-      const next = fitMode() === "tui";
-      if (next === tuiMode) return;
-      tuiMode = next;
-      applyTerminalChrome(term, outer, next);
-      if (!next) resetGridStretch(term);
-      lastCols = 0;
-      lastRows = 0;
-      schedule();
-    };
-
-    const applySize = () => {
-      if (closed) return;
-      const next = fitTerminal(term, host, fitMode());
-      if (!next) return;
-      const { cols, rows } = next;
-      if (cols === lastCols && rows === lastRows) return;
-      lastCols = cols;
-      lastRows = rows;
-      void starting
-        .then(() => (closed ? undefined : resizePty(id, cols, rows)))
-        .catch(() => {
-          lastCols = 0;
-          lastRows = 0;
-        });
-    };
-
-    const schedule = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        applySize();
-      });
-    };
-
-    applySizeRef.current = applySize;
-    const renderSub = term.onRender(() => {
-      if (!spawned.current) applySize();
-    });
-    const bufferSub = term.buffer.onBufferChange(syncAltScreenMode);
-    syncAltScreenMode();
-    const frame = requestAnimationFrame(applySize);
-    const observer = new ResizeObserver(schedule);
-    observer.observe(host);
-
+    // A terminal moved here from the dock or another pane keeps its shell.
+    const live = claimTerminal(id, cwd);
+    const owner = live.attach(outer, host, onMetaChangeRef);
+    liveRef.current = live;
     return () => {
-      closed = true;
-      cancelAnimationFrame(frame);
-      if (raf) cancelAnimationFrame(raf);
-      observer.disconnect();
-      outer.classList.remove("monocode-terminal--alt-screen");
-      applySizeRef.current = () => {};
-      host.removeEventListener("copy", onCopy);
-      host.removeEventListener("paste", onPaste);
-      window.removeEventListener(SCHEME_CHANGE_EVENT, onSchemeChange);
-      dataSub.dispose();
-      oscFg.dispose();
-      oscBg.dispose();
-      oscCursor.dispose();
-      renderSub.dispose();
-      bufferSub.dispose();
-      const stopping = starting
-        .catch(() => undefined)
-        .then(() => {
-          unsubscribe();
-          return didStart ? killPty(id) : undefined;
-        })
-        .finally(() => {
-          if (stoppingPtys.get(id) === stopping) stoppingPtys.delete(id);
-        });
-      stoppingPtys.set(id, stopping);
-      term.dispose();
-      termRef.current = null;
-      spawned.current = false;
+      if (liveRef.current === live) liveRef.current = null;
+      live.release(owner);
     };
   }, [id]);
 
@@ -404,7 +490,8 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
     let lastForeground: string | null = null;
     let inFlight = false;
     const refresh = () => {
-      if (!spawned.current) return;
+      const live = liveRef.current;
+      if (!live?.spawned) return;
       // Each status read forks `ps`; an off-screen window has no title to paint.
       if (document.hidden) return;
       if (inFlight) return;
@@ -412,7 +499,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       void getPtyStatus(id)
         .then(({ foreground }) => {
           const fg = foreground?.trim() || null;
-          runningProcessRef.current = fg;
+          live.runningProcess = fg;
           if (fg === lastForeground) return;
           lastForeground = fg;
           onMetaChangeRef.current?.(
@@ -437,15 +524,15 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
 
   useEffect(() => {
     if (!active) return;
-    applySizeRef.current();
-    termRef.current?.focus();
+    liveRef.current?.applySize();
+    liveRef.current?.term.focus();
   }, [active]);
 
   return (
     <div
       ref={outerRef}
       className="monocode-terminal flex h-full w-full min-h-0 min-w-0 flex-col"
-      onMouseDown={() => termRef.current?.focus()}
+      onMouseDown={() => liveRef.current?.term.focus()}
     >
       <div
         ref={hostRef}

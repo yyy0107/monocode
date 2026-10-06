@@ -2,6 +2,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -12,11 +13,18 @@ import {
 } from "react";
 import { setGrabbing, suppressTextSelection } from "../../../shared/lib/drag";
 import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
+import { SurfaceVisibilityContext, useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 import { Maximize2 } from "../../../shared/ui/icons";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
+  overOpenTerminalDock,
   paneDropFromPoint,
+  setTerminalDockDrop,
+  terminalDockOpen,
+  TERMINAL_DOCK_BAND,
   useExternalPaneDrop,
+  useTerminalDockDrop,
+  type TerminalDockDrop,
 } from "../model/paneDrop";
 import type {
   ApprovalDecision,
@@ -24,6 +32,7 @@ import type {
 } from "../../../integrations/harness";
 import type { EditorNavigationTarget } from "../../search/model/search";
 import {
+  isTerminalTab,
   layoutLeaves,
   layoutSashes,
   setSplitRatio,
@@ -60,7 +69,9 @@ import {
   type SessionSurfaceMode,
 } from "./SessionSurfaceToolbar";
 import { SessionSurfacePane } from "./SessionSurfacePane";
+import { DropTargetHint } from "./DropTargetHint";
 import { sessionSurfaceGrid } from "./sessionSurfaceGrid";
+import { WindowNavigationSpace } from "../../../app/shell/WindowChrome";
 
 type Shared = {
   workspaceSwitchingSessionId?: string;
@@ -71,7 +82,6 @@ type Shared = {
   fileErrorCounts: Map<string, number>;
   focusedId: string;
   surfaceMode?: SessionSurfaceMode;
-  onSurfaceModeChange?: (mode: SessionSurfaceMode) => void;
   windowControls?: ReactNode;
   reserveWindowNavigationSpace?: boolean;
   addToChatSessionId?: string;
@@ -189,6 +199,8 @@ type Shared = {
     modelSettings: Record<string, string>,
   ) => void;
   onMovePane: (fromId: string, toId: string, edge: PaneEdge) => void;
+  /** Return a split terminal pane to the project's terminal dock. */
+  onMovePaneToDock?: (paneId: string) => void;
   onNewTerminal: (sessionId: string) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
   transcriptPool?: TranscriptPool;
@@ -207,6 +219,7 @@ const PANE_BOUNDARY_EPSILON = 0.001;
 
 // The owning chat's heading lives in the full-width top bar.
 const emptyHeader = () => null;
+const windowNavigationSpace = <WindowNavigationSpace />;
 
 function PaneTreeComponent({
   visible,
@@ -217,7 +230,6 @@ function PaneTreeComponent({
   fileErrorCounts,
   focusedId,
   surfaceMode = "split",
-  onSurfaceModeChange,
   windowControls,
   reserveWindowNavigationSpace = false,
   addToChatSessionId,
@@ -283,15 +295,16 @@ function PaneTreeComponent({
   onBtwModelChange,
   onHandoff,
   onMovePane,
+  onMovePaneToDock,
   onNewTerminal,
   onTerminalMetaChange,
   transcriptPool,
 }: Props) {
+  const parentVisible = useSurfaceVisibility();
   const treeRef = useRef<HTMLDivElement>(null);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
-  const [draft, setDraft] = useState<LayoutNode | null>(null);
-  const [resizing, setResizing] = useState(false);
+  const draft = useRef<LayoutNode | null>(null);
   const [paneDrag, setPaneDrag] = useState<PaneDrag | null>(null);
   // A card can temporarily fill the chat area; the rest stay mounted.
   const [maximizedId, setMaximizedId] = useState<string | null>(null);
@@ -299,20 +312,22 @@ function PaneTreeComponent({
   const drop = paneDrag ?? externalDrop;
   const onMovePaneRef = useRef(onMovePane);
   onMovePaneRef.current = onMovePane;
+  const onMovePaneToDockRef = useRef(onMovePaneToDock);
+  onMovePaneToDockRef.current = onMovePaneToDock;
+  // Panes holding only terminals can go back to the terminal dock.
+  const dockablePaneIds = useRef(new Set<string>());
+  dockablePaneIds.current = new Set(
+    editorPanes
+      .filter(
+        (pane) => pane.files.length > 0 && pane.files.every(isTerminalTab),
+      )
+      .map((pane) => pane.id),
+  );
+  const dockDrop = useTerminalDockDrop();
+  const { t } = useTranslation();
+  const dockHintLabel = t("Move to terminal panel");
   const onFocusRef = useRef(onFocus);
   onFocusRef.current = onFocus;
-  // Callers pass a fresh arrow per render. Reading it through a ref keeps the
-  // toolbar props and session headers stable, so `SessionPane`'s shallow memo
-  // can skip renders driven by another session's stream.
-  const surfaceModeChangeRef = useRef(onSurfaceModeChange);
-  surfaceModeChangeRef.current = onSurfaceModeChange;
-  const stableSurfaceModeChange = useCallback(
-    (mode: SessionSurfaceMode) => surfaceModeChangeRef.current?.(mode),
-    [],
-  );
-  const surfaceModeChange = onSurfaceModeChange
-    ? stableSurfaceModeChange
-    : undefined;
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
   const fileActionsRef = useRef({ onOpenFile, onOpenSessionFile });
@@ -343,18 +358,23 @@ function PaneTreeComponent({
     return handler;
   };
 
-  useEffect(() => {
-    setDraft(null);
+  useLayoutEffect(() => {
+    draft.current = null;
   }, [layout]);
 
-  // A sash drag re-renders this tree every frame. Keep session callbacks and
-  // file-pane controls stable so memoized transcript/editor subtrees can skip it.
+  // Keep controls stable when another pane streams or the layout is committed.
   const dragHandlers = useRef(
     new Map<string, (event: ReactPointerEvent<HTMLElement>) => void>(),
   );
   // Stable per card so a sash drag never re-renders memoized file panes.
   const cardMaximize = useRef(
     new Map<string, { maximized: boolean; node: ReactNode }>(),
+  );
+  const cardChrome = useRef(
+    new Map<
+      string,
+      { maximize: ReactNode; controls: ReactNode; node: ReactNode }
+    >(),
   );
   const cardMaximizeFor = (paneId: string, isMaximized: boolean) => {
     const cached = cardMaximize.current.get(paneId);
@@ -370,6 +390,34 @@ function PaneTreeComponent({
     cardMaximize.current.set(paneId, { maximized: isMaximized, node });
     return node;
   };
+  // A card's tab row: its maximize toggle, then the window controls when the
+  // card owns the top-right corner.
+  const cardTrailingFor = (
+    paneId: string,
+    card: boolean,
+    isMaximized: boolean,
+    ownsControls: boolean,
+  ): ReactNode => {
+    const maximize = card ? cardMaximizeFor(paneId, isMaximized) : null;
+    if (!ownsControls) return maximize ?? undefined;
+    if (!maximize) return windowControls;
+    const cached = cardChrome.current.get(paneId);
+    if (cached?.maximize === maximize && cached.controls === windowControls) {
+      return cached.node;
+    }
+    const node = (
+      <>
+        {maximize}
+        {windowControls}
+      </>
+    );
+    cardChrome.current.set(paneId, {
+      maximize,
+      controls: windowControls,
+      node,
+    });
+    return node;
+  };
   const paneDragStartFor = (paneId: string) => {
     const cached = dragHandlers.current.get(paneId);
     if (cached) return cached;
@@ -379,7 +427,7 @@ function PaneTreeComponent({
     return handler;
   };
 
-  const tree = draft ?? layout;
+  const tree = layout;
   const leaves = layoutLeaves(tree);
   const sashes = layoutSashes(tree);
   const inSplit = leaves.length > 1;
@@ -406,9 +454,12 @@ function PaneTreeComponent({
       : undefined;
   const hasOwnerSession = !!ownerSession;
   const unified = hasOwnerSession && surfaceMode === "unified";
-  // A single chat owns a full-width top bar (title, tools, window controls);
-  // its documents sit beside it as cards.
-  const ownerTopBar = hasOwnerSession;
+  // A lone chat, or full view, owns a full-width top bar (title, tools,
+  // window controls). With documents beside it in split view, each column
+  // carries its own header on the same top row.
+  const ownerTopBar = hasOwnerSession && (unified || !inSplit);
+  // Several chats split the window as equal cards, each with its own header.
+  const paneCards = inSplit && !unified && !hasOwnerSession;
   // Without a window tab strip, the top corners of the layout carry the
   // window chrome: navigation space on the left, window controls on the right.
   const topLeftId = leaves.find(
@@ -428,6 +479,9 @@ function PaneTreeComponent({
     !unified && ownerSession && leaves.some((leaf) => leaf.id === maximizedId)
       ? (maximizedId ?? undefined)
       : undefined;
+  // A maximized card fills the area, so it takes over both window corners.
+  const chromeLeftId = maximized ?? topLeftId;
+  const chromeRightId = maximized ?? topRightId;
   const surfaceGrid = ownerSession
     ? sessionSurfaceGrid(leaves, unified ? selectedId : maximized)
     : undefined;
@@ -435,7 +489,6 @@ function PaneTreeComponent({
     () => ({
       panes: ownedPanes,
       focusedId: selectedId ?? "",
-      mode: unified ? ("unified" as const) : ("split" as const),
       dirtyFileIds,
       fileErrorCounts,
       onFocus,
@@ -444,7 +497,6 @@ function PaneTreeComponent({
       onCloseOtherFiles,
       onPinFile,
       onReorderFiles,
-      onModeChange: surfaceModeChange,
       windowControls: hasOwnerSession ? windowControls : undefined,
       reserveWindowNavigationSpace:
         hasOwnerSession && reserveWindowNavigationSpace,
@@ -452,7 +504,6 @@ function PaneTreeComponent({
     [
       ownedPanes,
       selectedId,
-      unified,
       dirtyFileIds,
       fileErrorCounts,
       onFocus,
@@ -461,18 +512,32 @@ function PaneTreeComponent({
       onCloseOtherFiles,
       onPinFile,
       onReorderFiles,
-      surfaceModeChange,
       hasOwnerSession,
       windowControls,
       reserveWindowNavigationSpace,
     ],
   );
-  const gridStyle: CSSProperties | undefined = surfaceGrid
-    ? {
-        ...surfaceGrid.style,
-        transitionProperty: resizing ? "none" : undefined,
-      }
-    : undefined;
+  const gridStyle = surfaceGrid?.style;
+  const resizeConfig = useRef({
+    grid: !!surfaceGrid,
+    selectedId: unified ? selectedId : maximized,
+    unified,
+  });
+  resizeConfig.current = {
+    grid: !!surfaceGrid,
+    selectedId: unified ? selectedId : maximized,
+    unified,
+  };
+  const paintLayout = (tree: LayoutNode) => {
+    const container = treeRef.current;
+    const { grid, selectedId, unified } = resizeConfig.current;
+    if (container) paintPaneLayout(container, tree, grid, selectedId, unified);
+  };
+  // A stream may render React during a drag. Reapply the preview before paint
+  // without publishing frame-by-frame geometry into the component tree.
+  useLayoutEffect(() => {
+    if (draft.current) paintLayout(draft.current);
+  });
 
   // A pane split into an existing layout slides in from the edge it was added
   // on, like the linked work item panel. The neighbours reflow once up front;
@@ -502,6 +567,16 @@ function PaneTreeComponent({
       let lastY = startY;
       handle.setPointerCapture(pointerId);
       const restoreSelection = suppressTextSelection();
+      const dockable =
+        !!onMovePaneToDockRef.current && dockablePaneIds.current.has(fromId);
+      const dockTarget = (x: number, y: number): TerminalDockDrop => {
+        if (!dockable) return null;
+        if (overOpenTerminalDock(x, y)) return "dock";
+        const rect = treeRef.current?.getBoundingClientRect();
+        if (!rect || terminalDockOpen()) return null;
+        const inside = x >= rect.left && x <= rect.right && y <= rect.bottom;
+        return inside && y >= rect.bottom - TERMINAL_DOCK_BAND ? "band" : null;
+      };
 
       const onMove = (ev: PointerEvent) => {
         lastX = ev.clientX;
@@ -517,6 +592,12 @@ function PaneTreeComponent({
           setGrabbing(true);
           onFocusRef.current(fromId);
           setPaneDrag({ fromId, overId: null, edge: "left" });
+        }
+        const toDock = dockTarget(ev.clientX, ev.clientY);
+        setTerminalDockDrop(toDock);
+        if (toDock) {
+          setPaneDrag({ fromId, overId: null, edge: "left" });
+          return;
         }
         const over = paneDropFromPoint(ev.clientX, ev.clientY);
         if (!over || over.id === fromId) {
@@ -545,12 +626,17 @@ function PaneTreeComponent({
         restoreSelection();
         setGrabbing(false);
         setPaneDrag(null);
+        setTerminalDockDrop(null);
         try {
           handle.releasePointerCapture(pointerId);
         } catch {
           /* already released */
         }
         if (!active || !commit) return;
+        if (dockTarget(lastX, lastY)) {
+          onMovePaneToDockRef.current?.(fromId);
+          return;
+        }
         const over = paneDropFromPoint(lastX, lastY);
         if (over && over.id !== fromId) {
           onMovePaneRef.current(fromId, over.id, over.edge);
@@ -593,23 +679,21 @@ function PaneTreeComponent({
                         harness: resolvedSession.harness,
                       }}
                       showTools={false}
-                      {...(hasOwnerSession
-                        ? {}
-                        : {
-                            windowControls:
-                              sessionId === topRightId
-                                ? windowControls
-                                : undefined,
-                            reserveWindowNavigationSpace:
-                              !!reserveWindowNavigationSpace &&
-                              sessionId === topLeftId,
-                          })}
+                      windowControls={
+                        sessionId === chromeRightId ? windowControls : undefined
+                      }
+                      reserveWindowNavigationSpace={
+                        !!reserveWindowNavigationSpace &&
+                        sessionId === chromeLeftId
+                      }
                       onPaneDragStart={
                         inSplit ? paneDragStartFor(sessionId) : undefined
                       }
                       onClosePane={() => onClose(sessionId)}
                       paneFocused={
-                        inSplit ? focusedId === sessionId : undefined
+                        inSplit && !hasOwnerSession
+                          ? focusedId === sessionId
+                          : undefined
                       }
                     />
                   );
@@ -625,8 +709,8 @@ function PaneTreeComponent({
       inSplit,
       onClose,
       focusedId,
-      topLeftId,
-      topRightId,
+      chromeLeftId,
+      chromeRightId,
       windowControls,
       reserveWindowNavigationSpace,
     ],
@@ -635,21 +719,24 @@ function PaneTreeComponent({
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col">
       {ownerTopBar && ownerSession ? (
-        <SessionSurfaceToolbar
-          {...toolbarProps}
-          session={ownerSession}
-          showTools={unified}
-          onPaneDragStart={
-            inSplit && !unified ? paneDragStartFor(ownerSession.id) : undefined
-          }
-          onClosePane={() => onClose(ownerSession.id)}
-        />
+        <SurfaceVisibilityContext.Provider value={parentVisible && visible}>
+          <SessionSurfaceToolbar
+            {...toolbarProps}
+            session={ownerSession}
+            showTools={unified}
+            onPaneDragStart={
+              inSplit && !unified ? paneDragStartFor(ownerSession.id) : undefined
+            }
+            onClosePane={() => onClose(ownerSession.id)}
+          />
+        </SurfaceVisibilityContext.Provider>
       ) : null}
       <div
         ref={treeRef}
         data-pane-tree-layout
         data-surface-mode={unified ? "unified" : "split"}
-        className={`relative min-h-0 min-w-0 flex-1 ${surfaceGrid ? "animated-collapse-size grid" : ""}`}
+        data-pane-cards={paneCards ? "" : undefined}
+        className={`relative min-h-0 min-w-0 flex-1 ${surfaceGrid ? "animated-collapse-size grid" : ""} ${paneCards ? "pane-card-gutter" : ""}`}
         style={gridStyle}
       >
         {leaves.map((leaf) => {
@@ -658,6 +745,7 @@ function PaneTreeComponent({
           const asCard =
             !!editorPane &&
             !unified &&
+            !paneCards &&
             sessionLeaves.length > 0 &&
             !editorPane.files.some((file) => file.appView);
           const session = sessions.find((entry) => entry.id === leaf.id);
@@ -668,12 +756,7 @@ function PaneTreeComponent({
           const dragging = drop?.fromId === leaf.id;
           const onPaneDragStart =
             inSplit && !unified ? paneDragStartFor(leaf.id) : undefined;
-          const backgroundStyle = {
-            "--chat-background-left": `${unified ? 0 : (-leaf.rect.x / leaf.rect.w) * 100}%`,
-            "--chat-background-top": `${unified ? 0 : (-leaf.rect.y / leaf.rect.h) * 100}%`,
-            "--chat-background-width": `${unified ? 100 : 100 / leaf.rect.w}%`,
-            "--chat-background-height": `${unified ? 100 : 100 / leaf.rect.h}%`,
-          } as CSSProperties;
+          const backgroundStyle = paneBackgroundStyle(leaf.rect, unified);
           return (
             <SessionSurfacePane
               key={leaf.id}
@@ -722,17 +805,25 @@ function PaneTreeComponent({
                   rerender();
                 }}
                 className="flex min-h-0 min-w-0 flex-1 flex-col"
-                style={{
-                  paddingLeft:
-                    !unified && leaf.rect.x > PANE_BOUNDARY_EPSILON
-                      ? 16
-                      : undefined,
-                  paddingTop:
-                    !unified && leaf.rect.y > PANE_BOUNDARY_EPSILON
-                      ? 16
-                      : undefined,
-                }}
+                style={
+                  paneCards
+                    ? paneCardInset(leaf.rect)
+                    : {
+                        paddingLeft:
+                          !unified && leaf.rect.x > PANE_BOUNDARY_EPSILON
+                            ? 16
+                            : undefined,
+                        paddingTop:
+                          !unified && leaf.rect.y > PANE_BOUNDARY_EPSILON
+                            ? 16
+                            : undefined,
+                      }
+                }
               >
+                <PaneCardFrame
+                  card={paneCards}
+                  focused={focusedId === leaf.id}
+                >
                 {editorPane ? (
                   <div
                     data-pane-card={asCard ? "" : undefined}
@@ -744,24 +835,27 @@ function PaneTreeComponent({
                   >
                     <FilePane
                       pane={editorPane}
+                      tabsLeading={
+                        reserveWindowNavigationSpace &&
+                        !unified &&
+                        chromeLeftId === editorPane.id
+                          ? windowNavigationSpace
+                          : undefined
+                      }
                       visible={paneVisible}
                       focused={paneVisible && focusedId === editorPane.id}
                       showTabs={
                         !unified &&
                         (inSplit ||
                           editorPane.files.length > 1 ||
-                          (!hasOwnerSession && topRightId === editorPane.id))
+                          chromeRightId === editorPane.id)
                       }
-                      tabsTrailing={
-                        asCard && ownerSession
-                          ? cardMaximizeFor(
-                              editorPane.id,
-                              maximized === editorPane.id,
-                            )
-                          : !hasOwnerSession && topRightId === editorPane.id
-                            ? windowControls
-                            : undefined
-                      }
+                      tabsTrailing={cardTrailingFor(
+                        editorPane.id,
+                        asCard && !!ownerSession,
+                        maximized === editorPane.id,
+                        chromeRightId === editorPane.id,
+                      )}
                       dirtyFileIds={dirtyFileIds}
                       fileErrorCounts={fileErrorCounts}
                       sessions={sessions}
@@ -855,6 +949,7 @@ function PaneTreeComponent({
                     transcriptPool={transcriptPool}
                   />
                 ) : null}
+                </PaneCardFrame>
               </div>
             </SessionSurfacePane>
           );
@@ -864,25 +959,32 @@ function PaneTreeComponent({
             <Sash
               key={`${sash.splitId}:${sash.index}`}
               sash={sash}
+              layout={layout}
+              visible={visible && parentVisible}
               containerRef={treeRef}
-              onResizingChange={setResizing}
-              onPreview={(ratio) =>
-                setDraft(
-                  setSplitRatio(
-                    layoutRef.current,
-                    sash.splitId,
-                    sash.index,
-                    ratio,
-                  ),
-                )
-              }
+              onPreview={(ratio) => {
+                draft.current = setSplitRatio(
+                  layoutRef.current,
+                  sash.splitId,
+                  sash.index,
+                  ratio,
+                );
+                paintLayout(draft.current);
+              }}
               onCommit={(ratio) => {
-                setDraft(null);
                 onRatio(sash.splitId, sash.index, ratio);
               }}
-              onCancel={() => setDraft(null)}
+              onCancel={() => {
+                draft.current = null;
+                paintLayout(layoutRef.current);
+              }}
             />
           ))}
+        {visible && dockDrop === "band" ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-[min(220px,45%)]">
+            <DropTargetHint label={dockHintLabel} />
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -907,45 +1009,143 @@ function paneEnterFrom({ rect, axis }: LayoutLeaf): PaneEnterFrom {
   return "fade";
 }
 
-function PaneDropHint({ edge }: { edge: PaneEdge }) {
-  const wash =
-    edge === "left"
-      ? "absolute inset-y-0 left-0 w-1/2 bg-accent/15"
-      : edge === "right"
-        ? "absolute inset-y-0 right-0 w-1/2 bg-accent/15"
-        : edge === "top"
-          ? "absolute inset-x-0 top-0 h-1/2 bg-accent/15"
-          : "absolute inset-x-0 bottom-0 h-1/2 bg-accent/15";
-  const line =
-    edge === "left"
-      ? "absolute inset-y-0 left-0 w-0.5 bg-accent"
-      : edge === "right"
-        ? "absolute inset-y-0 right-0 w-0.5 bg-accent"
-        : edge === "top"
-          ? "absolute inset-x-0 top-0 h-0.5 bg-accent"
-          : "absolute inset-x-0 bottom-0 h-0.5 bg-accent";
+const PANE_CARD_OUTER = 6;
+const PANE_CARD_GAP = 3;
+
+/** Outer window edges get the full gutter; shared edges split the gap between two cards. */
+function paneCardInset(rect: LayoutLeaf["rect"]): CSSProperties {
+  const side = (atEdge: boolean) => (atEdge ? PANE_CARD_OUTER : PANE_CARD_GAP);
+  return {
+    paddingLeft: side(rect.x < PANE_BOUNDARY_EPSILON),
+    paddingTop: side(rect.y < PANE_BOUNDARY_EPSILON),
+    paddingRight: side(rect.x + rect.w > 1 - PANE_BOUNDARY_EPSILON),
+    paddingBottom: side(rect.y + rect.h > 1 - PANE_BOUNDARY_EPSILON),
+  };
+}
+
+function PaneCardFrame({
+  card,
+  focused,
+  children,
+}: {
+  card: boolean;
+  focused: boolean;
+  children: ReactNode;
+}) {
+  if (!card) return <>{children}</>;
   return (
-    <div className="pointer-events-none absolute inset-0 z-20">
-      <div className={wash} />
-      <div className={line} />
+    <div data-pane-card-frame data-focused={focused} className="pane-card">
+      {children}
     </div>
   );
 }
 
+const DROP_HINT_RECT: Record<PaneEdge, CSSProperties> = {
+  left: { left: 0, top: 0, width: "50%", height: "100%" },
+  right: { left: "50%", top: 0, width: "50%", height: "100%" },
+  top: { left: 0, top: 0, width: "100%", height: "50%" },
+  bottom: { left: 0, top: "50%", width: "100%", height: "50%" },
+};
+
+function PaneDropHint({ edge }: { edge: PaneEdge }) {
+  const { t } = useTranslation();
+  return <DropTargetHint label={t("Split view")} rect={DROP_HINT_RECT[edge]} />;
+}
+
+function paneBackgroundStyle(
+  rect: LayoutLeaf["rect"],
+  unified = false,
+): CSSProperties {
+  return {
+    "--chat-background-left": `${unified ? 0 : (-rect.x / rect.w) * 100}%`,
+    "--chat-background-top": `${unified ? 0 : (-rect.y / rect.h) * 100}%`,
+    "--chat-background-width": `${unified ? 100 : 100 / rect.w}%`,
+    "--chat-background-height": `${unified ? 100 : 100 / rect.h}%`,
+  } as CSSProperties;
+}
+
+function sashStyle(sash: LayoutSash): CSSProperties {
+  const boundary = sash.sizes
+    .slice(0, sash.index + 1)
+    .reduce((sum, size) => sum + size, 0);
+  const { group } = sash;
+  return sash.dir === "right"
+    ? {
+        left: `${(group.x + boundary * group.w) * 100}%`,
+        top: `${group.y * 100}%`,
+        height: `${group.h * 100}%`,
+      }
+    : {
+        left: `${group.x * 100}%`,
+        top: `${(group.y + boundary * group.h) * 100}%`,
+        width: `${group.w * 100}%`,
+      };
+}
+
+/** Resize only the layout DOM; editors, diffs, chat and their providers stay mounted. */
+function paintPaneLayout(
+  container: HTMLElement,
+  tree: LayoutNode,
+  grid: boolean,
+  selectedId?: string,
+  unified = false,
+) {
+  const leaves = layoutLeaves(tree);
+  const panes = new Map(leaves.map((leaf) => [leaf.id, leaf]));
+  const sashes = new Map(
+    layoutSashes(tree).map((sash) => [`${sash.splitId}:${sash.index}`, sash]),
+  );
+  const surface = grid ? sessionSurfaceGrid(leaves, selectedId) : undefined;
+  if (surface) Object.assign(container.style, surface.style);
+  // Direct children only: embedded surfaces can contain their own splitters.
+  for (const element of container.children) {
+    if (!(element instanceof HTMLElement)) continue;
+    const pane = panes.get(element.dataset.paneId ?? "");
+    if (pane) {
+      for (const [name, value] of Object.entries(
+        paneBackgroundStyle(pane.rect, unified),
+      )) {
+        element.style.setProperty(name, String(value));
+      }
+      Object.assign(
+        element.style,
+        surface
+          ? surface.placements.get(pane.id)
+          : {
+              left: `${pane.rect.x * 100}%`,
+              top: `${pane.rect.y * 100}%`,
+              width: `${pane.rect.w * 100}%`,
+              height: `${pane.rect.h * 100}%`,
+            },
+      );
+    }
+    const sash = sashes.get(element.dataset.paneSash ?? "");
+    if (sash) {
+      Object.assign(element.style, sashStyle(sash));
+      const boundary = sash.sizes
+        .slice(0, sash.index + 1)
+        .reduce((sum, size) => sum + size, 0);
+      element.setAttribute("aria-valuenow", String(Math.round(boundary * 100)));
+    }
+  }
+}
+
 function Sash({
   sash,
+  layout,
+  visible,
   containerRef,
   onPreview,
   onCommit,
   onCancel,
-  onResizingChange,
 }: {
   sash: LayoutSash;
+  layout: LayoutNode;
+  visible: boolean;
   containerRef: { current: HTMLDivElement | null };
   onPreview: (ratio: number) => void;
   onCommit: (ratio: number) => void;
   onCancel: () => void;
-  onResizingChange: (resizing: boolean) => void;
 }) {
   const row = sash.dir === "right";
   const [dragging, setDragging] = useState(false);
@@ -953,9 +1153,14 @@ function Sash({
     .slice(0, sash.index + 1)
     .reduce((sum, size) => sum + size, 0);
   const group = sash.group;
+  const stopDrag = useRef<((commit: boolean) => void) | null>(null);
+  const callbacks = useRef({ onPreview, onCommit, onCancel });
+  callbacks.current = { onPreview, onCommit, onCancel };
+  useLayoutEffect(() => () => stopDrag.current?.(false), [layout, visible]);
 
   return (
     <div
+      data-pane-sash={`${sash.splitId}:${sash.index}`}
       role="separator"
       aria-orientation={row ? "vertical" : "horizontal"}
       aria-valuemin={0}
@@ -964,19 +1169,7 @@ function Sash({
       className={
         row ? "absolute z-10 w-px bg-stroke" : "absolute z-10 h-px bg-stroke"
       }
-      style={
-        row
-          ? {
-              left: `${(group.x + boundary * group.w) * 100}%`,
-              top: `${group.y * 100}%`,
-              height: `${group.h * 100}%`,
-            }
-          : {
-              left: `${group.x * 100}%`,
-              top: `${(group.y + boundary * group.h) * 100}%`,
-              width: `${group.w * 100}%`,
-            }
-      }
+      style={sashStyle(sash)}
     >
       <ResizeHandle
         edge={row ? "left" : "top"}
@@ -984,7 +1177,7 @@ function Sash({
         dragging={dragging}
         style={row ? { left: "50%" } : { top: "50%" }}
         onPointerDown={(e) => {
-          if (e.button !== 0) return;
+          if (e.button !== 0 || !visible || stopDrag.current) return;
           e.preventDefault();
           e.stopPropagation();
           const handle = e.currentTarget;
@@ -992,7 +1185,8 @@ function Sash({
           if (!parent) return;
           handle.setPointerCapture(e.pointerId);
           setDragging(true);
-          onResizingChange(true);
+          const previousTransition = parent.style.transitionProperty;
+          parent.style.transitionProperty = "none";
           const rect = parent.getBoundingClientRect();
           const restoreSelection = suppressTextSelection();
           const previousCursor = document.body.style.cursor;
@@ -1003,48 +1197,73 @@ function Sash({
           let moved = false;
           let frame: number | null = null;
 
-          const move = (ev: PointerEvent) => {
+          const sample = (ev: PointerEvent) => {
+            if (span <= 0) return false;
             const pos = row ? ev.clientX : ev.clientY;
-            if (span <= 0) return;
+            const next = boundary + (pos - startPointer) / span;
+            if (next === nextBoundary) return false;
             moved = true;
-            nextBoundary = boundary + (pos - startPointer) / span;
+            nextBoundary = next;
+            return true;
+          };
+          const move = (ev: PointerEvent) => {
+            if (ev.pointerId !== e.pointerId) return;
+            if (!sample(ev)) return;
             if (frame != null) return;
             frame = requestAnimationFrame(() => {
               frame = null;
-              onPreview(nextBoundary);
+              callbacks.current.onPreview(nextBoundary);
             });
           };
           const finish = (commit: boolean) => {
+            if (stopDrag.current !== finish) return;
+            stopDrag.current = null;
             if (frame != null) {
               cancelAnimationFrame(frame);
               frame = null;
             }
-            if (handle.hasPointerCapture(e.pointerId)) {
-              handle.releasePointerCapture(e.pointerId);
-            }
             handle.removeEventListener("pointermove", move);
             handle.removeEventListener("pointerup", up);
             handle.removeEventListener("pointercancel", cancel);
+            handle.removeEventListener("lostpointercapture", lostCapture);
             window.removeEventListener("keydown", keydown);
+            window.removeEventListener("blur", lostCapture);
+            if (moved) {
+              // Flush the release sample with transitions still disabled.
+              if (commit) {
+                callbacks.current.onPreview(nextBoundary);
+                callbacks.current.onCommit(nextBoundary);
+              } else callbacks.current.onCancel();
+            }
+            parent.style.transitionProperty = previousTransition;
+            if (handle.hasPointerCapture(e.pointerId)) {
+              handle.releasePointerCapture(e.pointerId);
+            }
             restoreSelection();
             document.body.style.cursor = previousCursor;
             setDragging(false);
-            onResizingChange(false);
-            if (!moved) return;
-            if (commit) onCommit(nextBoundary);
-            else onCancel();
           };
-          const up = () => finish(true);
-          const cancel = () => finish(false);
+          const up = (event: PointerEvent) => {
+            if (event.pointerId !== e.pointerId) return;
+            sample(event);
+            finish(true);
+          };
+          const cancel = (event: PointerEvent) => {
+            if (event.pointerId === e.pointerId) finish(false);
+          };
+          const lostCapture = () => finish(false);
           const keydown = (event: KeyboardEvent) => {
             if (event.key !== "Escape") return;
             event.preventDefault();
             finish(false);
           };
+          stopDrag.current = finish;
           handle.addEventListener("pointermove", move);
           handle.addEventListener("pointerup", up);
           handle.addEventListener("pointercancel", cancel);
+          handle.addEventListener("lostpointercapture", lostCapture);
           window.addEventListener("keydown", keydown);
+          window.addEventListener("blur", lostCapture);
         }}
       />
     </div>

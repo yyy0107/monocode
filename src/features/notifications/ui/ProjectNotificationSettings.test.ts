@@ -363,3 +363,39 @@ it("dismisses the mute menu and custom date picker without changing preferences"
     loadNotificationPreferences()["repository:github.com/me/private"],
   ).toBeUndefined();
 });
+
+it("filters a long project list and scopes select-all to the matches", async () => {
+  rememberNotificationProjects(
+    Array.from({ length: 6 }, (_, index) => ({
+      id: `repository:github.com/team/svc-${index}`,
+      name: `team/svc-${index}`,
+      detail: "github.com",
+      kind: "repository" as const,
+      paths: [],
+    })),
+  );
+  await act(async () =>
+    root.render(createElement(ProjectNotificationSettings, { cwd: "" })),
+  );
+  const search = container.querySelector<HTMLInputElement>(
+    'input[type="search"]',
+  )!;
+  expect(search).toBeInstanceOf(HTMLInputElement);
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value",
+  )!.set!;
+  act(() => {
+    setter.call(search, "PRIVATE");
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(container.querySelectorAll("fieldset")).toHaveLength(1);
+  expect(categoriesButton("me/private")).toBeTruthy();
+
+  const selectButton = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Select projects",
+  )!;
+  act(() => selectButton.click());
+  act(() => checkbox("Select all projects").click());
+  expect(container.textContent).toContain("1 selected");
+});
