@@ -15,7 +15,7 @@ import { CREATE_SKILL_BODY } from "../src/features/skills/model/createSkill";
 import { nativeCommandPrompt } from "../src/integrations/harness/core/nativeCommands";
 import type { HostProvider } from "./providers";
 
-const MAX_SKILLS = 300;
+const MAX_SKILLS = 5_000;
 const MAX_FRONTMATTER_BYTES = 16 * 1024;
 const MAX_SKILL_BODY_BYTES = 1024 * 1024;
 const MAX_SETTINGS_BYTES = 256 * 1024;
