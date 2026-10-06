@@ -19,6 +19,8 @@ export type OpenWorkflowAgentRequest = {
   /** Hidden Host session the subagent runs in. */
   sessionId: string;
   title: string;
+  /** Open beside this workflow detail tab when it is still available. */
+  sourceFileId?: string;
 };
 
 export type WorkflowAppActions = {

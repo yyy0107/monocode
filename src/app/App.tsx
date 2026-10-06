@@ -9818,18 +9818,23 @@ function Workspace({
     setActiveTabId(tab.id);
     setComposerFocused(false);
   }, [tabs, workerDetailRequest]);
-  // Workflow run and subagent tabs open beside the launching conversation,
-  // resolved the same way orchestration worker tabs are.
+  // Workflow tabs open beside their source detail tab when available,
+  // otherwise beside the launching conversation like orchestration workers.
   const [workflowTabRequest, setWorkflowTabRequest] = useState<{
     parentSessionId: string;
     file: FilePaneTab;
+    sourceFileId?: string;
   } | null>(null);
   useEffect(() => {
     if (!workflowTabRequest) return;
-    const { parentSessionId, file } = workflowTabRequest;
-    const tab = tabs.find((entry) =>
-      leafIds(entry.layout).includes(parentSessionId),
-    );
+    const { parentSessionId, file, sourceFileId } = workflowTabRequest;
+    const tab =
+      tabs.find((entry) =>
+        entry.editorPanes.some((pane) =>
+          pane.files.some((file) => file.id === sourceFileId),
+        ),
+      ) ??
+      tabs.find((entry) => leafIds(entry.layout).includes(parentSessionId));
     if (!tab) {
       if (!sessionsRef.current.some((entry) => entry.id === parentSessionId))
         setWorkflowTabRequest(null);
@@ -9838,7 +9843,9 @@ function Workspace({
     setWorkflowTabRequest(null);
     setTabs((prev) =>
       prev.map((entry) =>
-        entry.id === tab.id ? openEditorTab(entry, file) : entry,
+        entry.id === tab.id
+          ? openEditorTab(entry, file, { afterFileId: sourceFileId })
+          : entry,
       ),
     );
     setActiveTabId(tab.id);
@@ -9870,11 +9877,20 @@ function Workspace({
     [sessions],
   );
   const workflowApp = useMemo<WorkflowAppActions>(() => {
-    const openBesideParent = (parentSessionId: string, file: FilePaneTab) => {
+    const openBesideParent = (
+      parentSessionId: string,
+      file: FilePaneTab,
+      sourceFileId?: string,
+    ) => {
       void (async () => {
-        if (!focusOpenSession(parentSessionId))
+        const hasSource = tabsRef.current.some((entry) =>
+          entry.editorPanes.some((pane) =>
+            pane.files.some((file) => file.id === sourceFileId),
+          ),
+        );
+        if (!hasSource && !focusOpenSession(parentSessionId))
           await onSelectHistorySession(parentSessionId);
-        setWorkflowTabRequest({ parentSessionId, file });
+        setWorkflowTabRequest({ parentSessionId, file, sourceFileId });
       })().catch(console.error);
     };
     return {
@@ -9898,6 +9914,7 @@ function Workspace({
             parentSessionId: request.parentSessionId,
             runId: request.runId,
           }),
+          request.sourceFileId,
         ),
       openSession: (cwd, sessionId) => onSelectRemoteSession(cwd, sessionId),
       createViaChat: (cwd, prompt) => {

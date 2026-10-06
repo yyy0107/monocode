@@ -697,6 +697,8 @@ export type OpenEditorTabOptions = {
   split?: "left" | "right";
   /** Open (or promote an existing tab) as permanent instead of preview. */
   pin?: boolean;
+  /** Insert a new tab immediately after this file, in the same editor pane. */
+  afterFileId?: string;
 };
 
 /** Tabs opened by browsing lists: files, per-file diffs, commits, session diffs. */
@@ -705,6 +707,8 @@ export function isPreviewableTab(file: FilePaneTab): boolean {
     !file.appView &&
     !file.terminal &&
     !file.agent &&
+    !file.workflowRun &&
+    !file.workflowAgent &&
     !file.plan &&
     !file.releaseNotes &&
     !file.changes
@@ -742,6 +746,25 @@ export function openEditorTab(
 ): WorkspaceTab {
   if (file.terminal) return openTerminalTab(tab, file);
   tab = isolateTerminalPanes(tab);
+  // Older workflow tabs may still carry the preview flag. Promote them before
+  // opening anything else so a file preview cannot replace their contents.
+  tab = {
+    ...tab,
+    editorPanes: tab.editorPanes.map((pane) =>
+      pane.files.some(
+        (entry) => entry.preview && (entry.workflowRun || entry.workflowAgent),
+      )
+        ? {
+            ...pane,
+            files: pane.files.map((entry) =>
+              entry.workflowRun || entry.workflowAgent
+                ? withoutPreview(entry)
+                : entry,
+            ),
+          }
+        : pane,
+    ),
+  };
 
   const key = editorTabKey(file);
   const existingPane = tab.editorPanes.find((pane) =>
@@ -794,9 +817,17 @@ export function openEditorTab(
       (entry) => entry.id === pane.activeFileId && isAppViewTab(entry),
     );
   const targetPane =
+    tab.editorPanes.find((pane) =>
+      acceptsFile(pane) &&
+      pane.files.some((entry) => entry.id === options.afterFileId),
+    ) ??
     (focusedPane && acceptsFile(focusedPane) ? focusedPane : undefined) ??
     tab.editorPanes.find(acceptsFile);
   if (targetPane) {
+    const sourceIndex = targetPane.files.findIndex(
+      (entry) => entry.id === options.afterFileId,
+    );
+    const insertAt = sourceIndex >= 0 ? sourceIndex + 1 : targetPane.files.length;
     const previewIndex = file.preview
       ? targetPane.files.findIndex((entry) => entry.preview)
       : -1;
@@ -805,7 +836,11 @@ export function openEditorTab(
         ? targetPane.files.map((entry, index) =>
             index === previewIndex ? file : entry,
           )
-        : [...targetPane.files, file];
+        : [
+            ...targetPane.files.slice(0, insertAt),
+            file,
+            ...targetPane.files.slice(insertAt),
+          ];
     return {
       ...tab,
       focusedId: targetPane.id,

@@ -7,9 +7,17 @@ import { newSession, type Session } from "../features/sessions/model/session";
 import { ADD_TO_CHAT_EVENT, type AddToChatRequest } from "../features/sessions/model/quoteDraft";
 import {
   newAppViewWorkspaceTab,
+  newEditorWorkspaceTab,
+  newFileTab,
   newTab,
   newTerminalFile,
+  newWorkflowRunTab,
+  openEditorTab,
 } from "../features/workspace/model/layout";
+import type {
+  OpenScopedWorkflowActorSessionSideTabRequest,
+  WorkflowRunSidePaneTab,
+} from "../features/workflows/zcode/lib/workspaceSidePane";
 import {
   createProjectTerminal,
   type DockSide,
@@ -554,6 +562,37 @@ vi.mock("../features/workflows/ui/WorkflowsView", async () => {
     },
   };
 });
+
+vi.mock("../features/workflows/zcode/app-shell/WorkflowRunSidePane", async () => {
+  const { createElement: el } = await import("react");
+  return {
+    WorkflowRunSidePane: ({ tab, onOpenWorkflowActorSession }: {
+      tab: WorkflowRunSidePaneTab;
+      onOpenWorkflowActorSession?: (request: OpenScopedWorkflowActorSessionSideTabRequest) => void;
+    }) => el("div", {}, ...["worker-a", "worker-b"].map((sessionId) =>
+      el("button", {
+        key: sessionId,
+        "data-open-workflow-agent": sessionId,
+        onClick: () => onOpenWorkflowActorSession?.({
+          workspacePath: tab.workspacePath,
+          parentSessionId: tab.parentSessionId,
+          runId: tab.runId,
+          siteId: sessionId,
+          ordinal: 0,
+          actorSessionId: sessionId,
+          actorName: sessionId,
+        }),
+      }, sessionId),
+    )),
+  };
+});
+vi.mock("../features/workflows/model/workflowSessionWatch", () => ({
+  watchHostSession: () => ({
+    subscribe: () => () => {},
+    getSnapshot: () => undefined,
+    release: () => {},
+  }),
+}));
 
 vi.mock("../features/settings/ui/SettingsView", async () => {
   const { createElement: el, useEffect, useState } = await import("react");
@@ -1424,6 +1463,61 @@ describe("App workspace app views", () => {
       expect(container.querySelector('[data-sidebar="/repo"]')).not.toBeNull();
     },
   );
+});
+
+describe("Workflow agent navigation", () => {
+  it.each([false, true])("opens beside the run and reuses agents (detached run: %s)", async (detached) => {
+    const parent = { ...newSession("codex", "/repo"), id: "parent" };
+    const parentTab = newTab(parent.id);
+    const run = newWorkflowRunTab("Network probe", "/repo", {
+      parentSessionId: parent.id,
+      runId: "run",
+    });
+    const trailing = newFileTab("/repo/trailing.ts", "/repo");
+    let sourceTab = detached
+      ? newEditorWorkspaceTab(run)
+      : openEditorTab(parentTab, run);
+    sourceTab = openEditorTab(sourceTab, trailing, { pin: true });
+    sourceTab = openEditorTab(sourceTab, run);
+    // Reproduce tabs created before workflows stopped being previews.
+    sourceTab.editorPanes[0].files[0] = { ...run, preview: true };
+    await act(async () => root.render(createElement(App, {
+      resumed: {
+        sessions: [parent],
+        tabs: detached ? [parentTab, sourceTab] : [sourceTab],
+        activeTabId: sourceTab.id,
+        projectCwd: "/repo",
+        projectReturnMemory: new Map(),
+        projectTerminals: [],
+      },
+    })));
+    await act(async () => vi.dynamicImportSettled());
+
+    await click('[data-open-workflow-agent="worker-a"]');
+    expect(activeTabId()).toBe(sourceTab.id);
+    let files = ownedFileTabs();
+    expect(files).toHaveLength(3);
+    expect(files[0].dataset.fileTabId).toBe(run.id);
+    expect(files[1].textContent).toContain("worker-a");
+    expect(files[1].querySelector('[role="tab"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(files[2].dataset.fileTabId).toBe(trailing.id);
+    const firstWorkerId = files[1].dataset.fileTabId;
+
+    await click(`[data-file-tab-id="${run.id}"] [role="tab"]`);
+    await click('[data-open-workflow-agent="worker-b"]');
+    files = ownedFileTabs();
+    expect(files.map((file) => file.dataset.fileTabId)).toEqual([
+      run.id, expect.any(String), firstWorkerId, trailing.id,
+    ]);
+    expect(files[1].textContent).toContain("worker-b");
+    const order = files.map((file) => file.dataset.fileTabId);
+
+    await click(`[data-file-tab-id="${run.id}"] [role="tab"]`);
+    await click('[data-open-workflow-agent="worker-a"]');
+    expect(ownedFileTabs().map((file) => file.dataset.fileTabId)).toEqual(order);
+    expect(ownedFileTabs()[2].querySelector('[role="tab"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(workspace().querySelectorAll('[data-workflow-run-tab]')).toHaveLength(1);
+  });
 });
 
 describe("Workflow create in chat", () => {

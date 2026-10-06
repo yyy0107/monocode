@@ -42,7 +42,14 @@ export function WorkflowRunTabView({ file }: { file: FilePaneTab & { workflowRun
                   }),
                   onOpenWorkflowActorSession: (request) => {
                     if (request.actorSessionId)
-                      app.openAgent({ cwd: request.workspacePath, parentSessionId: request.parentSessionId, runId: request.runId, sessionId: request.actorSessionId, title: request.actorName ?? request.siteId });
+                      app.openAgent({
+                        cwd: request.workspacePath,
+                        parentSessionId: request.parentSessionId,
+                        runId: request.runId,
+                        sessionId: request.actorSessionId,
+                        title: request.actorName ?? request.siteId,
+                        sourceFileId: file.id,
+                      });
                   },
                 }
               : {})}
