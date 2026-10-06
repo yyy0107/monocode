@@ -692,14 +692,6 @@ html.has-chat-background.chat-background-effect-ready.chat-background-gradient-b
   contain-intrinsic-block-size: auto 240px;
 }
 
-::highlight(monocode-transcript-search-match) {
-  background-color: color-mix(in srgb, #e2c08d 46%, transparent);
-}
-
-::highlight(monocode-transcript-search-current) {
-  background-color: color-mix(in srgb, var(--color-accent) 62%, transparent);
-}
-
 .agent-transcript
   [data-transcript-search-current="true"]
   .user-message-bubble

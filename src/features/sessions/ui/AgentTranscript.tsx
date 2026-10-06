@@ -1,3 +1,4 @@
+import "./AgentTranscript.css";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { localizeChildExitError } from "../../../integrations/harness/core/childErrors";
 import { providerSessionAccessIssue } from "../../../integrations/harness/providers/sessionAccessErrors";
