@@ -2,6 +2,10 @@
 // 它们是普通 user message：只预填草稿、不自动发送，用户接着写要改什么 / 要建什么。
 // 「提升为全局」的文案（buildSavedWorkflowPromotePrompt）例外：它作为 createSession.firstInput
 // **自动发送**，所以是完整的指令而不是开头。
+// Monocode：每段都以 `/workflow` 开头，Host 据此注入编写指南与 workflow CLI；保存走
+// `workflow save`（ZCode 的 SaveWorkflow 工具在 Monocode 里是这个 CLI 动作）。
+
+const WORKFLOW_COMMAND = "/workflow ";
 
 function isZh(locale: string): boolean {
   return locale.toLowerCase().startsWith("zh");
@@ -20,8 +24,8 @@ export function buildSavedWorkflowRevisePrompt(input: {
   const globalReminderEn =
     input.scope === "global" ? 'It is a global workflow; keep scope: "global" when saving. ' : "";
   return isZh(input.locale)
-    ? `请修订已保存的工作流「${input.name}」（${input.path}）：${globalReminderZh}`
-    : `Please revise the saved workflow "${input.name}" (${input.path}): ${globalReminderEn}`;
+    ? `${WORKFLOW_COMMAND}请修订已保存的工作流「${input.name}」（${input.path}），改好后用 \`workflow save\` 覆盖保存。${globalReminderZh}要改的是：`
+    : `${WORKFLOW_COMMAND}Please revise the saved workflow "${input.name}" (${input.path}) and save it again with \`workflow save\` once it works. ${globalReminderEn}What to change: `;
 }
 
 /** 空态 / 顶栏「通过对话创建」：预填一个开头。 */
@@ -31,12 +35,12 @@ export function buildSavedWorkflowCreatePrompt(
 ): string {
   if (scope === "global") {
     return isZh(locale)
-      ? '帮我设计一个工作流，跑通后用 SaveWorkflow 保存为全局工作流（scope: "global"）：'
-      : 'Help me design a workflow and save it as a global workflow (scope: "global") with SaveWorkflow once it works: ';
+      ? `${WORKFLOW_COMMAND}帮我设计一个工作流，跑通后用 \`workflow save\` 保存为全局工作流（scope: "global"）。要做的是：`
+      : `${WORKFLOW_COMMAND}Help me design a workflow and, once it works, save it as a global workflow with \`workflow save\` (scope: "global"). What it should do: `;
   }
   return isZh(locale)
-    ? "帮我设计一个工作流，跑通后保存到本项目："
-    : "Help me design a workflow and save it to this project once it works: ";
+    ? `${WORKFLOW_COMMAND}帮我设计一个工作流，跑通后用 \`workflow save\` 保存到本项目（scope: "project"）。要做的是：`
+    : `${WORKFLOW_COMMAND}Help me design a workflow and, once it works, save it to this project with \`workflow save\` (scope: "project"). What it should do: `;
 }
 
 /**
@@ -53,21 +57,21 @@ export function buildSavedWorkflowPromotePrompt(input: {
 }): string {
   if (isZh(input.locale)) {
     return [
-      `请把已保存的项目工作流「${input.name}」（${input.path}）提升为全局工作流。全局工作流对所有项目可见、在任何项目里都能运行，所以它不能依赖本仓库的任何东西。请按下面的步骤做：`,
+      `${WORKFLOW_COMMAND}请把已保存的项目工作流「${input.name}」（${input.path}）提升为全局工作流。全局工作流对所有项目可见、在任何项目里都能运行，所以它不能依赖本仓库的任何东西。请按下面的步骤做：`,
       "1. 读取这个文件，理解它的因果结构（哪些子代理、什么顺序、什么交接）。",
       "2. 找出所有引用本仓库的地方：具体路径、命令、目录结构、命名约定、分支名等。",
       "3. 把它们抽成 `args` 声明（带说明与合理默认值），或改成不依赖项目的中性表述；保持因果结构不变。",
-      '4. 用 SaveWorkflow 以 scope: "global" 保存。名字可以沿用，也可以取一个更贴切的名字。不要改动原来的项目工作流文件。',
+      '4. 用 `workflow save` 以 scope: "global" 保存。名字可以沿用，也可以取一个更贴切的名字。不要改动原来的项目工作流文件。',
       "5. 最后用几句话总结你概括了什么、哪些点被抽成了参数。",
       "如果这个工作流本质上就绑定在这个项目上、无法有意义地概括，请说明原因并停下，不要保存。",
     ].join("\n");
   }
   return [
-    `Promote the saved project workflow "${input.name}" (${input.path}) to a global workflow. Global workflows are visible to every project and can run from any of them, so it must not depend on anything in this repository. Follow these steps:`,
+    `${WORKFLOW_COMMAND}Promote the saved project workflow "${input.name}" (${input.path}) to a global workflow. Global workflows are visible to every project and can run from any of them, so it must not depend on anything in this repository. Follow these steps:`,
     "1. Read the file and understand its causal structure (which subagents, in what order, with what hand-offs).",
     "2. Find everything that refers to this repository: concrete paths, commands, directory layout, naming conventions, branch names, and so on.",
     "3. Lift those into `args` declarations (with descriptions and sensible defaults) or rewrite them in project-neutral terms, keeping the causal structure intact.",
-    '4. Save it with SaveWorkflow using scope: "global". Keep the name or pick a better one. Do not modify the original project workflow file.',
+    '4. Save it with `workflow save` using scope: "global". Keep the name or pick a better one. Do not modify the original project workflow file.',
     "5. Finish with a short summary of what you generalized and which points became arguments.",
     "If the workflow is inherently bound to this project and cannot be generalized meaningfully, say why and stop without saving.",
   ].join("\n");

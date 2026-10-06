@@ -9843,17 +9843,19 @@ function Workspace({
     setActiveTabId(tab.id);
     setComposerFocused(false);
   }, [tabs, workflowTabRequest]);
-  const [workflowDraftRequest, setWorkflowDraftRequest] = useState<{
+  // A complete workflow instruction (promote to global) is sent once its new
+  // conversation lands; a prefix only seeds the composer.
+  const [workflowSendRequest, setWorkflowSendRequest] = useState<{
     sessionId: string;
     prompt: string;
   } | null>(null);
   useEffect(() => {
-    if (!workflowDraftRequest) return;
-    if (!sessions.some((entry) => entry.id === workflowDraftRequest.sessionId))
+    if (!workflowSendRequest) return;
+    if (!sessions.some((entry) => entry.id === workflowSendRequest.sessionId))
       return;
-    setWorkflowDraftRequest(null);
-    onSaveDraft(workflowDraftRequest.sessionId, workflowDraftRequest.prompt);
-  }, [onSaveDraft, sessions, workflowDraftRequest]);
+    setWorkflowSendRequest(null);
+    onSubmit(workflowSendRequest.sessionId, workflowSendRequest.prompt);
+  }, [onSubmit, sessions, workflowSendRequest]);
   const workflowProjects = useMemo(
     () =>
       recents.map((project) => ({
@@ -9897,16 +9899,34 @@ function Workspace({
           }),
         ),
       openSession: (cwd, sessionId) => onSelectRemoteSession(cwd, sessionId),
-      createViaChat: (cwd, prompt) => {
-        const sessionId = onNewInProject(cwd);
-        setWorkflowDraftRequest({ sessionId, prompt });
+      createViaChat: (cwd, prompt, options) => {
+        workspaceNavigation.cancel();
+        // Always a new conversation: a reused draft pane would ignore the seed.
+        const session = {
+          ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+          ...(options?.send ? {} : { composerSeed: prompt }),
+        };
+        const tab = newTab(session.id);
+        setSessions((previous) => [...previous, session]);
+        appendTab(tab, cwd);
+        if (looksLikeProject(cwd)) {
+          setProjectCwd(normalizeProjectPath(cwd));
+          setRecents(rememberProject(cwd));
+        }
+        setSidebarTab("sessions", cwd);
+        setActiveTabId(tab.id);
+        setComposerFocused(true);
+        if (options?.send) setWorkflowSendRequest({ sessionId: session.id, prompt });
       },
     };
   }, [
+    appendTab,
     focusOpenSession,
-    onNewInProject,
     onSelectHistorySession,
     onSelectRemoteSession,
+    sessionDefaults?.runtimeMode,
+    setSidebarTab,
+    workspaceNavigation.cancel,
   ]);
   const orchestrationWorkers = useMemo(
     () => ({
