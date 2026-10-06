@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -53,6 +54,9 @@ import { BtwSheet, useBtwConversation } from "./BtwSheet";
 import { AgentTranscript } from "./AgentTranscript";
 import { PooledTranscript, type TranscriptPool } from "./TranscriptPool";
 import { TranscriptFind } from "./TranscriptFind";
+import { SessionStatusPanel } from "./SessionStatusPanel";
+import { useProjectDiffStats } from "../../source-control/hooks/useProjectDiffStats";
+import { useProjectBranches } from "../../source-control/hooks/useProjectBranches";
 import {
   clearTranscriptJump,
   peekTranscriptJump,
@@ -399,6 +403,25 @@ const LocalSessionPane = memo(function LocalSessionPane({
   );
   const jumpToBottomRef = useRef<(() => void) | null>(null);
   const transcriptScope = useRef<HTMLDivElement>(null);
+  // Status panel git summary; host sessions have no local working copy to read.
+  const statusGitCwd = remote ? "" : sessionWorkCwd(session);
+  const statusDiff = useProjectDiffStats(statusGitCwd, visible && !isEmpty);
+  const statusBranches = useProjectBranches(statusGitCwd, visible && !isEmpty);
+  const statusBranch = statusBranches?.current || session.branch;
+  const statusGit = useMemo(
+    () =>
+      statusDiff
+        ? {
+            additions: statusDiff.additions,
+            deletions: statusDiff.deletions,
+            branch: statusBranch,
+          }
+        : null,
+    [statusDiff, statusBranch],
+  );
+  const linkedNoticeShown =
+    !!session.linkedWorkItemUpdateCard &&
+    session.linkedWorkItemUpdateCard.status !== "loading";
   const [transcriptScroller, setTranscriptScroller] =
     useState<HTMLDivElement | null>(null);
   const focusPane = useCallback(
@@ -807,6 +830,21 @@ const LocalSessionPane = memo(function LocalSessionPane({
               onDeleteSession={
                 onDeleteSession ? () => onDeleteSession(session.id) : undefined
               }
+            />
+          ) : null}
+          {visible &&
+          !isEmpty &&
+          !remoteSessionLoading &&
+          !session.inboxAsk &&
+          !linkedNoticeShown ? (
+            <SessionStatusPanel
+              sessionId={session.id}
+              blocks={session.blocks}
+              backgroundTasks={session.backgroundTasks}
+              busy={!!session.busy}
+              git={statusGit}
+              scope={transcriptScope}
+              onNavigate={navigateBlock}
             />
           ) : null}
           {remoteSessionLoading ? null : isEmpty ? (

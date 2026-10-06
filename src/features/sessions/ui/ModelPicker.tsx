@@ -53,7 +53,8 @@ import { HARNESSES, HARNESS_TITLE, type HarnessId } from "../model/session";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { LAYER } from "../../../shared/lib/layers";
 import { HarnessIcon } from "./HarnessIcon";
-import { Popover } from "../../../shared/ui/Popover";
+import { ComposerPopover } from "./ComposerPopover";
+import type { PopoverAlign } from "../../../shared/lib/popover";
 import { MOD } from "../../../platform/tauri/platform";
 import { keybindingPressed } from "../../settings/model/settings";
 import "./ModelPicker.css";
@@ -67,9 +68,12 @@ type Props = {
   project?: string;
   /** Hide option rows from the menu when they render as pills beside the picker. */
   hideSettings?: boolean;
+  /** Cross-axis alignment for menus opened from the toolbar trigger. */
+  align?: PopoverAlign;
   /** Limit provider tabs for surfaces that only support one harness. */
   allowedHarnesses?: readonly HarnessId[];
   hotkeys?: boolean;
+  appearance?: "composer";
   onChange: (harness: HarnessId, model: string) => void;
   onSettingsChange: (settings: Record<string, string>) => void;
   onClose?: () => void;
@@ -269,8 +273,10 @@ export function ModelPicker({
   modelSettingOptions,
   project,
   hideSettings = false,
+  align = "start",
   allowedHarnesses,
   hotkeys = false,
+  appearance,
   onChange,
   onSettingsChange,
   onClose,
@@ -322,8 +328,10 @@ export function ModelPicker({
   recentOpenRef.current = recentMenu != null;
 
   const resolved = source.resolve(harness, model);
-  const current = useMemo(() => withSessionModelSettings(resolved, modelSettingOptions, model),
-    [resolved, modelSettingOptions, model]);
+  const current = useMemo(
+    () => withSessionModelSettings(resolved, modelSettingOptions, model),
+    [resolved, modelSettingOptions, model],
+  );
   currentRef.current = current;
   const settings = useMemo(() => {
     void catalogVersion;
@@ -690,6 +698,8 @@ export function ModelPicker({
       <button
         ref={button}
         type="button"
+        data-model-picker-trigger
+        data-composer-control={appearance}
         title={uiT("{value0} · Recent models: right-click or {value1}.", {
           value0: String(triggerTitle),
           value1: String(MOD),
@@ -728,10 +738,13 @@ export function ModelPicker({
         />
       </button>
 
-      {open && hideSettings ? (
+      {hideSettings ? (
         <ModelFlyout
+          open={open}
+          appearance={appearance}
           anchor={button}
           side="top"
+          align={align}
           autoFocusSearch
           onDismiss={(reason) => dismiss(reason === "escape")}
           harnesses={pickerHarnesses}
@@ -750,11 +763,14 @@ export function ModelPicker({
         />
       ) : null}
 
-      {open && !hideSettings ? (
+      {!hideSettings ? (
         <>
-          <Popover
+          <ComposerPopover
+            open={open}
+            enabled={appearance === "composer"}
             anchor={button}
             side="top"
+            align={align}
             width={MENU_WIDTH}
             autoFocus
             dismissOnEscape={false}
@@ -873,150 +889,153 @@ export function ModelPicker({
                 </button>
               );
             })}
-          </Popover>
+          </ComposerPopover>
 
-          {showSubmenu && submenu.kind === "setting" ? (
-            <Popover
-              key={submenu.setting.id}
-              anchor={activeRow}
-              side="right"
-              gap={SUBMENU_OVERLAP}
-              width={SETTING_MENU_WIDTH}
-              layer={LAYER.submenu}
-              role="menu"
-              aria-label={settingLabel(submenu.setting)}
-              onMouseEnter={() => setSubmenu(submenu)}
-              data-model-picker
-              className="p-1 font-sans"
-            >
-              {submenu.setting.options.map((option, index) => {
-                const selected =
-                  option.value === settingValue(submenu.setting, values);
-                const highlighted = index === activeSetting;
-                const tileTone = effortTileTone(
-                  current.harness,
-                  submenu.setting,
-                  option.value,
-                );
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={selected}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onMouseEnter={() => setActiveSetting(index)}
-                    onClick={() => pickSetting(submenu.setting, option.value)}
-                    className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] ${
-                      highlighted
-                        ? "bg-selection text-content"
-                        : "text-content hover:bg-content/5"
-                    } ${tileTone ? "codex-effort-option" : ""}`}
-                    data-effort-tone={tileTone}
-                  >
-                    {tileTone ? <EffortTileShimmer /> : null}
-                    <span className="min-w-0 flex-1 truncate">
-                      {uiT(option.label)}
-                    </span>
-                    {selected ? (
-                      <Check
-                        className="size-3.5 shrink-0 text-content/50"
-                        strokeWidth={2}
-                      />
-                    ) : null}
-                  </button>
-                );
-              })}
-            </Popover>
-          ) : null}
+          <ComposerPopover
+            open={!!(showSubmenu && submenu?.kind === "setting")}
+            enabled={appearance === "composer"}
+            anchor={activeRow}
+            side="right"
+            gap={SUBMENU_OVERLAP}
+            width={SETTING_MENU_WIDTH}
+            layer={LAYER.submenu}
+            role="menu"
+            aria-label={
+              submenu?.kind === "setting"
+                ? settingLabel(submenu.setting)
+                : undefined
+            }
+            onMouseEnter={() => setSubmenu(submenu)}
+            data-model-picker
+            className="p-1 font-sans"
+          >
+            {submenu?.kind === "setting"
+              ? submenu.setting.options.map((option, index) => {
+                  const selected =
+                    option.value === settingValue(submenu.setting, values);
+                  const highlighted = index === activeSetting;
+                  const tileTone = effortTileTone(
+                    current.harness,
+                    submenu.setting,
+                    option.value,
+                  );
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={selected}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setActiveSetting(index)}
+                      onClick={() => pickSetting(submenu.setting, option.value)}
+                      className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] ${
+                        highlighted
+                          ? "bg-selection text-content"
+                          : "text-content hover:bg-content/5"
+                      } ${tileTone ? "codex-effort-option" : ""}`}
+                      data-effort-tone={tileTone}
+                    >
+                      {tileTone ? <EffortTileShimmer /> : null}
+                      <span className="min-w-0 flex-1 truncate">
+                        {uiT(option.label)}
+                      </span>
+                      {selected ? (
+                        <Check
+                          className="size-3.5 shrink-0 text-content/50"
+                          strokeWidth={2}
+                        />
+                      ) : null}
+                    </button>
+                  );
+                })
+              : null}
+          </ComposerPopover>
 
-          {showSubmenu && submenu.kind === "models" ? (
-            <ModelFlyout
-              anchor={activeRow}
-              autoFocusSearch
-              harnesses={pickerHarnesses}
-              tab={visibleTab}
-              models={visibleModels}
-              currentId={current.id}
-              active={activeModel}
-              query={query}
-              favorites={favorites}
-              searchRef={search}
-              onQuery={setQuery}
-              onSelectTab={selectTab}
-              onActive={setActiveModel}
-              onPick={pickModel}
-              onToggleFavorite={toggleFavorite}
-            />
-          ) : null}
+          <ModelFlyout
+            open={!!(showSubmenu && submenu?.kind === "models")}
+            appearance={appearance}
+            anchor={activeRow}
+            autoFocusSearch
+            harnesses={pickerHarnesses}
+            tab={visibleTab}
+            models={visibleModels}
+            currentId={current.id}
+            active={activeModel}
+            query={query}
+            favorites={favorites}
+            searchRef={search}
+            onQuery={setQuery}
+            onSelectTab={selectTab}
+            onActive={setActiveModel}
+            onPick={pickModel}
+            onToggleFavorite={toggleFavorite}
+          />
         </>
       ) : null}
 
-      {recentMenu ? (
-        <Popover
-          anchor={button}
-          side="top"
-          width={MENU_WIDTH}
-          autoFocus
-          onDismiss={() => setRecentMenu(null)}
-          role="menu"
-          aria-label={uiT("Recently used models")}
-          aria-activedescendant={`${recentMenuId}-${recentActive}`}
-          tabIndex={-1}
-          onContextMenu={(event) => event.preventDefault()}
-          data-model-picker
-          className="p-1 font-sans"
-        >
-          {recentMenu.models.map((item, index) => {
-            const selected = item.id === current.id;
-            const highlighted = index === recentActive;
-            const disabled = !source.available(item.harness);
-            return (
-              <button
-                key={item.id}
-                id={`${recentMenuId}-${index}`}
-                type="button"
-                role="menuitemradio"
-                aria-checked={selected}
-                disabled={disabled}
-                title={
-                  disabled ? harnessUnavailableHint(item.harness) : undefined
-                }
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setRecentActive(index)}
-                onClick={() => pickModel(item)}
-                className={`flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left disabled:cursor-not-allowed ${
-                  disabled
-                    ? "text-content/30"
-                    : highlighted
-                      ? "bg-selection text-content"
-                      : "text-content hover:bg-content/5"
-                }`}
-              >
-                <HarnessIcon
-                  harness={item.harness}
-                  className="size-4 shrink-0"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] leading-4">
-                    {item.name}
-                  </span>
-                  <span className="block truncate text-[11px] leading-4 text-content/45">
-                    {HARNESS_TITLE[item.harness]}
-                    {item.provider ? ` · ${item.provider.name}` : ""}
-                  </span>
+      <ComposerPopover
+        open={recentMenu != null}
+        enabled={appearance === "composer"}
+        anchor={button}
+        side="top"
+        align={align}
+        width={MENU_WIDTH}
+        autoFocus
+        onDismiss={() => setRecentMenu(null)}
+        role="menu"
+        aria-label={uiT("Recently used models")}
+        aria-activedescendant={`${recentMenuId}-${recentActive}`}
+        tabIndex={-1}
+        onContextMenu={(event) => event.preventDefault()}
+        data-model-picker
+        className="p-1 font-sans"
+      >
+        {recentMenu?.models.map((item, index) => {
+          const selected = item.id === current.id;
+          const highlighted = index === recentActive;
+          const disabled = !source.available(item.harness);
+          return (
+            <button
+              key={item.id}
+              id={`${recentMenuId}-${index}`}
+              type="button"
+              role="menuitemradio"
+              aria-checked={selected}
+              disabled={disabled}
+              title={
+                disabled ? harnessUnavailableHint(item.harness) : undefined
+              }
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setRecentActive(index)}
+              onClick={() => pickModel(item)}
+              className={`flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left disabled:cursor-not-allowed ${
+                disabled
+                  ? "text-content/30"
+                  : highlighted
+                    ? "bg-selection text-content"
+                    : "text-content hover:bg-content/5"
+              }`}
+            >
+              <HarnessIcon harness={item.harness} className="size-4 shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] leading-4">
+                  {item.name}
                 </span>
-                {selected ? (
-                  <Check
-                    className="size-3.5 shrink-0 text-content/55"
-                    strokeWidth={2}
-                  />
-                ) : null}
-              </button>
-            );
-          })}
-        </Popover>
-      ) : null}
+                <span className="block truncate text-[11px] leading-4 text-content/45">
+                  {HARNESS_TITLE[item.harness]}
+                  {item.provider ? ` · ${item.provider.name}` : ""}
+                </span>
+              </span>
+              {selected ? (
+                <Check
+                  className="size-3.5 shrink-0 text-content/55"
+                  strokeWidth={2}
+                />
+              ) : null}
+            </button>
+          );
+        })}
+      </ComposerPopover>
     </>
   );
 }
@@ -1026,11 +1045,20 @@ export function ModelControlPills({
   model,
   values,
   modelSettingOptions,
+  align = "start",
   onSettingsChange,
   onClose,
+  appearance,
 }: Pick<
   Props,
-  "harness" | "model" | "values" | "modelSettingOptions" | "onSettingsChange" | "onClose"
+  | "harness"
+  | "model"
+  | "values"
+  | "modelSettingOptions"
+  | "align"
+  | "onSettingsChange"
+  | "onClose"
+  | "appearance"
 >) {
   const catalogVersion = useSyncExternalStore(
     subscribeModels,
@@ -1039,8 +1067,10 @@ export function ModelControlPills({
   );
   void catalogVersion;
   const resolved = useModelSource().resolve(harness, model);
-  const current = useMemo(() => withSessionModelSettings(resolved, modelSettingOptions, model),
-    [resolved, modelSettingOptions, model]);
+  const current = useMemo(
+    () => withSessionModelSettings(resolved, modelSettingOptions, model),
+    [resolved, modelSettingOptions, model],
+  );
   const pills = pillSettings(current);
   const effort = pills.find(
     (setting) => setting.kind === "select" && isEffortSetting(setting),
@@ -1059,6 +1089,7 @@ export function ModelControlPills({
         }
         return setting.kind === "toggle" ? (
           <TogglePill
+            appearance={appearance}
             key={setting.id}
             setting={setting}
             values={values}
@@ -1066,12 +1097,14 @@ export function ModelControlPills({
           />
         ) : (
           <SelectPill
+            appearance={appearance}
             key={setting.id}
             setting={setting}
             values={values}
             onSettingsChange={onSettingsChange}
             onClose={onClose}
             harness={harness}
+            align={align}
             additionalSettings={
               setting.id === effort?.id ? groupedSettings : undefined
             }
@@ -1086,10 +1119,12 @@ function TogglePill({
   setting,
   values,
   onSettingsChange,
+  appearance,
 }: {
   setting: ModelSetting;
   values: Record<string, string>;
   onSettingsChange: (settings: Record<string, string>) => void;
+  appearance?: "composer";
 }) {
   const { t: uiT } = useTranslation();
   const on = settingValue(setting, values) === "true";
@@ -1100,6 +1135,7 @@ function TogglePill({
       aria-label={`${uiT(setting.label)}: ${on ? "On" : "Off"}`}
       aria-pressed={on}
       data-model-control
+      data-composer-control={appearance}
       onMouseDown={(event) => event.preventDefault()}
       onClick={() =>
         onSettingsChange({ ...values, [setting.id]: on ? "false" : "true" })
@@ -1121,14 +1157,18 @@ function SelectPill({
   onSettingsChange,
   onClose,
   harness,
+  align,
   additionalSettings,
+  appearance,
 }: {
   setting: ModelSetting;
   values: Record<string, string>;
   onSettingsChange: (settings: Record<string, string>) => void;
   onClose?: () => void;
   harness: HarnessId;
+  align: PopoverAlign;
   additionalSettings?: ModelSetting[];
+  appearance?: "composer";
 }) {
   const { t: uiT } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -1175,6 +1215,7 @@ function SelectPill({
         aria-expanded={open}
         aria-haspopup="menu"
         data-model-control
+        data-composer-control={appearance}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => (open ? dismiss(true) : openPicker())}
         className={`flex h-6.5 max-w-28 items-center gap-1 rounded-md px-1.5 ${
@@ -1195,103 +1236,107 @@ function SelectPill({
         />
       </button>
 
-      {open ? (
-        <Popover
-          anchor={button}
-          side="top"
-          width={SETTING_MENU_WIDTH}
-          autoFocus
-          onDismiss={(reason) => dismiss(reason === "escape")}
-          role="menu"
-          aria-label={menuLabel}
-          aria-activedescendant={`${menuId}-${active}`}
-          tabIndex={-1}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault();
-              const direction = event.key === "ArrowDown" ? 1 : -1;
-              setActive(
-                (index) =>
-                  (index + direction + menuOptions.length) % menuOptions.length,
-              );
-              return;
-            }
-            if (event.key !== "Enter" && event.key !== " ") return;
+      <ComposerPopover
+        open={open}
+        enabled={appearance === "composer"}
+        anchor={button}
+        side="top"
+        align={align}
+        width={SETTING_MENU_WIDTH}
+        autoFocus
+        onDismiss={(reason) => dismiss(reason === "escape")}
+        role="menu"
+        aria-label={menuLabel}
+        aria-activedescendant={`${menuId}-${active}`}
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
-            const item = menuOptions[active];
-            if (item) pick(item.setting, item.option.value);
-          }}
-          data-model-control
-          className="p-1 font-sans"
-        >
-          {menuSettings.map((menuSetting, groupIndex) => (
-            <Fragment key={menuSetting.id}>
-              {groupIndex > 0 ? (
-                <div role="separator" className="my-1 h-px bg-content/10" />
+            const direction = event.key === "ArrowDown" ? 1 : -1;
+            setActive(
+              (index) =>
+                (index + direction + menuOptions.length) % menuOptions.length,
+            );
+            return;
+          }
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          const item = menuOptions[active];
+          if (item) pick(item.setting, item.option.value);
+        }}
+        data-model-control
+        className="p-1 font-sans"
+      >
+        {menuSettings.map((menuSetting, groupIndex) => (
+          <Fragment key={menuSetting.id}>
+            {groupIndex > 0 ? (
+              <div role="separator" className="my-1 h-px bg-content/10" />
+            ) : null}
+            <div
+              role={grouped ? "group" : undefined}
+              aria-label={grouped ? settingLabel(menuSetting) : undefined}
+            >
+              {grouped ? (
+                <div className="px-2.5 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-content/40">
+                  {settingLabel(menuSetting)}
+                </div>
               ) : null}
-              <div
-                role={grouped ? "group" : undefined}
-                aria-label={grouped ? settingLabel(menuSetting) : undefined}
-              >
-                {grouped ? (
-                  <div className="px-2.5 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-content/40">
-                    {settingLabel(menuSetting)}
-                  </div>
-                ) : null}
-                {menuSetting.options.map((option) => {
-                  const index = menuOptions.findIndex(
-                    (item) =>
-                      item.setting.id === menuSetting.id &&
-                      item.option.value === option.value,
-                  );
-                  const selected =
-                    option.value === settingValue(menuSetting, values);
-                  const highlighted = index === active;
-                  const tileTone = effortTileTone(
-                    harness,
-                    menuSetting,
-                    option.value,
-                  );
-                  return (
-                    <button
-                      key={option.value}
-                      id={`${menuId}-${index}`}
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={selected}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onMouseEnter={() => setActive(index)}
-                      onClick={() => pick(menuSetting, option.value)}
-                      className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] text-content ${
-                        highlighted ? "bg-selection" : "hover:bg-content/5"
-                      } ${tileTone ? "codex-effort-option" : ""}`}
-                      data-effort-tone={tileTone}
-                    >
-                      {tileTone ? <EffortTileShimmer /> : null}
-                      <span className="min-w-0 flex-1 truncate">
-                        {uiT(option.label)}
-                      </span>
-                      {selected ? (
-                        <Check
-                          className="size-3.5 shrink-0 text-content/50"
-                          strokeWidth={2}
-                        />
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            </Fragment>
-          ))}
-        </Popover>
-      ) : null}
+              {menuSetting.options.map((option) => {
+                const index = menuOptions.findIndex(
+                  (item) =>
+                    item.setting.id === menuSetting.id &&
+                    item.option.value === option.value,
+                );
+                const selected =
+                  option.value === settingValue(menuSetting, values);
+                const highlighted = index === active;
+                const tileTone = effortTileTone(
+                  harness,
+                  menuSetting,
+                  option.value,
+                );
+                return (
+                  <button
+                    key={option.value}
+                    id={`${menuId}-${index}`}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selected}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActive(index)}
+                    onClick={() => pick(menuSetting, option.value)}
+                    className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] text-content ${
+                      highlighted ? "bg-selection" : "hover:bg-content/5"
+                    } ${tileTone ? "codex-effort-option" : ""}`}
+                    data-effort-tone={tileTone}
+                  >
+                    {tileTone ? <EffortTileShimmer /> : null}
+                    <span className="min-w-0 flex-1 truncate">
+                      {uiT(option.label)}
+                    </span>
+                    {selected ? (
+                      <Check
+                        className="size-3.5 shrink-0 text-content/50"
+                        strokeWidth={2}
+                      />
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </Fragment>
+        ))}
+      </ComposerPopover>
     </>
   );
 }
 
 function ModelFlyout({
+  open,
+  appearance,
   anchor,
   side = "right",
+  align = "start",
   autoFocusSearch = false,
   onDismiss,
   harnesses,
@@ -1308,8 +1353,11 @@ function ModelFlyout({
   onPick,
   onToggleFavorite,
 }: {
-  anchor: HTMLButtonElement | { current: HTMLButtonElement | null };
+  open: boolean;
+  appearance?: "composer";
+  anchor: HTMLButtonElement | { current: HTMLButtonElement | null } | null;
   side?: "right" | "top";
+  align?: PopoverAlign;
   autoFocusSearch?: boolean;
   onDismiss?: (reason: "outside" | "escape") => void;
   harnesses: HarnessId[];
@@ -1333,20 +1381,20 @@ function ModelFlyout({
   const groups = modelGroups(models);
 
   useEffect(() => {
-    activeRef.current?.scrollIntoView({ block: "nearest" });
-  }, [active]);
+    if (open) activeRef.current?.scrollIntoView({ block: "nearest" });
+  }, [active, open]);
 
   // The popover frame starts hidden until its layout effect measures the
   // anchor, and browsers silently drop focus() on a hidden element. React's
   // autoFocus fires during that first commit, so defer one frame to focus
   // once the flyout is on screen.
   useEffect(() => {
-    if (!autoFocusSearch) return;
+    if (!open || !autoFocusSearch) return;
     const frame = requestAnimationFrame(() => {
       searchRef.current?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [autoFocusSearch, searchRef]);
+  }, [open, autoFocusSearch, searchRef]);
 
   const onSearchKey = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
@@ -1374,9 +1422,12 @@ function ModelFlyout({
   };
 
   return (
-    <Popover
+    <ComposerPopover
+      open={open}
+      enabled={appearance === "composer"}
       anchor={anchor}
       side={side}
+      align={align}
       gap={side === "right" ? SUBMENU_OVERLAP : undefined}
       width={MODEL_MENU_WIDTH}
       minHeight={MODEL_MENU_FRAME_HEIGHT}
@@ -1486,10 +1537,14 @@ function ModelFlyout({
           ) : (
             groups.map((group) => (
               <div key={group.id} role="group" aria-label={group.name}>
-                <div className="px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-content/40">
-                  {group.name}
-                </div>
-                {group.models.map(({ item, index }) => {
+                {/* A lone group repeats the selected rail tab, so only label
+                    lists that mix providers or harnesses. */}
+                {groups.length > 1 ? (
+                  <div className="model-picker-group-label px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-content/40">
+                    {group.name}
+                  </div>
+                ) : null}
+                {group.models.map(({ item, index }, position) => {
                   const selected = item.id === currentId;
                   const highlighted = index === active;
                   const favorited = favorites.includes(item.id);
@@ -1524,7 +1579,13 @@ function ModelFlyout({
                         }
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => onPick(item)}
-                        className="flex min-w-0 flex-1 items-center gap-2 px-1.5 text-left text-[13px] disabled:cursor-not-allowed"
+                        className={`flex min-w-0 flex-1 items-center gap-2 px-1.5 text-left text-[13px] disabled:cursor-not-allowed ${
+                          // Scrolling a group's first row into view also
+                          // reveals its label instead of clipping it.
+                          groups.length > 1 && position === 0
+                            ? "scroll-mt-9"
+                            : ""
+                        }`}
                       >
                         <span className="min-w-0 flex-1 truncate">
                           {item.name}
@@ -1583,7 +1644,7 @@ function ModelFlyout({
           )}
         </div>
       </div>
-    </Popover>
+    </ComposerPopover>
   );
 }
 

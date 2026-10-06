@@ -1645,11 +1645,441 @@ html.is-resizing * {
 }
 
 .composer-toolbar {
-  container: composer-toolbar / inline-size;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
+}
+
+/* ZCode draft composer tokens, expressed in Monocode's theme colors. */
+:root {
+  --composer-input: color-mix(
+    in srgb,
+    var(--color-background-base) 91%,
+    var(--color-content)
+  );
+  --composer-surface: color-mix(in srgb, var(--color-content) 5%, transparent);
+  --composer-border: color-mix(in srgb, var(--color-content) 10%, transparent);
+  --composer-border-hover: color-mix(
+    in srgb,
+    var(--color-content) 15%,
+    transparent
+  );
+  --composer-hover: color-mix(in srgb, var(--color-content) 5%, transparent);
+  --composer-muted: color-mix(in srgb, var(--color-content) 45%, transparent);
+  --composer-placeholder: color-mix(
+    in srgb,
+    var(--color-content) 30%,
+    transparent
+  );
+}
+
+html.theme-light {
+  --composer-input: color-mix(in srgb, var(--color-background-base) 12%, white);
+  --composer-surface: color-mix(in srgb, var(--color-content) 3%, transparent);
+  --composer-placeholder: color-mix(
+    in srgb,
+    var(--color-content) 40%,
+    transparent
+  );
+}
+
+[data-composer-layout="desktop"] .composer-surface-with-workspace {
+  border-radius: 16px;
+  background: var(--composer-surface);
+  box-shadow:
+    0 20px 25px -5px rgb(0 0 0 / 5%),
+    0 8px 10px -6px rgb(0 0 0 / 5%);
+}
+
+[data-composer-layout="desktop"] .composer-workspace-bar {
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 6px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+[data-composer-layout="desktop"] .composer-workspace-bar > div > button {
+  height: 28px;
+  min-width: 0;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--composer-muted);
+  transition:
+    background-color var(--motion-feedback-duration),
+    color var(--motion-feedback-duration);
+}
+
+[data-composer-layout="desktop"] .composer-workspace-bar > div > button:hover {
+  background: var(--composer-hover);
+  color: var(--color-content);
+}
+
+[data-composer-layout="desktop"] .composer-workspace-trigger {
+  display: flex;
+  align-items: center;
+  max-width: 240px;
+  padding-left: 12px !important;
+  color: var(--color-content) !important;
+}
+
+[data-composer-layout="desktop"] .composer-workspace-bar button span {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+[data-composer-layout="desktop"] .composer-input-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  border-color: var(--composer-border);
+  background: var(--composer-input);
+  box-shadow: none;
+  backdrop-filter: none;
+  transition:
+    background-color var(--motion-feedback-duration),
+    border-color var(--motion-feedback-duration);
+}
+
+[data-composer-layout="desktop"] .composer-input-shell:hover,
+[data-composer-layout="desktop"] .composer-input-shell:focus-within {
+  border-color: var(--composer-border-hover);
+}
+
+html.has-user-accent
+  [data-composer-layout="desktop"]
+  .composer-input-shell:focus-within,
+[data-composer-layout="desktop"]
+  .composer-input-shell[data-composer-file-drag] {
+  border-color: var(--user-accent-color, var(--color-accent));
+}
+
+[data-composer-layout="desktop"] .composer-input-shell.edit-last-turn-composer {
+  border-color: color-mix(
+    in srgb,
+    var(--user-accent-color, var(--color-accent)) 32%,
+    transparent
+  );
+}
+
+[data-composer-layout="desktop"] .composer-file-drop {
+  border-radius: inherit;
+}
+
+[data-composer-layout="desktop"] :is(.composer-field, .composer-highlight) {
+  min-height: 40px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+[data-composer-layout="desktop"] .composer-field::placeholder {
+  color: var(--composer-placeholder);
+  -webkit-text-fill-color: var(--composer-placeholder);
+}
+
+[data-composer-layout="compact"] .composer-toolbar {
+  container: composer-toolbar / inline-size;
+}
+
+[data-composer-layout="desktop"] .composer-attachments,
+[data-composer-layout="desktop"] .composer-paste-error {
+  padding: 0;
+}
+
+[data-composer-layout="desktop"] .composer-footer {
+  container: composer-toolbar / inline-size;
+  padding: 0;
+  gap: 4px;
+  min-height: 28px;
+}
+
+[data-composer-layout="desktop"] .composer-toolbar {
+  gap: 12px;
+}
+
+[data-composer-layout="desktop"] .composer-leading-controls > button,
+[data-composer-layout="desktop"]
+  .composer-footer
+  :is(
+    [data-access-picker-trigger],
+    [data-model-picker-trigger],
+    button[data-model-control]
+  ) {
+  height: 28px;
+  gap: 4px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-content);
+  font-size: 14px;
+  line-height: 20px;
+  transition:
+    background-color var(--motion-feedback-duration),
+    color var(--motion-feedback-duration);
+}
+
+[data-composer-layout="desktop"]
+  .composer-footer
+  :is(
+    [data-access-picker-trigger],
+    [data-model-picker-trigger],
+    button[data-model-control]
+  )
+  > span {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+[data-composer-layout="desktop"]
+  .composer-footer
+  :is(
+    [data-access-picker-trigger],
+    [data-model-picker-trigger],
+    button[data-model-control]
+  )
+  > svg:first-child {
+  width: 16px;
+  height: 16px;
+}
+
+[data-composer-layout="desktop"]
+  .composer-footer
+  :is(
+    [data-access-picker-trigger],
+    [data-model-picker-trigger],
+    button[data-model-control]
+  )
+  > svg:last-child {
+  width: 14px;
+  height: 14px;
+}
+
+[data-composer-layout="desktop"]
+  .composer-footer
+  :is(
+    [data-access-picker-trigger],
+    [data-model-picker-trigger],
+    button[data-model-control]
+  ):is(:hover, [aria-expanded="true"]) {
+  background: var(--composer-hover);
+}
+
+[data-composer-layout="desktop"] .composer-footer > div:first-child > button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-content);
+}
+
+[data-composer-layout="desktop"]
+  .composer-footer
+  > div:first-child
+  > button:is(:hover, [aria-expanded="true"]) {
+  background: var(--composer-hover);
+}
+
+[data-composer-layout="desktop"]
+  .composer-footer
+  :is(.composer-send, .composer-stop) {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+[data-composer-layout="desktop"] .composer-send > svg {
+  width: 16px;
+  height: 16px;
+}
+
+[data-composer-layout="desktop"] .composer-stop {
+  background: var(--color-selection);
+  color: var(--color-content);
+}
+
+[data-composer-layout="desktop"] .composer-stop:hover {
+  background: var(--color-selection-hover);
+}
+
+.composer-popover {
+  border: 1px solid var(--composer-border);
+  border-radius: 8px;
+  background: var(--composer-input);
+  color: var(--color-content);
+  box-shadow:
+    0 4px 6px -1px rgb(0 0 0 / 10%),
+    0 2px 4px -2px rgb(0 0 0 / 10%);
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 170ms var(--motion-ease-out),
+    transform 170ms var(--motion-ease-out);
+}
+
+.composer-popover.popover-open {
+  animation: none;
+}
+
+.composer-popover:is([data-fold-state="closing"], [data-fold-state="closed"]) {
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
+  pointer-events: none;
+}
+
+@starting-style {
+  .composer-popover {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+.composer-popover > button,
+.composer-popover button[role="menuitemradio"] {
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.composer-popover button:is(:hover, .bg-selection) {
+  background: var(--composer-hover);
+}
+
+.composer-action-menu {
+  border-radius: 16px;
+  max-height: min(480px, calc(100vh - 24px));
+  overflow-y: auto;
+}
+
+.composer-action-menu > p {
+  padding: 6px 8px;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.composer-action-menu > button {
+  min-height: 32px;
+  gap: 8px;
+  padding: 8px;
+}
+
+.composer-action-menu > button > span > span:first-child {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.composer-action-menu > button > span > span:last-child:not(:first-child) {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.composer-add-reference {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  text-align: left;
+}
+
+.composer-popover[data-access-picker] > button {
+  min-height: 52px;
+  gap: 12px;
+}
+
+.composer-popover[data-access-picker] > button > svg {
+  width: 18px;
+  height: 18px;
+}
+
+.composer-popover[data-access-picker] > button > span > span:first-child {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.composer-popover[data-access-picker] > button > span > span:last-child {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+[data-composer-layout="desktop"] .composer-footer button:focus-visible {
+  outline: 1px solid var(--user-accent-color, var(--color-accent));
+  outline-offset: 2px;
+}
+
+@container composer-toolbar (width < 480px) {
+  .composer-leading-controls [data-access-picker-trigger] > span,
+  .composer-leading-controls [data-access-picker-trigger] > svg:last-child {
+    display: none;
+  }
+}
+
+@container composer-toolbar (width < 360px) {
+  .composer-model-controls > [data-model-picker-trigger] > span,
+  .composer-model-controls > [data-model-picker-trigger] > svg:last-child {
+    display: none;
+  }
+
+  [data-composer-layout="desktop"]
+    .composer-model-controls
+    > [data-model-picker-trigger] {
+    min-width: 28px;
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+@container composer-toolbar (width < 280px) {
+  [data-composer-layout="desktop"]
+    .composer-model-controls
+    > button[data-model-control]:has(> svg) {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .composer-model-controls > button[data-model-control]:has(> svg) > span,
+  .composer-model-controls
+    > button[data-model-control]:has(> svg)
+    > svg:last-child {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-popover,
+  [data-composer-layout="desktop"]
+    :is(
+      .composer-input-shell,
+      .composer-workspace-bar button,
+      .composer-footer button
+    ) {
+    transition: none;
+  }
+}
+
+/* Keep settings readable while the model name gives up space first. */
+.composer-model-controls > [data-model-control] {
+  flex-shrink: 0;
+}
+
+.composer-model-controls > [data-model-picker-trigger] {
+  min-width: calc(var(--spacing) * 13);
+  flex-shrink: 1;
+}
+
+.composer-model-controls
+  > [data-model-picker-trigger]
+  > span:not([aria-hidden]) {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @container composer-toolbar (width < 220px) {
@@ -1659,7 +2089,7 @@ html.is-resizing * {
   }
 }
 
-html.theme-light [data-composer-box] {
+html.theme-light [data-composer-layout="compact"] [data-composer-box] {
   background: var(--color-background-base);
   box-shadow:
     0 6px 24px color-mix(in srgb, var(--color-content) 9%, transparent),

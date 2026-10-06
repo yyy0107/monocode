@@ -2553,5 +2553,12 @@
   "Couldn’t load diff: {error}": "无法加载差异：{error}",
   "Comment on line": "评论此行",
   "No staged changes": "没有已暂存的变更",
-  "No unstaged changes": "没有未暂存的变更"
+  "No unstaged changes": "没有未暂存的变更",
+  "Collapse": "收起",
+  "Show status": "显示状态",
+  "Plans": "计划",
+  "Background": "后台",
+  "{count} running": "{count} 个运行中",
+  "+{count} more": "另外 {count} 项",
+  "Show fewer": "收起部分"
 }

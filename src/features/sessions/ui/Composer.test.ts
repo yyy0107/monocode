@@ -199,6 +199,88 @@ describe("Composer question focus", () => {
     );
   }
 
+    it.each([
+      ["Files", "@", "[data-mention-picker]"],
+      ["Skills and commands", "/", "[data-skill-picker]"],
+    ])("opens %s from the + menu at the selected draft range", async (label, trigger, picker) => {
+      await renderComposer(undefined, vi.fn(), false, 0, "Review target");
+      const input = container.querySelector("textarea")!;
+      input.setSelectionRange(7, 13);
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Add files or choose a mode"]')!.click());
+      const menu = document.querySelector<HTMLElement>("[data-composer-plus]")!;
+      const item = [...menu.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.startsWith(label))!;
+      await act(async () => item.click());
+      expect(input.value).toBe(`Review ${trigger}`);
+      expect(input.selectionStart).toBe(input.value.length);
+      expect(document.activeElement).toBe(input);
+      expect(document.querySelector(picker)).not.toBeNull();
+      expect(menu.inert).toBe(true);
+      expect(container.querySelector('[aria-label="Add files or choose a mode"]')?.getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("opens the existing MCP picker from the + menu without replacing draft text", async () => {
+      await renderComposer(undefined, vi.fn(), false, 0, "Keep this draft");
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Add files or choose a mode"]')!.click());
+      const item = [...document.querySelectorAll<HTMLButtonElement>("[data-composer-plus] button")].find((button) => button.textContent === "MCP servers")!;
+      await act(async () => item.click());
+      expect(container.querySelector("textarea")!.value).toBe("Keep this draft");
+      expect(document.querySelector('[aria-label="Search MCP servers"]')).not.toBeNull();
+    });
+
+  it.each([
+    { compact: false, hidePickers: false },
+    { compact: false, hidePickers: true },
+    { compact: true, hidePickers: false },
+    { compact: true, hidePickers: true },
+  ])("keeps context actions at the end of the workspace bar (compact=$compact, hidePickers=$hidePickers)", async ({ compact, hidePickers }) => {
+    const onCompactContext = vi.fn();
+    const props = {
+      focused: true,
+      harness: "codex" as const,
+      model: "codex:gpt-5.4",
+      runtimeMode: "supervised" as const,
+      executionCwd: "/repo",
+      compact,
+      hideProjectPicker: hidePickers,
+      hideBranchPicker: hidePickers,
+      context: { used: 1000, window: 10000 },
+      compactSupported: true,
+      onCompactContext,
+      onFocus: vi.fn(),
+      onCwdChange: vi.fn(),
+      onModelChange: vi.fn(),
+      onRuntimeModeChange: vi.fn(),
+      onSubmit: vi.fn(),
+    };
+    await act(async () => root.render(createElement(Composer, props)));
+    const meters = container.querySelectorAll<HTMLButtonElement>('button[title="Context usage"]');
+    expect(meters).toHaveLength(1);
+    const meter = meters[0];
+    const workspaceBar = container.querySelector(".composer-workspace-bar")!;
+    expect(workspaceBar.lastElementChild?.contains(meter)).toBe(true);
+    expect(meter.closest(".composer-footer")).toBeNull();
+    await act(async () => meter.click());
+    const compactAction = () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Compact now")!;
+    await act(async () => compactAction().click());
+    expect(onCompactContext).toHaveBeenCalledOnce();
+
+    await act(async () => root.render(createElement(Composer, { ...props, busy: true })));
+    await act(async () => meter.click());
+    expect(compactAction().disabled).toBe(true);
+    await act(async () => compactAction().click());
+    expect(onCompactContext).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])("hides context with the workspace bar when hideTopBar is set (compact=%s)", async (compact) => {
+    await act(async () => root.render(createElement(Composer, {
+      focused: true, harness: "codex", model: "codex:gpt-5.4", runtimeMode: "supervised", executionCwd: "/repo", hideTopBar: true, compact,
+      context: { used: 1000, window: 10000 }, compactSupported: true, onCompactContext: vi.fn(),
+      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(), onRuntimeModeChange: vi.fn(), onSubmit: vi.fn(),
+    })));
+    expect(container.querySelector(".composer-workspace-bar")).toBeNull();
+    expect(container.querySelector('button[title="Context usage"]')).toBeNull();
+  });
+
   it.each([
     ["/btw", ""],
     ["/btw some text here...", "some text here..."],

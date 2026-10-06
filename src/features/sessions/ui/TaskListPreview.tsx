@@ -63,7 +63,7 @@ export function TaskListPreview({ items, explanation }: Props) {
   );
 }
 
-function TaskState({ status }: { status: TaskListItemStatus }) {
+export function TaskState({ status }: { status: TaskListItemStatus }) {
   const { t: uiT } = useTranslation();
   if (status === "completed") {
     return (

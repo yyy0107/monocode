@@ -13,13 +13,14 @@ import {
   RUNTIME_MODES,
   type RuntimeMode,
 } from "../model/session";
-import { Popover } from "../../../shared/ui/Popover";
+import { ComposerPopover } from "./ComposerPopover";
 
 type Props = {
   value: RuntimeMode;
   onChange: (mode: RuntimeMode) => void;
   onClose?: () => void;
   busy?: boolean;
+  appearance?: "composer";
 };
 
 const MENU_WIDTH = 288;
@@ -29,6 +30,7 @@ export function AccessPicker({
   onChange,
   onClose,
   busy = false,
+  appearance,
 }: Props) {
   const { t: uiT } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -77,7 +79,7 @@ export function AccessPicker({
       <button
         type="button"
         data-access-picker-trigger
-        title={`${uiT(RUNTIME_MODE_HINT[value])}${busy ? " Changes apply to the next turn." : ""}`}
+        title={`${uiT(RUNTIME_MODE_HINT[value])}${busy ? uiT(" Changes apply to the next turn.") : ""}`}
         aria-label={uiT(RUNTIME_MODE_LABEL[value])}
         aria-expanded={open}
         aria-haspopup="listbox"
@@ -108,63 +110,63 @@ export function AccessPicker({
           strokeWidth={1.75}
         />
       </button>
-      {open ? (
-        <Popover
-          anchor={root}
-          side="top"
-          width={MENU_WIDTH}
-          autoFocus
-          onDismiss={(reason) => dismiss(reason === "escape")}
-          role="listbox"
-          aria-label={uiT("Access")}
-          data-access-picker
-          tabIndex={-1}
-          onKeyDown={onMenuKey}
-          className="p-1"
-        >
-          {RUNTIME_MODES.map((mode, index) => {
-            const selected = mode === value;
-            const highlighted = index === active;
-            return (
-              <button
-                key={mode}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setActive(index)}
-                onClick={() => pick(mode)}
-                className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left ${
-                  highlighted || selected
-                    ? "bg-selection text-content"
-                    : "text-content hover:bg-content/5"
-                }`}
-              >
-                <RuntimeModeIcon
-                  mode={mode}
-                  className={`mt-0.5 size-3.5 shrink-0 ${mode === "full-access" ? "text-amber-400/90" : "text-content/70"}`}
-                  strokeWidth={1.75}
-                />
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-medium leading-5">
-                    {uiT(RUNTIME_MODE_LABEL[mode])}
-                  </span>
-                  <span className="mt-0.5 block text-[11px] leading-4 text-content/50">
-                    {uiT(RUNTIME_MODE_HINT[mode])}
-                  </span>
+      <ComposerPopover
+        open={open}
+        enabled={appearance === "composer"}
+        anchor={root}
+        side="top"
+        width={appearance === "composer" ? 256 : MENU_WIDTH}
+        autoFocus
+        onDismiss={(reason) => dismiss(reason === "escape")}
+        role="listbox"
+        aria-label={uiT("Access")}
+        data-access-picker
+        tabIndex={-1}
+        onKeyDown={onMenuKey}
+        className="p-1"
+      >
+        {RUNTIME_MODES.map((mode, index) => {
+          const selected = mode === value;
+          const highlighted = index === active;
+          return (
+            <button
+              key={mode}
+              type="button"
+              role="option"
+              aria-selected={selected}
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setActive(index)}
+              onClick={() => pick(mode)}
+              className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left ${
+                highlighted || selected
+                  ? "bg-selection text-content"
+                  : "text-content hover:bg-content/5"
+              }`}
+            >
+              <RuntimeModeIcon
+                mode={mode}
+                className={`mt-0.5 size-3.5 shrink-0 ${mode === "full-access" ? "text-amber-400/90" : "text-content/70"}`}
+                strokeWidth={1.75}
+              />
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium leading-5">
+                  {uiT(RUNTIME_MODE_LABEL[mode])}
                 </span>
-              </button>
-            );
-          })}
-          {busy ? (
-            <p className="px-2 py-1.5 text-[11px] leading-4 text-content/50">
-              {uiT(
-                "Access changes apply to the next turn. Stop and resend to apply them now.",
-              )}
-            </p>
-          ) : null}
-        </Popover>
-      ) : null}
+                <span className="mt-0.5 block text-[11px] leading-4 text-content/50">
+                  {uiT(RUNTIME_MODE_HINT[mode])}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+        {busy ? (
+          <p className="px-2 py-1.5 text-[11px] leading-4 text-content/50">
+            {uiT(
+              "Access changes apply to the next turn. Stop and resend to apply them now.",
+            )}
+          </p>
+        ) : null}
+      </ComposerPopover>
     </div>
   );
 }
