@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { copyMessage, copyText } from "../../../platform/tauri/clipboard";
 import { readBinaryFile } from "../../../platform/tauri/fs";
 import type { TextRevealOptions } from "./wordFade";
+import type { TextRevealQueue } from "./textRevealQueue";
 import type { Block } from "../model/session";
 
 /** Rendering stays shared; each client supplies its native services. */
@@ -17,6 +18,7 @@ const desktopPlatform = {
 export const TranscriptPlatformContext = createContext<
   typeof desktopPlatform & {
     textReveal?: (blockId?: string) => TextRevealOptions;
+    textRevealQueue?: TextRevealQueue;
     /** Clients without a side panel show a finished tool call's details on tap. */
     openTool?: (block: Block) => void;
   }

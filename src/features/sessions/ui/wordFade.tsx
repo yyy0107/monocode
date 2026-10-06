@@ -1,5 +1,15 @@
 import type { Element, ElementContent, Root } from "hast";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+
+import type { TextRevealSequence } from "./textRevealQueue";
 
 /*
  * Streaming prose, paced. Tokens land in uneven bursts; read straight off the
@@ -32,6 +42,8 @@ export type TextRevealOptions = {
   unit: "word" | "character";
   /** Text already visible when this conversation was opened. */
   initialLength?: number;
+  /** Wait until earlier mounted replies have caught up with their received text. */
+  sequence?: TextRevealSequence;
 };
 
 /** UTF-16 boundaries of complete displayed characters, including emoji. */
@@ -100,6 +112,9 @@ function isSpace(code: number): boolean {
   return code === 32 || code === 10 || code === 9 || code === 13;
 }
 
+const subscribeUnsequenced = () => () => {};
+const unblocked = () => false;
+
 /**
  * The part of `text` to show right now. Text that is already there when the
  * component mounts, or that changes while nothing is streaming, shows at
@@ -112,6 +127,12 @@ export function usePacedText(
   streaming: boolean,
   options?: TextRevealOptions,
 ): { text: string; revealing: boolean } {
+  const sequence = options?.sequence;
+  const blocked = useSyncExternalStore(
+    sequence?.subscribe ?? subscribeUnsequenced,
+    sequence?.isBlocked ?? unblocked,
+    unblocked,
+  );
   const unit = options?.unit ?? "word";
   const initialLength = options?.initialLength ?? text.length;
   const shown = useRef(Math.min(initialLength, text.length));
@@ -122,6 +143,10 @@ export function usePacedText(
   if (!pacing.current) shown.current = text.length;
   shown.current = Math.min(shown.current, text.length);
   const behind = shown.current < text.length;
+  useLayoutEffect(() => {
+    sequence?.setPending(behind);
+  }, [sequence, behind]);
+  useLayoutEffect(() => () => sequence?.setPending(false), [sequence]);
   const boundaries = useMemo(
     () =>
       unit === "character" && (behind || streaming)
@@ -131,7 +156,7 @@ export function usePacedText(
   );
 
   useEffect(() => {
-    if (!pacing.current) return;
+    if (!pacing.current || blocked) return;
     if (!behind) {
       if (!streaming) pacing.current = false;
       return;
@@ -170,7 +195,7 @@ export function usePacedText(
       cancelAnimationFrame(frame);
       window.clearTimeout(hold);
     };
-  }, [text, streaming, behind, unit, boundaries]);
+  }, [text, streaming, behind, unit, boundaries, blocked]);
 
   return {
     text: behind ? text.slice(0, shown.current) : text,

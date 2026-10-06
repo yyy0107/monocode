@@ -104,10 +104,12 @@ it.each([
     });
     await flush();
     expect(shown()).toBe("");
+    expect(node.querySelector(".assistant-message-meta")).toBeNull();
     act(() => vi.advanceTimersByTime(100));
     expect(shown().length).toBeGreaterThan(0);
     expect(shown().length).toBeLessThan(text.length);
     expect(text.startsWith(shown())).toBe(true);
+    expect(node.querySelector(".assistant-message-meta")).toBeNull();
     expect(node.querySelector(".word-fading")).toBeNull();
     for (let i = 0; i < 15; i++) {
       await act(async () => {
@@ -116,6 +118,13 @@ it.each([
       await flush();
     }
     expect(shown()).toBe(text);
+    expect(!!node.querySelector(".assistant-message-meta")).toBe(!streaming);
+    if (streaming) {
+      update([{ ...reply(false), revision: 2 }]);
+      await act(async () => vi.advanceTimersByTime(250));
+      await flush();
+      expect(node.querySelector(".assistant-message-meta")).not.toBeNull();
+    }
   },
 );
 it.each([false, true])(
@@ -134,5 +143,48 @@ it.each([false, true])(
     expect(shown().startsWith(text)).toBe(true);
     expect(shown().length).toBeGreaterThan(text.length);
     expect(shown().length).toBeLessThan(text.length + extra.length);
+  },
+);
+it.each([false, true])(
+  "finishes a long reply before revealing a later short bubble (mobile=%s)",
+  async (mobile) => {
+    const update = await mount(mobile);
+    const long = text.repeat(8);
+    update([{ ...reply(false), text: long }]);
+    await act(async () => vi.advanceTimersByTime(250));
+    await flush();
+    act(() => vi.advanceTimersByTime(100));
+    const firstPartial = shown();
+    expect(firstPartial.length).toBeGreaterThan(0);
+    expect(firstPartial.length).toBeLessThan(long.length);
+    update([
+      { ...reply(false), text: long },
+      {
+        ...reply(false),
+        id: "second",
+        text: "完成",
+        revision: 2,
+        createdAt: 2,
+      },
+    ]);
+    await act(async () => vi.advanceTimersByTime(250));
+    await flush();
+    const bubbles = () =>
+      [...node.querySelectorAll(".assistant-markdown")].map(
+        (bubble) => bubble.textContent,
+      );
+    expect(bubbles()).toHaveLength(2);
+    expect(bubbles()[1]).toBe("");
+    let secondStarted = false;
+    for (let step = 0; step < 60; step++) {
+      await act(async () => vi.advanceTimersByTime(100));
+      const [first, second] = bubbles();
+      if (second) {
+        secondStarted = true;
+        expect(first).toBe(long);
+      }
+    }
+    expect(secondStarted).toBe(true);
+    expect(bubbles()).toEqual([long, "完成"]);
   },
 );

@@ -73,7 +73,10 @@ import {
   followsAfterScroll,
   useLivePhaseScroll,
 } from "./transcript/useLivePhaseScroll";
-import { useTranscriptRenderingPlatform } from "./useTranscriptRenderingPlatform";
+import {
+  AfterTextReveal,
+  useTranscriptRenderingPlatform,
+} from "./useTranscriptRenderingPlatform";
 import { visibleUserPrompt } from "../../orchestration/model/orchestration";
 import { playCue } from "../../settings/model/sounds";
 import { legacyTaskListFromText } from "../model/taskList";
@@ -1163,28 +1166,30 @@ function AgentTranscriptComponent({
                 ? latestTurnAccessory
                 : null}
               {durationMs != null && settled ? (
-                <TurnDuration
-                  elapsedMs={durationMs}
-                  metrics={userBlock?.turnMetrics}
-                  labelHidden={showFoldLine}
-                  modelName={turnModelName}
-                  completedAt={
-                    startedAt != null ? startedAt + durationMs : undefined
-                  }
-                  copyText={turnCopyText(turn)}
-                  onSaveNote={onSaveNote}
-                  harness={turnHarness}
-                  fromHarness={turnHarness}
-                  fromModel={turnModel?.id}
-                  onSecondOpinion={
-                    onSecondOpinion
-                      ? (target) => onSecondOpinion(target, turn)
-                      : undefined
-                  }
-                  onHandoff={
-                    onHandoff ? (target) => onHandoff(target, turn) : undefined
-                  }
-                />
+                <AfterTextReveal entries={turn}>
+                  <TurnDuration
+                    elapsedMs={durationMs}
+                    metrics={userBlock?.turnMetrics}
+                    labelHidden={showFoldLine}
+                    modelName={turnModelName}
+                    completedAt={
+                      startedAt != null ? startedAt + durationMs : undefined
+                    }
+                    copyText={turnCopyText(turn)}
+                    onSaveNote={onSaveNote}
+                    harness={turnHarness}
+                    fromHarness={turnHarness}
+                    fromModel={turnModel?.id}
+                    onSecondOpinion={
+                      onSecondOpinion
+                        ? (target) => onSecondOpinion(target, turn)
+                        : undefined
+                    }
+                    onHandoff={
+                      onHandoff ? (target) => onHandoff(target, turn) : undefined
+                    }
+                  />
+                </AfterTextReveal>
               ) : null}
               {isLastTurn ? (
                 <div ref={transcriptEnd} data-transcript-end aria-hidden="true" />

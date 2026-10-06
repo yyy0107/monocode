@@ -48,7 +48,10 @@ import {
 import { useAssistantReplyMenu } from "./useAssistantReplyMenu";
 import { AgentMarkdown } from "../../sessions/ui/AgentMarkdown";
 import { TranscriptPlatformContext } from "../../sessions/ui/TranscriptPlatform";
-import { useTranscriptRenderingPlatform } from "../../sessions/ui/useTranscriptRenderingPlatform";
+import {
+  AfterTextReveal,
+  useTranscriptRenderingPlatform,
+} from "../../sessions/ui/useTranscriptRenderingPlatform";
 import { Shimmer } from "../../../shared/ui/Shimmer";
 import { Sparkles, X } from "../../../shared/ui/icons";
 import "./assistant.css";
@@ -750,17 +753,21 @@ export function AssistantChat({
                           </div>
                           {(message.kind === "assistant" ||
                             message.kind === "user") && (
-                            <AssistantMessageMeta
-                              text={message.text}
-                              createdAt={message.createdAt}
-                              read={
-                                message.kind === "user" &&
-                                message.id === latestUserMessageId &&
-                                message.readAt !== undefined
-                                  ? message.readAt !== null
-                                  : undefined
-                              }
-                            />
+                            <AfterTextReveal
+                              entries={message.kind === "assistant" ? [message] : []}
+                            >
+                              <AssistantMessageMeta
+                                text={message.text}
+                                createdAt={message.createdAt}
+                                read={
+                                  message.kind === "user" &&
+                                  message.id === latestUserMessageId &&
+                                  message.readAt !== undefined
+                                    ? message.readAt !== null
+                                    : undefined
+                                }
+                              />
+                            </AfterTextReveal>
                           )}
                         </div>
                       )}
