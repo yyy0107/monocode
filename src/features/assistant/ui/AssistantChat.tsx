@@ -35,7 +35,7 @@ import { AssistantMessageMeta } from "./AssistantMessageMeta";
 import { AssistantDateSeparator } from "./AssistantDateSeparator";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { AssistantWorkerDetails } from "./AssistantWorkerDetails";
-import { resolveAssistantTarget } from "../model/assistantNavigation";
+import { resolveAssistantTarget, type AssistantTarget } from "../model/assistantNavigation";
 import { assistantActivityLabel } from "../model/assistantActivity";
 import type {
   AssistantChatChrome,
@@ -99,7 +99,7 @@ export function AssistantChat({
 }: {
   hostKey: string;
   rpc: AssistantRpc;
-  onOpen: (ref: SessionReference) => Promise<void> | void;
+  onOpen: (ref: SessionReference, target: AssistantTarget) => Promise<void> | void;
   onClose?: () => void;
   hostName: string;
   hostPicker?: ReactNode;
@@ -343,6 +343,7 @@ export function AssistantChat({
       setSettingsOpen(false);
     });
   const open = async (ref: SessionReference) => {
+    setError(undefined);
     try {
       const current = await rpc<AssistantView | null>("assistant.get");
       if (!canRead(ref, current))
@@ -353,7 +354,7 @@ export function AssistantChat({
       if (target.session.session.orchestrationLeadId) {
         setWorker(ref);
         setWorkerOpen(true);
-      } else await onOpen(ref);
+      } else await onOpen(ref, target);
     } catch (e) {
       setError(assistantErrorMessage(e));
     }

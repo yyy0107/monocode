@@ -13,8 +13,7 @@ import {
 } from "../../connections/model/remoteProjects";
 import { sharedSessionBackend } from "../../sessions/data/sharedSessionBackend";
 import type { SessionReference } from "../model/assistant";
-import { resolveAssistantTarget } from "../model/assistantNavigation";
-import type { HostProject } from "../../connections/model/protocol";
+import type { AssistantTarget } from "../model/assistantNavigation";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 export function DesktopAssistant({
   onLocalSession,
@@ -46,16 +45,12 @@ export function DesktopAssistant({
         : Promise.reject(new Error("Connect to a Host first.")),
     [machine?.id],
   );
-  const open = async (ref: SessionReference) => {
+  const open = async (ref: SessionReference, { project, session }: AssistantTarget) => {
     if (!machine) return;
-    const { project, session } = await resolveAssistantTarget(
-      machine.environmentId,
-      ref,
-      rpc,
-    );
     if (machine.id === localId) {
-      const projects = await rpc<HostProject[]>("projects.list");
-      configureSharedHost(machine.environmentId, projects, machine.id);
+      // AssistantChat already validated this target against the current Host.
+      // Register the resolved project without fetching the same list again.
+      configureSharedHost(machine.environmentId, [project], machine.id);
       sharedSessionBackend()?.rememberSession(ref.sessionId, project.cwd);
       await onLocalSession(ref.sessionId, project.cwd);
     } else {

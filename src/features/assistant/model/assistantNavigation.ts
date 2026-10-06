@@ -4,11 +4,13 @@ import type {
 } from "../../connections/model/protocol";
 import type { SessionReference } from "./assistant";
 import type { AssistantRpc } from "./assistantClient";
+export type AssistantTarget = { project: HostProject; session: HostSession };
+
 export async function resolveAssistantTarget(
   environmentId: string,
   ref: SessionReference,
   rpc: AssistantRpc,
-): Promise<{ project: HostProject; session: HostSession }> {
+): Promise<AssistantTarget> {
   if (ref.environmentId !== environmentId)
     throw new Error("This conversation belongs to another Host");
   const [projects, session] = await Promise.all([

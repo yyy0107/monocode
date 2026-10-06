@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import type { AssistantMessage, SessionReference } from "../model/assistant";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { ChevronRight, Folder, LoaderCircle } from "../../../shared/ui/icons";
@@ -15,6 +16,19 @@ export function AssistantSessionCard({
   mobile?: boolean;
 }) {
   const { t } = useTranslation();
+  const [opening, setOpening] = useState(false);
+  const openingRef = useRef(false);
+  const open = async () => {
+    if (openingRef.current) return;
+    openingRef.current = true;
+    setOpening(true);
+    try {
+      await onOpen(message.ref);
+    } finally {
+      openingRef.current = false;
+      setOpening(false);
+    }
+  };
   const title = mobile ? sessionDisplayTitle(message.title, message.harness) : message.title;
   const modelName = message.model.startsWith(`${message.harness}:`)
     ? message.model.slice(message.harness.length + 1) : message.model;
@@ -76,12 +90,19 @@ export function AssistantSessionCard({
       {message.error && <p>{message.error}</p>}
       <button
         type="button"
-        aria-label={mobile ? `${t("Open session")}: ${title}` : undefined}
-        disabled={!accessible || message.status === "unavailable"}
-        onClick={() => void onOpen(message.ref)}
+        aria-label={mobile ? `${t(opening ? "Opening…" : "Open session")}: ${title}` : undefined}
+        aria-busy={opening || undefined}
+        disabled={opening || !accessible || message.status === "unavailable"}
+        onClick={() => void open()}
       >
-        {!mobile && t("Open session")}
-        <ChevronRight size={mobile ? 18 : 14} aria-hidden="true" />
+        {!mobile && t(opening ? "Opening…" : "Open session")}
+        {opening ? (
+          <LoaderCircle
+            size={mobile ? 18 : 14}
+            className="shrink-0 animate-spin motion-reduce:animate-none"
+            aria-hidden="true"
+          />
+        ) : <ChevronRight size={mobile ? 18 : 14} aria-hidden="true" />}
       </button>
     </article>
   );
