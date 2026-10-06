@@ -310,7 +310,7 @@ function PanelSections({
         <Section
           icon={ListEnd}
           title={uiT("Tasks")}
-          meta={taskListProgressLabel(tasks)}
+          meta={taskListProgressLabel(tasks, uiT)}
         >
           <ol>
             {folded > 0 ? (

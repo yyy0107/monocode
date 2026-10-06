@@ -2598,5 +2598,6 @@
   "Show details for {value0}": "显示 {value0} 的详情",
   "Hide error details for MonoCode: {value0}": "隐藏 MonoCode 错误详情：{value0}",
   "Show error details for MonoCode: {value0}": "显示 MonoCode 错误详情：{value0}",
-  "Asked a question": "已询问问题"
+  "Asked a question": "已询问问题",
+  "Complete": "已完成"
 }
