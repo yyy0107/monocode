@@ -722,12 +722,13 @@ describe("Checks tab user behavior", () => {
       "https://github.com/acme/web/actions/runs/9",
     );
 
-    // An inbox revision change revalidates the same PR.
+    // Opening Checks resumes polling and immediately revalidates the PR.
     const checksCalls = () =>
       invoke.mock.calls.filter(
         ([command]) => command === "git_github_pr_checks",
       );
-    expect(checksCalls()).toHaveLength(1);
+    expect(checksCalls()).toHaveLength(2);
+    // An inbox revision change revalidates the same PR.
     render(
       createElement(InboxDetail, {
         item: { ...prItem, projectPath: "/tmp/web", provider: "github" },
@@ -740,7 +741,7 @@ describe("Checks tab user behavior", () => {
       }),
     );
     await flush();
-    expect(checksCalls()).toHaveLength(2);
+    expect(checksCalls()).toHaveLength(3);
   });
 
   it("loads checks in the linked side panel where revision stays 0", async () => {

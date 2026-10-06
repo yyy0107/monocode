@@ -89,7 +89,6 @@ import {
   type ExplorerMenuItem,
 } from "../../features/files/ui/ExplorerMenu";
 import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
-import { prefetchGithubWorkItem } from "../../features/inbox/model/githubTasks";
 import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
 import { Popover } from "../../shared/ui/Popover";
 import {
@@ -1674,11 +1673,6 @@ const SessionCard = memo(function SessionCard({
         value0: String(linkedWorkItem.kind === "pr" ? "PR" : "issue"),
         value1: String(linkedWorkItem.number),
       })}
-      onPointerEnter={() => {
-        // Hover usually precedes the click by a few hundred ms, which is
-        // most of what the panel would otherwise spend waiting on GitHub.
-        if (onOpenWorkItem) prefetchGithubWorkItem(session.cwd, linkedWorkItem);
-      }}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.preventDefault();
