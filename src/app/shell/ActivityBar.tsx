@@ -220,15 +220,16 @@ export function ActivityBar({
         <div
           className={`flex shrink-0 flex-col ${row ? "gap-1" : "gap-1.5 pt-1.5"}`}
         >
-          <ActivityAction
-            row={row}
-            ref={projectsAnchor}
-            label={t("All projects")}
-            icon={Folder}
-            active={popup === "projects"}
-            expanded={onShowProjects ? undefined : popup === "projects"}
-            onClick={onShowProjects ?? (() => togglePopup("projects"))}
-          />
+          {!row ? (
+            <ActivityAction
+              ref={projectsAnchor}
+              label={t("All projects")}
+              icon={Folder}
+              active={popup === "projects"}
+              expanded={onShowProjects ? undefined : popup === "projects"}
+              onClick={onShowProjects ?? (() => togglePopup("projects"))}
+            />
+          ) : null}
           {liveAgents.length > 0 ? (
             <ActivityAction
               row={row}
