@@ -7,7 +7,12 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { Check, MessageSquare } from "../../../shared/ui/icons";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  MessageSquare,
+} from "../../../shared/ui/icons";
 import {
   CUSTOM_OPTION_ID,
   buildQuestionReply,
@@ -92,6 +97,10 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
     if (index > 0) setStep(index - 1);
   };
 
+  const goForward = () => {
+    if (!last) setStep(index + 1);
+  };
+
   // Each step starts at its prompt, not wherever the previous one was scrolled.
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
@@ -131,10 +140,38 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
             {title}
           </span>
           {total > 1 ? (
-            <span className="shrink-0 text-[11px] text-content/40">
-              {index + 1} {uiT("of ")}
-              {total}
-            </span>
+            <div
+              className="flex shrink-0 items-center gap-0.5"
+              data-question-navigation
+            >
+              <button
+                type="button"
+                aria-label={uiT("Previous question")}
+                title={uiT("Previous question")}
+                disabled={index === 0}
+                onClick={goBack}
+                className="grid size-6 place-items-center rounded-md text-content/55 hover:bg-content/10 hover:text-content focus-visible:outline-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-30"
+              >
+                <ChevronLeft className="size-3.5" aria-hidden="true" />
+              </button>
+              <span
+                className="px-1 text-[11px] tabular-nums text-content/40"
+                aria-live="polite"
+              >
+                {index + 1} {uiT("of ")}
+                {total}
+              </span>
+              <button
+                type="button"
+                aria-label={uiT("Next question")}
+                title={uiT("Next question")}
+                disabled={last}
+                onClick={goForward}
+                className="grid size-6 place-items-center rounded-md text-content/55 hover:bg-content/10 hover:text-content focus-visible:outline-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-30"
+              >
+                <ChevronRight className="size-3.5" aria-hidden="true" />
+              </button>
+            </div>
           ) : null}
           <button
             type="button"

@@ -93,6 +93,7 @@ describe("QuestionForm keyboard navigation", () => {
     const onReply = vi.fn();
     const options = renderQuestion(onReply);
 
+    expect(container.querySelector("[data-question-navigation]")).toBeNull();
     expect(options[0].tabIndex).toBe(0);
     expect(options[1].tabIndex).toBe(-1);
     act(() => options[0].focus());
@@ -194,6 +195,59 @@ describe("QuestionForm steps", () => {
     return match;
   }
 
+  function navigationButton(label: string): HTMLButtonElement {
+    const match = container.querySelector<HTMLButtonElement>(
+      `[data-question-navigation] button[aria-label="${label}"]`,
+    );
+    if (!match) throw new Error(`No navigation button labelled ${label}`);
+    return match;
+  }
+
+  it("browses unanswered questions without submitting and preserves answers at both boundaries", () => {
+    const onReply = vi.fn();
+    const onInteraction = vi.fn();
+    const prompt = { ...twoQuestions(), autoResolveAt: Date.now() + 60_000 };
+    act(() =>
+      root.render(
+        createElement(QuestionForm, { prompt, onReply, onInteraction }),
+      ),
+    );
+
+    expect(button("Continue").disabled).toBe(true);
+    expect(navigationButton("Previous question").disabled).toBe(true);
+    expect(navigationButton("Next question").disabled).toBe(false);
+    act(() => navigationButton("Previous question").click());
+    expect(container.textContent).toContain("Pick a colour");
+
+    act(() => navigationButton("Next question").click());
+    expect(container.textContent).toContain("Pick a size");
+    expect(
+      container.querySelector("[data-question-navigation]")!.textContent,
+    ).toBe("2 of 2");
+    expect(navigationButton("Previous question").disabled).toBe(false);
+    expect(navigationButton("Next question").disabled).toBe(true);
+    expect(onInteraction).toHaveBeenCalledWith(9);
+    act(() => button("Large").click());
+    act(() => navigationButton("Next question").click());
+    expect(container.textContent).toContain("Pick a size");
+
+    act(() => navigationButton("Previous question").click());
+    expect(button("Continue").disabled).toBe(true);
+    act(() => button("Red").click());
+    act(() => navigationButton("Next question").click());
+    expect(button("Large").getAttribute("aria-pressed")).toBe("true");
+    act(() => navigationButton("Previous question").click());
+    expect(button("Red").getAttribute("aria-pressed")).toBe("true");
+    act(() => navigationButton("Next question").click());
+    expect(onReply).not.toHaveBeenCalled();
+
+    act(() => button("Continue").click());
+    expect(onReply).toHaveBeenCalledExactlyOnceWith(9, {
+      kind: "answered",
+      answers: { colour: ["red"], size: ["large"] },
+    });
+  });
+
   it("returns to the previous question with its answer and submits the change", () => {
     const onReply = vi.fn();
     act(() =>
@@ -222,7 +276,7 @@ describe("QuestionForm steps", () => {
     });
   });
 
-  it("localizes Back and preserves multiline native input while revisiting answers", () => {
+  it("localizes navigation and preserves multiline native input while revisiting answers", () => {
     setUiLanguage("zh-CN");
     const onReply = vi.fn();
     const value = "  first\nsecond  ";
@@ -257,7 +311,10 @@ describe("QuestionForm steps", () => {
       )!.set!.call(editor, revised);
       editor.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    act(() => button("继续").click());
+    act(() => navigationButton("下一题").click());
+    act(() => navigationButton("上一题").click());
+    expect(container.querySelector("textarea")!.value).toBe(revised);
+    act(() => navigationButton("下一题").click());
     expect(button("Large").getAttribute("aria-pressed")).toBe("true");
     act(() => button("继续").click());
 
