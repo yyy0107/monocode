@@ -137,6 +137,43 @@ describe("Composer question focus", () => {
     ],
   };
 
+  it("fills a plain prompt into the composer without saving or sending it", async () => {
+    const onSubmit = vi.fn();
+    const onSaveDraft = vi.fn();
+    const onDraftChange = vi.fn();
+    const onQuoteRequestConsumed = vi.fn();
+    const props = {
+      focused: true,
+      harness: "claude" as const,
+      model: "claude-sonnet",
+      runtimeMode: "supervised" as const,
+      executionCwd: "/repo",
+      initialDraft: "My requirements",
+      hideProjectPicker: true,
+      hideBranchPicker: true,
+      onFocus: vi.fn(),
+      onCwdChange: vi.fn(),
+      onModelChange: vi.fn(),
+      onRuntimeModeChange: vi.fn(),
+      onSubmit,
+      onSaveDraft,
+      onDraftChange,
+      onQuoteRequestConsumed,
+    };
+    await act(async () => root.render(createElement(Composer, props)));
+    await act(async () => root.render(createElement(Composer, {
+      ...props,
+      quoteRequest: { id: 1, text: "Help me design a workflow", mode: "plain" },
+    })));
+    const input = container.querySelector("textarea")!;
+    expect(input.value).toBe("My requirements\n\nHelp me design a workflow\n\n");
+    expect(document.activeElement).toBe(input);
+    expect(onDraftChange).toHaveBeenLastCalledWith(input.value);
+    expect(onQuoteRequestConsumed).toHaveBeenCalledWith(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSaveDraft).not.toHaveBeenCalled();
+  });
+
   it("keeps a typed draft while external native ownership disables sending, then resumes after unlock", async () => {
     const submit = vi.fn();
     const props = { focused: true, harness: "codex" as const, model: "codex:gpt-5.4", runtimeMode: "supervised" as const, executionCwd: "/repo", initialDraft: "continue after the external task", hideProjectPicker: true, hideBranchPicker: true, onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(), onRuntimeModeChange: vi.fn(), onSubmit: submit };

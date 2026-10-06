@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { newSession, type Session } from "../features/sessions/model/session";
+import { ADD_TO_CHAT_EVENT, type AddToChatRequest } from "../features/sessions/model/quoteDraft";
 import {
   newAppViewWorkspaceTab,
   newTab,
@@ -150,6 +151,7 @@ vi.mock("./shell/MenuBar", async () => {
           "View: Inbox",
           "View: Notes",
           "View: Automations",
+          "View: Workflows",
           "View: Search Everywhere",
           "Pane: Close",
           "Tab: Close All",
@@ -474,6 +476,7 @@ vi.mock("../features/sessions/ui/SessionPane", async () => {
           "data-visible": visible,
           "data-surface-visible": useSurfaceVisibility(),
           "data-session-cwd": session.cwd,
+          "data-session-block-count": session.blocks.length,
           "data-session-worktree": session.worktreeCwd,
           "data-session-branch": session.branch,
           "data-composer-focused": composerFocused,
@@ -532,6 +535,23 @@ vi.mock("../features/assistant/ui/DesktopAssistant", async () => {
         { "data-app-view": "assistant" },
         el("textarea", { "aria-label": "Assistant draft" }),
       ),
+  };
+});
+
+vi.mock("../features/workflows/ui/WorkflowsView", async () => {
+  const { createElement: el } = await import("react");
+  const { useWorkflowApp } = await import("../features/workflows/ui/workflowAppContext");
+  return {
+    WorkflowsView: () => {
+      const app = useWorkflowApp();
+      return el("section", { "data-app-view": "workflows" },
+        ...["/repo", "/project-b"].map((cwd) => el("button", {
+          key: cwd,
+          "data-create-workflow": cwd,
+          onClick: () => app?.createViaChat(cwd, "Help me design a workflow"),
+        }, "Create in chat")),
+      );
+    },
   };
 });
 
@@ -1402,6 +1422,40 @@ describe("App workspace app views", () => {
       ).not.toBeNull();
       expect(ownedFileTabs()).toHaveLength(0);
       expect(container.querySelector('[data-sidebar="/repo"]')).not.toBeNull();
+    },
+  );
+});
+
+describe("Workflow create in chat", () => {
+  it.each(["/repo", "/project-b"])(
+    "inserts into the focused composer in %s without saving a draft message",
+    async (cwd) => {
+      await mount();
+      await click('[data-command="View: Workflows"]');
+      const inserts: { request: AddToChatRequest; cwd?: string; focused?: string }[] = [];
+      const onInsert = (event: Event) => {
+        const pane = workspace().querySelector<HTMLElement>('[data-session][data-visible="true"]');
+        inserts.push({
+          request: (event as CustomEvent<AddToChatRequest>).detail,
+          cwd: pane?.dataset.sessionCwd,
+          focused: pane?.dataset.composerFocused,
+        });
+      };
+      window.addEventListener(ADD_TO_CHAT_EVENT, onInsert);
+      try {
+        await click(`[data-create-workflow="${cwd}"]`);
+        expect(inserts).toEqual([{
+          request: { text: "Help me design a workflow", mode: "plain" },
+          cwd,
+          focused: "true",
+        }]);
+        expect(container.querySelector('[data-app-page="workflows"]')?.getAttribute("aria-hidden")).toBe("true");
+        expect(workspace().querySelector('[data-session]')?.getAttribute("data-session-block-count")).toBe("0");
+        expect(container.querySelectorAll('[data-session]')).toHaveLength(cwd === "/repo" ? 2 : 3);
+        if (cwd === "/repo") expect(activeTabId()).toBe(firstId);
+      } finally {
+        window.removeEventListener(ADD_TO_CHAT_EVENT, onInsert);
+      }
     },
   );
 });

@@ -26,7 +26,7 @@ export type WorkflowAppActions = {
   openAgent(request: OpenWorkflowAgentRequest): void;
   /** Open a conversation the Host created (a saved workflow launched from the sidebar). */
   openSession(cwd: string, sessionId: string): void;
-  /** Start a new conversation in a project with this text in the composer. */
+  /** Open a new conversation's composer with this text, without saving or sending a message. */
   createViaChat(cwd: string, prompt: string): void;
   /** Open a project file in the editor. */
   openFile?(path: string): void;

@@ -432,6 +432,7 @@ import {
 import { applyAddToChatRequest } from "../features/sessions/model/addChatToWorkspace";
 import {
   ADD_TO_CHAT_EVENT,
+  requestAddToChat,
   type AddToChatRequest,
 } from "../features/sessions/model/quoteDraft";
 import { createSessionRemover } from "../features/sessions/model/sessionRemoval";
@@ -9843,17 +9844,19 @@ function Workspace({
     setActiveTabId(tab.id);
     setComposerFocused(false);
   }, [tabs, workflowTabRequest]);
-  const [workflowDraftRequest, setWorkflowDraftRequest] = useState<{
+  const [workflowComposerRequest, setWorkflowComposerRequest] = useState<{
     sessionId: string;
     prompt: string;
   } | null>(null);
   useEffect(() => {
-    if (!workflowDraftRequest) return;
-    if (!sessions.some((entry) => entry.id === workflowDraftRequest.sessionId))
+    if (!workflowComposerRequest) return;
+    if (active?.id !== workflowComposerRequest.sessionId || activeAppView)
       return;
-    setWorkflowDraftRequest(null);
-    onSaveDraft(workflowDraftRequest.sessionId, workflowDraftRequest.prompt);
-  }, [onSaveDraft, sessions, workflowDraftRequest]);
+    // Wait until the destination pane is mounted and focused so its composer
+    // receives the text, including when onNewInProject reuses an empty chat.
+    setWorkflowComposerRequest(null);
+    requestAddToChat(workflowComposerRequest.prompt, "plain");
+  }, [active?.id, activeAppView, workflowComposerRequest]);
   const workflowProjects = useMemo(
     () =>
       recents.map((project) => ({
@@ -9899,7 +9902,7 @@ function Workspace({
       openSession: (cwd, sessionId) => onSelectRemoteSession(cwd, sessionId),
       createViaChat: (cwd, prompt) => {
         const sessionId = onNewInProject(cwd);
-        setWorkflowDraftRequest({ sessionId, prompt });
+        setWorkflowComposerRequest({ sessionId, prompt });
       },
     };
   }, [
