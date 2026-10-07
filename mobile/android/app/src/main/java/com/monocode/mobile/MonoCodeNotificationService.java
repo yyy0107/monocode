@@ -169,6 +169,7 @@ public final class MonoCodeNotificationService extends Service {
             if (!current.environmentId.equals(activity.getString("environmentId"))) { stopIfCurrent(current); return; }
             setConnected(current, true);
             if (!MobileActivityTracker.foreground) {
+                MobileActivityTracker.observeAssistant(this, current.environmentId, activity.optJSONObject("assistant"), current.alerts, current.texts);
                 JSONObject result = MobileActivityTracker.observe(this, current.environmentId, activity.getJSONArray("sessions"), current.alerts, current.texts);
                 MonoCodeNotificationsPlugin.publishUnread(result);
             }

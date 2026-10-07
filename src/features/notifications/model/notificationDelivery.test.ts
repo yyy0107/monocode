@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import {
   announceSessionFinished,
   notifySession,
+  notifyApp,
   saveNotificationsEnabled,
   setWindowFocused,
 } from "./notifications";
@@ -19,6 +20,23 @@ beforeEach(() => {
   invoke.mockResolvedValue(undefined);
   saveNotificationsEnabled(true);
   setWindowFocused(false);
+});
+
+it("delivers assistant notifications outside projects while honoring global settings and focus", async () => {
+  const text = { title: "MonoCode", subtitle: "Personal assistant", body: "Done" };
+  setWindowFocused(true);
+  expect(await notifyApp("assistant:host", text, true)).toBe(false);
+  expect(await notifyApp("assistant:host", text, false)).toBe(true);
+  expect(invoke).toHaveBeenLastCalledWith("show_notification", expect.objectContaining({
+    sessionId: "assistant:host", ...text,
+  }));
+  invoke.mockClear();
+  saveNotificationsEnabled(false);
+  setWindowFocused(false);
+  expect(await notifyApp("assistant:host", text, false)).toBe(false);
+  expect(invoke).not.toHaveBeenCalled();
+  saveNotificationsEnabled(true);
+  expect(await notifyApp("assistant:host", text, true)).toBe(true);
 });
 
 it("returns false without a banner or sound for a non-project path", async () => {

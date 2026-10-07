@@ -142,6 +142,8 @@ public final class MonoCodeNotificationsPlugin extends Plugin {
             String environmentId = call.getString("environmentId");
             if (environmentId == null) { call.reject("Missing Host identity"); return; }
             Double revision = call.getDouble("revision");
+            MobileActivityTracker.assistantVisible(getContext(), environmentId,
+                call.getBoolean("foreground", true) && call.getBoolean("assistantVisible", false));
             call.resolve(MobileActivityTracker.visible(getContext(), environmentId, call.getString("sessionId"),
                 revision == null ? null : revision.longValue(), call.getBoolean("foreground", true),
                 call.getString("lastCompletedRunId"), call.getString("pendingInputKey")));
@@ -152,6 +154,7 @@ public final class MonoCodeNotificationsPlugin extends Plugin {
             String environmentId = call.getString("environmentId");
             if (environmentId == null || call.getArray("sessions") == null) { call.reject("Missing activity snapshot"); return; }
             JSONObject texts = new JSONObject(MobileActivityTracker.preferences(getContext()).getString("texts", "{}"));
+            MobileActivityTracker.observeAssistant(getContext(), environmentId, call.getObject("assistant"), call.getBoolean("enabled", false), texts);
             call.resolve(MobileActivityTracker.observe(getContext(), environmentId, call.getArray("sessions"), call.getBoolean("enabled", false), texts));
         } catch (Exception error) { call.reject("Unable to track conversation activity", error); }
     }
@@ -169,12 +172,16 @@ public final class MonoCodeNotificationsPlugin extends Plugin {
         });
     }
     private void captureOpen(Intent intent) {
-        if (intent == null || !intent.hasExtra("monocodeSession")) return;
+        if (intent == null || (!intent.hasExtra("monocodeSession") && !intent.getBooleanExtra("monocodeAssistant", false))) return;
         JSObject target = new JSObject();
         target.put("environmentId", intent.getStringExtra("monocodeEnvironment"));
-        target.put("projectId", intent.getStringExtra("monocodeProject"));
-        target.put("sessionId", intent.getStringExtra("monocodeSession"));
+        if (intent.getBooleanExtra("monocodeAssistant", false)) target.put("kind", "assistant");
+        else {
+            target.put("projectId", intent.getStringExtra("monocodeProject"));
+            target.put("sessionId", intent.getStringExtra("monocodeSession"));
+        }
         intent.removeExtra("monocodeSession");
+        intent.removeExtra("monocodeAssistant");
         if (hasListeners("open")) notifyListeners("open", target);
         else pendingOpen = target;
     }

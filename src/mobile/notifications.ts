@@ -6,10 +6,12 @@ import {
 import type { HostSessionSummary } from "../features/connections/model/protocol";
 import type { Connection } from "./client";
 import { translate } from "../shared/i18n/language";
+import type { AssistantNotificationActivity } from "../features/assistant/model/assistantNotifications";
 
 export type MobileNotificationPermission =
   "prompt" | "granted" | "denied" | "unsupported";
-export type MobileNotificationTarget = {
+export type MobileNotificationTarget = { environmentId: string; kind: "assistant" } | {
+  kind?: "session";
   environmentId: string;
   projectId: string;
   sessionId: string;
@@ -27,6 +29,7 @@ export interface MobileNotificationsPlugin {
   observe(options: {
     environmentId: string;
     sessions: readonly HostSessionSummary[];
+    assistant?: AssistantNotificationActivity | null;
     enabled: boolean;
   }): Promise<ActivityResult>;
   setVisible(options: {
@@ -34,6 +37,7 @@ export interface MobileNotificationsPlugin {
     sessionId?: string;
     revision?: number;
     foreground: boolean;
+    assistantVisible?: boolean;
     lastCompletedRunId?: string | null;
     pendingInputKey?: string | null;
   }): Promise<ActivityResult>;
@@ -59,6 +63,7 @@ export function mobileNotificationTexts(host = ""): Record<string, string> {
     channel: translate("Conversation notifications"),
     reply: translate("A new reply is ready."),
     input: translate("This conversation needs your input."),
+    assistant: translate("Assistant"),
     remoteChannel: translate("Remote connection"),
     remote: translate("Remote"),
     connected: translate("Connected to {host}", { host }),
@@ -114,4 +119,22 @@ export function showBrowserActivityNotification(
   } catch {
     /* A denied or unavailable banner never loses unread state. */
   }
+}
+
+export function showBrowserAssistantNotification(
+  activity: AssistantNotificationActivity,
+  environmentId: string,
+  onOpen: (target: MobileNotificationTarget) => void,
+): void {
+  if (!activity.latest || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  try {
+    const notification = new Notification(activity.name || translate("Assistant"), {
+      body: activity.latest.text || mobileNotificationTexts()[activity.latest.kind],
+      tag: `${environmentId}:assistant`,
+    });
+    notification.onclick = () => {
+      onOpen({ environmentId, kind: "assistant" });
+      notification.close();
+    };
+  } catch { /* Unread assistant messages remain available in the app. */ }
 }

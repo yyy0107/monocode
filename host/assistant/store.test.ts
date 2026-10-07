@@ -203,6 +203,27 @@ it("canonical signatures ignore object key order but preserve content", () => {
   );
   expect(signature([1, 2])).not.toBe(signature([2, 1]));
 });
+
+it("projects only durable public assistant activity and drops resolved input snapshots", () => {
+  const { assistant } = setup();
+  expect(assistant.notificationActivity()).toBeNull();
+  assistant.initialize({ harness: "codex", model: "test" });
+  expect(assistant.notificationActivity()?.latest).toBeUndefined();
+  assistant.message({ id: "reply", kind: "assistant", text: "Working", streaming: true });
+  expect(assistant.notificationActivity()?.latest).toBeUndefined();
+  const reply = assistant.message({ id: "reply", kind: "assistant", text: "Finished\n\nDetails", streaming: false });
+  expect(assistant.notificationActivity()?.latest).toEqual({ id: "reply", revision: reply.revision, kind: "reply", text: "Finished" });
+  const input = { id: "input", kind: "input" as const, text: "Approve?", resolved: false, inputKind: "approval" as const,
+    brainGeneration: 1, runId: "run", requestId: 1 };
+  assistant.message(input);
+  expect(assistant.notificationActivity()?.latest?.kind).toBe("input");
+  assistant.message({ ...input, resolved: true });
+  assistant.message({ id: "user", kind: "user", text: "Thanks" });
+  assistant.message({ id: "status", kind: "status", text: "Internal" });
+  assistant.message({ id: "empty", kind: "assistant", text: " \n\t " });
+  expect(assistant.notificationActivity()?.latest?.id).toBe("reply");
+  expect(assistant.notificationActivity()?.revision).toBe(7);
+});
 it("recovers an accepted create receipt and one card after a crash before projection", () => {
   const { assistant, store } = setup();
   const config = assistant.initialize({ harness: "codex", model: "test" });

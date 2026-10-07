@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { assistantNotificationActivity } from "../../src/features/assistant/model/assistantNotifications";
 import type { HostStore } from "../store";
 import {
   defaultAssistantPersona,
@@ -320,6 +321,25 @@ export class AssistantStore {
       )
       .all()
       .map((row) => JSON.parse(String(row.payload)));
+  }
+  notificationActivity() {
+    const assistant = this.get();
+    if (!assistant) return null;
+    const row = this.host.db.prepare(`
+      SELECT payload FROM assistant_messages AS message
+      WHERE NOT EXISTS (
+        SELECT 1 FROM assistant_messages AS newer
+        WHERE newer.id = message.id AND newer.revision > message.revision
+      ) AND (
+        (json_extract(payload, '$.kind') = 'assistant'
+          AND COALESCE(json_extract(payload, '$.streaming'), 0) = 0
+          AND (length(trim(json_extract(payload, '$.text'), char(9, 10, 13, 32))) > 0
+            OR json_array_length(payload, '$.attachments') > 0))
+        OR (json_extract(payload, '$.kind') = 'input'
+          AND COALESCE(json_extract(payload, '$.resolved'), 0) = 0)
+      ) ORDER BY revision DESC LIMIT 1
+    `).get();
+    return assistantNotificationActivity(assistant, row ? [JSON.parse(String(row.payload))] : []);
   }
   receipt(id: string, sig: string): unknown | undefined {
     const row = this.host.db

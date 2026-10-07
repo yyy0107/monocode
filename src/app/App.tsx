@@ -11186,6 +11186,7 @@ function Workspace({
   const windowLeading = (
     <DesktopAssistantButton
       active={activeAppView === "assistant"}
+      selectedMachineId={assistantMachineId}
       onOpen={onOpenAssistant}
     />
   );

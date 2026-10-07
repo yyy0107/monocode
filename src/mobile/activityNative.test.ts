@@ -86,6 +86,21 @@ async function render() {
   });
 }
 describe("Android activity notification bridge", () => {
+  it("shares assistant delivery and visibility with the background receiver and routes assistant clicks", async () => {
+    const assistant = { id: "assistant", name: "Personal assistant", revision: 2,
+      latest: { id: "reply", revision: 2, kind: "reply" as const, text: "Finished" } };
+    vi.mocked(client.activity).mockResolvedValue({ environmentId: "host", sessions: [], assistant });
+    options = { ...options, assistantVisible: true };
+    await render();
+    expect(native.visible).toHaveBeenLastCalledWith(expect.objectContaining({ assistantVisible: true }));
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(native.observe).toHaveBeenLastCalledWith({ environmentId: "host", sessions: [], assistant, enabled: true });
+    await act(async () => native.callbacks.get("open")!({ environmentId: "host", kind: "assistant" }));
+    expect(options.onOpen).toHaveBeenCalledWith({ environmentId: "host", kind: "assistant" });
+    await act(async () => latest.setNotificationsEnabled(false));
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(native.observe).toHaveBeenLastCalledWith(expect.objectContaining({ assistant, enabled: false }));
+  });
   it("starts background reception with the pinned connection and keeps it running after the WebView loses foreground", async () => {
     await render();
     expect(native.start).toHaveBeenCalledWith({

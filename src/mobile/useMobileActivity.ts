@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { takeAssistantNotification } from "../features/assistant/model/assistantNotifications";
 import type { MobileClient } from "./client";
 import {
   loadMobileActivity,
@@ -13,6 +14,7 @@ import {
   mobileNotificationTexts,
   nativeActivityNotifications,
   showBrowserActivityNotification,
+  showBrowserAssistantNotification,
   type MobileNotificationPermission,
   type MobileNotificationTarget,
 } from "./notifications";
@@ -36,6 +38,7 @@ export function useMobileActivity(
   options: {
     connected: boolean;
     foreground: boolean;
+    assistantVisible?: boolean;
     visibleSession?: {
       id: string;
       projectId: string;
@@ -47,7 +50,7 @@ export function useMobileActivity(
     onOpen: (target: MobileNotificationTarget) => void | Promise<void>;
   },
 ) {
-  const { connected, foreground, visibleSession, language } = options;
+  const { connected, foreground, visibleSession, assistantVisible, language } = options;
   const environmentId = connected
     ? client.connection?.environmentId
     : undefined;
@@ -214,6 +217,7 @@ export function useMobileActivity(
       void MobileNotifications.setVisible({
         environmentId,
         foreground,
+        assistantVisible,
         sessionId: visibleSession?.id,
         revision: visibleSession?.revision,
         ...(visibleSession?.lastCompletedRunId !== undefined
@@ -242,6 +246,7 @@ export function useMobileActivity(
   }, [
     environmentId,
     foreground,
+    assistantVisible,
     visibleSession?.id,
     visibleSession?.revision,
     visibleSession?.lastCompletedRunId,
@@ -268,6 +273,7 @@ export function useMobileActivity(
           const state = await MobileNotifications.observe({
             environmentId,
             sessions: result.sessions,
+            assistant: result.assistant,
             enabled:
               current.current.enabled &&
               current.current.permission === "granted",
@@ -280,6 +286,10 @@ export function useMobileActivity(
               ]),
             );
         } else if (activity.current) {
+          const assistantNotice = takeAssistantNotification(environmentId, result.assistant ?? null);
+          if (assistantNotice && result.assistant && !current.current.assistantVisible &&
+            current.current.enabled && current.current.permission === "granted")
+            showBrowserAssistantNotification(result.assistant, environmentId, onOpen);
           const notices = activity.current.observe(
             result.sessions,
             current.current.visibleSession?.id,

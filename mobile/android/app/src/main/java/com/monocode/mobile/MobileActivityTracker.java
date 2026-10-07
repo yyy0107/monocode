@@ -27,6 +27,7 @@ final class MobileActivityTracker {
     // A sticky service may create the process without an activity/WebView.
     static volatile boolean foreground = false;
     static String visibleEnvironment, visibleSession;
+    static String visibleAssistantEnvironment;
 
     static SharedPreferences preferences(Context context) {
         return context.getSharedPreferences("monocode-session-activity", Context.MODE_PRIVATE);
@@ -115,6 +116,39 @@ final class MobileActivityTracker {
         }
         return result(environmentId, state);
     }
+    static synchronized void assistantVisible(Context context, String environmentId, boolean visible) {
+        visibleAssistantEnvironment = visible && foreground ? environmentId : null;
+        if (visible && foreground) cancel(context, environmentId, "assistant");
+    }
+    static synchronized void observeAssistant(Context context, String environmentId, JSONObject activity, boolean enabled, JSONObject texts) throws JSONException {
+        // Older Hosts omit the optional assistant snapshot.
+        if (activity == null) return;
+        String key = "assistant:" + environmentId;
+        JSONObject stored = new JSONObject(preferences(context).getString(key, "{}"));
+        AssistantNotificationState state = new AssistantNotificationState();
+        state.id = nullable(stored, "id"); state.messageId = nullable(stored, "messageId");
+        state.revision = stored.optLong("revision", 0);
+        JSONObject latest = activity.optJSONObject("latest");
+        boolean notify = state.observe(activity.getString("id"), activity.getLong("revision"),
+            latest == null ? null : latest.getString("id"), latest == null ? 0 : latest.getLong("revision"));
+        if (!preferences(context).edit().putString(key, new JSONObject().put("id", state.id)
+            .put("revision", state.revision).put("messageId", state.messageId).toString()).commit())
+            throw new IllegalStateException("Unable to persist assistant notification state");
+        if (!notify || latest == null || !enabled || (foreground && environmentId.equals(visibleAssistantEnvironment))
+            || !NotificationManagerCompat.from(context).areNotificationsEnabled()) return;
+        channels(context, texts);
+        String kind = latest.optString("kind", "reply");
+        String body = latest.optString("text").trim();
+        if (body.isEmpty()) body = texts.optString(kind, "input".equals(kind)
+            ? "This conversation needs your input." : "A new reply is ready.");
+        String title = activity.optString("name");
+        if (title.isEmpty()) title = texts.optString("assistant", "Assistant");
+        Intent intent = new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .setData(new Uri.Builder().scheme("monocode-notification").authority("assistant").appendPath(environmentId).build())
+            .putExtra("monocodeEnvironment", environmentId).putExtra("monocodeAssistant", true);
+        PendingIntent open = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        showNotice(context, environmentId + ":assistant", title, body, open);
+    }
     static void channels(Context context, JSONObject texts) {
         clearMonitoringNotification(context);
         if (Build.VERSION.SDK_INT < 26) return;
@@ -140,13 +174,18 @@ final class MobileActivityTracker {
     }
     private static void show(Context context, String environmentId, SessionActivityState.Notice notice, JSONObject texts) {
         String body = notice.body(texts.optString(notice.input ? "input" : "reply", notice.input ? "This conversation needs your input." : "A new reply is ready."));
+        showNotice(context, environmentId + ":" + notice.activity.id,
+            notice.activity.title.isEmpty() ? "MonoCode" : notice.activity.title, body,
+            openIntent(context, environmentId, notice.activity.projectId, notice.activity.id));
+    }
+    private static void showNotice(Context context, String tag, String title, String body, PendingIntent open) {
         NotificationCompat.Builder notification = new NotificationCompat.Builder(context, REPLIES)
-            .setSmallIcon(R.drawable.ic_stat_monocode).setContentTitle(notice.activity.title.isEmpty() ? "MonoCode" : notice.activity.title)
+            .setSmallIcon(R.drawable.ic_stat_monocode).setContentTitle(title)
             .setContentText(body).setStyle(new NotificationCompat.BigTextStyle().bigText(body))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE).setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_SOUND | NotificationCompat.DEFAULT_VIBRATE)
-            .setAutoCancel(true).setContentIntent(openIntent(context, environmentId, notice.activity.projectId, notice.activity.id));
-        try { NotificationManagerCompat.from(context).notify(environmentId + ":" + notice.activity.id, 1, notification.build()); }
+            .setAutoCancel(true).setContentIntent(open);
+        try { NotificationManagerCompat.from(context).notify(tag, 1, notification.build()); }
         catch (SecurityException ignored) { /* Permission can be revoked after the check. */ }
     }
     static void cancel(Context context, String environmentId, String sessionId) {

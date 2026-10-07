@@ -365,6 +365,12 @@ describe("remote host API", () => {
     const listed = await s.call("sessions.activity");
     expect(listed.status).toBe(200);
     expect(listed.value.result.environmentId).toBe(s.store.environmentId);
+    expect(listed.value.result.assistant).toBeNull();
+    s.engine.assistant.store.initialize({ harness: "codex", model: "codex:test" });
+    s.engine.assistant.store.message({ id: "assistant-reply", kind: "assistant", text: "Your reminder is ready." });
+    expect((await s.call("sessions.activity")).value.result.assistant.latest).toMatchObject({
+      id: "assistant-reply", kind: "reply", text: "Your reminder is ready.",
+    });
     expect(new Set(listed.value.result.sessions.map((row: { projectId: string }) => row.projectId)))
       .toEqual(new Set([s.project.id, other.id]));
     for (const row of listed.value.result.sessions) {

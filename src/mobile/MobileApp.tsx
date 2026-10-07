@@ -947,12 +947,18 @@ export function MobileApp() {
   const activity = useMobileActivity(client, {
     connected,
     foreground,
+    assistantVisible: assistantOpen && !notesOpen,
     visibleSession: view === "chat" && !pageOverlayOpen && !drawerOpen && !loading && sessionConfirmed && snapshot && snapshot.session.id === sessionId
       ? { id: snapshot.session.id, projectId: snapshot.projectId, revision: snapshot.revision,
           lastCompletedRunId: snapshot.lastCompletedRunId, pendingInputKey: pendingSessionInputKey(snapshot.session, snapshot.runId) }
       : undefined,
     language,
     onOpen: async (target) => {
+      if (target.kind === "assistant") {
+        setNotesOpen(false);
+        onDrawerAssistant();
+        return;
+      }
       const openedAt = navigation.current;
       try {
         const items = await client.projects();

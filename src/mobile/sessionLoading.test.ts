@@ -151,6 +151,16 @@ async function open(id: string) {
 }
 
 describe("mobile conversation loading UI", () => {
+  it("opens the assistant from a system notification without requesting a worker session", async () => {
+    await mount();
+    host.session.mockClear();
+    const options = host.activity.mock.calls.at(-1)![0];
+    await act(async () => options.onOpen({ environmentId: "host", kind: "assistant" }));
+    expect(host.activity.mock.calls.at(-1)![0].assistantVisible).toBe(true);
+    expect(node.querySelector('.mobile-assistant-overlay[aria-hidden="true"]')).toBeNull();
+    expect(node.querySelector(".mobile-assistant-overlay")).not.toBeNull();
+    expect(host.session).not.toHaveBeenCalled();
+  });
   it("lets the visible drawer own list polling while Home is covered and resumes Home immediately", async () => {
     await mount();
     host.sessions.mockClear();

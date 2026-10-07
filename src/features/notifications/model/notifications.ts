@@ -270,17 +270,26 @@ async function notifyProjectSession(
   subject: NotificationSubject,
 ): Promise<boolean> {
   if (!allowsProjectNotification(subject)) return false;
+  return notifyApp(session.id, notificationText(session, event), sessionVisible);
+}
+
+/** Global notification policy also applies to messages outside project sessions. */
+export async function notifyApp(
+  targetId: string,
+  text: NotificationText,
+  visible: boolean,
+): Promise<boolean> {
   const decision = shouldNotify({
     enabled: loadNotificationsEnabled(),
     permission,
     windowFocused,
-    sessionVisible,
+    sessionVisible: visible,
   });
   if (!decision) return false;
-  const { title, subtitle, body } = notificationText(session, event);
+  const { title, subtitle, body } = text;
   try {
     await invoke("show_notification", {
-      sessionId: session.id,
+      sessionId: targetId,
       title,
       subtitle,
       body,

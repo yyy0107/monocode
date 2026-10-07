@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { HostSessionSummary } from "../features/connections/model/protocol";
 import { setUiLanguage } from "../shared/i18n/language";
-import { mobileNotificationTexts, showBrowserActivityNotification } from "./notifications";
+import { mobileNotificationTexts, showBrowserActivityNotification, showBrowserAssistantNotification } from "./notifications";
 
 afterEach(() => {
   setUiLanguage("en");
@@ -76,4 +76,15 @@ it("shows the concrete input request and falls back for older Hosts without show
   delete current.notificationPreview;
   showBrowserActivityNotification(current, "reply", "host", vi.fn());
   expect(notification.mock.calls.at(-1)?.[1]).toMatchObject({ body: "收到了一条新回复。" });
+});
+
+it("opens the assistant from its browser notification and localizes attachment-only replies", () => {
+  const { notification, banner } = browserNotification();
+  const open = vi.fn();
+  setUiLanguage("zh-CN");
+  showBrowserAssistantNotification({ id: "assistant", name: "小管家", revision: 2,
+    latest: { id: "reply", revision: 2, kind: "reply", text: "" } }, "host", open);
+  expect(notification).toHaveBeenCalledWith("小管家", { body: "收到了一条新回复。", tag: "host:assistant" });
+  banner.onclick?.();
+  expect(open).toHaveBeenCalledWith({ environmentId: "host", kind: "assistant" });
 });

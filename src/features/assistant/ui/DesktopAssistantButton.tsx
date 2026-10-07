@@ -1,4 +1,15 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { NOTIFICATION_CLICK_EVENT, notifyApp } from "../../notifications/model/notifications";
+import { sharedHostMachineId } from "../../connections/model/remoteProjects";
+import { translate } from "../../../shared/i18n/language";
+import {
+  assistantNotificationActivity,
+  parseAssistantNotificationTarget,
+  assistantNotificationTarget,
+  takeAssistantNotification,
+} from "../model/assistantNotifications";
 import { remoteRequest } from "../../connections/model/connections";
 import {
   REMOTE_PROVIDERS,
@@ -16,13 +27,32 @@ import { Bot } from "../../../shared/ui/icons";
 
 export function DesktopAssistantButton({
   active,
+  selectedMachineId,
   onOpen,
 }: {
   active: boolean;
+  selectedMachineId?: string;
   onOpen: (machineId?: string) => void;
 }) {
   const { t } = useTranslation();
   const hosts = useDesktopAssistantHosts();
+  const visibleHost = active
+    ? (hosts.find((host) => host.id === (selectedMachineId ?? sharedHostMachineId())) ?? hosts[0])?.environmentId
+    : undefined;
+  const current = useRef({ hosts, visibleHost, onOpen });
+  current.current = { hosts, visibleHost, onOpen };
+  useEffect(() => {
+    const unlisten = listen<string>(NOTIFICATION_CLICK_EVENT, ({ payload }) => {
+      const target = parseAssistantNotificationTarget(payload);
+      if (!target || target.windowLabel !== getCurrentWindow().label) return;
+      const host = current.current.hosts.find((host) => host.environmentId === target.environmentId);
+      if (!host) return;
+      const win = getCurrentWindow();
+      void win.unminimize().then(() => win.setFocus()).catch(() => {});
+      current.current.onOpen(host.id);
+    });
+    return () => { void unlisten.then((stop) => stop()).catch(() => {}); };
+  }, []);
   const targets = JSON.stringify(
     hosts.map(({ id, environmentId }) => ({ id, environmentId })),
   );
@@ -58,11 +88,21 @@ export function DesktopAssistantButton({
           }
           if (disposed || !supported) return;
           const next = await client.sync();
-          if (!disposed)
+          if (!disposed) {
+            const activity = assistantNotificationActivity(next.assistant, next.messages);
+            const notice = takeAssistantNotification(machine.environmentId, activity);
+            if (notice && activity)
+              void notifyApp(assistantNotificationTarget(machine.environmentId, getCurrentWindow().label), {
+                title: "MonoCode",
+                subtitle: activity.name || translate("Assistant"),
+                body: notice.text || translate(notice.kind === "input"
+                  ? "This conversation needs your input." : "A new reply is ready."),
+              }, current.current.visibleHost === machine.environmentId);
             setMessages((current) => ({
               ...current,
               [machine.environmentId]: next.messages,
             }));
+          }
         } catch {
           // Keep unread messages through a disconnect and back off before retrying.
           delay = 30000;

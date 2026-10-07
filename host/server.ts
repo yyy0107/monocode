@@ -422,6 +422,7 @@ export function createHostServer(
           case "sessions.activity":
             result = {
               environmentId: engine.store.environmentId,
+              assistant: engine.assistant.store.notificationActivity(),
               sessions: engine.store.summaries().filter((session) => !session.orchestrationLeadId && !session.workflowParentId && !session.assistantOwnerId),
             };
             break;
