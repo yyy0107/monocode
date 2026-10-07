@@ -2056,8 +2056,6 @@ html.has-user-accent .mobile-send:not(:disabled) {
 }
 .mobile-sheet-title {
   margin: 0 14px 10px;
-  font-size: calc(18px + var(--mobile-popup-font-step, 0px));
-  font-weight: 600;
 }
 .mobile-sheet-backdrop[data-placement="dialog"][data-fold-state="opening"] .mobile-sheet {
   animation: mobile-sheet-pop 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -4445,18 +4443,18 @@ button.mobile-settings-row:active {
   min-width: 0;
   text-align: center;
 }
+.mobile-sheet-title,
 .mobile-sheet-header-title strong {
-  font-size: calc(19px + var(--mobile-popup-font-step, 0px));
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.3;
+}
+.mobile-sheet-header-title strong {
   overflow-wrap: anywhere;
 }
 .mobile-sheet:has(> .mobile-sheet-content > .mobile-tool-sheet),
 .mobile-sheet-pages .mobile-page-layer:has(.mobile-tool-sheet) {
   --mobile-popup-font-step: 0px;
-}
-.mobile-sheet:has(.mobile-activity-sheet, .mobile-tool-sheet) .mobile-sheet-header-title strong {
-  font-size: calc(16px + var(--mobile-popup-font-step, 0px));
 }
 .mobile-sheet-header-title small {
   max-width: 100%;
@@ -4465,6 +4463,24 @@ button.mobile-settings-row:active {
   white-space: nowrap;
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
   font-size: calc(15px + var(--mobile-popup-font-step, 0px));
+}
+.mobile-file-sheet-header .mobile-sheet-header-title strong {
+  max-width: 100%;
+}
+.mobile-file-sheet-header .mobile-sheet-header-title small {
+  font-size: 12px;
+}
+.mobile-file-sheet-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.mobile-file-sheet-name > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .mobile-sheet[data-detents] .mobile-tool-sheet,
 .mobile-sheet[data-detents] .mobile-activity-sheet,
@@ -4531,7 +4547,7 @@ button.mobile-settings-row:active {
   background: transparent;
 }
 .mobile-file-sheet[data-view="source"] :is([data-streamdown="code-block-header"],
-  .markdown-code-copy, .markdown-code-path, .markdown-code-fallback-label) {
+  .markdown-code-icon, .markdown-code-copy, .markdown-code-path, .markdown-code-fallback-label) {
   display: none;
 }
 .mobile-file-sheet[data-view="source"] [data-streamdown="code-block-body"] {

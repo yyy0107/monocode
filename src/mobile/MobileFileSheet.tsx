@@ -3,6 +3,7 @@ import { isLongText, ReadonlyTextView } from "../shared/ui/ReadonlyTextView";
 import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
 import { AgentMarkdown } from "../features/sessions/ui/AgentMarkdown";
 import { sniffImageMime } from "../features/files/model/filePreview";
+import { FileTypeIcon } from "../features/files/ui/FileTypeIcon";
 import { displayPath } from "../shared/lib/paths";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { MobileSheet, MobileSheetHeader } from "./MobileSheet";
@@ -212,7 +213,16 @@ export function MobileFileSheet({
         )}
       </div>
   );
-  const header = { title: name, subtitle: displayPath(path, cwd) };
+  const header = {
+    className: "mobile-file-sheet-header",
+    title: (
+      <span className="mobile-file-sheet-name">
+        <FileTypeIcon name={name} isDir={false} size={16} />
+        <span title={name}>{name}</span>
+      </span>
+    ),
+    subtitle: displayPath(path, cwd),
+  };
   if (embedded) return <><MobileSheetHeader {...header} onBack={onBack} onClose={onClose} />
     <div className="mobile-sheet-page-scroll" data-mobile-page-scroll>{content}</div></>;
   return <MobileSheet open={open} onExited={onExited} title="File preview" onClose={onClose} onBack={onBack}

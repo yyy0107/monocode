@@ -54,15 +54,16 @@ export const SHEET_WIDTH = {
 
 export type MobileSheetPoint = { x: number; y: number };
 
-export function MobileSheetHeader({ title, subtitle, onBack, onClose }: {
-  title: string;
+export function MobileSheetHeader({ title, subtitle, className, onBack, onClose }: {
+  title: ReactNode;
   subtitle?: string;
+  className?: string;
   onBack?: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   return (
-    <header className="mobile-sheet-header">
+    <header className={`mobile-sheet-header${className ? ` ${className}` : ""}`}>
       <button type="button" className="mobile-sheet-header-button"
         aria-label={t(onBack ? "Back" : "Close")} onClick={onBack ?? onClose}>
         {onBack ? <ArrowLeft size={24} /> : <X size={24} />}
@@ -120,7 +121,7 @@ export function MobileSheet({
   /** Opaque forms avoid filtering the entire viewport while scrolling. */
   surface?: "glass" | "solid";
   /** A centred title row with a close button, or Back when `onBack` is set. */
-  header?: { title: string; subtitle?: string };
+  header?: { title: ReactNode; subtitle?: string; className?: string };
   children: ReactNode;
 }) {
   const { t } = useTranslation();
