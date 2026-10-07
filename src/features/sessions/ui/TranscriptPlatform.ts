@@ -26,6 +26,8 @@ export const TranscriptPlatformContext = createContext<
     openActivity?: (steps: Block[]) => void;
     /** Clients without a side panel read a whole plan in their own view. */
     openPlan?: (blockId: string) => void;
+    /** Show answered questions as a flat question/answer list instead of a fold. */
+    answeredQuestionsInline?: boolean;
     /** Open a saved question in the client's answer surface. */
     openQuestion?: (blockId: string) => void;
     /** The client shows the live turn clock elsewhere, so fold lines name only the phase. */

@@ -1,10 +1,11 @@
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
+import { formatBuildVersion } from "../../../shared/lib/buildVersion";
 import { startWindowDrag } from "../../../app/shell/startWindowDrag";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { setUiLanguage, type UiLanguage } from "../../../shared/i18n/language";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ConnectionsSettings } from "../../connections/ui/ConnectionsSettings";
+import { ConnectionsPage } from "../../connections/ui/ConnectionsPage";
 import { ask } from "@tauri-apps/plugin-dialog";
 import {
   ArrowDownCircle,
@@ -611,7 +612,9 @@ export function SettingsView({
                   {section === "general" ? (
                     <GeneralPage onOpenWhatsNew={onOpenWhatsNew} />
                   ) : null}
-                  {section === "connections" ? <ConnectionsSettings /> : null}
+                  {section === "connections" ? (
+                    <ConnectionsPage revealed={revealed} />
+                  ) : null}
                   {section === "appearance" ? (
                     <AppearancePage appearance={appearance} />
                   ) : null}
@@ -1908,7 +1911,7 @@ function UpdateRow({
 
   const status =
     snapshot.phase === "available"
-      ? `Version ${snapshot.availableVersion} is available.`
+      ? `Version ${formatBuildVersion(snapshot.availableVersion ?? "")} is available.`
       : snapshot.phase === "downloading"
         ? `Downloading${snapshot.progress != null ? ` ${snapshot.progress}%` : "…"}`
         : snapshot.phase === "checking"
@@ -1926,7 +1929,7 @@ function UpdateRow({
         <span className="flex items-baseline gap-2">
           {uiT("Version")}
           <span className="font-mono text-[12px] text-content/45">
-            {snapshot.currentVersion}
+            {formatBuildVersion(snapshot.currentVersion)}
           </span>
         </span>
       }

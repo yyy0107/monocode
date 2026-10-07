@@ -1,4 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import type { RemoteAttachment } from "../../connections/model/protocol";
 import { AssistantChat } from "./AssistantChat";
 import {
   remoteRequest,
@@ -19,11 +21,13 @@ export function DesktopAssistant({
   onSelectMachine,
   onLocalSession,
   onRemoteSession,
+  onOpenFile,
 }: {
   selectedMachineId?: string;
   onSelectMachine: (id: string) => void;
   onLocalSession: (id: string, project: string) => Promise<void> | void;
   onRemoteSession: (project: string, id: string) => void;
+  onOpenFile?: (path: string) => void;
 }) {
   const { t } = useTranslation();
   const choices = useDesktopAssistantHosts();
@@ -36,6 +40,27 @@ export function DesktopAssistant({
         ? remoteRequest<T>(machine.id, method, params)
         : Promise.reject(new Error("Connect to a Host first.")),
     [machine?.id],
+  );
+  // Host attachments are stored under opaque IDs, so each opened file is
+  // copied once to a local file under its own name for the file tab.
+  const attachmentPaths = useRef(new Map<string, Promise<string>>());
+  const openAttachment = useCallback(
+    (file: RemoteAttachment, read: () => Promise<string>) => {
+      if (!onOpenFile || !machine) return;
+      const key = `${machine.environmentId}:${file.id}`;
+      let path = attachmentPaths.current.get(key);
+      if (!path) {
+        path = read().then((data) =>
+          invoke<string>("write_attachment", { name: file.name, data }),
+        );
+        attachmentPaths.current.set(key, path);
+        path.catch(() => attachmentPaths.current.delete(key));
+      }
+      path.then(onOpenFile, (error) =>
+        console.error(`Could not open ${file.name}`, error),
+      );
+    },
+    [machine?.environmentId, onOpenFile],
   );
   const open = async (ref: SessionReference, { project, session }: AssistantTarget) => {
     if (!machine) return;
@@ -82,6 +107,7 @@ export function DesktopAssistant({
           hostPicker={hostPicker}
           rpc={rpc}
           onOpen={open}
+          onOpenAttachment={onOpenFile ? openAttachment : undefined}
         />
       ) : (
         <div className="assistant-availability">

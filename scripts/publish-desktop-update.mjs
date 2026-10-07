@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { formatBuildVersion } from "../src/shared/lib/buildVersion.ts";
 
 // Prepare a static Tauri feed. Deploy the packages before replacing latest.json.
 export async function publishDesktopUpdate({
@@ -27,6 +28,7 @@ export async function publishDesktopUpdate({
   if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/.test(version)) {
     throw new Error("Expected a desktop semantic version");
   }
+  const displayVersion = formatBuildVersion(version);
   await mkdir(output, { recursive: true });
   const staging = join(output, `.publish-${randomUUID()}`);
   await mkdir(staging);
@@ -37,7 +39,8 @@ export async function publishDesktopUpdate({
       ["linux-x86_64-appimage", appimage],
       ...(nsis ? [["windows-x86_64-nsis", nsis]] : []),
     ]) {
-      const file = join(staging, basename(source));
+      const filename = basename(source).replace(version, displayVersion);
+      const file = join(staging, filename);
       await copyFile(source, file);
       // Windows SCP downloads can be owner-only; nginx must read every package.
       await chmod(file, platform === "linux-x86_64-appimage" ? 0o755 : 0o644);
@@ -47,7 +50,7 @@ export async function publishDesktopUpdate({
       const signature = (await sign(file)).trim();
       if (!signature)
         throw new Error(`Missing updater signature for ${platform}`);
-      const path = `monocode-desktop/${version}/${digest}/${basename(file)}`;
+      const path = `monocode-desktop/${version}/${digest}/${filename}`;
       const destination = join(output, path);
       await mkdir(dirname(destination), { recursive: true });
       await rename(file, destination);
@@ -63,7 +66,8 @@ export async function publishDesktopUpdate({
     if (nsis) platforms["windows-x86_64"] = platforms["windows-x86_64-nsis"];
     const manifest = {
       version,
-      notes: `MonoCode ${version}`,
+      displayVersion,
+      notes: `MonoCode ${displayVersion}`,
       pub_date: new Date().toISOString(),
       platforms,
     };

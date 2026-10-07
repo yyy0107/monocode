@@ -1,4 +1,6 @@
 import { AttachmentList } from "../../sessions/ui/AttachmentList";
+import { AttachmentChip } from "../../sessions/ui/AttachmentChip";
+import type { RemoteAttachment } from "../../connections/model/protocol";
 import { Fragment, memo, type HTMLAttributes, type ReactNode } from "react";
 import type { AssistantMessage, SessionReference } from "../model/assistant";
 import { splitAssistantReply } from "../model/assistantReply";
@@ -17,6 +19,8 @@ import { AssistantMessageImage, type ReadAssistantImage } from "./AssistantMessa
 
 type MessageActions = {
   readImage?: ReadAssistantImage;
+  /** Opens a sent non-image file in its own tab, where the client has tabs. */
+  onOpenAttachment?: (messageId: string, file: RemoteAttachment) => void;
   onOpen: (ref: SessionReference) => void;
   onRespond: (
     message: Extract<AssistantMessage, { kind: "input" }>,
@@ -39,6 +43,7 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
   onRespond,
   bindReply,
   readImage,
+  onOpenAttachment,
 }: MessageActions & {
   message: AssistantMessage;
   previousCreatedAt?: number;
@@ -53,8 +58,9 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
     : undefined;
   const files = "attachments" in message ? message.attachments ?? [] : [];
   const images = readImage ? files.filter(file => file.kind === "image") : [];
-  const otherFiles = readImage ? files.filter(file => file.kind !== "image") : files;
-  const hasBubble = ("text" in message && !!message.text) || !!otherFiles.length;
+  // Other files share the image footprint above the bubble.
+  const otherFiles = files.filter(file => !images.includes(file));
+  const hasBubble = "text" in message && !!message.text;
   const time = mobile && (
     <AssistantMessageTime
       createdAt={message.createdAt}
@@ -141,11 +147,14 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
               <span title={reply.quote}>{reply.quote}</span>
             </div>
           )}
-          {images.length > 0 && readImage && (
+          {files.length > 0 && (
             <AttachmentList
               className="assistant-message-media user-message-media"
-              attachments={images}
-              renderAttachment={file => <AssistantMessageImage key={file.id} messageId={message.id} file={file} readImage={readImage} />}
+              attachments={[...images, ...otherFiles]}
+              renderAttachment={file => readImage && file.kind === "image"
+                ? <AssistantMessageImage key={file.id} messageId={message.id} file={file} readImage={readImage} />
+                : <AttachmentChip key={file.id} attachment={file} tile
+                    onOpen={onOpenAttachment ? () => onOpenAttachment(message.id, file) : undefined} />}
             />
           )}
           {hasBubble && <div
@@ -171,11 +180,6 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
                 {message.kind === "status" ? t(message.text) : reply?.text ?? message.text}
               </span>
             )}
-            {otherFiles.map((file) => (
-                <small className="assistant-attachment" key={file.id}>
-                  {file.name}
-                </small>
-              ))}
           </div>}
           {((message.kind === "assistant" && !mobile) ||
             message.kind === "user") && (

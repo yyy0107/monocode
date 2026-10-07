@@ -1,10 +1,14 @@
 import groovy.json.JsonSlurper
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 def mobileRoot = rootProject.projectDir.parentFile
 def updateConfig = new JsonSlurper().parse(new File(mobileRoot, 'update-config.json'))
-def packageConfig = new JsonSlurper().parse(new File(mobileRoot.parentFile, 'package.json'))
+def buildVersionName = DateTimeFormatter.ofPattern('MM-dd-HHmm')
+    .withZone(ZoneId.of('America/Los_Angeles')).format(Instant.now())
 def updateRoot = new File(System.getenv('MONOCODE_MOBILE_UPDATE_DIR') ?: new File(
     System.getenv('XDG_DATA_HOME') ?: new File(System.getProperty('user.home'), '.local/share').path,
     'monocode/mobile-updates').path)
@@ -34,7 +38,7 @@ android {
     buildFeatures { buildConfig true }
     defaultConfig {
         versionCode nextCode
-        versionName packageConfig.version
+        versionName buildVersionName
         buildConfigField 'String', 'MONOCODE_UPDATE_BASE_URL', '"' + updateConfig.baseUrl + '"'
     }
 }

@@ -11037,6 +11037,10 @@ function Workspace({
             onSelectMachine={setAssistantMachineId}
             onLocalSession={onSelectHistorySession}
             onRemoteSession={onSelectRemoteSession}
+            onOpenFile={(path) => {
+              closeAppDialog();
+              onOpenFile(path);
+            }}
           />
         );
       case "search":

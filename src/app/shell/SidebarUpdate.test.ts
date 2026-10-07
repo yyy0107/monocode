@@ -65,6 +65,21 @@ describe("isUpdateActionable", () => {
 });
 
 describe("SidebarUpdate", () => {
+  it("displays compact dates for native LAN versions", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SidebarUpdate, {
+        snapshot: {
+          phase: "available",
+          currentVersion: `0.7.1-lan.${Date.parse("2026-10-07T15:30:00Z")}`,
+          availableVersion: `0.7.1-lan.${Date.parse("2026-10-07T15:40:00Z")}`,
+        },
+        onSnapshot: vi.fn(),
+      }),
+    );
+    expect(markup).toContain("Update to 10-07-0840");
+    expect(markup).toContain("v10-07-0830");
+  });
+
   it("offers the install action for an available version", () => {
     const markup = renderToStaticMarkup(
       createElement(SidebarUpdate, {

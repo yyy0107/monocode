@@ -237,8 +237,11 @@ npm run mobile:apk
 ```
 
 Every signed APK assembled through Gradle (including Android Studio and direct
-`assembleDebug`) receives a new versionCode, even when versionName stays the
-same. Successful assembly publishes the APK and atomically updates
+`assembleDebug`) receives a new versionCode. The versionName is the build date
+in `MM-dd-HHmm` format (for example `10-07-0840`), using `America/Los_Angeles`
+to match desktop LAN builds. Multiple builds within the same minute can share the
+same versionName while their versionCodes continue to increase.
+Successful assembly publishes the APK and atomically updates
 `latest.json`, then starts the LAN update server if necessary. Unsigned release
 APKs are not published. `mobile:build` alone builds web assets, not an APK.
 Version counters and packages are shared between worktrees in

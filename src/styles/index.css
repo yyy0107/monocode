@@ -1997,7 +1997,8 @@ html.has-user-accent
 
 [data-composer-layout="desktop"]
   .composer-attachments
-  .attachment-chip-thumbnail {
+  .attachment-chip-thumbnail,
+.assistant-attachments .attachment-chip-thumbnail {
   width: 72px;
   height: 72px;
 }
@@ -4668,4 +4669,34 @@ html.theme-light .btw-burst {
   aspect-ratio: 1;
   border-radius: inherit;
   border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
+}
+/* Sent files share the image footprint: icon above a clamped name. */
+.attachment-chip-tile {
+  display: flex;
+  width: 72px;
+  height: 72px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-content) 6%, var(--color-background-base));
+  color: var(--color-content);
+  transition: background-color 150ms ease;
+}
+button:enabled:hover > .attachment-chip-tile {
+  background: color-mix(in srgb, var(--color-content) 10%, var(--color-background-base));
+}
+.attachment-chip-tile-name {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
 }

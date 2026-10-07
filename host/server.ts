@@ -272,6 +272,7 @@ export function createHostServer(
           }));
           return;
         }
+        engine.store.touchDevice(token);
         if (input.version !== HOST_PROTOCOL_VERSION)
           throw new Error("Incompatible protocol version");
         await engine.ready;
@@ -557,6 +558,30 @@ export function createHostServer(
             engine.store.db.prepare("DELETE FROM checkout_resources WHERE id LIKE ? AND owner_pid=?")
               .run(`device:${createHash("sha256").update(token).digest("hex") }:%`, process.pid);
             break;
+          case "devices.list":
+          case "devices.issue":
+          case "devices.revoke": {
+            if (!engine.store.adminToken(token))
+              throw new Error("Only this computer's desktop can manage devices");
+            if (input.method === "devices.issue") {
+              const name = String(params.name ?? "").trim().slice(0, 80);
+              if (!name) throw new Error("Device name is required");
+              result = engine.store.issueDevice(name);
+            } else if (input.method === "devices.revoke") {
+              const id = String(params.deviceId ?? "");
+              const device = engine.store.devices().find(value => value.id === id);
+              if (!device) throw new Error("Device not found");
+              if (device.admin) throw new Error("This computer's desktop credential cannot be revoked here");
+              const hash = engine.store.db.prepare("SELECT hash FROM devices WHERE id=?").get(id)?.hash;
+              result = { revoked: engine.store.revokeDevice(id) };
+              if (hash)
+                engine.store.db.prepare("DELETE FROM checkout_resources WHERE id LIKE ? AND owner_pid=?")
+                  .run(`device:${String(hash)}:%`, process.pid);
+            } else {
+              result = { devices: engine.store.devices() };
+            }
+            break;
+          }
           case "resources.claim": {
             const id = resourceId(token, params.resourceId);
             const path = await workspace.resourcePath(params.path);

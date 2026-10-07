@@ -148,6 +148,7 @@ export async function prepareDesktopHost(
       device = store.issueDevice("MonoCode desktop");
       writeFileSync(credentialPath, JSON.stringify(device), { mode: 0o600 });
     }
+    store.markAdminDevice(device.id);
     const state = JSON.parse(readFileSync(runningPath, "utf8"));
     const sessions: { id: string; cwd: string; deleted?: boolean }[] = store.db
       .prepare(

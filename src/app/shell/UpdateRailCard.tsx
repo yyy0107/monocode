@@ -1,6 +1,7 @@
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import { X } from "../../shared/ui/icons";
 import type { InstalledUpdate } from "../model/updateNotice";
+import { formatBuildVersion } from "../../shared/lib/buildVersion";
 
 type Props = {
   update: InstalledUpdate | null;
@@ -33,7 +34,7 @@ export function UpdateRailCard({ update, onOpen, onDismiss }: Props) {
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[12px] font-medium leading-tight text-content">
             {uiT("Updated to ")}
-            {update.version}
+            {formatBuildVersion(update.version)}
           </span>
           <span className="mt-0.5 block truncate text-[11px] leading-tight text-content/50">
             {uiT("What's new")}

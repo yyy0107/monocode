@@ -135,8 +135,14 @@ export class AssistantClient {
     }
     return ref;
   }
-  async readImage(messageId: string, file: RemoteAttachment): Promise<string> {
-    if (file.kind !== "image" || !Number.isSafeInteger(file.size) || file.size <= 0 || file.size > 20 * 1024 * 1024)
+  readImage(messageId: string, file: RemoteAttachment): Promise<string> {
+    if (file.kind !== "image") return Promise.reject(new Error("Invalid image transfer"));
+    return this.readAttachment(messageId, file);
+  }
+
+  /** Base64 bytes of an attachment kept with a public assistant message. */
+  async readAttachment(messageId: string, file: RemoteAttachment): Promise<string> {
+    if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > 20 * 1024 * 1024)
       throw new Error("Invalid image transfer");
     const pieces: string[] = [];
     let offset = 0;

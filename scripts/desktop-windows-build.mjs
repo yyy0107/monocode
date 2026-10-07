@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, rm } from "node:fs/promises";
 import { join, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runBuildProcess } from "./desktop-build-process.mjs";
 
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const psQuote = (value) => `'${value.replaceAll("'", "''")}'`;
@@ -72,7 +73,7 @@ export async function buildWindowsDesktop(
       "C:\\Users\\wy777\\Documents\\ohmymonocode",
     checkOnly = false,
     assertUnchanged = async () => {},
-    run = (command, args) => execFileSync(command, args, { stdio: "inherit" }),
+    run = runBuildProcess,
   } = {},
 ) {
   if (!/^[\w.@-]+$/.test(host) || host.startsWith("-"))
@@ -110,10 +111,10 @@ export async function buildWindowsDesktop(
       ...args,
     ]);
   const destination = (path) => `${host}:${path.replaceAll("\\", "/")}`;
-  ssh(
+  await ssh(
     `if (!(Test-Path -LiteralPath ${psQuote(win32.join(repository, "Cargo.toml"))})) { throw 'Windows repository not found' }; New-Item -ItemType Directory -Path ${psQuote(remote)} -Force | Out-Null`,
   );
-  scp(
+  await scp(
     archive,
     fileURLToPath(new URL("./desktop-windows-runner.mjs", import.meta.url)),
     `${destination(remote)}/`,
@@ -121,10 +122,10 @@ export async function buildWindowsDesktop(
   const request = Buffer.from(
     JSON.stringify({ repository, runId, version, archiveHash, checkOnly }),
   ).toString("base64");
-  ssh(
+  await ssh(
     `& node ${psQuote(win32.join(remote, "desktop-windows-runner.mjs"))} ${psQuote(request)}; exit $LASTEXITCODE`,
   );
-  scp(
+  await scp(
     destination(win32.join(remote, "result.json")),
     join(local, "result.json"),
   );
@@ -144,7 +145,7 @@ export async function buildWindowsDesktop(
   if (!checkOnly) {
     if (receipt.filename !== filename)
       throw new Error("Unexpected Windows installer filename");
-    scp(destination(win32.join(remote, filename)), nsis);
+    await scp(destination(win32.join(remote, filename)), nsis);
     const bytes = await readFile(nsis);
     if (
       bytes.length !== receipt.size ||
@@ -154,7 +155,7 @@ export async function buildWindowsDesktop(
       throw new Error("Downloaded Windows installer checksum mismatch");
   }
   await assertUnchanged();
-  ssh(`Remove-Item -LiteralPath ${psQuote(remote)} -Recurse -Force`);
+  await ssh(`Remove-Item -LiteralPath ${psQuote(remote)} -Recurse -Force`);
   await rm(archive);
   return checkOnly ? receipt : { nsis };
 }

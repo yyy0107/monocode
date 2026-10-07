@@ -40,7 +40,11 @@ export default defineConfig(async ({ mode }) => {
             }
           : undefined,
       watch: {
-        ignored: stable ? ["**/*"] : ["**/src-tauri/**"],
+        // Cargo writes into the workspace-level target directory. On Windows,
+        // watching a binary while the linker writes it can fail with EBUSY.
+        ignored: stable
+          ? ["**/*"]
+          : ["**/src-tauri/**", "**/target/**", "**/build/**"],
       },
     },
   };

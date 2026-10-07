@@ -116,7 +116,7 @@ import { AgentMarkdown } from "./AgentMarkdown";
 import { CopyTurnButton } from "./CopyTurnButton";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
 import { parseUserMessageLink } from "../model/linkPreview";
-import { attachmentPreviewSrc } from "../model/attachments";
+import { isAttachmentFolder } from "../model/attachments";
 import { UserLinkPreview } from "./UserLinkPreview";
 import {
   activityPhaseTitle,
@@ -1815,6 +1815,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
         onSaveNote={onSaveNote}
         onSendDraft={onSendDraft}
         onRemoveDraft={onRemoveDraft}
+        onOpenFile={onOpenFile}
       />
     );
   }
@@ -1969,6 +1970,7 @@ function UserMessageBlock({
   onSaveNote,
   onSendDraft,
   onRemoveDraft,
+  onOpenFile,
 }: {
   block: Block;
   layout: TranscriptLayout;
@@ -1980,6 +1982,7 @@ function UserMessageBlock({
   onSaveNote?: (text: string) => void | Promise<void>;
   onSendDraft?: (block: Block) => boolean | void;
   onRemoveDraft?: (block: Block) => boolean | void;
+  onOpenFile?: (path: string) => void;
 }) {
   const { t: uiT } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -1996,13 +1999,10 @@ function UserMessageBlock({
   const displayText = messageLink
     ? `${messageLink.beforeText}${messageLink.afterText}`
     : text;
-  // Sent images sit above the caption, using the same presentation on desktop
-  // and mobile. Drafts keep their attachments inside the editable card.
-  const mediaAttachments = !block.draft
-    ? (block.attachments ?? []).filter(
-        (file) => file.kind === "image" && attachmentPreviewSrc(file),
-      )
-    : [];
+  // Sent attachments sit above the caption as image-sized tiles, using the
+  // same presentation on desktop and mobile. Drafts keep theirs inside the
+  // editable card.
+  const mediaAttachments = !block.draft ? (block.attachments ?? []) : [];
   const bubbleAttachments = mediaAttachments.length
     ? (block.attachments ?? []).filter(
         (file) => !mediaAttachments.includes(file),
@@ -2077,6 +2077,18 @@ function UserMessageBlock({
           <AttachmentList
             attachments={mediaAttachments}
             className={`user-message-media flex max-w-[min(100%,36rem)] flex-wrap justify-end gap-1.5 ${hasBubble ? "mb-1.5" : ""}`}
+            renderAttachment={(file) => (
+              <AttachmentChip
+                key={file.id}
+                attachment={file}
+                tile
+                onOpen={
+                  onOpenFile && file.path && !isAttachmentFolder(file)
+                    ? () => onOpenFile(file.path!)
+                    : undefined
+                }
+              />
+            )}
           />
         ) : null}
         <div

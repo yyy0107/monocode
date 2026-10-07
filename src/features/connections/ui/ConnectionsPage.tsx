@@ -1,0 +1,347 @@
+import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, Copy, Loader, RefreshCw, Smartphone } from "../../../shared/ui/icons";
+import { Modal } from "../../../shared/ui/Modal";
+import { remoteRequest } from "../model/connections";
+import { sharedHostMachineId } from "../model/remoteProjects";
+import { ConnectionsSettings } from "./ConnectionsSettings";
+
+type ConnectionsTab = "control" | "ssh";
+
+export type HostDevice = {
+  id: string;
+  name: string;
+  admin: boolean;
+  createdAt?: number;
+  lastSeen?: number;
+};
+
+const pill =
+  "h-7 rounded-full px-3 text-ui-base font-medium transition-colors disabled:opacity-40";
+
+/** Settings → Connections: devices controlling this computer, and SSH machines. */
+export function ConnectionsPage({ revealed }: { revealed?: string | null }) {
+  const { t } = useTranslation();
+  const [tab, setTab] = useState<ConnectionsTab>(
+    revealed === "remote-machines" ? "ssh" : "control",
+  );
+  useEffect(() => {
+    // Search results open the tab holding the revealed setting.
+    if (revealed === "remote-machines") setTab("ssh");
+    else if (revealed === "controlling-devices") setTab("control");
+  }, [revealed]);
+  const tabs: { value: ConnectionsTab; label: string }[] = [
+    { value: "control", label: t("Control this computer") },
+    { value: "ssh", label: "SSH" },
+  ];
+  return (
+    <div className="flex flex-col gap-8">
+      <div role="tablist" aria-label={t("Connections")} className="flex gap-1">
+        {tabs.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={tab === option.value}
+            onClick={() => setTab(option.value)}
+            className={`${pill} ${
+              tab === option.value
+                ? "bg-selection text-foreground"
+                : "text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {tab === "control" ? <ControlThisComputer /> : <ConnectionsSettings />}
+    </div>
+  );
+}
+
+export function formatLastSeen(
+  t: ReturnType<typeof useTranslation>["t"],
+  lastSeen: number | undefined,
+  now = Date.now(),
+): string {
+  if (!lastSeen) return t("Never connected");
+  const minutes = Math.max(0, Math.floor((now - lastSeen) / 60_000));
+  const ago =
+    minutes < 1
+      ? t("just now")
+      : minutes < 60
+        ? t("{count}m ago", { count: minutes })
+        : minutes < 1440
+          ? t("{count}h ago", { count: Math.floor(minutes / 60) })
+          : t("{count}d ago", { count: Math.floor(minutes / 1440) });
+  return t("Last connected {value0}", { value0: ago });
+}
+
+function ControlThisComputer() {
+  const { t } = useTranslation();
+  const machineId = sharedHostMachineId();
+  const [devices, setDevices] = useState<HostDevice[]>();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [confirming, setConfirming] = useState<string>();
+  const [revoking, setRevoking] = useState<string>();
+  const alive = useRef(true);
+  useEffect(() => () => void (alive.current = false), []);
+
+  const refresh = useCallback(async () => {
+    if (!machineId) return;
+    setLoading(true);
+    try {
+      const result = await remoteRequest<{ devices: HostDevice[] }>(
+        machineId,
+        "devices.list",
+      );
+      if (!alive.current) return;
+      setDevices(result.devices.filter((device) => !device.admin));
+      setError("");
+    } catch (reason) {
+      if (alive.current) setError(String(reason));
+    } finally {
+      if (alive.current) setLoading(false);
+    }
+  }, [machineId]);
+  useEffect(() => void refresh(), [refresh]);
+
+  const revoke = async (device: HostDevice) => {
+    if (!machineId) return;
+    setRevoking(device.id);
+    setError("");
+    try {
+      await remoteRequest(machineId, "devices.revoke", { deviceId: device.id });
+      if (!alive.current) return;
+      setConfirming(undefined);
+      setDevices((current) => current?.filter((value) => value.id !== device.id));
+    } catch (reason) {
+      if (alive.current) setError(String(reason));
+    } finally {
+      if (alive.current) setRevoking(undefined);
+    }
+  };
+
+  return (
+    <section data-setting-id="controlling-devices" className="flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <h2 className="min-w-0 flex-1 text-ui-lg font-semibold text-foreground">
+          {t("Devices that can control this computer")}
+        </h2>
+        <button
+          type="button"
+          aria-label={t("Refresh")}
+          title={t("Refresh")}
+          disabled={!machineId || loading}
+          onClick={() => void refresh()}
+          className="grid size-7 place-items-center rounded-full text-foreground-subtle hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
+        >
+          <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+        </button>
+        <button
+          type="button"
+          disabled={!machineId}
+          onClick={() => setAdding(true)}
+          className={`${pill} bg-foreground text-background hover:opacity-85`}
+        >
+          {t("Add")}
+        </button>
+      </div>
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        {!machineId ? (
+          <p className="px-4 py-4 text-ui-base text-foreground-subtle">
+            {t("The conversation service on this computer is not running.")}
+          </p>
+        ) : !devices ? (
+          <div className="flex items-center gap-2 px-4 py-4 text-ui-base text-foreground-subtle">
+            <Loader className="size-4 animate-spin" />
+            {t("Loading devices…")}
+          </div>
+        ) : devices.length === 0 ? (
+          <p className="px-4 py-4 text-ui-base text-foreground-subtle">
+            {t("No devices yet. Add one to control this computer from your phone.")}
+          </p>
+        ) : (
+          devices.map((device) => (
+            <div
+              key={device.id}
+              className="flex items-center gap-3 border-t border-border px-4 py-3 first:border-t-0"
+            >
+              <Smartphone className="size-5 shrink-0 text-foreground-subtle" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-ui-base font-medium text-foreground">
+                  {device.name}
+                </div>
+                <div className="mt-0.5 truncate text-ui-caption text-foreground-subtle">
+                  {formatLastSeen(t, device.lastSeen)}
+                </div>
+              </div>
+              {confirming === device.id ? (
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={!!revoking}
+                    onClick={() => setConfirming(undefined)}
+                    className={`${pill} text-foreground-subtle hover:bg-surface-hover hover:text-foreground`}
+                  >
+                    {t("Cancel")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!revoking}
+                    onClick={() => void revoke(device)}
+                    className={`${pill} bg-red-500/10 text-red-500 hover:bg-red-500/15`}
+                  >
+                    {revoking === device.id ? t("Revoking…") : t("Confirm revoke")}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={!!revoking}
+                  onClick={() => setConfirming(device.id)}
+                  className={`${pill} shrink-0 bg-selection text-foreground hover:bg-selection-hover`}
+                >
+                  {t("Revoke access")}
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+      {error ? (
+        <p role="alert" className="whitespace-pre-wrap break-words text-ui-caption text-red-400">
+          {error}
+        </p>
+      ) : null}
+      {adding && machineId ? (
+        <AddDeviceDialog
+          machineId={machineId}
+          onClose={() => setAdding(false)}
+          onAdded={() => void refresh()}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function AddDeviceDialog({
+  machineId,
+  onClose,
+  onAdded,
+}: {
+  machineId: string;
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const { t } = useTranslation();
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [token, setToken] = useState<string>();
+  const [copied, setCopied] = useState(false);
+  const input =
+    "w-full rounded-lg border border-border bg-transparent px-3 py-2 text-ui-base outline-none focus:border-content/35";
+  return (
+    <Modal
+      title={t("Add device")}
+      description={
+        token ? undefined : t("Create a credential that lets another device control this computer.")
+      }
+      size="sm"
+      onClose={onClose}
+    >
+      {token ? (
+        <div className="flex flex-col gap-3 p-4">
+          <p className="text-ui-base leading-6 text-foreground">
+            {t("Enter this token in the MonoCode mobile app with this computer's Host URL. It is shown only once.")}
+          </p>
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-content/3 px-3 py-2">
+            <code className="min-w-0 flex-1 select-all break-all text-ui-caption">{token}</code>
+            <button
+              type="button"
+              aria-label={t("Copy")}
+              title={t("Copy")}
+              onClick={() => {
+                void navigator.clipboard?.writeText(token).then(() => setCopied(true));
+              }}
+              className="grid size-7 shrink-0 place-items-center rounded-md text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
+            >
+              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+            </button>
+          </div>
+          <p className="text-ui-caption leading-5 text-foreground-subtle">
+            {t("The Host listens on 127.0.0.1:3774. Expose it to your phone through a tunnel such as Tailscale Serve or a reverse proxy.")}
+          </p>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className={`${pill} bg-foreground text-background hover:opacity-85`}
+            >
+              {t("Done")}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <form
+          className="flex flex-col gap-3 p-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (busy || !name.trim()) return;
+            setBusy(true);
+            setError("");
+            void remoteRequest<{ id: string; token: string }>(machineId, "devices.issue", {
+              name: name.trim(),
+            })
+              .then((device) => {
+                setToken(device.token);
+                onAdded();
+              })
+              .catch((reason) => setError(String(reason)))
+              .finally(() => setBusy(false));
+          }}
+        >
+          <label className="flex flex-col gap-1.5 text-ui-caption text-foreground-subtle">
+            {t("Device name")}
+            <input
+              autoFocus
+              required
+              maxLength={80}
+              disabled={busy}
+              className={input}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={t("e.g. My phone")}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          {error ? (
+            <p role="alert" className="break-words text-ui-caption text-red-400">
+              {error}
+            </p>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onClose}
+              className={`${pill} text-foreground-subtle hover:bg-surface-hover hover:text-foreground`}
+            >
+              {t("Cancel")}
+            </button>
+            <button
+              disabled={busy || !name.trim()}
+              className={`${pill} bg-foreground text-background hover:opacity-85`}
+            >
+              {busy ? t("Creating…") : t("Create")}
+            </button>
+          </div>
+        </form>
+      )}
+    </Modal>
+  );
+}

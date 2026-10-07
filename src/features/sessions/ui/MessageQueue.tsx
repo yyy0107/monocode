@@ -145,7 +145,7 @@ export function MessageQueue({
   return (
     <div className="px-2 text-content/55" data-message-queue>
       <div
-        className="relative z-0 rounded-t-[10px] border border-b-0 border-content/10 bg-content/3 px-2 py-1"
+        className="relative z-0 mb-2 rounded-[10px] border border-content/10 bg-content/3 px-2 py-1"
         data-message-queue-card
       >
         {paused ? (

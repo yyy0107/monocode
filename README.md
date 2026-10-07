@@ -104,7 +104,7 @@ packages must be signed before the script replaces `latest.json`. Use `--key`,
 `--deb`, `--appimage`, or `--output` to override the default paths. For a combined
 Windows/Linux feed, also pass `--nsis` with the matching Windows installer and
 `--version` for the shared version. Do not replace a combined feed with a
-Linux-only manifest; the automatic workflow below always builds both platforms.
+Linux-only manifest; the publication workflow below always builds both platforms.
 
 On the LAN update machine, Nginx serves `/var/www/html` on port 80. Deploy the
 packages first, then atomically replace the feed (no Nginx reload is required):
@@ -133,7 +133,7 @@ bash scripts/desktop-task-publish.sh
 ```
 
 This builds DEB and AppImage
-locally, then builds a Windows x64 NSIS installer over `ssh wy-win`. All three
+locally while building a Windows x64 NSIS installer over `ssh wy-win`. All three
 packages use the same version. The workflow retrieves and verifies the Windows
 installer, signs every package locally, deploys to `/var/www/html`, and checks the HTTP feed and
 download sizes. Deployment uses noninteractive `sudo -n` when the web root is
@@ -148,13 +148,22 @@ or repository with `MONOCODE_WINDOWS_SSH_HOST` and `MONOCODE_WINDOWS_REPOSITORY`
 The publisher transfers current tracked and untracked build files (including
 uncommitted edits, excluding ignored credentials and outputs) to an isolated
 `build/windows-lan/workspace` under that repository. It removes stale source
-files, runs `npm ci`, and reuses only that workspace's build/dependency caches.
+files while preserving timestamps for unchanged files. It reuses that workspace's
+npm dependencies when both root and Host lockfiles, npm/Node versions and install
+configuration match the last successful install; otherwise it runs `npm ci`.
+Rust and dependency caches stay in the isolated workspace. Platform and Windows
+source/dependency timing lines identify which phase is slow on subsequent builds.
 The Windows checkout and its Git state remain untouched; no pull/reset is needed.
 The signing private key stays on Linux. Windows receives NSIS update entries
 (`windows-x86_64-nsis` and the development fallback `windows-x86_64`) in the
 same `http://192.168.0.206/latest.json` feed.
 
-Each new source state gets an increasing LAN version such as
+LAN builds display their build date as `MM-dd-HHmm`, for example `10-07-0840`.
+The timestamp uses `America/Los_Angeles` on both desktop builders and Android,
+so the same desktop build has one label regardless of the machine's time zone.
+Desktop download filenames and feed notes use this date label; the feed also
+includes `displayVersion`. Internally each new source state gets an increasing
+SemVer LAN version such as
 `0.7.1-lan.1791388800000` for a `0.7.0` checkout, so the Tauri updater can detect
 subsequent builds. The generated version override lives in
 `build/desktop-publish/tauri.lan.conf.json`; repository and bundled Host version

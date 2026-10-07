@@ -155,7 +155,11 @@ export function AnimatedCollapse({
       item.style.removeProperty("height");
       item.style.removeProperty("overflow");
     };
+    // A display:none ancestor (e.g. the closed sidebar) reports zero height.
+    // That is not a content change; folding to it would replay on reopening.
+    const rendered = () => content.getClientRects().length > 0;
     const retarget = () => {
+      if (expanded && !rendered()) return;
       const nextHeight = expanded ? content.getBoundingClientRect().height : 0;
       if (
         settled &&
@@ -210,6 +214,7 @@ export function AnimatedCollapse({
       animation.onfinish = () => {
         if (
           expanded &&
+          rendered() &&
           content.getBoundingClientRect().height !== targetHeight
         ) {
           retarget();

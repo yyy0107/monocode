@@ -719,6 +719,20 @@ describe("remote host API", () => {
     expect(other.value.result.value.session.id).toBe(id);
   });
 
+  it("limits device management to the desktop credential", async () => {
+    const s = await setup();
+    expect((await s.call("devices.list", {}, s.second.token)).value.error).toContain("Only this computer");
+    s.store.markAdminDevice(s.first.id);
+    const issued = (await s.call("devices.issue", { name: "Phone" })).value.result;
+    expect((await s.call("environment.describe", {}, issued.token)).status).toBe(200);
+    const listed = (await s.call("devices.list")).value.result.devices;
+    expect(listed.find((device: { id: string }) => device.id === issued.id)).toMatchObject({ name: "Phone", admin: false });
+    expect(listed.find((device: { id: string }) => device.id === s.first.id)).toMatchObject({ admin: true });
+    expect((await s.call("devices.revoke", { deviceId: s.first.id })).value.error).toContain("cannot be revoked");
+    expect((await s.call("devices.revoke", { deviceId: issued.id })).value.result).toEqual({ revoked: true });
+    expect((await s.call("environment.describe", {}, issued.token)).status).toBe(401);
+  });
+
   it("reads host files while rejecting traversal and symlink escapes", async () => {
     const s = await setup();
     writeFileSync(join(s.directory, "hello.txt"), "from host");

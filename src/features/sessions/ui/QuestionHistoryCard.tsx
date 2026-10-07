@@ -27,7 +27,9 @@ export function QuestionHistoryCard({
   ) => boolean | void | Promise<boolean | void>;
 }) {
   const { t } = useTranslation();
-  const { openQuestion } = useContext(TranscriptPlatformContext);
+  const { openQuestion, answeredQuestionsInline } = useContext(
+    TranscriptPlatformContext,
+  );
   const [open, setOpen] = useState(false);
   const canAnswer =
     question.allowLateReply &&
@@ -53,6 +55,31 @@ export function QuestionHistoryCard({
         .join(" · ")
     : "";
   const Icon = answered ? CircleCheck : MessageSquare;
+  if (answered && answeredQuestionsInline)
+    return (
+      <div
+        className="question-history question-history-inline mx-4 my-2 space-y-3 rounded-xl border border-content/10 px-4 py-3 font-sans @md:mx-6"
+        data-question-history={blockId}
+      >
+        {question.questions.map((item) => {
+          const labels = reply ? questionRecordAnswers(item, reply) : [];
+          return (
+            <div key={item.id} className="min-w-0">
+              <p className="whitespace-pre-wrap break-words text-[13px] leading-5 text-content/55">
+                {item.prompt}
+              </p>
+              <p
+                className={`mt-0.5 whitespace-pre-wrap break-words text-[14px] leading-5 ${
+                  labels.length ? "font-medium text-content" : "text-content/45"
+                }`}
+              >
+                {labels.length ? labels.join("\n") : t("Not answered")}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    );
   return (
     <div
       className="question-history mx-4 my-2 overflow-hidden rounded-xl border border-content/10 bg-content/[0.025] font-sans @md:mx-6"

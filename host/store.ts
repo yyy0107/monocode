@@ -19,6 +19,14 @@ import { sessionNeedsInput } from "../src/features/sessions/model/session";
 
 const CACHED_SESSIONS = 32;
 
+export type HostDevice = {
+  id: string;
+  name: string;
+  admin: boolean;
+  createdAt?: number;
+  lastSeen?: number;
+};
+
 export class HostStore {
   private transactionDepth = 0;
   onSessionSave?: (previous: HostSession | undefined, next: HostSession, event: unknown) => void;
@@ -45,6 +53,12 @@ export class HostStore {
     this.db.exec(`CREATE TABLE IF NOT EXISTS orchestration_runs (lead_id TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, state TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS orchestration_commands (id TEXT PRIMARY KEY, signature TEXT NOT NULL, session_id TEXT NOT NULL, command TEXT NOT NULL, state TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS retired_sessions (id TEXT PRIMARY KEY);`);
+    const deviceColumns = this.db.prepare("PRAGMA table_info(devices)").all();
+    // `admin` marks the local desktop credential, the only one allowed to
+    // manage other devices. Paired phones and SSH desktops stay ordinary.
+    if (!deviceColumns.some(column => column.name === "admin")) this.db.exec("ALTER TABLE devices ADD COLUMN admin INTEGER NOT NULL DEFAULT 0");
+    if (!deviceColumns.some(column => column.name === "created_at")) this.db.exec("ALTER TABLE devices ADD COLUMN created_at INTEGER");
+    if (!deviceColumns.some(column => column.name === "last_seen")) this.db.exec("ALTER TABLE devices ADD COLUMN last_seen INTEGER");
     const columns = this.db.prepare("PRAGMA table_info(sessions)").all();
     if (!this.db.prepare("PRAGMA table_info(projects)").all().some(column => column.name === "kind")) this.db.exec("ALTER TABLE projects ADD COLUMN kind TEXT");
     if (!columns.some((column) => column.name === "summary"))
@@ -367,9 +381,41 @@ export class HostStore {
       throw new Error("Invalid device token");
     const id = randomUUID();
     this.db
-      .prepare("INSERT INTO devices VALUES (?, ?, ?)")
-      .run(id, name, this.hash(token));
+      .prepare("INSERT INTO devices (id, name, hash, created_at) VALUES (?, ?, ?, ?)")
+      .run(id, name, this.hash(token), Date.now());
     return { id, token };
+  }
+
+  markAdminDevice(id: string): void {
+    this.db.prepare("UPDATE devices SET admin=1 WHERE id=?").run(id);
+  }
+
+  adminToken(token: string): boolean {
+    return !!this.db
+      .prepare("SELECT 1 FROM devices WHERE hash=? AND admin=1")
+      .get(this.hash(token));
+  }
+
+  devices(): HostDevice[] {
+    return this.db
+      .prepare("SELECT id, name, admin, created_at, last_seen FROM devices ORDER BY created_at, name")
+      .all()
+      .map((row) => ({
+        id: String(row.id),
+        name: String(row.name),
+        admin: Number(row.admin) === 1,
+        createdAt: row.created_at == null ? undefined : Number(row.created_at),
+        lastSeen: row.last_seen == null ? undefined : Number(row.last_seen),
+      }));
+  }
+
+  private seenAt = new Map<string, number>();
+  /** Records activity at most once a minute per credential. */
+  touchDevice(token: string, now = Date.now()): void {
+    const hash = this.hash(token);
+    if (now - (this.seenAt.get(hash) ?? 0) < 60_000) return;
+    this.seenAt.set(hash, now);
+    this.db.prepare("UPDATE devices SET last_seen=? WHERE hash=?").run(now, hash);
   }
 
   revokeDevice(id: string): boolean {

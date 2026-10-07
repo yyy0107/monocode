@@ -6,6 +6,7 @@ import {
 } from "../model/releaseNotes";
 import { AgentMarkdown } from "../../features/sessions/ui/AgentMarkdown";
 import { Modal } from "../../shared/ui/Modal";
+import { formatBuildVersion } from "../../shared/lib/buildVersion";
 
 type Props = {
   version: string;
@@ -45,7 +46,7 @@ export function WhatsNewDialog({ version, onClose }: Props) {
     <Modal
       onClose={onClose}
       title={uiT("What's new")}
-      description={`MonoCode ${version}${date ? ` · ${date}` : ""}`}
+      description={`MonoCode ${formatBuildVersion(version)}${date ? ` · ${date}` : ""}`}
       size="md"
       className="h-[min(72vh,640px)]"
     >

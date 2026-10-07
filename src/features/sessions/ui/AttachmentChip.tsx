@@ -9,19 +9,27 @@ import { ImageLightbox } from "../../../shared/ui/ImageLightbox";
 type Props = {
   attachment: Attachment;
   onRemove?: () => void;
+  /** Sent files render as image-sized tiles instead of compact chips. */
+  tile?: boolean;
+  /** Opens a sent file in its own tab. */
+  onOpen?: () => void;
 };
 
-export function AttachmentChip({ attachment, onRemove }: Props) {
+export function AttachmentChip({ attachment, onRemove, tile = false, onOpen }: Props) {
   const { t: uiT } = useTranslation();
   const [previewOpen, setPreviewOpen] = useState(false);
   const preview = attachmentPreviewSrc(attachment);
   const image = attachment.kind === "image" && preview;
+  const fileTile = tile && !image;
+  const openLabel = uiT("Open {value0}", { value0: String(attachment.name) });
 
   return (
     <>
       <div
         className={`group relative flex min-w-0 items-center gap-1.5 rounded-md ${
-          image ? "attachment-chip-image" : "bg-content/10 py-0.5 pl-1 pr-1"
+          image || fileTile
+            ? "attachment-chip-image"
+            : "bg-content/10 py-0.5 pl-1 pr-1"
         }`}
         title={attachment.path ?? attachment.name}
       >
@@ -46,6 +54,27 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
               draggable={false}
               className="attachment-chip-thumbnail size-9 rounded-lg object-cover"
             />
+          </button>
+        ) : fileTile ? (
+          <button
+            type="button"
+            disabled={!onOpen}
+            aria-label={onOpen ? openLabel : attachment.name}
+            title={onOpen ? openLabel : (attachment.path ?? attachment.name)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpen?.();
+            }}
+            className="shrink-0 rounded-lg enabled:cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <span className="attachment-chip-thumbnail attachment-chip-tile">
+              <FileTypeIcon
+                name={attachment.name}
+                isDir={isAttachmentFolder(attachment)}
+                size={28}
+              />
+              <span className="attachment-chip-tile-name">{attachment.name}</span>
+            </span>
           </button>
         ) : (
           <>
@@ -73,7 +102,7 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
               onRemove();
             }}
             className={`attachment-chip-remove grid shrink-0 place-items-center rounded-full text-content/70 hover:bg-content/15 hover:text-content ${
-              image
+              image || fileTile
                 ? "absolute -right-1 -top-1 size-5 bg-content/20 opacity-100 shadow-sm backdrop-blur-sm"
                 : "size-4 text-content/40"
             }`}

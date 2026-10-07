@@ -63,8 +63,10 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     id: "connections",
     group: "app",
     label: "Connections",
-    description: "Connect your machines and run agents remotely through SSH.",
-    keywords: "ssh remote host machine server environment always on",
+    description:
+      "Let other devices control this computer, and run agents on your machines through SSH.",
+    keywords:
+      "ssh remote host machine server environment always on phone mobile device pair token revoke",
   },
   {
     id: "appearance",
@@ -193,6 +195,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     section: "general",
     label: "Interface language",
     keywords: "language locale english chinese 中文 简体中文 语言 界面",
+  },
+  {
+    id: "controlling-devices",
+    section: "connections",
+    label: "Devices that can control this computer",
+    keywords: "phone mobile device pair token revoke access control this computer",
   },
   {
     id: "remote-machines",

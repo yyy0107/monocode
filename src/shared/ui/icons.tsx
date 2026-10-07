@@ -67,6 +67,7 @@ import {
   ListFilter as ListFilterIcon,
   LoaderCircle as LoaderCircleIcon,
   Lock as LockIcon,
+  Smartphone as SmartphoneIcon,
   Maximize2 as Maximize2Icon,
   MessageSquare as MessageSquareIcon,
   MessageSquarePlus as MessageSquarePlusIcon,
@@ -281,6 +282,7 @@ export const SlidersHorizontal = wrap(
   SlidersHorizontalIcon,
   "SlidersHorizontal",
 );
+export const Smartphone = wrap(SmartphoneIcon, "Smartphone");
 export const Sparkles = wrap(SparklesIcon, "Sparkles");
 export const Square = wrap(SquareIcon, "Square");
 export const SquarePlus = wrap(SquarePlusIcon, "SquarePlus");

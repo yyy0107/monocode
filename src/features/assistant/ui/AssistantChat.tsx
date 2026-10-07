@@ -100,6 +100,7 @@ export function AssistantChat({
   hostName,
   hostPicker,
   chrome,
+  onOpenAttachment,
 }: {
   hostKey: string;
   rpc: AssistantRpc;
@@ -108,6 +109,8 @@ export function AssistantChat({
   hostName: string;
   hostPicker?: ReactNode;
   chrome?: AssistantChatChrome;
+  /** Opens a sent file in a tab; receives a reader for the file's base64 bytes. */
+  onOpenAttachment?: (file: RemoteAttachment, read: () => Promise<string>) => void;
 }) {
   const { t } = useTranslation();
   const visible = useSurfaceVisibility();
@@ -122,6 +125,10 @@ export function AssistantChat({
   );
   const readImage = useCallback((messageId: string, file: RemoteAttachment) =>
     client.readImage(messageId, file), [client]);
+  const openAttachment = useMemo(() => onOpenAttachment
+    ? (messageId: string, file: RemoteAttachment) =>
+        onOpenAttachment(file, () => client.readAttachment(messageId, file))
+    : undefined, [client, onOpenAttachment]);
   // Undefined means the first sync is pending; null confirms setup is needed.
   const [assistant, setAssistant] = useState<AssistantView | null>();
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
@@ -759,6 +766,7 @@ export function AssistantChat({
                   )}
                   <AssistantMessages
                     readImage={readImage}
+                    onOpenAttachment={openAttachment}
                     messages={visibleMessages}
                     pendingUserMessageId={pendingUserMessageId}
                     canRead={!!assistant.policy.permissions["sessions.read"]}

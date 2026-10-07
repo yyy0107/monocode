@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -47,6 +55,44 @@ test("publishes signed installer-specific targets and a development fallback", a
     JSON.parse(await readFile(join(options.output, "latest.json"))),
     manifest,
   );
+});
+
+test("date labels and download names preserve the native update version and signed bytes", async (t) => {
+  const options = await fixture(t);
+  const version = `0.7.1-lan.${Date.parse("2026-10-07T15:40:00Z")}`;
+  const deb = join(options.output, "..", `MonoCode_${version}_amd64.deb`);
+  const appimage = join(
+    options.output,
+    "..",
+    `MonoCode_${version}_amd64.AppImage`,
+  );
+  const nsis = join(options.output, "..", `MonoCode_${version}_x64-setup.exe`);
+  await copyFile(options.deb, deb);
+  await copyFile(options.appimage, appimage);
+  await writeFile(nsis, "MZ windows installer");
+  const manifest = await publishDesktopUpdate({
+    ...options,
+    version,
+    deb,
+    appimage,
+    nsis,
+  });
+  assert.equal(manifest.version, version);
+  assert.equal(manifest.displayVersion, "10-07-0840");
+  assert.equal(manifest.notes, "MonoCode 10-07-0840");
+  for (const [target, suffix, content] of [
+    ["linux-x86_64-deb", "amd64.deb", "deb package"],
+    ["linux-x86_64-appimage", "amd64.AppImage", "appimage package"],
+    ["windows-x86_64-nsis", "x64-setup.exe", "MZ windows installer"],
+  ]) {
+    const entry = manifest.platforms[target];
+    assert.ok(entry.url.endsWith(`/MonoCode_10-07-0840_${suffix}`));
+    assert.equal(entry.signature, `signed:${content}`);
+    assert.equal(
+      await readFile(join(options.output, new URL(entry.url).pathname), "utf8"),
+      content,
+    );
+  }
 });
 
 test("keeps previously published downloads intact when rebuilding the same version", async (t) => {

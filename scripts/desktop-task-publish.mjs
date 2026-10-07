@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import {
@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { prepareDesktopUpdate } from "./publish-desktop-update.mjs";
 import { buildWindowsDesktop } from "./desktop-windows-build.mjs";
+import { runBuildProcess } from "./desktop-build-process.mjs";
 
 const rootInputs = new Set([
   "index.html",
@@ -120,7 +121,7 @@ export async function buildDesktop(root, version) {
   const config = join(root, "build/desktop-publish/tauri.lan.conf.json");
   await mkdir(dirname(config), { recursive: true });
   await writeFile(config, JSON.stringify({ version }));
-  const result = spawnSync(
+  await runBuildProcess(
     "npm",
     ["run", "build:linux", "--", "--config", config, "--ci"],
     {
@@ -128,17 +129,38 @@ export async function buildDesktop(root, version) {
       stdio: "inherit",
     },
   );
-  if (result.error) throw result.error;
-  if (result.status !== 0)
-    throw new Error(
-      `Desktop build failed (${result.signal ?? result.status}).`,
-    );
 }
 
-export async function buildAllDesktops(root, version, assertUnchanged) {
-  await buildDesktop(root, version);
+export async function buildAllDesktops(
+  root,
+  version,
+  assertUnchanged,
+  { linux = buildDesktop, windows = buildWindowsDesktop } = {},
+) {
+  const timed = async (platform, build) => {
+    const started = performance.now();
+    console.log(`[desktop:${platform}] Build started (${version})`);
+    let succeeded = false;
+    try {
+      const result = await build();
+      succeeded = true;
+      return result;
+    } finally {
+      console.log(
+        `[desktop:${platform}] Build ${succeeded ? "completed" : "failed"} after ${((performance.now() - started) / 1000).toFixed(1)}s`,
+      );
+    }
+  };
+  // Wait for both even on failure: releasing the publication lock while one
+  // builder is still working would let the next invocation overlap it.
+  const results = await Promise.allSettled([
+    timed("linux", () => linux(root, version)),
+    timed("windows", () => windows(root, version, { assertUnchanged })),
+  ]);
+  const failure = results.find((result) => result.status === "rejected");
+  if (failure) throw failure.reason;
   await assertUnchanged();
-  return buildWindowsDesktop(root, version, { assertUnchanged });
+  return results[1].value;
 }
 
 export async function deployDesktopUpdate({ output, directory, beforeCommit }) {
@@ -294,7 +316,7 @@ if (
       expectedFingerprint: args[1],
     });
     console.log(
-      `${skipped ? "Already published" : "Published"} MonoCode ${manifest.version}:\nLinux: ${manifest.platforms["linux-x86_64-deb"].url}\nWindows: ${manifest.platforms["windows-x86_64-nsis"].url}`,
+      `${skipped ? "Already published" : "Published"} MonoCode ${manifest.displayVersion ?? manifest.version}:\nLinux: ${manifest.platforms["linux-x86_64-deb"].url}\nWindows: ${manifest.platforms["windows-x86_64-nsis"].url}`,
     );
   } catch (error) {
     console.error(error.message);

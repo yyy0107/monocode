@@ -505,6 +505,20 @@ describe("measured-height motion", () => {
     expect(fold()?.style.overflow).toBe("");
   });
 
+  it("keeps its height while a hidden ancestor removes it from layout", () => {
+    renderHeight(true, { keepMounted: true, animateContentResize: true });
+    const rects = vi
+      .spyOn(HTMLElement.prototype, "getClientRects")
+      .mockReturnValue([] as unknown as DOMRectList);
+    itemHeight = contentHeight = 0;
+    act(() => resize());
+    rects.mockRestore();
+    itemHeight = contentHeight = 160;
+    act(() => resize());
+    expect(animate).not.toHaveBeenCalled();
+    expect(fold()?.style.height).toBe("");
+  });
+
   it("prepares late DOM content before waiting for layout-observer delivery", () => {
     let mutate: () => void = () => {};
     const disconnectMutations = vi.fn();

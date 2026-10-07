@@ -157,7 +157,7 @@ export function readAttachmentChunk(store: HostStore, input: Record<string, unkn
     files = [...session.session.blocks.flatMap((block) => block.attachments ?? []), ...session.session.queuedMessages?.flatMap((row) => row.attachments) ?? []];
   }
   const attachment = files.find((file) => file.id === input.id);
-  if (!attachment || attachment.kind !== "image") throw new Error("Image attachment not found");
+  if (!attachment) throw new Error("Attachment not found");
   const offset = input.offset;
   if (!Number.isSafeInteger(offset) || Number(offset) < 0 || Number(offset) > attachment.size)
     throw new Error("Invalid attachment offset");

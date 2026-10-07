@@ -297,8 +297,9 @@ describe("mobile question history", () => {
     for (const button of node.querySelectorAll<HTMLButtonElement>('[data-question-history] > button'))
       act(() => button.click());
     const history = node.querySelector('[data-question-history="saved-question"]')!;
-    expect(history.textContent).toContain("Remote");
-    expect(history.textContent).toContain("Answered");
+    // Answered questions read as a flat question/answer list on phones.
+    expect(history.textContent).toBe("Which source?Remote");
+    expect(history.querySelector("button")).toBeNull();
     expect(node.querySelector("[data-question-form]")).toBeNull();
     expect(commands).toEqual([]);
   });
@@ -360,7 +361,6 @@ describe("mobile question history", () => {
     expect(dialog()).toBeNull();
     act(() => vi.advanceTimersByTime(300));
     expect(node.querySelector('[role="dialog"]')).toBeNull();
-    act(() => node.querySelector<HTMLButtonElement>('[data-question-history] > button')!.click());
     expect(node.querySelector('[data-question-history]')!.textContent).toContain("Remote");
   });
 });

@@ -606,11 +606,6 @@
   position: absolute;
   inset: -10px;
 }
-.assistant-message .assistant-attachment {
-  display: block;
-  margin-top: 6px;
-  font-size: var(--text-ui-sm);
-}
 .assistant-message-media {
   display: flex;
   gap: 6px;

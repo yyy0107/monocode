@@ -8,6 +8,8 @@ import {
   readFile,
   rm,
   symlink,
+  stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,7 +20,11 @@ import {
   createWindowsSnapshot,
   powershellCommand,
 } from "./desktop-windows-build.mjs";
-import { runWindowsBuild } from "./desktop-windows-runner.mjs";
+import {
+  ensureWindowsDependencies,
+  runWindowsBuild,
+  syncWindowsSources,
+} from "./desktop-windows-runner.mjs";
 
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const version = "0.7.1-lan.123";
@@ -109,8 +115,22 @@ test("remote builds use an isolated cache, remove stale source and release the l
     archiveHash: hash("source archive"),
   };
   const commands = [];
+  const npm = join(root, "build/npm/bin/npm-cli.js");
+  await write("build/npm/package.json", '{"version":"test"}');
   const run = (command, args, settings) => {
     commands.push([command, args]);
+    if (command === "tar.exe") {
+      const source = args.at(-1);
+      mkdirSync(source, { recursive: true });
+      writeFileSync(join(source, "package.json"), "{}");
+      writeFileSync(join(source, "package-lock.json"), "{}");
+    }
+    if (args.includes("ci")) {
+      for (const path of ["node_modules", "host/im/node_modules"]) {
+        mkdirSync(join(settings.cwd, path), { recursive: true });
+        writeFileSync(join(settings.cwd, path, ".package-lock.json"), "{}");
+      }
+    }
     if (args.includes("build:windows")) {
       assert.equal(settings.cwd, join(root, state, "workspace"));
       assert.equal(settings.env.CARGO_TARGET_DIR, join(settings.cwd, "target"));
@@ -123,7 +143,7 @@ test("remote builds use an isolated cache, remove stale source and release the l
       writeFileSync(output, "MZ built exe");
     }
   };
-  const result = await runWindowsBuild(options, { run });
+  const result = await runWindowsBuild(options, { run, npm });
   assert.equal(result.sha256, hash("MZ built exe"));
   assert.equal(
     await readFile(join(inbox, result.filename), "utf8"),
@@ -143,6 +163,7 @@ test("remote builds use an isolated cache, remove stale source and release the l
   );
   await assert.rejects(
     runWindowsBuild(options, {
+      npm,
       run: () => {
         throw new Error("tool failed");
       },
@@ -150,6 +171,89 @@ test("remote builds use an isolated cache, remove stale source and release the l
     /tool failed/,
   );
   assert.equal(existsSync(join(root, state, "build.lock")), false);
+});
+
+test("source synchronization preserves unchanged mtimes and nested dependency caches, but applies edits and deletions", async (t) => {
+  const { root, write } = await fixture(t);
+  const source = join(root, "build/snapshot");
+  const workspace = join(root, "build/workspace");
+  await write("build/snapshot/src/keep.rs", "same");
+  await write("build/snapshot/src/change.rs", "new");
+  await write("build/snapshot/host/im/package.json", "{}");
+  await write("build/workspace/src/keep.rs", "same");
+  await write("build/workspace/src/change.rs", "old");
+  await write("build/workspace/src/deleted.rs", "deleted");
+  await write("build/workspace/host/im/node_modules/dependency", "cached");
+  await write("build/workspace/target/cache", "rust cache");
+  const keep = join(workspace, "src/keep.rs");
+  await utimes(keep, 1_000, 1_000);
+  const original = (await stat(keep)).mtimeMs;
+  await syncWindowsSources(source, workspace);
+  assert.equal((await stat(keep)).mtimeMs, original);
+  assert.equal(await readFile(join(workspace, "src/change.rs"), "utf8"), "new");
+  assert.equal(existsSync(join(workspace, "src/deleted.rs")), false);
+  assert.equal(
+    await readFile(join(workspace, "host/im/node_modules/dependency"), "utf8"),
+    "cached",
+  );
+  assert.equal(
+    await readFile(join(workspace, "target/cache"), "utf8"),
+    "rust cache",
+  );
+  // File/directory replacements and symlinks must not escape the owned workspace.
+  await rm(join(workspace, "src"), { recursive: true });
+  await symlink(join(root, "src"), join(workspace, "src"));
+  await syncWindowsSources(source, workspace);
+  assert.equal((await stat(keep)).isFile(), true);
+  assert.equal(await readFile(join(root, "src/main.ts"), "utf8"), "original");
+});
+
+test("dependency reuse invalidates on lockfiles, npm changes, missing installs and failed reinstalls", async (t) => {
+  const { root, write } = await fixture(t);
+  const npm = join(root, "build/npm/bin/npm-cli.js");
+  await write("build/npm/package.json", '{"version":"1"}');
+  await write("package.json", "{}");
+  await write("package-lock.json", "{}");
+  await write("host/im/package.json", "{}");
+  await write("host/im/package-lock.json", "{}");
+  let installs = 0;
+  const run = (_command, args) => {
+    assert.ok(args.includes("ci"));
+    installs++;
+    for (const path of ["node_modules", "host/im/node_modules"]) {
+      mkdirSync(join(root, path), { recursive: true });
+      writeFileSync(join(root, path, ".package-lock.json"), "{}");
+    }
+  };
+  const ensure = () => ensureWindowsDependencies(root, npm, { cwd: root }, run);
+  await ensure();
+  await ensure();
+  assert.equal(installs, 1);
+  for (const path of [
+    "package-lock.json",
+    "host/im/package-lock.json",
+    "build/npm/package.json",
+  ]) {
+    await write(path, '{"changed":true}');
+    await ensure();
+  }
+  assert.equal(installs, 4);
+  await rm(join(root, "host/im/node_modules"), { recursive: true });
+  await ensure();
+  assert.equal(installs, 5);
+  await write("package.json", '{"changed":true}');
+  await assert.rejects(
+    ensureWindowsDependencies(root, npm, {}, () => {
+      throw new Error("install failed");
+    }),
+    /install failed/,
+  );
+  assert.equal(
+    existsSync(join(root, "build/windows-dependencies.json")),
+    false,
+  );
+  await ensure();
+  assert.equal(installs, 6);
 });
 
 test("remote build refuses overlaps, altered archives and unowned directories", async (t) => {
@@ -186,7 +290,8 @@ for (const failure of [null, "version", "checksum", "ssh"]) {
     let request;
     let unchangedChecks = 0;
     const commands = [];
-    const run = (command, args) => {
+    const run = async (command, args) => {
+      await new Promise((resolve) => setImmediate(resolve));
       commands.push(command);
       if (failure === "ssh") throw new Error("SSH unreachable");
       if (command === "ssh") {

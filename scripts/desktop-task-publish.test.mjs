@@ -16,15 +16,90 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
+  buildAllDesktops,
   deployDesktopUpdate,
   nextLanVersion,
   publishCompletedTask,
   sourceFingerprint,
   verifyDeployment,
 } from "./desktop-task-publish.mjs";
+import { runBuildProcess } from "./desktop-build-process.mjs";
 import { publishDesktopUpdate } from "./publish-desktop-update.mjs";
 import { handleTurn } from "./desktop-turn-publish.mjs";
 import { handleTurn as dispatch } from "./turn-publish.mjs";
+
+test("platform builds overlap and source validation waits for both", async () => {
+  let finishLinux;
+  let finishWindows;
+  const started = [];
+  const linux = () =>
+    new Promise((resolve) => {
+      started.push("linux");
+      finishLinux = resolve;
+    });
+  const windows = () =>
+    new Promise((resolve) => {
+      started.push("windows");
+      finishWindows = resolve;
+    });
+  let validated = false;
+  const pending = buildAllDesktops(
+    "root",
+    "version",
+    async () => {
+      validated = true;
+    },
+    { linux, windows },
+  );
+  assert.deepEqual(started, ["linux", "windows"]);
+  finishLinux();
+  await Promise.resolve();
+  assert.equal(validated, false);
+  finishWindows({ nsis: "installer" });
+  assert.deepEqual(await pending, { nsis: "installer" });
+  assert.equal(validated, true);
+});
+
+test("a failed platform keeps the publication pending until the other builder stops", async () => {
+  let finishWindows;
+  let settled = false;
+  const pending = buildAllDesktops(
+    "root",
+    "version",
+    () => assert.fail("must not validate a failed build"),
+    {
+      linux: async () => {
+        throw new Error("Linux failed");
+      },
+      windows: () =>
+        new Promise((resolve) => {
+          finishWindows = resolve;
+        }),
+    },
+  );
+  const rejected = assert.rejects(pending, /Linux failed/).then(() => {
+    settled = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  finishWindows();
+  await rejected;
+});
+
+test("nonblocking build commands wait for exit and report failures", async () => {
+  await runBuildProcess(process.execPath, [
+    "-e",
+    "setTimeout(() => process.exit(0), 10)",
+  ]);
+  await assert.rejects(
+    runBuildProcess(process.execPath, ["-e", "process.exit(7)"]),
+    /failed \(7\)/,
+  );
+  await assert.rejects(
+    runBuildProcess("monocode-missing-build-command", []),
+    /ENOENT/,
+  );
+});
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "monocode-desktop-task-"));

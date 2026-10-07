@@ -2,6 +2,7 @@ import { ArrowDownCircle, Loader } from "../../shared/ui/icons";
 import { useCallback, useRef } from "react";
 import { installPendingUpdate, type UpdaterSnapshot } from "../model/updater";
 import { useTranslation } from "../../shared/i18n/useTranslation";
+import { formatBuildVersion } from "../../shared/lib/buildVersion";
 
 // The sidebar row only earns its space when there is something to act on: an
 // update waiting to be installed, or one already downloading. Every other phase
@@ -37,7 +38,9 @@ export function SidebarUpdate({
     ? snapshot.progress != null
       ? t("Downloading {progress}%", { progress: snapshot.progress })
       : t("Downloading…")
-    : t("Update to {version}", { version: snapshot.availableVersion ?? "" });
+    : t("Update to {version}", {
+        version: formatBuildVersion(snapshot.availableVersion ?? ""),
+      });
 
   return (
     <button
@@ -62,7 +65,7 @@ export function SidebarUpdate({
           {label}
         </span>
         <span className="ml-auto block text-[11px] text-content/40">
-          v{snapshot.currentVersion}
+          v{formatBuildVersion(snapshot.currentVersion)}
         </span>
       </span>
     </button>

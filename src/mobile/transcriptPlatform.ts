@@ -26,6 +26,7 @@ export const mobileTranscriptPlatform = {
     throw new Error("Host image is unavailable.");
   },
   localFiles: false,
+  answeredQuestionsInline: true,
 };
 
 export function createMobileTranscriptPlatform(

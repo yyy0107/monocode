@@ -260,9 +260,6 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   padding: 4px 12px;
   font-size: 12px;
 }
-.assistant-chat[data-layout="mobile"] .assistant-message .assistant-attachment {
-  margin: 7px 0 0;
-}
 .assistant-chat[data-layout="mobile"] :is(.assistant-card, .assistant-input) {
   width: 100%;
   min-width: 0;

@@ -107,20 +107,23 @@ it("leaves settled message rows alone while the final reply grows", () => {
   expect(node.textContent).toContain("New output");
 });
 
-it.each(["user", "assistant"] as const)("renders persisted %s pictures above the caption and opens the shared lightbox", async kind => {
+it.each(["user", "assistant"] as const)("renders persisted %s attachments above the caption and opens them", async kind => {
   const image = { id: "photo", name: "photo.png", mimeType: "image/png", kind: "image" as const, size: 3 };
   const readImage = vi.fn(async () => btoa("png"));
   const props = {
     messages: [{ id: "message", revision: 1, createdAt: 1, kind, text: "Caption", attachments: [image,
       { id: "file", name: "notes.txt", mimeType: "text/plain", kind: "file" as const, size: 1 },
     ] }],
-    canRead: true, mobile: true, busy: false, readImage,
+    canRead: true, mobile: true, busy: false, readImage, onOpenAttachment: vi.fn(),
     bindReply: vi.fn(() => ({})), onOpen: vi.fn(), onRespond: vi.fn(),
   };
   await act(async () => root.render(createElement(AssistantMessages, props)));
   const media = node.querySelector(".assistant-message-media")!;
   expect(media.querySelector(".attachment-chip-thumbnail")?.getAttribute("src")).toBe(`data:image/png;base64,${btoa("png")}`);
-  expect(media.nextElementSibling?.textContent).toBe("Captionnotes.txt");
+  expect(media.querySelector(".attachment-chip-tile")?.textContent).toBe("notes.txt");
+  expect(media.nextElementSibling?.textContent).toBe("Caption");
+  act(() => media.querySelector<HTMLButtonElement>("[aria-label=\"Open notes.txt\"]")!.click());
+  expect(props.onOpenAttachment).toHaveBeenCalledExactlyOnceWith("message", props.messages[0].attachments[1]);
   expect(readImage).toHaveBeenCalledExactlyOnceWith("message", image);
   await act(async () => root.render(createElement(AssistantMessages, { ...props, busy: true })));
   await act(async () => root.render(createElement(AssistantMessages, {

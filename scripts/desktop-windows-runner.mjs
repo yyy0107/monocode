@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import {
   access,
   copyFile,
+  lstat,
   mkdir,
   readFile,
   readdir,
@@ -14,12 +15,114 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
+const workspaceCaches = new Set([
+  "node_modules",
+  "target",
+  "build",
+  ".monocode-windows-builder",
+  "host/im/node_modules",
+]);
+
+// Compare contents instead of replacing the whole source tree. Cargo watches
+// source mtimes; rewriting unchanged files defeats its existing target cache.
+export async function syncWindowsSources(source, workspace, relative = "") {
+  const entries = await readdir(source, { withFileTypes: true });
+  const names = new Set(entries.map((entry) => entry.name));
+  await mkdir(workspace, { recursive: true });
+  for (const name of await readdir(workspace)) {
+    const path = relative ? `${relative}/${name}` : name;
+    if (!names.has(name) && !workspaceCaches.has(path))
+      await rm(join(workspace, name), { recursive: true, force: true });
+  }
+  for (const entry of entries) {
+    const path = relative ? `${relative}/${entry.name}` : entry.name;
+    if (workspaceCaches.has(path))
+      throw new Error(
+        `Windows source archive contains a reserved cache path: ${path}`,
+      );
+    const input = join(source, entry.name);
+    const output = join(workspace, entry.name);
+    let existing;
+    try {
+      existing = await lstat(output);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    if (entry.isDirectory()) {
+      if (existing && !existing.isDirectory())
+        await rm(output, { recursive: true, force: true });
+      await syncWindowsSources(input, output, path);
+    } else if (entry.isFile()) {
+      const bytes = await readFile(input);
+      if (existing?.isFile() && bytes.equals(await readFile(output))) continue;
+      if (existing) await rm(output, { recursive: true, force: true });
+      await copyFile(input, output);
+    } else {
+      throw new Error(`Windows source archive requires regular files: ${path}`);
+    }
+  }
+}
+
+async function dependencyFingerprint(workspace, npm) {
+  const hash = createHash("sha256");
+  hash.update(
+    JSON.stringify([process.version, process.platform, process.arch]),
+  );
+  for (const path of [
+    "package.json",
+    "package-lock.json",
+    ".npmrc",
+    "host/im/package.json",
+    "host/im/package-lock.json",
+    "host/im/.npmrc",
+  ]) {
+    hash.update(JSON.stringify(path));
+    try {
+      hash.update(digest(await readFile(join(workspace, path))));
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      hash.update("missing");
+    }
+  }
+  // Reinstall after npm upgrades too, including changes to install policy.
+  hash.update(await readFile(join(dirname(npm), "../package.json")));
+  return hash.digest("hex");
+}
+
+export async function ensureWindowsDependencies(workspace, npm, options, run) {
+  const fingerprint = await dependencyFingerprint(workspace, npm);
+  const marker = join(workspace, "build/windows-dependencies.json");
+  let reusable = false;
+  try {
+    reusable =
+      JSON.parse(await readFile(marker, "utf8")).fingerprint === fingerprint;
+    await access(join(workspace, "node_modules/.package-lock.json"));
+    await access(join(workspace, "host/im/node_modules/.package-lock.json"));
+  } catch (error) {
+    if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
+    reusable = false;
+  }
+  if (reusable) {
+    console.log(
+      "[desktop:windows] Reusing npm dependencies (lockfiles and toolchain unchanged)",
+    );
+    return;
+  }
+  // A failed install must never leave an old success marker reusable.
+  await rm(marker, { force: true });
+  run(process.execPath, [npm, "ci", "--no-audit", "--no-fund"], options);
+  await access(join(workspace, "node_modules/.package-lock.json"));
+  await access(join(workspace, "host/im/node_modules/.package-lock.json"));
+  await mkdir(dirname(marker), { recursive: true });
+  await writeFile(marker, JSON.stringify({ fingerprint }));
+}
 
 export async function runWindowsBuild(
   { repository, runId, version, archiveHash, checkOnly = false },
   {
     run = (command, args, options) =>
       execFileSync(command, args, { stdio: "inherit", ...options }),
+    npm = join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
   } = {},
 ) {
   if (
@@ -58,21 +161,15 @@ export async function runWindowsBuild(
       if (error.code !== "EEXIST") throw error;
       await access(marker);
     }
-    for (const name of await readdir(workspace)) {
-      if (
-        ![
-          "node_modules",
-          "target",
-          "build",
-          ".monocode-windows-builder",
-        ].includes(name)
-      )
-        await rm(join(workspace, name), { recursive: true, force: true });
-    }
-    run("tar.exe", ["-xzf", archive, "-C", workspace]);
-    const npm = join(
-      dirname(process.execPath),
-      "node_modules/npm/bin/npm-cli.js",
+    const unpacked = join(inbox, "source");
+    await rm(unpacked, { recursive: true, force: true });
+    await mkdir(unpacked);
+    run("tar.exe", ["-xzf", archive, "-C", unpacked]);
+    const syncStarted = performance.now();
+    await syncWindowsSources(unpacked, workspace);
+    await rm(unpacked, { recursive: true, force: true });
+    console.log(
+      `[desktop:windows] Source synchronization: ${((performance.now() - syncStarted) / 1000).toFixed(1)}s`,
     );
     const env = {
       ...process.env,
@@ -91,7 +188,11 @@ export async function runWindowsBuild(
     await writeFile(config, JSON.stringify({ version }));
     const receipt = { version, archiveHash, checked: checkOnly };
     if (!checkOnly) {
-      run(process.execPath, [npm, "ci", "--no-audit", "--no-fund"], options);
+      const installStarted = performance.now();
+      await ensureWindowsDependencies(workspace, npm, options, run);
+      console.log(
+        `[desktop:windows] Dependencies: ${((performance.now() - installStarted) / 1000).toFixed(1)}s`,
+      );
       // Use a relative config path: npm forwards arguments through cmd.exe.
       run(
         process.execPath,
