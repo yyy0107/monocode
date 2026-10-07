@@ -160,6 +160,23 @@ it("configures the title API through authenticated RPC without exposing credenti
 });
 
 describe("remote host API", () => {
+  it("queries account usage through authenticated RPC and rejects unknown accounts", async () => {
+    const s = await setup();
+    writeFileSync(join(s.directory, "desktop-owner.json"), JSON.stringify({ desktopDirectory: s.directory }));
+    mkdirSync(join(s.directory, "provider-accounts"));
+    writeFileSync(join(s.directory, "provider-accounts", "accounts.json"), JSON.stringify({
+      codex: [{ id: "work", label: "Work", dataHome: join(s.directory, "missing-profile") }],
+    }));
+    expect((await s.call("environment.describe")).value.result.capabilities).toContain("providerAccounts.usage.v1");
+    expect((await s.call("providerAccounts.usage", { provider: "codex", accountId: "work" }, "wrong-token")).status).toBe(401);
+    const result = await s.call("providerAccounts.usage", { provider: "codex", accountId: "work" });
+    expect(result.status).toBe(200);
+    expect(result.value.result).toMatchObject({ provider: "codex", status: "unavailable", session: null });
+    expect(JSON.stringify(result.value)).not.toContain(s.directory);
+    expect((await s.call("providerAccounts.usage", { provider: "codex", accountId: "removed" })).status).toBe(400);
+    expect((await s.call("providerAccounts.usage", { provider: "pi", accountId: "default" })).status).toBe(400);
+  });
+
   it("authenticates IM management and never returns a configured bot secret", async () => {
     const s = await setup();
     await s.engine.workflows.ready;

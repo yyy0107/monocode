@@ -16,6 +16,8 @@ import {
   type HostSessionActivity,
   type HostModelCatalog,
   type HostProviderAccounts,
+  type HostProviderUsage,
+  type HostProviderUsageRequest,
   type HostSkillCatalog,
   type HostCommand,
   type CommandReceipt,
@@ -735,6 +737,20 @@ export class MobileClient {
     let result: HostProviderAccounts | null;
     try {
       result = await this.rpc<HostProviderAccounts>("providerAccounts.list");
+    } catch (error) {
+      if (!(error instanceof HostRequestError && error.status === 400 && error.message === "Unsupported host method"))
+        throw error;
+      result = null;
+    }
+    if (epoch !== this.cacheEpoch) throw new Error(translate("Host connection changed."));
+    return result;
+  }
+  async providerAccountUsage(params: HostProviderUsageRequest): Promise<HostProviderUsage | null> {
+    if (!this.hasCapability("providerAccounts.usage.v1")) return null;
+    const epoch = this.cacheEpoch;
+    let result: HostProviderUsage | null;
+    try {
+      result = await this.rpc<HostProviderUsage>("providerAccounts.usage", params);
     } catch (error) {
       if (!(error instanceof HostRequestError && error.status === 400 && error.message === "Unsupported host method"))
         throw error;

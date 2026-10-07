@@ -1,0 +1,73 @@
+.mobile-provider-accounts {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.mobile-account-toolbar,
+.mobile-account-provider,
+.mobile-account-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mobile-account-toolbar {
+  justify-content: space-between;
+  margin: 0 4px 12px;
+}
+.mobile-account-toolbar p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+}
+.mobile-account-row {
+  min-width: 0;
+  padding: 16px;
+}
+.mobile-account-heading {
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.mobile-account-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.mobile-account-badge {
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--mobile-accent);
+  background: var(--mobile-selected);
+}
+.mobile-account-identity {
+  max-width: 100%;
+  font-size: 13px;
+}
+.mobile-account-detail {
+  display: flex;
+  margin-top: 6px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+.mobile-account-meters {
+  display: grid;
+  gap: 14px;
+  margin: 14px 0 10px;
+}
+.mobile-account-meter > div:first-child {
+  font-size: 12px;
+  line-height: 16px;
+}
+.mobile-account-meter [role="progressbar"] {
+  height: 5px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-provider-accounts [role="progressbar"] > span {
+    transition: none;
+  }
+  .mobile-provider-accounts .animate-spin,
+  .mobile-provider-accounts .animate-pulse {
+    animation: none;
+  }
+}

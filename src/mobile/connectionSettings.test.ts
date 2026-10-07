@@ -27,6 +27,7 @@ const healthyStatus = vi.hoisted(() => ({
   state: "connected" as "connected" | "failed" | "disconnected",
 }));
 const host = vi.hoisted(() => ({
+  hasCapability: () => false,
   getConnectionStatus: () => healthyStatus,
   subscribeConnectionStatus: () => () => {},
   verify: vi.fn(async () => {}),
@@ -228,6 +229,17 @@ describe("mobile connection settings", () => {
     await act(async () => active<HTMLButtonElement>('[aria-label="Home menu"]')!.click());
     await act(async () => button("Settings").click());
   }
+
+  it("opens Accounts and usage from Settings and returns with native Back", async () => {
+    vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+    await openConnectedSettings();
+    await act(async () => button("Accounts and usage").click());
+    expect(active("header strong")?.textContent).toBe("Accounts and usage");
+    expect(active(".mobile-provider-accounts")?.textContent).toContain("My computer");
+    await act(async () => nativeBack.listener?.());
+    expect(active("header strong")?.textContent).toBe("MonoCode");
+    expect(button("Accounts and usage")).toBeDefined();
+  });
 
   it("keeps Add connection in the device list and disconnects through its switch", async () => {
     await openConnectedSettings();

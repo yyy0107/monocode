@@ -101,6 +101,12 @@ export type HostProviderAccount = {
 export type HostProviderAccounts = Partial<
   Record<RemoteProvider, HostProviderAccount[]>
 >;
+export type HostProviderUsageRequest = {
+  provider: "claude" | "codex";
+  accountId: string;
+  refresh?: boolean;
+};
+export type HostProviderUsage = import("../../providers/model/rateLimits").ProviderRateLimits;
 export type HostSkillCatalog = {
   skills: Skill[];
   native: boolean;

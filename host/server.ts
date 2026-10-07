@@ -1,4 +1,5 @@
-import { resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
+import { HostProviderUsage } from "./provider-usage";
 import {
   createServer,
   type IncomingMessage,
@@ -139,6 +140,7 @@ export function createHostServer(
   lifecycle?: (request: IncomingMessage, response: ServerResponse) => void,
   discoverProviders?: () => Promise<RemoteProvider[]>,
 ) {
+  const providerUsage = new HostProviderUsage(join(dirname(engine.store.attachmentDir), "desktop-owner.json"));
   let discovering: Promise<RemoteProvider[]> | undefined;
   const availableProviders = () => {
     if (!discoverProviders) return Promise.resolve(providers);
@@ -321,6 +323,7 @@ export function createHostServer(
                 "projects.browse",
                 "models.list",
                 "providerAccounts.defaults",
+                "providerAccounts.usage.v1",
                 "skills.list",
                 "notes.v1",
                 "approvals",
@@ -377,6 +380,9 @@ export function createHostServer(
             break;
           case "providerAccounts.list":
             result = engine.providerAccounts();
+            break;
+          case "providerAccounts.usage":
+            result = await providerUsage.read(params);
             break;
           case "titleModel.status":
             result = engine.titleModel.status();

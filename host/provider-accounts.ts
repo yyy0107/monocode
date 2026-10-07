@@ -105,6 +105,35 @@ function configuredHome(directory: string, provider: string, id: string): string
   return home;
 }
 
+/** Internal query selector. Only public account IDs may select a credential Home. */
+export function providerUsageProfile(owner: string, provider: unknown, accountId: unknown): {
+  provider: "claude" | "codex";
+  accountId: string;
+  home: string;
+  environmentAuth: boolean;
+  keychainSelector?: string;
+} {
+  if ((provider !== "claude" && provider !== "codex") ||
+      typeof accountId !== "string" || !ACCOUNT_ID.test(accountId))
+    throw new Error("Invalid provider account");
+  const directory = desktopDirectory(owner);
+  if (!directory || !accountsIn(directory, provider).some(account => account.id === accountId))
+    throw new Error("This provider account is no longer available");
+  const configured = accountId === "default"
+    ? defaultProviderAccountHome(directory, provider)
+    : namedProviderAccountHome(directory, provider, accountId);
+  const home = configured || (provider === "codex"
+    ? process.env.CODEX_HOME || join(homedir(), ".codex")
+    : process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"));
+  const environmentAuth = !configured && (provider === "codex"
+    ? ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"]
+    : ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]
+  ).some(key => !!process.env[key]);
+  return { provider, accountId, home, environmentAuth,
+    // The legacy macOS Keychain service is used only without an explicit selector.
+    keychainSelector: configured || process.env.CLAUDE_CONFIG_DIR || undefined };
+}
+
 export function namedProviderAccountHome(directory: string, provider: string, id: string): string {
   if (id === "default") throw new Error("Invalid provider account");
   return configuredHome(directory, provider, id) ?? join(directory, "provider-accounts", provider, id);

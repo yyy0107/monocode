@@ -21,7 +21,7 @@ import {
 
 export type MobileSettingsPage =
   "root" | "agents" | "notifications" | "chat" |
-  "connections" | "updates" | "glass" | "archive";
+  "connections" | "updates" | "glass" | "archive" | "accounts";
 export type MobilePreferencePanel =
   "theme" | "accent" | "language" | "glass" | "follow-up" | "transcript-layout" |
   "agent-defaults" | "default-permissions" | "account-claude" | "account-codex" |
@@ -30,6 +30,7 @@ export type MobilePreferencePanel =
 const SETTINGS_TITLES: Record<MobileSettingsPage, string> = {
   root: "Settings",
   agents: "New conversations",
+  accounts: "Accounts and usage",
   notifications: "Notifications",
   chat: "Message composer",
   connections: "Connections",
@@ -196,6 +197,7 @@ export function MobileSettings({
   onSoundsEnabledChange,
   archive,
   agentDefaults,
+  providerAccounts,
   glass,
   onGlassChange,
   preferencePanel,
@@ -231,6 +233,7 @@ export function MobileSettings({
   onSoundsEnabledChange: (enabled: boolean) => void;
   archive: ReactNode;
   agentDefaults?: ReactNode;
+  providerAccounts?: ReactNode;
   glass: GlassSettings;
   onGlassChange: (glass: GlassSettings) => void;
   preferencePanel: MobilePreferencePanel;
@@ -370,6 +373,9 @@ export function MobileSettings({
         </Group>
       </main>
     );
+
+  if (page === "accounts")
+    return <main key="accounts" className="mobile-content mobile-settings">{providerAccounts}</main>;
 
   if (page === "agents")
     return (
@@ -539,6 +545,14 @@ export function MobileSettings({
             >
               <SettingsIcon name="agent" />
               <span className="mobile-settings-label">{t("New conversations")}</span>
+              <ChevronRight size={18} />
+            </button>
+          ) : null}
+          {providerAccounts ? (
+            <button type="button" className="mobile-settings-row" aria-label={t("Accounts and usage")}
+              onClick={() => onPageChange("accounts")}>
+              <SettingsIcon name="account" />
+              <span className="mobile-settings-label">{t("Accounts and usage")}</span>
               <ChevronRight size={18} />
             </button>
           ) : null}

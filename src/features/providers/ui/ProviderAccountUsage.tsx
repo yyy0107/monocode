@@ -102,14 +102,18 @@ export function UsageMeter({
   window,
   now,
   className = "w-36",
+  showRemaining: remainingOverride,
 }: {
   title: string;
   window: RateLimitWindow;
   now: number;
   className?: string;
+  /** Mobile explicitly shows remaining quota; desktop retains its preference. */
+  showRemaining?: boolean;
 }) {
   const { t: uiT } = useTranslation();
-  const showRemaining = useShowRemainingUsage();
+  const preferredRemaining = useShowRemainingUsage();
+  const showRemaining = remainingOverride ?? preferredRemaining;
   const pct = clampUsedPercent(window.usedPercent);
   const remaining = 100 - pct;
   const shown = showRemaining ? remaining : pct;
@@ -133,7 +137,7 @@ export function UsageMeter({
     >
       <div className="flex items-baseline justify-between gap-2 text-[10px] leading-3">
         <span className="min-w-0 truncate text-content/40">
-          {title} · <span className="tabular-nums">{reset}</span>
+          {uiT(title)} · <span className="tabular-nums">{uiT(reset)}</span>
         </span>
         <span
           className={`shrink-0 tabular-nums ${full ? "font-medium text-red-400" : "text-content/60"}`}
@@ -151,8 +155,8 @@ export function UsageMeter({
         className="mt-1.5 h-1 overflow-hidden rounded-full bg-content/10"
         role="progressbar"
         aria-label={uiT("{value0} limit {value1}", {
-          value0: String(title),
-          value1: String(showRemaining ? "remaining" : "used"),
+          value0: uiT(title),
+          value1: uiT(showRemaining ? "remaining" : "used"),
         })}
         aria-valuemin={0}
         aria-valuemax={100}

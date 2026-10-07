@@ -71,6 +71,7 @@ import {
   type MobileAgentDefaults as AgentDefaults,
 } from "./agentDefaults";
 import { MobileAgentDefaults } from "./MobileAgentDefaults";
+import { MobileProviderAccounts } from "./MobileProviderAccounts";
 import type { HostModelCatalog } from "../features/connections/model/protocol";
 import {
   MobileClient,
@@ -1763,6 +1764,14 @@ export function MobileApp() {
               disabled={busy || loading || !connected}
               panel={preferencePanel}
               onPanelChange={setPreferencePanel}
+            />
+          }
+          providerAccounts={
+            <MobileProviderAccounts
+              key={`${client.connection?.environmentId ?? "disconnected"}:${connected}:${connectionRevision}`}
+              client={client}
+              hostId={client.connection?.environmentId}
+              enabled={connected && hostStatus.state === "connected"}
             />
           }
           preferencePanel={preferencePanel}
