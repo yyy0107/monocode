@@ -2533,6 +2533,8 @@
   "Add a fact for the assistant to remember": "添加一条让助手记住的内容",
   "Nothing remembered yet. The assistant saves lasting facts and preferences as it learns them.": "还没有记住任何内容。助手会在了解到长期有用的事实和偏好时自动记下。",
   "Topic notes: {topics}": "主题笔记：{topics}",
+  "Assistant memory": "助理记忆",
+  "No topic notes yet.": "暂无主题笔记。",
   "Habits": "习惯",
   "{count} habits": "{count} 个习惯",
   "Add habit": "添加习惯",

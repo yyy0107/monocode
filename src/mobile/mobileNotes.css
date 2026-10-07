@@ -36,6 +36,12 @@
   gap: 8px;
   padding: 8px 16px;
 }
+.mobile-notes-section-title {
+  margin: 12px 16px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
 .mobile-notes-search input {
   flex: 1;
   min-width: 0;

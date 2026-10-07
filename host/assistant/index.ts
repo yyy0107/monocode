@@ -47,6 +47,7 @@ import {
   memoryEntry,
   memoryLines,
   memoryWithinBudget,
+  topicName,
   withLineEdited,
   withoutLine,
 } from "./memory";
@@ -197,6 +198,13 @@ export class HostAssistant {
         facts: memoryLines(doc.text),
         topics: this.store.memoryTopics(),
       };
+    }
+    if (method === "assistant.memoryTopic") {
+      fields(raw, ["topic"]);
+      const name = topicName(id(raw.topic, "topic", 80));
+      if (!this.store.get()) return null;
+      const doc = this.store.memoryDoc(`topic:${name}`);
+      return doc.text ? { name, ...doc } : null;
     }
     return this.mutate(() => this.mutateRpc(method, raw));
   }

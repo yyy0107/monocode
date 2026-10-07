@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useRemoteMachines } from "../../connections/model/connections";
 import {
   sharedHostEnvironment,
@@ -10,13 +11,15 @@ export function useDesktopAssistantHosts() {
   const { machines } = useRemoteMachines();
   const localId = sharedHostMachineId();
   const environmentId = sharedHostEnvironment();
-  const choices = [...machines];
-  if (localId && environmentId && !choices.some((m) => m.id === localId))
-    choices.unshift({
-      id: localId,
-      environmentId,
-      name: t("Local"),
-      endpoint: "",
-    });
-  return choices;
+  return useMemo(() => {
+    const choices = [...machines];
+    if (localId && environmentId && !choices.some((m) => m.id === localId))
+      choices.unshift({
+        id: localId,
+        environmentId,
+        name: t("Local"),
+        endpoint: "",
+      });
+    return choices;
+  }, [machines, localId, environmentId, t]);
 }

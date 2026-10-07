@@ -141,8 +141,13 @@ export type AssistantView = {
 export type AssistantMemory = {
   revision: number;
   facts: AssistantMemoryFact[];
-  /** Topic notes the assistant keeps; read on demand by the assistant. */
+  /** Topic notes the assistant keeps; bodies are read on demand. */
   topics: string[];
+};
+export type AssistantMemoryTopic = {
+  name: string;
+  text: string;
+  revision: number;
 };
 export type AssistantMemoryFact = {
   /** Line index in the memory document, for editing or forgetting it. */

@@ -7,6 +7,17 @@ import { NotesView } from "./NotesView";
 import { savePinnedProjects, saveProjectRailOrder } from "../../projects/model/recents";
 
 const invoke = vi.hoisted(() => vi.fn());
+const assistant = vi.hoisted(() => ({
+  hosts: [] as { id: string; environmentId: string; name: string }[],
+  rpc: vi.fn(),
+}));
+vi.mock("../../assistant/model/useDesktopAssistantHosts", () => ({
+  useDesktopAssistantHosts: () => assistant.hosts,
+}));
+vi.mock("../../connections/model/connections", async (original) => ({
+  ...(await original<typeof import("../../connections/model/connections")>()),
+  remoteRequest: (...args: unknown[]) => assistant.rpc(...args),
+}));
 vi.mock("@tauri-apps/api/core", async (original) => ({
   ...(await original<typeof import("@tauri-apps/api/core")>()),
   invoke,
@@ -31,6 +42,8 @@ const recents = [
 ];
 
 beforeEach(() => {
+  assistant.hosts = [];
+  assistant.rpc.mockReset();
   invalidateNotes();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const storage = new Map<string, string>();
@@ -106,6 +119,57 @@ function typeInto(field: HTMLInputElement | HTMLTextAreaElement, value: string) 
   Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(field, value);
   field.dispatchEvent(new Event("input", { bubbles: true }));
 }
+
+it("lists assistant topics by Host and reads their Markdown without saving ordinary notes", async () => {
+  assistant.hosts = [
+    { id: "local", environmentId: "local-env", name: "Local Host" },
+    { id: "remote", environmentId: "remote-env", name: "Remote Host" },
+  ];
+  assistant.rpc.mockImplementation(async (host: string, method: string) =>
+    method === "assistant.memory"
+      ? { revision: 1, facts: [], topics: ["deploys"] }
+      : { name: "deploys", text: `## Deployment\n\n**${host} staging**`, revision: 1 },
+  );
+  await render();
+  const cards = container.querySelectorAll<HTMLButtonElement>("[data-assistant-topic]");
+  expect(cards).toHaveLength(2);
+  expect(assistant.rpc.mock.calls.every((call) => call[1] === "assistant.memory")).toBe(true);
+  await act(async () => cards[1].click());
+  expect(assistant.rpc).toHaveBeenCalledWith("remote", "assistant.memoryTopic", { topic: "deploys" });
+  expect(container.querySelector('[data-streamdown="strong"]')?.textContent).toBe("remote staging");
+  expect(container.querySelector('[aria-label="Note title"]')).toBeNull();
+  expect(container.querySelector('[aria-label="Delete note"]')).toBeNull();
+  const filter = container.querySelector<HTMLInputElement>('[aria-label="Filter notes"]')!;
+  act(() => typeInto(filter, "Local Host"));
+  expect(container.querySelectorAll("[data-assistant-topic]")).toHaveLength(1);
+  act(() => typeInto(filter, "Plan"));
+  await act(async () => container.querySelector<HTMLButtonElement>('button[title="Plan · Edefyn"]')!.click());
+  expect(container.querySelector<HTMLInputElement>('[aria-label="Note title"]')?.value).toBe("Plan");
+  expect(invoke.mock.calls.some((call) => call[0] === "notes_upsert")).toBe(false);
+});
+
+it("keeps available Host topics visible and ignores a late reply after switching topics", async () => {
+  assistant.hosts = [
+    { id: "online", environmentId: "online-env", name: "Online" },
+    { id: "offline", environmentId: "offline-env", name: "Offline Host" },
+  ];
+  let finish!: (value: unknown) => void;
+  assistant.rpc.mockImplementation(async (host: string, method: string, params?: { topic: string }) => {
+    if (host === "offline") throw new Error("Connection failed");
+    if (method === "assistant.memory") return { topics: ["first", "second"] };
+    if (params?.topic === "first") return new Promise((resolve) => { finish = resolve; });
+    return { name: "second", text: "Second topic body", revision: 1 };
+  });
+  await render();
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Offline Host: Connection failed");
+  const cards = container.querySelectorAll<HTMLButtonElement>("[data-assistant-topic]");
+  await act(async () => cards[0].click());
+  await act(async () => cards[1].click());
+  expect(container.textContent).toContain("Second topic body");
+  await act(async () => finish({ name: "first", text: "Stale first topic body", revision: 1 }));
+  expect(container.textContent).not.toContain("Stale first topic body");
+  expect(container.textContent).toContain("Second topic body");
+});
 
 // https://github.com/hardbeat920/monocode/issues/768
 it.each([

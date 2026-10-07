@@ -1650,7 +1650,7 @@ export function MobileApp() {
       )}
       </MobilePageOverlay>
       <MobilePageOverlay key={`notes:${client.connection?.environmentId}`} open={notesOpen && !!client.connection}>
-        {client.connection && <MobileNotes ref={notesPage} client={client} hostKey={client.connection.environmentId}
+        {client.connection && <MobileNotes ref={notesPage} client={client} hostKey={client.connection.environmentId} hostName={connectionName}
           projects={projects} onClose={() => setNotesOpen(false)} onAddToChat={onNoteAddToChat} />}
       </MobilePageOverlay>
       <SurfaceVisibilityContext.Provider value={!pageOverlayOpen}>

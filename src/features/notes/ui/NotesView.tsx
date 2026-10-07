@@ -4,6 +4,7 @@ import {
   LoaderCircle,
   Plus,
   Search,
+  RefreshCw,
   File,
   Trash2,
   X,
@@ -20,6 +21,10 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useMarkdownMode } from "../../sessions/ui/MarkdownModeToggle";
+import { useDesktopAssistantHosts } from "../../assistant/model/useDesktopAssistantHosts";
+import { useAssistantTopicNotes } from "../../assistant/model/useAssistantTopicNotes";
+import { AssistantTopicNote } from "../../assistant/ui/AssistantTopicNote";
+import { remoteRequest } from "../../connections/model/connections";
 import { ProjectLogoIcon } from "../../projects/ui/ProjectLogoIcon";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
 import { SearchableProjectPicker } from "../../projects/ui/SearchableProjectPicker";
@@ -136,6 +141,18 @@ export function NotesView({
     );
   });
   const [creating, setCreating] = useState(false);
+  const hosts = useDesktopAssistantHosts();
+  const topicSources = useMemo(() => hosts.map((host) => ({
+    key: host.environmentId,
+    name: host.name,
+    rpc: <T,>(method: string, params?: object) => remoteRequest<T>(host.id, method, params),
+  })), [hosts]);
+  const topics = useAssistantTopicNotes(topicSources, active);
+  const [selectedTopicKey, setSelectedTopicKey] = useState<string>();
+  const selectedTopic = topics.notes.find((note) => note.key === selectedTopicKey);
+  const visibleTopics = topics.notes.filter((note) =>
+    `${note.name} ${note.source.name}`.toLowerCase().includes(query.trim().toLowerCase()),
+  );
   const logos = useTabGroupLogos();
   const [groupMascots] = useState(loadTabGroupMascots);
   const [groupColors] = useState(loadTabGroupColors);
@@ -214,6 +231,7 @@ export function NotesView({
       });
       setNotes(await loadNotes(true));
       setSelectedId(note.id);
+      setSelectedTopicKey(undefined);
       setQuery("");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
@@ -271,6 +289,16 @@ export function NotesView({
         </div>
         <button
           type="button"
+          title={uiT("Refresh notes")}
+          aria-label={uiT("Refresh notes")}
+          disabled={loading || topics.loading}
+          onClick={() => { void refresh(); topics.refresh(); }}
+          className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-40"
+        >
+          <RefreshCw className="size-3.5" />
+        </button>
+        <button
+          type="button"
           title={uiT("New note")}
           aria-label={uiT("New note")}
           disabled={creating}
@@ -296,7 +324,7 @@ export function NotesView({
           <div className="flex justify-center py-10 text-content/40">
             <LoaderCircle className="size-4 animate-spin" />
           </div>
-        ) : visible.length === 0 ? (
+        ) : visible.length === 0 && visibleTopics.length === 0 && !topics.loading ? (
           <p className="px-3 py-2 text-[12px] text-content/50">
             {query.trim()
               ? uiT("No matching notes")
@@ -310,16 +338,46 @@ export function NotesView({
               <li key={note.id}>
                 <NoteCard
                   note={note}
-                  active={selected?.id === note.id}
+                  active={!selectedTopic && selected?.id === note.id}
                   logos={logos}
                   mascots={groupMascots}
                   colors={groupColors}
                   customColors={groupCustomColors}
-                  onSelect={() => setSelectedId(note.id)}
+                  onSelect={() => { setSelectedTopicKey(undefined); setSelectedId(note.id); }}
                 />
               </li>
             ))}
           </ul>
+        )}
+        {topicSources.length > 0 && (
+          <section className="border-t border-stroke p-1.5" aria-label={uiT("Assistant memory")}>
+            <h2 className="px-2.5 py-2 text-[11px] font-medium text-content/50">{uiT("Assistant memory")}</h2>
+            {topics.loading && <p role="status" className="px-2.5 py-2 text-[12px] text-content/50">{uiT("Loading notes…")}</p>}
+            {topics.errors.map(({ source, error }) => (
+              <p key={source.key} role="alert" className="px-2.5 py-2 text-[12px] text-content/50">
+                {source.name}: {error} <button type="button" onClick={topics.refresh}>{uiT("Retry")}</button>
+              </p>
+            ))}
+            {!topics.loading && !topics.errors.length && !visibleTopics.length && (
+              <p className="px-2.5 py-2 text-[12px] text-content/50">{uiT(query.trim() ? "No matching notes" : "No topic notes yet.")}</p>
+            )}
+            <ul className="flex flex-col gap-0.5">
+              {visibleTopics.map((note) => (
+                <li key={note.key}>
+                  <button
+                    type="button"
+                    data-assistant-topic
+                    aria-current={selectedTopic?.key === note.key ? "true" : undefined}
+                    onClick={() => setSelectedTopicKey(note.key)}
+                    className={`flex w-full flex-col rounded-md px-2.5 py-2 text-left hover:bg-content/5 ${selectedTopic?.key === note.key ? "bg-selection" : ""}`}
+                  >
+                    <span className="text-[11px] text-content/50">{note.source.name}</span>
+                    <span className="line-clamp-1 text-[13px] font-semibold">{note.name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
       </div>
       <ResizeHandle
@@ -343,14 +401,16 @@ export function NotesView({
       <div className="flex min-h-0 min-w-0 flex-1">
         {list}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col pl-4">
-          <NoteDetail
+          {selectedTopic ? (
+            <AssistantTopicNote key={selectedTopic.key} note={selectedTopic} active={active} />
+          ) : <NoteDetail
             note={selected}
             recents={recents}
             activeCwd={cwd}
             onSaved={onSaved}
             onDelete={onDelete}
             onAddToChat={onAddToChat}
-          />
+          />}
         </div>
       </div>
     </div>

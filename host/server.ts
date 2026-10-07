@@ -576,6 +576,7 @@ export function createHostServer(
           case "assistant.control":
           case "assistant.respond":
           case "assistant.memory":
+          case "assistant.memoryTopic":
             result = await engine.assistant.rpc(input.method, params);
             break;
           case "im.get":

@@ -1105,9 +1105,21 @@ it("advertises assistant RPC, enforces device auth and hides the private brain",
   engine.assistant.setCatalog(async () => ["codex"], async () => ({ models: { codex: [{ id: "test", name: "Test" }] }, errors: {} }));
   expect((await call("environment.describe")).value.result.capabilities).toContain("assistant.v1");
   expect((await call("assistant.get")).value.result).toBeNull();
+  expect((await call("assistant.memoryTopic", { topic: "deploys" })).value.result).toBeNull();
   const command = { commandId: "setup-assistant", expectedRevision: 0, patch: { harness: "codex", model: "test", triggers: { user: true, event: false, schedule: false } } };
   expect((await call("assistant.configure", command)).status).toBe(200);
   expect((await call("assistant.configure", command)).status).toBe(200);
+  const topicText = "# Deploys\n\n- Use staging first\n";
+  engine.assistant.store.writeMemoryDoc("topic:deploys", topicText);
+  expect((await call("assistant.memory")).value.result.topics).toEqual(["deploys"]);
+  expect((await call("assistant.memoryTopic", { topic: "deploys" })).value.result).toEqual({
+    name: "deploys", text: topicText, revision: 1,
+  });
+  expect((await call("assistant.memoryTopic", { topic: "missing" })).value.result).toBeNull();
+  expect((await call("assistant.memoryTopic", { topic: "../archive" })).value.error).toMatch(/topic/);
+  expect((await call("assistant.memoryTopic", { topic: "archive" })).value.error).toMatch(/topic/);
+  expect((await call("assistant.memoryTopic", { topic: "deploys", text: "overwrite" })).value.error).toBeTruthy();
+  expect(engine.assistant.store.memoryDoc("topic:deploys")).toEqual({ text: topicText, revision: 1 });
   expect((await call("assistant.send", { commandId: "assistant-message", text: "Hello" })).status).toBe(200);
   await vi.waitFor(() => expect(engine.assistant.store.get()?.brainSessionId).toBeTruthy());
   const brain = engine.assistant.store.get()!.brainSessionId!;
@@ -1118,4 +1130,5 @@ it("advertises assistant RPC, enforces device auth and hides the private brain",
   expect((await call("assistant.configure", { ...command, commandId: "conflict", patch: { name: "Changed" } })).value).toMatchObject({ code: "conflict" });
   store.revokeToken(first.token);
   expect((await call("assistant.get")).status).toBe(401);
+  expect((await call("assistant.memoryTopic", { topic: "deploys" })).status).toBe(401);
 });

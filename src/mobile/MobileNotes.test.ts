@@ -37,6 +37,7 @@ beforeEach(() => {
   add = vi.fn(async () => {});
   client = {
     connection: { environmentId: "host", endpoint: "http://host" },
+    rpc: vi.fn(async () => null),
     listNotes: vi.fn(async () => [{ ...stored }]),
     getNote: vi.fn(async () => ({ ...stored })),
     noteImage: vi.fn(async () => ({ mime: "image/png", data: "YQ==" })),
@@ -126,6 +127,43 @@ it("filters title, body, slug, tags and project name and retries load failures",
   expect(active().querySelector('[role="alert"]')).toBeNull();
   act(() => type(filter, ""));
   expect(active().querySelectorAll(".mobile-note-card")).toHaveLength(1);
+});
+
+it("opens assistant topics from Notes, refreshes their Markdown and returns to the list", async () => {
+  let text = "## Deployment\n\n**Use staging**";
+  vi.mocked(client.rpc).mockImplementation(async (method) =>
+    method === "assistant.memory"
+      ? { revision: 1, facts: [], topics: ["deploys"] }
+      : { name: "deploys", text, revision: 1 } as any,
+  );
+  await render();
+  expect(client.rpc).not.toHaveBeenCalledWith("assistant.memoryTopic", expect.anything());
+  await act(async () => active().querySelector<HTMLButtonElement>("[data-assistant-topic]")!.click());
+  expect(client.rpc).toHaveBeenCalledWith("assistant.memoryTopic", { topic: "deploys" });
+  expect(active().querySelector('[data-streamdown="strong"]')?.textContent).toBe("Use staging");
+  expect(active().textContent).toContain("Read only");
+  text = "New deployment procedure";
+  await act(async () => button("Refresh notes").click());
+  expect(active().textContent).toContain(text);
+  expect(active().querySelector("input, textarea")).toBeNull();
+  await act(async () => handle.current!.back());
+  await act(async () => vi.advanceTimersByTime(1000));
+  expect(active().querySelectorAll("[data-assistant-topic]")).toHaveLength(1);
+  expect(close).not.toHaveBeenCalled();
+});
+
+it("retries a failed topic read and reports a removed topic without opening an ordinary note", async () => {
+  vi.mocked(client.rpc).mockImplementation(async (method) => {
+    if (method === "assistant.memory") return { topics: ["deploys"] } as any;
+    throw new Error("Disconnected");
+  });
+  await render();
+  await act(async () => active().querySelector<HTMLButtonElement>("[data-assistant-topic]")!.click());
+  expect(active().querySelector('[role="alert"]')?.textContent).toContain("Disconnected");
+  vi.mocked(client.rpc).mockResolvedValueOnce(null);
+  await act(async () => button("Retry").click());
+  expect(active().textContent).toContain("Note was not found.");
+  expect(client.getNote).not.toHaveBeenCalled();
 });
 
 it("reads the latest note with Markdown and images without editing controls", async () => {

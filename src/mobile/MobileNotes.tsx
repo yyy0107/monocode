@@ -19,6 +19,8 @@ import { translate } from "../shared/i18n/language";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import { AgentMarkdown } from "../features/sessions/ui/AgentMarkdown";
+import { AssistantTopicNote } from "../features/assistant/ui/AssistantTopicNote";
+import { useAssistantTopicNotes } from "../features/assistant/model/useAssistantTopicNotes";
 import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
 import {
   notePreview,
@@ -44,6 +46,10 @@ function scopedNotes(client: MobileClient, hostKey: string) {
       throw new Error(translate("Host connection changed."));
   };
   return {
+    rpc: async <T,>(method: string, params?: object): Promise<T> => {
+      check();
+      return client.rpc<T>(method, params);
+    },
     list: () => {
       check();
       return client.listNotes();
@@ -66,6 +72,7 @@ export function MobileNotes({
   ref,
   client,
   hostKey,
+  hostName,
   projects,
   onClose,
   onAddToChat,
@@ -73,6 +80,7 @@ export function MobileNotes({
   ref?: Ref<MobileNotesHandle>;
   client: MobileClient;
   hostKey: string;
+  hostName?: string;
   projects: HostProject[];
   onClose: () => void;
   onAddToChat: (note: Note) => Promise<void>;
@@ -80,6 +88,13 @@ export function MobileNotes({
   const { language, t } = useTranslation();
   const visible = useSurfaceVisibility();
   const api = useMemo(() => scopedNotes(client, hostKey), [client, hostKey]);
+  const topicSources = useMemo(() => [{
+    key: hostKey,
+    name: hostName ?? hostKey,
+    rpc: api.rpc,
+  }], [api, hostKey, hostName]);
+  const topics = useAssistantTopicNotes(topicSources, visible);
+  const [selectedTopicKey, setSelectedTopicKey] = useState<string>();
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [query, setQuery] = useState("");
@@ -114,7 +129,10 @@ export function MobileNotes({
   }, [refresh]);
   const back = () => {
     if (operation.current) return;
-    if (selectedId) viewer.current?.back();
+    if (selectedTopicKey) {
+      setSelectedTopicKey(undefined);
+      topics.refresh();
+    } else if (selectedId) viewer.current?.back();
     else onClose();
   };
   useImperativeHandle(ref, () => ({ back }));
@@ -154,6 +172,10 @@ export function MobileNotes({
       (noteSourceProject(note.sourceCwd)?.toLowerCase() ?? "").includes(needle),
   );
   const selected = notes.find((note) => note.id === selectedId);
+  const selectedTopic = topics.notes.find((note) => note.key === selectedTopicKey);
+  const filteredTopics = topics.notes.filter((note) =>
+    `${note.name} ${note.source.name}`.toLowerCase().includes(needle),
+  );
   return (
     <aside
       className="mobile-notes"
@@ -167,13 +189,26 @@ export function MobileNotes({
     >
       <MobilePageTransition
         route={{
-          key: selected ? `note:${selected.id}` : "notes",
+          key: selectedTopic ? `topic:${selectedTopic.key}` : selected ? `note:${selected.id}` : "notes",
           section: "home",
-          depth: selected ? 1 : 0,
+          depth: selectedTopic || selected ? 1 : 0,
         }}
         slide
       >
-        {selected ? (
+        {selectedTopic ? (
+          <>
+            <header className="mobile-notes-header">
+              <button className="mobile-sheet-header-button" aria-label={t("Back")} disabled={!visible} onClick={back}>
+                <ArrowLeft size={24} />
+              </button>
+              <h1>{t("Assistant memory")}</h1>
+              <File size={20} aria-hidden="true" />
+            </header>
+            <TranscriptPlatformContext.Provider value={mobileTranscriptPlatform}>
+              <AssistantTopicNote key={selectedTopic.key} note={selectedTopic} active={visible} />
+            </TranscriptPlatformContext.Provider>
+          </>
+        ) : selected ? (
           <MobileNoteViewer
             key={selected.id}
             ref={viewer}
@@ -219,8 +254,8 @@ export function MobileNotes({
               <button
                 className="mobile-sheet-header-button"
                 aria-label={t("Refresh notes")}
-                disabled={loading || working || !visible}
-                onClick={() => void refresh()}
+                disabled={loading || topics.loading || working || !visible}
+                onClick={() => { void refresh(); topics.refresh(); }}
               >
                 <RefreshCw size={18} />
               </button>
@@ -240,7 +275,7 @@ export function MobileNotes({
                     aria-label={t("Loading notes…")}
                   />
                 </p>
-              ) : !filtered.length ? (
+              ) : !filtered.length && !filteredTopics.length && !topics.loading ? (
                 <p className="mobile-notes-empty">
                   {t(
                     needle
@@ -285,6 +320,28 @@ export function MobileNotes({
                   ))}
                 </ul>
               )}
+              <section aria-label={t("Assistant memory")}>
+                <h2 className="mobile-notes-section-title">{t("Assistant memory")}</h2>
+                {topics.loading && <p className="mobile-notes-empty" role="status">{t("Loading notes…")}</p>}
+                {topics.errors.map(({ source, error }) => (
+                  <p key={source.key} role="alert" className="mobile-notes-error">
+                    {source.name}: {error} <button disabled={!visible} onClick={topics.refresh}>{t("Retry")}</button>
+                  </p>
+                ))}
+                {!topics.loading && !topics.errors.length && !filteredTopics.length && (
+                  <p className="mobile-notes-empty">{t(needle ? "No matching notes" : "No topic notes yet.")}</p>
+                )}
+                <ul className="mobile-notes-list">
+                  {filteredTopics.map((note) => (
+                    <li key={note.key}>
+                      <button className="mobile-note-card" data-assistant-topic disabled={working || !visible} onClick={() => setSelectedTopicKey(note.key)}>
+                        <span className="mobile-note-meta">{note.source.name}</span>
+                        <strong>{note.name}</strong>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             </div>
           </>
         )}
