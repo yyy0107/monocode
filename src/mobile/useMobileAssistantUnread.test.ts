@@ -107,3 +107,36 @@ it("hides another Host's count and cancels in-flight pagination when switching",
   await render("b");
   expect(count()).toBe(2);
 });
+
+it("loads unread replies without waiting for already-read history", async () => {
+  localStorage.setItem("monocode.assistant-read:host", "500");
+  messages = [reply("new", 501)];
+  const respond = rpc.getMockImplementation()!;
+  rpc.mockImplementation((method, params) =>
+    method === "assistant.messages" && params.afterRevision < 500
+      ? new Promise(() => {})
+      : respond(method, params),
+  );
+  await render();
+  expect(count()).toBe(1);
+  expect(rpc).toHaveBeenCalledWith("assistant.messages", { afterRevision: 500, limit: 100 });
+});
+
+it("keeps received unread pages and resumes at their cursor after an interrupted sync", async () => {
+  let finish!: (result: unknown) => void;
+  rpc.mockImplementationOnce(async () => ({ id: "assistant" }))
+    .mockImplementationOnce(async () => ({ entries: [reply("first", 1)], nextRevision: 1, hasMore: true }))
+    .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  await render();
+  expect(count()).toBe(1);
+  await render("host", false);
+  expect(count()).toBe(1);
+  rpc.mockClear();
+  messages = [reply("second", 2)];
+  await render();
+  expect(rpc).toHaveBeenCalledWith("assistant.messages", { afterRevision: 1, limit: 100 });
+  expect(count()).toBe(2);
+  await act(async () => finish({ entries: [reply("stale", 99)], nextRevision: 99, hasMore: true }));
+  expect(count()).toBe(2);
+  expect(rpc).not.toHaveBeenCalledWith("assistant.messages", { afterRevision: 99, limit: 100 });
+});

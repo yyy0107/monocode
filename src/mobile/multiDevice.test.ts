@@ -2,15 +2,19 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { Capacitor } from "@capacitor/core";
 import { MobileApp } from "./MobileApp";
 import type { Connection, MobileClient } from "./client";
 import { setUiLanguage } from "../shared/i18n/language";
+import { fullAssistantPolicy, type AssistantMessage, type AssistantView } from "../features/assistant/model/assistant";
 
 const fixture = vi.hoisted(() => ({
   values: new Map<string, string>(),
   request: vi.fn(),
   client: undefined as MobileClient | undefined,
+  appListener: vi.fn(async (_event: string, _callback: (state: { isActive: boolean }) => void) => ({ remove: async () => {} })),
 }));
+vi.mock("@capacitor/app", () => ({ App: { addListener: fixture.appListener, exitApp: vi.fn() } }));
 vi.mock("./client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./client")>();
   return { ...actual, MobileClient: class extends actual.MobileClient {
@@ -70,6 +74,7 @@ beforeEach(async () => {
   fixture.values.set("connection", JSON.stringify(a));
   fixture.values.set("connections", JSON.stringify([a, b]));
   fixture.request.mockReset().mockImplementation(respond);
+  fixture.appListener.mockClear();
   localStorage.clear();
   setUiLanguage("en");
   node = document.createElement("div");
@@ -81,6 +86,7 @@ afterEach(() => {
   node.remove();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 const active = (selector: string) => [...node.querySelectorAll<HTMLElement>(selector)]
   .find((element) => !element.closest('[inert], [aria-hidden="true"]'));
@@ -97,6 +103,57 @@ async function switchTo(name: string) {
   await act(async () => button(`Switch to ${name}`).click());
 }
 const list = () => active('.mobile-home')!;
+
+it.each([false, true])("keeps unseen replies ready for the drawer after leaving the assistant (native background: %s)", async (native) => {
+  if (native) vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+  let messages: AssistantMessage[] = [];
+  const assistant: AssistantView = {
+    id: "assistant-a", name: "My assistant", revision: 1, chatRevision: 0,
+    lifecycle: "idle", enabled: true, harness: "codex", model: "codex:model",
+    modelSettings: {}, runtimeMode: "full-access", targetRuntimeMode: "full-access",
+    policy: fullAssistantPolicy(), policyVersion: 1,
+    triggers: { user: true, event: true, schedule: true }, schedules: [], watches: [],
+    maxAutoTurns: 8, chainWindowMinutes: 15, brainGeneration: 1,
+  };
+  fixture.request.mockImplementation((endpoint, input) => {
+    if (input.method === "environment.describe")
+      return { ...respond(endpoint, input), capabilities: ["assistant.v1"] };
+    if (input.method === "assistant.get") return assistant;
+    if (input.method === "assistant.messages") {
+      const entries = messages.filter((entry) => entry.revision > input.params.afterRevision);
+      return { entries, hasMore: false, nextRevision: entries.at(-1)?.revision ?? input.params.afterRevision };
+    }
+    return respond(endpoint, input);
+  });
+  const badge = () => active(".mobile-drawer-assistant")?.querySelector(".mobile-drawer-assistant-badge");
+  await mount();
+  await act(async () => button("Menu").click());
+  await act(async () => button("My assistant").click());
+  messages = [{ id: "seen", kind: "assistant", revision: 1, createdAt: 1, text: "Seen reply" }];
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  expect(localStorage.getItem("monocode.assistant-read:a")).toBe("1");
+  if (native) {
+    // Android can report appStateChange before the WebView's visibility changes.
+    const appState = fixture.appListener.mock.calls.find(([event]) => event === "appStateChange")![1];
+    expect(document.visibilityState).toBe("visible");
+    act(() => appState({ isActive: false }));
+    messages.push({ id: "background", kind: "assistant", revision: 2, createdAt: 2, text: "Background reply" });
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(localStorage.getItem("monocode.assistant-read:a")).toBe("1");
+    await act(async () => appState({ isActive: true }));
+    expect(localStorage.getItem("monocode.assistant-read:a")).toBe("2");
+  }
+  await act(async () => button("Back").click());
+  await act(async () => vi.advanceTimersByTimeAsync(300));
+  messages.push({ id: "unseen", kind: "assistant", revision: 3, createdAt: 3, text: "New reply" });
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  act(() => button("Menu").click());
+  expect(badge()?.textContent).toBe("1");
+  messages.push({ id: "while-open", kind: "assistant", revision: 4, createdAt: 4, text: "Another reply" });
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  expect(badge()?.textContent).toBe("2");
+  expect(localStorage.getItem("monocode.assistant-read:a")).toBe(native ? "2" : "1");
+});
 
 it("moves the device selector above navigation, uses dots, and probes without changing the active device", async () => {
   await mount();

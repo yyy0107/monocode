@@ -28,6 +28,7 @@ import type {
 import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 import { Shimmer } from "../shared/ui/Shimmer";
 import { useTranslation } from "../shared/i18n/useTranslation";
+import { SurfaceVisibilityContext, useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import {
   ArrowLeft,
   ArrowUp,
@@ -616,10 +617,14 @@ const chrome: AssistantChatChrome = {
 export type MobileAssistantHandle = { back: () => void };
 export function MobileAssistant({
   ref,
+  foreground = true,
   ...props
 }: Omit<ComponentProps<typeof AssistantChat>, "chrome"> & {
   ref?: Ref<MobileAssistantHandle>;
+  /** Native app visibility can change before the WebView visibility event. */
+  foreground?: boolean;
 }) {
+  const visible = useSurfaceVisibility() && foreground;
   const handlers = useMemo(() => new Map<number, () => void>(), []);
   const back = () => {
     const priority = Math.max(...handlers.keys());
@@ -631,6 +636,8 @@ export function MobileAssistant({
   return (
     <aside
       className="mobile-assistant-overlay bg-background-base text-content"
+      inert={!visible}
+      aria-hidden={!visible || undefined}
       onKeyDown={(e) => {
         if (e.key === "Escape" && !e.defaultPrevented) {
           e.preventDefault();
@@ -638,11 +645,13 @@ export function MobileAssistant({
         }
       }}
     >
-      <BackHandlers.Provider value={handlers}>
-        <TranscriptPlatformContext.Provider value={mobileTranscriptPlatform}>
-          <AssistantChat {...props} chrome={chrome} />
-        </TranscriptPlatformContext.Provider>
-      </BackHandlers.Provider>
+      <SurfaceVisibilityContext.Provider value={visible}>
+        <BackHandlers.Provider value={handlers}>
+          <TranscriptPlatformContext.Provider value={mobileTranscriptPlatform}>
+            <AssistantChat {...props} chrome={chrome} />
+          </TranscriptPlatformContext.Provider>
+        </BackHandlers.Provider>
+      </SurfaceVisibilityContext.Provider>
     </aside>
   );
 }

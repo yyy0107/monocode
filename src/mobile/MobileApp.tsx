@@ -391,7 +391,7 @@ export function MobileApp() {
   const assistantUnreadCount = useMobileAssistantUnread(
     assistantHostId,
     assistantRpc,
-    drawerOpen && view !== "settings" && !pageOverlayOpen && foreground &&
+    !assistantOpen && foreground &&
       connected && hostStatus.state === "connected" && client.hasCapability("assistant.v1"),
   );
   const environmentId = client.connection?.environmentId;
@@ -1632,6 +1632,7 @@ export function MobileApp() {
           hostKey={client.connection.environmentId}
           hostName={connectionName}
           rpc={assistantRpc}
+          foreground={foreground}
           onClose={() => setAssistantOpen(false)}
           onOpen={async ref => {
             const target = await resolveAssistantTarget(client.connection!.environmentId, ref, assistantRpc);
