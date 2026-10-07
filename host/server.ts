@@ -395,6 +395,7 @@ export function createHostServer(
             const branches = new Map(await Promise.all(paths.map(async (cwd) => {
               const branch = await exec("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], {
                 cwd, timeout: 2_000,
+                windowsHide: true,
               }).then(({ stdout }) => stdout.trim()).catch(() => "");
               return [cwd, branch] as const;
             })));
@@ -585,6 +586,7 @@ export function createHostServer(
               ],
               {
                 cwd: await resolveHostWorktreeAsync(project.cwd, params.cwd),
+                windowsHide: true,
                 timeout: 10_000,
                 maxBuffer: 2 * 1024 * 1024,
               },

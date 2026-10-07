@@ -558,6 +558,7 @@ export class WorkspaceCommands {
     const root = await this.gitRoot(cwd);
     return (await exec("git", ["-c", "core.pager=cat", ...args], {
       cwd: root,
+      windowsHide: true,
       timeout: 30_000,
       maxBuffer: 4 * 1024 * 1024,
       encoding: "utf8",
@@ -580,6 +581,7 @@ export class WorkspaceCommands {
     const root = await this.gitRoot(cwd);
     return (await exec("gh", args, {
       cwd: root,
+      windowsHide: true,
       timeout: 30_000,
       maxBuffer: 1024 * 1024,
       encoding: "utf8",
@@ -773,6 +775,7 @@ export class WorkspaceCommands {
     try {
       const { stdout } = await exec("git", ["show", spec], {
         cwd: root,
+        windowsHide: true,
         timeout: 30_000,
         maxBuffer: MAX_TEXT_FILE + 1024,
         encoding: "buffer",

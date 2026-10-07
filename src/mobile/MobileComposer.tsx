@@ -16,7 +16,7 @@ import {
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { AnimatedCollapse, useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
-import { AttachmentChip } from "../features/sessions/ui/AttachmentChip";
+import { AttachmentList } from "../features/sessions/ui/AttachmentList";
 import { RuntimeModeIcon } from "../features/sessions/ui/RuntimeModeIcon";
 import { MODE_COMMAND_STYLES } from "../features/sessions/ui/modeCommands";
 import { PLAN_COMMAND } from "../features/sessions/model/plan";
@@ -95,13 +95,11 @@ function MobileComposerAttachments({ attachments, disabled, onRemoveAttachment }
   }, [attachments]);
   // Keep the last chips during closing. AnimatedCollapse unmounts this child
   // when finished, releasing their data without a separate removal timer.
-  return <div className="mobile-composer-attachments">
-    {rendered.map(attachment => <AttachmentChip
-      key={attachment.id}
-      attachment={attachment}
-      onRemove={disabled || !attachments.length ? undefined : () => onRemoveAttachment(attachment.id)}
-    />)}
-  </div>;
+  return <AttachmentList
+    className="mobile-composer-attachments"
+    attachments={rendered}
+    onRemove={disabled || !attachments.length ? undefined : onRemoveAttachment}
+  />;
 }
 
 export function MobileComposer(props: Props) {

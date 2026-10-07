@@ -265,6 +265,7 @@ export async function runWorkflowScript(options: RunWorkflowOptions): Promise<Ru
         : [...options.childSpawn.argsPrefix, entry.path],
       {
         cwd,
+        windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
         // 桌面端 agent 由 Electron Helper 运行（process.execPath 指向 Helper），而 CLI
         // 启动时会把 ELECTRON_RUN_AS_NODE 从自身 env sanitize 掉。不显式带上它，子进程会按完整

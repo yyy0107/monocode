@@ -193,7 +193,6 @@
     .assistant-input-actions > button,
     .assistant-retry > button,
     .assistant-message-meta > button,
-    .assistant-attachment-chip > button,
     .assistant-settings-footer > button,
     .assistant-worker > header > button,
     .assistant-memory-add > button,
@@ -221,7 +220,6 @@
     .assistant-input-actions > button,
     .assistant-retry > button,
     .assistant-message-meta > button,
-    .assistant-attachment-chip > button,
     .assistant-settings-footer > button,
     .assistant-worker > header > button,
     .assistant-memory-add > button,
@@ -243,7 +241,6 @@
     .assistant-input-actions > button,
     .assistant-retry > button,
     .assistant-message-meta > button,
-    .assistant-attachment-chip > button,
     .assistant-settings-footer > button,
     .assistant-worker > header > button,
     .assistant-memory-add > button,
@@ -266,7 +263,6 @@
     .assistant-input-actions > button,
     .assistant-retry > button,
     .assistant-message-meta > button,
-    .assistant-attachment-chip > button,
     .assistant-settings-footer > button,
     .assistant-worker > header > button,
     .assistant-memory-add > button,
@@ -857,31 +853,6 @@
   gap: 6px;
   padding: 2px 0 6px;
 }
-.assistant-attachment-chip {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  max-width: 220px;
-  padding: 2px 2px 2px 8px;
-  border-radius: 8px;
-  background: var(--assistant-fill-strong);
-  font-size: var(--text-ui-sm);
-}
-.assistant-attachment-chip > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.assistant-chat .assistant-attachment-chip button {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  background: transparent;
-}
-
 /* Form controls */
 :is(.assistant-chat, .assistant-settings) input:not([type="checkbox"]),
 :is(.assistant-chat, .assistant-settings) select,
@@ -1418,12 +1389,4 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-}
-
-.assistant-attachment-preview {
-  width: 44px;
-  height: 44px;
-  flex-shrink: 0;
-  object-fit: cover;
-  border-radius: 6px;
 }

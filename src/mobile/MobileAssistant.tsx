@@ -1,3 +1,4 @@
+import { AttachmentList } from "../features/sessions/ui/AttachmentList";
 import { AssistantAttachmentPreview } from "../features/assistant/ui/AssistantAttachmentPreview";
 import {
   createContext,
@@ -365,25 +366,16 @@ function MobileAssistantComposer({
         onMouseDownCapture={(e) => preserveInputFocus(e, input.current)}
       >
         <AnimatedCollapse expanded={!!attachments.length}>
-          <div
-            className="mobile-assistant-attachments"
+          <AttachmentList
+            className="mobile-assistant-attachments mobile-composer-attachments"
             aria-label={t("Attachments")}
-          >
-            {renderedAttachments.map((file) => (
-              <div className="mobile-assistant-attachment" key={file.id}>
-                <AssistantAttachmentPreview file={file} />
-                <span title={file.name}>{file.name}</span>
-                <button
-                  type="button"
-                  disabled={busy}
-                  aria-label={t("Remove attachment")}
-                  onClick={() => onRemoveAttachment(file.id)}
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            ))}
-          </div>
+            attachments={renderedAttachments}
+            renderAttachment={file => <AssistantAttachmentPreview
+              key={file.id}
+              file={file}
+              onRemove={busy || !attachments.length ? undefined : () => onRemoveAttachment(file.id)}
+            />}
+          />
         </AnimatedCollapse>
         <div className="mobile-assistant-compose-row">
           <button

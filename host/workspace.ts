@@ -64,6 +64,7 @@ async function git(root: string, args: string[], maxBuffer = 4 * 1024 * 1024) {
   return (
     await exec("git", ["-c", "core.pager=cat", ...args], {
       cwd: root,
+      windowsHide: true,
       timeout: 10_000,
       maxBuffer,
       encoding: "utf8",
@@ -80,6 +81,7 @@ function gitWithInput(
   return new Promise((resolve, reject) => {
     const child = spawn("git", ["-c", "core.pager=cat", ...args], {
       cwd: root,
+      windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
     const stdout: Buffer[] = [];
@@ -827,6 +829,7 @@ export async function hostGitAction(
     case "createPr": {
       const output = await exec("gh", ["pr", "create", "--fill"], {
         cwd: root,
+        windowsHide: true,
         timeout: 30_000,
         maxBuffer: 1024 * 1024,
         env: {

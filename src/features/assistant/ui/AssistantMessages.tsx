@@ -1,3 +1,4 @@
+import { AttachmentList } from "../../sessions/ui/AttachmentList";
 import { Fragment, memo, type HTMLAttributes, type ReactNode } from "react";
 import type { AssistantMessage, SessionReference } from "../model/assistant";
 import { splitAssistantReply } from "../model/assistantReply";
@@ -141,9 +142,11 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
             </div>
           )}
           {images.length > 0 && readImage && (
-            <div className="assistant-message-media user-message-media">
-              {images.map(file => <AssistantMessageImage key={file.id} messageId={message.id} file={file} readImage={readImage} />)}
-            </div>
+            <AttachmentList
+              className="assistant-message-media user-message-media"
+              attachments={images}
+              renderAttachment={file => <AssistantMessageImage key={file.id} messageId={message.id} file={file} readImage={readImage} />}
+            />
           )}
           {hasBubble && <div
             {...(message.kind === "assistant" ||

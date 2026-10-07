@@ -1,3 +1,4 @@
+import { AttachmentList } from "../../sessions/ui/AttachmentList";
 import { AssistantAttachmentPreview } from "./AssistantAttachmentPreview";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
@@ -270,22 +271,16 @@ function DesktopAssistantComposer({
         }}
       >
         <AnimatedCollapse expanded={!!attachments.length}>
-          <div className="assistant-attachments" aria-label={t("Attachments")}>
-            {renderedAttachments.map((file) => (
-              <div className="assistant-attachment-chip" key={file.id}>
-                <AssistantAttachmentPreview file={file} />
-                <span title={file.name}>{file.name}</span>
-                <button
-                  type="button"
-                  disabled={busy}
-                  aria-label={t("Remove attachment")}
-                  onClick={() => onRemoveAttachment(file.id)}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
+          <AttachmentList
+            className="assistant-attachments"
+            aria-label={t("Attachments")}
+            attachments={renderedAttachments}
+            renderAttachment={file => <AssistantAttachmentPreview
+              key={file.id}
+              file={file}
+              onRemove={busy || !attachments.length ? undefined : () => onRemoveAttachment(file.id)}
+            />}
+          />
         </AnimatedCollapse>
         <textarea
           ref={input}

@@ -111,7 +111,7 @@ import {
 import { AccessPicker } from "./AccessPicker";
 import { ComposerRunner } from "./ComposerRunner";
 import { ContextMeter } from "./ContextMeter";
-import { AttachmentChip } from "./AttachmentChip";
+import { AttachmentList } from "./AttachmentList";
 import { BranchPicker } from "../../source-control/ui/BranchPicker";
 import { WorktreePicker } from "../../source-control/ui/WorktreePicker";
 import {
@@ -2105,15 +2105,11 @@ export function Composer({
             ) : null}
 
             {attachments.length > 0 ? (
-              <div className="composer-attachments flex flex-wrap gap-1.5 px-3 pt-2">
-                {attachments.map((file) => (
-                  <AttachmentChip
-                    key={file.id}
-                    attachment={file}
-                    onRemove={() => removeAttachment(file.id)}
-                  />
-                ))}
-              </div>
+              <AttachmentList
+                className="composer-attachments flex flex-wrap gap-1.5 px-3 pt-2"
+                attachments={attachments}
+                onRemove={removeAttachment}
+              />
             ) : null}
 
             {pasteError ? (

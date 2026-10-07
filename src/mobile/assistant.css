@@ -548,38 +548,6 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   clip-path: inset(50%);
   overflow: hidden;
 }
-.mobile-assistant-attachments {
-  display: flex;
-  gap: 6px;
-  padding: 5px 6px 8px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-}
-.mobile-assistant-attachment {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  flex-shrink: 0;
-  padding: 2px 3px 2px 8px;
-  border-radius: 16px;
-  background: var(--mobile-fill);
-  font-size: 12px;
-}
-.mobile-assistant-attachment > span {
-  max-width: 130px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.assistant-chat[data-layout="mobile"] .mobile-assistant-attachment button {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  background: transparent;
-}
 .assistant-chat[data-layout="mobile"] .mobile-assistant-retry {
   width: 100%;
   min-height: 44px;

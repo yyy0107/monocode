@@ -79,8 +79,11 @@ it.each([false, true])("pastes image-only messages, previews them and retries th
   expect(paste([photo()]).defaultPrevented).toBe(true);
   expect(button("Send").disabled).toBe(true);
   await flush();
-  expect(node.querySelector<HTMLImageElement>(".assistant-attachment-preview")?.src).toBe("blob:assistant-preview");
+  expect(node.querySelector<HTMLImageElement>(".attachment-chip-thumbnail")?.src).toBe("blob:assistant-preview");
   expect(button("Send").disabled).toBe(false);
+  act(() => button("Open photo.png full screen").click());
+  expect(document.querySelector(".image-lightbox img")?.getAttribute("src")).toBe("blob:assistant-preview");
+  act(() => document.querySelector<HTMLButtonElement>(".image-lightbox-close")!.click());
   fail(true);
   act(() => button("Send").click());
   await flush();
@@ -88,7 +91,7 @@ it.each([false, true])("pastes image-only messages, previews them and retries th
   expect(sent).toMatchObject({ text: "", attachments: [{ name: "photo.png", mimeType: "image/png", kind: "image", size: 4 }] });
   expect(sent.attachments[0]).not.toHaveProperty("previewFile");
   expect(button("Attach files").disabled).toBe(true);
-  expect(node.querySelector(".assistant-attachment-preview")).not.toBeNull();
+  expect(node.querySelector(".attachment-chip-thumbnail")).not.toBeNull();
   fail(false);
   act(() => [...node.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent === "Retry message")!.click());
   await flush();
@@ -107,16 +110,16 @@ it.each([false, true])("selects multiple photos through the attachment button, r
   Object.defineProperty(input, "files", { value: [photo(), photo()] });
   act(() => input.dispatchEvent(new Event("change", { bubbles: true })));
   await flush();
-  expect(node.querySelectorAll(".assistant-attachment-preview")).toHaveLength(2);
-  act(() => button("Remove attachment").click());
-  expect(node.querySelectorAll(".assistant-attachment-preview")).toHaveLength(1);
+  expect(node.querySelectorAll(".attachment-chip-thumbnail")).toHaveLength(2);
+  act(() => button("Remove photo.png").click());
+  expect(node.querySelectorAll(".attachment-chip-thumbnail")).toHaveLength(1);
   expect(revoke).toHaveBeenCalledOnce();
   const drop = new Event("drop", { bubbles: true, cancelable: true });
   Object.defineProperty(drop, "dataTransfer", { value: { files: [photo()] } });
   act(() => node.querySelector("form")!.dispatchEvent(drop));
   expect(drop.defaultPrevented).toBe(true);
   await flush();
-  expect(node.querySelectorAll(".assistant-attachment-preview")).toHaveLength(2);
+  expect(node.querySelectorAll(".attachment-chip-thumbnail")).toHaveLength(2);
   expect(rpc.mock.calls.filter(([method]) => method === "attachments.upload")).toHaveLength(3);
 });
 
@@ -127,7 +130,7 @@ it("reads native desktop screenshot bytes when the webview clipboard is empty", 
   paste([]);
   await flush();
   expect(native.read).toHaveBeenCalledWith("clipboard_image");
-  expect(node.querySelector(".assistant-attachment-preview")?.getAttribute("alt")).toBe("clipboard-image.png");
+  expect(node.querySelector('button[aria-label="Open clipboard-image.png full screen"]')).not.toBeNull();
 });
 
 it("blocks concurrent uploads and shows errors without leaving send enabled", async () => {

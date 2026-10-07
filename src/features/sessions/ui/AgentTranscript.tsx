@@ -1,3 +1,4 @@
+import { AttachmentList } from "./AttachmentList";
 import "./AgentTranscript.css";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { localizeChildExitError } from "../../../integrations/harness/core/childErrors";
@@ -2072,13 +2073,10 @@ function UserMessageBlock({
           </div>
         )}
         {mediaAttachments.length ? (
-          <div
+          <AttachmentList
+            attachments={mediaAttachments}
             className={`user-message-media flex max-w-[min(100%,36rem)] flex-wrap justify-end gap-1.5 ${hasBubble ? "mb-1.5" : ""}`}
-          >
-            {mediaAttachments.map((file) => (
-              <AttachmentChip key={file.id} attachment={file} />
-            ))}
-          </div>
+          />
         ) : null}
         <div
           hidden={!hasBubble}
