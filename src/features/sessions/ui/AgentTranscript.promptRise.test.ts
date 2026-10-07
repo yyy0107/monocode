@@ -158,13 +158,35 @@ describe("prompt rise in the chat layout", () => {
     expect(animate).not.toHaveBeenCalled();
   });
 
-  it("stays still when prompts are not anchored to the top", () => {
+  it.each([undefined, "mobile"] as const)("animates to the natural message position without top anchoring (motion=%s)", (promptMotion) => {
     appearance.anchor = false;
-    render(first);
-    render(second);
+    render(first, false, { promptMotion });
+    const origin = document.createElement("textarea");
+    origin.dataset.launchOrigin = "true";
+    notePromptLaunch(origin);
+    render(second, true, { promptMotion });
+    const row = container.querySelector<HTMLElement>('[data-prompt-anchor="u2"]')!;
+    const bubble = row.querySelector<HTMLElement>(".user-message-bubble")!;
+    vi.spyOn(bubble, "getBoundingClientRect").mockReturnValue({
+      left: 200, right: 400, width: 200, top: 590, bottom: 650, height: 60,
+    } as DOMRect);
     act(() => vi.advanceTimersByTime(20));
 
-    expect(animate).not.toHaveBeenCalled();
+    expect(risenPrompts()).toEqual(["u2"]);
+    expect(row.closest(".transcript-turn")!.classList.contains("transcript-turn-anchor")).toBe(false);
+    expect(animate.mock.calls[0][0]).toMatchObject([
+      { transform: "translate(-80.00px, 90.00px)" },
+      { transform: "translate(0.00px, 0.00px)" },
+    ]);
+  });
+
+  it("keeps the bottom-edge entrance when top anchoring is off and no input origin is available", () => {
+    appearance.anchor = false;
+    render(first, false, { promptMotion: "mobile" });
+    render(second, true, { promptMotion: "mobile" });
+    act(() => vi.advanceTimersByTime(20));
+    expect(risenPrompts()).toEqual(["u2"]);
+    expect(animate.mock.calls[0][0][0]).toMatchObject({ transform: "translate(0.00px, 732.00px)" });
   });
 
   it("starts mobile sends above the dock after layout, including a reply completed before sync", async () => {
@@ -256,7 +278,7 @@ describe("prompt rise in the chat layout", () => {
     }
   });
 
-  it("narrows an isolated input-width surface while the message keeps its landed layout", () => {
+  it("hands off at the input text position while keeping the input width and landed message height", () => {
     render(first, false, { promptMotion: "mobile" });
     const surface = document.createElement("div");
     surface.setAttribute("data-prompt-launch-surface", "");
@@ -265,16 +287,21 @@ describe("prompt rise in the chat layout", () => {
     surface.append(area);
     notePromptLaunch(area);
     render(second, true, { promptMotion: "mobile" });
+    const bubble = container.querySelector<HTMLElement>('[data-prompt-anchor="u2"] .user-message-bubble')!;
+    // The final message has padding above the text; match the text boxes,
+    // not the bottom of the input surface (which also includes its toolbar).
+    vi.spyOn(bubble.querySelector("pre")!, "getBoundingClientRect").mockReturnValue({
+      left: 213, right: 387, top: 8, bottom: 52, width: 174, height: 44,
+    } as DOMRect);
     act(() => vi.advanceTimersByTime(20));
 
-    const bubble = container.querySelector<HTMLElement>('[data-prompt-anchor="u2"] .user-message-bubble')!;
     const skin = bubble.querySelector<HTMLElement>(".prompt-flight-surface")!;
     expect(skin.style.position).toBe("absolute");
     expect(skin.style.height).toBe("60px");
     expect(skin.getAttribute("aria-hidden")).toBe("true");
-    expect(animate.mock.calls[0][0][0]).toMatchObject({ transform: "translate(-52.00px, 720.00px)" });
+    expect(animate.mock.calls[0][0][0]).toMatchObject({ transform: "translate(-52.00px, 692.00px)" });
     expect(animate.mock.calls[1][0]).toEqual([{ width: "340px" }, { width: "200px" }]);
-    expect(animate.mock.calls[2][0]).toEqual([{ translate: "-140px 0px" }, { translate: "0px 0px" }]);
+    expect(animate.mock.calls[2][0]).toEqual([{ translate: "-141px 0px" }, { translate: "0px 0px" }]);
     // The bubble and its real content never receive animated dimensions or scale.
     for (const [index, [frames]] of animate.mock.calls.entries()) {
       if (animate.mock.contexts[index] === skin) continue;
@@ -386,7 +413,10 @@ describe("prompt rise in the chat layout", () => {
     }
   });
 
-  it.each([undefined, "mobile"] as const)("keeps history and reduced-motion sends still (motion=%s)", (promptMotion) => {
+  it.each([
+    [undefined, true], ["mobile", true], [undefined, false], ["mobile", false],
+  ] as const)("keeps history and reduced-motion sends still (motion=%s, anchor=%s)", (promptMotion, anchor) => {
+    appearance.anchor = anchor;
     render(second, false, { promptMotion });
     act(() => vi.advanceTimersByTime(20));
     expect(animate).not.toHaveBeenCalled();

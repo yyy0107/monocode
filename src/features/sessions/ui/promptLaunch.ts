@@ -4,6 +4,9 @@ export type PromptLaunchOrigin = {
   bottom: number;
   width: number;
   height: number;
+  /** Visible text box inside an input surface that also contains controls. */
+  textTop?: number;
+  textLeft?: number;
 };
 
 // A send waits on a Host round trip; an origin older than this no longer
@@ -17,7 +20,18 @@ export function readPromptLaunch(element: Element | null): PromptLaunchOrigin | 
   const surface = element?.closest("[data-prompt-launch-surface]") ?? element;
   const rect = surface?.getBoundingClientRect();
   if (!rect?.width || !rect.height) return undefined;
-  return { left: rect.left, bottom: rect.bottom, width: rect.width, height: rect.height };
+  let textTop: number | undefined;
+  let textLeft: number | undefined;
+  if (element instanceof HTMLTextAreaElement && surface !== element) {
+    const text = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    textTop = text.top + (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.paddingTop) || 0);
+    textLeft = text.left + (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.paddingLeft) || 0);
+  }
+  return {
+    left: rect.left, bottom: rect.bottom, width: rect.width, height: rect.height,
+    ...(textTop === undefined ? {} : { textTop, textLeft }),
+  };
 }
 
 /** Record the composer text the next transcript prompt should fly out of. */
@@ -64,7 +78,20 @@ export function flyPromptBubble(
   viewport?: HTMLElement,
 ): PromptFlight | undefined {
   const target = bubble.getBoundingClientRect();
-  const startBottom = launch ? Math.min(launch.bottom, view.bottom) : fromBottom;
+  const style = getComputedStyle(bubble);
+  const text = launch?.textTop === undefined ? null : bubble.querySelector<HTMLElement>(
+    "[data-selectable-agent-response], :scope > span:not([aria-hidden])",
+  );
+  const textRect = text?.getBoundingClientRect();
+  const textInset = textRect
+    ? textRect.top - target.top
+    : (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.paddingTop) || 0);
+  // The composer includes a toolbar below its text. Matching its bottom edge
+  // would make the text reappear over that toolbar before starting to rise.
+  const originBottom = launch?.textTop === undefined
+    ? launch?.bottom
+    : launch.textTop - textInset + target.height;
+  const startBottom = originBottom === undefined ? fromBottom : Math.min(originBottom, view.bottom);
   const dy = startBottom - target.bottom;
   if (!(dy > 1) || !target.width || !target.height) return undefined;
   const startWidth = launch
@@ -74,9 +101,14 @@ export function flyPromptBubble(
   const dx = launch
     ? Math.max(view.left - startLeft, Math.min(0, launch.left - startLeft))
     : 0;
+  const textInsetX = textRect
+    ? textRect.left - target.left
+    : (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.paddingLeft) || 0);
+  const contentOffsetX = launch?.textLeft === undefined
+    ? target.width - startWidth
+    : launch.textLeft - target.left - dx - textInsetX;
   const reshape = startWidth - target.width > 1;
   // Finish every geometry/style read before starting any animation or write.
-  const style = getComputedStyle(bubble);
   const content = reshape ? [...bubble.children].filter(
     (child): child is HTMLElement => {
       if (!(child instanceof HTMLElement)) return false;
@@ -138,7 +170,7 @@ export function flyPromptBubble(
     animate(surface, [{ width: `${startWidth}px` }, { width: `${target.width}px` }], WIDTH_EASING);
     for (const child of content) {
       // Separate translate preserves any transform owned by the content itself.
-      animate(child, [{ translate: `${target.width - startWidth}px 0px` }, { translate: "0px 0px" }], WIDTH_EASING);
+      animate(child, [{ translate: `${contentOffsetX}px 0px` }, { translate: "0px 0px" }], WIDTH_EASING);
     }
   }
   if (!launch) animate(bubble, [{ opacity: 0 }, { opacity: 1 }], "ease-out", 140);

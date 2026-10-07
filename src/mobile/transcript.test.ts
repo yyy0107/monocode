@@ -89,7 +89,7 @@ describe("mobile prompt anchoring", () => {
     } });
     expect(node.querySelector(".transcript-turn-live")!
       .classList.contains("transcript-turn-anchor")).toBe(!enabled);
-    if (enabled) expect(node.querySelector("[data-prompt-rise]")).toBeNull();
+    expect(node.querySelector(".transcript-turn-live")?.getAttribute("data-prompt-rise")).toBe("rising");
   });
 });
 

@@ -614,12 +614,12 @@ function AgentTranscriptComponent({
   }, [lastUserId, pinTranscript, setShowJump]);
 
   // In the chat layout a sent prompt flies from the composer (or the bottom
-  // of the viewport) into its anchored spot. On mount this only plays for a
+  // of the viewport) into its laid-out row, whether or not prompts are pinned
+  // to the top. On mount this only plays for a
   // session's first send, or an explicitly marked mobile submission.
-  const introducePrompt = useRef({ chat: false, anchor: false, visible });
+  const introducePrompt = useRef({ chat: false, visible });
   introducePrompt.current = {
     chat: transcriptLayout === "chat",
-    anchor: promptAnchor && anchorTurn,
     visible,
   };
   const introducedPromptMount = useRef(false);
@@ -627,8 +627,8 @@ function AgentTranscriptComponent({
   useLayoutEffect(() => {
     const mounting = !introducedPromptMount.current;
     introducedPromptMount.current = true;
-    const { chat, anchor, visible } = introducePrompt.current;
-    if (!lastUserId || !chat || !anchor || !visible) return;
+    const { chat, visible } = introducePrompt.current;
+    if (!lastUserId || !chat || !visible) return;
     if (
       mounting &&
       !(promptMotion === "mobile" && animateFrom === lastUserId) &&
@@ -3951,7 +3951,7 @@ function measureLastTurn(scroller: HTMLElement | null): PriorTurn | undefined {
   return element ? { element, top: element.getBoundingClientRect().top } : undefined;
 }
 
-/** Flies the prompt from the composer or bottom edge into its anchored row. */
+/** Flies the prompt from the composer or bottom edge into its final row. */
 function riseIntoAnchor(
   scroller: HTMLElement | null,
   blockId: string,

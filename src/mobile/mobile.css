@@ -1675,23 +1675,10 @@ html.theme-light .mobile-composer-card {
   user-select: text;
   overflow-y: auto;
   touch-action: pan-y;
-  transition:
-    height 180ms ease,
-    opacity 200ms ease,
-    transform 260ms cubic-bezier(0.3, 0.8, 0.25, 1);
+  transition: height 180ms ease;
 }
 .mobile-composer-card textarea {
   min-height: 36px;
-}
-/* Sent text lifts away at once; the transcript bubble picks up its motion. */
-.mobile-composer[data-launching] textarea {
-  opacity: 0;
-  transform: translateY(-18px) scale(0.96);
-  transform-origin: 0 100%;
-  transition:
-    height 180ms ease,
-    opacity 160ms ease-in,
-    transform 180ms cubic-bezier(0.5, 0, 0.75, 0);
 }
 .mobile-composer textarea.mobile-composer-measure {
   white-space: pre-wrap;
@@ -1864,12 +1851,8 @@ html.has-user-accent .mobile-send:not(:disabled) {
 @media (prefers-reduced-motion: reduce) {
   .mobile-composer-dock,
   .mobile-composer textarea,
-  .mobile-composer[data-launching] textarea,
   .mobile-send {
     transition: none;
-  }
-  .mobile-composer[data-launching] textarea {
-    transform: none;
   }
   .mobile-composer[data-launching] .mobile-send {
     animation: none;
