@@ -27,6 +27,10 @@ describe("transcript keyboard follow", () => {
   it("stays put when the reader has scrolled away from the bottom", () => {
     expect(transcriptFollow(scroller(400, 2000, 800), 2000, 300)).toBe(0);
   });
+  it("stops following at a long reply's top instead of hiding its beginning", () => {
+    expect(transcriptFollow(scroller(1200, 2000, 800), 2000, 300, 1350)).toBe(0.5);
+    expect(transcriptFollow(scroller(1200, 2000, 800), 2000, 300, 1200)).toBe(0);
+  });
   it("follows only as far as a short transcript can scroll", () => {
     // 900px of content: the 500px viewport can scroll 400px, from 100px.
     expect(transcriptFollow(scroller(100, 900, 800), 900, 300)).toBe(1);
@@ -42,6 +46,50 @@ describe("transcript keyboard follow", () => {
       1 / 3,
     );
   });
+});
+
+it("follows the active assistant only as far as its latest bubble and preserves manual scrolling", () => {
+  const chat = document.createElement("div");
+  chat.className = "assistant-chat";
+  chat.dataset.layout = "mobile";
+  const log = document.createElement("div");
+  log.className = "assistant-messages";
+  log.style.scrollPaddingTop = "80px";
+  log.style.paddingBottom = "100px";
+  const row = document.createElement("div");
+  row.className = "assistant-message-row";
+  log.append(row);
+  chat.append(log);
+  document.body.append(chat);
+  Object.defineProperties(log, {
+    clientHeight: { value: 800 }, scrollHeight: { value: 2000 },
+  });
+  log.scrollTop = 1200;
+  log.getBoundingClientRect = () => new DOMRect(0, 0, 400, 800);
+  row.getBoundingClientRect = () => new DOMRect(0, 230, 400, 470);
+  const root = document.createElement("div");
+  root.append(chat);
+  document.body.append(root);
+  const stop = installKeyboardMotion(root);
+  const keyboard = (height: number) => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+    detail: { height, viewport: 800, duration: 200, easing: "linear" },
+  }));
+  try {
+    keyboard(300);
+    expect(log.style.getPropertyValue("--mobile-assistant-keyboard-follow")).toBe("0.5");
+    keyboard(0);
+    log.dataset.followLatest = "false";
+    keyboard(300);
+    expect(log.style.getPropertyValue("--mobile-assistant-keyboard-follow")).toBe("0");
+    keyboard(0);
+    log.dataset.followLatest = "true";
+    chat.inert = true;
+    keyboard(300);
+    expect(log.style.getPropertyValue("--mobile-assistant-keyboard-follow")).toBe("0");
+  } finally {
+    stop();
+    root.remove();
+  }
 });
 
 describe("anchored turn under the keyboard", () => {
@@ -135,6 +183,37 @@ it("exposes remaining keyboard motion to late subscribers and honors reduced mot
   }
 });
 
+it("scopes motion styles to controls, initializes late sheets without replaying motion, and releases removed surfaces", async () => {
+  const root = document.createElement("div");
+  const dock = document.createElement("div");
+  dock.className = "mobile-composer-dock";
+  const history = document.createElement("div");
+  root.append(dock, history);
+  const uninstall = installKeyboardMotion(root);
+  try {
+    window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+      detail: { height: 300, viewport: 800, duration: 200, easing: "linear" },
+    }));
+    expect(dock.style.getPropertyValue("--mobile-keyboard-height")).toBe("300px");
+    expect(dock.style.getPropertyValue("--mobile-keyboard-duration")).toBe("200ms");
+    expect(history.style.length).toBe(0);
+    expect(root.style.getPropertyValue("--mobile-keyboard-height")).toBe("");
+    const sheet = document.createElement("div");
+    sheet.className = "mobile-sheet-backdrop";
+    root.append(sheet);
+    // Mutation observers run after the mount and before the next paint.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(sheet.style.getPropertyValue("--mobile-keyboard-height")).toBe("300px");
+    expect(sheet.style.getPropertyValue("--mobile-keyboard-duration")).toBe("0ms");
+    sheet.remove();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(sheet.style.length).toBe(0);
+  } finally {
+    uninstall();
+  }
+  expect(dock.style.length).toBe(0);
+});
+
 
 it.each(["inert", "aria-hidden"])("ignores a departing transcript marked %s when following the keyboard", (attribute) => {
   const pages = document.createElement("div");
@@ -158,13 +237,14 @@ it.each(["inert", "aria-hidden"])("ignores a departing transcript marked %s when
   layer(true);
   layer(false);
   document.body.append(pages);
-  const root = document.createElement("div");
+  const root = pages;
   const uninstall = installKeyboardMotion(root);
   try {
     window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
       detail: { height: 300, viewport: 800, duration: 200, easing: "linear" },
     }));
-    expect(root.style.getPropertyValue("--mobile-keyboard-follow")).toBe("1");
+    expect(pages.querySelector<HTMLElement>(".mobile-desktop-transcript")!
+      .style.getPropertyValue("--mobile-keyboard-follow")).toBe("1");
   } finally {
     uninstall();
     pages.remove();

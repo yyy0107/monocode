@@ -257,6 +257,7 @@ function MobileAssistantComposer({
   onRetry,
 }: AssistantComposerProps) {
   const { t } = useTranslation();
+  const dock = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const files = useRef<HTMLInputElement>(null);
   const form = useRef<HTMLFormElement>(null);
@@ -265,9 +266,28 @@ function MobileAssistantComposer({
   useLayoutEffect(() => {
     if (attachments.length) setRenderedAttachments(attachments);
   }, [attachments]);
+  // Reserve the floating capsule's full height, including attachments and the
+  // safe area, so the last message can still scroll clear of it.
+  useLayoutEffect(() => {
+    const element = dock.current;
+    const conversation = element?.parentElement;
+    if (!element || !conversation) return;
+    const publish = () => {
+      const height = `calc(${element.offsetHeight}px + max(0px, var(--mobile-safe-bottom) - 14px))`;
+      if (conversation.style.getPropertyValue("--mobile-assistant-dock-height") !== height)
+        conversation.style.setProperty("--mobile-assistant-dock-height", height);
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      conversation.style.removeProperty("--mobile-assistant-dock-height");
+    };
+  }, []);
   useMobileTextareaAutosize(input, draft, { minHeight: 28, viewportHeightRatio: 0.25 });
   return (
-    <div className="mobile-assistant-compose-dock">
+    <div ref={dock} className="mobile-assistant-compose-dock">
       {retry && (
         <button
           type="button"

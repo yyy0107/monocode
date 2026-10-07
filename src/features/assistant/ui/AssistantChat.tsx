@@ -665,11 +665,12 @@ export function AssistantChat({
                   ref={log}
                   className="assistant-messages"
                   role="log"
+                  data-follow-latest={followLog.current}
                   aria-label={t("Assistant messages")}
                   onScroll={() => {
                     replyMenu.cancelHold();
                     const element = log.current;
-                    if (element)
+                    if (element) {
                       followLog.current = mobile
                         ? Math.abs(
                             element.scrollTop - followScrollTop(element, true),
@@ -678,6 +679,8 @@ export function AssistantChat({
                             element.scrollTop -
                             element.clientHeight <
                           60;
+                      element.dataset.followLatest = String(followLog.current);
+                    }
                   }}
                 >
                   {!messages.length && (

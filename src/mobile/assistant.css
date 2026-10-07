@@ -3,18 +3,10 @@
   display: contents;
 }
 .mobile-assistant-overlay {
-  --mobile-keyboard: var(--mobile-keyboard-height, 0px);
-  --mobile-keyboard-offset: max(
-    0px,
-    var(--mobile-keyboard) - (var(--mobile-viewport-full, 100dvh) - 100dvh)
-  );
   position: absolute;
   inset: 0;
-  bottom: var(--mobile-keyboard-offset);
   z-index: 100;
   overflow: hidden;
-  transition: --mobile-keyboard var(--mobile-keyboard-duration, 0ms)
-    var(--mobile-keyboard-easing, linear);
 }
 .assistant-chat[data-layout="mobile"] {
   position: relative;
@@ -113,13 +105,22 @@
   :is([data-lifecycle="failed"], [data-lifecycle="interrupted"])::before {
   background: #ff453a;
 }
+.assistant-chat[data-layout="mobile"] .assistant-conversation {
+  position: relative;
+}
 .assistant-chat[data-layout="mobile"] .assistant-messages {
+  /* Match the scroll that the local layout will apply, without resizing the
+     conversation and running its ResizeObserver on every keyboard frame. */
+  transform: translateY(calc(var(--mobile-keyboard-offset) * var(--mobile-assistant-keyboard-follow, 0) * -1));
+  transition: --mobile-keyboard var(--mobile-keyboard-duration, 0ms)
+    var(--mobile-keyboard-easing, linear);
   min-height: 0;
   padding: calc(var(--mobile-header-height) + var(--mobile-safe-top) + 12px)
-    18px 20px;
+    18px calc(var(--mobile-assistant-dock-height, 76px) + 20px - min(max(0px, var(--mobile-safe-bottom) - 14px), var(--mobile-keyboard-height)));
   scroll-padding-top: calc(
     var(--mobile-header-height) + var(--mobile-safe-top) + 12px
   );
+  scroll-padding-bottom: calc(var(--mobile-assistant-dock-height, 76px) + 20px - min(max(0px, var(--mobile-safe-bottom) - 14px), var(--mobile-keyboard-height)));
   gap: 12px;
   overflow-anchor: none;
   overscroll-behavior-y: contain;
@@ -323,11 +324,19 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   color: #ff453a;
 }
 .mobile-assistant-compose-dock {
-  flex-shrink: 0;
-  padding: 8px 20px max(14px, var(--mobile-safe-bottom));
-  background: linear-gradient(transparent, var(--color-background-base) 40%);
-  transition: padding-bottom var(--mobile-keyboard-duration, 420ms)
-    var(--mobile-keyboard-easing, ease);
+  --mobile-dock-inset: max(14px, var(--mobile-safe-bottom) - var(--mobile-keyboard-height));
+  position: absolute;
+  inset-inline: 0;
+  bottom: calc(0px - var(--mobile-keyboard-layout));
+  z-index: 1;
+  padding: 8px 20px 14px;
+  transform: translateY(calc(0px - var(--mobile-keyboard-offset) - var(--mobile-dock-inset) + 14px));
+  background: transparent;
+  pointer-events: none;
+  transition: transform var(--mobile-keyboard-duration, 0ms) var(--mobile-keyboard-easing, linear);
+}
+.mobile-assistant-compose-dock > * {
+  pointer-events: auto;
 }
 .assistant-chat[data-layout="mobile"] .mobile-assistant-compose {
   min-height: 54px;

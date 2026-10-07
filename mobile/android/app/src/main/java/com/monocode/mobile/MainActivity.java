@@ -39,12 +39,10 @@ public class MainActivity extends BridgeActivity {
             );
             boolean keyboardVisible = insets.isVisible(WindowInsetsCompat.Type.ime());
             keyboardBottom = keyboardVisible ? insets.getInsets(WindowInsetsCompat.Type.ime()).bottom : 0;
-            // Keep the WebView full screen on old and new Chromium versions;
-            // only the keyboard resizes it. While the keyboard slides in, the
-            // page lifts its bottom controls with the same curve and the
-            // resize waits for the end, so layout changes once, not per frame.
-            // A lowering keyboard resizes as soon as the page has measured
-            // its transcript, and the page lowers the controls from there.
+            // Keep the WebView full screen, including while the IME is open.
+            // Resizing it invalidates viewport styles throughout the message
+            // history and stalls dismissal before its first animation frame.
+            // The page reserves keyboard space inside its own layout instead.
             float density = getResources().getDisplayMetrics().density;
             safeAreaScript = String.format(
                 Locale.US,
@@ -54,13 +52,12 @@ public class MainActivity extends BridgeActivity {
                 "document.documentElement.style.setProperty('--safe-area-inset-left', '%.2fpx');",
                 safe.top / density,
                 safe.right / density,
-                (keyboardVisible ? 0 : safe.bottom) / density,
+                safe.bottom / density,
                 safe.left / density
             );
-            // During a keyboard animation the safe area travels with the
-            // keyboard event, so the page eases both on the same curve.
+            // Keep physical safe areas stable. Keyboard-following surfaces
+            // remove the bottom inset locally, without restyling the history.
             if (!imeAnimating) {
-                view.setPadding(0, 0, 0, keyboardBottom);
                 sendKeyboard(view, 0, null);
             }
             // Consume bars explicitly so Chromium cannot add a second inset.
@@ -118,7 +115,6 @@ public class MainActivity extends BridgeActivity {
                 public void onEnd(@NonNull WindowInsetsAnimationCompat animation) {
                     if (!isIme(animation)) return;
                     imeAnimating = false;
-                    if (decor.getPaddingBottom() != keyboardBottom) decor.setPadding(0, 0, 0, keyboardBottom);
                 }
             }
         );
@@ -139,10 +135,11 @@ public class MainActivity extends BridgeActivity {
         // A reloaded page only needs the settled position.
         keyboardScript = String.format(Locale.US, format, height, viewport, 0, "linear");
         bridge.getWebView().evaluateJavascript(
-            safeAreaScript + String.format(Locale.US, format, height, viewport, Math.max(0, duration), easing(interpolator)),
-            result -> {
-                if (keyboardBottom < decor.getPaddingBottom()) decor.setPadding(0, 0, 0, keyboardBottom);
-            }
+            // Measure the old transcript before changing safe-area styles.
+            // Both writes then reach layout together instead of forcing two
+            // full-history style passes at the start of each keyboard motion.
+            String.format(Locale.US, format, height, viewport, Math.max(0, duration), easing(interpolator)) + safeAreaScript,
+            null
         );
     }
 

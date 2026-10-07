@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
+import { keyboardViewportHeight, onKeyboardMotion } from "./keyboardMotion";
 
 type Options = {
   minHeight: number;
@@ -39,19 +40,25 @@ export function useMobileTextareaAutosize(
     });
     let previous = "";
     let width = source.clientWidth;
+    let naturalHeight = minHeight;
+    const applyHeight = () => {
+      const cap = viewportHeightRatio === undefined
+        ? maxHeight : Math.min(maxHeight, keyboardViewportHeight() * viewportHeightRatio);
+      const height = `${Math.max(minHeight, Math.min(naturalHeight, cap))}px`;
+      if (element.style.height !== height) element.style.height = height;
+    };
     const resize = () => {
       const availableWidth = Math.max(0, widthReader.current?.() ?? element.clientWidth);
-      const cap = viewportHeightRatio === undefined
-        ? maxHeight : Math.min(maxHeight, window.innerHeight * viewportHeightRatio);
-      const key = `${availableWidth}\0${cap}\0${element.value}`;
-      if (key === previous) return;
-      previous = key;
-      measure.value = element.value;
-      measure.style.width = `${availableWidth}px`;
-      element.after(measure);
-      const height = `${Math.max(minHeight, Math.min(measure.scrollHeight, cap))}px`;
-      measure.remove();
-      if (element.style.height !== height) element.style.height = height;
+      const key = `${availableWidth}\0${element.value}`;
+      if (key !== previous) {
+        previous = key;
+        measure.value = element.value;
+        measure.style.width = `${availableWidth}px`;
+        element.after(measure);
+        naturalHeight = measure.scrollHeight;
+        measure.remove();
+      }
+      applyHeight();
     };
     resizeRef.current = resize;
     resize();
@@ -63,10 +70,14 @@ export function useMobileTextareaAutosize(
     });
     observer.observe(source);
     window.addEventListener("resize", resize);
+    // A keyboard event changes the height limit, not wrapping. Reuse the last
+    // measurement instead of forcing layout after the shell's motion writes.
+    const unsubscribe = onKeyboardMotion(applyHeight);
     return () => {
       resizeRef.current = undefined;
       observer.disconnect();
       window.removeEventListener("resize", resize);
+      unsubscribe();
       measure.remove();
     };
   }, [field, widthSource, minHeight, maxHeight, viewportHeightRatio, visible]);

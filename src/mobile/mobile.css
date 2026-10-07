@@ -1000,11 +1000,10 @@ html[data-mobile-glass="solid"] :is(
 }
 .mobile-home-dock {
   position: absolute;
-  /* Keep Home actions at the screen bottom when the keyboard shrinks the
-     WebView, so they stay covered instead of rising above the keyboard. */
+  /* Keep Home actions covered while the keyboard shortens the page. */
   bottom: calc(
     var(--mobile-safe-bottom) + 16px -
-    max(0px, var(--mobile-viewport-full, 100dvh) - 100dvh)
+    var(--mobile-keyboard-layout)
   );
   inset-inline: 24px;
   display: flex;
@@ -1293,42 +1292,85 @@ html[data-mobile-glass="solid"] :is(
   padding-bottom: 0;
   overflow: hidden;
 }
-/* Android keyboard motion (keyboardMotion.ts). The WebView resizes once the
-   keyboard has risen and as soon as it starts lowering; until the layout
-   catches up, bottom-anchored surfaces are offset by the keyboard's animated
-   height minus the part the layout already accounts for. The animated value
-   is a non-inherited property so each frame restyles only these surfaces. */
+/* Android keeps the WebView full screen. The page reserves keyboard space
+   once per motion; only the moving surfaces use the animated height. */
 @property --mobile-keyboard {
   syntax: "<length>";
   inherits: false;
   initial-value: 0px;
 }
+/* Native motion is copied to its consumers by keyboardMotion.ts. Keeping its
+   inputs local prevents a keyboard event from restyling the entire history. */
+@property --mobile-keyboard-height {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --mobile-keyboard-layout {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --mobile-keyboard-duration {
+  syntax: "<time>";
+  inherits: false;
+  initial-value: 0ms;
+}
+@property --mobile-keyboard-easing {
+  syntax: "*";
+  inherits: false;
+  initial-value: linear;
+}
+@property --mobile-keyboard-follow {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+@property --mobile-assistant-keyboard-follow {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+/* Derived animated values must not invalidate every message descendant. */
+@property --mobile-keyboard-offset {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --mobile-dock-inset {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 .mobile-composer-dock,
+.mobile-assistant-compose-dock,
+.assistant-chat[data-layout="mobile"] .assistant-messages,
 .mobile-shared-question,
 .mobile-desktop-transcript,
 .mobile-sheet-backdrop,
 .mobile-modal-backdrop {
   --mobile-keyboard: var(--mobile-keyboard-height, 0px);
-  --mobile-keyboard-offset: max(
-    0px,
-    var(--mobile-keyboard) - (var(--mobile-viewport-full, 100dvh) - 100dvh)
-  );
+  --mobile-keyboard-offset: var(--mobile-keyboard);
+}
+.mobile-desktop-transcript,
+.assistant-chat[data-layout="mobile"] .assistant-messages,
+.mobile-shared-question {
+  --mobile-keyboard-offset: max(0px, var(--mobile-keyboard) - var(--mobile-keyboard-layout));
 }
 /* The input card floats over the transcript; reserve its measured height so
    the latest message can scroll clear of the dock. */
 .mobile-composer-dock {
+  --mobile-dock-inset: max(8px, var(--mobile-safe-bottom) - var(--mobile-keyboard-height));
   position: absolute;
   inset-inline: 0;
   z-index: 10;
-  bottom: var(--mobile-keyboard-offset);
-  padding: 8px 8px max(8px, var(--mobile-safe-bottom));
+  bottom: calc(0px - var(--mobile-keyboard-layout));
+  padding: 8px;
+  transform: translateY(calc(0px - var(--mobile-keyboard-offset) - var(--mobile-dock-inset) + 8px));
   pointer-events: none;
-  /* The keyboard removes the bottom safe area; ease it on the keyboard's own
-     curve so the dock does not jump while it rises. */
-  transition:
-    padding-bottom var(--mobile-keyboard-duration, 420ms)
-      var(--mobile-keyboard-easing, cubic-bezier(0.25, 0.8, 0.25, 1)),
-    --mobile-keyboard var(--mobile-keyboard-duration, 0ms) var(--mobile-keyboard-easing, linear);
+  /* Move the safe-area gap with the capsule. Animating padding would resize
+     the dock and republish transcript padding on every keyboard frame. */
+  transition: transform var(--mobile-keyboard-duration, 0ms) var(--mobile-keyboard-easing, linear);
 }
 .mobile-composer-dock > * {
   pointer-events: auto;
@@ -1345,11 +1387,13 @@ html[data-mobile-glass="solid"] :is(
   mask-image: linear-gradient(transparent, #000 45%);
 }
 .mobile-desktop-transcript:has(+ .mobile-composer-dock) > .agent-transcript {
-  padding-bottom: var(--mobile-dock-height, 0px);
-  scroll-padding-bottom: var(--mobile-dock-height, 0px);
+  --mobile-keyboard-height: inherit;
+  padding-bottom: calc(var(--mobile-dock-height, 0px) - min(max(0px, var(--mobile-safe-bottom) - 8px), var(--mobile-keyboard-height)));
+  scroll-padding-bottom: calc(var(--mobile-dock-height, 0px) - min(max(0px, var(--mobile-safe-bottom) - 8px), var(--mobile-keyboard-height)));
 }
 .mobile-desktop-transcript:has(+ .mobile-composer-dock) > .mobile-jump {
-  bottom: calc(var(--mobile-dock-height, 0px) + 12px);
+  --mobile-keyboard-height: inherit;
+  bottom: calc(var(--mobile-dock-height, 0px) + 12px - min(max(0px, var(--mobile-safe-bottom) - 8px), var(--mobile-keyboard-height)));
 }
 .mobile-chat > :not(.mobile-desktop-transcript):has(+ .mobile-composer-dock) {
   margin-bottom: var(--mobile-dock-height, 0px);
@@ -1357,14 +1401,13 @@ html[data-mobile-glass="solid"] :is(
 /* Answering a question lifts the question card, while the unused composer
    stays at the full viewport bottom behind the keyboard. Keep this layout
    between question fields and buttons, until the composer itself is focused. */
-.mobile-chat:has(> .mobile-shared-question) > .mobile-composer-dock:not(:focus-within),
-.mobile-chat:has(.question-history [data-question-form]) > .mobile-composer-dock:not(:focus-within) {
-  bottom: calc(0px - max(0px, var(--mobile-viewport-full, 100dvh) - 100dvh));
+.mobile-chat:has(> .mobile-shared-question) > .mobile-composer-dock:not(:focus-within) {
+  transform: translateY(calc(8px - var(--mobile-dock-inset)));
 }
 .mobile-chat:not(:has(> .mobile-composer-dock :focus)) > .mobile-shared-question {
   margin-bottom: max(
     8px,
-    calc(var(--mobile-dock-height, 0px) - max(0px, var(--mobile-viewport-full, 100dvh) - 100dvh)),
+    calc(var(--mobile-dock-height, 0px) - var(--mobile-keyboard-layout)),
     calc(var(--mobile-keyboard-offset) + 8px)
   );
   transition: --mobile-keyboard var(--mobile-keyboard-duration, 0ms) var(--mobile-keyboard-easing, linear);
@@ -1642,6 +1685,12 @@ html.has-user-accent .mobile-send:not(:disabled) {
   justify-content: center;
   background: #0005;
 }
+.mobile-sheet-backdrop,
+.mobile-modal-backdrop,
+.mobile-shared-question {
+  --mobile-safe-bottom: max(0px,
+    var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) - var(--mobile-keyboard-height));
+}
 .mobile-sheet {
   font-size: calc(14px + var(--mobile-popup-font-step));
   border-width: calc(1px + var(--mobile-popup-line-step));
@@ -1891,6 +1940,7 @@ html.has-user-accent .mobile-send:not(:disabled) {
   padding: 6px 4px 0;
 }
 .mobile-command-suggestions {
+  --mobile-keyboard-offset: var(--mobile-keyboard-height, 0px);
   position: absolute;
   bottom: calc(100% + 8px);
   inset-inline: 8px;
@@ -2331,7 +2381,7 @@ html.theme-light .mobile-logo {
   position: relative;
   /* A pinned transcript rides the keyboard as far as its scroll offset will
      move once the layout resizes. */
-  top: calc(var(--mobile-keyboard-offset) * var(--mobile-keyboard-follow, 0) * -1);
+  transform: translateY(calc(var(--mobile-keyboard-offset) * var(--mobile-keyboard-follow, 0) * -1));
   transition: --mobile-keyboard var(--mobile-keyboard-duration, 0ms) var(--mobile-keyboard-easing, linear);
   display: flex;
   flex-direction: column;

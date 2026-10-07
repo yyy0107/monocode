@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 import { useMobileTextareaAutosize } from "./useMobileTextareaAutosize";
+import { installKeyboardMotion, KEYBOARD_EVENT } from "./keyboardMotion";
 
 let root: Root;
 let node: HTMLDivElement;
@@ -83,4 +84,39 @@ it("ignores height-only observations, rewraps width changes and suspends while t
   render("A changed draft while hidden");
   expect(observers).toHaveLength(2);
   expect(field.style.height).toBe("120px");
+});
+
+it("reuses wrapping measurements when the keyboard changes the height limit", () => {
+  const stopKeyboard = installKeyboardMotion(node);
+  const keyboard = (height: number) => act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+    detail: { height, viewport: 400, duration: 0, easing: "linear" },
+  })));
+  const reads = vi.spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get");
+  const widths = vi.spyOn(HTMLTextAreaElement.prototype, "clientWidth", "get");
+  try {
+    const field = render("A multiline draft to measure");
+    expect(field.style.height).toBe("72px");
+    const initialReads = reads.mock.calls.length;
+    const initialWidths = widths.mock.calls.length;
+    for (let cycle = 0; cycle < 2; cycle++) {
+      keyboard(200);
+      expect(field.style.height).toBe("50px");
+      keyboard(0);
+      expect(field.style.height).toBe("72px");
+    }
+    // No synchronous layout read after native motion has resized the shell.
+    expect(reads).toHaveBeenCalledTimes(initialReads);
+    expect(widths).toHaveBeenCalledTimes(initialWidths);
+
+    keyboard(200);
+    width = 240;
+    act(() => observers[0].notify());
+    expect(field.style.height).toBe("50px");
+    keyboard(0);
+    expect(field.style.height).toBe("100px");
+    render("Short");
+    expect(field.style.height).toBe("28px");
+  } finally {
+    stopKeyboard();
+  }
 });

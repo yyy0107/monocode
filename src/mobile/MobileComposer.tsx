@@ -173,7 +173,7 @@ export function MobileComposer(props: Props) {
     // the queue's height omits its collapsed margin and the dock padding,
     // which left a blurred strip showing in the gap.
     const publish = () => {
-      const height = `${element.offsetHeight}px`;
+      const height = `calc(${element.offsetHeight}px + max(0px, var(--mobile-safe-bottom) - 8px))`;
       const queue = element.querySelector<HTMLElement>(":scope > .mobile-message-queue");
       const composer = element.querySelector<HTMLElement>(":scope > .mobile-composer");
       const queueHeight = `${queue && composer ? composer.offsetTop : 0}px`;

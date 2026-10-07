@@ -1,9 +1,8 @@
 // Follows the Android soft keyboard. MainActivity reports where the keyboard
 // is heading, with its duration and easing curve, as each animation starts.
-// The WebView keeps its size while the keyboard rises and resizes once it has
-// arrived; it resizes immediately when the keyboard lowers. Bottom controls
-// close the gap with `--mobile-keyboard-lift`, which mobile.css animates on
-// the same curve as the keyboard.
+// The WebView stays full screen. Only the mobile shell's height changes, once
+// at the end of a rise or the start of a dismissal. This avoids invalidating
+// viewport-dependent styles throughout the history when the keyboard closes.
 
 export interface KeyboardMotion {
   /** Keyboard height the animation ends at, in CSS pixels. */
@@ -16,15 +15,40 @@ export interface KeyboardMotion {
 
 export const KEYBOARD_EVENT = "monocode:keyboard";
 const FALLBACK_EASING = "cubic-bezier(0.2, 0, 0, 1)";
+const MOTION_SURFACES = [
+  ".mobile-composer-dock",
+  ".mobile-assistant-compose-dock",
+  ".mobile-desktop-transcript",
+  '.assistant-chat[data-layout="mobile"] .assistant-messages',
+  ".mobile-sheet-backdrop",
+  ".mobile-modal-backdrop",
+  ".mobile-shared-question",
+  ".mobile-command-suggestions",
+  ".mobile-assistant-settings-actions",
+  ".mobile-home-dock",
+].join(", ");
+const MOTION_PROPERTIES = [
+  "--mobile-keyboard-height",
+  "--mobile-keyboard-duration",
+  "--mobile-keyboard-easing",
+  "--mobile-keyboard-follow",
+  "--mobile-assistant-keyboard-follow",
+  "--mobile-keyboard-layout",
+] as const;
 
 let height = 0;
 let tracked = false;
 let motionEndsAt = 0;
+let fullViewport = 0;
 const listeners = new Set<(motion: KeyboardMotion) => void>();
 
 /** Whether the native shell reports keyboard motion. */
 export const keyboardTracked = () => tracked;
 export const keyboardHeight = () => height;
+/** Usable screen height even though Android keeps the WebView full screen. */
+export const keyboardViewportHeight = () => tracked
+  ? Math.max(0, fullViewport - height)
+  : (window.visualViewport?.height ?? window.innerHeight);
 /** Remaining native motion, including for a sheet opened midway through it. */
 export const keyboardMotionRemaining = () => Math.max(0, motionEndsAt - performance.now());
 
@@ -71,6 +95,7 @@ export function transcriptFollow(
   scroller: Pick<HTMLElement, "scrollTop" | "scrollHeight" | "clientHeight">,
   contentHeight: number,
   delta: number,
+  scrollLimit = Infinity,
 ): number {
   if (!delta) return 0;
   const { scrollTop, clientHeight } = scroller;
@@ -80,7 +105,7 @@ export function transcriptFollow(
   const shift =
     delta > 0
       ? pinned
-        ? nextMax - scrollTop
+        ? Math.min(nextMax, scrollLimit) - scrollTop
         : 0
       : scrollTop - Math.min(scrollTop, nextMax);
   return Math.max(0, Math.min(1, shift / Math.abs(delta)));
@@ -130,7 +155,97 @@ function contentRatio(delta: number) {
   return transcriptFollow(scroller, content, delta);
 }
 
+function assistantContentRatio(delta: number) {
+  const scroller = [...document.querySelectorAll<HTMLElement>(
+    '.assistant-chat[data-layout="mobile"] .assistant-messages',
+  )].find(element => !element.closest('[inert], [aria-hidden="true"]'));
+  const last = scroller?.lastElementChild;
+  if (!scroller || !last || (delta > 0 && scroller.dataset.followLatest === "false")) return 0;
+  const style = getComputedStyle(scroller);
+  const top = scroller.getBoundingClientRect().top;
+  const content = last.getBoundingClientRect().bottom - top + scroller.scrollTop +
+    (parseFloat(style.paddingBottom) || 0);
+  let latest = last;
+  if (latest.matches(".assistant-working") && latest.previousElementSibling)
+    latest = latest.previousElementSibling;
+  const limit = latest.matches(".assistant-message-row, .assistant-card, .assistant-input")
+    ? latest.getBoundingClientRect().top - top + scroller.scrollTop -
+      (parseFloat(style.scrollPaddingTop) || 0)
+    : Infinity;
+  return transcriptFollow(scroller, content, delta, limit);
+}
+
 export function installKeyboardMotion(root = document.documentElement) {
+  const surfaces = new Set<HTMLElement>();
+  const shells = new Map<HTMLElement, string>();
+  let layout = height;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  let settleFrame: number | undefined;
+  let styles: Record<(typeof MOTION_PROPERTIES)[number], string> = {
+    "--mobile-keyboard-height": `${height}px`,
+    "--mobile-keyboard-duration": "0ms",
+    "--mobile-keyboard-easing": FALLBACK_EASING,
+    "--mobile-keyboard-follow": "0",
+    "--mobile-assistant-keyboard-follow": "0",
+    "--mobile-keyboard-layout": `${layout}px`,
+  };
+  const sizeShell = (element: HTMLElement) => {
+    if (tracked) element.style.height = `${Math.max(0, fullViewport - layout)}px`;
+  };
+  const attachShell = (element: Element) => {
+    if (!(element instanceof HTMLElement) || shells.has(element)) return;
+    shells.set(element, element.style.height);
+    sizeShell(element);
+  };
+  const sync = (element: HTMLElement, animate: boolean) => {
+    for (const property of MOTION_PROPERTIES) {
+      const value = property === "--mobile-keyboard-duration" && !animate
+        ? "0ms" : styles[property];
+      if (element.style.getPropertyValue(property) !== value)
+        element.style.setProperty(property, value);
+    }
+  };
+  const attach = (element: Element) => {
+    if (!(element instanceof HTMLElement) || surfaces.has(element)) return;
+    surfaces.add(element);
+    // A newly mounted menu starts at the current keyboard height, without
+    // replaying a motion that began before the menu existed.
+    sync(element, false);
+  };
+  const scan = (element: Element) => {
+    if (element.matches(".mobile-app")) attachShell(element);
+    element.querySelectorAll(".mobile-app").forEach(attachShell);
+    if (element.matches(MOTION_SURFACES)) attach(element);
+    element.querySelectorAll(MOTION_SURFACES).forEach(attach);
+  };
+  const release = (element: HTMLElement) => {
+    for (const property of MOTION_PROPERTIES) element.style.removeProperty(property);
+    surfaces.delete(element);
+  };
+  scan(root);
+  const mounts = new MutationObserver(records => {
+    for (const record of records)
+      for (const node of record.addedNodes)
+        if (node instanceof Element) scan(node);
+    for (const element of surfaces)
+      if (!root.contains(element)) release(element);
+    for (const [element, original] of shells) {
+      if (root.contains(element)) continue;
+      element.style.height = original;
+      shells.delete(element);
+    }
+  });
+  mounts.observe(root, { childList: true, subtree: true });
+  const cancelSettle = () => {
+    clearTimeout(settleTimer);
+    if (settleFrame !== undefined) cancelAnimationFrame(settleFrame);
+  };
+  const commitLayout = () => {
+    layout = height;
+    styles["--mobile-keyboard-layout"] = `${layout}px`;
+    for (const shell of shells.keys()) sizeShell(shell);
+    for (const element of surfaces) sync(element, true);
+  };
   const receive = (event: Event) => {
     const detail = (event as CustomEvent).detail ?? {};
     const next = Number(detail.height);
@@ -138,6 +253,7 @@ export function installKeyboardMotion(root = document.documentElement) {
     if (!Number.isFinite(next) || !Number.isFinite(viewport) || viewport <= 0)
       return;
     tracked = true;
+    fullViewport = viewport;
     const previous = height;
     height = Math.max(0, next);
     const duration = Math.max(0, Number(detail.duration) || 0);
@@ -147,17 +263,34 @@ export function installKeyboardMotion(root = document.documentElement) {
     ).matches;
     const effectiveDuration = reduced ? 0 : duration;
     motionEndsAt = performance.now() + effectiveDuration;
-    root.style.setProperty("--mobile-viewport-full", `${viewport}px`);
-    root.style.setProperty(
-      "--mobile-keyboard-duration",
-      `${reduced ? 0 : duration}ms`,
-    );
-    root.style.setProperty("--mobile-keyboard-easing", easing);
-    root.style.setProperty(
-      "--mobile-keyboard-follow",
-      String(contentRatio(height - previous)),
-    );
-    root.style.setProperty("--mobile-keyboard-height", `${height}px`);
+    // Measure the actual layout, which can still be at an earlier height if
+    // a gesture reverses before the preceding rise has finished.
+    const delta = height - layout;
+    const follow = delta ? contentRatio(delta) : Number(styles["--mobile-keyboard-follow"]);
+    const assistantFollow = delta ? assistantContentRatio(delta) : Number(styles["--mobile-assistant-keyboard-follow"]);
+    if (root.style.getPropertyValue("--mobile-viewport-full") !== `${viewport}px`)
+      root.style.setProperty("--mobile-viewport-full", `${viewport}px`);
+    styles = {
+      "--mobile-keyboard-height": `${height}px`,
+      "--mobile-keyboard-duration": `${effectiveDuration}ms`,
+      "--mobile-keyboard-easing": easing,
+      "--mobile-keyboard-follow": String(follow),
+      "--mobile-assistant-keyboard-follow": String(assistantFollow),
+      "--mobile-keyboard-layout": `${layout}px`,
+    };
+    cancelSettle();
+    // Grow the local layout before lowering controls. A rise reserves space
+    // after its last animated frame, without ever resizing the WebView.
+    if (height <= layout || !effectiveDuration) commitLayout();
+    else {
+      for (const shell of shells.keys()) sizeShell(shell);
+      settleTimer = setTimeout(() => {
+        settleFrame = requestAnimationFrame(() => {
+          settleFrame = requestAnimationFrame(commitLayout);
+        });
+      }, effectiveDuration);
+    }
+    for (const element of surfaces) sync(element, true);
     const motion = { height, previous, duration: effectiveDuration, easing };
     for (const listener of listeners) listener(motion);
   };
@@ -178,6 +311,10 @@ export function installKeyboardMotion(root = document.documentElement) {
   viewport?.addEventListener("scroll", unpan);
   viewport?.addEventListener("resize", unpan);
   return () => {
+    cancelSettle();
+    mounts.disconnect();
+    for (const element of surfaces) release(element);
+    for (const [element, original] of shells) element.style.height = original;
     window.removeEventListener(KEYBOARD_EVENT, receive);
     window.removeEventListener("scroll", unpan);
     viewport?.removeEventListener("scroll", unpan);
@@ -185,5 +322,6 @@ export function installKeyboardMotion(root = document.documentElement) {
     tracked = false;
     height = 0;
     motionEndsAt = 0;
+    fullViewport = 0;
   };
 }
