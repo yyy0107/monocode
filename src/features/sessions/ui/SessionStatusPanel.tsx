@@ -6,6 +6,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import {
@@ -58,12 +59,12 @@ function useWide(scope: RefObject<HTMLElement | null>): boolean {
 function useReducedMotion(): boolean {
   return useSyncExternalStore(
     (listener) => {
-      const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+      const query = reducedMotionQuery();
       query?.addEventListener("change", listener);
       return () => query?.removeEventListener("change", listener);
     },
     () =>
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+      reducedMotionQuery().matches,
     () => false,
   );
 }

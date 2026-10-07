@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 import { opusStage } from "../model/opusWelcome";
 import "./OpusWelcome.css";
 
@@ -115,7 +116,7 @@ export function OpusWelcome({ onDone }: { onDone: () => void }) {
   }, []);
 
   useEffect(() => {
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const reducedMotion = reducedMotionQuery();
     if (reducedMotion.matches) {
       onDone();
       return;

@@ -5,6 +5,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { reducedMotionQuery } from "../lib/reducedMotion";
 import { flushSync } from "react-dom";
 import { setGrabbing, suppressTextSelection } from "../lib/drag";
 import { reorderMotion } from "../lib/motion";
@@ -91,9 +92,7 @@ export function useAnimatedReorder<T extends string>(
       }
       const pointerId = event.pointerId;
       const startPosition = event[coordinate];
-      const reducedMotion = window.matchMedia(
-        "(prefers-reduced-motion: reduce)",
-      ).matches;
+      const reducedMotion = reducedMotionQuery().matches;
       const { duration: motionDuration, easing } = reorderMotion();
       const duration = reducedMotion ? 0 : motionDuration;
       const transition = `transform ${duration}ms ${easing}`;

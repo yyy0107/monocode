@@ -24,6 +24,7 @@ import {
   Trash2,
   Wrench,
 } from "../../../shared/ui/icons";
+import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 import {
   memo,
   createElement,
@@ -3904,7 +3905,7 @@ function riseIntoAnchor(
     `[data-prompt-anchor="${CSS.escape(blockId)}"]`,
   );
   if (!scroller || !row || typeof row.animate !== "function") return;
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  if (reducedMotionQuery().matches) return;
   const turn = row.closest<HTMLElement>(".transcript-turn");
   const mobile = motion === "mobile";
   const revealDuration = mobile ? 200 : PROMPT_REVEAL_MS;
@@ -4002,7 +4003,7 @@ function animateToBottom(el: HTMLElement | null, done: () => void) {
   const distance = bottom() - from;
   if (
     distance <= 1 ||
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    reducedMotionQuery().matches
   ) {
     el.scrollTop = el.scrollHeight;
     done();

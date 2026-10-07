@@ -3,6 +3,7 @@ import {
   SIDEBAR_TRANSITION_EASING,
   SIDEBAR_TRANSITION_MS,
 } from "./SidebarTransition";
+import { reducedMotionQuery } from "../../shared/lib/reducedMotion";
 
 /** Keep text width fixed during the slide and resize it only at the endpoints. */
 export function SidebarMain({
@@ -27,7 +28,7 @@ export function SidebarMain({
     const changing = previous && previous.open !== open;
     const canAnimate =
       typeof el.animate === "function" &&
-      !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      !reducedMotionQuery().matches;
     // Opening keeps the old, wider text surface until it has slid behind the
     // sidebar. Closing adopts that wider surface immediately. In both cases
     // the right edge stays covered and text never reflows on animation frames.
@@ -57,7 +58,11 @@ export function SidebarMain({
     }
 
     // CSS shortens an interrupted transition when it reverses. Follow the
-    // sidebar's actual timing so the two touching edges cannot drift apart.
+    // sidebar's actual duration so the two touching edges cannot drift apart.
+    // The curve stays the sidebar's own: per spec (and in WebKit/WebKitGTK) a
+    // CSS transition reports `linear` effect easing and keeps its timing
+    // function on the keyframes, which would slide this surface linearly
+    // behind an ease-out sidebar and open a gap while collapsing.
     const sidebar = el.parentElement!.querySelector(
       ":scope > [data-sidebar-transition] .sidebar-transition-clip",
     );
@@ -78,7 +83,7 @@ export function SidebarMain({
           typeof timing?.duration === "number"
             ? timing.duration
             : SIDEBAR_TRANSITION_MS,
-        easing: timing?.easing ?? SIDEBAR_TRANSITION_EASING,
+        easing: SIDEBAR_TRANSITION_EASING,
       },
     );
     animation.current = motion;
@@ -131,7 +136,7 @@ export function SidebarMain({
         )
         .forEach((sibling) => observer?.observe(sibling));
     }
-    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const media = reducedMotionQuery();
     const onMotionPreference = () => {
       if (!media?.matches) return;
       animation.current?.cancel();

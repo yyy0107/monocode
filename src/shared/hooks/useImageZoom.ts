@@ -4,6 +4,7 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from "react";
+import { reducedMotionQuery } from "../lib/reducedMotion";
 
 type Point = { x: number; y: number };
 type View = Point & { scale: number };
@@ -125,7 +126,7 @@ export function useImageZoom(src: string, visible: boolean) {
     const bounded = constrain(next);
     animation.current =
       animate &&
-      !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      !reducedMotionQuery().matches
         ? { from: current.current, to: bounded, started: performance.now() }
         : null;
     if (!animation.current) current.current = bounded;

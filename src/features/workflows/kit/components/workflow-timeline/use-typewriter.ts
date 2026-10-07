@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { reducedMotionQuery } from "../../../../../shared/lib/reducedMotion";
 
 /**
  * 草稿的笔。
@@ -41,7 +42,7 @@ function prefersReducedMotion(): boolean {
   return (
     typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    reducedMotionQuery().matches
   );
 }
 

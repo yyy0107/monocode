@@ -11,6 +11,7 @@ import {
   type TimelinePill,
   type WorkflowTimelineModel,
 } from "../components/workflow-timeline/timeline-model.js";
+import { reducedMotionQuery } from "../../../../shared/lib/reducedMotion";
 import {
   ROSTER_PINS_PANE,
   pillInstanceKey,
@@ -161,7 +162,7 @@ export const WorkflowRunPhaseList = memo(function WorkflowRunPhaseList({
     const reduced =
       typeof window !== "undefined" &&
       typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      reducedMotionQuery().matches;
     head.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
   }, [landed]);
 

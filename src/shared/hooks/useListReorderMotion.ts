@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
+import { reducedMotionQuery } from "../lib/reducedMotion";
 
 const TIMING = { duration: 320, easing: "cubic-bezier(0.32, 0.72, 0, 1)" };
 
@@ -72,7 +73,7 @@ export function useListReorderMotion(
       !node ||
       typeof node.animate !== "function" ||
       sameRelativeOrder(previousIds, [...order]) ||
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      reducedMotionQuery().matches
     )
       return;
     const nodes = rows(node, attribute);

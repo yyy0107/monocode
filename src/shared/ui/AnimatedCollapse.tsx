@@ -8,6 +8,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { reducedMotionQuery } from "../lib/reducedMotion";
 import {
   SurfaceVisibilityContext,
   useSurfaceVisibility,
@@ -47,7 +48,7 @@ export function useCollapseMotion(expanded: boolean, durationMs = 340) {
   );
 
   useLayoutEffect(() => {
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    if (reducedMotionQuery().matches) {
       setFoldState(expanded ? "open" : "closed");
       return;
     }
@@ -125,9 +126,7 @@ export function AnimatedCollapse({
     const content = contentRef.current;
     if (!item || !content) return;
     const settled = foldState === "open";
-    const reduced = window.matchMedia?.(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
+    const reduced = reducedMotionQuery().matches;
     if (!heightMotion || reduced || (settled && !animateContentResize)) {
       item.style.removeProperty("height");
       item.style.removeProperty("overflow");
@@ -160,7 +159,7 @@ export function AnimatedCollapse({
       const nextHeight = expanded ? content.getBoundingClientRect().height : 0;
       if (
         settled &&
-        (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ||
+        (reducedMotionQuery().matches ||
           content.querySelector(
             '.zen-fold-item:is([data-fold-state="opening"], [data-fold-state="closing"])',
           ))

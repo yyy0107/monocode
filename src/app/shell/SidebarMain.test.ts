@@ -160,6 +160,30 @@ it("follows the sidebar's shortened transition when reversing mid-slide", () => 
   });
 });
 
+it("keeps the sidebar's curve when the transition reports spec-linear easing", () => {
+  render(true);
+  const sidebar = document.createElement("div");
+  sidebar.dataset.sidebarTransition = "";
+  const clip = document.createElement("div");
+  clip.className = "sidebar-transition-clip";
+  // WebKit reports a CSS transition's timing function on its keyframes only.
+  clip.getAnimations = () =>
+    [
+      {
+        transitionProperty: "transform",
+        effect: { getTiming: () => ({ duration: 280, easing: "linear" }) },
+      },
+    ] as unknown as Animation[];
+  sidebar.append(clip);
+  container.prepend(sidebar);
+
+  render(false);
+  expect(animate.mock.calls[0]?.[1]).toEqual({
+    duration: 280,
+    easing: "cubic-bezier(0.2, 0.65, 0.3, 1)",
+  });
+});
+
 it("tracks direct resizing and cancels an active slide when layout changes", () => {
   render(true);
   left = 400;

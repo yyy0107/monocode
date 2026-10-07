@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 
 const DURATION = 240;
 const EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
@@ -43,7 +44,7 @@ export function useQuickPickerMotion(
     if (!frame) return;
     const from = lastHeight.current;
     const to = frame.getBoundingClientRect().height;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (reducedMotionQuery().matches) return;
 
     const panel = pickerRef.current;
     // Reveal a stable layout as the card grows, rather than squeezing the

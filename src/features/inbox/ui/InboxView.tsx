@@ -29,6 +29,7 @@ import {
   Search,
   type IconComponent,
 } from "../../../shared/ui/icons";
+import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 import {
   useCallback,
   useEffect,
@@ -1278,7 +1279,7 @@ export function LinkedWorkItemPanel({
       visible &&
       !(
         typeof window !== "undefined" &&
-        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+        reducedMotionQuery().matches
       ),
   );
   useEffect(() => {
