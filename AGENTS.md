@@ -64,3 +64,35 @@ Do not run `mobile:apk` or Android Studio builds concurrently with this workflow
 It rejects overlapping hook invocations and skips publication if inputs change
 during the build. LAN publication is authorized; pushing and merging still require
 their own scope.
+
+## Desktop LAN publication at the end of a turn
+
+The user also authorizes automatic Linux x64 and Windows x64 desktop LAN publication when a
+completed turn changes desktop inputs. The shared `scripts/turn-publish.mjs`
+hook snapshots both targets before building, then runs mobile and desktop
+publication sequentially. Desktop inputs include desktop/shared UI, Rust,
+bundled Host, assets and build/publish configuration; mobile-only code, tests,
+ordinary documentation and generated outputs do not trigger desktop builds.
+
+Use the guarded `npm run desktop:publish` workflow on the Linux update server.
+It builds DEB and AppImage locally and NSIS via `ssh wy-win`, using
+`C:\Users\wy777\Documents\ohmymonocode` as the remote build repository.
+Transfer the current source snapshot into its ignored `build/windows-lan/workspace`
+directory; never reset or overwrite the Windows checkout or build from its stale HEAD.
+Sign all three packages with the existing local key (do not send it to Windows),
+and deploy packages before atomically
+replacing the LAN update feed. It assigns an increasing `next-patch-lan.N`
+version through an ignored Tauri config, without rewriting repository versions.
+Interrupted, planning and unchanged turns are skipped. A shared lock rejects
+overlapping desktop publications across worktrees; source changes during build,
+signing or deployment prevent the feed from being replaced. Both desktop platforms
+must succeed at the same version before the feed advances. The remote builder also
+locks its workspace; after a crash, inspect the lock owner and processes before
+removing a stale `build/windows-lan/build.lock` directory.
+
+Do not also run a manual desktop build when the hook is active, and do not run
+direct Tauri builds concurrently with desktop publication. If hooks are
+unavailable, compare desktop inputs at turn start/end and run `desktop:publish`
+once after relevant checks pass when inputs changed. Report only observed
+publication results; the Stop hook runs after the final response. Hook changes
+must be reviewed and trusted in Codex before automatic execution begins.

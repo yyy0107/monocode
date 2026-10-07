@@ -254,13 +254,17 @@ Published packages do not require the Host token.
 
 ### Publish at the end of a conversation turn
 
-On Linux, `.codex/hooks.json` connects `mobile/turn-publish.mjs` to Codex's
+On Linux, `.codex/hooks.json` connects `scripts/turn-publish.mjs` to Codex's
 `UserPromptSubmit`, `Stop`, and `Interrupt` events. A prompt records the mobile
 source fingerprint. When that turn ends, a changed fingerprint runs
 `npm run mobile:publish`; an unchanged, interrupted, planning, or already-handled
 turn is skipped. There is no per-save watcher or idle timer. Existing changes
 before the prompt are the baseline, so merely asking a question does not publish
 old work. A turn that began before hooks were loaded is also skipped.
+The shared entry snapshots both targets before either build, runs the existing
+`mobile/turn-publish.mjs` handler first, then handles desktop publication. Each
+target retains its own fingerprint and log. Mobile failures are reported without
+suppressing the desktop check.
 
 Codex must load and trust the project hook definition before it runs. Review the
 hook in Codex when prompted, and start a new session after setup. The hooks run

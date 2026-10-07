@@ -30,6 +30,8 @@
         "installerIcon": "icons/icon.ico"
       }
     },
-    "resources": null
+    "resources": {
+      "../build/desktop-host/": "desktop-host/"
+    }
   }
 }

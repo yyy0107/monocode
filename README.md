@@ -85,8 +85,104 @@ npm run tauri dev
 Local desktop builds, including development mode, check
 `http://192.168.0.206/latest.json` for updates. The endpoint must serve a Tauri
 desktop update manifest; the mobile APK feed on port 3780 uses a different format.
-Installing an update also requires configuring the matching updater public key.
+The desktop updater public key is configured for the local signing key stored
+outside the repository at `~/.local/share/monocode/desktop-updates/signing.key`.
+Keep this private key to sign future updates; never publish or commit it.
 Release CI overrides the endpoint and public key with its release configuration.
+
+After `npm run build:linux`, prepare signed DEB and AppImage downloads and a Tauri
+update manifest with:
+
+```bash
+node scripts/publish-desktop-update.mjs
+```
+
+The script checks the key's public key and the DEB version/architecture, then
+writes `build/desktop-update-site/`. Downloads use content-based paths, so
+rebuilding a version preserves links already returned by an update check. Both
+packages must be signed before the script replaces `latest.json`. Use `--key`,
+`--deb`, `--appimage`, or `--output` to override the default paths. For a combined
+Windows/Linux feed, also pass `--nsis` with the matching Windows installer and
+`--version` for the shared version. Do not replace a combined feed with a
+Linux-only manifest; the automatic workflow below always builds both platforms.
+
+On the LAN update machine, Nginx serves `/var/www/html` on port 80. Deploy the
+packages first, then atomically replace the feed (no Nginx reload is required):
+
+```bash
+sudo cp -R --no-preserve=ownership build/desktop-update-site/monocode-desktop /var/www/html/
+sudo install -m 644 build/desktop-update-site/latest.json /var/www/html/.monocode-latest.json
+sudo mv /var/www/html/.monocode-latest.json /var/www/html/latest.json
+```
+
+Verify that `http://192.168.0.206/latest.json` returns JSON and that its package
+URLs work. Serving only installers on port 3781 does not provide this feed.
+Updates require a newer semantic version; rebuilding `0.7.0` alone does not
+offer an update to an existing `0.7.0` installation. Older local builds with an
+empty updater public key need one manual reinstall to enable signed updates.
+
+### Publish desktop updates after a conversation turn
+
+On the Linux x64 LAN update machine, `.codex/hooks.json` runs
+`scripts/turn-publish.mjs` for `UserPromptSubmit`, `Stop`, and `Interrupt`.
+It records mobile and desktop input fingerprints independently. At a completed
+turn, it snapshots both targets before building, then publishes changed mobile
+inputs followed by changed desktop inputs. A failed mobile build is reported
+without suppressing the desktop check. Source changes while waiting for the
+other target's build prevent publication of that unfinished work.
+
+Desktop changes invoke `npm run desktop:publish`. This builds DEB and AppImage
+locally, then builds a Windows x64 NSIS installer over `ssh wy-win`. All three
+packages use the same version. The workflow retrieves and verifies the Windows
+installer, signs every package locally, deploys to `/var/www/html`, and checks the HTTP feed and
+download sizes. Deployment uses noninteractive `sudo -n` when the web root is
+not writable, so this machine must already have the appropriate permission.
+The existing Nginx service and signing key must be available. Override the web
+root with `MONOCODE_DESKTOP_UPDATE_DIR` only when it serves the configured URL.
+
+The Windows repository is `C:\Users\wy777\Documents\ohmymonocode`. SSH must
+work noninteractively; Node/npm, the stable MSVC Rust toolchain, Visual Studio
+C++ Build Tools and Windows `tar.exe` must be installed. Override the SSH alias
+or repository with `MONOCODE_WINDOWS_SSH_HOST` and `MONOCODE_WINDOWS_REPOSITORY`.
+The publisher transfers current tracked and untracked build files (including
+uncommitted edits, excluding ignored credentials and outputs) to an isolated
+`build/windows-lan/workspace` under that repository. It removes stale source
+files, runs `npm ci`, and reuses only that workspace's build/dependency caches.
+The Windows checkout and its Git state remain untouched; no pull/reset is needed.
+The signing private key stays on Linux. Windows receives NSIS update entries
+(`windows-x86_64-nsis` and the development fallback `windows-x86_64`) in the
+same `http://192.168.0.206/latest.json` feed.
+
+Each new source state gets an increasing LAN version such as
+`0.7.1-lan.1791388800000` for a `0.7.0` checkout, so the Tauri updater can detect
+subsequent builds. The generated version override lives in
+`build/desktop-publish/tauri.lan.conf.json`; repository and bundled Host version
+files retain their original versions. A newer published stable version prevents
+an older checkout from replacing it. Both the public key and download signatures
+remain required.
+
+Unchanged, interrupted, planning and already-handled turns are skipped, as are
+turns with no starting snapshot. Tests, ordinary docs, mobile-only files and
+generated outputs are excluded; runtime Markdown bundled into the desktop or
+Host remains an input. Build/signing failures or source drift leave the previous
+live feed in place, including Windows SSH/build failures; the feed advances only
+when both desktop platforms succeed. Failures do not create automatic retry turns.
+A shared `flock` under
+`~/.local/share/monocode/desktop-updates` (respecting `XDG_DATA_HOME` or
+`MONOCODE_DESKTOP_STATE_DIR`) prevents overlapping publications across worktrees.
+Avoid direct Tauri builds during this workflow.
+The remote `build/windows-lan/build.lock` directory also rejects concurrent builds.
+If a process was killed, inspect its `owner.json` and the Windows build processes
+before removing that stale lock; it is deliberately not cleared automatically.
+
+Review and trust the changed hook definition in Codex's `/hooks` UI before
+relying on automatic runs; see the [official hook trust documentation](https://learn.chatgpt.com/docs/hooks).
+Logs and successful source states are kept in ignored `build/desktop-publish/`.
+The Stop result reports the published DEB and Windows installer URLs or a failure.
+The Stop timeout allows up to one hour for mobile plus both desktop builds.
+Run relevant checks
+before finishing the turn, and use `npm run test:desktop-publish` to verify this
+workflow. The hook does not install updates or push Git changes.
 
 ### Ubuntu / Debian packages
 

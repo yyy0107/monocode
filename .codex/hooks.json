@@ -1,14 +1,14 @@
 {
-  "description": "Publish a LAN Android APK after a turn changes mobile inputs.",
+  "description": "Publish LAN mobile and desktop packages after a turn changes their inputs.",
   "hooks": {
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/mobile/turn-publish.mjs\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/scripts/turn-publish.mjs\"",
             "timeout": 30,
-            "statusMessage": "Recording mobile source state"
+            "statusMessage": "Recording mobile and desktop source state"
           }
         ]
       }
@@ -18,9 +18,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/mobile/turn-publish.mjs\"",
-            "timeout": 600,
-            "statusMessage": "Checking mobile changes and publishing the APK"
+            "command": "node \"$(git rev-parse --show-toplevel)/scripts/turn-publish.mjs\"",
+            "timeout": 3600,
+            "statusMessage": "Checking changes and publishing mobile, Linux and Windows packages"
           }
         ]
       }
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/mobile/turn-publish.mjs\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/scripts/turn-publish.mjs\"",
             "timeout": 3
           }
         ]

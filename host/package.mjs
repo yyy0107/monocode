@@ -37,7 +37,7 @@ const ps = (script) =>
       "-NonInteractive",
       "-EncodedCommand",
       Buffer.from(
-        `$ErrorActionPreference = 'Stop'; ${script}`,
+        `$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; ${script}`,
         "utf16le",
       ).toString("base64"),
     ],
@@ -170,9 +170,9 @@ for (const target of targets) {
   await rm(join(output, filename), { force: true });
   if (windows) {
     if (process.platform === "win32")
-      ps(
-        `Compress-Archive -Path ${psQuote(join(folder, "*"))} -DestinationPath ${psQuote(join(output, filename))}`,
-      );
+      // Compress-Archive requests exclusive access and can fail while Windows
+      // still has a handle on the node.exe used by the smoke test above.
+      execFileSync("tar.exe", ["-a", "-cf", join(output, filename), "-C", folder, "."]);
     else
       execFileSync("zip", ["-q", "-r", join(output, filename), "."], {
         cwd: folder,

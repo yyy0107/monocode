@@ -42,7 +42,10 @@ async function runPublish(root, fingerprint, logPath) {
   return `Mobile build ${state.versionCode}: ${config.baseUrl}/apk/monocode-${state.versionCode}.apk`;
 }
 
-export async function handleTurn(event, { root, publish = runPublish }) {
+export async function handleTurn(
+  event,
+  { root, publish = runPublish, expectedFingerprint },
+) {
   if (!event.session_id || !event.turn_id) return {};
   const key = createHash("sha256")
     .update(JSON.stringify([event.session_id, event.turn_id]))
@@ -67,7 +70,7 @@ export async function handleTurn(event, { root, publish = runPublish }) {
   // Consume once, including failures. Never create a continuation/retry loop.
   await rm(stateFile, { force: true });
   if (!state || event.permission_mode === "plan") return {};
-  const fingerprint = await sourceFingerprint(root);
+  const fingerprint = expectedFingerprint ?? (await sourceFingerprint(root));
   if (fingerprint === state.fingerprint) return {};
   const result = await publish(
     root,

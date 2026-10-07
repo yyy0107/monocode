@@ -26,6 +26,8 @@
     "setup:linux:deb": "bash scripts/install-linux-deps-debian.sh",
     "setup:linux:fedora": "bash scripts/install-linux-deps-fedora.sh",
     "build:linux": "tauri build --bundles deb,appimage",
+    "desktop:publish": "bash scripts/desktop-task-publish.sh",
+    "test:desktop-publish": "node --test scripts/desktop-task-publish.test.mjs scripts/publish-desktop-update.test.mjs scripts/desktop-windows-build.test.mjs",
     "build:fedora": "tauri build --bundles rpm",
     "build:windows": "set \"RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc\" && tauri build --bundles nsis",
     "mobile:dev": "vite --config vite.mobile.config.ts",
