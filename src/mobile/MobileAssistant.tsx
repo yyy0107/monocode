@@ -1,3 +1,4 @@
+import { AssistantAttachmentPreview } from "../features/assistant/ui/AssistantAttachmentPreview";
 import {
   createContext,
   useContext,
@@ -33,7 +34,7 @@ import {
   ChevronRight,
   Copy,
   CornerDownRight,
-  File,
+  ImagePlus,
   LoaderCircle,
   MoreHorizontal,
   Pause,
@@ -273,6 +274,8 @@ function MobileAssistantComposer({
   onDraftChange,
   onSend,
   onAttach,
+  onPaste,
+  onDrop,
   onRemoveAttachment,
   attachments,
   busy,
@@ -287,6 +290,7 @@ function MobileAssistantComposer({
   const dock = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const files = useRef<HTMLInputElement>(null);
+  const photos = useRef<HTMLInputElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const [renderedAttachments, setRenderedAttachments] = useState(attachments);
   const lastReply = useRef(replyText);
@@ -348,6 +352,13 @@ function MobileAssistantComposer({
       <form
         ref={form}
         className="mobile-composer mobile-assistant-compose"
+        onDrop={onDrop}
+        onDragOver={(e) => {
+          if (Array.from(e.dataTransfer.types).includes("Files")) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = attachDisabled ? "none" : "copy";
+          }
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           if (!sendDisabled) onSend();
@@ -362,7 +373,7 @@ function MobileAssistantComposer({
           >
             {renderedAttachments.map((file) => (
               <div className="mobile-assistant-attachment" key={file.id}>
-                <File size={16} aria-hidden="true" />
+                <AssistantAttachmentPreview file={file} />
                 <span title={file.name}>{file.name}</span>
                 <button
                   type="button"
@@ -386,6 +397,31 @@ function MobileAssistantComposer({
           >
             <Plus size={22} />
           </button>
+          <button
+            type="button"
+            className="mobile-assistant-add"
+            aria-label={t("Upload photos")}
+            title={t("Upload photos")}
+            disabled={attachDisabled}
+            onClick={() => photos.current?.click()}
+          >
+            <ImagePlus size={22} />
+          </button>
+          <input
+            ref={photos}
+            type="file"
+            accept="image/*"
+            multiple
+            className="mobile-assistant-file-input"
+            tabIndex={-1}
+            aria-hidden="true"
+            disabled={attachDisabled}
+            onChange={(e) => {
+              const selected = Array.from(e.target.files ?? []);
+              e.target.value = "";
+              if (selected.length) onAttach(selected);
+            }}
+          />
           <input
             ref={files}
             type="file"
@@ -408,6 +444,7 @@ function MobileAssistantComposer({
             placeholder={t(replyText !== undefined ? "Reply" : "Ask your assistant…")}
             value={draft}
             disabled={inputDisabled}
+            onPaste={onPaste}
             onChange={(e) => onDraftChange(e.target.value)}
           />
           <button

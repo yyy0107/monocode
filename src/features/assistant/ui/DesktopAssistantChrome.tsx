@@ -1,3 +1,4 @@
+import { AssistantAttachmentPreview } from "./AssistantAttachmentPreview";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   AssistantChatChrome,
@@ -15,7 +16,8 @@ import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   ArrowLeft,
   ArrowUp,
-  File,
+  ImagePlus,
+  LoaderCircle,
   Pause,
   Play,
   Plus,
@@ -218,9 +220,12 @@ function DesktopAssistantComposer({
   onDraftChange,
   onSend,
   onAttach,
+  onPaste,
+  onDrop,
   onRemoveAttachment,
   attachments,
   busy,
+  sending,
   inputDisabled,
   attachDisabled,
   sendDisabled,
@@ -230,6 +235,7 @@ function DesktopAssistantComposer({
   const { t } = useTranslation();
   const input = useRef<HTMLTextAreaElement>(null);
   const files = useRef<HTMLInputElement>(null);
+  const photos = useRef<HTMLInputElement>(null);
   // Chips stay rendered while the tray collapses after the last removal.
   const [renderedAttachments, setRenderedAttachments] = useState(attachments);
   useLayoutEffect(() => {
@@ -253,6 +259,13 @@ function DesktopAssistantComposer({
       </AnimatedCollapse>
       <form
         className="assistant-compose"
+        onDrop={onDrop}
+        onDragOver={(e) => {
+          if (Array.from(e.dataTransfer.types).includes("Files")) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = attachDisabled ? "none" : "copy";
+          }
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           if (!sendDisabled) onSend();
@@ -262,7 +275,7 @@ function DesktopAssistantComposer({
           <div className="assistant-attachments" aria-label={t("Attachments")}>
             {renderedAttachments.map((file) => (
               <div className="assistant-attachment-chip" key={file.id}>
-                <File size={14} aria-hidden="true" />
+                <AssistantAttachmentPreview file={file} />
                 <span title={file.name}>{file.name}</span>
                 <button
                   type="button"
@@ -283,6 +296,7 @@ function DesktopAssistantComposer({
           placeholder={t("Ask your assistant…")}
           value={draft}
           disabled={inputDisabled}
+          onPaste={onPaste}
           onChange={(e) => onDraftChange(e.target.value)}
           onKeyDown={(e) => {
             if (
@@ -306,6 +320,31 @@ function DesktopAssistantComposer({
           >
             <Plus size={18} />
           </button>
+          <button
+            type="button"
+            className="assistant-icon-button"
+            aria-label={t("Upload photos")}
+            title={t("Upload photos")}
+            disabled={attachDisabled}
+            onClick={() => photos.current?.click()}
+          >
+            <ImagePlus size={18} />
+          </button>
+          <input
+            ref={photos}
+            type="file"
+            accept="image/*"
+            multiple
+            className="assistant-file-input"
+            tabIndex={-1}
+            aria-hidden="true"
+            disabled={attachDisabled}
+            onChange={(e) => {
+              const selected = Array.from(e.target.files ?? []);
+              e.target.value = "";
+              if (selected.length) onAttach(selected);
+            }}
+          />
           <input
             ref={files}
             type="file"
@@ -326,11 +365,16 @@ function DesktopAssistantComposer({
           <button
             type="submit"
             className="assistant-send"
-            aria-label={t("Send")}
-            title={t("Send")}
+            aria-label={t(sending ? "Sending..." : "Send")}
+            title={t(sending ? "Sending..." : "Send")}
+            aria-busy={sending || undefined}
             disabled={sendDisabled}
           >
-            <ArrowUp size={18} />
+            {sending ? (
+              <LoaderCircle size={18} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            ) : (
+              <ArrowUp size={18} aria-hidden="true" />
+            )}
           </button>
         </div>
       </form>

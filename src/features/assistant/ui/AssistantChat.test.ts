@@ -726,6 +726,60 @@ it("sends on Enter but not on Shift+Enter in the desktop composer", async () => 
   await flush();
   expect(rpc.mock.calls.some(([m]) => m === "assistant.send")).toBe(true);
 });
+it.each([false, true])("shows desktop send loading until delivery succeeds or fails (failure: %s)", async (failed) => {
+  const base = chatRpc(configuredView());
+  let finish!: () => void;
+  let pending = new Promise<void>((resolve) => { finish = resolve; });
+  let fail = failed;
+  const rpc = vi.fn(async (method: string, params?: object) => {
+    if (method === "assistant.send") {
+      await pending;
+      if (fail) throw new Error("Host disconnected");
+    }
+    return base(method, params);
+  });
+  act(() => root.render(createElement(AssistantChat, {
+    hostKey: "host", hostName: "Host", rpc: rpc as any, onOpen: () => {},
+  })));
+  await flush();
+  const field = node.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message assistant"]')!;
+  act(() => setValue(field, "Send this message"));
+  const send = node.querySelector<HTMLButtonElement>(".assistant-send")!;
+  const expectLoading = () => {
+    expect(send.getAttribute("aria-busy")).toBe("true");
+    expect(send.getAttribute("aria-label")).toBe("Sending...");
+    expect(send.querySelector(".animate-spin")).not.toBeNull();
+    expect(send.disabled).toBe(true);
+    expect(field.value).toBe("Send this message");
+  };
+  const expectIdle = () => {
+    expect(send.getAttribute("aria-busy")).toBeNull();
+    expect(send.getAttribute("aria-label")).toBe("Send");
+    expect(send.querySelector(".animate-spin")).toBeNull();
+  };
+  act(() => send.click());
+  expectLoading();
+  act(() => {
+    send.click();
+    send.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+  expect(rpc.mock.calls.filter(([method]) => method === "assistant.send")).toHaveLength(1);
+  finish();
+  await flush();
+  expectIdle();
+  expect(field.value).toBe(failed ? "Send this message" : "");
+  if (failed) {
+    fail = false;
+    pending = new Promise<void>((resolve) => { finish = resolve; });
+    act(() => [...node.querySelectorAll<HTMLButtonElement>("button")]
+      .find(button => button.textContent === "Retry message")!.click());
+    expectLoading();
+    finish();
+    await flush();
+    expectIdle();
+    expect(field.value).toBe("");
+  }
+});
 it("retains a failed send's draft and clears its saved text immediately after a successful retry", async () => {
   const key = "monocode.assistant-draft:host";
   localStorage.setItem(key, "Saved before typing");

@@ -8,7 +8,12 @@ import {
   useState,
   useRef,
   type ReactNode,
+  type ClipboardEvent,
+  type DragEvent,
 } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { readClipboardImage } from "../../../platform/tauri/clipboard";
+import { filesFromClipboard } from "../../sessions/model/attachments";
 import { flushSync } from "react-dom";
 import { AssistantClient, type AssistantRpc } from "../model/assistantClient";
 import { compactAssistantTimeline } from "../model/assistantTimeline";
@@ -23,7 +28,6 @@ import type {
   HostModelCatalog,
   HostProject,
   HostSessionSummary,
-  RemoteAttachment,
 } from "../../connections/model/protocol";
 import { assistantErrorMessage } from "../model/assistantErrors";
 import { quoteAssistantReply } from "../model/assistantReply";
@@ -37,6 +41,7 @@ import { assistantActivityLabel } from "../model/assistantActivity";
 import type {
   AssistantChatChrome,
   AssistantControlsProps,
+  AssistantDraftAttachment,
 } from "./AssistantChatChrome";
 import {
   desktopAssistantChrome,
@@ -185,7 +190,8 @@ export function AssistantChat({
     }
   });
   const cancelReply = useCallback(() => setReplyText(undefined), []);
-  const [attachments, setAttachments] = useState<RemoteAttachment[]>([]);
+  const [attachments, setAttachments] = useState<AssistantDraftAttachment[]>([]);
+  const uploading = useRef(false);
   const log = useRef<HTMLDivElement>(null);
   const chat = useRef<HTMLElement>(null);
   const followLog = useRef(true);
@@ -356,12 +362,12 @@ export function AssistantChat({
       setBusy(false);
     }
   }, [sync]);
-  const send = (text: string, files = attachments) =>
+  const send = (text: string, files: AssistantDraftAttachment[] = attachments) =>
     operation(async () => {
       setSending(true);
       try {
         followLog.current = true;
-        await client.send(text, files);
+        await client.send(text, files.map(({ previewFile: _preview, ...ref }) => ref));
         setRetry(undefined);
         setDraft("");
         setReplyText(undefined);
@@ -441,15 +447,43 @@ export function AssistantChat({
     setSettingsBase(assistant ?? null);
     setSettingsOpen((v) => !v);
   };
-  const attach = (files: File[]) =>
+  const attachDisabled = busy || !!retry || !assistant?.enabled || !assistant.triggers.user;
+  const attach = (source: File[] | (() => Promise<File[]>)) => {
+    if (attachDisabled || uploading.current) return;
+    uploading.current = true;
     void operation(async () => {
-      if (attachments.length + files.length > 20)
-        throw new Error("At most 20 attachments are allowed");
-      for (const file of files) {
-        const ref = await client.upload(file);
-        setAttachments((a) => [...a, ref]);
+      try {
+        const files = typeof source === "function" ? await source() : source;
+        if (attachments.length + files.length > 20)
+          throw new Error("At most 20 attachments are allowed");
+        for (const file of files) {
+          const ref = await client.upload(file);
+          setAttachments((a) => [...a, {
+            ...ref,
+            ...(ref.kind === "image" ? { previewFile: file } : {}),
+          }]);
+        }
+      } finally {
+        uploading.current = false;
       }
     });
+  };
+  const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = filesFromClipboard(event.clipboardData);
+    if (files.length) {
+      event.preventDefault();
+      attach(files);
+    } else if (!chrome && isTauri() && !event.clipboardData.getData("text/plain")) {
+      event.preventDefault();
+      attach(async () => [await readClipboardImage()]);
+    }
+  };
+  const drop = (event: DragEvent<HTMLFormElement>) => {
+    const files = filesFromClipboard(event.dataTransfer);
+    if (!files.length) return;
+    event.preventDefault();
+    attach(files);
+  };
   const activity = assistantActivityLabel(assistant?.activity);
   const workingLabel = t(activity.key, activity.params);
   const ui = chrome ?? desktopAssistantChrome;
@@ -762,12 +796,7 @@ export function AssistantChat({
                   busy={busy}
                   sending={sending}
                   inputDisabled={!assistant.enabled || !assistant.triggers.user}
-                  attachDisabled={
-                    busy ||
-                    !!retry ||
-                    !assistant.enabled ||
-                    !assistant.triggers.user
-                  }
+                  attachDisabled={attachDisabled}
                   sendDisabled={
                     busy ||
                     (!draft.trim() && !attachments.length) ||
@@ -780,6 +809,8 @@ export function AssistantChat({
                     if (retry) void send(retry.text, retry.attachments);
                   }}
                   onAttach={attach}
+                  onPaste={paste}
+                  onDrop={drop}
                   onRemoveAttachment={(id) =>
                     setAttachments((a) => a.filter((f) => f.id !== id))
                   }

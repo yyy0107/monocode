@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from "react";
+import type { ClipboardEventHandler, ComponentType, DragEventHandler, ReactNode } from "react";
 import type { RemoteAttachment, RemoteProvider } from "../../connections/model/protocol";
 import type { AssistantLifecycle } from "../model/assistant";
 
@@ -34,6 +34,9 @@ export type AssistantSettingsPanelProps = {
   onClose: () => void;
   children: ReactNode;
 };
+/** Local preview bytes never become part of the Host attachment protocol. */
+export type AssistantDraftAttachment = RemoteAttachment & { previewFile?: File };
+
 export type AssistantComposerProps = {
   draft: string;
   replyText?: string;
@@ -41,8 +44,10 @@ export type AssistantComposerProps = {
   onDraftChange: (draft: string) => void;
   onSend: () => void;
   onAttach: (files: File[]) => void;
+  onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
+  onDrop?: DragEventHandler<HTMLFormElement>;
   onRemoveAttachment: (id: string) => void;
-  attachments: RemoteAttachment[];
+  attachments: AssistantDraftAttachment[];
   busy: boolean;
   sending?: boolean;
   inputDisabled: boolean;

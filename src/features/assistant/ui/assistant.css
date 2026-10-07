@@ -819,6 +819,11 @@
   background: var(--assistant-fill-strong);
   color: inherit;
 }
+.assistant-chat .assistant-send[aria-busy="true"] {
+  background: var(--color-brand);
+  color: var(--color-brand-foreground);
+  opacity: 1;
+}
 .assistant-file-input {
   position: absolute;
   width: 1px;
@@ -1393,4 +1398,12 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.assistant-attachment-preview {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 6px;
 }
