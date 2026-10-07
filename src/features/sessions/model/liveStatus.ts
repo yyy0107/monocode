@@ -15,9 +15,13 @@ export type LiveStatusPhase = "waiting" | "thinking" | "tool" | "working";
 export interface LiveStatus {
   phase: LiveStatusPhase;
   label: LiveStatusText;
-  /** Current thought/tool time, otherwise the whole turn's time. */
+  /** Current thought/tool time, otherwise the current response round's time. */
   elapsed?: string;
-  clock?: "thinking" | "tool" | "turn";
+  clock?: "thinking" | "tool" | "round";
+  /** Brief activities, gaps and user waits keep the status line text-only. */
+  showClock: boolean;
+  /** A new origin resets the digits without animating the old time backwards. */
+  clockStartedAt?: number;
   /** How many tasks are still going outside the main stream. */
   background: number;
 }
@@ -54,7 +58,7 @@ export interface LiveStatusInput {
   /** The live turn's blocks, user prompt first. */
   turn: Block[];
   now: number;
-  /** When the turn started; the clock is hidden without it. */
+  /** Initial origin, before the first response or tool boundary arrives. */
   startedAt?: number;
   /** What the turn is blocked on, if anything. */
   waiting?: "approval" | "answers";
@@ -66,23 +70,33 @@ export interface LiveStatusInput {
 }
 
 export function liveStatus(input: LiveStatusInput): LiveStatus {
-  const { turn, now, startedAt } = input;
+  const { turn, now } = input;
+  const roundStartedAt = responseRoundStartedAt(turn, input.startedAt);
+  const last = lastMeaningfulBlock(turn);
   const background = input.background ?? 0;
   const status = (
     phase: LiveStatusPhase,
     label: LiveStatusText,
     phaseStartedAt?: number,
   ): LiveStatus => {
-    const origin = phaseStartedAt ?? startedAt;
+    const origin = phaseStartedAt ?? roundStartedAt;
+    const liveReply = last?.streaming && (last.role === "assistant" || last.role === "plan");
+    // Like the verb pool, ordinary replies sometimes carry a clock. The choice
+    // stays fixed for the response, so each token/second cannot toggle it.
+    const timedReply = liveReply && phaseHash(`${input.seed}:clock`, origin ?? 0) % 3 === 0;
     return {
       phase,
       label,
       background,
+      showClock: origin != null && now - origin >= 2_000 && (
+        phase === "thinking" || phase === "tool" || (phase === "working" && !!timedReply)
+      ),
       ...(origin != null ? {
         elapsed: formatLiveElapsed(origin, now, true),
         clock: phaseStartedAt != null && (phase === "thinking" || phase === "tool")
           ? phase
-          : "turn",
+          : "round",
+        clockStartedAt: origin,
       } : {}),
     };
   };
@@ -93,7 +107,6 @@ export function liveStatus(input: LiveStatusInput): LiveStatus {
     });
   }
 
-  const last = lastMeaningfulBlock(turn);
   if (last?.role === "reasoning" && last.streaming) {
     const thoughtMs = last.startedAt != null ? now - last.startedAt : 0;
     return status("thinking", { key: thinkingKey(thoughtMs) }, last.startedAt);
@@ -107,6 +120,31 @@ export function liveStatus(input: LiveStatusInput): LiveStatus {
   }
 
   return status("working", { key: liveVerb(input.seed, turn.length) });
+}
+
+/**
+ * Each new response starts a small round. Between responses, the latest tool
+ * boundary starts the next round, including calls that complete out of order.
+ * Status pings and further tokens in the same response do not move the origin.
+ */
+function responseRoundStartedAt(turn: Block[], fallback?: number): number | undefined {
+  let toolBoundary: number | undefined;
+  for (let index = turn.length - 1; index >= 0; index -= 1) {
+    const block = turn[index];
+    if (block.role === "user") return toolBoundary ?? block.sentAt ?? fallback;
+    if (isToolBlock(block) && block.startedAt != null) {
+      const boundary = block.startedAt + Math.max(0, block.durationMs ?? 0);
+      toolBoundary = Math.max(toolBoundary ?? boundary, boundary);
+    }
+    if (
+      block.role === "assistant" || block.role === "reasoning" ||
+      block.role === "plan" || block.role === "image"
+    ) {
+      const origin = block.startedAt ?? block.sentAt;
+      if (origin != null) return toolBoundary ?? origin;
+    }
+  }
+  return toolBoundary ?? fallback;
 }
 
 function thinkingKey(thoughtMs: number): string {
@@ -144,11 +182,15 @@ function lastRunningTool(turn: Block[]): Block | undefined {
 
 /** A verb that holds still within a phase and moves on with the next one. */
 export function liveVerb(seed: string, phase: number): string {
+  return LIVE_VERBS[phaseHash(seed, phase) % LIVE_VERBS.length];
+}
+
+function phaseHash(seed: string, phase: number): number {
   const text = `${seed}:${phase}`;
   let hash = 2166136261;
   for (let index = 0; index < text.length; index += 1) {
     hash ^= text.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return LIVE_VERBS[(hash >>> 0) % LIVE_VERBS.length];
+  return hash >>> 0;
 }

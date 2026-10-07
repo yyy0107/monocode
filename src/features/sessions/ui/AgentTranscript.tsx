@@ -94,7 +94,7 @@ import { TranscriptTurnCache } from "../model/transcriptTurnCache";
 import { userTurnStartTimes } from "../model/turnTiming";
 import { liveStatus } from "../model/liveStatus";
 import { Shimmer } from "../../../shared/ui/Shimmer";
-import { RollingClock } from "../../../shared/ui/RollingClock";
+import { RollingClock, rollingClockMotion } from "../../../shared/ui/RollingClock";
 import {
   hasPendingApproval,
   HARNESS_TITLE,
@@ -1353,8 +1353,8 @@ function LiveFoldTitle({
 
 /**
  * What sits under the reply while it is being written, for clients that keep
- * the turn clock in view there: the project's mascot and one status line that
- * follows the turn through its phases with a clock that stays visible.
+ * the live clock in view there: the project's mascot and one status line that
+ * follows the current activity, occasionally accompanied by its clock.
  */
 function LiveTurnFooter({
   cwd,
@@ -1397,7 +1397,7 @@ function LiveTurnFooter({
       className="transcript-live-footer flex min-w-0 items-center gap-2 px-4 pt-2 pb-1 font-sans text-sm @md:px-6"
       data-live-footer
       data-live-phase={status.phase}
-      data-live-clock={status.clock}
+      data-live-clock={status.showClock ? status.clock : undefined}
     >
       <ProjectMascot
         project={mascot.project}
@@ -1407,9 +1407,13 @@ function LiveTurnFooter({
         className="size-4 shrink-0"
       />
       <span className="flex min-w-0 items-center gap-1">
-        {status.elapsed ? (
+        {status.showClock && status.elapsed ? (
           <>
-            <RollingClock key={status.clock} value={status.elapsed} />
+            <RollingClock
+              key={`${status.clock}:${status.clockStartedAt}`}
+              value={status.elapsed}
+              motion={rollingClockMotion(`${seed}:${status.clock}`, status.clockStartedAt ?? 0)}
+            />
             <span className="shrink-0 text-content/40" aria-hidden="true">{" · "}</span>
           </>
         ) : null}
