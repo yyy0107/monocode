@@ -4003,7 +4003,7 @@ function riseIntoAnchor(
 }
 
 /**
- * Flies a sent prompt's bubble out of the composer text it was typed in.
+ * Flies a sent prompt's text and attachments out of the composer together.
  * Earlier turns share its translation curve, so the send reads as one motion.
  * The first animation is the bubble's flight.
  */
@@ -4014,7 +4014,8 @@ function launchIntoAnchor(
   launch: PromptLaunchOrigin | undefined,
   prior: PriorTurn | undefined,
 ): PromptFlight | undefined {
-  const bubble = row.querySelector<HTMLElement>(".user-message-bubble") ?? row;
+  const bubble = row.querySelector<HTMLElement>(".user-message-bubble:not([hidden])");
+  const media = row.querySelector<HTMLElement>(".user-message-media");
   const view = scroller.getBoundingClientRect();
   const dock = parseFloat(getComputedStyle(scroller).paddingBottom) || 0;
   // Measure previous turns before the flight writes styles or starts moving.
@@ -4040,7 +4041,7 @@ function launchIntoAnchor(
       earlier.push(element);
     }
   }
-  const flight = flyPromptBubble(bubble, view, launch, view.bottom - dock - 8, scroller);
+  const flight = flyPromptBubble(bubble, view, launch, view.bottom - dock - 8, scroller, media);
   if (!flight) return undefined;
   for (const element of earlier) {
     const animation = element.animate([

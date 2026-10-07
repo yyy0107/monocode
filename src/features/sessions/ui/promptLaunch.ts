@@ -55,7 +55,7 @@ const TRAVEL_EASING = "cubic-bezier(.32,0,.2,1)";
 const WIDTH_EASING = "cubic-bezier(.5,0,.25,1)";
 
 export type PromptFlight = {
-  /** The bubble's translation first; companion animations share its clock. */
+  /** The message's translation first; companion animations share its clock. */
   animations: Animation[];
   duration: number;
   easing: string;
@@ -71,15 +71,21 @@ export type PromptFlight = {
  * start together, with a slower contraction making the input width legible.
  */
 export function flyPromptBubble(
-  bubble: HTMLElement,
+  bubble: HTMLElement | null,
   view: DOMRect,
   launch: PromptLaunchOrigin | undefined,
   fromBottom: number,
   viewport?: HTMLElement,
+  media?: HTMLElement | null,
 ): PromptFlight | undefined {
-  const target = bubble.getBoundingClientRect();
-  const style = getComputedStyle(bubble);
-  const text = launch?.textTop === undefined ? null : bubble.querySelector<HTMLElement>(
+  // Attachments are siblings of the caption, and image-only sends have no
+  // visible bubble. Keep both on the same clock without resizing either.
+  const moving = bubble ?? media;
+  if (!moving) return undefined;
+  const target = moving.getBoundingClientRect();
+  const mediaRect = media && media !== moving ? media.getBoundingClientRect() : undefined;
+  const style = getComputedStyle(moving);
+  const text = launch?.textTop === undefined ? null : bubble?.querySelector<HTMLElement>(
     "[data-selectable-agent-response], :scope > span:not([aria-hidden])",
   );
   const textRect = text?.getBoundingClientRect();
@@ -88,13 +94,15 @@ export function flyPromptBubble(
     : (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.paddingTop) || 0);
   // The composer includes a toolbar below its text. Matching its bottom edge
   // would make the text reappear over that toolbar before starting to rise.
-  const originBottom = launch?.textTop === undefined
-    ? launch?.bottom
-    : launch.textTop - textInset + target.height;
+  const originBottom = !bubble
+    ? launch?.textTop ?? launch?.bottom
+    : launch?.textTop === undefined
+      ? launch?.bottom
+      : launch.textTop - textInset + target.height;
   const startBottom = originBottom === undefined ? fromBottom : Math.min(originBottom, view.bottom);
   const dy = startBottom - target.bottom;
   if (!(dy > 1) || !target.width || !target.height) return undefined;
-  const startWidth = launch
+  const startWidth = launch && bubble
     ? Math.max(target.width, Math.min(launch.width, target.right - view.left - 4))
     : target.width;
   const startLeft = target.right - startWidth;
@@ -107,9 +115,9 @@ export function flyPromptBubble(
   const contentOffsetX = launch?.textLeft === undefined
     ? target.width - startWidth
     : launch.textLeft - target.left - dx - textInsetX;
-  const reshape = startWidth - target.width > 1;
+  const reshape = !!bubble && startWidth - target.width > 1;
   // Finish every geometry/style read before starting any animation or write.
-  const content = reshape ? [...bubble.children].filter(
+  const content = reshape ? [...moving.children].filter(
     (child): child is HTMLElement => {
       if (!(child instanceof HTMLElement)) return false;
       const position = getComputedStyle(child).position;
@@ -142,13 +150,13 @@ export function flyPromptBubble(
   }
   const saved = ["position", "isolation"].map(property => ({
     property,
-    value: bubble.style.getPropertyValue(property),
-    priority: bubble.style.getPropertyPriority(property),
+    value: moving.style.getPropertyValue(property),
+    priority: moving.style.getPropertyPriority(property),
   }));
   if (surface) {
-    if (style.position === "static" || !style.position) bubble.style.position = "relative";
-    bubble.style.isolation = "isolate";
-    bubble.append(surface);
+    if (style.position === "static" || !style.position) moving.style.position = "relative";
+    moving.style.isolation = "isolate";
+    moving.append(surface);
   }
   const duration = launch ? LAUNCH_MS : FALLBACK_MS;
   const startTime = document.timeline?.currentTime;
@@ -162,10 +170,17 @@ export function flyPromptBubble(
   // Suppress the original paint through WAAPI, so restoring it cannot trigger
   // the bubble's CSS background-color transition and flash on landing.
   const paint = surface ? { background: "none", borderColor: "transparent", boxShadow: "none" } : {};
-  const flight = animate(bubble, [
-    { transform: `translate(${dx.toFixed(2)}px, ${dy.toFixed(2)}px)`, ...paint },
+  const from = `translate(${dx.toFixed(2)}px, ${dy.toFixed(2)}px)`;
+  const flight = animate(moving, [
+    { transform: from, ...paint },
     { transform: "translate(0.00px, 0.00px)", ...paint },
   ], TRAVEL_EASING);
+  if (media && media !== moving) {
+    animate(media, [
+      { transform: from },
+      { transform: "translate(0.00px, 0.00px)" },
+    ], TRAVEL_EASING);
+  }
   if (surface) {
     animate(surface, [{ width: `${startWidth}px` }, { width: `${target.width}px` }], WIDTH_EASING);
     for (const child of content) {
@@ -173,7 +188,10 @@ export function flyPromptBubble(
       animate(child, [{ translate: `${contentOffsetX}px 0px` }, { translate: "0px 0px" }], WIDTH_EASING);
     }
   }
-  if (!launch) animate(bubble, [{ opacity: 0 }, { opacity: 1 }], "ease-out", 140);
+  if (!launch) {
+    animate(moving, [{ opacity: 0 }, { opacity: 1 }], "ease-out", 140);
+    if (media && media !== moving) animate(media, [{ opacity: 0 }, { opacity: 1 }], "ease-out", 140);
+  }
 
   let released = false;
   let observer: ResizeObserver | undefined;
@@ -191,8 +209,8 @@ export function flyPromptBubble(
     surface?.remove();
     if (surface) {
       for (const { property, value, priority } of saved) {
-        if (value) bubble.style.setProperty(property, value, priority);
-        else bubble.style.removeProperty(property);
+        if (value) moving.style.setProperty(property, value, priority);
+        else moving.style.removeProperty(property);
       }
     }
     resolveFinished();
@@ -203,15 +221,21 @@ export function flyPromptBubble(
   visualViewport?.addEventListener("scroll", release, { passive: true });
   if (typeof ResizeObserver !== "undefined") {
     observer = new ResizeObserver(() => {
-      const rect = bubble.getBoundingClientRect();
+      const rect = moving.getBoundingClientRect();
+      const mediaBounds = mediaRect && media?.getBoundingClientRect();
       const bounds = viewport?.getBoundingClientRect();
       if (
         Math.abs(rect.width - target.width) > 0.5 ||
         Math.abs(rect.height - target.height) > 0.5 ||
+        (mediaBounds && mediaRect && (
+          Math.abs(mediaBounds.width - mediaRect.width) > 0.5 ||
+          Math.abs(mediaBounds.height - mediaRect.height) > 0.5
+        )) ||
         (bounds && (Math.abs(bounds.width - view.width) > 0.5 || Math.abs(bounds.height - view.height) > 0.5))
       ) release();
     });
-    observer.observe(bubble);
+    observer.observe(moving);
+    if (media && media !== moving) observer.observe(media);
     if (viewport) observer.observe(viewport);
   }
   return { animations, duration, easing: TRAVEL_EASING, finished, release };

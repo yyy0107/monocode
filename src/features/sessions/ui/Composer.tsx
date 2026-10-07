@@ -1513,8 +1513,8 @@ export function Composer({
       borrowedAttachmentIdsRef.current,
     );
     const resendSelectedMcp = selectedMcp;
-    // The transcript bubble flies up out of the text being sent.
-    if (text) notePromptLaunch(ref.current);
+    // The transcript's text and attachments fly out of the composer together.
+    if (text || files.length) notePromptLaunch(ref.current);
     onDraftChange?.("");
     const accepted = onSubmit(
       mcpContextText(

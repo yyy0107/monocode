@@ -136,6 +136,48 @@ describe("prompt rise in the chat layout", () => {
     expect(risenPrompts()).toEqual(["u2"]);
   });
 
+  it.each([
+    [true, "Caption"], [false, "Caption"], [true, ""], [false, ""],
+  ] as const)("flies all sent images with their caption and supports image-only sends (anchor=%s, text=%s)", async (anchor, text) => {
+    appearance.anchor = anchor;
+    render(first, false, { promptMotion: "mobile" });
+    const origin = document.createElement("textarea");
+    origin.dataset.launchOrigin = "true";
+    notePromptLaunch(origin);
+    render([...first, {
+      id: "u2", role: "user", text,
+      attachments: ["one", "two"].map(id => ({
+        id, name: `${id}.png`, kind: "image", mimeType: "image/png", data: "aGVsbG8=", size: 5,
+      })),
+    }], true, { promptMotion: "mobile" });
+    const row = container.querySelector<HTMLElement>('[data-prompt-anchor="u2"]')!;
+    const bubble = row.querySelector<HTMLElement>(".user-message-bubble")!;
+    const media = row.querySelector<HTMLElement>(".user-message-media")!;
+    vi.spyOn(bubble, "getBoundingClientRect").mockReturnValue(text
+      ? { left: 200, right: 400, width: 200, top: 270, bottom: 330, height: 60 } as DOMRect
+      : { left: 0, right: 0, width: 0, top: 0, bottom: 0, height: 0 } as DOMRect);
+    vi.spyOn(media, "getBoundingClientRect").mockReturnValue({
+      left: 120, right: 400, width: 280, top: 100, bottom: 260, height: 160,
+    } as DOMRect);
+    act(() => vi.advanceTimersByTime(20));
+
+    const mediaIndex = animate.mock.contexts.indexOf(media);
+    expect(mediaIndex).toBeGreaterThanOrEqual(0);
+    expect(media.querySelectorAll("img")).toHaveLength(2);
+    expect(bubble.hidden).toBe(!text);
+    expect(animate.mock.calls[mediaIndex][0][0]).toMatchObject({
+      transform: text ? "translate(-80.00px, 410.00px)" : "translate(-100.00px, 480.00px)",
+    });
+    expect(animate.mock.calls[mediaIndex][1]).toEqual(animate.mock.calls[0][1]);
+    expect(animate.mock.results[mediaIndex].value.startTime).toBe(animate.mock.results[0].value.startTime);
+    if (!text) expect(row.querySelector(".prompt-flight-surface")).toBeNull();
+
+    await act(async () => animate.mock.results[0].value.finish());
+    for (const result of animate.mock.results) expect(result.value.cancel).toHaveBeenCalledTimes(1);
+    expect(row.closest<HTMLElement>(".transcript-turn")!.dataset.promptRise).toBe("revealing");
+    expect(media.querySelectorAll("img")).toHaveLength(2);
+  });
+
   it("does not replay an existing conversation on mount", () => {
     render(second);
     act(() => vi.advanceTimersByTime(20));

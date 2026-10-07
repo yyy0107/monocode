@@ -6,6 +6,7 @@ import { MobileComposer, type MobileComposerPanel } from "./MobileComposer";
 import { setUiLanguage } from "../shared/i18n/language";
 import { readMobileAttachments } from "./attachments";
 import { KEYBOARD_EVENT, installKeyboardMotion } from "./keyboardMotion";
+import { takePromptLaunch } from "../features/sessions/ui/promptLaunch";
 
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 let root: Root | undefined;
@@ -14,6 +15,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   document.body.replaceChildren();
+  takePromptLaunch();
   vi.restoreAllMocks();
 });
 function render(overrides: Record<string, unknown> = {}) {
@@ -135,6 +137,21 @@ function tapKeepingFocus(target: HTMLElement) {
   });
 }
 describe("mobile composer popup focus", () => {
+  it("records the composer origin for an image-only send while keeping the preview until acceptance", () => {
+    const { node, click, onSend } = render({
+      value: "",
+      attachments: [{ id: "photo", name: "photo.png", mimeType: "image/png", kind: "image", data: "aGVsbG8=", size: 5 }],
+    });
+    const surface = node.querySelector<HTMLElement>("[data-prompt-launch-surface]")!;
+    vi.spyOn(surface, "getBoundingClientRect").mockReturnValue({
+      left: 10, bottom: 780, width: 360, height: 140,
+    } as DOMRect);
+    click("Send message");
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(takePromptLaunch()).toMatchObject({ left: 10, bottom: 780, width: 360, height: 140 });
+    expect(node.querySelector(".mobile-composer-attachments img")).not.toBeNull();
+  });
+
   it.each([
     "Add to message",
     "Model and reasoning",

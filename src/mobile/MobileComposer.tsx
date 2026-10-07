@@ -264,7 +264,7 @@ export function MobileComposer(props: Props) {
     if (launching && !props.working) setLaunching(false);
   }, [launching, props.working]);
   const launch = () => {
-    if (props.value.trim()) {
+    if (props.value.trim() || props.attachments.length) {
       notePromptLaunch(area.current);
       setLaunching(true);
     }
