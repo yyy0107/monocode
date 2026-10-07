@@ -23,13 +23,15 @@ describe("liveStatus", () => {
       turn: [user, thought({ streaming: true })],
       now: 5_000,
       waiting: "answers",
+      startedAt: 0,
       seed: "u1",
     });
     expect(status.phase).toBe("waiting");
     expect(status.label).toEqual({ key: "Waiting for answers" });
+    expect(status.elapsed).toBe("5s");
   });
 
-  it("escalates the thinking copy and shows the clock while thinking", () => {
+  it("times the current thought rather than the whole turn", () => {
     const at = (now: number) =>
       liveStatus({
         turn: [user, thought({ streaming: true })],
@@ -38,15 +40,15 @@ describe("liveStatus", () => {
         seed: "u1",
       });
     expect(at(5_000).label).toEqual({ key: "Thinking…" });
-    expect(at(5_000).elapsed).toBe("5s");
+    expect(at(5_000).elapsed).toBe("4s");
+    expect(at(5_000).clock).toBe("thinking");
     expect(at(15_000).label).toEqual({ key: "Still thinking…" });
     expect(at(30_000).label).toEqual({ key: "Thinking more…" });
     expect(at(62_000).label).toEqual({ key: "Almost done thinking…" });
-    expect(at(62_000).elapsed).toBe("1m 2s");
-    expect(at(62_000).lastThought).toBeUndefined();
+    expect(at(62_000).elapsed).toBe("1m 1s");
   });
 
-  it("keeps the newest thought's length for the rest of the turn", () => {
+  it("returns to the turn clock after a thought ends and starts a separate tool clock", () => {
     const earlier = thought({ id: "r0", durationMs: 3_000 });
     const latest = thought({ durationMs: 6_000 });
     const afterThought = liveStatus({
@@ -56,18 +58,20 @@ describe("liveStatus", () => {
       seed: "u1",
     });
     expect(afterThought.phase).toBe("working");
-    expect(afterThought.lastThought).toBe("6s");
-    expect(afterThought.elapsed).toBeUndefined();
+    expect(afterThought.elapsed).toBe("8s");
+    expect(afterThought.clock).toBe("turn");
 
     const prose: Block = { id: "a1", role: "assistant", text: "Now fixing it" };
     const tool = liveStatus({
-      turn: [user, latest, prose, command("in_progress")],
+      turn: [user, latest, prose, { ...command("in_progress"), startedAt: 7_000 }],
       now: 9_000,
       toolSummary: "Running 1 command",
+      startedAt: 0,
       seed: "u1",
     });
     expect(tool.label).toEqual({ literal: "Running 1 command" });
-    expect(tool.lastThought).toBe("6s");
+    expect(tool.elapsed).toBe("2s");
+    expect(tool.clock).toBe("tool");
   });
 
   it("shows the tool summary only while a tool is running", () => {
@@ -78,7 +82,6 @@ describe("liveStatus", () => {
       seed: "u1",
     });
     expect(running.label).toEqual({ literal: "Running 1 command" });
-    expect(running.lastThought).toBeUndefined();
     const done = liveStatus({
       turn: [user, command("completed")],
       now: 2_000,
@@ -88,7 +91,7 @@ describe("liveStatus", () => {
     expect(done.phase).toBe("working");
   });
 
-  it("leaves the clock out when not thinking and counts background tasks", () => {
+  it("keeps the clock when working and counts background tasks", () => {
     const status = liveStatus({
       turn: [user],
       now: 25_000,
@@ -96,8 +99,43 @@ describe("liveStatus", () => {
       background: 1,
       seed: "u1",
     });
-    expect(status.elapsed).toBeUndefined();
+    expect(status.elapsed).toBe("25s");
     expect(status.background).toBe(1);
+  });
+
+  it("omits the clock when no start time was recorded", () => {
+    const status = liveStatus({ turn: [user], now: 25_000, seed: "u1" });
+    expect(status.elapsed).toBeUndefined();
+  });
+
+  it("falls back to the turn clock when a tool has no recorded start", () => {
+    const status = liveStatus({
+      turn: [user, command("in_progress")], now: 15_000, startedAt: 0, seed: "u1",
+    });
+    expect(status).toMatchObject({ phase: "tool", elapsed: "15s", clock: "turn" });
+  });
+
+  it("times the latest active call and returns to an earlier concurrent call", () => {
+    const first = { ...command("in_progress"), id: "first", startedAt: 2_000 };
+    const second = { ...command("in_progress"), id: "second", startedAt: 8_000 };
+    const input = { now: 10_000, startedAt: 0, seed: "u1" };
+    expect(liveStatus({ ...input, turn: [user, first, second] }).elapsed).toBe("2s");
+    expect(liveStatus({ ...input, turn: [user, first, { ...second, tool: { ...second.tool, status: "completed" } }] }).elapsed).toBe("8s");
+  });
+
+  it("keeps the current thought clock across status pings and resets on a new thought", () => {
+    const status: Block = { id: "status", role: "system", text: "Reviewing" };
+    const input = { now: 15_000, startedAt: 0, seed: "u1" };
+    expect(liveStatus({ ...input, turn: [user, thought({ streaming: true }), status] }).elapsed).toBe("14s");
+    expect(liveStatus({ ...input, turn: [user, thought({ durationMs: 4_000 }), thought({ id: "next", startedAt: 12_000, streaming: true })] }).elapsed).toBe("3s");
+  });
+
+  it.each([
+    [60_000, "1m 0s"],
+    [3_600_000, "1h 0m 0s"],
+    [3_601_000, "1h 0m 1s"],
+  ])("retains ticking seconds across minute/hour carries at %s", (now, elapsed) => {
+    expect(liveStatus({ turn: [user], now: Number(now), startedAt: 0, seed: "u1" }).elapsed).toBe(elapsed);
   });
 });
 

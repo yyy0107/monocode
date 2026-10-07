@@ -1,0 +1,76 @@
+.rolling-clock {
+  display: inline-block;
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--color-content, #fff) 65%, transparent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.rolling-clock-face,
+.rolling-clock-group {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.rolling-clock-unit {
+  margin-left: 0.08em;
+  white-space: pre;
+}
+
+.rolling-clock-digit {
+  position: relative;
+  display: inline-block;
+  width: 1ch;
+  height: 1.3em;
+  overflow: hidden;
+  line-height: 1.3em;
+  text-align: center;
+}
+
+.rolling-clock-current {
+  display: block;
+}
+
+.rolling-clock-digit[data-rolling] .rolling-clock-current {
+  visibility: hidden;
+}
+
+.rolling-clock-glyph {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.rolling-clock-glyph::before {
+  content: attr(data-glyph);
+}
+
+.rolling-clock-outgoing {
+  animation: rolling-clock-out 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.rolling-clock-incoming {
+  animation: rolling-clock-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes rolling-clock-out {
+  from { transform: translateY(0); }
+  to { transform: translateY(-100%); }
+}
+
+@keyframes rolling-clock-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rolling-clock-digit[data-rolling] .rolling-clock-current {
+    visibility: visible;
+  }
+
+  .rolling-clock-glyph {
+    display: none;
+    animation: none;
+  }
+}

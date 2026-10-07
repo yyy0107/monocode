@@ -88,6 +88,19 @@ describe("liveAgentsFromSessions", () => {
     );
   });
 
+  it("retains the run's clock when a follow-up arrives and when it finishes", () => {
+    const session = chat("/repo", {
+      busy: true,
+      blocks: [
+        { id: "u1", role: "user", text: "go", startedAt: 1_000 },
+        { id: "u2", role: "user", text: "also test it", sentAt: 5_000 },
+      ],
+    });
+    expect(liveAgentsFromSessions([session])[0]?.startedAt).toBe(1_000);
+    const finished = { ...session, busy: false, blocks: [session.blocks[0], { ...session.blocks[1], durationMs: 8_000 }] };
+    expect(liveAgentsFromSessions([finished], new Set([session.id]))[0]).toMatchObject({ startedAt: 1_000, durationMs: 8_000 });
+  });
+
   it("treats a parked clarifying question as needing approval", () => {
     const waiting = chat("/tmp/ask", {
       busy: true,

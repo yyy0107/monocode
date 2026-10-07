@@ -21,6 +21,7 @@ import { joinStreamText } from "./streamText";
 import { taskListText } from "../../../features/sessions/model/taskList";
 import { isReviewablePlan } from "../../../features/sessions/model/plan";
 import { resolveModel } from "../../../features/sessions/model/models";
+import { userTurnStartTimes } from "../../../features/sessions/model/turnTiming";
 import type { HarnessEvent } from "./types";
 import { questionTranscriptText } from "../../../features/sessions/model/questionHistory";
 
@@ -530,6 +531,7 @@ export function appendSteerUser(
         id: crypto.randomUUID(),
         role: "user",
         text,
+        sentAt: Date.now(),
         ...turnModelFields(session),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...userTurnFields(extra),
@@ -728,11 +730,13 @@ function stampTurnDuration(blocks: Block[], endedAt: number): Block[] {
   }
   if (lastUser < 0) return blocks;
   const user = blocks[lastUser];
-  if (user.durationMs != null || user.startedAt == null) return blocks;
+  if (user.durationMs != null) return blocks;
+  const startedAt = userTurnStartTimes(blocks).get(user.id);
+  if (startedAt == null) return blocks;
   const next = blocks.slice();
   next[lastUser] = {
     ...user,
-    durationMs: Math.max(0, endedAt - user.startedAt),
+    durationMs: Math.max(0, endedAt - startedAt),
   };
   return next;
 }
@@ -968,6 +972,16 @@ function upsertTool(
   },
 ): Session {
   const index = findToolIndex(session, patch);
+  const previous = index < 0 ? undefined : session.blocks[index];
+  const status = patch.status ?? previous?.tool?.status;
+  const finished = status != null && [
+    "completed", "success", "failed", "error", "cancelled", "canceled",
+  ].includes(status.toLowerCase());
+  const streaming = patch.streaming && !finished;
+  const startedAt = previous?.startedAt ?? (streaming ? Date.now() : undefined);
+  const durationMs = previous?.durationMs ?? (
+    finished && startedAt != null ? Math.max(0, Date.now() - startedAt) : undefined
+  );
   if (index < 0) {
     const detail = capToolDetail(patch.detail);
     const preview = fillPreview(patch.preview, detail, patch.kind, patch.title);
@@ -981,7 +995,8 @@ function upsertTool(
       id: crypto.randomUUID(),
       role: "tool",
       text: label,
-      streaming: patch.streaming,
+      streaming,
+      ...(startedAt != null ? { startedAt } : {}),
       ...(patch.agentModel
         ? { agentRun: { name: label, model: patch.agentModel, steps: [] } }
         : {}),
@@ -1011,11 +1026,12 @@ function upsertTool(
     preview,
   );
   const kind = patch.kind ?? prev.tool?.kind;
-  const status = patch.status ?? prev.tool?.status;
   const agentName = prev.agentRun?.steps.length ? prev.agentRun.name : label;
   if (
     prev.text === label &&
-    prev.streaming === patch.streaming &&
+    prev.streaming === streaming &&
+    prev.startedAt === startedAt &&
+    prev.durationMs === durationMs &&
     prev.tool?.title === label &&
     prev.tool?.kind === kind &&
     prev.tool?.status === status &&
@@ -1030,7 +1046,9 @@ function upsertTool(
   blocks[index] = {
     ...prev,
     text: label,
-    streaming: patch.streaming,
+    streaming,
+    ...(startedAt != null ? { startedAt } : {}),
+    ...(durationMs != null ? { durationMs } : {}),
     ...(patch.agentModel || prev.agentRun
       ? {
           agentRun: {
@@ -1243,10 +1261,10 @@ function sealLastStream(blocks: Block[]): Block[] {
   return next;
 }
 
-/** Close a prose stream; a timed thought also records how long it ran. */
+/** Close a stream; timed thoughts and tools also record how long they ran. */
 function sealStream(block: Block): Block {
   if (
-    block.role === "reasoning" &&
+    (block.role === "reasoning" || block.role === "tool") &&
     block.startedAt != null &&
     block.durationMs == null
   ) {

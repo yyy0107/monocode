@@ -1,6 +1,7 @@
 import { AttachmentList } from "./AttachmentList";
 import "./AgentTranscript.css";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { getUiLanguage, translate } from "../../../shared/i18n/language";
 import { localizeChildExitError } from "../../../integrations/harness/core/childErrors";
 import { providerSessionAccessIssue } from "../../../integrations/harness/providers/sessionAccessErrors";
 import { SessionAccessNotice } from "./SessionAccessNotice";
@@ -90,8 +91,10 @@ import { legacyTaskListFromText } from "../model/taskList";
 import { resolveModel } from "../model/models";
 import { harnessForTurn } from "../model/secondOpinion";
 import { TranscriptTurnCache } from "../model/transcriptTurnCache";
+import { userTurnStartTimes } from "../model/turnTiming";
 import { liveStatus } from "../model/liveStatus";
 import { Shimmer } from "../../../shared/ui/Shimmer";
+import { RollingClock } from "../../../shared/ui/RollingClock";
 import {
   hasPendingApproval,
   HARNESS_TITLE,
@@ -290,6 +293,7 @@ function AgentTranscriptComponent({
   });
   const { t: uiT } = useTranslation();
   const { liveClockInFooter, openActivity } = useContext(TranscriptPlatformContext);
+  const clockInFooter = !!liveClockInFooter && !!cwd;
   const blocks = useMemo(() => {
     let turnHarness = harness;
     let changed = false;
@@ -323,6 +327,7 @@ function AgentTranscriptComponent({
     }
     return changed ? visibleBlocks : sourceBlocks;
   }, [harness, sourceBlocks]);
+  const turnStartTimes = useMemo(() => userTurnStartTimes(blocks), [blocks]);
   const editableUserBlockId = useMemo(
     () => lastUserTurnBlock(blocks)?.id,
     [blocks],
@@ -911,7 +916,9 @@ function AgentTranscriptComponent({
           // more work. Only the last one can still be the live group.
           const foldedAt = lastActivityIndex(items);
           const initialThinkingAt = initialThinkingIndex(items);
-          const startedAt = userBlock?.startedAt;
+          const startedAt = userBlock
+            ? turnStartTimes.get(userBlock.id)
+            : undefined;
           // The agent starting its answer is the end of the work: fold the
           // groups then, not when the turn finally settles, so the collapse
           // never lands under the text you have already started reading.
@@ -935,9 +942,8 @@ function AgentTranscriptComponent({
           const fold = foldableWork(items);
           const folded = fold ? foldedBlocks(items, fold) : [];
           const workOpen = openWork[turnId] ?? false;
-          // The fold line is the turn's status line from the first token to
-          // the last: the mark, and the clock beside it. It never moves, so a
-          // turn settling does not shuffle the layout around the answer.
+          // The fold line stays at the start of the work. Clients with a
+          // footer keep the clock under the reply and the work summary here.
           const live = visible && !settled && !preparingHandoff;
           const turnModelName =
             turnModel?.name ?? (live ? currentModelName : undefined);
@@ -957,14 +963,15 @@ function AgentTranscriptComponent({
               }
               background={backgroundTasks}
               modelName={turnModelName}
-              clockHidden={liveClockInFooter}
+              clockHidden={clockInFooter}
             />
-          ) : durationMs != null ? (
+          ) : durationMs != null && !liveClockInFooter ? (
             formatWorkingDuration(durationMs, turnModelName, true)
           ) : (
             workSummaryLine(folded)
           );
-          const showFoldLine = live || durationMs != null || !!fold;
+          const showFoldLine =
+            live || (durationMs != null && !liveClockInFooter) || !!fold;
           // It sits where the work starts, from before there is any: the row
           // is there from the first token, so nothing shoves the answer down
           // when the turn folds.
@@ -1194,7 +1201,7 @@ function AgentTranscriptComponent({
                   <WorkflowRunCard block={block} parent={workflowParent!} />
                 </div>
               ))}
-              {isLastTurn && liveClockInFooter && cwd ? (
+              {isLastTurn && clockInFooter && cwd ? (
                 <AnimatedCollapse expanded={live}>
                   {() => (
                     <LiveTurnFooter
@@ -1228,7 +1235,7 @@ function AgentTranscriptComponent({
                   <TurnDuration
                     elapsedMs={durationMs}
                     metrics={userBlock?.turnMetrics}
-                    labelHidden={showFoldLine}
+                    labelHidden={showFoldLine && !liveClockInFooter}
                     modelName={turnModelName}
                     completedAt={
                       startedAt != null ? startedAt + durationMs : undefined
@@ -1347,8 +1354,7 @@ function LiveFoldTitle({
 /**
  * What sits under the reply while it is being written, for clients that keep
  * the turn clock in view there: the project's mascot and one status line that
- * follows the turn through its phases — a filler verb, how long a thought has
- * run, what the tools are doing — with the clock once the turn runs long.
+ * follows the turn through its phases with a clock that stays visible.
  */
 function LiveTurnFooter({
   cwd,
@@ -1369,7 +1375,7 @@ function LiveTurnFooter({
 }) {
   const { t: uiT } = useTranslation();
   const paused = !!waiting;
-  const now = useNow(paused);
+  const now = useNow();
   const mascot = useProjectMascotAppearance(cwd);
   const status = liveStatus({
     turn,
@@ -1386,20 +1392,12 @@ function LiveTurnFooter({
       : uiT(status.label.key, status.label.params);
   const verb =
     status.phase === "working" || status.phase === "tool" ? `${label}…` : label;
-  const text = [
-    status.elapsed,
-    verb,
-    status.lastThought
-      ? uiT("Thought for {duration}", { duration: status.lastThought })
-      : undefined,
-  ]
-    .filter(Boolean)
-    .join(" · ");
   return (
     <div
       className="transcript-live-footer flex min-w-0 items-center gap-2 px-4 pt-2 pb-1 font-sans text-sm @md:px-6"
       data-live-footer
       data-live-phase={status.phase}
+      data-live-clock={status.clock}
     >
       <ProjectMascot
         project={mascot.project}
@@ -1408,11 +1406,19 @@ function LiveTurnFooter({
         active={!paused}
         className="size-4 shrink-0"
       />
-      {/* Keyed on the words, not the clock, so a new phase eases in once. */}
-      <span key={`${status.phase}:${label}`} className="transcript-live-status flex min-w-0">
-        <Shimmer className="min-w-0 truncate tabular-nums" duration={1.6}>
-          {text}
-        </Shimmer>
+      <span className="flex min-w-0 items-center gap-1">
+        {status.elapsed ? (
+          <>
+            <RollingClock key={status.clock} value={status.elapsed} />
+            <span className="shrink-0 text-content/40" aria-hidden="true">{" · "}</span>
+          </>
+        ) : null}
+        {/* Phase copy can ease in without remounting the ticking digits. */}
+        <span key={`${status.phase}:${label}`} className="transcript-live-status flex min-w-0">
+          <Shimmer className="min-w-0 truncate" duration={1.6}>
+            {verb}
+          </Shimmer>
+        </span>
       </span>
       {status.background ? (
         <span
@@ -1429,15 +1435,14 @@ function LiveTurnFooter({
   );
 }
 
-/** Wall-clock time, ticking each second unless paused. */
-function useNow(paused: boolean): number {
+/** Wall-clock time, ticking each second for the entire live turn. */
+function useNow(): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (paused) return;
     setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [paused]);
+  }, []);
   return now;
 }
 
@@ -1449,8 +1454,7 @@ function backgroundLabel(tasks: string[]): string {
 
 /**
  * What a finished turn leaves under the answer: what you can do with it, and
- * when it landed. The clock lives on the fold line above, from the first token
- * to the last, so it is not repeated here.
+ * when it landed. Clients that use the live footer keep the completed clock here.
  */
 function TurnDuration({
   elapsedMs,
@@ -1481,6 +1485,7 @@ function TurnDuration({
   onSecondOpinion?: (target: ModelTarget) => void;
   onHandoff?: (target: ModelTarget) => void;
 }) {
+  const { language } = useTranslation();
   const label = formatWorkingDuration(elapsedMs, modelName, true);
   const dot = (
     <span
@@ -1534,9 +1539,13 @@ function TurnDuration({
       {completedAt != null ? (
         <span className="flex shrink-0 items-center gap-2.5">
           {dot}
-          <span className="shrink-0 text-content/35">
+          <time
+            dateTime={new Date(completedAt).toISOString()}
+            title={new Date(completedAt).toLocaleString(language)}
+            className="shrink-0 text-content/35"
+          >
             {formatClockTime(completedAt)}
-          </span>
+          </time>
         </span>
       ) : null}
     </div>
@@ -1641,7 +1650,7 @@ function formatMetricCount(value: number): string {
 
 /** Wall-clock stamp for a finished turn, in the reader's own locale. */
 function formatClockTime(epochMs: number): string {
-  return new Date(epochMs).toLocaleTimeString(undefined, {
+  return new Date(epochMs).toLocaleTimeString(getUiLanguage(), {
     hour: "numeric",
     minute: "2-digit",
   });
@@ -1984,7 +1993,8 @@ function UserMessageBlock({
   onRemoveDraft?: (block: Block) => boolean | void;
   onOpenFile?: (path: string) => void;
 }) {
-  const { t: uiT } = useTranslation();
+  const { t: uiT, language } = useTranslation();
+  const sentAt = block.sentAt ?? block.startedAt;
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const textRef = useRef<HTMLElement>(null);
@@ -2218,7 +2228,7 @@ function UserMessageBlock({
         </div>
         {text ||
         block.attachments?.length ||
-        block.startedAt != null ||
+        sentAt != null ||
         onEdit ? (
           <div className="user-message-actions flex items-center gap-1 px-3 pt-1">
             {text || block.attachments?.length ? (
@@ -2234,13 +2244,13 @@ function UserMessageBlock({
             {text && onSaveNote ? (
               <SaveNoteButton text={text} onSave={onSaveNote} />
             ) : null}
-            {block.startedAt != null ? (
+            {sentAt != null ? (
               <time
-                dateTime={new Date(block.startedAt).toISOString()}
-                title={new Date(block.startedAt).toLocaleString()}
+                dateTime={new Date(sentAt).toISOString()}
+                title={new Date(sentAt).toLocaleString(language)}
                 className="ml-1 font-sans text-xs text-content/40"
               >
-                {formatClockTime(block.startedAt)}
+                {formatClockTime(sentAt)}
               </time>
             ) : null}
           </div>
@@ -2325,8 +2335,7 @@ function WorkFoldLine({
       ) : null}
     </span>
   );
-  // While the agent runs, the clock shimmers here rather than at the bottom,
-  // which is now bare.
+  // While the agent runs, its status shimmers on the fold line.
   const label = live ? (
     title
   ) : (
@@ -3659,12 +3668,24 @@ function formatWorkingDuration(
 ): string {
   const who = modelName?.trim();
   const elapsed = formatElapsed(elapsedMs);
-  const verb = done ? (who ? "worked" : "Worked") : who ? "working" : "Working";
   if (elapsed == null) {
-    if (done) return who ? `${who} ${verb}` : verb;
-    return who ? `${who} ${verb}…` : `${verb}…`;
+    if (done) {
+      return who
+        ? translate("{model} worked", { model: who })
+        : translate("Worked");
+    }
+    return who
+      ? translate("{model} working…", { model: who })
+      : translate("Working…");
   }
-  return who ? `${who} ${verb} for ${elapsed}` : `${verb} for ${elapsed}`;
+  return who
+    ? translate(
+        done ? "{model} worked for {duration}" : "{model} working for {duration}",
+        { model: who, duration: elapsed },
+      )
+    : translate(done ? "Worked for {duration}" : "Working for {duration}", {
+        duration: elapsed,
+      });
 }
 
 function formatElapsed(elapsedMs: number | null): string | null {

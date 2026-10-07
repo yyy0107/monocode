@@ -44,8 +44,37 @@ describe("AgentTranscript collapsed work", () => {
       { id: "answer", role: "assistant", text: "Done" },
     ]);
     expect(markup).toContain('aria-label="Worked for 2s"');
+    expect(markup).toContain(">Worked for 2s</span>");
+    expect(markup).toContain(`dateTime="${new Date(3_000).toISOString()}"`);
     expect(markup).toContain("flex shrink-0 items-center gap-2.5");
     expect(markup).not.toContain("ml-auto flex shrink-0 items-center gap-2.5");
+  });
+
+  it("shows the completed run time after a follow-up without changing its send time", () => {
+    const markup = render([
+      { id: "user", role: "user", text: "Inspect", startedAt: 1_000 },
+      { id: "progress", role: "assistant", text: "Checking" },
+      { id: "follow-up", role: "user", text: "Also test", sentAt: 5_000, durationMs: 8_000 },
+      { id: "answer", role: "assistant", text: "Done" },
+    ]);
+    expect(markup).toContain(">Worked for 8s</span>");
+    expect(markup).toContain(`dateTime="${new Date(5_000).toISOString()}"`);
+    expect(markup).toContain(`dateTime="${new Date(9_000).toISOString()}"`);
+    expect(markup).not.toContain(`dateTime="${new Date(13_000).toISOString()}"`);
+  });
+
+  it("keeps the live clock on the fold line when no project footer can render", () => {
+    vi.spyOn(Date, "now").mockReturnValue(26_000);
+    try {
+      const markup = render([
+        { id: "user", role: "user", text: "Inspect", startedAt: 1_000 },
+        { id: "answer", role: "assistant", text: "Working", streaming: true },
+      ], true);
+      expect(markup).toContain("Working for 25s");
+      expect(markup).not.toContain("data-live-footer");
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("shows a /operator request without the command in its amber bubble", () => {
@@ -799,9 +828,10 @@ describe("turn fold line", () => {
       tool("t2"),
       { id: "answer", role: "assistant", text: "Committed." },
     ]);
-    const line = markup.indexOf("Worked for 2s");
+    const line = markup.indexOf('aria-label="Show the work"');
     expect(line).toBeGreaterThan(-1);
     expect(line).toBeLessThan(markup.indexOf("data-question-history"));
+    expect(markup.indexOf("Worked for 2s")).toBeGreaterThan(markup.indexOf("Committed."));
     // The answer shows on the card without opening it.
     expect(markup).toContain("Keep them for later");
   });

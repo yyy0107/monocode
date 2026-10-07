@@ -105,6 +105,35 @@ describe("turn duration", () => {
     expect(session.blocks[0]?.durationMs).toBe(4_000);
   });
 
+  it("keeps the whole run's duration after multiple follow-ups and persistence", () => {
+    now = 1_000;
+    let session = appendUser(newSession("codex", "/tmp"), "build it");
+    now = 5_000;
+    session = appendSteerUser(session, "cover tests");
+    now = 10_000;
+    session = appendSteerUser(session, "also cover errors");
+    expect(session.blocks.at(-1)).toMatchObject({ sentAt: 10_000 });
+    expect(session.blocks.at(-1)?.startedAt).toBeUndefined();
+    session = sanitizeSessionForPersist(session);
+    now = 26_000;
+    session = stopStreaming(session);
+    expect(session.blocks.at(-1)).toMatchObject({ sentAt: 10_000, durationMs: 25_000 });
+    now = 90_000;
+    session = stopStreaming(session);
+    expect(session.blocks.at(-1)?.durationMs).toBe(25_000);
+  });
+
+  it("does not reuse a completed run's start time for an untimed follow-up", () => {
+    now = 1_000;
+    let session = appendUser(newSession("codex", "/tmp"), "first");
+    now = 5_000;
+    session = stopStreaming(session);
+    session = appendSteerUser(session, "untimed");
+    now = 8_000;
+    session = stopStreaming(session);
+    expect(session.blocks.at(-1)?.durationMs).toBeUndefined();
+  });
+
   it("records duration when the turn errors", () => {
     now = 1_000;
     let session = appendUser(newSession("cursor", "/tmp"), "hi");
@@ -1393,5 +1422,47 @@ describe("reasoning timing", () => {
     now = 710;
     session = applyHarnessEvent(session, { type: "reasoning.completed" });
     expect(session.blocks[0]).toMatchObject({ streaming: false, durationMs: 700 });
+  });
+});
+
+describe("tool timing", () => {
+  it.each(["pi", "omp"] as const)("keeps %s tool clocks stable across updates and persistence", (harness) => {
+    now = 1_000;
+    let session = applyHarnessEvent(newSession(harness, "/tmp"), {
+      type: "tool.started", callId: "call", title: "Read", status: "in_progress",
+    });
+    now = 3_000;
+    session = applyHarnessEvent(session, { type: "tool.updated", callId: "call", detail: "Reading" });
+    expect(session.blocks[0]).toMatchObject({ startedAt: 1_000, streaming: true });
+    now = 5_000;
+    session = applyHarnessEvent(session, { type: "tool.updated", callId: "call", status: "completed" });
+    expect(session.blocks[0]).toMatchObject({ startedAt: 1_000, durationMs: 4_000, streaming: false });
+    expect(sanitizeSessionForPersist(session).blocks[0]).toMatchObject({ startedAt: 1_000, durationMs: 4_000 });
+    now = 9_000;
+    expect(applyHarnessEvent(session, { type: "tool.updated", callId: "call", status: "completed" })).toBe(session);
+    session = applyHarnessEvent(session, { type: "tool.updated", callId: "call", detail: "Result" });
+    expect(session.blocks[0]).toMatchObject({ durationMs: 4_000, streaming: false });
+  });
+
+  it.each(["failed", "error", "cancelled", "success"])("seals timing on a %s result", (status) => {
+    now = 1_000;
+    let session = applyHarnessEvent(newSession("codex", "/tmp"), { type: "tool.started", callId: "call", title: "Read" });
+    now = 4_000;
+    session = applyHarnessEvent(session, { type: "tool.updated", callId: "call", status });
+    expect(session.blocks[0]).toMatchObject({ durationMs: 3_000, streaming: false });
+  });
+
+  it("does not invent timing for a result that arrived without a start", () => {
+    const session = applyHarnessEvent(newSession("codex", "/tmp"), { type: "tool.updated", callId: "call", status: "completed" });
+    expect(session.blocks[0].startedAt).toBeUndefined();
+    expect(session.blocks[0].durationMs).toBeUndefined();
+  });
+
+  it("freezes an active tool's duration when the session stops", () => {
+    now = 1_000;
+    let session = applyHarnessEvent(newSession("codex", "/tmp"), { type: "tool.started", callId: "call", title: "Read" });
+    now = 4_000;
+    session = stopStreaming(session);
+    expect(session.blocks[0]).toMatchObject({ durationMs: 3_000, streaming: false });
   });
 });

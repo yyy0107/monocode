@@ -1,6 +1,7 @@
 import { composeToolTitle } from "../../../integrations/harness/core/preview";
 import { isInFlightSession } from "./inFlight";
 import { displayPath } from "../../../shared/lib/paths";
+import { userTurnStartTimes } from "./turnTiming";
 import {
   sessionDisplayTitle,
   type Block,
@@ -43,14 +44,15 @@ export function liveAgentsFromSessions(
     .sort(compareLiveAgents);
 }
 
-export function formatLiveElapsed(startedAt: number, now: number): string {
+export function formatLiveElapsed(startedAt: number, now: number, withSeconds = false): string {
   const seconds = Math.max(1, Math.round((now - startedAt) / 1000));
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
-  if (minutes < 60) return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+  if (minutes < 60) return rest || withSeconds ? `${minutes}m ${rest}s` : `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const minRest = minutes % 60;
+  if (withSeconds) return `${hours}h ${minRest}m ${rest}s`;
   return minRest ? `${hours}h ${minRest}m` : `${hours}h`;
 }
 
@@ -101,8 +103,9 @@ function lastActivityBlock(blocks: Block[]): Block | undefined {
 }
 
 function turnStartedAt(blocks: Block[]): number | undefined {
+  const starts = userTurnStartTimes(blocks);
   for (let i = blocks.length - 1; i >= 0; i--) {
-    if (blocks[i].role === "user") return blocks[i].startedAt;
+    if (blocks[i].role === "user") return starts.get(blocks[i].id);
   }
   return undefined;
 }

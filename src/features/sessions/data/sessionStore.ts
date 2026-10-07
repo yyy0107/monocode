@@ -851,6 +851,7 @@ function sanitizeBlock(
   if (block.role === "image" && !image) return null;
   if (image) next.image = image;
   if (block.startedAt != null) next.startedAt = block.startedAt;
+  if (block.sentAt != null) next.sentAt = block.sentAt;
   if (block.durationMs != null) next.durationMs = block.durationMs;
   const turnModel = sanitizeTurnModel(block.turnModel);
   if (block.role === "user" && turnModel) next.turnModel = turnModel;

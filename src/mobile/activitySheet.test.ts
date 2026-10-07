@@ -5,16 +5,21 @@ import { createRoot, type Root } from "react-dom/client";
 import { MobileTranscript } from "./MobileTranscript";
 import type { HostSession } from "../features/connections/model/protocol";
 import type { Block } from "../features/sessions/model/session";
+import { setUiLanguage } from "../shared/i18n/language";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let root: Root | undefined;
-beforeEach(() => vi.useFakeTimers());
+beforeEach(() => {
+  vi.useFakeTimers();
+  setUiLanguage("en");
+});
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   document.body.replaceChildren();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  setUiLanguage("en");
 });
 
 const edit = (id: string, path: string): Block => ({
@@ -207,17 +212,33 @@ describe("mobile live turn footer", () => {
     const node = render([
       { id: "user", role: "user", text: "Fix it", startedAt: Date.now() - 65_000 },
       edit("a", "a.ts"),
-      shell("b", "pending"),
+      { ...shell("b", "pending"), startedAt: Date.now() - 5_000 },
     ], "running");
     const footer = node.querySelector("[data-live-footer]")!;
     expect(footer.querySelector("svg.mascot-active")).not.toBeNull();
-    expect(footer.textContent).toBe("Edited a.ts · Running a command…");
-    // The clock only shows while the agent thinks, and never on the fold line.
-    expect(node.textContent).not.toMatch(/1m \d+s/);
+    expect(footer.getAttribute("data-live-clock")).toBe("tool");
+    expect(footer.textContent).toBe("5s · Edited a.ts · Running a command…");
+    act(() => vi.advanceTimersByTime(1000));
+    expect(footer.textContent).toBe("6s · Edited a.ts · Running a command…");
+    expect(node.textContent?.match(/6s/g)).toHaveLength(1);
   });
 
   it("has no footer once the turn settles", () => {
     const node = render(settledTurn);
     expect(node.querySelector("[data-live-footer]")).toBeNull();
+  });
+
+  it("shows the finished time and localized duration below the answer", () => {
+    setUiLanguage("zh-CN");
+    const node = render([
+      { id: "user", role: "user", text: "Fix it", startedAt: 1_000, durationMs: 8_000 },
+      shell("b"),
+      { id: "answer", role: "assistant", text: "Done." },
+    ]);
+    const footer = node.querySelector('[aria-label="运行耗时 8s"]')!;
+    expect(footer.textContent).toContain("运行耗时 8s");
+    expect(footer.querySelector("time")?.dateTime).toBe(new Date(9_000).toISOString());
+    expect(node.textContent).toContain("Done.");
+    expect(node.textContent?.match(/运行耗时 8s/g)).toHaveLength(1);
   });
 });
