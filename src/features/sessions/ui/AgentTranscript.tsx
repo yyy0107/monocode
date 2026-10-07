@@ -3974,6 +3974,8 @@ function riseIntoAnchor(
   let animations: Animation[] = [];
   let frame = 0;
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
+  let landTimer: ReturnType<typeof setTimeout> | undefined;
+  let releaseFlight: (() => void) | undefined;
   const reveal = () => {
     turn?.setAttribute("data-prompt-rise", "revealing");
     revealTimer = setTimeout(
@@ -3984,12 +3986,16 @@ function riseIntoAnchor(
   const start = () => {
     row.style.removeProperty("visibility");
     if (mobile) {
-      animations = launchIntoAnchor(scroller, row, turn, launch, prior);
-      if (!animations.length) {
+      const flight = launchIntoAnchor(scroller, row, turn, launch, prior);
+      if (!flight) {
         turn?.removeAttribute("data-prompt-rise");
         return;
       }
-      animations[0].onfinish = reveal;
+      animations = flight.animations;
+      releaseFlight = flight.release;
+      animations[0].onfinish = flight.release;
+      // The rest of the turn follows once the bubble lands, not after its wobble.
+      landTimer = setTimeout(reveal, flight.landedMs);
       return;
     }
     const view = scroller.getBoundingClientRect();
@@ -4020,19 +4026,74 @@ function riseIntoAnchor(
   return () => {
     cancelAnimationFrame(frame);
     for (const animation of animations) animation.cancel();
+    releaseFlight?.();
     clearTimeout(revealTimer);
+    clearTimeout(landTimer);
     row.style.removeProperty("visibility");
     turn?.removeAttribute("data-prompt-rise");
   };
 }
 
-// A quick launch that settles with a slight overshoot, like a message app.
-const PROMPT_LAUNCH_EASING = "cubic-bezier(0.3, 0.8, 0.25, 1)";
+// Sampled once per ~16ms; linear steps between samples trace the springs.
+const LAUNCH_FRAME_MS = 16;
+const LAUNCH_MAX_MS = 1000;
+// Travel: a quick, nearly critically damped spring with a hint of overshoot.
+const LAUNCH_TRAVEL_FREQUENCY = 14;
+const LAUNCH_TRAVEL_DAMPING = 0.8;
+// Jelly: a loose spring that stretches with travel speed and wobbles on landing.
+const LAUNCH_JELLY_STIFFNESS = 1400;
+const LAUNCH_JELLY_DAMPING = 0.22;
+const LAUNCH_JELLY_STRETCH = 0.018;
+const LAUNCH_JELLY_LIMIT = 0.12;
+// Width: narrows from the composer to the bubble a little behind the travel.
+const LAUNCH_WIDTH_FREQUENCY = 10;
+
+type LaunchFrame = { offset: number; travel: number; jelly: number; width: number };
+
+/** Steps the travel, jelly and width springs until everything settles. */
+function launchFrames(intensity: number): { frames: LaunchFrame[]; landedMs: number } {
+  const step = 1 / 240;
+  const travelK = LAUNCH_TRAVEL_FREQUENCY ** 2;
+  const travelC = 2 * LAUNCH_TRAVEL_DAMPING * LAUNCH_TRAVEL_FREQUENCY;
+  const jellyC = 2 * LAUNCH_JELLY_DAMPING * Math.sqrt(LAUNCH_JELLY_STIFFNESS);
+  const widthK = LAUNCH_WIDTH_FREQUENCY ** 2;
+  const widthC = 2 * LAUNCH_WIDTH_FREQUENCY;
+  let travel = 0, travelV = 0, jelly = 0, jellyV = 0, width = 0, widthV = 0;
+  let landedMs: number | undefined;
+  const samples: Omit<LaunchFrame, "offset">[] = [];
+  let ms = 0;
+  for (let tick = 0; ms <= LAUNCH_MAX_MS; tick++) {
+    ms = tick * step * 1000;
+    if (tick % Math.round(LAUNCH_FRAME_MS / (step * 1000)) === 0) {
+      samples.push({ travel, jelly, width: Math.min(width, 1) });
+      const settled = Math.abs(1 - travel) < 0.002 && Math.abs(travelV) < 0.05 &&
+        Math.abs(jelly) < 0.003 && Math.abs(jellyV) < 0.05 && width > 0.995;
+      if (settled && samples.length > 2) break;
+    }
+    if (landedMs === undefined && travel > 0.97) landedMs = ms;
+    travelV += (travelK * (1 - travel) - travelC * travelV) * step;
+    travel += travelV * step;
+    const stretch = LAUNCH_JELLY_STRETCH * intensity * travelV;
+    jellyV += (LAUNCH_JELLY_STIFFNESS * (stretch - jelly) - jellyC * jellyV) * step;
+    jelly = Math.max(-LAUNCH_JELLY_LIMIT, Math.min(LAUNCH_JELLY_LIMIT, jelly + jellyV * step));
+    widthV += (widthK * (1 - width) - widthC * widthV) * step;
+    width += widthV * step;
+  }
+  samples[samples.length - 1] = { travel: 1, jelly: 0, width: 1 };
+  return {
+    frames: samples.map((sample, index) => ({
+      ...sample,
+      offset: index / (samples.length - 1),
+    })),
+    landedMs: landedMs ?? samples.length * LAUNCH_FRAME_MS,
+  };
+}
 
 /**
- * Flies a phone prompt's bubble out of the composer text it was typed in and
- * carries the earlier turns up with it, so the send reads as one motion.
- * The first animation drives the reveal of the rest of the turn.
+ * Flies a phone prompt's bubble out of the composer text it was typed in: it
+ * starts as wide as the composer, narrows to its own width on the way up, and
+ * lands with a jelly wobble. Earlier turns ride the same spring upward, so the
+ * send reads as one motion. The first animation is the bubble's flight.
  */
 function launchIntoAnchor(
   scroller: HTMLElement,
@@ -4040,7 +4101,7 @@ function launchIntoAnchor(
   turn: HTMLElement | null,
   launch: PromptLaunchOrigin | undefined,
   prior: PriorTurn | undefined,
-): Animation[] {
+): { animations: Animation[]; landedMs: number; release: () => void } | undefined {
   const bubble = row.querySelector<HTMLElement>(".user-message-bubble") ?? row;
   const view = scroller.getBoundingClientRect();
   const target = bubble.getBoundingClientRect();
@@ -4051,31 +4112,53 @@ function launchIntoAnchor(
     ? Math.min(launch.bottom, view.bottom)
     : dockTop - 8;
   const dy = fromBottom - target.bottom;
-  if (dy <= 1) return [];
-  // Start where the typed text began, then drift to the bubble's right edge.
+  if (dy <= 1) return undefined;
+  const style = getComputedStyle(bubble);
+  const inset = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+  // The bubble keeps its right edge, so it widens leftward toward the
+  // composer text without leaving the screen.
+  const startWidth = launch
+    ? Math.max(target.width, Math.min(launch.width + inset, target.right - view.left - 4))
+    : target.width;
+  const startLeft = target.right - startWidth;
   const dx = launch
-    ? Math.max(-target.left + view.left, Math.min(0, launch.left - target.left))
+    ? Math.max(view.left - startLeft, Math.min(0, launch.left - (parseFloat(style.paddingLeft) || 0) - startLeft))
     : 0;
-  const duration = Math.round(380 + Math.min(dy, 900) * 0.16);
-  const overshoot = Math.min(10, dy * 0.025);
-  const origin = launch ? "0% 100%" : "100% 100%";
+  // Pin the content to its final width so text never rewraps mid-flight.
+  const content = [...bubble.children].filter(
+    (child): child is HTMLElement => child instanceof HTMLElement,
+  );
+  const reshape = startWidth - target.width > 1;
+  if (reshape) {
+    for (const child of content) child.style.width = `${child.getBoundingClientRect().width}px`;
+    bubble.style.maxWidth = "none";
+  }
+  let released = false;
+  const release = () => {
+    if (released || !reshape) return;
+    released = true;
+    for (const child of content) child.style.removeProperty("width");
+    bubble.style.removeProperty("max-width");
+  };
+  const { frames, landedMs } = launchFrames(Math.min(1, dy / 400));
+  const duration = frames.length > 1 ? (frames.length - 1) * LAUNCH_FRAME_MS : LAUNCH_FRAME_MS;
   const flight = bubble.animate(
-    [
-      {
-        transform: `translate(${dx}px, ${dy}px) scale(0.86)`,
-        transformOrigin: origin,
-        offset: 0,
-        easing: PROMPT_LAUNCH_EASING,
-      },
-      {
-        transform: `translate(0, ${-overshoot}px) scale(1.02)`,
-        transformOrigin: origin,
-        offset: 0.7,
-        easing: "cubic-bezier(0.4, 0, 0.2, 1)",
-      },
-      { transform: "none", transformOrigin: origin, offset: 1 },
-    ],
-    { duration },
+    frames.map(({ offset, travel, jelly, width }) => {
+      const rest = 1 - travel;
+      // Stretch along the flight, squash on landing; roughly keep the volume.
+      const scaleY = 1 + jelly;
+      const scaleX = 1 - jelly * 0.7;
+      return {
+        offset,
+        transformOrigin: "100% 100%",
+        transform: `translate(${(dx * rest).toFixed(2)}px, ${(dy * rest).toFixed(2)}px) ` +
+          `scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})`,
+        ...(reshape
+          ? { width: `${(startWidth + (target.width - startWidth) * width).toFixed(2)}px` }
+          : {}),
+      };
+    }),
+    { duration, easing: "linear" },
   );
   // Text the reader just watched leave the composer is visible from the start.
   const fade = bubble.animate([{ opacity: launch ? 0.4 : 0 }, { opacity: 1 }], {
@@ -4093,6 +4176,10 @@ function launchIntoAnchor(
     prior.top < view.bottom &&
     prior.element !== turn
   ) {
+    const glide = frames.map(({ offset, travel }) => ({
+      offset,
+      transform: `translateY(${(shift * (1 - travel)).toFixed(2)}px)`,
+    }));
     for (
       let element: Element | null = prior.element, count = 0;
       element instanceof HTMLElement &&
@@ -4102,15 +4189,10 @@ function launchIntoAnchor(
     ) {
       // Turns that stay above the viewport for the whole glide need no motion.
       if (element.getBoundingClientRect().bottom + shift < view.top) break;
-      animations.push(
-        element.animate(
-          [{ transform: `translateY(${shift}px)` }, { transform: "none" }],
-          { duration, easing: PROMPT_LAUNCH_EASING },
-        ),
-      );
+      animations.push(element.animate(glide, { duration, easing: "linear" }));
     }
   }
-  return animations;
+  return { animations, landedMs, release };
 }
 
 function isNearBottom(el: HTMLElement): boolean {
