@@ -73,7 +73,8 @@
   "plugins": {
     "updater": {
       "pubkey": "",
-      "endpoints": []
+      "endpoints": ["http://192.168.0.206/latest.json"],
+      "dangerousInsecureTransportProtocol": true
     }
   }
 }

@@ -82,6 +82,12 @@ npm install
 npm run tauri dev
 ```
 
+Local desktop builds, including development mode, check
+`http://192.168.0.206/latest.json` for updates. The endpoint must serve a Tauri
+desktop update manifest; the mobile APK feed on port 3780 uses a different format.
+Installing an update also requires configuring the matching updater public key.
+Release CI overrides the endpoint and public key with its release configuration.
+
 ### Ubuntu / Debian packages
 
 On an Ubuntu/Debian workstation, the repository can install the native Tauri prerequisites and build distributable Linux packages directly:
