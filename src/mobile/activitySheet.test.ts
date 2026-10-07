@@ -228,7 +228,7 @@ describe("mobile live turn footer", () => {
     expect(node.querySelector("[data-live-footer]")).toBeNull();
   });
 
-  it("shows the finished time and localized duration below the answer", () => {
+  it("shows the finished time and compact duration below the answer", () => {
     setUiLanguage("zh-CN");
     const node = render([
       { id: "user", role: "user", text: "Fix it", startedAt: 1_000, durationMs: 8_000 },
@@ -236,9 +236,10 @@ describe("mobile live turn footer", () => {
       { id: "answer", role: "assistant", text: "Done." },
     ]);
     const footer = node.querySelector('[aria-label="运行耗时 8s"]')!;
-    expect(footer.textContent).toContain("运行耗时 8s");
+    expect(footer.textContent).toContain("8s");
+    expect(footer.textContent).not.toContain("运行耗时");
     expect(footer.querySelector("time")?.dateTime).toBe(new Date(9_000).toISOString());
     expect(node.textContent).toContain("Done.");
-    expect(node.textContent?.match(/运行耗时 8s/g)).toHaveLength(1);
+    expect(node.textContent?.match(/8s/g)).toHaveLength(1);
   });
 });

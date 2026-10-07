@@ -48,7 +48,8 @@ describe("AgentTranscript collapsed work", () => {
       { id: "answer", role: "assistant", text: "Done" },
     ]);
     expect(markup).toContain('aria-label="Worked for 2s"');
-    expect(markup).toContain(">Worked for 2s</span>");
+    expect(markup).toContain(">2s</span>");
+    expect(markup).not.toContain(">Worked for 2s</span>");
     expect(markup).toContain(`dateTime="${new Date(3_000).toISOString()}"`);
     expect(markup).toContain("flex shrink-0 items-center gap-2.5");
     expect(markup).not.toContain("ml-auto flex shrink-0 items-center gap-2.5");
@@ -61,7 +62,7 @@ describe("AgentTranscript collapsed work", () => {
       { id: "follow-up", role: "user", text: "Also test", sentAt: 5_000, durationMs: 8_000 },
       { id: "answer", role: "assistant", text: "Done" },
     ]);
-    expect(markup).toContain(">Worked for 8s</span>");
+    expect(markup).toContain(">8s</span>");
     expect(markup).toContain(`dateTime="${new Date(5_000).toISOString()}"`);
     expect(markup).toContain(`dateTime="${new Date(9_000).toISOString()}"`);
     expect(markup).not.toContain(`dateTime="${new Date(13_000).toISOString()}"`);
@@ -361,6 +362,9 @@ describe("AgentTranscript collapsed work", () => {
     );
 
     expect(markup).toContain("Claude Sonnet 5 worked for 9s");
+    expect(markup).toContain(">Claude Sonnet 5</span>");
+    expect(markup).toContain(">9s</span>");
+    expect(markup).not.toContain(">Claude Sonnet 5 worked for 9s</span>");
     expect(markup).not.toContain("Claude Opus 5 worked for 9s");
   });
 

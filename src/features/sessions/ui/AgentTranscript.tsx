@@ -1526,14 +1526,22 @@ function TurnDuration({
       {labelHidden ? null : (
         <span className="flex min-w-0 items-center gap-2.5">
           {dot}
-          <span className="flex min-w-0 items-center gap-1.5">
-            {harness ? (
-              <HarnessIcon harness={harness} className="size-3.5 shrink-0" />
-            ) : null}
-            <span className="min-w-0 truncate" title={label}>
-              {label}
-            </span>
-          </span>
+          {harness || modelName?.trim() ? (
+            <>
+              <span className="flex min-w-0 items-center gap-1.5">
+                {harness ? (
+                  <HarnessIcon harness={harness} className="size-3.5 shrink-0" />
+                ) : null}
+                {modelName?.trim() ? (
+                  <span className="min-w-0 truncate" title={modelName.trim()}>
+                    {modelName.trim()}
+                  </span>
+                ) : null}
+              </span>
+              {dot}
+            </>
+          ) : null}
+          <span className="shrink-0 tabular-nums">{formatElapsed(elapsedMs)}</span>
         </span>
       )}
       {completedAt != null ? (
