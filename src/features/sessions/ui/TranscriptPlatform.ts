@@ -1,7 +1,8 @@
 import { createContext } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { save } from "@tauri-apps/plugin-dialog";
 import { copyMessage, copyText } from "../../../platform/tauri/clipboard";
-import { readBinaryFile } from "../../../platform/tauri/fs";
+import { readBinaryFile, writeTextFile } from "../../../platform/tauri/fs";
 import type { TextRevealOptions } from "./wordFade";
 import type { TextRevealQueue } from "./textRevealQueue";
 import type { Block } from "../model/session";
@@ -23,9 +24,22 @@ export const TranscriptPlatformContext = createContext<
     openTool?: (block: Block) => void;
     /** Clients without a side panel list a group's steps in a sheet instead of unfolding it inline. */
     openActivity?: (steps: Block[]) => void;
+    /** Clients without a side panel read a whole plan in their own view. */
+    openPlan?: (blockId: string) => void;
     /** Open a saved question in the client's answer surface. */
     openQuestion?: (blockId: string) => void;
     /** The client shows the live turn clock elsewhere, so fold lines name only the phase. */
     liveClockInFooter?: boolean;
+    /** Save generated text, such as a plan, where the user chooses. */
+    saveText?: (fileName: string, text: string) => Promise<void>;
   }
->(desktopPlatform);
+>({
+  ...desktopPlatform,
+  saveText: async (fileName, text) => {
+    const path = await save({
+      defaultPath: fileName,
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (path) await writeTextFile(path, text);
+  },
+});

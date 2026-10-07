@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   MessageSquare,
@@ -28,9 +29,11 @@ type Props = {
   prompt: UserQuestionPrompt;
   onReply: (requestId: number, reply: UserQuestionReply) => void;
   onInteraction?: (requestId: number) => void;
+  /** Fold the form away without answering; the client can reopen it. */
+  onCollapse?: () => void;
 };
 
-export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
+export function QuestionForm({ prompt, onReply, onInteraction, onCollapse }: Props) {
   const { t: uiT } = useTranslation();
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
@@ -181,6 +184,18 @@ export function QuestionForm({ prompt, onReply, onInteraction }: Props) {
           >
             {uiT("Skip")}
           </button>
+          {onCollapse ? (
+            <button
+              type="button"
+              aria-label={uiT("Collapse question")}
+              title={uiT("Collapse question")}
+              className="grid size-6 shrink-0 place-items-center rounded-md text-content/55 hover:bg-content/10 hover:text-content focus-visible:outline-2 focus-visible:outline-accent"
+              data-question-collapse
+              onClick={onCollapse}
+            >
+              <ChevronDown className="size-3.5" aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
         <div
           ref={body}

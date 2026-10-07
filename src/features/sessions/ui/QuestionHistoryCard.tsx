@@ -1,6 +1,12 @@
 import { useContext, useState } from "react";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
-import { ChevronDown, ChevronRight, MessageSquare } from "../../../shared/ui/icons";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CircleCheck,
+  MessageSquare,
+} from "../../../shared/ui/icons";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import type { QuestionAnswer, UserQuestionRecord } from "../model/userQuestion";
 import { questionRecordAnswers } from "../model/questionHistory";
@@ -29,35 +35,72 @@ export function QuestionHistoryCard({
     !question.reply &&
     question.decision !== "answered" &&
     !!onAnswer;
-  const sheet = canAnswer && !!openQuestion;
-  const status =
-    question.reply || question.decision === "answered"
-      ? t("Answered")
-      : pending
-        ? t("Waiting for answers")
-        : t("Not answered");
+  // A pending question's card reopens the client's answer panel.
+  const reopen = pending && !!openQuestion;
+  const sheet = (canAnswer && !!openQuestion) || reopen;
+  const answerable = canAnswer || reopen;
+  const answered = !!question.reply || question.decision === "answered";
+  const status = answered
+    ? t("Answered")
+    : pending
+      ? t("Waiting for answers")
+      : t("Not answered");
+  // What was chosen, readable without opening the card.
+  const reply = question.reply;
+  const summary = reply
+    ? question.questions
+        .flatMap((item) => questionRecordAnswers(item, reply))
+        .join(" · ")
+    : "";
+  const Icon = answered ? CircleCheck : MessageSquare;
   return (
     <div
-      className="question-history mx-4 my-2 rounded-lg border border-content/10 font-sans"
+      className="question-history mx-4 my-2 overflow-hidden rounded-xl border border-content/10 bg-content/[0.025] font-sans @md:mx-6"
       data-question-history={blockId}
     >
       <button
         type="button"
-        className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-[12px] hover:bg-content/5"
+        className="flex min-h-11 w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-content/5 motion-reduce:transition-none"
         aria-expanded={sheet ? undefined : open}
         aria-haspopup={sheet ? "dialog" : undefined}
         onClick={() => sheet ? openQuestion?.(blockId) : setOpen((value) => !value)}
       >
-        <MessageSquare className="size-3.5 shrink-0 text-content/50" />
-        <span className="min-w-0 flex-1 break-words">
-          {question.title || question.questions[0]?.prompt || t("Question")}
+        <span
+          className={`mt-px grid size-6 shrink-0 place-items-center rounded-full ${
+            answered
+              ? "bg-emerald-500/10 text-emerald-500"
+              : answerable
+                ? "bg-accent/10 text-accent"
+                : "bg-content/[0.06] text-content/50"
+          }`}
+        >
+          <Icon className="size-3.5" />
         </span>
-        <span className="shrink-0 text-[11px] text-content/50">
-          {canAnswer ? t("Answer question") : status}
+        <span className="min-w-0 flex-1">
+          <span
+            className={`block text-[11px] leading-4 ${
+              answerable ? "font-medium text-accent" : "text-content/45"
+            }`}
+          >
+            {answerable ? t("Answer question") : status}
+          </span>
+          <span className="mt-0.5 line-clamp-2 break-words text-[13px] leading-5 text-content/80">
+            {question.title || question.questions[0]?.prompt || t("Question")}
+          </span>
+          {summary ? (
+            <span className="mt-1.5 flex min-w-0 items-start gap-1.5 text-[12px] leading-[18px] text-content/60">
+              <Check className="mt-0.5 size-3 shrink-0 text-emerald-500" />
+              <span className="line-clamp-2 min-w-0 break-words">{summary}</span>
+            </span>
+          ) : null}
         </span>
-        {sheet ? <ChevronRight className="size-3.5 shrink-0" /> : <ChevronDown
-          className={`size-3.5 shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
-        />}
+        {sheet ? (
+          <ChevronRight className="mt-1 size-3.5 shrink-0 text-content/40" />
+        ) : (
+          <ChevronDown
+            className={`mt-1 size-3.5 shrink-0 text-content/40 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
+          />
+        )}
       </button>
       <AnimatedCollapse expanded={open && !sheet}>
         {canAnswer && !sheet ? (
@@ -68,14 +111,14 @@ export function QuestionHistoryCard({
             onClose={() => setOpen(false)}
           />
         ) : (
-          <div className="space-y-3 px-3 pb-3 text-[12px]">
+          <div className="mx-3 space-y-3 border-t border-content/[0.08] py-3 text-[12px]">
             {question.questions.map((item) => {
               const labels = question.reply
                 ? questionRecordAnswers(item, question.reply)
                 : [];
               return (
                 <div key={item.id}>
-                  <p className="whitespace-pre-wrap font-medium">
+                  <p className="whitespace-pre-wrap font-medium text-content/80">
                     {item.prompt}
                   </p>
                   <p className="mt-1 whitespace-pre-wrap text-content/65">

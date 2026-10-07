@@ -61,6 +61,8 @@ import {
   Lightbulb as LightbulbIcon,
   Link as LinkIcon,
   List as ListIcon,
+  ListChecks as ListChecksIcon,
+  Download as DownloadIcon,
   ListEnd as ListEndIcon,
   ListFilter as ListFilterIcon,
   LoaderCircle as LoaderCircleIcon,
@@ -305,6 +307,8 @@ export const Ellipsis = wrap(EllipsisIcon, "Ellipsis");
 export const FileText = wrap(FileTextIcon, "FileText");
 export const Info = wrap(InfoIcon, "Info");
 export const List = wrap(ListIcon, "List");
+export const ListChecks = wrap(ListChecksIcon, "ListChecks");
+export const Download = wrap(DownloadIcon, "Download");
 export const Loader2 = wrap(Loader2Icon, "Loader2");
 export const MessageCircleQuestion = wrap(MessageCircleQuestionIcon, "MessageCircleQuestion");
 export const Repeat2 = wrap(Repeat2Icon, "Repeat2");

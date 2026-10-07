@@ -776,6 +776,37 @@ describe("AgentTranscript collapsed work", () => {
   });
 });
 
+describe("turn fold line", () => {
+  it("stays at the top of the turn after an answered question", () => {
+    const markup = render([
+      { id: "user", role: "user", text: "Commit", startedAt: 1_000, durationMs: 2_000 },
+      tool("t1"),
+      { id: "ask", role: "assistant", text: "Include the new files?" },
+      {
+        id: "question",
+        role: "system",
+        text: "Include the new files?",
+        question: {
+          requestId: 1,
+          decision: "answered",
+          reply: { kind: "answered", answers: { q: ["keep"] } },
+          questions: [{
+            id: "q", prompt: "Include the new files?", allowCustom: false, multiSelect: false,
+            options: [{ id: "keep", label: "Keep them for later" }],
+          }],
+        },
+      },
+      tool("t2"),
+      { id: "answer", role: "assistant", text: "Committed." },
+    ]);
+    const line = markup.indexOf("Worked for 2s");
+    expect(line).toBeGreaterThan(-1);
+    expect(line).toBeLessThan(markup.indexOf("data-question-history"));
+    // The answer shows on the card without opening it.
+    expect(markup).toContain("Keep them for later");
+  });
+});
+
 describe("worker assignment prompts", () => {
   it("hides the assignment envelope and keeps the task text", () => {
     const markup = renderToStaticMarkup(

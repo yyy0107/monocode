@@ -203,7 +203,7 @@ describe("mobile activity sheet", () => {
 });
 
 describe("mobile live turn footer", () => {
-  it("shows the project mascot, the current phase and the clock under the live reply", () => {
+  it("shows the project mascot and the current phase under the live reply", () => {
     const node = render([
       { id: "user", role: "user", text: "Fix it", startedAt: Date.now() - 65_000 },
       edit("a", "a.ts"),
@@ -211,9 +211,9 @@ describe("mobile live turn footer", () => {
     ], "running");
     const footer = node.querySelector("[data-live-footer]")!;
     expect(footer.querySelector("svg.mascot-active")).not.toBeNull();
-    expect(footer.textContent).toMatch(/Running a command…1m \d+s$/);
-    // The fold line names the phase; the clock lives only in the footer.
-    expect(node.textContent?.match(/1m \d+s/g)).toHaveLength(1);
+    expect(footer.textContent).toBe("Edited a.ts · Running a command…");
+    // The clock only shows while the agent thinks, and never on the fold line.
+    expect(node.textContent).not.toMatch(/1m \d+s/);
   });
 
   it("has no footer once the turn settles", () => {

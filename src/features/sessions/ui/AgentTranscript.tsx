@@ -88,6 +88,7 @@ import { legacyTaskListFromText } from "../model/taskList";
 import { resolveModel } from "../model/models";
 import { harnessForTurn } from "../model/secondOpinion";
 import { TranscriptTurnCache } from "../model/transcriptTurnCache";
+import { liveStatus } from "../model/liveStatus";
 import { Shimmer } from "../../../shared/ui/Shimmer";
 import {
   hasPendingApproval,
@@ -206,6 +207,8 @@ type Props = {
   onOpenDiff?: (path: string) => void;
   onOpenPlan?: (blockId: string) => void;
   onBuildPlan?: (blockId: string, target?: PlanBuildTarget) => void;
+  /** The plan whose decision panel is open; its card omits Build. */
+  decidingPlanId?: string;
   planBuildTargets?: boolean;
   onSecondOpinion?: (target: ModelTarget, turn: Block[]) => void;
   onHandoff?: (target: ModelTarget, turn: Block[]) => void;
@@ -260,6 +263,7 @@ function AgentTranscriptComponent({
   onOpenDiff,
   onOpenPlan,
   onBuildPlan,
+  decidingPlanId,
   planBuildTargets = true,
   onSecondOpinion,
   onHandoff,
@@ -962,12 +966,13 @@ function AgentTranscriptComponent({
           // It sits where the work starts, from before there is any: the row
           // is there from the first token, so nothing shoves the answer down
           // when the turn folds.
+          // A card the work cannot fold across (an answered question, a plan)
+          // starts the fold below it, but the line stays where the work began.
           const firstWork = firstFoldableIndex(items);
-          const foldLineAt = fold
-            ? fold.start
-            : firstWork >= 0
-              ? firstWork
-              : items.length;
+          const foldLineAt =
+            firstWork >= 0
+              ? Math.min(firstWork, fold?.start ?? firstWork)
+              : (fold?.start ?? items.length);
           const isCurrentItem = (item: TurnItem) =>
             item.type === "block"
               ? item.block.id === searchCurrent
@@ -1031,6 +1036,7 @@ function AgentTranscriptComponent({
                 onOpenDiff={onOpenDiff}
                 onOpenPlan={onOpenPlan}
                 onBuildPlan={onBuildPlan}
+                planDecision={item.block.id === decidingPlanId}
                 planBusy={!!busy}
                 planHarness={planBuildTargets ? harness : undefined}
                 planModel={model}
@@ -1106,7 +1112,7 @@ function AgentTranscriptComponent({
                 if (inFold) {
                   if (itemIndex !== fold.start) return [];
                   return [
-                    foldLineRow,
+                    ...(foldLineAt === fold.start ? [foldLineRow] : []),
                     <TurnRow key="work-details" folded={!workOpen}>
                       {() =>
                         foldWork.map(({ entry, index }, offset) => (
@@ -1191,17 +1197,22 @@ function AgentTranscriptComponent({
                   {() => (
                     <LiveTurnFooter
                       cwd={cwd}
+                      turn={turn}
+                      seed={turnId}
                       startedAt={startedAt}
-                      paused={waitingForApproval}
-                      label={
+                      waiting={
                         waitingForApproval
-                          ? uiT(pendingQuestion ? "Waiting for answers" : "Waiting for approval")
-                          : answering
-                            ? uiT("Responding")
-                            : liveActivity
-                              ? workSummaryLine(liveActivity.blocks, true)
-                              : uiT("Thinking")
+                          ? pendingQuestion
+                            ? "answers"
+                            : "approval"
+                          : undefined
                       }
+                      toolSummary={
+                        liveActivity && !answering
+                          ? workSummaryLine(liveActivity.blocks, true)
+                          : undefined
+                      }
+                      background={backgroundTasks}
                     />
                   )}
                 </AnimatedCollapse>
@@ -1333,27 +1344,60 @@ function LiveFoldTitle({
 
 /**
  * What sits under the reply while it is being written, for clients that keep
- * the turn clock in view there: the project's mascot, what the agent is doing
- * and how long it has been at it.
+ * the turn clock in view there: the project's mascot and one status line that
+ * follows the turn through its phases — a filler verb, how long a thought has
+ * run, what the tools are doing — with the clock once the turn runs long.
  */
 function LiveTurnFooter({
   cwd,
+  turn,
+  seed,
   startedAt,
-  paused,
-  label,
+  waiting,
+  toolSummary,
+  background,
 }: {
   cwd: string;
+  turn: Block[];
+  seed: string;
   startedAt?: number;
-  paused: boolean;
-  label: string;
+  waiting?: "approval" | "answers";
+  toolSummary?: string;
+  background?: string[];
 }) {
-  const elapsedMs = useElapsedFrom(startedAt, paused);
+  const { t: uiT } = useTranslation();
+  const paused = !!waiting;
+  const now = useNow(paused);
   const mascot = useProjectMascotAppearance(cwd);
-  const elapsed = formatElapsed(elapsedMs);
+  const status = liveStatus({
+    turn,
+    now,
+    startedAt,
+    waiting,
+    toolSummary,
+    background: background?.length,
+    seed,
+  });
+  const label =
+    "literal" in status.label
+      ? status.label.literal
+      : uiT(status.label.key, status.label.params);
+  const verb =
+    status.phase === "working" || status.phase === "tool" ? `${label}…` : label;
+  const text = [
+    status.elapsed,
+    verb,
+    status.lastThought
+      ? uiT("Thought for {duration}", { duration: status.lastThought })
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <div
       className="transcript-live-footer flex min-w-0 items-center gap-2 px-4 pt-2 pb-1 font-sans text-sm @md:px-6"
       data-live-footer
+      data-live-phase={status.phase}
     >
       <ProjectMascot
         project={mascot.project}
@@ -1362,16 +1406,37 @@ function LiveTurnFooter({
         active={!paused}
         className="size-4 shrink-0"
       />
-      <Shimmer className="min-w-0 truncate" duration={1.6}>
-        {`${label}…`}
-      </Shimmer>
-      {elapsed ? (
-        <span className="ms-auto shrink-0 tabular-nums text-foreground-subtlest">
-          {elapsed}
+      {/* Keyed on the words, not the clock, so a new phase eases in once. */}
+      <span key={`${status.phase}:${label}`} className="transcript-live-status flex min-w-0">
+        <Shimmer className="min-w-0 truncate tabular-nums" duration={1.6}>
+          {text}
+        </Shimmer>
+      </span>
+      {status.background ? (
+        <span
+          className="shrink-0 truncate text-accent"
+          title={background?.join("\n")}
+        >
+          {`· ${uiT(
+            status.background === 1 ? "{count} running task" : "{count} running tasks",
+            { count: status.background },
+          )}`}
         </span>
       ) : null}
     </div>
   );
+}
+
+/** Wall-clock time, ticking each second unless paused. */
+function useNow(paused: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (paused) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [paused]);
+  return now;
 }
 
 function backgroundLabel(tasks: string[]): string {
@@ -1691,6 +1756,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   onOpenDiff,
   onOpenPlan,
   onBuildPlan,
+  planDecision = false,
   planBusy,
   planHarness,
   planModel,
@@ -1718,6 +1784,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   onOpenDiff?: (path: string) => void;
   onOpenPlan?: (blockId: string) => void;
   onBuildPlan?: (blockId: string, target?: PlanBuildTarget) => void;
+  planDecision?: boolean;
   planBusy?: boolean;
   planHarness?: HarnessId;
   planModel?: string;
@@ -1725,7 +1792,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   onEditLastTurn?: () => void;
   editing?: boolean;
 }) {
-  const { textReveal } = useContext(TranscriptPlatformContext);
+  const { textReveal, openPlan } = useContext(TranscriptPlatformContext);
   const { t: uiT } = useTranslation();
   // Workflow run cards render after the turn's work, like orchestration results.
   if (block.workflowRun) return null;
@@ -1808,7 +1875,16 @@ const TranscriptBlock = memo(function TranscriptBlock({
           harness={planHarness}
           model={planModel}
           modelSettings={planModelSettings}
-          onOpen={onOpenPlan ? () => onOpenPlan(block.id) : undefined}
+          cwd={cwd}
+          deciding={planDecision}
+          paneButton={!openPlan}
+          onOpen={
+            openPlan
+              ? () => openPlan(block.id)
+              : onOpenPlan
+                ? () => onOpenPlan(block.id)
+                : undefined
+          }
           onBuild={
             onBuildPlan ? (target) => onBuildPlan(block.id, target) : undefined
           }

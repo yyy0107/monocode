@@ -101,6 +101,13 @@ import { markLinkedSessionUpdateSeen } from "../../inbox/model/linkedSessionSeen
 import { RemoteSession } from "../../connections/ui/RemoteSession";
 import { isRemoteProjectPath } from "../../projects/model/recents";
 import { questionFollowUp } from "../model/questionHistory";
+import {
+  IMPLEMENT_PLAN_PROMPT,
+  skipPlanDecision,
+  usePlanDecision,
+} from "../model/planDecision";
+import { PlanDecision } from "./PlanPreview";
+import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { remoteProjectFor, sessionUsesHost } from "../../connections/model/remoteProjects";
 import type { HostSession } from "../../connections/model/protocol";
 
@@ -402,6 +409,19 @@ const LocalSessionPane = memo(function LocalSessionPane({
       onBuildPlan(session.id, blockId, target),
     [onBuildPlan, session.id],
   );
+  // The newest plan asks to be implemented from the composer, in plan
+  // mode's place; a plain message runs the next turn in execution mode.
+  const decidingPlanId = usePlanDecision(
+    session.blocks,
+    !session.busy &&
+      !session.pendingQuestion &&
+      !session.worktreeRemoved &&
+      !session.inboxAsk,
+  );
+  // Keep an answered or skipped panel's plan while it folds away.
+  const lastDecisionPlanId = useRef(decidingPlanId);
+  if (decidingPlanId) lastDecisionPlanId.current = decidingPlanId;
+  const dockedPlanId = decidingPlanId ?? lastDecisionPlanId.current;
   const jumpToBottomRef = useRef<(() => void) | null>(null);
   const transcriptScope = useRef<HTMLDivElement>(null);
   // Status panel git summary; host sessions have no local working copy to read.
@@ -638,6 +658,22 @@ const LocalSessionPane = memo(function LocalSessionPane({
       noteCard={session.noteCard}
       handoffCard={session.handoffCard}
       question={session.pendingQuestion}
+      children={
+        <AnimatedCollapse expanded={!!decidingPlanId}>
+          {dockedPlanId ? (
+            <PlanDecision
+              key={dockedPlanId}
+              onImplement={() =>
+                onSubmit(session.id, IMPLEMENT_PLAN_PROMPT, [])
+              }
+              onRevise={(feedback) =>
+                onSubmit(session.id, feedback, [], { intent: "plan" })
+              }
+              onSkip={() => skipPlanDecision(dockedPlanId)}
+            />
+          ) : null}
+        </AnimatedCollapse>
+      }
       onQuoteRequestConsumed={acknowledgeQuote}
       onInboxCardDismiss={() => onInboxCardDismiss?.(session.id)}
       onNoteCardDismiss={() => onNoteCardDismiss?.(session.id)}
@@ -932,6 +968,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
                   onOpenDiff={onOpenDiff}
                   onOpenPlan={openPlan}
                   onBuildPlan={session.worktreeRemoved ? undefined : buildPlan}
+                  decidingPlanId={decidingPlanId}
                   planBuildTargets={!remote}
                   onSecondOpinion={
                     !session.inboxAsk &&
