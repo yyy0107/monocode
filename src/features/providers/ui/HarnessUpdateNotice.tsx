@@ -30,10 +30,10 @@ import {
   fetchHarnessInstall,
   fetchLatestHarnessVersion,
   findHarnessUpdates,
-  onHarnessUpdated,
   UPDATABLE_HARNESSES,
   type HarnessUpdate,
 } from "../model/harnessUpdates";
+import { useHarnessRefreshSync } from "../model/harnessRefreshSync";
 
 /**
  * Shared by every mount in this window: a StrictMode remount must reuse the
@@ -121,16 +121,9 @@ export function HarnessUpdateNotice({
     Partial<Record<HarnessId, HarnessUpdateState>>
   >({});
 
-  // Mounted in every window, so the window that ran the update tells the
-  // others to pick up the new CLI's models too.
-  useEffect(() => {
-    const unlisten = onHarnessUpdated((harness) => {
-      void refreshHarnessCatalogs([harness], { force: true });
-    }).catch(() => undefined);
-    return () => {
-      void unlisten.then((stop) => stop?.());
-    };
-  }, []);
+  // Mounted in every workspace window, so the window that ran an update or
+  // refresh tells the others to pick up the CLIs' models too.
+  useHarnessRefreshSync();
 
   useEffect(() => {
     let cancelled = false;

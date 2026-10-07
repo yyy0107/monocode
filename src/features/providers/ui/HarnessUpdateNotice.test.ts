@@ -2,6 +2,7 @@
 import { act, createElement, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { probeHarnessAvailability } from "../../../integrations/harness/core/availability";
 import { HarnessUpdateNotice } from "./HarnessUpdateNotice";
 
 let claimed = false;
@@ -38,17 +39,24 @@ vi.mock("../../../integrations/harness/core/registry", () => ({
   refreshHarnessCatalogs: (...args: unknown[]) =>
     refreshHarnessCatalogs(...(args as [])),
 }));
-const eventListeners = new Set<(event: { payload: unknown }) => void>();
-const emit = vi.fn(async (_event: string, payload: unknown) => {
-  eventListeners.forEach((listener) => listener({ payload }));
+type EventListener = {
+  event: string;
+  listener: (event: { payload: unknown }) => void;
+};
+const eventListeners = new Set<EventListener>();
+const emit = vi.fn(async (event: string, payload: unknown) => {
+  eventListeners.forEach((entry) => {
+    if (entry.event === event) entry.listener({ payload });
+  });
 });
 vi.mock("@tauri-apps/api/event", () => ({
   emit: (event: string, payload: unknown) => emit(event, payload),
   listen: vi.fn(
-    async (_event: string, listener: (event: { payload: unknown }) => void) => {
-      eventListeners.add(listener);
+    async (event: string, listener: (event: { payload: unknown }) => void) => {
+      const entry = { event, listener };
+      eventListeners.add(entry);
       return () => {
-        eventListeners.delete(listener);
+        eventListeners.delete(entry);
       };
     },
   ),
@@ -101,6 +109,19 @@ describe("HarnessUpdateNotice", () => {
       });
     });
     expect(refreshHarnessCatalogs).toHaveBeenCalledTimes(2);
+    expect(refreshHarnessCatalogs).toHaveBeenLastCalledWith(["claude"], {
+      force: true,
+    });
+    // A manual refresh in another window re-detects CLIs here too, then
+    // reloads only the installed ones' models.
+    await act(async () => {
+      await emit("harnesses-refreshed", {
+        harnesses: ["claude", "codex"],
+        source: "other-window",
+      });
+    });
+    expect(probeHarnessAvailability).toHaveBeenLastCalledWith({ force: true });
+    expect(refreshHarnessCatalogs).toHaveBeenCalledTimes(3);
     expect(refreshHarnessCatalogs).toHaveBeenLastCalledWith(["claude"], {
       force: true,
     });

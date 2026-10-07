@@ -54,6 +54,33 @@ export function onHarnessUpdated(
   });
 }
 
+/** A manual re-detect of installed CLIs, e.g. Settings' Refresh button. */
+const HARNESSES_REFRESHED_EVENT = "harnesses-refreshed";
+
+type HarnessesRefreshedEvent = {
+  harnesses: HarnessId[];
+  source: string;
+};
+
+export function announceHarnessesRefreshed(
+  harnesses: HarnessId[],
+): Promise<void> {
+  return emit(HARNESSES_REFRESHED_EVENT, {
+    harnesses,
+    source: updateEventSource,
+  });
+}
+
+export function onHarnessesRefreshed(
+  handler: (harnesses: HarnessId[]) => void,
+): Promise<UnlistenFn> {
+  return listen<HarnessesRefreshedEvent>(HARNESSES_REFRESHED_EVENT, (event) => {
+    // The sender already refreshed its own stores.
+    if (event.payload.source === updateEventSource) return;
+    handler(event.payload.harnesses);
+  });
+}
+
 export function claimLaunchHarnessUpdateCheck(): Promise<boolean> {
   return invoke<boolean>("harness_update_check_claim");
 }

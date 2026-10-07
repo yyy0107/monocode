@@ -1,4 +1,5 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { useHarnessRefreshSync } from "../../providers/model/harnessRefreshSync";
 import { QuickWorkspaceControls } from "./QuickWorkspaceControls";
 import {
   workspaceForProject,
@@ -114,6 +115,7 @@ export function quickPromptMode(text: string): {
 
 export function QuickComposer({ onShown }: { onShown: () => void }) {
   const { t: uiT } = useTranslation();
+  useHarnessRefreshSync();
   const [projects, setProjects] = useState(loadQuickProjects);
   const [projectAppearance, setProjectAppearance] = useState(
     loadQuickProjectAppearance,

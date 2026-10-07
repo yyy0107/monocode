@@ -48,6 +48,7 @@ import {
 import { Popover } from "../../../shared/ui/Popover";
 import { SecondaryButton } from "../../../shared/ui/SecondaryButton";
 import {
+  announceHarnessesRefreshed,
   hasHarnessUpdate,
   readHarnessVersions,
   type HarnessVersionInfo,
@@ -3816,6 +3817,8 @@ function ProvidersPage({
         loadVersions(installed, true),
         refreshHarnessCatalogs(installed, { force: true }),
       ]);
+      // Other windows' model pickers keep their own stores.
+      void announceHarnessesRefreshed([...HARNESSES]).catch(() => undefined);
     } finally {
       if (mounted.current) setRefreshing(false);
     }
