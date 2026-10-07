@@ -215,6 +215,20 @@ describe("session summary send timestamps", () => {
     expect(summary(value).lastUserMessageAt).toBe(180);
   });
 
+  it("previews the latest visible answer as one truncated plain line", () => {
+    const value = snapshot();
+    expect(summary(value).preview).toBeUndefined();
+    value.session.blocks.push(
+      { id: "answer", role: "assistant", text: "## Done\n\nUpdated **two** files." },
+      { id: "hidden", role: "assistant", text: "Internal note", internal: true },
+    );
+    expect(summary(value).preview).toBe("Done");
+    value.session.blocks.push({ id: "long", role: "assistant", text: "x".repeat(400) });
+    const preview = summary(value).preview!;
+    expect(preview).toHaveLength(160);
+    expect(preview.endsWith("…")).toBe(true);
+  });
+
   it("reports an unknown timestamp for legacy user messages and empty conversations", () => {
     const value = snapshot();
     for (const startedAt of [undefined, 0, NaN]) {

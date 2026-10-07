@@ -159,6 +159,8 @@ export type HostSessionSummary = Omit<
   pendingInputKey?: string | null;
   linkedWorkItem?: LinkedWorkItem;
   needsInput?: boolean;
+  /** One plain line of the latest answer; absent on older Hosts. */
+  preview?: string;
   branch?: string;
   worktreeCwd?: string;
   repo?: string;
