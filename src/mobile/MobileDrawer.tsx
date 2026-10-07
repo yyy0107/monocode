@@ -18,6 +18,7 @@ import {
   MessageSquarePlus,
   Pin,
   Settings,
+  TriangleAlert,
 } from "../shared/ui/icons";
 import type {
   HostProject,
@@ -439,6 +440,7 @@ export const MobileDrawer = memo(function MobileDrawer({
         className="mobile-list-row mobile-session-row"
         key={item.id}
         data-session-id={item.id}
+        data-needs-input={item.needsInput || undefined}
         aria-current={item.id === sessionId ? "page" : undefined}
         aria-haspopup={actionable ? "dialog" : undefined}
         aria-expanded={actionable ? sessionActionsId === item.id : undefined}
@@ -499,19 +501,22 @@ export const MobileDrawer = memo(function MobileDrawer({
               t("Untitled conversation")}
           </strong>
           <small>
-            {item.status === "running" ? (
-              <LoaderCircle size={16} className="mobile-spin" />
-            ) : item.needsInput ? (
-              <span className="mobile-attention-dot" />
+            {item.needsInput ? (
+              <span className="mobile-session-attention">
+                <TriangleAlert size={14} aria-hidden="true" />
+                {t("Needs input")}
+              </span>
+            ) : item.status === "running" ? (
+              <LoaderCircle size={16} className="mobile-spin" aria-label={t("Working")} />
             ) : item.pinned ? (
               <Pin size={12} aria-label={t("Pin")} />
             ) : null}
             {tree.length > 1 && (
               <span className="mobile-drawer-session-project">{owner.name}</span>
             )}
-            <span>
+            {!item.needsInput && <span>
               {formatMobileRelativeTime(item.updatedAt, now, language)}
-            </span>
+            </span>}
             {unreadIds.has(item.id) ? (
               <span
                 className="mobile-unread-dot"

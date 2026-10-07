@@ -325,21 +325,36 @@ export function MobileHome({
                 <LoaderCircle size={17} className="mobile-spin" />
                 {t("Loading conversations…")}
               </div>
-            ) : <MobileListPreview key={needle} stateKey={needle ? undefined : "projects"} initialLimit={50} items={matchingProjects} renderItem={(item) => (
-              <button
-                type="button"
-                className="mobile-home-project"
-                key={item.id}
-                title={item.cwd}
-                onClick={() => onProject(item)}
-              >
-                <Folder size={23} />
-                <span>
-                  <strong>{item.name}</strong>
-                  <small>{item.cwd}</small>
-                </span>
-              </button>
-            )} />}
+            ) : <MobileListPreview key={needle} stateKey={needle ? undefined : "projects"} initialLimit={50} items={matchingProjects} renderItem={(item) => {
+              const history = histories[item.id]?.sessions ?? [];
+              const state = history.some((session) => !session.archived && session.needsInput)
+                ? "input"
+                : history.some((session) => !session.archived && session.status === "running") ? "running" : "idle";
+              return (
+                <button
+                  type="button"
+                  className="mobile-home-project"
+                  key={item.id}
+                  title={item.cwd}
+                  data-state={state}
+                  onClick={() => onProject(item)}
+                >
+                  <Folder size={23} />
+                  <span>
+                    <strong>{item.name}</strong>
+                    <small>{item.cwd}</small>
+                  </span>
+                  {state !== "idle" && (
+                    <span className="mobile-home-project-state" role="img"
+                      aria-label={t(state === "running" ? "Working" : "Needs input")}>
+                      {state === "running"
+                        ? <LoaderCircle size={18} className="mobile-spin" aria-hidden="true" />
+                        : <TriangleAlert size={18} aria-hidden="true" />}
+                    </span>
+                  )}
+                </button>
+              );
+            }} />}
             {needle ? !matchingProjects.length && (
               <p className="mobile-home-empty">{t("No matching projects")}</p>
             ) : (

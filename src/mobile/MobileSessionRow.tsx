@@ -18,7 +18,7 @@ export function MobileSessionRow({
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   const { language, t } = useTranslation();
   const state =
-    session.status === "running" ? "running" : session.needsInput ? "input" : "idle";
+    session.needsInput ? "input" : session.status === "running" ? "running" : "idle";
   return (
     <button
       type="button"

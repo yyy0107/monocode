@@ -918,6 +918,11 @@ html[data-mobile-glass="solid"] :is(
   padding: calc(var(--mobile-safe-top) + var(--mobile-header-height) + 18px)
     18px calc(var(--mobile-safe-bottom) + 110px);
 }
+.mobile-app .mobile-home-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
 .mobile-home h2 {
   margin: 0;
   font-size: 16px;
@@ -946,11 +951,20 @@ html[data-mobile-glass="solid"] :is(
 .mobile-home-project > svg {
   flex-shrink: 0;
 }
-.mobile-home-project > span {
+.mobile-home-project > span:not(.mobile-home-project-state) {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+.mobile-home-project-state {
+  display: flex;
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  color: var(--mobile-accent);
+}
+.mobile-home-project[data-state="input"] .mobile-home-project-state {
+  color: var(--mobile-accent);
 }
 .mobile-home-project strong {
   font-size: 17px;
@@ -1176,7 +1190,7 @@ html[data-mobile-glass="solid"] :is(
   color: var(--mobile-accent);
 }
 .mobile-home-session[data-state="input"] .mobile-home-session-state {
-  color: var(--color-warning);
+  color: var(--mobile-accent);
 }
 .mobile-home-session:active {
   background: var(--color-selection);
@@ -3375,8 +3389,20 @@ button.mobile-drawer-group-status {
   align-items: center;
   gap: 4px;
 }
-.mobile-session-row[aria-current="page"] {
+.mobile-session-row[aria-current="page"],
+.mobile-session-row[data-needs-input="true"] {
   background: var(--mobile-selected);
+}
+.mobile-session-attention {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-content);
+  font-weight: 500;
+}
+.mobile-session-attention > svg {
+  flex-shrink: 0;
+  color: var(--mobile-accent);
 }
 .mobile-drawer .mobile-session-row {
   user-select: none;
@@ -3390,9 +3416,8 @@ button.mobile-drawer-group-status {
 .mobile-drawer-settings {
   flex-shrink: 0;
   margin-top: 8px;
-  border-top: 0.5px solid var(--mobile-separator);
-  border-radius: 0 0 16px 16px;
-  padding-top: 12px;
+  min-height: 48px;
+  padding: 10px 14px;
 }
 .mobile-drawer-host {
   display: inline-flex;

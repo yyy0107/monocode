@@ -78,6 +78,43 @@ const ids = (area: string) =>
   );
 
 describe("mobile home and project history", () => {
+  it("shows each project's state from its full history and clears it when work finishes", async () => {
+    const history = Array.from({ length: 25 }, (_, index) => session(`idle-${index}`, "one", 100 - index));
+    history.push(session("running-plan", "one", 1, { status: "running" }));
+    let latest = history;
+    const loadSessions = async (id: string) => id === "one" ? latest
+      : [session("archived-run", "two", 200, { status: "running", needsInput: true, archived: true })];
+    await render({ projectsPage: true, loadSessions });
+    const row = (path: string) => node.querySelector<HTMLButtonElement>(`.mobile-home-project[title="${path}"]`)!;
+    expect(row(projects[0].cwd).querySelector('[aria-label="Working"]')).not.toBeNull();
+    expect(row(projects[1].cwd).querySelector(".mobile-home-project-state")).toBeNull();
+    latest = [
+      session("asking", "one", 300, { status: "running", needsInput: true }),
+      session("still-working", "one", 200, { status: "running" }),
+    ];
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(row(projects[0].cwd).querySelector('[aria-label="Working"]')).toBeNull();
+    expect(row(projects[0].cwd).querySelector('[aria-label="Needs input"]')).not.toBeNull();
+    act(() => setUiLanguage("zh-CN"));
+    expect(row(projects[0].cwd).querySelector(".mobile-home-project-state")?.getAttribute("aria-label")).toBe("需要输入");
+    latest = [session("finished", "one", 400, { lastCompletedRunId: "done" })];
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(row(projects[0].cwd).querySelector(".mobile-home-project-state")).toBeNull();
+  });
+
+  it("shows cached project activity while refreshing and preserves it on a failed refresh", async () => {
+    let reject!: (reason: Error) => void;
+    const pending = new Promise<HostSessionSummary[]>((_resolve, fail) => { reject = fail; });
+    await render({
+      projectsPage: true,
+      cachedSessions: (id) => id === "one" ? [session("busy", id, 1, { status: "running" })] : [],
+      loadSessions: () => pending,
+    });
+    expect(node.querySelector('.mobile-home-project [aria-label="Working"]')).not.toBeNull();
+    await act(async () => reject(new Error("Offline")));
+    expect(node.querySelector('.mobile-home-project [aria-label="Working"]')).not.toBeNull();
+  });
+
   it("renders cached activity order before refresh, preserves it on failure and restores it on remount", async () => {
     const cache = new Map([
       ["one", [session("older", "one", 10), session("pin", "one", 1, { pinned: true })]],
@@ -251,7 +288,7 @@ describe("mobile home and project history", () => {
     const loadSessions = async (id: string) => id === "one"
       ? [
           session("busy", id, 40, { status: "running" }),
-          session("asking", id, 30, { needsInput: true }),
+          session("asking", id, 30, { status: "running", needsInput: true }),
           session("idle", id, 20, { pinned: true }),
         ]
       : [];
@@ -259,6 +296,8 @@ describe("mobile home and project history", () => {
     const row = (id: string) => node.querySelector(`[data-session-id="${id}"]`)!;
     expect(row("busy").querySelector('[aria-label="Working"]')).not.toBeNull();
     expect(row("asking").querySelector('[aria-label="Needs input"]')).not.toBeNull();
+    expect(row("asking").querySelector('[aria-label="Working"]')).toBeNull();
+    expect(row("asking").getAttribute("data-state")).toBe("input");
     expect(row("idle").querySelector("strong")?.textContent).toBe("idle");
     expect(row("idle").querySelector("time")).not.toBeNull();
     expect(row("idle").querySelector('[aria-label="Pinned"]')).not.toBeNull();

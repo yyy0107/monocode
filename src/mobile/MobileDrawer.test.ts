@@ -340,6 +340,28 @@ describe("mobile sidebar recents", () => {
     updatedAt,
     ...extra,
   });
+  it.each([false, true])("shows pending input before running for a pinned=%s conversation and clears it after responding", (pinned) => {
+    const waiting = session(project.id, 100, { status: "running", needsInput: true, pinned });
+    const props = { projects: [project], project, sessions: [waiting], unreadIds: new Set([waiting.id]) };
+    const { onSession } = render(true, props);
+    const row = () => node.querySelector<HTMLButtonElement>(`[data-session-id="${waiting.id}"]`)!;
+    expect(row().textContent).toContain("Needs input");
+    expect(row().querySelector(".mobile-spin")).toBeNull();
+    expect(row().querySelector('[aria-label="Unread reply"]')).not.toBeNull();
+    act(() => row().click());
+    expect(onSession).toHaveBeenCalledExactlyOnceWith(waiting.id, project);
+    act(() => setUiLanguage("zh-CN"));
+    expect(row().textContent).toContain("需要输入");
+
+    render(true, { ...props, sessions: [{ ...waiting, needsInput: false }] });
+    expect(row().textContent).not.toContain("需要输入");
+    expect(row().hasAttribute("data-needs-input")).toBe(false);
+    expect(row().querySelector(".mobile-spin")).not.toBeNull();
+
+    render(true, { ...props, sessions: [{ ...waiting, needsInput: false, status: "idle" }] });
+    expect(row().querySelector(".mobile-spin")).toBeNull();
+    expect(row().querySelector(".mobile-session-attention")).toBeNull();
+  });
   it("uses cached activity on first open and refreshes the order when reopened", async () => {
     const cache = new Map(projects.map((owner, index) => [owner.id, [session(owner.id, index * 100)]]));
     const cachedSessions = (id: string) => cache.get(id);
