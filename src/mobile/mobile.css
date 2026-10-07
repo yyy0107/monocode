@@ -3788,6 +3788,9 @@ button.mobile-drawer-group-status {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.mobile-device-option > .mobile-host-status {
+  flex: 0 0 auto;
+}
 
 /* Settings: grouped cards with rows that lead to sub-pages. */
 /* Settings follow the iOS grouped list: borderless inset cards, monochrome
