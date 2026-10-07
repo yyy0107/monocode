@@ -46,10 +46,22 @@
   height: 40px;
   margin: 0;
   border-radius: 50%;
+  /* Opaque so scrolled messages never show through the floating header. */
+  background: color-mix(
+    in srgb,
+    var(--color-accent) 14%,
+    var(--color-background-base)
+  );
+  box-shadow: 0 0 0 3px var(--color-background-base);
 }
 .assistant-workspace .assistant-identity {
   text-align: center;
   max-width: 100%;
+  padding: 4px 14px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 14px;
+  background: var(--color-card);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.08);
 }
 .assistant-workspace .assistant-identity > span {
   justify-content: center;
@@ -60,6 +72,17 @@
   justify-self: end;
   align-self: start;
   gap: 4px;
+}
+/* Long histories: rows outside the viewport skip layout and paint. The chat
+   keeps the reader's row in place itself, so engines behave alike. */
+.assistant-chat[data-layout="desktop"] .assistant-messages {
+  overflow-anchor: none;
+}
+.assistant-chat[data-layout="desktop"]
+  .assistant-messages
+  > :is(.assistant-message-row, .assistant-card, .assistant-input) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
 }
 .assistant-workspace .assistant-messages {
   padding: calc(var(--assistant-header-height) + 20px)
@@ -89,6 +112,43 @@
 }
 .assistant-workspace .assistant-chat > .assistant-availability {
   padding-top: calc(var(--assistant-header-height) + 24px);
+}
+/* Loading sits in the middle of the page, below the floating header. */
+.assistant-chat > .assistant-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  font-size: var(--text-ui-sm);
+  animation: assistant-loading-in 240ms ease-out 120ms both;
+}
+/* Sits above the oldest rendered row while earlier history remains. */
+.assistant-history-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 0 16px;
+  font-size: var(--text-ui-sm);
+  opacity: 0.65;
+  animation: assistant-loading-in 240ms ease-out both;
+}
+.assistant-loading-spinner {
+  animation: assistant-loading-spin 0.9s linear infinite;
+}
+@keyframes assistant-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes assistant-loading-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+  }
 }
 .assistant-workspace .assistant-compose-dock {
   width: 100%;
@@ -622,7 +682,7 @@
 .assistant-message-media > * {
   flex: 0 0 auto;
 }
-.assistant-chat .assistant-message-media button {
+.assistant-chat .assistant-message-media button:not(.attachment-chip-card) {
   padding: 0;
   background: transparent;
 }
@@ -867,6 +927,97 @@
 }
 :is(.assistant-chat, .assistant-settings) input[type="checkbox"] {
   accent-color: var(--color-accent);
+}
+
+/* Floating file card: opened attachments float over the chat as one tab
+   card instead of taking the conversation's width. */
+.assistant-workspace {
+  position: relative;
+}
+.assistant-file-card {
+  --assistant-file-card-gap: 12px;
+  --assistant-file-card-width: min(46rem, calc(100% - 2 * var(--assistant-file-card-gap)));
+  position: absolute;
+  top: var(--assistant-file-card-gap);
+  right: var(--assistant-file-card-gap);
+  bottom: var(--assistant-file-card-gap);
+  left: calc(100% - var(--assistant-file-card-gap) - var(--assistant-file-card-width));
+  z-index: 9;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-stroke);
+  border-radius: 14px;
+  background: var(--color-background-base);
+  box-shadow: 0 8px 24px -10px rgb(0 0 0 / 0.22);
+  contain: layout paint;
+}
+.assistant-file-card[hidden] {
+  display: none;
+}
+.assistant-file-card:is([data-fold-state="opening"], [data-fold-state="closing"]) {
+  will-change: transform, opacity;
+}
+.assistant-file-card[data-maximized] {
+  left: var(--assistant-file-card-gap);
+}
+.assistant-file-card[data-fold-state="opening"] {
+  animation: assistant-file-card 180ms cubic-bezier(0.2, 0.65, 0.3, 1) both;
+}
+.assistant-file-card[data-fold-state="closing"] {
+  animation: assistant-file-card 140ms ease-in reverse both;
+  pointer-events: none;
+}
+@keyframes assistant-file-card {
+  from {
+    opacity: 0;
+    transform: translate3d(12px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+.assistant-file-card-handle {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 10px 12px;
+  border: 1px solid var(--color-stroke);
+  border-right: 0;
+  border-radius: 12px 0 0 12px;
+  background: var(--color-background-base);
+  color: color-mix(in srgb, var(--color-content) 70%, transparent);
+  font-size: var(--text-ui-sm);
+  box-shadow: 0 6px 20px -8px rgb(0 0 0 / 0.25);
+  transform: translateY(-50%);
+}
+.assistant-file-card-handle:hover {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 4%, var(--color-background-base));
+}
+.assistant-file-card-handle[data-fold-state="opening"] {
+  animation: assistant-file-card-handle 140ms ease-out both;
+}
+.assistant-file-card-handle[data-fold-state="closing"] {
+  animation: assistant-file-card-handle 120ms ease-in reverse both;
+  pointer-events: none;
+}
+@keyframes assistant-file-card-handle {
+  from {
+    opacity: 0;
+    transform: translate(8px, -50%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%);
+  }
 }
 
 /* Settings page */
@@ -1158,6 +1309,10 @@
     scroll-behavior: auto;
   }
   .assistant-settings-page[data-fold-state],
+  .assistant-file-card[data-fold-state],
+  .assistant-chat > .assistant-loading,
+  .assistant-history-loading,
+  .assistant-file-card-handle[data-fold-state],
   .assistant-status::before {
     animation: none;
   }

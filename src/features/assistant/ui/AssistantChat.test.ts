@@ -953,3 +953,62 @@ it("only acknowledges messages while the assistant page and document are visible
     state.mockRestore();
   }
 });
+it("paints the newest history first and adds older rows near the top", async () => {
+  // A tall log: the newest rows already fill the viewport.
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get() { return this.classList.contains("assistant-messages") ? 5000 : 0; } });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get() { return this.classList.contains("assistant-messages") ? 600 : 0; } });
+  const view = {
+    id: "a",
+    name: "Assistant",
+    lifecycle: "idle",
+    revision: 1,
+    enabled: true,
+    triggers: { user: true, event: false, schedule: false },
+    brainGeneration: 1,
+    policy: fullAssistantPolicy(),
+  };
+  const entries = Array.from({ length: 75 }, (_, index) => ({
+    id: `m${index}`,
+    kind: "user" as const,
+    text: `Message ${index}`,
+    createdAt: index + 1,
+    revision: index + 1,
+  }));
+  const rpc = vi.fn(async (method: string) =>
+    method === "environment.describe"
+      ? { capabilities: ["assistant.v1"] }
+      : method === "assistant.get"
+        ? view
+        : method === "assistant.messages"
+          ? { entries, nextRevision: 75, hasMore: false }
+          : method === "models.list"
+            ? { models: {}, errors: {} }
+            : [],
+  );
+  act(() =>
+    root.render(
+      createElement(AssistantChat, {
+        hostKey: "history",
+        hostName: "Host",
+        rpc: rpc as any,
+        onOpen: () => {},
+      }),
+    ),
+  );
+  await flush();
+  const rows = () => node.querySelectorAll(".assistant-message-user");
+  expect(rows()).toHaveLength(30);
+  expect(rows()[29]?.textContent).toContain("Message 74");
+  const log = node.querySelector<HTMLDivElement>(".assistant-messages")!;
+  log.scrollTop = 4400;
+  await act(async () => log.dispatchEvent(new Event("scroll")));
+  expect(rows()).toHaveLength(30);
+  for (const _ of [1, 2]) {
+    log.scrollTop = 100;
+    await act(async () => log.dispatchEvent(new Event("scroll")));
+  }
+  expect(rows()).toHaveLength(75);
+  expect(rows()[0]?.textContent).toContain("Message 0");
+  delete (HTMLElement.prototype as any).scrollHeight;
+  delete (HTMLElement.prototype as any).clientHeight;
+});

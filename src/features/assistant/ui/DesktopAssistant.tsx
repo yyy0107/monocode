@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { RemoteAttachment } from "../../connections/model/protocol";
 import { AssistantChat } from "./AssistantChat";
+import { AssistantFilePanel, useAssistantFilePanel } from "./AssistantFilePanel";
 import {
   remoteRequest,
   refreshRemoteProjectSessions,
@@ -21,13 +22,11 @@ export function DesktopAssistant({
   onSelectMachine,
   onLocalSession,
   onRemoteSession,
-  onOpenFile,
 }: {
   selectedMachineId?: string;
   onSelectMachine: (id: string) => void;
   onLocalSession: (id: string, project: string) => Promise<void> | void;
   onRemoteSession: (project: string, id: string) => void;
-  onOpenFile?: (path: string) => void;
 }) {
   const { t } = useTranslation();
   const choices = useDesktopAssistantHosts();
@@ -42,11 +41,13 @@ export function DesktopAssistant({
     [machine?.id],
   );
   // Host attachments are stored under opaque IDs, so each opened file is
-  // copied once to a local file under its own name for the file tab.
+  // copied once to a local file under its own name for the floating card.
+  const filePanel = useAssistantFilePanel();
+  const openFile = filePanel.open;
   const attachmentPaths = useRef(new Map<string, Promise<string>>());
   const openAttachment = useCallback(
     (file: RemoteAttachment, read: () => Promise<string>) => {
-      if (!onOpenFile || !machine) return;
+      if (!machine) return;
       const key = `${machine.environmentId}:${file.id}`;
       let path = attachmentPaths.current.get(key);
       if (!path) {
@@ -56,11 +57,11 @@ export function DesktopAssistant({
         attachmentPaths.current.set(key, path);
         path.catch(() => attachmentPaths.current.delete(key));
       }
-      path.then(onOpenFile, (error) =>
+      path.then(openFile, (error) =>
         console.error(`Could not open ${file.name}`, error),
       );
     },
-    [machine?.environmentId, onOpenFile],
+    [machine?.environmentId, openFile],
   );
   const open = async (ref: SessionReference, { project, session }: AssistantTarget) => {
     if (!machine) return;
@@ -107,13 +108,14 @@ export function DesktopAssistant({
           hostPicker={hostPicker}
           rpc={rpc}
           onOpen={open}
-          onOpenAttachment={onOpenFile ? openAttachment : undefined}
+          onOpenAttachment={openAttachment}
         />
       ) : (
         <div className="assistant-availability">
           <p>{t("Connect to a Host first.")}</p>
         </div>
       )}
+      <AssistantFilePanel {...filePanel} onOpenFile={openFile} />
     </section>
   );
 }

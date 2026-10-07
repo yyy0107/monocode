@@ -7,6 +7,7 @@ import {
   useMemo,
   useState,
   useRef,
+  startTransition,
   type ReactNode,
   type ClipboardEvent,
   type DragEvent,
@@ -57,8 +58,66 @@ import {
   useTranscriptRenderingPlatform,
 } from "../../sessions/ui/useTranscriptRenderingPlatform";
 import { Shimmer } from "../../../shared/ui/Shimmer";
-import { Sparkles, X } from "../../../shared/ui/icons";
+import { Loader2, Sparkles, X } from "../../../shared/ui/icons";
+
+/** History renders newest-first in slices so opening never blocks the app. */
+const INITIAL_HISTORY_ROWS = 30;
+const HISTORY_ROW_STEP = 30;
+/** Older rows load once the reader is this close to the top. */
+const HISTORY_LOAD_DISTANCE = 800;
 import "./assistant.css";
+
+type ReadingAnchor = { node: Element; offset: number; scrollTop: number };
+const ANCHOR_ROWS = ".assistant-message-row, .assistant-card, .assistant-input";
+
+/**
+ * The row at the middle of the viewport, by binary search. Rows entering at
+ * either edge still carry an estimated height, so the middle stays stable.
+ */
+function readingAnchor(log: HTMLElement): ReadingAnchor | undefined {
+  const top = log.getBoundingClientRect().top;
+  const middle = top + log.clientHeight / 2;
+  const rows = log.children;
+  let low = 0,
+    high = rows.length - 1,
+    found = -1;
+  while (low <= high) {
+    const index = (low + high) >> 1;
+    if (rows[index].getBoundingClientRect().bottom > middle) {
+      found = index;
+      high = index - 1;
+    } else low = index + 1;
+  }
+  // Date separators come and go as older rows join; anchor on a message.
+  for (let index = Math.max(found, 0); found >= 0 && index < rows.length; index++) {
+    const node = rows[index];
+    if (!node.matches(ANCHOR_ROWS)) continue;
+    return {
+      node,
+      offset: node.getBoundingClientRect().top - top,
+      scrollTop: log.scrollTop,
+    };
+  }
+  return undefined;
+}
+
+/**
+ * Cancels size changes above the anchored row. Scrolling since the anchor was
+ * taken is the reader's own movement and is kept.
+ */
+function restoreReadingAnchor(
+  log: HTMLElement,
+  anchor?: ReadingAnchor,
+): ReadingAnchor | undefined {
+  if (!anchor?.node.isConnected) return anchor;
+  const expected = anchor.offset - (log.scrollTop - anchor.scrollTop);
+  const delta =
+    anchor.node.getBoundingClientRect().top -
+    log.getBoundingClientRect().top -
+    expected;
+  if (Math.abs(delta) >= 1) log.scrollTop += delta;
+  return { ...anchor, offset: expected, scrollTop: log.scrollTop };
+}
 
 function followScrollTop(element: HTMLElement, mobile: boolean) {
   if (!mobile) return element.scrollHeight;
@@ -146,6 +205,25 @@ export function AssistantChat({
     () => chrome ? compactAssistantTimeline(messages) : messages,
     [messages, chrome],
   );
+  // Only the newest rows render at first. Older ones join as the reader
+  // nears the top, so cost follows what is read, not the history's length.
+  const [historyRows, setHistoryRows] = useState(INITIAL_HISTORY_ROWS);
+  const renderedMessages = useMemo(
+    () => historyRows >= visibleMessages.length
+      ? visibleMessages
+      : visibleMessages.slice(-historyRows),
+    [visibleMessages, historyRows],
+  );
+  const hasOlderHistory = historyRows < visibleMessages.length;
+  const growingHistory = useRef(false);
+  const showOlderHistory = useCallback(() => {
+    if (growingHistory.current) return;
+    growingHistory.current = true;
+    startTransition(() => setHistoryRows((rows) => rows + HISTORY_ROW_STEP));
+  }, []);
+  useEffect(() => {
+    growingHistory.current = false;
+  }, [historyRows]);
   const pendingUserMessageId = useMemo(
     () => visibleMessages.reduce<string | undefined>(
       (latest, message) => message.kind === "user"
@@ -322,6 +400,32 @@ export function AssistantChat({
       /* The reply remains usable without persistent storage. */
     }
   }, [hostKey, chrome, replyText]);
+  // WebKit has no scroll anchoring, and rows outside the viewport only
+  // estimate their height. Keep the row the reader is on where they saw it
+  // whenever older rows join or anything above it changes size.
+  const anchor = useRef<ReadingAnchor | undefined>(undefined);
+  const firstRenderedId = renderedMessages[0]?.id;
+  const previousFirstId = useRef(firstRenderedId);
+  useLayoutEffect(() => {
+    const element = log.current;
+    const prepended = previousFirstId.current !== undefined &&
+      previousFirstId.current !== firstRenderedId;
+    previousFirstId.current = firstRenderedId;
+    if (!element) return;
+    if (prepended) {
+      if (followLog.current || !anchor.current)
+        element.scrollTop = followScrollTop(element, !!chrome);
+      else restoreReadingAnchor(element, anchor.current);
+      anchor.current = readingAnchor(element);
+    }
+    // A short page has no scrollbar to reach the top with; fill it first.
+    if (
+      visible &&
+      hasOlderHistory &&
+      element.scrollHeight - element.clientHeight < HISTORY_LOAD_DISTANCE
+    )
+      showOlderHistory();
+  }, [firstRenderedId, chrome, visible, hasOlderHistory, showOlderHistory]);
   useLayoutEffect(() => {
     if (!visible) return;
     syncHeaderHeight(chat.current, !!chrome);
@@ -336,6 +440,7 @@ export function AssistantChat({
       syncHeaderHeight(chat.current, !!chrome);
       if (followLog.current)
         element.scrollTo?.({ top: followScrollTop(element, !!chrome) });
+      else anchor.current = restoreReadingAnchor(element, anchor.current);
     });
     observer.observe(element);
     // Markdown grows between RPC updates while characters are being revealed.
@@ -651,9 +756,10 @@ export function AssistantChat({
             {t("Assistant is unavailable on this Host")}
           </p>
         ) : supported === undefined || assistant === undefined ? (
-          <p className="assistant-availability" role="status">
-            {t("Connecting…")}
-          </p>
+          <div className="assistant-availability assistant-loading" role="status">
+            <Loader2 className="assistant-loading-spinner" size={22} aria-hidden="true" />
+            <span>{t(supported ? "Loading messages…" : "Connecting…")}</span>
+          </div>
         ) : (
           <div className="assistant-body">
             <SettingsPanel
@@ -739,6 +845,11 @@ export function AssistantChat({
                     replyMenu.cancelHold();
                     const element = log.current;
                     if (element) {
+                      if (
+                        hasOlderHistory &&
+                        element.scrollTop < HISTORY_LOAD_DISTANCE
+                      )
+                        showOlderHistory();
                       followLog.current = mobile
                         ? Math.abs(
                             element.scrollTop - followScrollTop(element, true),
@@ -748,6 +859,7 @@ export function AssistantChat({
                             element.clientHeight <
                           60;
                       element.dataset.followLatest = String(followLog.current);
+                      anchor.current = readingAnchor(element);
                     }
                   }}
                 >
@@ -764,10 +876,20 @@ export function AssistantChat({
                       </p>
                     </div>
                   )}
+                  {hasOlderHistory && (
+                    <div className="assistant-history-loading" role="status">
+                      <Loader2
+                        className="assistant-loading-spinner"
+                        size={16}
+                        aria-hidden="true"
+                      />
+                      <span>{t("Loading earlier messages…")}</span>
+                    </div>
+                  )}
                   <AssistantMessages
                     readImage={readImage}
                     onOpenAttachment={openAttachment}
-                    messages={visibleMessages}
+                    messages={renderedMessages}
                     pendingUserMessageId={pendingUserMessageId}
                     canRead={!!assistant.policy.permissions["sessions.read"]}
                     allowedProjects={messageProjects}
