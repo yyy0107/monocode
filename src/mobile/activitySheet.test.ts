@@ -72,12 +72,13 @@ const dialog = () =>
 describe("mobile activity sheet", () => {
   it("opens a settled group's steps in a sheet, then a step's details with a way back", () => {
     const node = render(settledTurn);
-    act(() => node.querySelector<HTMLButtonElement>('[aria-label="Show the work"]')!.click());
-    const group = node.querySelector<HTMLButtonElement>("[data-activity-sheet]")!;
-    expect(group.hasAttribute("aria-expanded")).toBe(false);
-    expect(group.textContent).toContain("+2−1");
-    act(() => group.click());
-    expect(group.nextElementSibling?.getAttribute("data-open")).toBe("false");
+    // The turn's fold line is the one tap between the answer and its steps.
+    const fold = node.querySelector<HTMLButtonElement>("[data-activity-sheet]")!;
+    expect(fold.getAttribute("aria-label")).toBe("Show the work");
+    expect(fold.hasAttribute("aria-expanded")).toBe(false);
+    expect(fold.textContent).toContain("+2−1");
+    act(() => fold.click());
+    expect(node.querySelector(".mobile-session-row, .zen-phase-body")).toBeNull();
     const steps = [...dialog()!.querySelectorAll(".mobile-activity-step")];
     expect(steps.map((step) => step.textContent)).toEqual([
       expect.stringContaining("a.ts"),
@@ -91,6 +92,19 @@ describe("mobile activity sheet", () => {
       .find((button) => button.getAttribute("aria-label") === "Back")!;
     act(() => back.click());
     expect(dialog()?.querySelector(".mobile-activity-sheet")).not.toBeNull();
+  });
+
+  it("opens a live group's steps from its header while the turn runs", () => {
+    const node = render([
+      { id: "user", role: "user", text: "Fix it", startedAt: Date.now() },
+      edit("a", "a.ts"),
+      shell("b", "pending"),
+    ], "running");
+    const group = node.querySelector<HTMLButtonElement>("[data-activity-sheet]")!;
+    expect(group.getAttribute("aria-haspopup")).toBe("dialog");
+    act(() => group.click());
+    const running = dialog()!.querySelectorAll(".mobile-activity-step")[1];
+    expect(running.querySelector(".mobile-spin")).not.toBeNull();
   });
 
   it("keeps a group with a pending approval inline so it can be answered", () => {

@@ -283,7 +283,7 @@ function AgentTranscriptComponent({
     animateFrom,
   });
   const { t: uiT } = useTranslation();
-  const { liveClockInFooter } = useContext(TranscriptPlatformContext);
+  const { liveClockInFooter, openActivity } = useContext(TranscriptPlatformContext);
   const blocks = useMemo(() => {
     let turnHarness = harness;
     let changed = false;
@@ -1070,6 +1070,8 @@ function AgentTranscriptComponent({
           const lastItem = items.at(-1);
           const liveActivity =
             lastItem?.type === "activity" ? lastItem : undefined;
+          // Clients with a step sheet list a settled turn's work there in one tap.
+          const sheetFold = !!openActivity && !!fold && !live;
           const foldLineRow = (
             <TurnRow key="work-fold" folded={!showFoldLine}>
               <WorkFoldLine
@@ -1078,8 +1080,11 @@ function AgentTranscriptComponent({
                 harness={turnHarness}
                 live={live}
                 expandable={!!fold}
-                open={workOpen && !!fold}
-                onToggle={() => toggleWork(turnId, workOpen)}
+                open={workOpen && !!fold && !sheetFold}
+                sheet={sheetFold ? workDiffStats(folded) : undefined}
+                onToggle={() =>
+                  sheetFold ? openActivity!(folded) : toggleWork(turnId, workOpen)
+                }
               />
             </TurnRow>
           );
@@ -2199,6 +2204,7 @@ function WorkFoldLine({
   live = false,
   expandable,
   open,
+  sheet,
   onToggle,
 }: {
   title: ReactNode;
@@ -2207,10 +2213,12 @@ function WorkFoldLine({
   live?: boolean;
   expandable: boolean;
   open: boolean;
+  /** Set when tapping lists the work in a sheet; carries the edit totals. */
+  sheet?: { additions: number; deletions: number };
   onToggle: () => void;
 }) {
   const { t: uiT } = useTranslation();
-  const iconTone = expandable
+  const iconTone = expandable && !sheet
     ? `transition-opacity ${open ? "opacity-0" : "group-hover:opacity-0 group-focus-within:opacity-0"}`
     : "";
   const icon = (
@@ -2223,7 +2231,7 @@ function WorkFoldLine({
       ) : (
         <ActivityPhaseIcon kind={kind} className={iconTone} />
       )}
-      {expandable ? (
+      {expandable && !sheet ? (
         <ChevronRight
           className={`zen-disclosure-chevron absolute size-3.5 ${open ? "rotate-90" : ""}`}
         />
@@ -2253,6 +2261,28 @@ function WorkFoldLine({
         {icon}
         {label}
       </div>
+    );
+  }
+  if (sheet) {
+    return (
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-label={uiT("Show the work")}
+        onClick={onToggle}
+        className={`group ${row}`}
+        data-activity-sheet
+      >
+        {icon}
+        {label}
+        {sheet.additions > 0 || sheet.deletions > 0 ? (
+          <span className="shrink-0 font-mono text-xs">
+            <span className="text-emerald-400">+{sheet.additions}</span>
+            <span className="ms-1 text-red-400">−{sheet.deletions}</span>
+          </span>
+        ) : null}
+        <ChevronRight className="size-3.5 shrink-0 text-foreground-subtlest" />
+      </button>
     );
   }
   return (

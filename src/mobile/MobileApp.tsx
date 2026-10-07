@@ -1922,10 +1922,7 @@ export function MobileApp() {
           }}
         >
           <RefreshCw size={20} />
-          <span className="flex-1">{t("App updates")}</span>
-          {appUpdates.available ? (
-            <span className="mobile-unread-dot" aria-hidden="true" />
-          ) : null}
+          <span>{t("App updates")}</span>
         </button>
       </MobileSheet>
       <MobileHomeMenu

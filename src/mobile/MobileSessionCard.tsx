@@ -75,7 +75,9 @@ export function MobileSessionCard({
         )}
       </span>
       {session.preview && (
-        <span className="mobile-session-card-preview">{session.preview}</span>
+        <span className="mobile-session-card-preview">
+          <span>{session.preview}</span>
+        </span>
       )}
     </button>
   );

@@ -1190,16 +1190,39 @@ html[data-mobile-glass="solid"] :is(
 }
 .mobile-session-card-preview {
   grid-column: 1 / -1;
-  display: -webkit-box;
+  display: block;
   margin-top: 12px;
   padding: 12px 14px;
-  overflow: hidden;
   border-radius: 14px;
   background: var(--mobile-fill);
   font-size: 15px;
   line-height: 1.45;
+}
+/* Clamp the text itself so the padding never shows a sliver of a third line. */
+.mobile-session-card-preview > span {
+  display: -webkit-box;
+  overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+/* Home keeps one compact, high-contrast action at the thumb's corner. */
+.mobile-home:not([data-project="true"]) .mobile-home-dock {
+  justify-content: flex-end;
+}
+.mobile-home:not([data-project="true"]) .mobile-home-new {
+  width: auto;
+  min-height: 52px;
+  padding: 12px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-content);
+  color: var(--color-background-base);
+  font-size: 17px;
+  font-weight: 600;
+  box-shadow: 0 8px 28px #0003;
+}
+.mobile-home:not([data-project="true"]) .mobile-home-new:active {
+  background: color-mix(in srgb, var(--color-content) 85%, var(--color-background-base));
 }
 .mobile-home[data-project="true"] .mobile-home-dock {
   isolation: isolate;
