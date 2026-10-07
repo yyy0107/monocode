@@ -284,6 +284,7 @@ Connect another computer using an SSH forward to the loopback port.`);
     let stopping = false;
     let stop: () => Promise<void>;
     let closeAdapters = () => {};
+    let adaptersListening = false;
     // A separate local administrative credential cannot be used as a paired
     // client credential, and is never sent to the desktop.
     const server = createHostServer(engine, available, (request, response) => {
@@ -307,6 +308,13 @@ Connect another computer using an SSH forward to the loopback port.`);
           if (action === "retireLegacyOrchestration") {
             await engine.retireLegacyOrchestration(input.manifest as LegacyRetirementManifest);
             response.end(JSON.stringify({ retired: true }));
+            return;
+          }
+          if (action === "listenAdapters") {
+            // A Host reused by the desktop may predate --listen-adapters.
+            if (!adaptersListening) closeAdapters = listenOnAdapters(server, port);
+            adaptersListening = true;
+            response.end(JSON.stringify({ listening: true }));
             return;
           }
           if (action !== "status" && action !== "stop") {
@@ -335,7 +343,10 @@ Connect another computer using an SSH forward to the loopback port.`);
       server.once("error", reject);
       server.listen(port, "127.0.0.1", resolve);
     });
-    if (listenAdapters) closeAdapters = listenOnAdapters(server, port);
+    if (listenAdapters) {
+      closeAdapters = listenOnAdapters(server, port);
+      adaptersListening = true;
+    }
     writeFileSync(
       statePath,
       JSON.stringify({ pid: process.pid, port, secret }),

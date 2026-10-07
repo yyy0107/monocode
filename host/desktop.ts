@@ -119,6 +119,17 @@ export async function prepareDesktopHost(
         started.stderr || "Could not start shared conversation service",
       );
   }
+  {
+    // The desktop's Host serves paired phones, even when it was started
+    // without --listen-adapters. Older Hosts reject the action until restarted.
+    const state = JSON.parse(readFileSync(runningPath, "utf8"));
+    await fetch(`http://127.0.0.1:${state.port}/lifecycle`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${state.secret}`, "Content-Type": "application/json", Connection: "close" },
+      body: '{"action":"listenAdapters"}',
+      signal: AbortSignal.timeout(3_000),
+    }).catch(() => undefined);
+  }
   if (retirement) {
     const state = JSON.parse(readFileSync(runningPath, "utf8"));
     const response = await fetch(`http://127.0.0.1:${state.port}/lifecycle`, {

@@ -8,7 +8,7 @@ export type PairingHostCandidate = {
 };
 
 /** Container and VM bridges a phone cannot reach. */
-const VIRTUAL_INTERFACE = /^(docker|br-|veth|virbr|vmnet|vboxnet|cni|flannel|podman|lxc|lxd)/i;
+const VIRTUAL_INTERFACE = /^(docker|br-|veth|virbr|vmnet|vboxnet|cni|flannel|podman|lxc|lxd|vethernet)/i;
 
 function isTailscaleAddress(address: string): boolean {
   const [a, b] = address.split(".").map(Number);
@@ -21,7 +21,8 @@ export function adapterAddresses(): string[] {
   for (const [name, entries] of Object.entries(networkInterfaces())) {
     if (VIRTUAL_INTERFACE.test(name)) continue;
     for (const entry of entries ?? [])
-      if (!entry.internal && entry.family === "IPv4" && !addresses.includes(entry.address))
+      // 169.254.* is link-local: assigned when an adapter has no network.
+      if (!entry.internal && entry.family === "IPv4" && !entry.address.startsWith("169.254.") && !addresses.includes(entry.address))
         addresses.push(entry.address);
   }
   return addresses;
