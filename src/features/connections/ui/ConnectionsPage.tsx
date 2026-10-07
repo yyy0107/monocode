@@ -87,11 +87,18 @@ function ControlThisComputer() {
   const [confirming, setConfirming] = useState<string>();
   const [revoking, setRevoking] = useState<string>();
   const alive = useRef(true);
-  useEffect(() => () => void (alive.current = false), []);
+  useEffect(() => {
+    // StrictMode replays setup after cleanup; responses must be accepted again.
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!machineId) return;
     setLoading(true);
+    setError("");
     try {
       const result = await remoteRequest<{ devices: HostDevice[] }>(
         machineId,
@@ -154,6 +161,10 @@ function ControlThisComputer() {
           <p className="px-4 py-4 text-ui-base text-foreground-subtle">
             {t("The conversation service on this computer is not running.")}
           </p>
+        ) : !devices && error ? (
+          <p role="alert" className="whitespace-pre-wrap break-words px-4 py-4 text-ui-base text-red-400">
+            {error}
+          </p>
         ) : !devices ? (
           <div className="flex items-center gap-2 px-4 py-4 text-ui-base text-foreground-subtle">
             <Loader className="size-4 animate-spin" />
@@ -211,7 +222,7 @@ function ControlThisComputer() {
           ))
         )}
       </div>
-      {error ? (
+      {error && devices ? (
         <p role="alert" className="whitespace-pre-wrap break-words text-ui-caption text-red-400">
           {error}
         </p>
