@@ -120,7 +120,7 @@ it.each(["user", "assistant"] as const)("renders persisted %s attachments above 
   await act(async () => root.render(createElement(AssistantMessages, props)));
   const media = node.querySelector(".assistant-message-media")!;
   expect(media.querySelector(".attachment-chip-thumbnail")?.getAttribute("src")).toBe(`data:image/png;base64,${btoa("png")}`);
-  expect(media.querySelector(".attachment-chip-tile")?.textContent).toBe("notes.txt");
+  expect(media.querySelector(".attachment-chip-card-name")?.textContent).toBe("notes.txt");
   expect(media.nextElementSibling?.textContent).toBe("Caption");
   act(() => media.querySelector<HTMLButtonElement>("[aria-label=\"Open notes.txt\"]")!.click());
   expect(props.onOpenAttachment).toHaveBeenCalledExactlyOnceWith("message", props.messages[0].attachments[1]);

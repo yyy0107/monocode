@@ -1752,21 +1752,19 @@ html.has-user-accent .mobile-send:not(:disabled) {
   width: 72px;
   height: 72px;
 }
-.mobile-composer-attachments .attachment-chip-image .attachment-chip-remove {
+.mobile-composer-attachments .attachment-chip-remove {
   width: 20px;
   height: 20px;
   min-width: 20px;
   min-height: 20px;
 }
 .mobile-composer-attachments
-  .attachment-chip-image
   .attachment-chip-remove::after {
   content: "";
   position: absolute;
   inset: -6px;
 }
 .mobile-composer-attachments
-  .attachment-chip-image
   .attachment-chip-remove
   svg {
   width: 10px;

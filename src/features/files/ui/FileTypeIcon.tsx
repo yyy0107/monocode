@@ -40,6 +40,10 @@ function getSnapshot() {
   return pack;
 }
 
+const MARKDOWN_FILE = /\.(md|markdown)$/i;
+const MARKDOWN_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="22 -21 170 170"><path fill="#42a5f5" d="M30 98V30h20l20 25 20-25h20v68H90V59L70 84 50 59v39zm125 0l-30-33h20V30h20v35h20z"/></svg>';
+
 /** Filename maps to the matching Material Icon Theme icon. */
 export const FileTypeIcon = memo(function FileTypeIcon({
   name,
@@ -50,17 +54,19 @@ export const FileTypeIcon = memo(function FileTypeIcon({
 }: Props) {
   const icons = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-  const iconName = icons
+  // The pack draws Markdown (and README.md) as an info glyph; use the M↓ mark.
+  const markdown = !isDir && MARKDOWN_FILE.test(name);
+  const iconName = icons && !markdown
     ? isDir
       ? icons.getFolderIcon({ folderName: name, isOpen, isRoot })
       : resolveFileIcon(icons, name)
     : "";
-  const svg = icons?.getIconSvg(iconName) ?? "";
+  const svg = markdown ? MARKDOWN_SVG : (icons?.getIconSvg(iconName) ?? "");
   // React compares this prop by identity. A fresh object replaces the SVG
   // subtree even when the glyph is unchanged (for example, on resize).
   const markup = useMemo(() => ({ __html: svg }), [svg]);
 
-  if (!icons) {
+  if (!icons && !markdown) {
     return (
       <span
         aria-hidden

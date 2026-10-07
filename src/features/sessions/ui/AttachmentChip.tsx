@@ -22,14 +22,20 @@ export function AttachmentChip({ attachment, onRemove, tile = false, onOpen }: P
   const image = attachment.kind === "image" && preview;
   const fileTile = tile && !image;
   const openLabel = uiT("Open {value0}", { value0: String(attachment.name) });
+  const extension = /\.([^./\\]+)$/.exec(attachment.name)?.[1];
+  const typeLabel = isAttachmentFolder(attachment)
+    ? uiT("Folder")
+    : extension ? extension.toUpperCase() : uiT("File");
 
   return (
     <>
       <div
         className={`group relative flex min-w-0 items-center gap-1.5 rounded-md ${
-          image || fileTile
+          image
             ? "attachment-chip-image"
-            : "bg-content/10 py-0.5 pl-1 pr-1"
+            : fileTile
+              ? "attachment-chip-file"
+              : `bg-content/10 py-0.5 pl-1 ${onRemove ? "pr-4" : "pr-1"}`
         }`}
         title={attachment.path ?? attachment.name}
       >
@@ -65,15 +71,18 @@ export function AttachmentChip({ attachment, onRemove, tile = false, onOpen }: P
               event.stopPropagation();
               onOpen?.();
             }}
-            className="shrink-0 rounded-lg enabled:cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="attachment-chip-card enabled:cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
-            <span className="attachment-chip-thumbnail attachment-chip-tile">
+            <span className="attachment-chip-card-icon">
               <FileTypeIcon
                 name={attachment.name}
                 isDir={isAttachmentFolder(attachment)}
-                size={28}
+                size={22}
               />
-              <span className="attachment-chip-tile-name">{attachment.name}</span>
+            </span>
+            <span className="attachment-chip-card-text">
+              <span className="attachment-chip-card-name">{attachment.name}</span>
+              <span className="attachment-chip-card-type">{typeLabel}</span>
             </span>
           </button>
         ) : (
@@ -101,11 +110,7 @@ export function AttachmentChip({ attachment, onRemove, tile = false, onOpen }: P
               event.stopPropagation();
               onRemove();
             }}
-            className={`attachment-chip-remove grid shrink-0 place-items-center rounded-full text-content/70 hover:bg-content/15 hover:text-content ${
-              image || fileTile
-                ? "absolute -right-1 -top-1 size-5 bg-content/20 opacity-100 shadow-sm backdrop-blur-sm"
-                : "size-4 text-content/40"
-            }`}
+            className="attachment-chip-remove absolute -right-1 -top-1 grid size-5 shrink-0 place-items-center rounded-full bg-content/20 text-content/70 opacity-100 shadow-sm backdrop-blur-sm hover:bg-content/15 hover:text-content"
           >
             <X className="size-3" strokeWidth={2} />
           </button>
