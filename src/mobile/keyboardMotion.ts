@@ -1,3 +1,4 @@
+import { reducedMotionQuery } from "../shared/lib/reducedMotion";
 // Follows the Android soft keyboard. MainActivity reports where the keyboard
 // is heading, with its duration and easing curve, as each animation starts.
 // The WebView stays full screen. Only the mobile shell's height changes, once
@@ -267,9 +268,7 @@ export function installKeyboardMotion(root = document.documentElement) {
     height = Math.max(0, next);
     const duration = Math.max(0, Number(detail.duration) || 0);
     const easing = supportedEasing(detail.easing);
-    const reduced = window.matchMedia?.(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
+    const reduced = reducedMotionQuery().matches;
     const effectiveDuration = reduced ? 0 : duration;
     motionEndsAt = performance.now() + effectiveDuration;
     // Keep tall answer cards clear of both ends of a motion. In particular,

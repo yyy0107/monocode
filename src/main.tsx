@@ -7,6 +7,7 @@ import {
   initAppearance,
 } from "./features/settings/model/appearance";
 import { initSounds } from "./features/settings/model/sounds";
+import { initTypography } from "./features/settings/model/typography";
 import {
   abortQuit,
   askQuitConfirmation,
@@ -34,6 +35,7 @@ const appLoaded = import("./app/App");
 
 initUiLanguage();
 initAppearance();
+initTypography();
 initSounds();
 const providerAccountsPrimed = initProviderAccountPublishing().catch(() => undefined);
 const sharedDefaultsPrimed = loadSharedProviderDefaults().catch(() => undefined);

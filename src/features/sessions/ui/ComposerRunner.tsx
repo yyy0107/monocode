@@ -35,6 +35,7 @@ import {
   type Obstacle,
   type RunnerTrack,
 } from "../model/composerRunner";
+import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
 import { useProjectMascotAppearance } from "../../projects/ui/useProjectMascotAppearance";
 import { observeAnimationVisibility } from "../../../shared/lib/animationVisibility";
@@ -106,7 +107,7 @@ export function ComposerRunner({
     let cachedTrack: RunnerTrack | null = null;
     let cachedObstacle: Obstacle | null = null;
     const coins: LiveCoin[] = [];
-    let reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let reduced = reducedMotionQuery().matches;
     let viewportVisible = !document.hidden;
     let pausedAt: number | null = null;
     let learned = reduced;

@@ -1,4 +1,5 @@
 import type { StepRunStatus } from "../workflow-graph/types.js";
+import { reducedMotionQuery } from "../../../../../shared/lib/reducedMotion";
 
 export type FaceState = "waiting" | "scanning" | "content" | "sad";
 export type EyeExpression = "dots" | "pill" | "happy" | "sleepy" | "focused" | "sad" | "confused";
@@ -26,7 +27,7 @@ const SPECIAL: Record<FaceState, readonly EyeExpression[]> = {
 
 /** 一张脸只有一个待执行计时器；DOM 动作不触发整个工作流的 React 重渲染。 */
 export function startFaceMotion(face: SVGSVGElement, state: FaceState): () => void {
-  const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+  const media = reducedMotionQuery();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let visible = true;
   let rounds = 0;

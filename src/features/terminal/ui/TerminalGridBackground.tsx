@@ -4,6 +4,7 @@ import {
   HARNESS_ICONS,
   MONOCHROME_HARNESSES,
 } from "../../sessions/ui/HarnessIcon";
+import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 import {
   MASCOT_GRID,
   PROJECT_MASCOTS,
@@ -188,7 +189,7 @@ export function TerminalGridBackground({
     visible: typeof document === "undefined" || !document.hidden,
     reducedMotion:
       typeof window !== "undefined" &&
-      (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false),
+      reducedMotionQuery().matches,
   }));
   const visibleRef = useRef(visible);
   const refreshRef = useRef<(() => void) | null>(null);

@@ -1,3 +1,4 @@
+import { reducedMotionQuery } from "./reducedMotion";
 export type AnimationVisibility = {
   visible: boolean;
   reducedMotion: boolean;
@@ -9,7 +10,7 @@ export function observeAnimationVisibility(
   change: (activity: AnimationVisibility) => void,
 ) {
   let intersecting = true;
-  const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+  const media = reducedMotionQuery();
   const publish = () =>
     change({
       visible: intersecting && !document.hidden,

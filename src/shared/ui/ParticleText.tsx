@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
+import { reducedMotionQuery } from "../lib/reducedMotion";
 
 /** Room around the text for particles drifting past its box. */
 const PAD = 20;
@@ -22,7 +23,7 @@ type Particle = {
 };
 
 function reducedMotion(): boolean {
-  return !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  return reducedMotionQuery().matches;
 }
 
 function fitText(ctx: CanvasRenderingContext2D, text: string, width: number) {

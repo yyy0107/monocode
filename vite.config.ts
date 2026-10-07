@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import fontScale from "./scripts/postcss-font-scale.mjs";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -12,6 +13,8 @@ export default defineConfig(async ({ mode }) => {
     plugins: [react(), tailwindcss()],
     // Pierre's highlighting worker imports Shiki's WASM engine dynamically.
     worker: { format: "es" },
+    // Settings → Appearance font sizes and reduced-motion override.
+    css: { postcss: { plugins: [fontScale()] } },
     clearScreen: false,
     build: {
       rollupOptions: {

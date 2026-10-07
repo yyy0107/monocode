@@ -5,6 +5,9 @@
 @source "../../node_modules/@streamdown/mermaid/dist/*.js";
 
 @custom-variant dark (&:where(html:not(.theme-light), html:not(.theme-light) *));
+/* shadcn's Radix state variants, used by the ported ZCode switch. */
+@custom-variant data-checked (&:where([data-state="checked"], [data-checked]:not([data-checked="false"])));
+@custom-variant data-unchecked (&:where([data-state="unchecked"], [data-unchecked]:not([data-unchecked="false"])));
 
 @container settings (width < 560px) {
   .settings-row {
@@ -61,7 +64,7 @@
   );
   --color-foreground-subtle: color-mix(
     in srgb,
-    var(--color-content) 60%,
+    var(--color-content) calc(60% + var(--contrast-offset, 0) * 20%),
     transparent
   );
   --color-foreground-subtlest: color-mix(
@@ -108,13 +111,16 @@
   --color-accent: var(--accent-color);
   --color-skill: #e8c547;
   --color-mention: #38bdf8;
+  /* Settings → Appearance → Code font prepends `--user-code-font`. */
   --font-mono:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    var(--user-code-font,) ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
     "Noto Sans CJK SC", monospace;
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
     Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  /* Settings → Appearance → Content font; empty follows the interface. */
+  --font-content: var(--user-content-font,) var(--font-sans);
 }
 
 /* ZCode component tokens used by the ported dynamic-workflow UI, derived from
@@ -176,6 +182,10 @@
   --theme-saturation: 0%;
   --theme-dark-lightness: 9%;
   --ui-font-size: 14px;
+  /* Settings → Appearance font sizes. The build rewrites every px and
+     --text-* font-size to scale by --font-scale; containers below choose
+     which of the three scales their text follows. */
+  --font-scale: var(--ui-font-scale, 1);
   /* Zai Dark: #2b2b2b window frame, #161616 content panels, #202020 headers,
      #2b2b2b cards and menus, #363636 menu hover. */
   --window-color: hsl(
@@ -194,10 +204,12 @@
     var(--theme-hue) var(--theme-saturation)
       calc(var(--background-lightness) + 12.6%)
   );
-  --stroke-strength: 10%;
+  /* Settings → Appearance → Contrast moves these around the stock values;
+     `--contrast-offset` is -1…1 and 0 by default. */
+  --stroke-strength: calc(10% + var(--contrast-offset, 0) * 6%);
   --surface-strength: 5%;
   --surface-hover-strength: 10%;
-  --subtlest-strength: 30%;
+  --subtlest-strength: calc(30% + var(--contrast-offset, 0) * 15%);
   --brand-color: #ffffff;
   --brand-foreground: #000000;
   --accent-color: #4099ff;
@@ -211,7 +223,7 @@
   --selection-hover-strength: 10%;
   --selection-emphasis-strength: 15%;
   --background-lightness: var(--theme-dark-lightness);
-  --content-lightness: 83%;
+  --content-lightness: calc(83% + var(--contrast-offset, 0) * 12%);
   --link-color: #4099ff;
   --color-skill: #e8c547;
   --color-mention: #38bdf8;
@@ -225,15 +237,15 @@ html {
 html.theme-light {
   /* Zai Light: #ececee window frame, #f8f8f8 content panels, white cards. */
   --background-lightness: 97%;
-  --content-lightness: 15%;
+  --content-lightness: calc(15% - var(--contrast-offset, 0) * 10%);
   --window-color: hsl(var(--theme-hue) var(--theme-saturation) 93%);
   --panel-color: hsl(var(--theme-hue) var(--theme-saturation) 100%);
   --card-color: hsl(var(--theme-hue) var(--theme-saturation) 100%);
   --menu-hover-color: hsl(var(--theme-hue) var(--theme-saturation) 94%);
-  --stroke-strength: 10%;
+  --stroke-strength: calc(10% + var(--contrast-offset, 0) * 6%);
   --surface-strength: 3%;
   --surface-hover-strength: 5%;
-  --subtlest-strength: 40%;
+  --subtlest-strength: calc(40% + var(--contrast-offset, 0) * 15%);
   --brand-color: #000000;
   --brand-foreground: #ffffff;
   --accent-color: #0066dd;
@@ -275,6 +287,29 @@ html:not(.is-mac) #root {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+body {
+  font-weight: var(--ui-font-weight, 400);
+}
+
+/* Settings → Appearance: conversation and document text follow the content
+   font and size; code inside them and diffs follow the code size. */
+.agent-transcript,
+.markdown-preview,
+.whats-new-md,
+.inbox-comment-md {
+  --font-scale: var(--content-font-scale, 1);
+  font-family: var(--font-content);
+  font-weight: var(--content-font-weight, 400);
+}
+
+:is(.agent-transcript, .markdown-preview, .whats-new-md, .inbox-comment-md)
+  :where(pre, code),
+.unified-diff,
+.inbox-pr-diff {
+  --font-scale: var(--code-font-scale, 1);
+  font-weight: var(--code-font-weight, 400);
 }
 
 html:not(.is-mac) ::-webkit-scrollbar {
@@ -2397,6 +2432,45 @@ header[data-tauri-drag-region] button {
   border-radius: 999px;
   background: var(--color-content);
   cursor: pointer;
+}
+
+/* Settings slider: accent-filled track up to the value, dark round thumb. */
+.settings-slider {
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--color-accent) var(--slider-fill, 0%),
+    color-mix(in srgb, var(--color-content) 15%, transparent)
+      var(--slider-fill, 0%)
+  );
+  outline: none;
+}
+
+.settings-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--color-content);
+  box-shadow: 0 0 0 2px var(--color-card);
+  cursor: pointer;
+  transition: transform var(--motion-feedback-duration) var(--motion-ease-out);
+}
+
+.settings-slider:not(:disabled):active::-webkit-slider-thumb {
+  transform: scale(1.1);
+}
+
+.settings-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 2px var(--color-card),
+    0 0 0 4px color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+.settings-slider:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
 }
 
 .agent-markdown [data-streamdown="code-block"],
