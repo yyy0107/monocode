@@ -58,7 +58,11 @@ export function SidebarMain({
     }
 
     // CSS shortens an interrupted transition when it reverses. Follow the
-    // sidebar's actual timing so the two touching edges cannot drift apart.
+    // sidebar's actual duration so the two touching edges cannot drift apart.
+    // The curve stays the sidebar's own: per spec (and in WebKit/WebKitGTK) a
+    // CSS transition reports `linear` effect easing and keeps its timing
+    // function on the keyframes, which would slide this surface linearly
+    // behind an ease-out sidebar and open a gap while collapsing.
     const sidebar = el.parentElement!.querySelector(
       ":scope > [data-sidebar-transition] .sidebar-transition-clip",
     );
@@ -79,7 +83,7 @@ export function SidebarMain({
           typeof timing?.duration === "number"
             ? timing.duration
             : SIDEBAR_TRANSITION_MS,
-        easing: timing?.easing ?? SIDEBAR_TRANSITION_EASING,
+        easing: SIDEBAR_TRANSITION_EASING,
       },
     );
     animation.current = motion;
