@@ -126,7 +126,7 @@ async function submit() {
 }
 
 describe("mobile connection settings", () => {
-  it.each(["header", "native"])("returns through Appearance with %s back and retains glass settings", async (backMode) => {
+  it.each(["header", "native"])("opens Glass from the root and returns with %s back, retaining glass settings", async (backMode) => {
     if (backMode === "native")
       vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
     const back = () => act(() => {
@@ -134,18 +134,17 @@ describe("mobile connection settings", () => {
       else button("Back").click();
     });
     await render();
-    expect(active("#mobile-theme, #mobile-follow-up, #mobile-glass-effect")).toBeNull();
+    expect(active("#mobile-follow-up, #mobile-glass-effect")).toBeNull();
+    expect(active("#mobile-theme")!.textContent).toBe("Dark");
     expect(active("#mobile-language")).not.toBeNull();
     expect(button("Notifications").querySelector(".mobile-settings-value")?.textContent).toBe("Off");
-    expect(button("Appearance").querySelector(".mobile-settings-value")?.textContent).toBe("Dark");
-    act(() => button("Appearance").click());
-    expect(active("header strong")?.textContent).toBe("Appearance");
-    const appearancePage = active("#mobile-theme")!.closest(".mobile-page-layer")!;
+    const rootPage = active("#mobile-theme")!.closest(".mobile-page-layer")!;
     act(() => button("Glass").click());
-    expect(appearancePage.hasAttribute("inert")).toBe(true);
+    expect(active("header strong")?.textContent).toBe("Glass");
+    expect(rootPage.hasAttribute("inert")).toBe(true);
     expect(active("#mobile-theme")).toBeNull();
-    act(() => appearancePage.dispatchEvent(new Event("animationend", { bubbles: true })));
-    expect(appearancePage.isConnected).toBe(false);
+    act(() => rootPage.dispatchEvent(new Event("animationend", { bubbles: true })));
+    expect(rootPage.isConnected).toBe(false);
     expect(active(".mobile-glass-preview")).not.toBeNull();
     act(() => active<HTMLButtonElement>("#mobile-glass-effect")!.click());
     act(() => [...node.querySelectorAll<HTMLButtonElement>('[role="radio"]')].filter(item => !item.closest('[inert]')).find((item) => item.textContent?.trim() === "Solid")!.click());
@@ -157,7 +156,7 @@ describe("mobile connection settings", () => {
       expect(active("header strong")?.textContent).toBe("Glass");
       back();
     }
-    expect(active("header strong")?.textContent).toBe("Appearance");
+    expect(active("header strong")?.textContent).toBe("MonoCode");
     expect(active("#mobile-theme")).not.toBeNull();
     expect(active("#mobile-glass-effect")).toBeNull();
     expect(button("Glass").textContent).toContain("Solid");
@@ -165,10 +164,19 @@ describe("mobile connection settings", () => {
     expect(active("#mobile-glass-effect")!.textContent).toBe("Solid");
     expect(active("#mobile-glass-effect")!.getAttribute("aria-expanded")).toBe("false");
     back();
-    back();
-    expect(active("#mobile-theme")).toBeNull();
-    expect(active("#mobile-language")).not.toBeNull();
+    expect(active("#mobile-glass-effect")).toBeNull();
     expect(active("header strong")?.textContent).toBe("MonoCode");
+  });
+
+  it("shows the installed version and opens app updates from the About menu", async () => {
+    await render();
+    act(() => button("About").click());
+    const about = active('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')!;
+    expect(about.getAttribute("aria-label")).toBe("About");
+    expect(about.querySelector(".mobile-about-version")?.textContent).toContain("MonoCode");
+    act(() => [...about.querySelectorAll<HTMLButtonElement>("button")]
+      .find((item) => item.textContent?.trim() === "App updates")!.click());
+    expect(active("header strong")?.textContent).toBe("App updates");
   });
 
   async function openConnectedSettings() {
@@ -335,7 +343,7 @@ describe("mobile connection settings", () => {
     });
     expect(localStorage.getItem(UI_LANGUAGE_KEY)).toBe("zh-CN");
     expect(active("header strong")!.textContent).toBe("MonoCode");
-    expect(button("外观").querySelector(".mobile-settings-value")?.textContent).toBe("深色");
+    expect(active("#mobile-theme")!.textContent).toBe("深色");
     expect(button("通知").querySelector(".mobile-settings-value")?.textContent).toBe("关闭");
     expect(button("编写器").querySelector(".mobile-settings-value")?.textContent).toBe("引导");
     act(() => button("添加连接").click());
@@ -354,9 +362,8 @@ describe("mobile connection settings", () => {
     expect(host.connect).not.toHaveBeenCalled();
   });
 
-  it("opens appearance from the keyboard, cancels without changes and saves a selected option", async () => {
+  it("opens the color mode dialog from the keyboard, cancels without changes and saves a selected option", async () => {
     await render();
-    act(() => button("Appearance").click());
     const appearance = active<HTMLButtonElement>("#mobile-theme")!;
     act(() => {
       appearance.focus();
@@ -367,6 +374,9 @@ describe("mobile connection settings", () => {
     expect(
       active('[role="radio"][aria-checked="true"]')!.textContent,
     ).toBe("Dark");
+    expect(
+      active('.mobile-sheet-backdrop[data-placement="dialog"] .mobile-sheet-title')?.textContent,
+    ).toBe("Color mode");
     act(() =>
       node
         .querySelector('[role="dialog"]')!
@@ -386,8 +396,7 @@ describe("mobile connection settings", () => {
     expect(active('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     expect(appearance.textContent).toBe("Light");
     expect(localStorage.getItem("monocode-mobile-theme")).toBe("light");
-    act(() => button("Back").click());
-    expect(button("Appearance").querySelector(".mobile-settings-value")?.textContent).toBe("Light");
+    expect(active("#mobile-theme")!.textContent).toBe("Light");
   });
 
   it("retains failed connection input for retry and closes only after success", async () => {

@@ -12,6 +12,7 @@ export function MobileSelect<T extends string>({
   onChange,
   disabled = false,
   sheetWidth = SHEET_WIDTH.menu,
+  presentation = "anchor",
 }: {
   id: string;
   label: string;
@@ -22,6 +23,8 @@ export function MobileSelect<T extends string>({
   onChange: (value: T) => void;
   disabled?: boolean;
   sheetWidth?: number;
+  /** A centred dialog suits a choice made from a settings row. */
+  presentation?: "anchor" | "dialog";
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const selected = options.find((option) => option.value === value);
@@ -53,9 +56,9 @@ export function MobileSelect<T extends string>({
       <MobileSheet
         open={open}
         title={label}
-        placement="anchor"
+        placement={presentation}
         anchor={trigger}
-        width={sheetWidth}
+        width={presentation === "dialog" ? SHEET_WIDTH.form : sheetWidth}
         align="end"
         onClose={() => onOpenChange(false)}
       >

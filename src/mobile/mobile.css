@@ -1710,6 +1710,32 @@ html.has-user-accent .mobile-send:not(:disabled) {
   padding: 10px;
   border-radius: 20px;
 }
+/* Choice dialogs float centred over a dimmed page. */
+.mobile-sheet-backdrop[data-placement="dialog"] {
+  align-items: center;
+  padding: 24px;
+}
+.mobile-sheet-backdrop[data-placement="dialog"] .mobile-sheet {
+  max-width: calc(100vw - 48px);
+  max-height: calc(100dvh - 48px);
+  padding: 18px 10px 10px;
+  border-radius: 28px;
+}
+.mobile-sheet-title {
+  margin: 0 14px 10px;
+  font-size: calc(18px + var(--mobile-popup-font-step, 0px));
+  font-weight: 600;
+}
+.mobile-sheet-backdrop[data-placement="dialog"][data-fold-state="opening"] .mobile-sheet {
+  animation: mobile-sheet-pop 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.mobile-sheet-backdrop[data-placement="dialog"][data-fold-state="closing"] .mobile-sheet {
+  animation: mobile-sheet-pop 120ms ease reverse both;
+}
+@keyframes mobile-sheet-pop {
+  from { transform: scale(0.96); }
+  to { transform: scale(1); }
+}
 .mobile-sheet-backdrop[data-fold-state="opening"] {
   animation: mobile-sheet-fade 200ms ease both;
 }
@@ -3633,6 +3659,14 @@ button.mobile-settings-row:active {
 .mobile-settings-label strong {
   font-weight: 500;
 }
+/* A row's current value reads as a subtitle under its name. */
+.mobile-settings-label > small.mobile-settings-value {
+  display: block;
+  gap: 0;
+  margin-top: -4px;
+  font-size: 14px;
+  line-height: 1.4;
+}
 .mobile-settings .mobile-app-updates {
   margin: 0;
   padding: 16px;
@@ -3802,4 +3836,10 @@ button.mobile-settings-row:active {
     animation: none;
     opacity: 0;
   }
+}
+
+.mobile-about-version {
+  margin: 6px 12px 8px;
+  font-size: calc(13px + var(--mobile-popup-font-step, 0px));
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
 }

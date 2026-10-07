@@ -20,7 +20,7 @@ import {
 } from "../features/settings/model/appearance";
 
 export type MobileSettingsPage =
-  "root" | "agents" | "appearance" | "notifications" | "chat" |
+  "root" | "agents" | "notifications" | "chat" |
   "connections" | "updates" | "glass" | "archive";
 export type MobilePreferencePanel =
   "theme" | "accent" | "language" | "glass" | "follow-up" | "transcript-layout" |
@@ -30,7 +30,6 @@ export type MobilePreferencePanel =
 const SETTINGS_TITLES: Record<MobileSettingsPage, string> = {
   root: "Settings",
   agents: "New conversations",
-  appearance: "Appearance",
   notifications: "Notifications",
   chat: "Message composer",
   connections: "Connections",
@@ -43,8 +42,8 @@ export function mobileSettingsTitle(page: MobileSettingsPage) {
   return SETTINGS_TITLES[page];
 }
 
-export function mobileSettingsParent(page: MobileSettingsPage): MobileSettingsPage {
-  return page === "glass" ? "appearance" : "root";
+export function mobileSettingsParent(_page: MobileSettingsPage): MobileSettingsPage {
+  return "root";
 }
 
 function GlassPreview({ label }: { label: string }) {
@@ -128,6 +127,7 @@ function AccentSelect({
   return (
     <MobileSelect
       id="mobile-accent"
+      presentation="dialog"
       label={t("Accent color")}
       value={value ?? "default"}
       open={open}
@@ -378,62 +378,6 @@ export function MobileSettings({
       </main>
     );
 
-  if (page === "appearance")
-    return (
-      <main key="appearance" className="mobile-content mobile-settings">
-        <Group title="Appearance">
-          <div className="mobile-settings-row">
-            <SettingsIcon name="appearance" />
-            <label className="mobile-settings-label" htmlFor="mobile-theme">
-              {t("Appearance")}
-            </label>
-            <MobileSelect
-              id="mobile-theme"
-              label={t("Appearance")}
-              value={theme}
-              open={preferencePanel === "theme"}
-              onOpenChange={(open) =>
-                onPreferencePanelChange(open ? "theme" : null)
-              }
-              onChange={onThemeChange}
-              options={[
-                { value: "dark", label: t("Dark") },
-                { value: "light", label: t("Light") },
-                { value: "system", label: t("System") },
-              ]}
-            />
-          </div>
-          <div className="mobile-settings-row">
-            <SettingsIcon name="accent" />
-            <label className="mobile-settings-label" htmlFor="mobile-accent">
-              {t("Accent color")}
-            </label>
-            <AccentSelect
-              value={accentColor}
-              onChange={onAccentColorChange}
-              open={preferencePanel === "accent"}
-              onOpenChange={(open) =>
-                onPreferencePanelChange(open ? "accent" : null)
-              }
-            />
-          </div>
-          <button
-            type="button"
-            className="mobile-settings-row"
-            aria-label={t("Glass")}
-            onClick={() => onPageChange("glass")}
-          >
-            <SettingsIcon name="glass" />
-            <span className="mobile-settings-label">{t("Glass")}</span>
-            <span className="mobile-settings-value">
-              {t(glass.effect === "liquid" ? "Liquid glass" : glass.effect === "frosted" ? "Frosted glass" : "Solid")}
-            </span>
-            <ChevronRight size={18} />
-          </button>
-        </Group>
-      </main>
-    );
-
   if (page === "notifications")
     return (
       <main key="notifications" className="mobile-content mobile-settings">
@@ -601,26 +545,15 @@ export function MobileSettings({
           <button
             type="button"
             className="mobile-settings-row"
-            aria-label={t("Appearance")}
-            onClick={() => onPageChange("appearance")}
-          >
-            <SettingsIcon name="appearance" />
-            <span className="mobile-settings-label">{t("Appearance")}</span>
-            <span className="mobile-settings-value">
-              {t(theme === "dark" ? "Dark" : theme === "light" ? "Light" : "System")}
-            </span>
-            <ChevronRight size={18} />
-          </button>
-          <button
-            type="button"
-            className="mobile-settings-row"
             aria-label={t("Notifications")}
             onClick={() => onPageChange("notifications")}
           >
             <SettingsIcon name="notifications" />
-            <span className="mobile-settings-label">{t("Notifications")}</span>
-            <span className="mobile-settings-value">
-              {t(activity.permission !== "unsupported" && activity.enabled ? "On" : "Off")}
+            <span className="mobile-settings-label">
+              <span>{t("Notifications")}</span>
+              <small className="mobile-settings-value">
+                {t(activity.permission !== "unsupported" && activity.enabled ? "On" : "Off")}
+              </small>
             </span>
             <ChevronRight size={18} />
           </button>
@@ -631,15 +564,53 @@ export function MobileSettings({
             onClick={() => onPageChange("chat")}
           >
             <SettingsIcon name="followUp" />
-            <span className="mobile-settings-label">{t("Message composer")}</span>
-            <span className="mobile-settings-value">
-              {t(followUpBehavior === "queue" ? "Queue" : "Steer")}
+            <span className="mobile-settings-label">
+              <span>{t("Message composer")}</span>
+              <small className="mobile-settings-value">
+                {t(followUpBehavior === "queue" ? "Queue" : "Steer")}
+              </small>
             </span>
             <ChevronRight size={18} />
           </button>
         </div>
       </section>
-      <Group title="General">
+      <Group title="Appearance">
+        <div className="mobile-settings-row">
+          <SettingsIcon name="appearance" />
+          <label className="mobile-settings-label" htmlFor="mobile-theme">
+            {t("Color mode")}
+          </label>
+          <MobileSelect
+            id="mobile-theme"
+            presentation="dialog"
+            label={t("Color mode")}
+            value={theme}
+            open={preferencePanel === "theme"}
+            onOpenChange={(open) =>
+              onPreferencePanelChange(open ? "theme" : null)
+            }
+            onChange={onThemeChange}
+            options={[
+              { value: "system", label: t("System") },
+              { value: "light", label: t("Light") },
+              { value: "dark", label: t("Dark") },
+            ]}
+          />
+        </div>
+        <div className="mobile-settings-row">
+          <SettingsIcon name="accent" />
+          <label className="mobile-settings-label" htmlFor="mobile-accent">
+            {t("Accent color")}
+          </label>
+          <AccentSelect
+            value={accentColor}
+            onChange={onAccentColorChange}
+            open={preferencePanel === "accent"}
+            onOpenChange={(open) =>
+              onPreferencePanelChange(open ? "accent" : null)
+            }
+          />
+        </div>
         <div className="mobile-settings-row">
           <SettingsIcon name="language" />
           <label className="mobile-settings-label" htmlFor="mobile-language">
@@ -647,6 +618,7 @@ export function MobileSettings({
           </label>
           <MobileSelect
             id="mobile-language"
+            presentation="dialog"
             label={t("Language")}
             value={language}
             open={preferencePanel === "language"}
@@ -660,10 +632,25 @@ export function MobileSettings({
             ]}
           />
         </div>
+        <button
+          type="button"
+          className="mobile-settings-row"
+          aria-label={t("Glass")}
+          onClick={() => onPageChange("glass")}
+        >
+          <SettingsIcon name="glass" />
+          <span className="mobile-settings-label">
+            <span>{t("Glass")}</span>
+            <small className="mobile-settings-value">
+              {t(glass.effect === "liquid" ? "Liquid glass" : glass.effect === "frosted" ? "Frosted glass" : "Solid")}
+            </small>
+          </span>
+          <ChevronRight size={18} />
+        </button>
       </Group>
       <section
         className="mobile-settings-group"
-        aria-label={t("Archived conversations")}
+        aria-label={t("More")}
       >
         <div className="mobile-settings-card">
           <button
@@ -677,25 +664,28 @@ export function MobileSettings({
             </span>
             <ChevronRight size={18} />
           </button>
-        </div>
-      </section>
-      <Group title="About">
-        <button
-          type="button"
-          className="mobile-settings-row"
-          onClick={() => onPageChange("updates")}
-        >
-          <SettingsIcon name="updates" />
-          <span className="mobile-settings-label">{t("App updates")}</span>
-          <span className="mobile-settings-value">
+          <button
+            type="button"
+            className="mobile-settings-row"
+            aria-label={t("App updates")}
+            onClick={() => onPageChange("updates")}
+          >
+            <SettingsIcon name="updates" />
+            <span className="mobile-settings-label">
+              <span>{t("App updates")}</span>
+              {appUpdates.installed ? (
+                <small className="mobile-settings-value">
+                  {appUpdates.installed.version}
+                </small>
+              ) : null}
+            </span>
             {appUpdates.available ? (
               <span className="mobile-unread-dot" aria-hidden="true" />
             ) : null}
-            {appUpdates.installed ? t(appUpdates.installed.version) : ""}
-          </span>
-          <ChevronRight size={18} />
-        </button>
-      </Group>
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      </section>
     </main>
   );
 }

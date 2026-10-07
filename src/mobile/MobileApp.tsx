@@ -25,6 +25,7 @@ import {
   Computer,
   Folder,
   FolderPlus,
+  Info,
   LoaderCircle,
   PanelLeft,
   RefreshCw,
@@ -70,7 +71,7 @@ import { MeterRing } from "../features/sessions/ui/ContextMeter";
 import { contextRatio } from "../features/sessions/model/contextUsage";
 import { mobileContextUsage } from "./contextUsage";
 import { MobileConnectionSheet } from "./MobileConnectionSheet";
-import type { MobileSheetPoint } from "./MobileSheet";
+import { MobileSheet, SHEET_WIDTH, type MobileSheetPoint } from "./MobileSheet";
 import { MobileProjectPicker } from "./MobileProjectPicker";
 import { MobileDrawer } from "./MobileDrawer";
 import { MobileHome } from "./MobileHome";
@@ -242,6 +243,8 @@ function Empty({
 export function MobileApp() {
   const { language, t } = useTranslation();
   const appUpdates = useMobileAppUpdates();
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const aboutTrigger = useRef<HTMLButtonElement>(null);
   const [view, setView] = useState<View>("settings");
   // List scope survives navigation, so chat controls need their own entry source.
   const [sessionEntrySource, setSessionEntrySource] = useState<"project" | "other">("other");
@@ -1056,10 +1059,12 @@ export function MobileApp() {
   };
   const changeSettingsPage = useStableCallback((next: MobileSettingsPage) => {
     setPreferencePanel(null);
+    setAboutOpen(false);
     setSettingsPage(next);
   });
   const navigate = (next: View) => {
     setHomeMenuOpen(false);
+    setAboutOpen(false);
     if (next === "settings" && view !== "settings") settingsReturnView.current = view;
     navigation.current += 1;
     setLoading(false);
@@ -1242,7 +1247,7 @@ export function MobileApp() {
     key: view === "settings" ? `settings:${settingsPage}` : view === "chat" ? `chat:${chatPageKey}`
       : `home:${homeProjectId ?? (allProjectsPage ? "all" : "root")}`,
     section: view,
-    depth: view === "settings" ? (settingsPage === "root" ? 0 : settingsPage === "glass" ? 2 : 1)
+    depth: view === "settings" ? (settingsPage === "root" ? 0 : 1)
       : view === "home" ? (homeProjectId ? 2 : allProjectsPage ? 1 : 0) : 0,
   };
   useMobileHeaderMotion(header, route, navigationReady.current);
@@ -1493,6 +1498,10 @@ export function MobileApp() {
               <HeaderMoreIcon />
             </IconButton>
           </div>
+        ) : view === "settings" && settingsPage === "root" ? (
+          <IconButton buttonRef={aboutTrigger} label="About" onClick={() => setAboutOpen((open) => !open)}>
+            <Info size={22} />
+          </IconButton>
         ) : view === "home" && (!homeProject || searchOpen) ? (
           <IconButton buttonRef={homeProject ? undefined : searchTrigger} label={searchOpen ? "Close search" : "Search conversations"} onClick={toggleHomeSearch}>
             {searchOpen ? <X size={22} /> : <Search size={22} />}
@@ -1892,6 +1901,33 @@ export function MobileApp() {
         />
       ) : null}
       </MobileSheetPresence>
+      <MobileSheet
+        open={aboutOpen && view === "settings" && settingsPage === "root"}
+        title="About"
+        placement="anchor"
+        anchor={aboutTrigger}
+        align="end"
+        width={SHEET_WIDTH.list}
+        onClose={() => setAboutOpen(false)}
+      >
+        <p className="mobile-about-version">
+          MonoCode{appUpdates.installed ? ` ${appUpdates.installed.version}` : ""}
+        </p>
+        <button
+          type="button"
+          className="mobile-sheet-row"
+          onClick={() => {
+            setAboutOpen(false);
+            changeSettingsPage("updates");
+          }}
+        >
+          <RefreshCw size={20} />
+          <span className="flex-1">{t("App updates")}</span>
+          {appUpdates.available ? (
+            <span className="mobile-unread-dot" aria-hidden="true" />
+          ) : null}
+        </button>
+      </MobileSheet>
       <MobileHomeMenu
         open={homeMenuOpen && view === "home" && !drawerOpen}
         anchor={homeMenuTrigger}

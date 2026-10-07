@@ -76,7 +76,8 @@ export function MobileSheet({
   /** Release retained content after a controlled close finishes. */
   onExited?: () => void;
   onBack?: () => void;
-  placement?: "bottom" | "anchor";
+  /** Bottom sheet, popover beside a trigger, or a centred choice dialog. */
+  placement?: "bottom" | "anchor" | "dialog";
   anchor?: RefObject<HTMLElement | null>;
   /** Input to retain when a pointer opens this sheet while typing. */
   preserveFocus?: RefObject<HTMLElement | null>;
@@ -355,7 +356,9 @@ export function MobileSheet({
         style={
           placement === "anchor"
             ? (position ?? { visibility: "hidden" })
-            : undefined
+            : placement === "dialog"
+              ? { width }
+              : undefined
         }
         role="dialog"
         aria-modal={preserveFocus ? undefined : true}
@@ -368,6 +371,9 @@ export function MobileSheet({
           <div className="mobile-sheet-grip" aria-hidden="true" />
         )}
         <div className="mobile-sheet-content">
+          {placement === "dialog" && (
+            <h2 className="mobile-sheet-title">{t(title)}</h2>
+          )}
           {onBack && (
             <button
               type="button"
