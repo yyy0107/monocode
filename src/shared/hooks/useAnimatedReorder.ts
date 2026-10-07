@@ -19,6 +19,30 @@ export type ReorderExternalDrop<T extends string> = {
   onEnd?: (id: T) => void;
 };
 
+/** Pointer distance from a scroller edge at which reorder auto-scroll starts. */
+const AUTO_SCROLL_EDGE = 40;
+/** Auto-scroll speed in pixels per frame once the pointer reaches the edge. */
+const AUTO_SCROLL_MAX_SPEED = 14;
+
+function nearestScroller(element: HTMLElement, axis: "x" | "y") {
+  for (
+    let node = element.parentElement;
+    node && node !== document.body;
+    node = node.parentElement
+  ) {
+    if (
+      !(axis === "x"
+        ? node.scrollWidth > node.clientWidth
+        : node.scrollHeight > node.clientHeight)
+    )
+      continue;
+    const style = getComputedStyle(node);
+    const overflow = axis === "x" ? style.overflowX : style.overflowY;
+    if (overflow === "auto" || overflow === "scroll") return node;
+  }
+  return null;
+}
+
 export type ReorderOptions<T extends string> = {
   activationDistance?: number;
   collapsedSize?: (id: T, node: HTMLElement) => number | undefined;
@@ -105,6 +129,8 @@ export function useAnimatedReorder<T extends string>(
       let pointerPosition = startPosition;
       let overExternalTarget = false;
       let finishTimer: ReturnType<typeof setTimeout> | undefined;
+      const scroller = nearestScroller(handle, axis);
+      let autoScrollFrame = 0;
 
       function releasePointer() {
         for (const element of tabs) delete element.dataset.reordering;
@@ -128,6 +154,7 @@ export function useAnimatedReorder<T extends string>(
         window.removeEventListener("scroll", onScroll, true);
         window.clearTimeout(finishTimer);
         window.cancelAnimationFrame(frame);
+        stopAutoScroll();
         for (const element of tabs) {
           element.style.removeProperty("transition");
           element.style.removeProperty("transform");
@@ -197,6 +224,36 @@ export function useAnimatedReorder<T extends string>(
         }
       }
 
+      function autoScrollSpeed() {
+        if (!scroller) return 0;
+        const rect = scroller.getBoundingClientRect();
+        const start = axis === "x" ? rect.left : rect.top;
+        const end = axis === "x" ? rect.right : rect.bottom;
+        const edge = Math.min(AUTO_SCROLL_EDGE, (end - start) / 4);
+        if (pointerPosition < start + edge)
+          return -AUTO_SCROLL_MAX_SPEED *
+            Math.min(1, (start + edge - pointerPosition) / edge);
+        if (pointerPosition > end - edge)
+          return AUTO_SCROLL_MAX_SPEED *
+            Math.min(1, (pointerPosition - end + edge) / edge);
+        return 0;
+      }
+
+      function stopAutoScroll() {
+        window.cancelAnimationFrame(autoScrollFrame);
+        autoScrollFrame = 0;
+      }
+
+      function autoScroll() {
+        autoScrollFrame = 0;
+        if (!scroller || !active || settling || overExternalTarget) return;
+        const speed = autoScrollSpeed();
+        if (!speed) return;
+        // The scroll listener repaints the dragged item against its moved slots.
+        scroller[scrollProperty] += speed;
+        autoScrollFrame = window.requestAnimationFrame(autoScroll);
+      }
+
       function onScroll() {
         if (active && !settling && !overExternalTarget && !frame)
           frame = window.requestAnimationFrame(() => paint());
@@ -248,11 +305,14 @@ export function useAnimatedReorder<T extends string>(
         if (overExternalTarget) {
           window.cancelAnimationFrame(frame);
           frame = 0;
+          stopAutoScroll();
           preview(from);
           return;
         }
         // Keep the newest position when several input events arrive in one frame.
         if (!frame) frame = window.requestAnimationFrame(() => paint());
+        if (!autoScrollFrame && autoScrollSpeed())
+          autoScrollFrame = window.requestAnimationFrame(autoScroll);
       }
 
       function stop(commit: boolean, event?: globalThis.PointerEvent) {
@@ -267,6 +327,7 @@ export function useAnimatedReorder<T extends string>(
         }
         settling = true;
         window.cancelAnimationFrame(frame);
+        stopAutoScroll();
         if (commit) paint(false);
         handle.dataset.settling = "true";
         releasePointer();

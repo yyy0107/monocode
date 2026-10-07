@@ -25,6 +25,7 @@ import {
   resolveTabGroupMascot,
 } from "../../workspace/model/tabGroups";
 import type { RecentProject } from "../../projects/model/recents";
+import { scrollWithin } from "../../../shared/lib/scrollWithin";
 
 /** Above this count the list gets a filter and its own bounded scroll area. */
 const SEARCH_THRESHOLD = 6;
@@ -100,7 +101,7 @@ export function ProjectNotificationSettings({
       return;
     }
     setExpanded(targetId ?? null);
-    targetCard.current.scrollIntoView?.({ block: "nearest" });
+    scrollWithin(targetCard.current);
     targetCard.current.focus({ preventScroll: true });
     focusedRequest.current = {
       path: notificationProjectPath,
