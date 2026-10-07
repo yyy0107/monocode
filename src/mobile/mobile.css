@@ -3920,3 +3920,13 @@ button.mobile-settings-row:active {
   background: var(--mobile-fill);
   font-size: calc(14px + var(--mobile-popup-font-step, 0px));
 }
+
+/* A live group's steps hang off the rail on the page itself, without the
+   desktop panel behind them. */
+.mobile-desktop-transcript .zen-phase-body > .zen-fold-item > div > div {
+  margin-block: 2px;
+  padding: 4px 0 4px 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
