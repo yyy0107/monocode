@@ -3,6 +3,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Block } from "../model/session";
 import { AgentTranscript } from "./AgentTranscript";
+import { setUiLanguage } from "../../../shared/i18n/language";
+
+// Duration labels are localized; keep the host locale out of the assertions.
+beforeEach(() => setUiLanguage("en"));
 
 const appearance = vi.hoisted(() => ({
   layout: "chat" as "chat" | "full",
