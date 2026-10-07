@@ -12,6 +12,8 @@ import {
 } from "react";
 import {
   Bot,
+  ChevronDown,
+  Computer,
   File,
   Folder,
   FolderPlus,
@@ -67,6 +69,7 @@ interface Swipe {
 export const MobileDrawer = memo(function MobileDrawer({
   open: requestedOpen,
   active = true,
+  covered = false,
   foreground = true,
   onOpenChange,
   projects,
@@ -78,6 +81,10 @@ export const MobileDrawer = memo(function MobileDrawer({
   now,
   hostName,
   hostStatus,
+  hostTrigger,
+  onHost,
+  projectsPending = false,
+  projectsUnavailable = false,
   projectTrigger,
   onAddProject,
   onHome,
@@ -96,6 +103,8 @@ export const MobileDrawer = memo(function MobileDrawer({
   open: boolean;
   /** Keep the closing drawer mounted without accepting edge gestures on another page. */
   active?: boolean;
+  /** A device dropdown covers the drawer without closing it. */
+  covered?: boolean;
   foreground?: boolean;
   onOpenChange: (open: boolean) => void;
   projects: HostProject[];
@@ -107,6 +116,10 @@ export const MobileDrawer = memo(function MobileDrawer({
   now: number;
   hostName: string;
   hostStatus: HostConnectionStatus;
+  hostTrigger?: RefObject<HTMLButtonElement | null>;
+  onHost?: () => void;
+  projectsPending?: boolean;
+  projectsUnavailable?: boolean;
   projectTrigger: RefObject<HTMLButtonElement | null>;
   onAddProject: () => void;
   onHome: () => void;
@@ -190,7 +203,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   useEffect(() => {
     cancelHold();
     return cancelHold;
-  }, [open, project?.id]);
+  }, [open, covered, project?.id]);
   const startHold = (
     id: string,
     event: ReactPointerEvent<HTMLButtonElement>,
@@ -217,11 +230,11 @@ export const MobileDrawer = memo(function MobileDrawer({
   // DOM: a React render per pointer move would rebuild every session row.
   const [dragging, setDragging] = useState(false);
   useLayoutEffect(() => {
-    if (active) return;
+    if (active && !covered) return;
     swipe.current = undefined;
     cancelHold();
     setDragging(false);
-  }, [active]);
+  }, [active, covered]);
   const follow = (translate: number, width: number) => {
     panel.current?.style.setProperty("transform", `translateX(${translate}px)`);
     backdrop.current?.style.setProperty(
@@ -313,7 +326,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   // anywhere on screen closes it. The drawer follows the finger
   // and settles by distance or flick speed.
   useEffect(() => {
-    if (!active) return;
+    if (!active || covered) return;
     const begin = (event: PointerEvent) => {
       // A new touch means the previous drag produced no click to swallow.
       dragClickUntil.current = 0;
@@ -417,7 +430,7 @@ export const MobileDrawer = memo(function MobileDrawer({
       document.removeEventListener("pointercancel", end, true);
       swipe.current = undefined;
     };
-  }, [active]);
+  }, [active, covered]);
 
   const tree = useMemo(() => sortMobileProjects(treeProjects, (id) =>
     id === project?.id ? sessions : (histories[id]?.sessions ?? []),
@@ -557,16 +570,31 @@ export const MobileDrawer = memo(function MobileDrawer({
         ref={panel}
         className="mobile-drawer"
         aria-label={t("Menu")}
+        inert={covered}
         tabIndex={-1}
         onKeyDown={(event) => {
           if (event.key === "Escape") close();
         }}
       >
         <div className="mobile-drawer-top">
+          <button
+            ref={hostTrigger}
+            type="button"
+            className="mobile-drawer-item mobile-drawer-device"
+            aria-label={t("Switch device")}
+            aria-haspopup="dialog"
+            aria-expanded={covered}
+            onClick={onHost}
+          >
+            <Computer size={22} />
+            <span>{hostName}</span>
+            <MobileHostStatus status={hostStatus} dotOnly />
+            <ChevronDown size={16} className="mobile-drawer-device-chevron" />
+          </button>
           {onAssistant && (
             <button
               type="button"
-              className="mobile-drawer-item"
+              className="mobile-drawer-item mobile-drawer-assistant"
               onClick={onAssistant}
             >
               <Bot size={22} />
@@ -608,7 +636,9 @@ export const MobileDrawer = memo(function MobileDrawer({
           </button>
         </div>
         <div ref={sessionsList} className="mobile-drawer-sessions">
-          {treeLoading ? (
+          {projectsUnavailable && !tree.length ? (
+            <p className="mobile-drawer-empty">{t("Couldn’t load projects")}</p>
+          ) : projectsPending || treeLoading ? (
             <div className="mobile-loading mobile-drawer-group-status" role="status">
               <LoaderCircle size={15} className="mobile-spin" />
               {t("Loading conversations…")}
@@ -662,10 +692,6 @@ export const MobileDrawer = memo(function MobileDrawer({
         >
           <Settings size={22} />
           <span>{t("Settings")}</span>
-          <span className="mobile-drawer-host">
-            <span>{hostName}</span>
-            <MobileHostStatus status={hostStatus} />
-          </span>
         </button>
       </nav>
     </div>
@@ -676,6 +702,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   // lifecycle/gesture changes must still reach the mounted surface immediately.
   if (!previous.open && !next.open)
     return previous.active === next.active && previous.foreground === next.foreground &&
+      previous.covered === next.covered &&
       previous.onOpenChange === next.onOpenChange && previous.loadSessions === next.loadSessions &&
       previous.cachedSessions === next.cachedSessions;
   const keys = Object.keys(next) as (keyof typeof next)[];

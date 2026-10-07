@@ -11,6 +11,7 @@ export function useHostConnectionStatus(
     client.getConnectionStatus,
     client.getConnectionStatus,
   );
+  const environmentId = client.connection?.environmentId;
   useEffect(() => {
     if (!connected || !foreground) return;
     let live = true;
@@ -19,7 +20,7 @@ export function useHostConnectionStatus(
       try {
         if (client.getConnectionStatus().state === "failed")
           await client.reconnect();
-        else await client.verify();
+        else if (client.getConnectionStatus().state === "connected") await client.verify();
       } catch {
         // The client reports the failure; retry without replacing the user's task error.
       } finally {
@@ -31,6 +32,6 @@ export function useHostConnectionStatus(
       live = false;
       clearTimeout(timer);
     };
-  }, [client, connected, foreground]);
+  }, [client, connected, foreground, environmentId]);
   return status;
 }

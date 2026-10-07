@@ -149,7 +149,7 @@ describe("mobile Host connection status", () => {
     const task = client.projects();
     await client.disconnect();
     pending.resolve([]);
-    await task;
+    await expect(task).rejects.toThrow("Host connection changed.");
     expect(client.getConnectionStatus().state).toBe("disconnected");
     await connect();
     request.mockRejectedValueOnce(new Error("Other computer is offline"));

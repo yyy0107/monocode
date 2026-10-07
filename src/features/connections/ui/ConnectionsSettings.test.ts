@@ -74,7 +74,7 @@ async function start() {
   await render();
   await act(async () => button("Add machine").click());
   await fill(
-    'input[placeholder="user@my-mac-mini or an SSH alias"]',
+    'input[role="combobox"]',
     "me@home",
   );
   await act(async () => button("Connect").click());
@@ -104,7 +104,7 @@ it("starts SSH setup from Settings and makes the machine available after native 
   act(() => closingForm.dispatchEvent(new Event("animationend", { bubbles: true })));
   expect(
     container.querySelector(
-      'input[placeholder="user@my-mac-mini or an SSH alias"]',
+      'input[role="combobox"]',
     ),
   ).toBeNull();
 });
@@ -154,7 +154,7 @@ it("keeps the SSH address after a failed install and cancels active setup when S
   expect(container.textContent).toContain("Host package is unavailable");
   expect(
     container.querySelector<HTMLInputElement>(
-      'input[placeholder="user@my-mac-mini or an SSH alias"]',
+      'input[role="combobox"]',
     )!.value,
   ).toBe("me@home");
   state = { id: "setup", message: "Connecting…", done: false };
@@ -273,7 +273,7 @@ it("keeps the Add machine trigger available and preserves its SSH draft through 
   const trigger = button("Add machine");
   await act(async () => trigger.click());
   await fill(
-    'input[placeholder="user@my-mac-mini or an SSH alias"]',
+    'input[role="combobox"]',
     "me@draft",
   );
   await act(async () => button("Advanced").click());
@@ -288,13 +288,13 @@ it("keeps the Add machine trigger available and preserves its SSH draft through 
   await act(async () => vi.advanceTimersByTimeAsync(360));
   expect(
     container.querySelector(
-      'input[placeholder="user@my-mac-mini or an SSH alias"]',
+      'input[role="combobox"]',
     ),
   ).toBeNull();
   await act(async () => trigger.click());
   expect(
     container.querySelector<HTMLInputElement>(
-      'input[placeholder="user@my-mac-mini or an SSH alias"]',
+      'input[role="combobox"]',
     )!.value,
   ).toBe("me@draft");
   expect(

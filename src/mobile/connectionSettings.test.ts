@@ -479,6 +479,7 @@ describe("mobile connection settings", () => {
     // A successful connection opens Home on the connected computer.
     expect(active(".mobile-app")?.getAttribute("data-view")).toBe("home");
     expect(active("header strong")!.textContent).toBe("MonoCode");
-    expect(active(".mobile-home-host")!.textContent).toContain("My computer");
+    await act(async () => button("菜单").click());
+    expect(active(".mobile-drawer-device")!.textContent).toBe("My computer");
   });
 });

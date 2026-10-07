@@ -44,6 +44,7 @@ mod search;
 mod session_store;
 mod skills;
 pub mod ssh_askpass;
+mod ssh_config;
 #[cfg(target_os = "windows")]
 mod tray;
 mod window;
@@ -276,6 +277,7 @@ pub fn run() {
             remote::remote_ssh_poll,
             remote::remote_ssh_answer,
             remote::remote_ssh_cancel,
+            ssh_config::remote_ssh_config_hosts,
             control::control_enable,
             control::control_disable,
             control::control_reply,

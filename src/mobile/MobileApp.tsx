@@ -105,6 +105,7 @@ import {
 import { readLastLocation, saveLastLocation } from "./lastLocation";
 import { useMobileActivity } from "./useMobileActivity";
 import { MobileHostStatus } from "./MobileHostStatus";
+import { MobileHostPicker } from "./MobileHostPicker";
 import { useHostConnectionStatus } from "./useHostConnectionStatus";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { setUiLanguage, translate } from "../shared/i18n/language";
@@ -292,6 +293,8 @@ export function MobileApp() {
   const homeMenuTrigger = useRef<HTMLButtonElement>(null);
   const settingsReturnView = useRef<View>("home");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [hostPickerOpen, setHostPickerOpen] = useState(false);
+  const hostPickerTrigger = useRef<HTMLButtonElement>(null);
   const [settingsPage, setSettingsPage] = useState<MobileSettingsPage>("root");
 
   const connectionAppearance = useConnectionAppearance(client.connection?.environmentId);
@@ -317,6 +320,7 @@ export function MobileApp() {
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
   const [projects, setProjects] = useState<HostProject[]>([]);
+  const [projectListState, setProjectListState] = useState<"loading" | "ready" | "failed">("loading");
   const [project, setProject] = useState<HostProject>();
   const [sessions, setSessions] = useState<HostSessionSummary[]>([]);
   const [sessionId, setSessionId] = useState<string>();
@@ -369,13 +373,28 @@ export function MobileApp() {
   const [preferencePanel, setPreferencePanel] =
     useState<MobilePreferencePanel>(null);
   const [busy, setBusy] = useState(false);
+  // Pairing a new Host is gated separately so a slow or timed-out attempt on
+  // the current Host never blocks adding another connection.
+  const [pairing, setPairing] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const [pairingError, setPairingError] = useState("");
+  /** Each Host connection attempt bumps this; superseded attempts drop their results. */
+  const hostAttempt = useRef(0);
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
+  const [hostError, setHostError] = useState("");
   const [pollError, setPollError] = useState("");
   const [pending, setPending] = useState<PendingCommand>();
   const [foreground, setForeground] = useState(true);
   const hostStatus = useHostConnectionStatus(client, connected, foreground);
+  const environmentId = client.connection?.environmentId;
+  const previousEnvironment = useRef(environmentId);
+  const hostScopeReady = previousEnvironment.current === environmentId;
+  const hostDrafts = useRef(new Map<string, {
+    projectId: string; sessionId?: string; text: string; attachments: Attachment[];
+    planMode: boolean; accepted: Attachment[]; parked: typeof parkedDrafts.current;
+  }>());
   const nativeLink = snapshot?.session.nativeSession;
   const nativeAccessKey = nativeLink && snapshot.session.id === sessionId
     ? JSON.stringify([client.connection?.environmentId, client.connection?.endpoint,
@@ -440,6 +459,57 @@ export function MobileApp() {
   const sessionStatusTrigger = useRef<HTMLButtonElement>(null);
   const projectGeneration = useRef(0);
 
+  // A selected device owns the whole page, including the failure/loading state.
+  // Run before paint: the client changes identity before verification can finish.
+  useLayoutEffect(() => {
+    if (previousEnvironment.current === environmentId) return;
+    const previous = previousEnvironment.current;
+    previousEnvironment.current = environmentId;
+    if (previous && project && (draft.get() || attachments.length || parkedDrafts.current.length)) {
+      hostDrafts.current.set(previous, { projectId: project.id, sessionId,
+        text: draft.get(), attachments, planMode, accepted: acceptedQueueAttachments.current,
+        parked: parkedDrafts.current });
+    }
+    navigation.current += 1;
+    projectGeneration.current += 1;
+    loadTiming.current = undefined;
+    setProjects([]);
+    setProjectListState("loading");
+    setProject(undefined);
+    setSessions([]);
+    setSessionId(undefined);
+    setSnapshot(undefined);
+    setSessionConfirmed(false);
+    setNativeAccessResult(undefined);
+    setCatalog(undefined);
+    setCatalogLoading(false);
+    setHistoryLoading(false);
+    setLoading(false);
+    setDraft("");
+    setAttachments([]);
+    acceptedQueueAttachments.current = [];
+    parkedDrafts.current = [];
+    setPlanMode(false);
+    setPending(undefined);
+    setError("");
+    setHostError("");
+    setPollError("");
+    setHomeProjectId(undefined);
+    setAllProjectsPage(false);
+    setSearchOpen(false);
+    setComposerPanel(null);
+    setSessionActionsOpen(false);
+    setSessionActionsTarget(undefined);
+    setHomeActionSession(undefined);
+    setSessionStatusOpen(false);
+    setAddingProject(false);
+    setAssistantOpen(false);
+    setNotesOpen(false);
+    setPreferencePanel(null);
+    setConnected(!!environmentId && !client.connection?.disabled);
+    setView(environmentId ? "home" : "settings");
+  }, [environmentId]);
+
   useEffect(() => {
     if (!searchOpen || view !== "home") setSearchQuery("");
     if (view !== "home") setSearchOpen(false);
@@ -480,26 +550,35 @@ export function MobileApp() {
 
   useEffect(() => {
     let live = true;
+    const attempt = ++hostAttempt.current;
+    const current = () => live && hostAttempt.current === attempt;
     void (async () => {
       try {
         const [restored, pending] = await Promise.all([client.restore(), client.pending()]);
-        if (live) setPending(pending);
+        if (current()) setPending(pending);
         if (restored) {
           const items = await client.projects();
-          if (live) {
+          if (current()) {
             setConnected(true);
             setProjects(items);
-            setUrl(client.connection!.endpoint);
+            setProjectListState("ready");
+            setProject((current) => current ?? items[0]);
+            setUrl((value) => value || client.connection!.endpoint);
             await restoreLocation(items);
           }
         }
       } catch (problem) {
-        if (live) {
-          setError(message(problem));
-          setUrl(client.connection?.endpoint ?? "");
+        if (current()) {
+          setHostError(message(problem));
+          setUrl((value) => value || (client.connection?.endpoint ?? ""));
+          if (client.connection && !client.connection.disabled) {
+            setConnected(true);
+            setView("home");
+            setProjectListState("failed");
+          }
         }
       } finally {
-        if (live) setLoading(false);
+        if (current()) setLoading(false);
       }
     })();
     const onVisibility = () => setForeground(!document.hidden);
@@ -517,9 +596,11 @@ export function MobileApp() {
   }, []);
 
   useEffect(() => {
-    if (!connected || !foreground || pageOverlayOpen || (view === "settings" && !drawerOpen)) return;
+    if (!connected || hostStatus.state !== "connected" || !foreground || pageOverlayOpen || (view === "settings" && !drawerOpen)) return;
     let live = true;
     const turn = navigation.current;
+    const hostId = client.connection?.environmentId;
+    const current = () => live && navigation.current === turn && hostId === client.connection?.environmentId;
     let timer: ReturnType<typeof setTimeout>;
     let failures = 0;
     setPollError("");
@@ -532,15 +613,18 @@ export function MobileApp() {
             client.projects(),
             drawerOpen && project ? client.sessions(project.id) : undefined,
           ]);
-          if (live && navigation.current === turn) {
+          if (current()) {
             setProjects(items);
+            setProjectListState("ready");
+            setProject((selected) => selected ?? items[0]);
+            setHostError("");
             if (history) setSessions(history);
           }
           listRunning = !!history?.some((item) => item.status === "running");
         }
         if (view === "chat" && sessionId) {
           const result = await client.session(sessionId);
-          if (live && navigation.current === turn) {
+          if (current()) {
             setSnapshot((previous) =>
               previous &&
               previous.session.id === result.session.id &&
@@ -554,15 +638,17 @@ export function MobileApp() {
           running = result.status === "running";
         }
         if (!running && listRunning) running = true;
-        if (live && navigation.current === turn) {
+        if (current()) {
           failures = 0;
           setPollError("");
-          setPending(await client.pending());
+          const pending = await client.pending();
+          if (current()) setPending(pending);
         }
       } catch (problem) {
-        if (live && navigation.current === turn) {
+        if (current()) {
           failures += 1;
           setPollError(message(problem));
+          setProjectListState((state) => state === "ready" ? state : "failed");
         }
       }
       if (live)
@@ -584,6 +670,9 @@ export function MobileApp() {
     };
   }, [
     connected,
+    environmentId,
+    connectionRevision,
+    hostStatus.state,
     foreground,
     pageOverlayOpen,
     view,
@@ -637,27 +726,45 @@ export function MobileApp() {
   const refreshSavedHosts = useCallback(() => {
     void client.savedConnections().then(setSavedHosts).catch(() => undefined);
   }, [client]);
-  useEffect(refreshSavedHosts, [refreshSavedHosts, connectionRevision, connected]);
-  const connect = (credentials = { url, token }) =>
-    activateConnection(
-      () => client.connect(credentials.url, normalizePairingCode(credentials.token)),
-      (problem) => connectionErrorMessage(problem, credentials.url),
-    );
+  useEffect(refreshSavedHosts, [refreshSavedHosts, environmentId, connectionRevision, connected]);
+  const connect = async (credentials = { url, token }) => {
+    if (pairing) return;
+    setPairing(true);
+    setPairingError("");
+    try {
+      await activateConnection(
+        () => client.connect(credentials.url, normalizePairingCode(credentials.token)),
+        (problem) => setPairingError(connectionErrorMessage(problem, credentials.url)),
+      );
+    } finally {
+      setPairing(false);
+    }
+  };
   const switchHost = (environmentId: string) => {
-    if (busy) return;
-    navigation.current += 1;
-    void activateConnection(() => client.switchTo(environmentId), message);
+    if (switching || pairing) return;
+    setHostPickerOpen(false);
+    if (client.connection?.environmentId === environmentId && !client.connection.disabled) return;
+    setDrawerOpen(false);
+    setSwitching(true);
+    void activateConnection(() => client.switchTo(environmentId), (problem) => setHostError(message(problem)))
+      .finally(() => setSwitching(false));
   };
   const activateConnection = async (
     open: () => Promise<void>,
-    describe: (problem: unknown) => string,
+    fail: (problem: unknown) => void,
   ) => {
+    const attempt = ++hostAttempt.current;
+    const current = () => hostAttempt.current === attempt;
     setBusy(true);
     setError("");
+    setHostError("");
     setPollError("");
     try {
       await open();
+      if (!current()) return;
+      setLoading(false);
       const items = await client.projects();
+      if (!current()) return;
       projectGeneration.current += 1;
       setProject(undefined);
       setSessionId(undefined);
@@ -672,15 +779,22 @@ export function MobileApp() {
       setToken("");
       setUrl(client.connection!.endpoint);
       setProjects(items);
+      setSessions([]);
+      setProjectListState("ready");
       setConnected(true);
       setConnectionRevision((value) => value + 1);
       setAddingConnection(false);
-      setPending(await client.pending());
+      const pending = await client.pending();
+      if (!current()) return;
+      setPending(pending);
       await restoreLocation(items);
     } catch (problem) {
-      setError(describe(problem));
+      if (current()) {
+        fail(problem);
+        setProjectListState((state) => state === "ready" ? state : "failed");
+      }
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
       refreshSavedHosts();
     }
   };
@@ -775,11 +889,16 @@ export function MobileApp() {
     setSessionConfirmed(false);
     if (cached) setConfiguration(configurationForSession(cached));
     setAnimateFrom(undefined);
-    setDraft("");
-    setAttachments([]);
-    acceptedQueueAttachments.current = [];
-    parkedDrafts.current = [];
-    setPlanMode(false);
+    const hostId = client.connection?.environmentId;
+    const savedDraft = hostId ? hostDrafts.current.get(hostId) : undefined;
+    const restoreDraft = savedDraft?.projectId === (restoredProjectId ?? project?.id) && savedDraft?.sessionId === id
+      ? savedDraft : undefined;
+    setDraft(restoreDraft?.text ?? "");
+    setAttachments(restoreDraft?.attachments ?? []);
+    acceptedQueueAttachments.current = restoreDraft?.accepted ?? [];
+    parkedDrafts.current = restoreDraft?.parked ?? [];
+    setPlanMode(restoreDraft?.planMode ?? false);
+    if (restoreDraft && hostId) hostDrafts.current.delete(hostId);
     setComposerPanel(null);
     setSessionActionsOpen(false);
     setSessionStatusOpen(false);
@@ -1202,6 +1321,7 @@ export function MobileApp() {
       setHistoryLoading(false);
       setSessionId(undefined);
       setError("");
+      setHostError("");
       setPollError("");
       if (remove && environmentId) removeConnectionAppearance(environmentId);
     } catch (problem) {
@@ -1210,33 +1330,41 @@ export function MobileApp() {
     } finally { setBusy(false); refreshSavedHosts(); }
     // Deleting the active Host falls back to another paired one.
     const next = remove ? (await client.savedConnections())[0] : undefined;
-    if (next) await activateConnection(() => client.switchTo(next.environmentId), message);
+    if (next)
+      await activateConnection(() => client.switchTo(next.environmentId), (problem) => setHostError(message(problem)));
   };
   const reconnect = async () => {
+    const attempt = ++hostAttempt.current;
+    const hostId = client.connection?.environmentId;
+    const current = () => hostAttempt.current === attempt && client.connection?.environmentId === hostId;
     setBusy(true);
     try {
       await client.reconnect();
+      if (!current()) return;
       setConnectionRevision((value) => value + 1);
+      setHomeRefreshKey((value) => value + 1);
       setPreferencePanel(null);
-      if (!connected) {
-        const items = await client.projects();
-        setProjects(items);
-        setConnected(true);
-        await restoreLocation(items);
-      }
+      const items = await client.projects();
+      if (!current()) return;
+      setProjects(items);
+      setProjectListState("ready");
+      setConnected(true);
+      if (!connected) await restoreLocation(items);
       setError("");
+      setHostError("");
       setPollError("");
     } catch (problem) {
-      setError(message(problem));
+      if (current()) setHostError(message(problem));
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
   };
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     const listener = App.addListener("backButton", () => {
       if (dismissImageLightbox()) return;
-      if (notesOpen) {
+      if (hostPickerOpen) setHostPickerOpen(false);
+      else if (notesOpen) {
         if (notesPage.current) notesPage.current.back();
         else setNotesOpen(false);
       }
@@ -1250,7 +1378,7 @@ export function MobileApp() {
         if (!busy) setSessionActionsOpen(false);
       } else if (preferencePanel) setPreferencePanel(null);
       else if (addingConnection) {
-        if (!busy) setAddingConnection(false);
+        if (!pairing) setAddingConnection(false);
       } else if (composerPanel) setComposerPanel(null);
       else if (addingProject) {
         if (!busy) setAddingProject(false);
@@ -1259,7 +1387,7 @@ export function MobileApp() {
       else if (view === "home" && searchOpen) setSearchOpen(false);
       else if (view === "settings" && settingsPage !== "root")
         changeSettingsPage(mobileSettingsParent(settingsPage));
-      else if (view === "settings" && connected) navigate(settingsReturnView.current);
+      else if (view === "settings" && client.connection) navigate(settingsReturnView.current);
       else if (view === "chat") openHome(project);
       else if (view === "home" && homeProjectId) openHome();
       else void App.exitApp();
@@ -1279,9 +1407,11 @@ export function MobileApp() {
     sessionActionsOpen,
     sessionStatusOpen,
     drawerOpen,
+    hostPickerOpen,
     settingsPage,
     changeSettingsPage,
     busy,
+    pairing,
     homeProjectId,
     searchOpen,
     homeMenuOpen,
@@ -1380,6 +1510,11 @@ export function MobileApp() {
     if (open) setComposerPanel(null);
     setDrawerOpen(open);
   });
+  const onDrawerHost = useStableCallback(() => {
+    refreshSavedHosts();
+    setHostPickerOpen(true);
+  });
+  const probeHost = useCallback((connection: Connection) => client.probeConnection(connection), []);
   const onDrawerAddProject = useStableCallback(() => {
     setError("");
     setAddingProject(true);
@@ -1464,6 +1599,8 @@ export function MobileApp() {
     // before any underlying row or toolbar action can run.
     if (close) setSearchOpen(false);
   };
+  const projectsUnavailable = projectListState === "failed" || hostStatus.state === "failed" || hostStatus.state === "disconnected";
+  const projectsPending = projectListState === "loading" && !projectsUnavailable;
   return (
     <MobileOverlayHostContext.Provider value={overlayHost}>
     <div
@@ -1498,7 +1635,7 @@ export function MobileApp() {
       </MobilePageOverlay>
       <SurfaceVisibilityContext.Provider value={!pageOverlayOpen}>
       <div className="mobile-assistant-background" inert={pageOverlayOpen} aria-hidden={pageOverlayOpen || undefined}>
-      <header ref={header} className="mobile-header" data-floating={floatingHeader} data-project={view === "home" && !!homeProject} data-search={view === "home" && searchOpen} inert={drawerOpen || pageOverlayOpen}>
+      <header ref={header} className="mobile-header" data-floating={floatingHeader} data-project={view === "home" && !!homeProject} data-search={view === "home" && searchOpen} inert={drawerOpen || pageOverlayOpen || hostPickerOpen}>
         {view === "chat" && sessionEntrySource === "project" ? (
           <IconButton label="Back" onClick={() => openHome(projects.find((item) => item.id === project?.id))}>
             <ArrowLeft size={22} />
@@ -1519,7 +1656,7 @@ export function MobileApp() {
           <IconButton label="Back" inactive={searchOpen} onClick={() => openHome()}>
             <ArrowLeft size={22} />
           </IconButton>
-        ) : connected || settingsPage !== "root" ? (
+        ) : client.connection || settingsPage !== "root" ? (
           <IconButton
             label="Back"
             onClick={() =>
@@ -1549,8 +1686,7 @@ export function MobileApp() {
               <span className="mobile-header-host">
                 <Computer size={12} aria-hidden="true" />
                 <span className="mobile-project-header-host-name">{connectionName}</span>
-                <MobileHostStatus status={hostStatus} />
-                {hostStatus.state === "connected" && <span>{t("Connected")}</span>}
+                <MobileHostStatus status={hostStatus} dotOnly />
               </span>
             </span>
           </div>
@@ -1592,7 +1728,7 @@ export function MobileApp() {
                 <span className="mobile-header-context-item">
                   <Computer size={12} aria-hidden="true" />
                   <span>{connectionName}</span>
-                  <MobileHostStatus status={hostStatus} />
+                  <MobileHostStatus status={hostStatus} dotOnly />
                 </span>
               )}
             </div>
@@ -1654,11 +1790,12 @@ export function MobileApp() {
       </header>
 
       <div className="mobile-notices">
-      {(error || pollError || hostStatus.state === "failed") &&
+      {(error || hostError || pollError || hostStatus.state === "failed") &&
         !addingConnection && (
           <div className="mobile-error" role="alert">
             <span>
               {error ||
+                hostError ||
                 pollError ||
                 hostStatus.detail ||
                 t("Connection failed")}
@@ -1703,6 +1840,7 @@ export function MobileApp() {
           hostStatus={hostStatus}
           busy={busy}
           loading={loading}
+          pairing={pairing}
           addingConnection={addingConnection}
           connectionTrigger={connectionTrigger}
           onAddConnection={() => {
@@ -1782,13 +1920,13 @@ export function MobileApp() {
       ) : view === "home" ? (
         <MobileHome
           key={client.connection?.environmentId}
-          projects={projects}
-          project={homeProject}
+          projects={hostScopeReady ? projects : []}
+          project={hostScopeReady ? homeProject : undefined}
           projectsPage={!homeProject && allProjectsPage}
-          hostName={connectionName}
-          hostStatus={hostStatus}
-          foreground={foreground && !drawerOpen && !pageOverlayOpen}
-          inactive={drawerOpen || homeMenuOpen || addingConnection || sessionActionsOpen}
+          projectsPending={projectsPending}
+          projectsUnavailable={projectsUnavailable}
+          foreground={connected && hostStatus.state === "connected" && foreground && !drawerOpen && !pageOverlayOpen && !hostPickerOpen}
+          inactive={drawerOpen || homeMenuOpen || addingConnection || sessionActionsOpen || hostPickerOpen}
           query={searchOpen ? searchQuery : ""}
           now={now}
           unreadIds={activity.unreadIds}
@@ -1816,20 +1954,9 @@ export function MobileApp() {
             }
           }}
           onAddProject={openAddProject}
-          onHost={() => {
-            navigate("settings");
-            changeSettingsPage("connections");
-          }}
-          onAddConnection={(trigger) => {
-            connectionTrigger.current = trigger;
-            setError("");
-            setAddingConnection(true);
-          }}
-          otherHosts={savedHosts.filter((host) => host.environmentId !== client.connection?.environmentId)}
-          onSwitchHost={switchHost}
         />
       ) : (
-        <main className="mobile-chat" inert={drawerOpen || pageOverlayOpen}>
+        <main className="mobile-chat" inert={drawerOpen || pageOverlayOpen || hostPickerOpen}>
           {snapshot ? (
             <MobileTranscript
               key={snapshot.session.id}
@@ -1974,7 +2101,7 @@ export function MobileApp() {
       )}
       </MobilePageTransition>
 
-      {connected && (
+      {!!client.connection && (
         <MobileDrawer
           key={`drawer:${client.connection?.environmentId}`}
           assistantName={assistantIdentity && assistantIdentity.hostId === assistantHostId ? assistantIdentity.name : undefined}
@@ -1982,17 +2109,22 @@ export function MobileApp() {
           onNotes={client.hasCapability("notes.v1") ? onDrawerNotes : undefined}
           open={drawerOpen && view !== "settings" && !pageOverlayOpen}
           active={view !== "settings" && !pageOverlayOpen}
-          foreground={foreground}
+          covered={hostPickerOpen}
+          foreground={foreground && connected && hostStatus.state === "connected"}
           onOpenChange={onDrawerOpenChange}
-          projects={projects}
-          project={project}
-          sessions={(project && client.cachedSessions?.(project.id)) ?? sessions}
+          projects={hostScopeReady ? projects : []}
+          project={hostScopeReady ? project : undefined}
+          sessions={hostScopeReady ? (project && client.cachedSessions?.(project.id)) ?? sessions : []}
           sessionId={sessionId}
           loading={historyLoading}
           unreadIds={activity.unreadIds}
           now={now}
           hostName={connectionName}
           hostStatus={hostStatus}
+          hostTrigger={hostPickerTrigger}
+          onHost={onDrawerHost}
+          projectsPending={projectsPending}
+          projectsUnavailable={projectsUnavailable}
           projectTrigger={projectTrigger}
           loadSessions={onDrawerLoadSessions}
           cachedSessions={onCachedSessions}
@@ -2006,6 +2138,27 @@ export function MobileApp() {
           onSettings={onDrawerSettings}
         />
       )}
+      <MobileSheetPresence open={hostPickerOpen}>
+        <MobileHostPicker anchor={hostPickerTrigger}
+          connections={client.connection
+            ? [client.connection, ...savedHosts.filter((item) => item.environmentId !== environmentId)]
+            : savedHosts}
+          activeId={environmentId} status={hostStatus} switching={switching || pairing}
+          probe={probeHost} onSwitch={switchHost} onReconnect={() => { setHostPickerOpen(false); void reconnect(); }}
+          onAdd={() => {
+            connectionTrigger.current = hostPickerTrigger.current;
+            setHostPickerOpen(false);
+            setDrawerOpen(false);
+            setPairingError("");
+            setAddingConnection(true);
+          }}
+          onManage={() => {
+            setHostPickerOpen(false);
+            navigate("settings");
+            changeSettingsPage("connections");
+          }}
+          onClose={() => setHostPickerOpen(false)} />
+      </MobileSheetPresence>
       <MobileSheetPresence open={sessionActionsOpen && view !== "settings" && !!(sessionActionsTarget ? sessionActionsSummary : snapshot)}>
       {(sessionActionsTarget ? sessionActionsSummary : snapshot) ? (
         <MobileSessionActions
@@ -2098,8 +2251,8 @@ export function MobileApp() {
           anchor={connectionTrigger}
           url={url}
           token={token}
-          disabled={busy || loading}
-          error={error}
+          disabled={pairing}
+          error={pairingError}
           onUrlChange={setUrl}
           onTokenChange={setToken}
           onConnect={() => void connect()}
@@ -2108,10 +2261,10 @@ export function MobileApp() {
             void connect(credentials);
           }}
           onClose={() => {
-            if (!busy) {
+            if (!pairing) {
               setAddingConnection(false);
               setToken("");
-              setError("");
+              setPairingError("");
             }
           }}
         />

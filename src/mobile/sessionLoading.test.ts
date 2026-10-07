@@ -24,6 +24,7 @@ const host = vi.hoisted(() => ({
 }));
 vi.mock("./client", () => ({
   MobileClient: class {
+    hasCapability = () => false;
     connection = host.connection;
     getConnectionStatus = () => host.status;
     subscribeConnectionStatus = () => () => {};
@@ -272,7 +273,7 @@ describe("mobile conversation loading UI", () => {
     const openDrawer = async () => {
       await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Menu"]')!.click());
     };
-    const assistant = () => node.querySelector(".mobile-drawer-top > button")!;
+    const assistant = () => node.querySelector(".mobile-drawer-assistant")!;
     const closeDrawer = async () => {
       await act(async () => [...node.querySelectorAll<HTMLButtonElement>(".mobile-drawer-top > button")]
         .find((button) => button.textContent === "Sessions")!.click());

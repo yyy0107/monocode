@@ -1,10 +1,9 @@
 import { useTranslation } from "../shared/i18n/useTranslation";
 import type { HostConnectionStatus } from "./client";
 
-export function MobileHostStatus({ status }: { status: HostConnectionStatus }) {
-  const { t } = useTranslation();
-  const label =
-    status.state === "connected"
+/** Untranslated status label; pass it through `t`. */
+export function hostStatusLabel(status: HostConnectionStatus): string {
+  return status.state === "connected"
       ? "Connected"
       : status.state === "reconnecting"
         ? "Reconnecting…"
@@ -17,6 +16,11 @@ export function MobileHostStatus({ status }: { status: HostConnectionStatus }) {
               : status.reason === "identity"
                 ? "Host identity changed"
                 : "Connection failed";
+}
+
+export function MobileHostStatus({ status, dotOnly = false }: { status: HostConnectionStatus; dotOnly?: boolean }) {
+  const { t } = useTranslation();
+  const label = hostStatusLabel(status);
   return (
     <span
       className="mobile-host-status"
@@ -26,7 +30,7 @@ export function MobileHostStatus({ status }: { status: HostConnectionStatus }) {
       title={status.detail || t(label)}
     >
       <span className="mobile-host-status-dot" aria-hidden="true" />
-      {status.state !== "connected" && (
+      {!dotOnly && status.state !== "connected" && (
         <span className="mobile-host-status-label">{t(label)}</span>
       )}
     </span>

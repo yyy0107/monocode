@@ -651,6 +651,12 @@ html[data-mobile-glass="solid"] :is(
 .mobile-host-status[data-state="connected"] .mobile-host-status-dot {
   background: #53ba87;
 }
+.mobile-host-status[data-state="reconnecting"] .mobile-host-status-dot {
+  background: #d6a84b;
+}
+.mobile-host-status[data-state="reconnecting"] .mobile-host-status-label {
+  color: #d6a84b;
+}
 .mobile-host-status .mobile-host-status-label {
   color: #e36464;
   max-width: 6em;
@@ -1211,65 +1217,6 @@ html[data-mobile-glass="solid"] :is(
   font-size: 16px;
   font-weight: 400;
 }
-.mobile-home-hosts {
-  margin-bottom: 26px;
-}
-.mobile-home section.mobile-home-hosts + section {
-  margin-top: 0;
-}
-.mobile-home-host {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-  max-width: 100%;
-  min-height: 48px;
-  padding: 10px 20px 10px 16px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--mobile-fill);
-  color: var(--color-content);
-  font-size: 17px;
-}
-.mobile-home-host > span:last-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mobile-home-host-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-width: 0;
-}
-.mobile-home-host[data-inactive="true"] {
-  color: color-mix(in srgb, var(--color-content) 60%, transparent);
-}
-/* The status dot sits on the computer's corner, like a presence badge. */
-.mobile-home-host-icon {
-  position: relative;
-  display: grid;
-  flex-shrink: 0;
-  place-items: center;
-}
-.mobile-home-host-icon > .mobile-host-status {
-  position: absolute;
-  top: -3px;
-  right: -4px;
-}
-.mobile-home-host-add {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  margin-inline-end: -10px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-content);
-}
 .mobile-home-filter {
   display: flex;
   align-items: center;
@@ -1283,8 +1230,6 @@ html[data-mobile-glass="solid"] :is(
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
   font-size: 16px;
 }
-.mobile-home-host:active,
-.mobile-home-host-add:active,
 .mobile-home-filter:active {
   background: var(--color-selection);
 }
@@ -3827,20 +3772,21 @@ button.mobile-drawer-group-status {
   margin-top: 4px;
   min-height: 50px;
 }
-.mobile-drawer-host {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: 55%;
-  font-size: 12px;
-  color: color-mix(in srgb, var(--color-content) 50%, transparent);
+.mobile-drawer-device {
+  margin-bottom: 6px;
+  font-weight: 600;
 }
-.mobile-drawer-host > span:first-child {
+.mobile-drawer-item > .mobile-drawer-device-chevron {
+  flex-basis: 16px;
+  width: 16px;
+  height: 16px;
+}
+.mobile-device-option-name {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
-  white-space: nowrap;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Settings: grouped cards with rows that lead to sub-pages. */

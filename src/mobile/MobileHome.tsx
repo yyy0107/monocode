@@ -5,14 +5,12 @@ import type {
 } from "../features/connections/model/protocol";
 import { sessionDisplayTitle } from "../features/sessions/model/session";
 import { useTranslation } from "../shared/i18n/useTranslation";
-import { useConnectionAppearance } from "./connectionAppearance";
 import { useMobilePageState } from "./mobilePageState";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import {
   Archive,
   Check,
   ChevronDown,
-  Computer,
   Folder,
   FolderPlus,
   LoaderCircle,
@@ -22,9 +20,7 @@ import {
   SlidersHorizontal,
   TriangleAlert,
 } from "../shared/ui/icons";
-import type { HostConnectionStatus } from "./client";
 import { MobileSheet, type MobileSheetPoint } from "./MobileSheet";
-import { MobileHostStatus } from "./MobileHostStatus";
 import { MobileListPreview } from "./MobileListPreview";
 import { MobileSessionRow } from "./MobileSessionRow";
 import { sortMobileProjects } from "./sessionList";
@@ -53,8 +49,8 @@ export function MobileHome({
   projects,
   project,
   projectsPage = false,
-  hostName,
-  hostStatus,
+  projectsPending = false,
+  projectsUnavailable = false,
   foreground,
   inactive,
   query,
@@ -69,10 +65,6 @@ export function MobileHome({
   searchOpen = false,
   searchTrigger,
   onAddProject,
-  onHost,
-  onAddConnection,
-  otherHosts,
-  onSwitchHost,
   onSessionActions,
   sessionActionsId,
   refreshKey = 0,
@@ -81,8 +73,8 @@ export function MobileHome({
   project?: HostProject;
   /** The project index reached from the drawer, without conversations. */
   projectsPage?: boolean;
-  hostName: string;
-  hostStatus: HostConnectionStatus;
+  projectsPending?: boolean;
+  projectsUnavailable?: boolean;
   foreground: boolean;
   inactive?: boolean;
   query: string;
@@ -97,11 +89,6 @@ export function MobileHome({
   searchOpen?: boolean;
   searchTrigger?: RefObject<HTMLButtonElement | null>;
   onAddProject: (trigger: HTMLButtonElement) => void;
-  onHost?: (trigger: HTMLButtonElement) => void;
-  onAddConnection?: (trigger: HTMLButtonElement) => void;
-  /** Other paired Hosts; choosing one makes it active. */
-  otherHosts?: { environmentId: string; name: string }[];
-  onSwitchHost?: (environmentId: string) => void;
   onSessionActions?: (session: HostSessionSummary, trigger: HTMLButtonElement, point?: MobileSheetPoint) => void;
   sessionActionsId?: string;
   refreshKey?: number;
@@ -288,45 +275,14 @@ export function MobileHome({
       aria-hidden={inactive || undefined}
     >
       <div className="mobile-home-scroll" key={project?.id ?? "all"}>
-        {root && !needle && (
-          <section className="mobile-home-hosts" aria-label={t("Hosts")}>
-            <div className="mobile-home-section-head">
-              <h2>{t("Hosts")}</h2>
-              {onAddConnection && (
-                <button
-                  type="button"
-                  className="mobile-home-host-add"
-                  aria-label={t("Add connection")}
-                  onClick={(event) => onAddConnection(event.currentTarget)}
-                >
-                  <Plus size={24} />
-                </button>
-              )}
-            </div>
-            <div className="mobile-home-host-list">
-              <button
-                type="button"
-                className="mobile-home-host"
-                onClick={(event) => onHost?.(event.currentTarget)}
-              >
-                <span className="mobile-home-host-icon">
-                  <Computer size={22} />
-                  <MobileHostStatus status={hostStatus} />
-                </span>
-                <span>{hostName}</span>
-              </button>
-              {otherHosts?.map((host) => (
-                <SavedHost
-                  key={host.environmentId}
-                  environmentId={host.environmentId}
-                  name={host.name}
-                  onSwitch={onSwitchHost}
-                />
-              ))}
-            </div>
-          </section>
+        {projectsUnavailable && !projects.length ? (
+          <p className="mobile-home-empty" role="status">{t("Couldn’t load projects")}</p>
+        ) : projectsPending && (
+          <div className="mobile-loading" role="status">
+            <LoaderCircle className="mobile-spin" size={18} />{t("Loading projects…")}
+          </div>
         )}
-        {root && !needle && !projects.length && (
+        {root && !needle && !projects.length && !projectsPending && !projectsUnavailable && (
           <section className="mobile-home-projects" aria-label={t("Projects")}>
             <button
               type="button"
@@ -413,7 +369,7 @@ export function MobileHome({
               {t("Loading conversations…")}
             </div>
           )}
-          {!ordered.length && !loading && !failed.length && (
+          {!ordered.length && !loading && !failed.length && !projectsPending && !projectsUnavailable && (
             <p className="mobile-home-empty">
               {needle || activeFilter !== "all"
                 ? t("No matching conversations")
@@ -497,32 +453,5 @@ export function MobileHome({
         </div>
       )}
     </main>
-  );
-}
-
-function SavedHost({
-  environmentId,
-  name,
-  onSwitch,
-}: {
-  environmentId: string;
-  name: string;
-  onSwitch?: (environmentId: string) => void;
-}) {
-  const { t } = useTranslation();
-  const label = useConnectionAppearance(environmentId).displayName || name;
-  return (
-    <button
-      type="button"
-      className="mobile-home-host"
-      data-inactive="true"
-      aria-label={t("Switch to {host}", { host: label })}
-      onClick={() => onSwitch?.(environmentId)}
-    >
-      <span className="mobile-home-host-icon">
-        <Computer size={22} />
-      </span>
-      <span>{label}</span>
-    </button>
   );
 }

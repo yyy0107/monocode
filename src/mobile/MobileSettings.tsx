@@ -175,6 +175,7 @@ export function MobileSettings({
   hostStatus,
   busy,
   loading,
+  pairing,
   addingConnection,
   connectionTrigger,
   onAddConnection,
@@ -211,6 +212,8 @@ export function MobileSettings({
   hostStatus: HostConnectionStatus;
   busy: boolean;
   loading: boolean;
+  /** Only an in-flight pairing blocks adding a connection. */
+  pairing: boolean;
   addingConnection: boolean;
   connectionTrigger: RefObject<HTMLButtonElement | null>;
   onAddConnection: () => void;
@@ -257,7 +260,7 @@ export function MobileSettings({
       aria-label={t("Add connection")}
       aria-haspopup="dialog"
       aria-expanded={addingConnection}
-      disabled={busy || loading}
+      disabled={pairing}
       onClick={onAddConnection}
     >
       <MobileSettingsGlyph name="link" />

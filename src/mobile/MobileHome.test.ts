@@ -391,9 +391,8 @@ describe("mobile home and project history", () => {
     await act(async () => vi.advanceTimersByTimeAsync(10_000));
     expect(loadSessions).toHaveBeenCalledTimes(2);
     act(() => setUiLanguage("zh-CN"));
-    expect(node.textContent).toContain("主机");
     expect(node.textContent).toContain("会话");
-    expect(node.textContent).toContain("Computer");
+    expect(node.textContent).not.toContain("Computer");
   });
 
   it("uses the drawer's newest cached history before its resumed request finishes", async () => {

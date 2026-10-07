@@ -188,10 +188,10 @@ export class MobileClient {
       this.statusListeners.delete(listener);
     };
   };
-  private setConnectionStatus(status: HostConnectionStatus) {
+  private setConnectionStatus(status: HostConnectionStatus, force = false) {
     const previous = this.connectionStatus;
     if (
-      previous.state === status.state &&
+      !force && previous.state === status.state &&
       previous.reason === status.reason &&
       previous.detail === status.detail
     )
@@ -343,8 +343,23 @@ export class MobileClient {
     this.verificationEpoch += 1;
     this.connection = connection;
     this.clearCaches();
-    this.setConnectionStatus({ state: "reconnecting" });
+    this.setConnectionStatus({ state: "reconnecting" }, true);
     await this.verify();
+  }
+
+  /** Check a saved device without changing the active connection or its caches. */
+  async probeConnection(connection: Connection): Promise<HostConnectionStatus> {
+    if (connection.disabled) return { state: "disconnected" };
+    try {
+      const host = requireHostDescriptor(await this.requestWith<HostDescriptor>(
+        { ...connection }, "environment.describe", { supportedProviders: REMOTE_PROVIDERS },
+      ));
+      return host.environmentId === connection.environmentId
+        ? { state: "connected" }
+        : { state: "failed", reason: "identity" };
+    } catch {
+      return { state: "failed" };
+    }
   }
 
   async restore(): Promise<boolean> {
@@ -392,9 +407,9 @@ export class MobileClient {
       };
       await this.persist(connection);
       this.connection = connection;
-      this.setConnectionStatus({ state: "connected" });
       this.clearCaches();
       this.capabilities = Array.isArray(descriptor.capabilities) ? descriptor.capabilities : [];
+      this.setConnectionStatus({ state: "connected" }, true);
     } catch (error) {
       if (!this.connection) this.connectionFailed(error);
       throw error;

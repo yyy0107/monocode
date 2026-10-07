@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { Internet, Loader } from "../../../shared/ui/icons";
 import { ConnectionStatusIcon, type ConnectionState } from "./ConnectionStatusDot";
+import { SshTargetInput } from "./SshTargetInput";
 import {
   connectMachine,
   disconnectMachine,
@@ -456,16 +457,11 @@ export function ConnectionsSettings() {
           </div>
           <label className="flex flex-col gap-1.5 text-ui-caption text-foreground-subtle">
             {uiT("SSH address")}
-            <input
-              autoFocus
-              required
+            <SshTargetInput
               disabled={busy}
               className={input}
               value={target}
-              onChange={(event) => setTarget(event.target.value)}
-              placeholder="user@my-mac-mini or an SSH alias"
-              autoComplete="off"
-              spellCheck={false}
+              onChange={setTarget}
             />
           </label>
           <label className="flex flex-col gap-1.5 text-ui-caption text-foreground-subtle">

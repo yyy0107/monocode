@@ -1,0 +1,230 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { MobileApp } from "./MobileApp";
+import type { Connection, MobileClient } from "./client";
+import { setUiLanguage } from "../shared/i18n/language";
+
+const fixture = vi.hoisted(() => ({
+  values: new Map<string, string>(),
+  request: vi.fn(),
+  client: undefined as MobileClient | undefined,
+}));
+vi.mock("./client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./client")>();
+  return { ...actual, MobileClient: class extends actual.MobileClient {
+    constructor() {
+      super({
+        get: async (key) => fixture.values.get(key) ?? null,
+        set: async (key, value) => { fixture.values.set(key, value); },
+        remove: async (key) => { fixture.values.delete(key); },
+      }, async (endpoint, _token, input) => fixture.request(endpoint, input));
+      fixture.client = this;
+    }
+  } };
+});
+vi.mock("./useMobileActivity", () => ({
+  useMobileActivity: () => ({ unreadIds: new Set(), markUnread: vi.fn(), permission: "unsupported", enabled: false }),
+}));
+vi.mock("./MobileAppUpdates", () => ({ useMobileAppUpdates: () => ({}) }));
+vi.mock("./MobileTranscript", () => ({ MobileTranscript: () => createElement("p", {}, "Transcript") }));
+vi.mock("./MobileComposer", () => ({ MobileComposer: ({ value, onChange }: {
+  value: string; onChange: (value: string) => void;
+}) => createElement("textarea", { value, onChange: (event: { target: { value: string } }) => onChange(event.target.value) }) }));
+
+const a: Connection = { environmentId: "a", name: "Device A", endpoint: "http://a", token: "a-token" };
+const b: Connection = { environmentId: "b", name: "Device B", endpoint: "http://b", token: "b-token" };
+const project = { id: "shared-project", name: "Project", cwd: "/project" };
+const summary = (host: string) => ({
+  id: "shared-session", projectId: project.id, title: `${host} conversation`, harness: "codex",
+  status: "idle", revision: 1, updatedAt: 100,
+});
+function respond(endpoint: string, { method }: { method: string }) {
+  const host = endpoint === a.endpoint ? a : b;
+  if (method === "environment.describe") return {
+    protocolVersion: 1, environmentId: host.environmentId, name: host.name, providers: ["codex"],
+  };
+  if (method === "projects.list") return [{ ...project, name: `${host.name} project` }];
+  if (method === "sessions.list") return [summary(host.name)];
+  if (method === "sessions.get") return {
+    projectId: project.id, revision: 1, updatedAt: 100, status: "idle",
+    session: { id: "shared-session", title: `${host.name} conversation`, harness: "codex", cwd: project.cwd,
+      model: "codex:model", modelSettings: {}, runtimeMode: "supervised", blocks: [] },
+  };
+  if (method === "models.list") return { models: { codex: [{ id: "codex:model", name: "Model", harness: "codex" }] }, errors: {} };
+  return null;
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+let node: HTMLDivElement;
+let root: Root;
+beforeEach(async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.useFakeTimers();
+  await fixture.client!.disconnect();
+  fixture.values.clear();
+  fixture.values.set("connection", JSON.stringify(a));
+  fixture.values.set("connections", JSON.stringify([a, b]));
+  fixture.request.mockReset().mockImplementation(respond);
+  localStorage.clear();
+  setUiLanguage("en");
+  node = document.createElement("div");
+  document.body.append(node);
+  root = createRoot(node);
+});
+afterEach(() => {
+  act(() => root.unmount());
+  node.remove();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+const active = (selector: string) => [...node.querySelectorAll<HTMLElement>(selector)]
+  .find((element) => !element.closest('[inert], [aria-hidden="true"]'));
+const button = (label: string) => [...node.querySelectorAll<HTMLButtonElement>("button")]
+  .find((element) => !element.closest('[inert], [aria-hidden="true"]') &&
+    (element.getAttribute("aria-label") === label || element.textContent === label))!;
+const mount = () => act(async () => root.render(createElement(MobileApp)));
+async function picker() {
+  await act(async () => button("Menu").click());
+  await act(async () => button("Switch device").click());
+}
+async function switchTo(name: string) {
+  await picker();
+  await act(async () => button(`Switch to ${name}`).click());
+}
+const list = () => active('.mobile-home')!;
+
+it("moves the device selector above navigation, uses dots, and probes without changing the active device", async () => {
+  await mount();
+  expect(node.querySelector(".mobile-home-hosts")).toBeNull();
+  await act(async () => button("Menu").click());
+  const selector = button("Switch device");
+  expect(node.querySelector(".mobile-drawer-top")!.firstElementChild).toBe(selector);
+  expect(selector.textContent).toBe("Device A");
+  expect(selector.querySelector('[role="status"]')!.getAttribute("aria-label")).toBe("Connected");
+  expect(selector.querySelector(".mobile-host-status-label")).toBeNull();
+  expect(node.querySelector(".mobile-drawer-settings")!.textContent).toBe("Settings");
+  await act(async () => selector.click());
+  expect(node.querySelector('.mobile-drawer-backdrop')!.getAttribute("data-open")).toBe("true");
+  expect(node.querySelector('.mobile-drawer')!.hasAttribute("inert")).toBe(true);
+  expect(active('[role="dialog"]')!.closest('.mobile-sheet-backdrop')!.getAttribute("data-placement")).toBe("anchor");
+  expect(button("Switch to Device B").querySelector('[data-state="connected"]')).not.toBeNull();
+  expect(fixture.client!.connection?.environmentId).toBe("a");
+  expect(fixture.client!.cachedSessions(project.id)?.[0].title).toBe("Device A conversation");
+});
+
+it("clears the previous device while verification is pending, then replaces lists even with identical IDs", async () => {
+  await mount();
+  await picker();
+  const verifying = deferred<unknown>();
+  fixture.request.mockImplementation((endpoint, input) => endpoint === b.endpoint && input.method === "environment.describe"
+    ? verifying.promise : respond(endpoint, input));
+  await act(async () => button("Switch to Device B").click());
+  expect(fixture.client!.connection?.environmentId).toBe("b");
+  expect(node.querySelectorAll('[data-session-id="shared-session"]')).toHaveLength(0);
+  expect(list().textContent).toContain("Loading projects…");
+  expect(list().textContent).not.toContain("No conversations yet");
+  await act(async () => verifying.resolve(respond(b.endpoint, { method: "environment.describe" })));
+  expect(list().textContent).toContain("Device B conversation");
+  expect(list().textContent).not.toContain("Device A conversation");
+  await act(async () => button("Menu").click());
+  expect(active(".mobile-drawer")!.textContent).toContain("Device B conversation");
+  expect(active(".mobile-drawer")!.textContent).not.toContain("Device A conversation");
+});
+
+it("keeps the failed device selected and the picker usable, then refreshes automatically after recovery", async () => {
+  await mount();
+  let offline = true;
+  fixture.request.mockImplementation((endpoint, input) => {
+    if (endpoint === b.endpoint && offline) throw new Error("Device B offline");
+    return respond(endpoint, input);
+  });
+  await switchTo("Device B");
+  expect(list().textContent).toContain("Couldn’t load projects");
+  expect(list().textContent).not.toContain("No conversations yet");
+  expect(node.textContent).not.toContain("Device A conversation");
+  await picker();
+  expect(button("Switch to Device B").getAttribute("aria-pressed")).toBe("true");
+  expect(button("Switch to Device B").querySelector('[data-state="failed"]')).not.toBeNull();
+  expect(button("Switch to Device A").disabled).toBe(false);
+  await act(async () => active('[role="dialog"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  await act(async () => button("Sessions").click());
+  offline = false;
+  await act(async () => vi.advanceTimersByTimeAsync(5_000));
+  expect(fixture.client!.connection?.environmentId).toBe("b");
+  expect(list().textContent).toContain("Device B conversation");
+  expect(node.textContent).not.toContain("Device B offline");
+});
+
+it("reloads projects on manual reconnect after the selected device's project request fails", async () => {
+  await mount();
+  let failProjects = true;
+  fixture.request.mockImplementation((endpoint, input) => {
+    if (endpoint === b.endpoint && input.method === "projects.list" && failProjects) throw new Error("Projects unavailable");
+    return respond(endpoint, input);
+  });
+  await switchTo("Device B");
+  expect(list().textContent).toContain("Couldn’t load projects");
+  failProjects = false;
+  await act(async () => button("Reconnect").click());
+  expect(list().textContent).toContain("Device B conversation");
+});
+
+it("ignores the previous device's delayed list and keeps the new device after another refresh", async () => {
+  await mount();
+  const stale = deferred<unknown>();
+  fixture.request.mockImplementation((endpoint, input) => endpoint === a.endpoint && input.method === "sessions.list"
+    ? stale.promise : respond(endpoint, input));
+  await act(async () => vi.advanceTimersByTimeAsync(3_000));
+  await switchTo("Device B");
+  await act(async () => stale.resolve([{ ...summary("Stale A"), revision: 99 }]));
+  await act(async () => vi.advanceTimersByTimeAsync(3_000));
+  expect(list().textContent).toContain("Device B conversation");
+  expect(node.textContent).not.toContain("Stale A");
+  expect(fixture.client!.cachedSessions(project.id)?.[0].title).toBe("Device B conversation");
+});
+
+it("restores a draft only in its original device and conversation", async () => {
+  await mount();
+  await act(async () => active('[data-session-id="shared-session"]')!.click());
+  const field = active("textarea")!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "Draft for A");
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await switchTo("Device B");
+  await act(async () => active('[data-session-id="shared-session"]')!.click());
+  expect((active("textarea") as HTMLTextAreaElement).value).toBe("");
+  await switchTo("Device A");
+  await act(async () => active('[data-session-id="shared-session"]')!.click());
+  expect((active("textarea") as HTMLTextAreaElement).value).toBe("Draft for A");
+});
+
+it("opens the selected device's error state on an offline launch and can switch to a healthy device", async () => {
+  fixture.request.mockImplementation((endpoint, input) => {
+    if (endpoint === a.endpoint) throw new Error("Device A offline");
+    return respond(endpoint, input);
+  });
+  await mount();
+  expect(list().textContent).toContain("Couldn’t load projects");
+  await switchTo("Device B");
+  expect(list().textContent).toContain("Device B conversation");
+});
+
+it("keeps refreshing the original device when an unresolved command prevents switching", async () => {
+  await mount();
+  fixture.values.set("pending", JSON.stringify({
+    endpoint: a.endpoint, environmentId: a.environmentId,
+    command: { type: "send", commandId: "pending", sessionId: "shared-session", text: "Hello" },
+  }));
+  await switchTo("Device B");
+  expect(fixture.client!.connection?.environmentId).toBe("a");
+  fixture.request.mockImplementation((endpoint, input) => input.method === "sessions.list"
+    ? [{ ...summary("Updated A"), revision: 2 }] : respond(endpoint, input));
+  await act(async () => vi.advanceTimersByTimeAsync(3_000));
+  expect(list().textContent).toContain("Updated A conversation");
+});
