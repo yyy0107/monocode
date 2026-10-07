@@ -4190,31 +4190,6 @@ button.mobile-settings-row:active {
   opacity: 0.4;
 }
 
-/* Each new phase of the live status line eases in from below. */
-.transcript-live-footer .transcript-live-status {
-  animation: transcript-live-status-in 220ms cubic-bezier(0.2, 0, 0, 1);
-}
-@keyframes transcript-live-status-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-}
-
-/* The live turn's mascot and clock hold still when motion is reduced. */
-@media (prefers-reduced-motion: reduce) {
-  .transcript-live-footer .mascot-active,
-  .transcript-live-footer .mascot-rest,
-  .transcript-live-footer .shimmer-text,
-  .transcript-live-footer .transcript-live-status {
-    animation: none;
-  }
-  .transcript-live-footer .mascot-talk {
-    animation: none;
-    opacity: 0;
-  }
-}
-
 .mobile-about-version {
   margin: 6px 12px 8px;
   font-size: calc(13px + var(--mobile-popup-font-step, 0px));

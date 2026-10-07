@@ -15,9 +15,11 @@ const desktopPlatform = {
   openExternal: (url: string) => openUrl(url),
   readBinaryFile: (path: string) => readBinaryFile(path),
   localFiles: true,
+  // The mascot and turn clock sit under the live reply on every client.
+  liveClockInFooter: true,
 };
 export const TranscriptPlatformContext = createContext<
-  typeof desktopPlatform & {
+  Omit<typeof desktopPlatform, "liveClockInFooter"> & {
     textReveal?: (blockId?: string) => TextRevealOptions;
     textRevealQueue?: TextRevealQueue;
     /** Clients without a side panel show a finished tool call's details on tap. */
