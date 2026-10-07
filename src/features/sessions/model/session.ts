@@ -313,9 +313,9 @@ export type Block = {
   image?: GeneratedImageMeta;
   attachments?: Attachment[];
   streaming?: boolean;
-  /** Epoch ms when this user turn, streamed thought, or tool call started. */
+  /** Epoch ms when this message, streamed thought, or tool call started. */
   startedAt?: number;
-  /** Epoch ms when a user message was sent during an existing turn. */
+  /** Epoch ms of a user send or the latest content received for an AI message. */
   sentAt?: number;
   /** Duration of this user turn, thought, or tool call, in ms. */
   durationMs?: number;

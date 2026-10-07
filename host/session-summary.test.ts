@@ -103,6 +103,37 @@ describe("session summary notification previews", () => {
 });
 
 describe("session summary send timestamps", () => {
+  it("uses the latest send while running and the last AI message when completed", () => {
+    const value = snapshot();
+    value.session.blocks.push(
+      { id: "a", role: "assistant", text: "Final answer", sentAt: 300 },
+      { id: "tool", role: "tool", text: "Late output", startedAt: 500 },
+    );
+    value.updatedAt = 9_000;
+    expect(summary(value).activityAt).toBe(100);
+    value.status = "idle";
+    expect(summary(value).activityAt).toBe(300);
+    value.session.blocks.push({ id: "draft", role: "user", text: "Not sent", draft: true, startedAt: 600 });
+    expect(summary(value).activityAt).toBe(300);
+    value.status = "running";
+    value.session.blocks.push({ id: "steer", role: "user", text: "Next", sentAt: 700 });
+    expect(summary(value).activityAt).toBe(700);
+  });
+
+  it("backfills cached message activity without changing the stored update time", () => {
+    store = new HostStore(":memory:");
+    const project = store.addProject("/project", "Project");
+    const value = snapshot();
+    value.status = "idle";
+    value.session.blocks.push({ id: "a", role: "assistant", text: "Reply", sentAt: 150 });
+    store.save({ ...value, projectId: project.id }, { type: "legacy" });
+    const cached = { ...store.summaries(project.id)[0] };
+    delete cached.activityAt;
+    store.db.prepare("UPDATE sessions SET summary=? WHERE id=?").run(JSON.stringify(cached), value.session.id);
+    expect(store.summaries(project.id)[0]).toMatchObject({ activityAt: 150, updatedAt: 200 });
+    expect(JSON.parse(String(store.db.prepare("SELECT summary FROM sessions WHERE id=?").get(value.session.id)!.summary)).activityAt).toBe(150);
+  });
+
   it("distinguishes provider input IDs reused in another run", () => {
     const first = snapshot();
     first.runId = "first-run";

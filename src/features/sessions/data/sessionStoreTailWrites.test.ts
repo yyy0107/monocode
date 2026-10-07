@@ -44,6 +44,19 @@ afterEach(() => {
 });
 
 describe("session tail writes", () => {
+  it("persists the running send time and completed reply time even when sending only a tail", async () => {
+    mocks.invoke.mockResolvedValue({ id: "s", cwd: "/tmp/project" });
+    const { upsertSession } = await loadStore();
+    const transcript = [...blocks(10),
+      { id: "u", role: "user" as const, text: "Question", startedAt: 100 },
+      { id: "a", role: "assistant" as const, text: "Answer", sentAt: 200 },
+    ];
+    await upsertSession({ ...session(transcript), busy: true });
+    await upsertSession(session(transcript));
+    expect(upserts().map((payload) => payload.session.activityAt)).toEqual([100, 200]);
+    expect(upserts()[1].blocksFrom).toBe(transcript.length);
+  });
+
   it("sends only the blocks after the first changed one", async () => {
     mocks.invoke.mockResolvedValue({ id: "s", cwd: "/tmp/project" });
     const { upsertSession } = await loadStore();

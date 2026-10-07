@@ -1,4 +1,64 @@
-import type { Session } from "./session";
+import type { Block, Session } from "./session";
+
+function messageTime(
+  block: Block | undefined,
+  user = false,
+): number | undefined {
+  if (!block) return undefined;
+  const time =
+    block.sentAt ??
+    (block.startedAt != null
+      ? block.startedAt + (user ? 0 : Math.max(0, block.durationMs ?? 0))
+      : undefined);
+  return time != null && Number.isFinite(time) && time > 0 ? time : undefined;
+}
+
+/** A running chat stays at its last send; a finished chat follows its last AI reply. */
+export function sessionMessageActivityAt(
+  session: Pick<Session, "blocks" | "busy">,
+  running = session.busy,
+): number | undefined {
+  let user: Block | undefined;
+  for (let index = session.blocks.length - 1; index >= 0; index--) {
+    const block = session.blocks[index];
+    if (block.internal) continue;
+    if (block.role === "user" && !block.draft) {
+      if (running) return messageTime(block, true);
+      user ??= block;
+    }
+    if (
+      !running &&
+      (((block.role === "assistant" || block.role === "plan") &&
+        !!block.text.trim()) ||
+        block.role === "image")
+    )
+      return messageTime(block);
+  }
+  return messageTime(user, true);
+}
+
+/** Older histories/Hosts without message timestamps retain their activity fallback. */
+export function sessionRecencyAt(summary: {
+  updatedAt: number;
+  activityAt?: number | null;
+  status?: string;
+  lastUserMessageAt?: number | null;
+}): number {
+  if (
+    summary.activityAt != null &&
+    Number.isFinite(summary.activityAt) &&
+    summary.activityAt > 0
+  )
+    return summary.activityAt;
+  if (
+    summary.status === "running" &&
+    summary.lastUserMessageAt != null &&
+    Number.isFinite(summary.lastUserMessageAt) &&
+    summary.lastUserMessageAt > 0
+  )
+    return summary.lastUserMessageAt;
+  return summary.updatedAt;
+}
 
 export type SessionNotificationPreview = {
   reply: string | null;

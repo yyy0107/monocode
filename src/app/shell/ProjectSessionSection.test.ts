@@ -1814,23 +1814,38 @@ describe("named project/session tree", () => {
 
 describe("project conversation sorting", () => {
   const initial = ["a", "b", "c", "d", "e"];
-  const visibleRows = () => [...project(A).querySelectorAll<HTMLElement>("[data-session-row]")]
-    .filter((row) => row.querySelector("[data-session-card]") && !row.closest("[hidden]"));
+  const visibleRows = () =>
+    [...project(A).querySelectorAll<HTMLElement>("[data-session-row]")].filter(
+      (row) =>
+        row.querySelector("[data-session-card]") && !row.closest("[hidden]"),
+    );
   const rowIds = () => visibleRows().map((row) => row.dataset.sessionRow);
 
   function pointer(target: EventTarget, type: string, y: number, x = 40) {
-    act(() => target.dispatchEvent(new PointerEvent(type, {
-      pointerId: 1, button: 0, clientX: x, clientY: y, bubbles: true,
-    })));
+    act(() =>
+      target.dispatchEvent(
+        new PointerEvent(type, {
+          pointerId: 1,
+          button: 0,
+          clientX: x,
+          clientY: y,
+          bubbles: true,
+        }),
+      ),
+    );
   }
 
   function fixture(scrollTop = 0) {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
-    vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation(
-      (callback) => window.setTimeout(() => callback(performance.now()), 16),
+    vi.spyOn(window, "matchMedia").mockReturnValue({
+      matches: true,
+    } as MediaQueryList);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) =>
+      window.setTimeout(() => callback(performance.now()), 16),
     );
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(window.clearTimeout);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(
+      window.clearTimeout,
+    );
     props.projectHistory = initial.map((id, index) => ({
       ...summary(id, A, index % 2 === 0 ? `Match ${id}` : `Other ${id}`),
       updatedAt: 100 - index,
@@ -1838,7 +1853,9 @@ describe("project conversation sorting", () => {
     props.sessions = props.projectHistory;
     props.onSessionNavigationOrder = vi.fn();
     act(() => render());
-    const scroller = container.querySelector<HTMLElement>("[data-project-list] > div")!;
+    const scroller = container.querySelector<HTMLElement>(
+      "[data-project-list] > div",
+    )!;
     scroller.style.overflowY = "auto";
     Object.defineProperties(scroller, {
       clientHeight: { value: 80, configurable: true },
@@ -1846,35 +1863,80 @@ describe("project conversation sorting", () => {
     });
     scroller.getBoundingClientRect = () => new DOMRect(0, 0, 240, 80);
     scroller.scrollTop = scrollTop;
-    const measure = () => visibleRows().forEach((row, index) => {
-      row.getBoundingClientRect = () => new DOMRect(0, index * 33 - scroller.scrollTop, 240, 32);
-    });
+    const measure = () =>
+      visibleRows().forEach((row) => {
+        row.getBoundingClientRect = () =>
+          new DOMRect(
+            0,
+            visibleRows().indexOf(row) * 33 - scroller.scrollTop,
+            240,
+            32,
+          );
+      });
     measure();
     return { scroller, measure };
   }
 
   it.each([
-    { direction: "down", from: "a", start: 16, edge: 75, scroll: 0, end: 85, order: ["b", "c", "d", "e", "a"] },
-    { direction: "up", from: "e", start: 63, edge: 5, scroll: 85, end: 0, order: ["e", "a", "b", "c", "d"] },
-  ])("scrolls $direction with a stationary pointer and drops beyond the original viewport", ({ from, start, edge, scroll, end, order }) => {
-    const { scroller } = fixture(scroll);
-    pointer(card(from), "pointerdown", start);
-    pointer(window, "pointermove", edge);
-    act(() => vi.advanceTimersByTime(256));
-    expect(scroller.scrollTop).toBe(end);
+    {
+      direction: "down",
+      from: "a",
+      start: 16,
+      edge: 75,
+      scroll: 0,
+      end: 85,
+      order: ["b", "c", "d", "e", "a"],
+    },
+    {
+      direction: "up",
+      from: "e",
+      start: 63,
+      edge: 5,
+      scroll: 85,
+      end: 0,
+      order: ["e", "a", "b", "c", "d"],
+    },
+  ])(
+    "scrolls $direction with a stationary pointer and drops beyond the original viewport",
+    ({ from, start, edge, scroll, end, order }) => {
+      const { scroller } = fixture(scroll);
+      pointer(card(from), "pointerdown", start);
+      pointer(window, "pointermove", edge);
+      act(() => vi.advanceTimersByTime(256));
+      expect(scroller.scrollTop).toBe(end);
+      expect(rowIds()).toEqual(initial);
+      pointer(window, "pointerup", edge);
+      expect(rowIds()).toEqual(order);
+      expect(loadSessionSidebarOrder(A)).toEqual(order);
+      expect(props.onSessionNavigationOrder).toHaveBeenLastCalledWith(order);
+      act(() => card(from).click());
+      expect(props.onSelectSession).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(64));
+      expect(scroller.scrollTop).toBe(end);
+      pointer(card(from), "pointerdown", edge);
+      pointer(window, "pointerup", edge);
+      act(() => card(from).click());
+      expect(props.onSelectSession).toHaveBeenCalledWith(from, A);
+    },
+  );
+
+  it("uses message activity for automatic ordering while retaining a manual order", () => {
+    fixture();
+    props.projectHistory = props.projectHistory!.map((session, index) => ({
+      ...session,
+      activityAt: 10 + index,
+    }));
+    act(() => render());
+    expect(rowIds()).toEqual(["e", "d", "c", "b", "a"]);
+    expect(props.onSessionNavigationOrder).toHaveBeenLastCalledWith(["e", "d", "c", "b", "a"]);
+    props.projectHistory = props.projectHistory!.map((session) => ({
+      ...session,
+      activityAt: session.id === "a" ? 200 : session.activityAt,
+    }));
+    act(() => render());
+    expect(rowIds()).toEqual(["a", "e", "d", "c", "b"]);
+    act(() => saveSessionSidebarOrder(A, initial));
     expect(rowIds()).toEqual(initial);
-    pointer(window, "pointerup", edge);
-    expect(rowIds()).toEqual(order);
-    expect(loadSessionSidebarOrder(A)).toEqual(order);
-    expect(props.onSessionNavigationOrder).toHaveBeenLastCalledWith(order);
-    act(() => card(from).click());
-    expect(props.onSelectSession).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(64));
-    expect(scroller.scrollTop).toBe(end);
-    pointer(card(from), "pointerdown", edge);
-    pointer(window, "pointerup", edge);
-    act(() => card(from).click());
-    expect(props.onSelectSession).toHaveBeenCalledWith(from, A);
   });
 
   it("preserves filtered slots and restores manual order after activity and remounting", () => {
@@ -1886,7 +1948,10 @@ describe("project conversation sorting", () => {
     pointer(window, "pointerup", 16);
     expect(loadSessionSidebarOrder(A)).toEqual(["e", "b", "a", "d", "c"]);
     query("");
-    props.projectHistory = props.projectHistory!.map((session) => ({ ...session, updatedAt: session.id === "c" ? 10_000 : session.updatedAt }));
+    props.projectHistory = props.projectHistory!.map((session) => ({
+      ...session,
+      updatedAt: session.id === "c" ? 10_000 : session.updatedAt,
+    }));
     act(() => render());
     expect(rowIds()).toEqual(["e", "b", "a", "d", "c"]);
     act(() => root.unmount());
@@ -1899,29 +1964,66 @@ describe("project conversation sorting", () => {
     expect(loadSessionSidebarOrder(B)).toEqual([]);
   });
 
-  it.each(["Escape", "pointercancel", "blur"])("stops scrolling and keeps the original order on %s", (reason) => {
-    const { scroller } = fixture();
+  it("settles a manual drop once while retaining motion for later external order changes", () => {
+    fixture();
+    vi.mocked(window.matchMedia).mockReturnValue({
+      matches: false,
+    } as MediaQueryList);
+    const section = project(A).querySelector<HTMLElement>(
+      "[data-project-session-section]",
+    )!;
+    section.animate = vi.fn();
+    const rows = visibleRows();
+    rows.forEach((row) => {
+      row.animate = vi.fn();
+      row.getAnimations = () => [];
+    });
     pointer(card("a"), "pointerdown", 16);
-    pointer(window, "pointermove", 75);
-    act(() => vi.advanceTimersByTime(32));
-    expect(scroller.scrollTop).toBeGreaterThan(0);
-    act(() => window.dispatchEvent(reason === "Escape"
-      ? new KeyboardEvent("keydown", { key: "Escape" })
-      : new Event(reason)));
-    const stoppedAt = scroller.scrollTop;
-    act(() => vi.advanceTimersByTime(64));
-    expect(scroller.scrollTop).toBe(stoppedAt);
+    pointer(window, "pointerup", 148);
+    act(() => vi.advanceTimersByTime(160));
+    expect(rowIds()).toEqual(["b", "c", "d", "e", "a"]);
+    expect(
+      rows.every((row) => vi.mocked(row.animate).mock.calls.length === 0),
+    ).toBe(true);
+    act(() => saveSessionSidebarOrder(A, initial));
     expect(rowIds()).toEqual(initial);
-    expect(loadSessionSidebarOrder(A)).toEqual([]);
-    expect(props.onSelectSession).not.toHaveBeenCalled();
+    expect(
+      rows.some((row) => vi.mocked(row.animate).mock.calls.length > 0),
+    ).toBe(true);
   });
+
+  it.each(["Escape", "pointercancel", "blur"])(
+    "stops scrolling and keeps the original order on %s",
+    (reason) => {
+      const { scroller } = fixture();
+      pointer(card("a"), "pointerdown", 16);
+      pointer(window, "pointermove", 75);
+      act(() => vi.advanceTimersByTime(32));
+      expect(scroller.scrollTop).toBeGreaterThan(0);
+      act(() =>
+        window.dispatchEvent(
+          reason === "Escape"
+            ? new KeyboardEvent("keydown", { key: "Escape" })
+            : new Event(reason),
+        ),
+      );
+      const stoppedAt = scroller.scrollTop;
+      act(() => vi.advanceTimersByTime(64));
+      expect(scroller.scrollTop).toBe(stoppedAt);
+      expect(rowIds()).toEqual(initial);
+      expect(loadSessionSidebarOrder(A)).toEqual([]);
+      expect(props.onSelectSession).not.toHaveBeenCalled();
+    },
+  );
 
   it("stops sidebar scrolling when transferring the conversation to a pane", () => {
     props.onPlaceSessionOnPane = vi.fn();
     const { scroller } = fixture();
     const pane = document.createElement("div");
     pane.dataset.paneId = "workspace-pane";
-    vi.spyOn(document, "elementFromPoint").mockImplementation((x) => x >= 300 ? pane : card("b"));
+    vi.spyOn(document, "elementFromPoint").mockImplementation((x) =>
+      x >= 300 ? pane : card("b"),
+    );
     pointer(card("a"), "pointerdown", 16);
     pointer(window, "pointermove", 75);
     act(() => vi.advanceTimersByTime(32));
@@ -1930,28 +2032,43 @@ describe("project conversation sorting", () => {
     act(() => vi.advanceTimersByTime(64));
     expect(scroller.scrollTop).toBe(stoppedAt);
     pointer(window, "pointerup", 75, 350);
-    expect(props.onPlaceSessionOnPane).toHaveBeenCalledWith("a", "workspace-pane", expect.any(String));
+    expect(props.onPlaceSessionOnPane).toHaveBeenCalledWith(
+      "a",
+      "workspace-pane",
+      expect.any(String),
+    );
     expect(loadSessionSidebarOrder(A)).toEqual([]);
     expect(document.querySelector(".drag-ghost")).toBeNull();
   });
 
-  it.each(["project", "sidebar"])("cancels a drag when the %s starts collapsing", (surface) => {
-    const { scroller } = fixture();
-    pointer(card("a"), "pointerdown", 16);
-    pointer(window, "pointermove", 75);
-    act(() => vi.advanceTimersByTime(32));
-    if (surface === "project") {
-      act(() => project(A).querySelector<HTMLButtonElement>('button[aria-label="Collapse project"]')!.click());
-    } else {
-      props.open = false;
-      act(() => render());
-    }
-    const stoppedAt = scroller.scrollTop;
-    act(() => vi.advanceTimersByTime(64));
-    expect(scroller.scrollTop).toBe(stoppedAt);
-    expect(loadSessionSidebarOrder(A)).toEqual([]);
-    expect(document.documentElement.classList.contains("is-reordering")).toBe(false);
-  });
+  it.each(["project", "sidebar"])(
+    "cancels a drag when the %s starts collapsing",
+    (surface) => {
+      const { scroller } = fixture();
+      pointer(card("a"), "pointerdown", 16);
+      pointer(window, "pointermove", 75);
+      act(() => vi.advanceTimersByTime(32));
+      if (surface === "project") {
+        act(() =>
+          project(A)
+            .querySelector<HTMLButtonElement>(
+              'button[aria-label="Collapse project"]',
+            )!
+            .click(),
+        );
+      } else {
+        props.open = false;
+        act(() => render());
+      }
+      const stoppedAt = scroller.scrollTop;
+      act(() => vi.advanceTimersByTime(64));
+      expect(scroller.scrollTop).toBe(stoppedAt);
+      expect(loadSessionSidebarOrder(A)).toEqual([]);
+      expect(document.documentElement.classList.contains("is-reordering")).toBe(
+        false,
+      );
+    },
+  );
 });
 
 describe("unified pinned sidebar group", () => {

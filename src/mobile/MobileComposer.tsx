@@ -16,6 +16,7 @@ import {
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { AnimatedCollapse, useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
+import { notePromptLaunch } from "../features/sessions/ui/promptLaunch";
 import { AttachmentList } from "../features/sessions/ui/AttachmentList";
 import { RuntimeModeIcon } from "../features/sessions/ui/RuntimeModeIcon";
 import { MODE_COMMAND_STYLES } from "../features/sessions/ui/modeCommands";
@@ -256,6 +257,19 @@ export function MobileComposer(props: Props) {
   }, [props.panel]);
   // The compact line carries its own send/stop button while the toolbar folds.
   const inline = useCollapseMotion(!!props.compact);
+  // Sent text lifts out of the field and stays hidden while the Host accepts
+  // it; the transcript bubble then flies up from the same spot.
+  const [launching, setLaunching] = useState(false);
+  useEffect(() => {
+    if (launching && !props.working) setLaunching(false);
+  }, [launching, props.working]);
+  const launch = () => {
+    if (props.value.trim()) {
+      notePromptLaunch(area.current);
+      setLaunching(true);
+    }
+    props.onSend();
+  };
   const sendButton = (
     props.running && !props.value.trim() && !props.attachments.length ? (
       <button
@@ -302,6 +316,7 @@ export function MobileComposer(props: Props) {
           ref={form}
           className="mobile-composer mobile-composer-card"
           data-compact={props.compact || undefined}
+          data-launching={launching || undefined}
           onPointerDownCapture={(event) => {
             if ((event.target as Element).closest("button"))
               preserveInputFocus(event, area.current);
@@ -317,7 +332,7 @@ export function MobileComposer(props: Props) {
           }}
           onSubmit={(event) => {
             event.preventDefault();
-            if (props.canSend) props.onSend();
+            if (props.canSend) launch();
           }}
         >
           <div
@@ -402,7 +417,7 @@ export function MobileComposer(props: Props) {
                   props.canSend
                 ) {
                   event.preventDefault();
-                  props.onSend();
+                  launch();
                 }
               }}
             />

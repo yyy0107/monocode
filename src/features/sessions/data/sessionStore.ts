@@ -1,4 +1,5 @@
 import { manualSessionTitle, sanitizeTitleState } from "../model/titlePolicy";
+import { sessionMessageActivityAt } from "../model/sessionActivity";
 import { invoke } from "@tauri-apps/api/core";
 import {
   isWeakToolTitle,
@@ -67,6 +68,8 @@ export type SessionSummary = {
   deletions?: number;
   createdAt: number;
   updatedAt: number;
+  /** Message time used by automatic conversation ordering, independent of saves. */
+  activityAt?: number | null;
   archived?: boolean;
   pinned?: boolean;
   draft?: boolean;
@@ -100,6 +103,7 @@ type SessionRecord = {
 };
 
 type SessionUpsertPayload = {
+  activityAt?: number;
   titleState?: Session["titleState"];
   nativeSession?: Session["nativeSession"];
   id: string;
@@ -143,6 +147,7 @@ function persistableMeta(
   const linkedWorkItem = sanitizeLinkedWorkItem(session.linkedWorkItem);
   return {
     id: session.id,
+    activityAt: sessionMessageActivityAt(session),
     nativeSession: sanitizeNativeSessionLink(
       session.nativeSession, session.harness, session.providerSessionId,
     ),

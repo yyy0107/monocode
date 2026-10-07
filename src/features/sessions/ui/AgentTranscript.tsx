@@ -94,7 +94,7 @@ import { TranscriptTurnCache } from "../model/transcriptTurnCache";
 import { userTurnStartTimes } from "../model/turnTiming";
 import { liveStatus } from "../model/liveStatus";
 import { Shimmer } from "../../../shared/ui/Shimmer";
-import { RollingClock } from "../../../shared/ui/RollingClock";
+import { RollingClock, rollingClockMotion } from "../../../shared/ui/RollingClock";
 import {
   hasPendingApproval,
   HARNESS_TITLE,
@@ -168,6 +168,7 @@ import {
   transcriptMutationNeedsRepaint,
   transcriptWordRanges,
 } from "../model/transcriptHighlights";
+import { takePromptLaunch, type PromptLaunchOrigin } from "./promptLaunch";
 
 const NEAR_BOTTOM_PX = 16;
 /*
@@ -380,8 +381,12 @@ function AgentTranscriptComponent({
   const promptAnchor = useTranscriptAnchor();
   const lastUserId = lastUserBlockId(blocks, managed);
   const seenUserId = useRef(lastUserId);
+  // Where the previous turn sat before a phone send moves it, read while the
+  // DOM still shows the old layout so earlier turns can glide up continuously.
+  const priorTurn = useRef<PriorTurn | undefined>(undefined);
   if (lastUserId !== seenUserId.current) {
     seenUserId.current = lastUserId;
+    if (promptMotion === "mobile") priorTurn.current = measureLastTurn(scroller.current);
     if (lastUserId && !anchorTurn) setAnchorTurn(true);
   }
   const currentModelName = harness
@@ -623,7 +628,9 @@ function AgentTranscriptComponent({
       !(busy && userTurnCount(blocks, managed) === 1)
     )
       return;
-    return riseIntoAnchor(scroller.current, lastUserId, promptMotion);
+    const prior = priorTurn.current;
+    priorTurn.current = undefined;
+    return riseIntoAnchor(scroller.current, lastUserId, promptMotion, prior);
     // Only a new prompt starts the motion; later renders must not replay it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastUserId]);
@@ -1353,8 +1360,8 @@ function LiveFoldTitle({
 
 /**
  * What sits under the reply while it is being written, for clients that keep
- * the turn clock in view there: the project's mascot and one status line that
- * follows the turn through its phases with a clock that stays visible.
+ * the live clock in view there: the project's mascot and one status line that
+ * follows the current activity, occasionally accompanied by its clock.
  */
 function LiveTurnFooter({
   cwd,
@@ -1397,7 +1404,7 @@ function LiveTurnFooter({
       className="transcript-live-footer flex min-w-0 items-center gap-2 px-4 pt-2 pb-1 font-sans text-sm @md:px-6"
       data-live-footer
       data-live-phase={status.phase}
-      data-live-clock={status.clock}
+      data-live-clock={status.showClock ? status.clock : undefined}
     >
       <ProjectMascot
         project={mascot.project}
@@ -1407,9 +1414,13 @@ function LiveTurnFooter({
         className="size-4 shrink-0"
       />
       <span className="flex min-w-0 items-center gap-1">
-        {status.elapsed ? (
+        {status.showClock && status.elapsed ? (
           <>
-            <RollingClock key={status.clock} value={status.elapsed} />
+            <RollingClock
+              key={`${status.clock}:${status.clockStartedAt}`}
+              value={status.elapsed}
+              motion={rollingClockMotion(`${seed}:${status.clock}`, status.clockStartedAt ?? 0)}
+            />
             <span className="shrink-0 text-content/40" aria-hidden="true">{" · "}</span>
           </>
         ) : null}
@@ -1526,14 +1537,22 @@ function TurnDuration({
       {labelHidden ? null : (
         <span className="flex min-w-0 items-center gap-2.5">
           {dot}
-          <span className="flex min-w-0 items-center gap-1.5">
-            {harness ? (
-              <HarnessIcon harness={harness} className="size-3.5 shrink-0" />
-            ) : null}
-            <span className="min-w-0 truncate" title={label}>
-              {label}
-            </span>
-          </span>
+          {harness || modelName?.trim() ? (
+            <>
+              <span className="flex min-w-0 items-center gap-1.5">
+                {harness ? (
+                  <HarnessIcon harness={harness} className="size-3.5 shrink-0" />
+                ) : null}
+                {modelName?.trim() ? (
+                  <span className="min-w-0 truncate" title={modelName.trim()}>
+                    {modelName.trim()}
+                  </span>
+                ) : null}
+              </span>
+              {dot}
+            </>
+          ) : null}
+          <span className="shrink-0 tabular-nums">{formatElapsed(elapsedMs)}</span>
         </span>
       )}
       {completedAt != null ? (
@@ -3928,12 +3947,22 @@ const PROMPT_FADE_MS = 480;
 // Where the prompt starts, as a fraction of the viewport height from the top.
 const PROMPT_RISE_FROM = 0.3;
 
+type PriorTurn = { element: HTMLElement; top: number };
+
+function measureLastTurn(scroller: HTMLElement | null): PriorTurn | undefined {
+  const turns = scroller?.querySelectorAll<HTMLElement>(".transcript-turn");
+  const element = turns?.[turns.length - 1];
+  return element ? { element, top: element.getBoundingClientRect().top } : undefined;
+}
+
 /** Fades the prompt in while sliding it from the upper viewport to its row. */
 function riseIntoAnchor(
   scroller: HTMLElement | null,
   blockId: string,
   motion?: "mobile",
+  prior?: PriorTurn,
 ) {
+  const launch = motion === "mobile" ? takePromptLaunch() : undefined;
   const row = scroller?.querySelector<HTMLElement>(
     `[data-prompt-anchor="${CSS.escape(blockId)}"]`,
   );
@@ -3942,43 +3971,45 @@ function riseIntoAnchor(
   const turn = row.closest<HTMLElement>(".transcript-turn");
   const mobile = motion === "mobile";
   const revealDuration = mobile ? 200 : PROMPT_REVEAL_MS;
-  let animation: Animation | undefined;
-  let fade: Animation | undefined;
+  let animations: Animation[] = [];
   let frame = 0;
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
+  const reveal = () => {
+    turn?.setAttribute("data-prompt-rise", "revealing");
+    revealTimer = setTimeout(
+      () => turn?.removeAttribute("data-prompt-rise"),
+      revealDuration,
+    );
+  };
   const start = () => {
     row.style.removeProperty("visibility");
+    if (mobile) {
+      animations = launchIntoAnchor(scroller, row, turn, launch, prior);
+      if (!animations.length) {
+        turn?.removeAttribute("data-prompt-rise");
+        return;
+      }
+      animations[0].onfinish = reveal;
+      return;
+    }
     const view = scroller.getBoundingClientRect();
     const bounds = row.getBoundingClientRect();
-    const dock = parseFloat(getComputedStyle(scroller).paddingBottom) || 0;
-    const origin = mobile
-      ? view.bottom - dock - Math.min(bounds.height, view.height * 0.4) - 8
-      : view.top + view.height * PROMPT_RISE_FROM;
-    const dy = Math.max(0, origin - bounds.top);
+    const dy = Math.max(0, view.top + view.height * PROMPT_RISE_FROM - bounds.top);
     if (dy <= 1) {
       turn?.removeAttribute("data-prompt-rise");
       return;
     }
-    animation = row.animate(
+    const rise = row.animate(
       [{ transform: `translateY(${dy}px)` }, { transform: "translateY(0)" }],
-      {
-        duration: mobile ? 420 : PROMPT_RISE_MS,
-        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-      },
+      { duration: PROMPT_RISE_MS, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
     );
-    // Separate fade timing makes a phone message readable early in its rise.
-    fade = row.animate([{ opacity: 0 }, { opacity: 1 }], {
-      duration: mobile ? 200 : PROMPT_FADE_MS,
+    const fade = row.animate([{ opacity: 0 }, { opacity: 1 }], {
+      duration: PROMPT_FADE_MS,
       easing: "ease-out",
     });
+    animations = [rise, fade];
     turn?.setAttribute("data-prompt-rise", "rising");
-    animation.onfinish = () => {
-      turn?.setAttribute("data-prompt-rise", "revealing");
-      revealTimer = setTimeout(
-        () => turn?.removeAttribute("data-prompt-rise"),
-        revealDuration,
-      );
-    };
+    rise.onfinish = reveal;
   };
   if (mobile) {
     // Let the sibling dock publish its cleared draft height before measuring.
@@ -3988,12 +4019,98 @@ function riseIntoAnchor(
   } else start();
   return () => {
     cancelAnimationFrame(frame);
-    animation?.cancel();
-    fade?.cancel();
+    for (const animation of animations) animation.cancel();
     clearTimeout(revealTimer);
     row.style.removeProperty("visibility");
     turn?.removeAttribute("data-prompt-rise");
   };
+}
+
+// A quick launch that settles with a slight overshoot, like a message app.
+const PROMPT_LAUNCH_EASING = "cubic-bezier(0.3, 0.8, 0.25, 1)";
+
+/**
+ * Flies a phone prompt's bubble out of the composer text it was typed in and
+ * carries the earlier turns up with it, so the send reads as one motion.
+ * The first animation drives the reveal of the rest of the turn.
+ */
+function launchIntoAnchor(
+  scroller: HTMLElement,
+  row: HTMLElement,
+  turn: HTMLElement | null,
+  launch: PromptLaunchOrigin | undefined,
+  prior: PriorTurn | undefined,
+): Animation[] {
+  const bubble = row.querySelector<HTMLElement>(".user-message-bubble") ?? row;
+  const view = scroller.getBoundingClientRect();
+  const target = bubble.getBoundingClientRect();
+  const dock = parseFloat(getComputedStyle(scroller).paddingBottom) || 0;
+  const dockTop = view.bottom - dock;
+  // The composer may have shrunk since the send; never start below the dock.
+  const fromBottom = launch
+    ? Math.min(launch.bottom, view.bottom)
+    : dockTop - 8;
+  const dy = fromBottom - target.bottom;
+  if (dy <= 1) return [];
+  // Start where the typed text began, then drift to the bubble's right edge.
+  const dx = launch
+    ? Math.max(-target.left + view.left, Math.min(0, launch.left - target.left))
+    : 0;
+  const duration = Math.round(380 + Math.min(dy, 900) * 0.16);
+  const overshoot = Math.min(10, dy * 0.025);
+  const origin = launch ? "0% 100%" : "100% 100%";
+  const flight = bubble.animate(
+    [
+      {
+        transform: `translate(${dx}px, ${dy}px) scale(0.86)`,
+        transformOrigin: origin,
+        offset: 0,
+        easing: PROMPT_LAUNCH_EASING,
+      },
+      {
+        transform: `translate(0, ${-overshoot}px) scale(1.02)`,
+        transformOrigin: origin,
+        offset: 0.7,
+        easing: "cubic-bezier(0.4, 0, 0.2, 1)",
+      },
+      { transform: "none", transformOrigin: origin, offset: 1 },
+    ],
+    { duration },
+  );
+  // Text the reader just watched leave the composer is visible from the start.
+  const fade = bubble.animate([{ opacity: launch ? 0.4 : 0 }, { opacity: 1 }], {
+    duration: launch ? 140 : 200,
+    easing: "ease-out",
+  });
+  const animations = [flight, fade];
+  // The send scrolls the previous turns up in one jump; glide them instead.
+  const shift = prior?.element.isConnected
+    ? prior.top - prior.element.getBoundingClientRect().top
+    : 0;
+  if (
+    prior &&
+    shift > 1 &&
+    prior.top < view.bottom &&
+    prior.element !== turn
+  ) {
+    for (
+      let element: Element | null = prior.element, count = 0;
+      element instanceof HTMLElement &&
+      element.classList.contains("transcript-turn") &&
+      count < 4;
+      element = element.previousElementSibling, count++
+    ) {
+      // Turns that stay above the viewport for the whole glide need no motion.
+      if (element.getBoundingClientRect().bottom + shift < view.top) break;
+      animations.push(
+        element.animate(
+          [{ transform: `translateY(${shift}px)` }, { transform: "none" }],
+          { duration, easing: PROMPT_LAUNCH_EASING },
+        ),
+      );
+    }
+  }
+  return animations;
 }
 
 function isNearBottom(el: HTMLElement): boolean {

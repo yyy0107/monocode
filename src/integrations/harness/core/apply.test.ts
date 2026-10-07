@@ -16,6 +16,29 @@ import {
 
 let now = 0;
 
+it.each(["pi", "omp", "claude", "codex"] as const)(
+  "keeps %s response starts stable while updating send time only on new content",
+  (harness) => {
+    now = 100;
+    let session = applyHarnessEvent(newSession(harness, "/repo"), { type: "message.delta", text: "First" });
+    expect(session.blocks[0].startedAt).toBe(100);
+    expect(session.blocks[0].sentAt).toBe(100);
+    now = 200;
+    session = applyHarnessEvent(session, { type: "message.delta", text: " answer" });
+    expect(session.blocks[0].sentAt).toBe(200);
+    expect(session.blocks[0].startedAt).toBe(100);
+    now = 300;
+    session = applyHarnessEvent(session, { type: "message.completed" });
+    now = 400;
+    session = applyHarnessEvent(session, { type: "status", text: "Idle" });
+    expect(session.blocks[0].sentAt).toBe(200);
+    expect(sanitizeSessionForPersist(session).blocks[0]).toMatchObject({ startedAt: 100, sentAt: 200 });
+    now = 500;
+    session = applyHarnessEvent(session, { type: "message.delta", text: "Next response" });
+    expect(session.blocks.at(-1)).toMatchObject({ startedAt: 500, sentAt: 500 });
+  },
+);
+
 it("keeps a generated image's remote attachment on the image row and deduplicates it", () => {
   const attachment = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", name: "generated.png",
     mimeType: "image/png", kind: "image" as const, size: 70, path: "/host/image" };
@@ -811,6 +834,7 @@ describe("task list updates", () => {
 
   it("streams one plan block and marks the final snapshot ready", () => {
     let session = appendUser(newSession("codex", "/tmp"), "plan it");
+    now = 100;
     session = applyHarnessEvent(session, {
       type: "plan",
       key: "plan_1",
@@ -818,6 +842,7 @@ describe("task list updates", () => {
       append: true,
       streaming: true,
     });
+    now = 200;
     session = applyHarnessEvent(session, {
       type: "plan",
       key: "plan_1",
@@ -825,6 +850,7 @@ describe("task list updates", () => {
       append: true,
       streaming: true,
     });
+    now = 300;
     session = applyHarnessEvent(session, {
       type: "plan",
       key: "plan_1",
@@ -836,6 +862,8 @@ describe("task list updates", () => {
     expect(plans).toHaveLength(1);
     expect(plans[0]).toMatchObject({
       text: "# Approach\n\nDo the work.",
+      startedAt: 100,
+      sentAt: 200,
       streaming: false,
       plan: {
         key: "plan_1",

@@ -257,6 +257,7 @@ export function useAnimatedReorder<T extends string>(
         scroller[scrollProperty] = Math.max(0, Math.min(limit, previous + speed));
         if (scroller[scrollProperty] === previous) return;
         // Update the drop slots even while the pointer is held still at an edge.
+        window.cancelAnimationFrame(frame);
         paint();
         autoScrollFrame = window.requestAnimationFrame(autoScroll);
       }

@@ -20,6 +20,16 @@ const entry = (id: string, parentId: string | null, extra: object) => ({
 });
 
 describe("Pi session import", () => {
+  it.each(["pi", "omp"] as const)("retains user and assistant message times for %s", (provider) => {
+    const result = parsePiSession(lines(
+      entry("u", null, { type: "message", timestamp: "2026-10-05T10:00:00Z", message: { role: "user", content: "Question" } }),
+      entry("a", "u", { type: "message", timestamp: "2026-10-05T10:00:10Z", message: { role: "assistant", content: [{ type: "text", text: "Answer" }] } }),
+    ), { ...file, provider });
+    expect(result.blocks.map((block) => block.startedAt)).toEqual([
+      Date.parse("2026-10-05T10:00:00Z"), Date.parse("2026-10-05T10:00:10Z"),
+    ]);
+  });
+
   it("follows the current branch, applies context edits, and preserves native settings/name", () => {
     const result = parsePiSession(
       lines(

@@ -766,6 +766,112 @@ html[data-mobile-glass="solid"] :is(
 .mobile-connection-form {
   margin: 20px 0 6px;
 }
+.mobile-pairing {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 4px 6px;
+}
+.mobile-pairing-methods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  background: var(--mobile-fill);
+  border-radius: 14px;
+}
+.mobile-pairing-methods button {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  font-size: calc(14px + var(--mobile-popup-font-step, 0px));
+  font-weight: 600;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+.mobile-pairing-methods button span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mobile-pairing-methods button[aria-selected="true"] {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 14%, var(--color-background-base));
+  box-shadow: 0 1px 4px color-mix(in srgb, #000 12%, transparent);
+}
+.mobile-pairing-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mobile-pairing-panel .mobile-connection-form {
+  margin: 0;
+}
+.mobile-pairing-hint {
+  margin: 0;
+  padding-inline: 4px;
+  font-size: calc(13px + var(--mobile-popup-font-step, 0px));
+  text-align: center;
+}
+.mobile-app input.mobile-pairing-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0.08em;
+}
+.mobile-qr-scanner {
+  position: relative;
+  width: min(100%, 300px);
+  aspect-ratio: 1;
+  margin-inline: auto;
+  overflow: hidden;
+  background: #111;
+  border-radius: 20px;
+}
+.mobile-qr-scanner video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mobile-qr-scanner:is([data-state="denied"], [data-state="unavailable"]) video {
+  visibility: hidden;
+}
+.mobile-qr-frame {
+  position: absolute;
+  inset: 16%;
+  border-radius: 16px;
+  box-shadow: 0 0 0 999px rgb(0 0 0 / 0.28);
+  outline: 2px solid rgb(255 255 255 / 0.85);
+}
+.mobile-qr-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  color: rgb(255 255 255 / 0.86);
+  font-size: calc(13px + var(--mobile-popup-font-step, 0px));
+  line-height: 1.5;
+  text-align: center;
+}
+.mobile-qr-overlay .mobile-button {
+  min-height: 38px;
+  color: #fff;
+  background: rgb(255 255 255 / 0.16);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-pairing-methods button {
+    transition: none;
+  }
+}
 .mobile-connection-dot,
 .mobile-attention-dot {
   display: block;
@@ -1571,10 +1677,23 @@ html.theme-light .mobile-composer-card {
   user-select: text;
   overflow-y: auto;
   touch-action: pan-y;
-  transition: height 180ms ease;
+  transition:
+    height 180ms ease,
+    opacity 200ms ease,
+    transform 260ms cubic-bezier(0.3, 0.8, 0.25, 1);
 }
 .mobile-composer-card textarea {
   min-height: 36px;
+}
+/* Sent text lifts away at once; the transcript bubble picks up its motion. */
+.mobile-composer[data-launching] textarea {
+  opacity: 0;
+  transform: translateY(-18px) scale(0.96);
+  transform-origin: 0 100%;
+  transition:
+    height 180ms ease,
+    opacity 160ms ease-in,
+    transform 180ms cubic-bezier(0.5, 0, 0.75, 0);
 }
 .mobile-composer textarea.mobile-composer-measure {
   white-space: pre-wrap;
@@ -1632,6 +1751,20 @@ html.theme-light .mobile-composer-card {
   color: var(--color-background-base);
   border: 0;
   border-radius: 50%;
+  transition: transform 260ms cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+.mobile-send:not(:disabled):active {
+  transform: scale(0.86);
+  transition-duration: 90ms;
+}
+/* The send button gives a small kick as the message leaves. */
+.mobile-composer[data-launching] .mobile-send {
+  animation: mobile-send-kick 320ms cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+@keyframes mobile-send-kick {
+  0% { transform: scale(0.86); }
+  45% { transform: scale(1.08); }
+  100% { transform: none; }
 }
 html.has-user-accent .mobile-send:not(:disabled) {
   background: var(--user-accent-color);
@@ -1732,17 +1865,36 @@ html.has-user-accent .mobile-send:not(:disabled) {
 }
 @media (prefers-reduced-motion: reduce) {
   .mobile-composer-dock,
-  .mobile-composer textarea {
+  .mobile-composer textarea,
+  .mobile-composer[data-launching] textarea,
+  .mobile-send {
     transition: none;
   }
+  .mobile-composer[data-launching] textarea {
+    transform: none;
+  }
+  .mobile-composer[data-launching] .mobile-send {
+    animation: none;
+  }
 }
+/* One row that scrolls sideways instead of wrapping into a tall block. */
 .mobile-composer-attachments {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 12px;
-  padding: 0 0 12px;
-  max-height: min(110px, 15dvh);
-  overflow-y: auto;
+  /* Room for remove buttons hanging over the chip corners; this list scrolls,
+     so anything outside its padding box is clipped. */
+  padding: 6px 6px 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.mobile-composer-attachments::-webkit-scrollbar {
+  display: none;
+}
+.mobile-composer-attachments > * {
+  flex-shrink: 0;
 }
 .mobile-composer-attachments button {
   min-width: 28px;
@@ -1835,10 +1987,16 @@ html.has-user-accent .mobile-send:not(:disabled) {
 }
 /* Forms reserve space after the keyboard rises and restore it immediately on
    dismissal. Moving the backdrop bottom every frame exposes the page below it
-   and repeatedly lays out the form. Input-free menus keep their existing motion. */
+   and repeatedly lays out the form, so the sheet rides the keyboard on a
+   compositor translate for the part of the travel the layout has not reserved.
+   Input-free menus keep their existing motion. */
 .mobile-sheet-backdrop[data-placement="bottom"]:has(> .mobile-sheet :is(input, textarea, select, [contenteditable])) {
   bottom: var(--mobile-keyboard-layout);
-  transition: none;
+  /* Unregistered, so the sheet inherits the substituted per-frame value. */
+  --mobile-sheet-keyboard-lift: max(0px, var(--mobile-keyboard) - var(--mobile-keyboard-layout));
+}
+.mobile-sheet-backdrop[data-placement="bottom"]:has(> .mobile-sheet :is(input, textarea, select, [contenteditable])) > .mobile-sheet {
+  translate: 0 calc(-1 * var(--mobile-sheet-keyboard-lift, 0px));
 }
 .mobile-sheet-backdrop[data-placement="bottom"] .mobile-sheet {
   animation: mobile-sheet-rise 200ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -3473,44 +3631,96 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
     transition: none;
   }
 }
+/* Every drawer row shares one icon column: a 22px icon at the row inset,
+   then labels, session titles and headings start on the same text edge. */
+.mobile-drawer {
+  --mobile-drawer-inset: 12px;
+  --mobile-drawer-icon: 22px;
+  --mobile-drawer-gap: 14px;
+}
 .mobile-drawer-top {
   display: flex;
   flex-direction: column;
+  gap: 2px;
   flex-shrink: 0;
-  padding-bottom: 10px;
+  padding-bottom: 8px;
   border-bottom: 0.5px solid var(--mobile-separator);
 }
-.mobile-drawer-new,
-.mobile-drawer-item,
-.mobile-drawer-settings {
+.mobile-drawer-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--mobile-drawer-gap);
   width: 100%;
   min-height: 46px;
-  padding: 8px 12px;
+  padding: 8px var(--mobile-drawer-inset);
   border: 0;
   border-radius: 16px;
   background: transparent;
   color: var(--color-content);
-  font-size: 15px;
+  font-size: 16px;
   text-align: left;
 }
+.mobile-drawer-item > svg {
+  flex: 0 0 var(--mobile-drawer-icon);
+  width: var(--mobile-drawer-icon);
+  height: var(--mobile-drawer-icon);
+}
+.mobile-drawer-item > span:first-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .mobile-drawer-more:active,
-.mobile-drawer-new:active,
-.mobile-drawer-item:active,
-.mobile-drawer-settings:active {
+.mobile-drawer-item:active {
   background: var(--color-selection);
+}
+.mobile-drawer-new {
+  color: var(--mobile-accent);
+  font-weight: 600;
+}
+.mobile-drawer-new:disabled {
+  opacity: 0.4;
+}
+.mobile-drawer-sessions {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: 4px;
+  scrollbar-width: none;
+}
+.mobile-drawer-sessions::-webkit-scrollbar {
+  display: none;
 }
 /* Pinned and Recents are flat lists under small section headings. */
 .mobile-drawer-group {
-  margin-top: 14px;
+  margin-top: 12px;
 }
 .mobile-drawer-heading {
-  margin: 0 6px 4px;
+  margin: 0 var(--mobile-drawer-inset) 4px;
   font-size: 13px;
   font-weight: 500;
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
+}
+.mobile-drawer .mobile-session-row {
+  min-height: 46px;
+  padding: 8px var(--mobile-drawer-inset);
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.mobile-drawer .mobile-session-row .mobile-row-text strong {
+  font-size: 15px;
+}
+/* Provider marks are drawn smaller than outline icons but keep their slot,
+   so session titles line up with the menu labels above. */
+.mobile-drawer-session-icon {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  align-self: center;
+  margin-inline: 2px calc(2px + var(--mobile-drawer-gap) - 8px);
 }
 .mobile-drawer-session-project {
   max-width: 96px;
@@ -3519,7 +3729,7 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   text-overflow: ellipsis;
 }
 .mobile-drawer-group-status {
-  margin: 4px 6px 8px;
+  margin: 4px var(--mobile-drawer-inset) 8px;
 }
 button.mobile-drawer-group-status {
   border: 0;
@@ -3530,49 +3740,12 @@ button.mobile-drawer-group-status {
 .mobile-drawer-more {
   align-self: flex-start;
   min-height: 34px;
-  padding: 6px;
+  padding: 6px var(--mobile-drawer-inset);
   border: 0;
   border-radius: 12px;
   background: transparent;
   color: var(--mobile-accent);
   font-size: 13px;
-}
-.mobile-drawer-item > span,
-.mobile-drawer-settings > span:first-of-type {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.mobile-drawer-open-project {
-  min-height: 44px;
-  padding: 6px;
-  color: color-mix(in srgb, var(--color-content) 70%, transparent);
-}
-.mobile-drawer-new {
-  margin-top: 4px;
-  color: var(--mobile-accent);
-  font-weight: 600;
-}
-.mobile-drawer-sessions {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding-top: 14px;
-  scrollbar-width: none;
-}
-.mobile-drawer-sessions::-webkit-scrollbar {
-  display: none;
-}
-.mobile-drawer-sessions .mobile-section-label {
-  margin: 4px 10px 6px;
-}
-.mobile-drawer-sessions .mobile-section-label > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
 }
 .mobile-session-row[aria-current="page"],
 .mobile-session-row[data-needs-input="true"] {
@@ -3589,20 +3762,15 @@ button.mobile-drawer-group-status {
   flex-shrink: 0;
   color: var(--mobile-accent);
 }
-.mobile-drawer .mobile-session-row {
-  user-select: none;
-  -webkit-touch-callout: none;
-}
 .mobile-drawer-empty {
-  margin: 12px 10px;
+  margin: 12px var(--mobile-drawer-inset);
   font-size: 13px;
   color: color-mix(in srgb, var(--color-content) 45%, transparent);
 }
 .mobile-drawer-settings {
   flex-shrink: 0;
-  margin-top: 8px;
-  min-height: 48px;
-  padding: 10px 14px;
+  margin-top: 4px;
+  min-height: 50px;
 }
 .mobile-drawer-host {
   display: inline-flex;
@@ -3631,6 +3799,12 @@ button.mobile-drawer-group-status {
   flex-direction: column;
   gap: 36px;
   padding-bottom: calc(36px + var(--mobile-safe-bottom));
+  scrollbar-width: none;
+}
+.mobile-app .mobile-settings::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 html.theme-light .mobile-settings {
   background: color-mix(in srgb, var(--color-content) 4%, var(--color-background-base));

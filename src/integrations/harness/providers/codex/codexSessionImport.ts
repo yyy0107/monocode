@@ -72,7 +72,10 @@ export function parseCodexSession(
       if (role !== "assistant" && (role !== "user" || hasUserEvents)) continue;
       const text = nativeText(payload.content);
       if (!text) continue;
-      const block: Block = { id, role, text };
+      const block: Block = {
+        id, role, text,
+        startedAt: Date.parse(nativeString(row.timestamp)) || undefined,
+      };
       result.blocks.push(block);
       if (role === "user") user = block;
     } else if (payload.type === "reasoning") {

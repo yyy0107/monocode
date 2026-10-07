@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Block } from "../model/session";
 import { AgentTranscript } from "./AgentTranscript";
+import { notePromptLaunch } from "./promptLaunch";
 
 const appearance = vi.hoisted(() => ({
   layout: "chat" as "chat" | "full",
@@ -49,10 +50,12 @@ beforeEach(() => {
   vi.stubGlobal("matchMedia", () => ({ matches: false }));
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function (this: HTMLElement) {
+      if (this.dataset.launchOrigin)
+        return { left: 20, top: 700, bottom: 740, width: 300, height: 40 } as DOMRect;
       return (
-        this.dataset.promptAnchor
-          ? { top: 0, bottom: 60, height: 60 }
-          : { top: 0, bottom: 800, height: 800 }
+        this.dataset.promptAnchor || this.classList.contains("user-message-bubble")
+          ? { left: 200, top: 0, bottom: 60, height: 60 }
+          : { left: 0, top: 0, bottom: 800, height: 800 }
       ) as DOMRect;
     },
   );
@@ -74,7 +77,9 @@ function risenPrompts() {
   return [
     ...new Set(
       animate.mock.contexts.map(
-        (element) => (element as HTMLElement).dataset.promptAnchor,
+        (element) =>
+          (element as HTMLElement).closest<HTMLElement>("[data-prompt-anchor]")
+            ?.dataset.promptAnchor,
       ),
     ),
   ];
@@ -152,9 +157,10 @@ describe("prompt rise in the chat layout", () => {
       act(() => vi.advanceTimersByTime(20));
       expect(row.style.visibility).toBe("");
       expect(risenPrompts()).toEqual(["u2"]);
-      expect(animate.mock.calls[0][0][0]).toEqual({ transform: "translateY(604px)" });
-      expect(animate.mock.calls[0][1]).toMatchObject({ duration: 420 });
-      expect(animate.mock.calls[1][1]).toMatchObject({ duration: 200 });
+      expect(animate.mock.contexts[0]).toHaveProperty("className", expect.stringContaining("user-message-bubble"));
+      expect(animate.mock.calls[0][0][0]).toMatchObject({ transform: "translate(0px, 604px) scale(0.86)" });
+      expect(animate.mock.calls[0][0].at(-1)).toMatchObject({ transform: "none" });
+      expect(animate.mock.calls[1][0][0]).toEqual({ opacity: 0 });
       const turn = row.closest<HTMLElement>(".transcript-turn")!;
       act(() => animate.mock.results[0].value.onfinish());
       expect(turn.dataset.promptRise).toBe("revealing");
@@ -162,6 +168,33 @@ describe("prompt rise in the chat layout", () => {
       expect(turn.dataset.promptRise).toBeUndefined();
       render(second, false, { promptMotion: "mobile", animateFrom: "u2" });
       expect(animate).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("flies a mobile send out of the composer text it was typed in", () => {
+    vi.useFakeTimers();
+    try {
+      render(first, false, { promptMotion: "mobile" });
+      const origin = document.createElement("textarea");
+      origin.dataset.launchOrigin = "true";
+      notePromptLaunch(origin);
+      render(second, true, { promptMotion: "mobile" });
+      act(() => vi.advanceTimersByTime(20));
+      expect(risenPrompts()).toEqual(["u2"]);
+      // From the composer text's bottom-left corner to the anchored bubble.
+      expect(animate.mock.calls[0][0][0]).toMatchObject({
+        transform: "translate(-180px, 680px) scale(0.86)",
+        transformOrigin: "0% 100%",
+      });
+      expect(animate.mock.calls[1][0][0]).toEqual({ opacity: 0.4 });
+      // The origin is spent: the next send without one rises from the dock.
+      render([...second, { id: "u3", role: "user", text: "Again" }], true, { promptMotion: "mobile" });
+      act(() => vi.advanceTimersByTime(20));
+      const flights = animate.mock.calls.filter(([keyframes]) => "transformOrigin" in keyframes[0]);
+      expect(flights).toHaveLength(2);
+      expect(flights[1][0][0]).toMatchObject({ transformOrigin: "100% 100%" });
     } finally {
       vi.useRealTimers();
     }

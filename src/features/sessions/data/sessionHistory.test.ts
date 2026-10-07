@@ -740,6 +740,31 @@ describe("reuseEqualSummaries", () => {
 });
 
 describe("summaryFromSession activity time", () => {
+  it("orders completed replies and running sends independently of later tool and save times", () => {
+    const finished = {
+      ...newSession("codex", "/repo"), id: "finished", updatedAt: 9_000,
+      blocks: [
+        { id: "u", role: "user" as const, text: "Question", startedAt: 100, durationMs: 900 },
+        { id: "a", role: "assistant" as const, text: "Answer", sentAt: 500 },
+        { id: "t", role: "tool" as const, text: "Background output", startedAt: 1_000 },
+      ],
+    };
+    const running = {
+      ...finished, id: "running", busy: true,
+      blocks: [
+        { id: "u", role: "user" as const, text: "Next", startedAt: 300 },
+        { id: "a", role: "assistant" as const, text: "Still working", sentAt: 800 },
+      ],
+    };
+    const rows = [summaryFromSession(running), summaryFromSession(finished)].sort(compareSessionSummaries);
+    expect(rows.map((row) => [row.id, row.activityAt])).toEqual([["finished", 500], ["running", 300]]);
+    const live = summaryFromSession(running);
+    expect(mergeLiveSessionSummaries([{ ...live, activityAt: 800, updatedAt: 10_000 }], [live])[0])
+      .toMatchObject({ activityAt: 300, updatedAt: 10_000 });
+    expect(summaryFromSession({ ...running, busy: false }).activityAt).toBe(800);
+    expect(historyWithLiveSessions([summary("running", "/repo", 20_000)], [running], "/repo")[0].activityAt).toBe(300);
+  });
+
   it("uses stored times for old transcripts without message timestamps", () => {
     const session = { ...newSession("codex", "/repo"), createdAt: 10, updatedAt: 20,
       blocks: [{ id: "u", role: "user" as const, text: "Legacy message" }] };

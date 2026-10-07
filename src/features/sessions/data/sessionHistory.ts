@@ -10,6 +10,7 @@ import {
   type Session,
 } from "../model/session";
 import { shouldPersistSession, type SessionSummary } from "./sessionStore";
+import { sessionMessageActivityAt, sessionRecencyAt } from "../model/sessionActivity";
 
 export type SessionGitHint = {
   repo?: string;
@@ -33,7 +34,7 @@ export function compareSessionSummaries(
 ): number {
   const pin = Number(!!b.pinned) - Number(!!a.pinned);
   if (pin !== 0) return pin;
-  return b.updatedAt - a.updatedAt || a.id.localeCompare(b.id);
+  return sessionRecencyAt(b) - sessionRecencyAt(a) || a.id.localeCompare(b.id);
 }
 
 export function mergeHistorySummary(
@@ -136,6 +137,7 @@ export function summaryFromSession(
   session: Session,
   git?: SessionGitHint,
 ): SessionSummary {
+  const activityAt = sessionMessageActivityAt(session);
   return {
     id: session.id,
     orchestrationLeadId: session.orchestrationLeadId,
@@ -164,6 +166,7 @@ export function summaryFromSession(
       session.blocks.find((block) => block.role === "user")?.startedAt ??
       0,
     updatedAt: sessionActivityAt(session),
+    ...(activityAt != null ? { activityAt } : {}),
   };
 }
 
@@ -176,8 +179,15 @@ export function mergeLiveSessionSummaries(
   for (const row of live) {
     const previous = byId.get(row.id);
     if (!previous) byId.set(row.id, row);
-    else if (row.updatedAt > previous.updatedAt) {
-      byId.set(row.id, { ...previous, updatedAt: row.updatedAt });
+    else {
+      const updatedAt = Math.max(previous.updatedAt, row.updatedAt);
+      const activityAt = row.activityAt ?? previous.activityAt;
+      if (updatedAt !== previous.updatedAt || activityAt !== previous.activityAt)
+        byId.set(row.id, {
+          ...previous,
+          updatedAt,
+          ...(activityAt != null ? { activityAt } : {}),
+        });
     }
   }
   return [...byId.values()];
@@ -337,12 +347,14 @@ function overlayProjectHistory(
     if (storedIndex >= 0) {
       const stored = rows[storedIndex];
       const updatedAt = Math.max(stored.updatedAt, sessionActivityAt(session));
+      const activityAt = sessionMessageActivityAt(session) ?? stored.activityAt;
       const draft = !!sessionDraftBlock(session);
       const automationId = session.automationId || stored.automationId;
       // Live provider, title and work item land before the next persist.
       const linkedWorkItem = session.linkedWorkItem ?? stored.linkedWorkItem;
       if (
         stored.updatedAt !== updatedAt ||
+        stored.activityAt !== activityAt ||
         stored.harness !== session.harness ||
         stored.model !== session.model ||
         !!stored.draft !== draft ||
@@ -353,6 +365,7 @@ function overlayProjectHistory(
         rows[storedIndex] = {
           ...stored,
           updatedAt,
+          ...(activityAt != null ? { activityAt } : {}),
           harness: session.harness,
           model: session.model,
           title: session.title,

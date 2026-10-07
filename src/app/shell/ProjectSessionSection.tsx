@@ -3,6 +3,7 @@ import { SidebarEntryReorderContext } from "./SidebarEntryReorder";
 import { AnimatedCollapse } from "../../shared/ui/AnimatedCollapse";
 import { useSurfaceVisibility } from "../../shared/ui/SurfaceVisibility";
 import { useListReorderMotion } from "../../shared/hooks/useListReorderMotion";
+import { sessionRecencyAt } from "../../features/sessions/model/sessionActivity";
 import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
 import { mergeOrderedSubset, orderByIds } from "../../shared/lib/reorder";
 import { useTranslation } from "../../shared/i18n/useTranslation";
@@ -363,6 +364,7 @@ function ProjectSessionSectionComponent({
             title: session.title,
             createdAt: session.createdAt ?? session.updatedAt,
             updatedAt: session.updatedAt,
+            activityAt: sessionRecencyAt(session),
             archived: session.archived,
             pinned: session.pinned,
             linkedWorkItem: session.linkedWorkItem,
@@ -1684,7 +1686,7 @@ const SessionCard = memo(function SessionCard({
   const gitLabel = session.worktreeRemoved
     ? uiT(NO_BRANCH_LABEL)
     : formatGitLabel(session.repo, session.branch);
-  const relativeTime = formatRelative(session.updatedAt, now);
+  const relativeTime = formatRelative(sessionRecencyAt(session), now);
   const time = relativeTime === "now" ? uiT("now") : relativeTime;
   const model =
     compact && !orchestrationExpanded

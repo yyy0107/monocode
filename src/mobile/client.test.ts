@@ -370,14 +370,19 @@ describe("mobile session summary cache", () => {
     const client = new MobileClient(memory(), transport(() => ({ kind: "snapshot", value })));
     await client.connect(endpoint, token);
     await client.session("session");
-    expect(client.cachedSessions("project")).toEqual([summary({ status: "running", updatedAt: 1, lastUserMessageAt: 90 })]);
+    expect(client.cachedSessions("project")).toEqual([summary({ status: "running", updatedAt: 1, lastUserMessageAt: 90, activityAt: 90 })]);
     vi.advanceTimersByTime(1_000);
     expect(readSessionCache("host-1").get("project")).toEqual(client.cachedSessions("project"));
     value.revision = 2;
     value.updatedAt = 200;
     value.status = "idle";
+    value.session.blocks.push({ id: "answer", role: "assistant", text: "Done", sentAt: 150 });
     await client.session("session");
-    expect(client.cachedSessions("project")?.[0]).toMatchObject({ revision: 2, updatedAt: 200, status: "idle" });
+    expect(client.cachedSessions("project")?.[0]).toMatchObject({ revision: 2, updatedAt: 200, status: "idle", activityAt: 150 });
+    vi.advanceTimersByTime(1_000);
+    const restored = new MobileClient(memory(), transport(() => []));
+    await restored.connect(endpoint, token);
+    expect(restored.cachedSessions("project")?.[0]).toMatchObject({ status: "idle", activityAt: 150 });
   });
 
   it("keeps a newer live revision when a metadata response arrives late", async () => {
@@ -405,7 +410,7 @@ describe("mobile session summary cache", () => {
     await client.session("session");
     resolve([summary({ id: "other" }), summary()]);
     expect(await list).toEqual([
-      summary({ id: "other" }), summary({ revision: 2, status: "running", updatedAt: 1, lastUserMessageAt: null }),
+      summary({ id: "other" }), summary({ revision: 2, status: "running", updatedAt: 1, lastUserMessageAt: null, activityAt: null }),
     ]);
     expect(client.cachedSessions("project")).toHaveLength(2);
   });

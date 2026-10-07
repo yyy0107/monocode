@@ -157,6 +157,8 @@ export type HostSessionSummary = Omit<
   createdAt?: number;
   /** Last submitted user block's timestamp; absent on older Hosts. */
   lastUserMessageAt?: number | null;
+  /** Current turn's last user send while running, otherwise the last AI reply. */
+  activityAt?: number | null;
   pendingInputKey?: string | null;
   /** Transcript excerpts for notification delivery; absent on older Hosts. */
   notificationPreview?: SessionNotificationPreview;

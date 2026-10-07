@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, Loader, RefreshCw, Smartphone } from "../../../shared/ui/icons";
 import { Modal } from "../../../shared/ui/Modal";
 import { remoteRequest } from "../model/connections";
+import { pairingHostUrl, pairingLink } from "../model/pairingLink";
+import { PairingQrCode } from "./PairingQrCode";
 import { sharedHostMachineId } from "../model/remoteProjects";
 import { ConnectionsSettings } from "./ConnectionsSettings";
 
@@ -238,6 +240,8 @@ function ControlThisComputer() {
   );
 }
 
+const PAIRING_HOST_URL_KEY = "monocode.pairingHostUrl";
+
 function AddDeviceDialog({
   machineId,
   onClose,
@@ -253,6 +257,15 @@ function AddDeviceDialog({
   const [error, setError] = useState("");
   const [token, setToken] = useState<string>();
   const [copied, setCopied] = useState(false);
+  const [hostUrl, setHostUrl] = useState(() => {
+    try {
+      return localStorage.getItem(PAIRING_HOST_URL_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const pairingHost = pairingHostUrl(hostUrl);
+  const link = token && pairingHost ? pairingLink(pairingHost, token) : undefined;
   const input =
     "w-full rounded-lg border border-border bg-transparent px-3 py-2 text-ui-base outline-none focus:border-content/35";
   return (
@@ -267,21 +280,48 @@ function AddDeviceDialog({
       {token ? (
         <div className="flex flex-col gap-3 p-4">
           <p className="text-ui-base leading-6 text-foreground">
-            {t("Enter this token in the MonoCode mobile app with this computer's Host URL. It is shown only once.")}
+            {t("Scan this QR code in the MonoCode mobile app, or enter this computer's Host URL and the pairing code. The code is shown only once.")}
           </p>
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-content/3 px-3 py-2">
-            <code className="min-w-0 flex-1 select-all break-all text-ui-caption">{token}</code>
-            <button
-              type="button"
-              aria-label={t("Copy")}
-              title={t("Copy")}
-              onClick={() => {
-                void navigator.clipboard?.writeText(token).then(() => setCopied(true));
+          <label className="flex flex-col gap-1.5 text-ui-caption text-foreground-subtle">
+            {t("Host URL")}
+            <input
+              className={input}
+              value={hostUrl}
+              onChange={(event) => {
+                setHostUrl(event.target.value);
+                try {
+                  localStorage.setItem(PAIRING_HOST_URL_KEY, event.target.value.trim());
+                } catch {
+                  // The QR code still works for this dialog without persistence.
+                }
               }}
-              className="grid size-7 shrink-0 place-items-center rounded-md text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
-            >
-              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-            </button>
+              placeholder="http://192.168.1.10:3774"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <div className="flex items-center gap-4 rounded-lg border border-border bg-content/3 p-3">
+            {link ? (
+              <PairingQrCode value={link} label={t("Pairing QR code")} />
+            ) : (
+              <div className="grid size-48 shrink-0 place-items-center rounded-lg border border-dashed border-border p-4 text-center text-ui-caption leading-5 text-foreground-subtle">
+                {t("Enter the Host URL your phone can reach to show a QR code.")}
+              </div>
+            )}
+            <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
+              <span className="text-ui-caption text-foreground-subtle">{t("Pairing code")}</span>
+              <code className="select-all font-mono text-[22px] font-semibold tracking-[0.12em] text-foreground">{token}</code>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(token).then(() => setCopied(true));
+                }}
+                className={`${pill} flex items-center gap-1.5 bg-selection text-foreground hover:bg-selection-hover`}
+              >
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                {t(copied ? "Copied" : "Copy")}
+              </button>
+            </div>
           </div>
           <p className="text-ui-caption leading-5 text-foreground-subtle">
             {t("The Host listens on 127.0.0.1:3774. Expose it to your phone through a tunnel such as Tailscale Serve or a reverse proxy.")}

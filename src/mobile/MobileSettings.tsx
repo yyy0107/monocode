@@ -260,7 +260,7 @@ export function MobileSettings({
       <MobileSettingsGlyph name="link" />
       <span className="mobile-settings-label">
         <span>{t("Add connection")}</span>
-        <small>{t("Connect using a Host URL and device token.")}</small>
+        <small>{t("Scan a QR code or enter a pairing code.")}</small>
       </span>
     </button>
   );

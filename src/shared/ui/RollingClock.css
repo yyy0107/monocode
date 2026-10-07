@@ -1,4 +1,5 @@
 .rolling-clock {
+  --clock-duration: 320ms;
   display: inline-block;
   flex-shrink: 0;
   color: color-mix(in srgb, var(--color-content, #fff) 65%, transparent);
@@ -47,11 +48,35 @@
 }
 
 .rolling-clock-outgoing {
-  animation: rolling-clock-out 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rolling-clock-out var(--clock-duration) linear var(--clock-delay, 0ms) both;
 }
 
 .rolling-clock-incoming {
-  animation: rolling-clock-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rolling-clock-in var(--clock-duration) linear var(--clock-delay, 0ms) both;
+}
+
+.rolling-clock[data-motion="roll"] {
+  --clock-duration: 760ms;
+}
+
+.rolling-clock[data-motion="roll"] .rolling-clock-digit[data-rolling] {
+  mask-image: linear-gradient(transparent, #000 12%, #000 88%, transparent);
+}
+
+.rolling-clock[data-motion="fade"] {
+  --clock-duration: 280ms;
+}
+
+.rolling-clock[data-motion="fade"] .rolling-clock-outgoing {
+  animation-name: rolling-clock-fade-out;
+}
+
+.rolling-clock[data-motion="fade"] .rolling-clock-incoming {
+  animation-name: rolling-clock-fade-in;
+}
+
+.rolling-clock[data-motion="cascade"] {
+  --clock-duration: 400ms;
 }
 
 @keyframes rolling-clock-out {
@@ -62,6 +87,16 @@
 @keyframes rolling-clock-in {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
+}
+
+@keyframes rolling-clock-fade-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(-35%); opacity: 0; }
+}
+
+@keyframes rolling-clock-fade-in {
+  from { transform: translateY(35%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

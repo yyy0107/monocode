@@ -479,7 +479,11 @@ export function rebaseSessionFolderSettings(from: string, to: string): void {
       delete folders[oldKey];
       localStorage.setItem(KEY, JSON.stringify(folders));
     }
-    for (const storeKey of [PINNED_COLLAPSED_KEY, REMINDERS_COLLAPSED_KEY, SIDEBAR_ORDER_KEY]) {
+    for (const storeKey of [
+      PINNED_COLLAPSED_KEY,
+      REMINDERS_COLLAPSED_KEY,
+      SIDEBAR_ORDER_KEY,
+    ]) {
       const raw = localStorage.getItem(storeKey);
       const parsed: unknown = raw ? JSON.parse(raw) : {};
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
@@ -494,26 +498,31 @@ export function rebaseSessionFolderSettings(from: string, to: string): void {
   }
 }
 
-export function loadPinnedSessionsCollapsed(cwd: string): boolean {
-  return loadGroupCollapsed(cwd, PINNED_COLLAPSED_KEY);
-}
-
-export function loadSessionSidebarOrder(cwd: string): string[] {
+function parseSidebarOrderStore(): Record<string, unknown> {
   try {
-    const store: unknown = JSON.parse(localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}");
-    const value = store && typeof store === "object" && !Array.isArray(store)
-      ? (store as Record<string, unknown>)[storageKey(cwd) ?? ""]
-      : undefined;
-    return Array.isArray(value)
-      ? [...new Set(value.filter((id): id is string => typeof id === "string"))]
-      : [];
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}",
+    );
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? { ...(parsed as Record<string, unknown>) }
+      : {};
   } catch {
-    return [];
+    return {};
   }
 }
 
+export function loadSessionSidebarOrder(cwd: string): string[] {
+  const value = parseSidebarOrderStore()[storageKey(cwd) ?? ""];
+  return Array.isArray(value)
+    ? [...new Set(value.filter((id): id is string => typeof id === "string"))]
+    : [];
+}
+
 /** New conversations lead; saved slots survive filtering and partial history loads. */
-export function sessionSidebarOrder(currentIds: string[], savedIds: string[]): string[] {
+export function sessionSidebarOrder(
+  currentIds: string[],
+  savedIds: string[],
+): string[] {
   const saved = new Set(savedIds);
   return [...currentIds.filter((id) => !saved.has(id)), ...savedIds];
 }
@@ -522,19 +531,21 @@ export function saveSessionSidebarOrder(cwd: string, order: string[]): void {
   const key = storageKey(cwd);
   if (!key) return;
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}");
-    const store = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? { ...(parsed as Record<string, unknown>) }
-      : {};
+    const store = parseSidebarOrderStore();
     store[key] = order;
     localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(store));
   } catch {
     // The current view can still be sorted when storage is unavailable.
   }
-  window.dispatchEvent(new CustomEvent(SIDEBAR_ORDER_CHANGED, { detail: { cwd: key } }));
+  window.dispatchEvent(
+    new CustomEvent(SIDEBAR_ORDER_CHANGED, { detail: { cwd: key } }),
+  );
 }
 
-export function subscribeSessionSidebarOrder(cwd: string, onChange: () => void): () => void {
+export function subscribeSessionSidebarOrder(
+  cwd: string,
+  onChange: () => void,
+): () => void {
   const key = storageKey(cwd);
   const changed = (event: Event) => {
     if ((event as CustomEvent<{ cwd: string }>).detail?.cwd === key) onChange();
@@ -548,6 +559,10 @@ export function subscribeSessionSidebarOrder(cwd: string, onChange: () => void):
     window.removeEventListener(SIDEBAR_ORDER_CHANGED, changed);
     window.removeEventListener("storage", stored);
   };
+}
+
+export function loadPinnedSessionsCollapsed(cwd: string): boolean {
+  return loadGroupCollapsed(cwd, PINNED_COLLAPSED_KEY);
 }
 
 export function loadReminderSessionsCollapsed(cwd: string): boolean {

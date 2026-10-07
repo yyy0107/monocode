@@ -14,6 +14,8 @@ import type { Block, LinkedWorkItem } from "../src/features/sessions/model/sessi
 import {
   pendingSessionInputKey as pendingInputKey,
   sessionNotificationPreview,
+  sessionMessageActivityAt,
+  sessionRecencyAt,
 } from "../src/features/sessions/model/sessionActivity";
 import { sessionNeedsInput } from "../src/features/sessions/model/session";
 
@@ -26,6 +28,15 @@ export type HostDevice = {
   createdAt?: number;
   lastSeen?: number;
 };
+
+// Crockford-style alphabet without 0/O/1/I; 32 symbols keep each byte unbiased.
+const PAIRING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/** A phone-friendly device token such as `XD5J-2J3U`, typed or scanned on mobile. */
+export function pairingCode(): string {
+  const symbols = [...randomBytes(8)].map((byte) => PAIRING_ALPHABET[byte % 32]).join("");
+  return `${symbols.slice(0, 4)}-${symbols.slice(4)}`;
+}
 
 export class HostStore {
   private transactionDepth = 0;
@@ -178,6 +189,7 @@ export class HostStore {
           cached.needsInput !== undefined &&
           cached.providerSessionId !== undefined &&
           cached.lastUserMessageAt !== undefined &&
+          cached.activityAt !== undefined &&
           cached.lastReplyRevision !== undefined &&
           cached.pendingInputKey !== undefined &&
           cached.notificationPreview !== undefined &&
@@ -192,7 +204,7 @@ export class HostStore {
         );
         return fresh;
       })
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+      .sort((a, b) => sessionRecencyAt(b) - sessionRecencyAt(a));
   }
 
   sync(id: string, revision?: number): SessionSync {
@@ -469,6 +481,7 @@ export function summary(value: HostSession): HostSessionSummary {
     runId: value.runId,
     status: value.status,
     updatedAt: value.updatedAt,
+    activityAt: sessionMessageActivityAt(value.session, value.status === "running") ?? null,
     lastReplyRevision: replyRevision(value),
     lastCompletedRunId: value.lastCompletedRunId ?? null,
     pendingInputKey: pendingInputKey(value.session, value.runId),

@@ -3298,5 +3298,17 @@
   "Bundled with {app}; it updates with {app}.": "内置于 {app}，需随 {app} 一起更新",
   "Switched to {value0}. Restart MonoCode to apply.": "已切换到 {value0}，重启 MonoCode 后生效",
   "Use {value0}": "使用 {value0}",
-  "Use {value0} {value1} at {value2}": "使用位于 {value2} 的 {value0} {value1}"
+  "Use {value0} {value1} at {value2}": "使用位于 {value2} 的 {value0} {value1}",
+  "Scan": "扫码",
+  "Pairing code": "配对码",
+  "Connection method": "连接方式",
+  "Scan again": "重新扫码",
+  "Scan the QR code shown by MonoCode Host on your computer.": "扫描电脑上 MonoCode Host 显示的二维码。",
+  "Camera access is off. Allow it in system settings, or use a pairing code.": "相机权限已关闭。请在系统设置中允许，或改用配对码。",
+  "The camera is not available on this device. Use a pairing code instead.": "此设备无法使用相机，请改用配对码。",
+  "This QR code is not a MonoCode pairing code.": "这不是 MonoCode 配对二维码。",
+  "Scan a QR code or enter a pairing code.": "扫码或输入配对码连接。",
+  "Scan this QR code in the MonoCode mobile app, or enter this computer's Host URL and the pairing code. The code is shown only once.": "在 MonoCode 手机应用中扫描此二维码，或填入此电脑的主机地址和配对码。配对码仅显示一次。",
+  "Pairing QR code": "配对二维码",
+  "Enter the Host URL your phone can reach to show a QR code.": "填写手机可访问的主机地址后显示二维码。"
 }

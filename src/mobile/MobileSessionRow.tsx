@@ -1,6 +1,7 @@
 import type { ButtonHTMLAttributes } from "react";
 import type { HostSessionSummary } from "../features/connections/model/protocol";
 import { sessionDisplayTitle } from "../features/sessions/model/session";
+import { sessionRecencyAt } from "../features/sessions/model/sessionActivity";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { LoaderCircle, Pin, TriangleAlert } from "../shared/ui/icons";
 import { formatMobileRelativeTime } from "./relativeTime";
@@ -43,8 +44,8 @@ export function MobileSessionRow({
           <TriangleAlert size={18} aria-hidden="true" />
         </span>
       ) : (
-        <time dateTime={new Date(session.updatedAt).toISOString()}>
-          {formatMobileRelativeTime(session.updatedAt, now, language)}
+        <time dateTime={new Date(sessionRecencyAt(session)).toISOString()}>
+          {formatMobileRelativeTime(sessionRecencyAt(session), now, language)}
         </time>
       )}
       {unread && (

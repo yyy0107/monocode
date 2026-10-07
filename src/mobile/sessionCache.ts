@@ -3,6 +3,7 @@ import {
   type HostSessionSummary,
 } from "../features/connections/model/protocol";
 import { sortMobileSessions } from "./sessionList";
+import { sessionRecencyAt } from "../features/sessions/model/sessionActivity";
 
 // One envelope keeps storage bounded even after pairing with several Hosts.
 // Conversation contents and credentials never enter this cache.
@@ -23,6 +24,8 @@ function summary(value: unknown, projectId: string): HostSessionSummary | undefi
     typeof item.updatedAt !== "number" || !Number.isFinite(new Date(item.updatedAt).getTime()) ||
     (item.pinned !== undefined && typeof item.pinned !== "boolean") ||
     (item.archived !== undefined && typeof item.archived !== "boolean") ||
+    (item.activityAt !== undefined && item.activityAt !== null &&
+      (typeof item.activityAt !== "number" || !Number.isFinite(item.activityAt))) ||
     (item.lastUserMessageAt !== undefined && item.lastUserMessageAt !== null &&
       (typeof item.lastUserMessageAt !== "number" || !Number.isFinite(item.lastUserMessageAt)))
   ) return undefined;
@@ -32,6 +35,7 @@ function summary(value: unknown, projectId: string): HostSessionSummary | undefi
     ...(item.pinned !== undefined ? { pinned: item.pinned } : {}),
     ...(item.archived !== undefined ? { archived: item.archived } : {}),
     ...(item.lastUserMessageAt !== undefined ? { lastUserMessageAt: item.lastUserMessageAt } : {}),
+    ...(item.activityAt !== undefined ? { activityAt: item.activityAt } : {}),
   };
 }
 
@@ -61,7 +65,7 @@ export function saveSessionCache(environmentId: string, histories: ReadonlyMap<s
     let size = JSON.stringify({ environmentId, projects }).length;
     // Most recently read projects get the storage budget first.
     for (const [projectId, sessions] of [...histories].reverse().slice(0, SESSION_CACHE_PROJECT_LIMIT)) {
-      const recent = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+      const recent = [...sessions].sort((a, b) => sessionRecencyAt(b) - sessionRecencyAt(a));
       // Preserve activity ordering even when more than 100 old conversations are pinned.
       const newest = recent.find((item) => !item.archived);
       const candidates = [...(newest ? [newest] : []), ...sortMobileSessions(sessions), ...recent];

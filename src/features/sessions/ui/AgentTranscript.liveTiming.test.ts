@@ -22,6 +22,7 @@ beforeEach(() => {
   document.body.append(node);
   root = createRoot(node);
   session = appendUser(newSession("codex", "/project"), "Fix it");
+  session.blocks[0].id = "clock";
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -48,56 +49,82 @@ function clock(kind: string, elapsed: string) {
   expect(footer.textContent).toMatch(new RegExp(`^${elapsed} · `));
   expect(footer.textContent).not.toContain("Thought for");
 }
+function noClock() {
+  const footer = node.querySelector<HTMLElement>("[data-live-footer]")!;
+  expect(footer.querySelector('[role="timer"]')).toBeNull();
+  expect(footer.dataset.liveClock).toBeUndefined();
+  expect(footer.textContent).not.toMatch(/^\d+[smh] · /);
+}
 
-it("switches between current thought, current tool and whole-turn clocks while ticking", () => {
+it("ticks each response round and resets on new replies and completed tool batches", () => {
   update();
   tick(8);
-  clock("turn", "8s");
+  noClock();
 
   update({ type: "reasoning.delta", text: "First thought" });
-  clock("thinking", "1s");
+  noClock();
   tick(3);
   clock("thinking", "3s");
   update({ type: "reasoning.completed" });
-  clock("turn", "11s");
+  noClock();
 
   update({ type: "tool.started", callId: "first", title: "Read file", kind: "read", status: "in_progress" });
-  clock("tool", "1s");
+  noClock();
   tick(2);
   clock("tool", "2s");
   update({ type: "tool.started", callId: "second", title: "Run tests", kind: "shell", status: "in_progress" });
-  clock("tool", "1s");
+  noClock();
   tick(2);
   clock("tool", "2s");
   update({ type: "tool.updated", callId: "second", status: "completed" });
   clock("tool", "4s");
   update({ type: "tool.updated", callId: "first", status: "completed" });
-  clock("turn", "15s");
+  noClock();
+  tick(2);
+  noClock();
 
   update({ type: "reasoning.delta", text: "Second thought" });
   tick(2);
   clock("thinking", "2s");
   update({ type: "reasoning.completed" });
+  noClock();
   update({ type: "message.delta", text: "Here is the answer" });
-  clock("turn", "17s");
+  noClock();
   tick(2);
-  clock("turn", "19s");
+  clock("round", "2s");
+  const timer = node.querySelector('[role="timer"]');
+  const motion = timer?.getAttribute("data-motion");
+  update({ type: "message.delta", text: ". More details" });
+  clock("round", "2s");
+  expect(node.querySelector('[role="timer"]')).toBe(timer);
+  expect(timer?.getAttribute("data-motion")).toBe(motion);
+  update({ type: "message.completed" });
+  noClock();
+  tick(3);
+  noClock();
+  update({ type: "message.delta", text: "Another response" });
+  noClock();
+  expect(node.querySelector(".rolling-clock-glyph")).toBeNull();
+  tick(2);
+  noClock();
 });
 
-it("continues updating the whole-turn clock while waiting for approval", () => {
+it("keeps approval waits text-only without a ticking clock", () => {
   update();
+  tick(50);
+  update({ type: "message.delta", text: "Please approve this command" });
   tick(5);
   update({ type: "approval.requested", requestId: 7, callId: "call", title: "Run tests", kind: "shell" });
-  clock("turn", "5s");
+  noClock();
   const footer = node.querySelector("[data-live-footer]")!;
   expect(footer.getAttribute("data-live-phase")).toBe("waiting");
   expect(footer.textContent).toContain("Waiting for approval");
   tick(3);
-  clock("turn", "8s");
+  noClock();
 });
 
 it("keeps the current time readable during a digit carry and when motion is disabled", () => {
-  update();
+  update({ type: "reasoning.delta", text: "Thinking through the fix" });
   tick(9);
   const timer = node.querySelector('[role="timer"]')!;
   expect(timer.getAttribute("aria-label")).toBe("9s");

@@ -38,7 +38,7 @@ describe("mobile conversation ordering", () => {
     ).toEqual(["older", "newer"]);
   });
 
-  it("preserves activity positions for idle and interrupted rows among running conversations", () => {
+  it("compares completed reply times and running send times on one timeline", () => {
     const older = session("older", { lastUserMessageAt: 10, updatedAt: 400 });
     const newer = session("newer", { lastUserMessageAt: 20, updatedAt: 100 });
     const idle = session("idle", { status: "idle", updatedAt: 300 });
@@ -51,7 +51,18 @@ describe("mobile conversation ordering", () => {
       [newer, interrupted, idle, older],
       [idle, older, newer, interrupted],
     ])
-      expect(ids(input)).toEqual(["newer", "idle", "interrupted", "older"]);
+      expect(ids(input)).toEqual(["idle", "interrupted", "newer", "older"]);
+  });
+
+  it("ignores later tool output and metadata saves after the last AI reply", () => {
+    const finished = session("finished", { status: "idle", updatedAt: 9_000, activityAt: 300 });
+    const running = session("running", { updatedAt: 8_000, activityAt: 200 });
+    const later = session("later", { status: "idle", updatedAt: 400, activityAt: 400 });
+    expect(ids([finished, running, later])).toEqual(["later", "finished", "running"]);
+    expect(ids([{ ...finished, updatedAt: 99_000 }, { ...running, updatedAt: 100_000 }, later]))
+      .toEqual(["later", "finished", "running"]);
+    expect(ids([{ ...finished, status: "running", activityAt: 500 }, running, later]))
+      .toEqual(["finished", "later", "running"]);
   });
 
   it("preserves pin priority, orders running rows within each group and hides archived rows", () => {
