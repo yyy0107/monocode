@@ -249,8 +249,15 @@ export function useAnimatedReorder<T extends string>(
         if (!scroller || !active || settling || overExternalTarget) return;
         const speed = autoScrollSpeed();
         if (!speed) return;
-        // The scroll listener repaints the dragged item against its moved slots.
-        scroller[scrollProperty] += speed;
+        const previous = scroller[scrollProperty];
+        const limit =
+          axis === "x"
+            ? scroller.scrollWidth - scroller.clientWidth
+            : scroller.scrollHeight - scroller.clientHeight;
+        scroller[scrollProperty] = Math.max(0, Math.min(limit, previous + speed));
+        if (scroller[scrollProperty] === previous) return;
+        // Update the drop slots even while the pointer is held still at an edge.
+        paint();
         autoScrollFrame = window.requestAnimationFrame(autoScroll);
       }
 

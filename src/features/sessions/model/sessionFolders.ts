@@ -9,6 +9,8 @@ const KEY = "monocode.sessionFolders";
 const CHANGE_EVENT = "monocode:session-folders-change";
 const PINNED_COLLAPSED_KEY = "monocode.pinnedSessionsCollapsed";
 const REMINDERS_COLLAPSED_KEY = "monocode.reminderSessionsCollapsed";
+const SIDEBAR_ORDER_KEY = "monocode.sessionSidebarOrder.v1";
+const SIDEBAR_ORDER_CHANGED = "monocode:session-sidebar-order-changed";
 
 export type SessionFolder = {
   id: string;
@@ -113,6 +115,7 @@ export function buildSessionList(
   ungrouped: SessionSummary[],
   pinnedCollapsed = false,
   reminderGroup?: { sessionIds: readonly string[]; collapsed: boolean },
+  flatPins = false,
 ): SessionListEntry[] {
   const byId = new Map(visible.map((session) => [session.id, session]));
   const reminderIds = new Set(reminderGroup?.sessionIds);
@@ -141,7 +144,7 @@ export function buildSessionList(
 
   const remaining = ungrouped.filter((session) => !reminderIds.has(session.id));
   const pinned = remaining.filter((session) => session.pinned);
-  if (pinned.length > 0) {
+  if (!flatPins && pinned.length > 0) {
     entries.push({
       kind: "pinned",
       collapsed: pinnedCollapsed,
@@ -149,7 +152,7 @@ export function buildSessionList(
     });
   }
   for (const session of remaining) {
-    if (!session.pinned) entries.push({ kind: "session", session });
+    if (flatPins || !session.pinned) entries.push({ kind: "session", session });
   }
   return entries;
 }
@@ -476,7 +479,7 @@ export function rebaseSessionFolderSettings(from: string, to: string): void {
       delete folders[oldKey];
       localStorage.setItem(KEY, JSON.stringify(folders));
     }
-    for (const storeKey of [PINNED_COLLAPSED_KEY, REMINDERS_COLLAPSED_KEY]) {
+    for (const storeKey of [PINNED_COLLAPSED_KEY, REMINDERS_COLLAPSED_KEY, SIDEBAR_ORDER_KEY]) {
       const raw = localStorage.getItem(storeKey);
       const parsed: unknown = raw ? JSON.parse(raw) : {};
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
@@ -493,6 +496,58 @@ export function rebaseSessionFolderSettings(from: string, to: string): void {
 
 export function loadPinnedSessionsCollapsed(cwd: string): boolean {
   return loadGroupCollapsed(cwd, PINNED_COLLAPSED_KEY);
+}
+
+export function loadSessionSidebarOrder(cwd: string): string[] {
+  try {
+    const store: unknown = JSON.parse(localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}");
+    const value = store && typeof store === "object" && !Array.isArray(store)
+      ? (store as Record<string, unknown>)[storageKey(cwd) ?? ""]
+      : undefined;
+    return Array.isArray(value)
+      ? [...new Set(value.filter((id): id is string => typeof id === "string"))]
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** New conversations lead; saved slots survive filtering and partial history loads. */
+export function sessionSidebarOrder(currentIds: string[], savedIds: string[]): string[] {
+  const saved = new Set(savedIds);
+  return [...currentIds.filter((id) => !saved.has(id)), ...savedIds];
+}
+
+export function saveSessionSidebarOrder(cwd: string, order: string[]): void {
+  const key = storageKey(cwd);
+  if (!key) return;
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}");
+    const store = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? { ...(parsed as Record<string, unknown>) }
+      : {};
+    store[key] = order;
+    localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(store));
+  } catch {
+    // The current view can still be sorted when storage is unavailable.
+  }
+  window.dispatchEvent(new CustomEvent(SIDEBAR_ORDER_CHANGED, { detail: { cwd: key } }));
+}
+
+export function subscribeSessionSidebarOrder(cwd: string, onChange: () => void): () => void {
+  const key = storageKey(cwd);
+  const changed = (event: Event) => {
+    if ((event as CustomEvent<{ cwd: string }>).detail?.cwd === key) onChange();
+  };
+  const stored = (event: StorageEvent) => {
+    if (event.key === SIDEBAR_ORDER_KEY || event.key === null) onChange();
+  };
+  window.addEventListener(SIDEBAR_ORDER_CHANGED, changed);
+  window.addEventListener("storage", stored);
+  return () => {
+    window.removeEventListener(SIDEBAR_ORDER_CHANGED, changed);
+    window.removeEventListener("storage", stored);
+  };
 }
 
 export function loadReminderSessionsCollapsed(cwd: string): boolean {

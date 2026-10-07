@@ -1,7 +1,10 @@
 import { useSidebarListPreview } from "./useSidebarListPreview";
 import { SidebarEntryReorderContext } from "./SidebarEntryReorder";
 import { AnimatedCollapse } from "../../shared/ui/AnimatedCollapse";
+import { useSurfaceVisibility } from "../../shared/ui/SurfaceVisibility";
 import { useListReorderMotion } from "../../shared/hooks/useListReorderMotion";
+import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
+import { mergeOrderedSubset, orderByIds } from "../../shared/lib/reorder";
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import { NO_BRANCH_LABEL } from "../../features/source-control/model/worktrees";
 import {
@@ -75,6 +78,10 @@ import {
   loadReminderSessionsCollapsed,
   savePinnedSessionsCollapsed,
   saveReminderSessionsCollapsed,
+  loadSessionSidebarOrder,
+  saveSessionSidebarOrder,
+  sessionSidebarOrder,
+  subscribeSessionSidebarOrder,
   sessionListNavigationIds,
   type SessionListEntry,
 } from "../../features/sessions/model/sessionFolders";
@@ -184,6 +191,7 @@ function ProjectSessionSectionComponent({
   onRetry,
 }: ProjectSessionSectionProps) {
   const { t: uiT } = useTranslation();
+  const sectionVisible = useSurfaceVisibility();
   const remoteProject = isRemoteProjectPath(cwd) || !!remoteProjectFor(cwd);
   const remote = useRemoteProjectSessions(cwd, remoteProject && pollRemote);
   const hostProject = remoteProject ? remoteProjectFor(cwd) : undefined;
@@ -371,6 +379,20 @@ function ProjectSessionSectionComponent({
   const sectionRef = useRef<HTMLDivElement>(null);
   const localScrollRef = useRef<HTMLDivElement>(null);
   const sessionsScrollRef = scrollRef ?? localScrollRef;
+  const [savedSessionOrder, setSavedSessionOrder] = useState(() => ({
+    cwd,
+    ids: loadSessionSidebarOrder(cwd),
+  }));
+  const manualSessionOrder =
+    savedSessionOrder.cwd === cwd
+      ? savedSessionOrder.ids
+      : loadSessionSidebarOrder(cwd);
+  useEffect(() => {
+    const load = () =>
+      setSavedSessionOrder({ cwd, ids: loadSessionSidebarOrder(cwd) });
+    load();
+    return subscribeSessionSidebarOrder(cwd, load);
+  }, [cwd]);
   const [sessionMenu, setSessionMenu] = useState<{
     x: number;
     y: number;
@@ -440,7 +462,7 @@ function ProjectSessionSectionComponent({
       !session.workflowParentId &&
       (shortcutId || searchActive || inWorktreeFocus(session, focusedWorktree)),
   );
-  const visibleSessions = [
+  const filteredSessions = [
     ...filterSessionsByStatus(
       filterSessionsByTime(
         filterSessionsByHarness(
@@ -462,6 +484,13 @@ function ProjectSessionSectionComponent({
           .includes(searchQuery.trim().toLocaleLowerCase()),
     ),
   ].filter((session) => !shortcutId || session.id === shortcutId).sort(compareSessionSummaries);
+  const visibleSessions = orderByIds(
+    filteredSessions,
+    sessionSidebarOrder(
+      filteredSessions.map((session) => session.id),
+      manualSessionOrder,
+    ),
+  );
   const filtersActive = hasActiveSessionFilters(sessionFilters);
   const searchNarrowed = searchActive || Boolean(searchQuery.trim());
   // Summaries for the whole project stay in `sessions` so filters still work.
@@ -529,6 +558,7 @@ function ProjectSessionSectionComponent({
     allUngrouped,
     flatPins ? false : pinnedSessionsCollapsed,
     reminderGroup,
+    flatPins,
   );
   const groupedSessionListEntries = buildSessionList(
     visibleSessions,
@@ -541,14 +571,35 @@ function ProjectSessionSectionComponent({
         ],
     pinnedSessionsCollapsed,
     reminderGroup,
+    flatPins,
   );
-  const sessionListEntries: SessionListEntry[] = flatPins
-    ? groupedSessionListEntries.flatMap((entry): SessionListEntry[] =>
-        entry.kind === "pinned"
-          ? entry.sessions.map((session) => ({ kind: "session", session }))
-          : [entry],
-      )
-    : groupedSessionListEntries;
+  const sessionListEntries: SessionListEntry[] = groupedSessionListEntries;
+  const manualReorderCommit = useRef(false);
+  const sortableSessions = useAnimatedReorder(
+    shortcutId || tab !== "sessions" || !sectionVisible
+      ? []
+      : sessionListEntries.flatMap((entry) =>
+          entry.kind === "session" && shownUngroupedIds.has(entry.session.id)
+            ? [entry.session.id]
+            : [],
+        ),
+    (ids) => {
+      const allIds = sessionSidebarOrder(
+        [...listedSessions]
+          .sort(compareSessionSummaries)
+          .map((session) => session.id),
+        manualSessionOrder,
+      ).map((id) => ({ id }));
+      const next = mergeOrderedSubset(
+        allIds,
+        ids.map((id) => ({ id })),
+      ).map(({ id }) => id);
+      manualReorderCommit.current = true;
+      saveSessionSidebarOrder(cwd, next);
+      setSavedSessionOrder({ cwd, ids: next });
+    },
+    "y",
+  );
   const sessionNavigationIds = sessionListNavigationIds(
     fullSessionListEntries,
     searchNarrowed,
@@ -562,7 +613,16 @@ function ProjectSessionSectionComponent({
         ? []
         : entry.sessions.map((session) => session.id),
   );
-  useListReorderMotion(sectionRef, sessionRowOrder, "data-session-row");
+  // The drag already animated this move; do not replay it after committing.
+  useListReorderMotion(
+    sectionRef,
+    sessionRowOrder,
+    "data-session-row",
+    !manualReorderCommit.current,
+  );
+  useLayoutEffect(() => {
+    manualReorderCommit.current = false;
+  });
   useEffect(() => {
     if (activeProject && !shortcutId)
       onSessionNavigationOrder?.(sessionNavigationIds);
@@ -1236,6 +1296,7 @@ function ProjectSessionSectionComponent({
                     session={entry.session}
                     cwd={cwd}
                     motion={sessionInsertMotion}
+                    sortable={sortableSessions}
                     expanded={
                       treePreview
                         ? shownUngroupedIds.has(entry.session.id)
@@ -1446,15 +1507,31 @@ function SessionListItem({
   cwd,
   motion,
   expanded,
+  sortable,
   children,
 }: {
   session: SessionSummary;
   cwd: string;
   motion: RefObject<SessionInsertMotion>;
   expanded?: boolean;
+  sortable?: ReturnType<typeof useAnimatedReorder<string>>;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLLIElement>(null);
+  const content = sortable ? (
+    <SidebarEntryReorderContext.Provider
+      value={{
+        dragging: sortable.draggingId !== null,
+        onPointerDown: (event, externalDrop) =>
+          sortable.onItemPointerDown(session.id, event, externalDrop),
+        consumeClick: sortable.consumeClick,
+      }}
+    >
+      {children}
+    </SidebarEntryReorderContext.Provider>
+  ) : (
+    children
+  );
   // Decided once per row: effects can replay (StrictMode, reordering), and a
   // row that already slid in must not do it again.
   const played = useRef(false);
@@ -1512,14 +1589,17 @@ function SessionListItem({
   }, []);
   return (
     <li
-      ref={ref}
+      ref={(node) => {
+        ref.current = node;
+        sortable?.setItemRef(session.id, node);
+      }}
       data-session-row={session.id}
-      className={expanded === undefined ? undefined : "empty:hidden"}
+      className={`${sortable ? "reorder-item session-reorder-item relative" : ""} ${expanded === undefined ? "" : "empty:hidden"}`}
     >
       {expanded === undefined ? (
-        children
+        content
       ) : (
-        <AnimatedCollapse expanded={expanded}>{children}</AnimatedCollapse>
+        <AnimatedCollapse expanded={expanded}>{content}</AnimatedCollapse>
       )}
     </li>
   );

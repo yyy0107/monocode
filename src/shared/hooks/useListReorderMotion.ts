@@ -43,6 +43,7 @@ export function useListReorderMotion(
   root: RefObject<HTMLElement | null>,
   order: readonly string[],
   attribute: string,
+  animate = true,
 ) {
   const key = order.join("\0");
   // Read the outgoing layout during render, while the DOM still shows it.
@@ -70,6 +71,7 @@ export function useListReorderMotion(
     const node = root.current;
     if (
       !snapshot ||
+      !animate ||
       !node ||
       typeof node.animate !== "function" ||
       sameRelativeOrder(previousIds, [...order]) ||

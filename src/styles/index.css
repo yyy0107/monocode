@@ -520,6 +520,7 @@ html.has-native-glass:not(.theme-light) #root {
 
 .reorder-item:is([data-dragging], [data-settling]) > .project-tree-header,
 .sidebar-pinned-entry:is([data-dragging], [data-settling]) [data-session-card],
+.session-reorder-item:is([data-dragging], [data-settling]) [data-session-card],
 .project-reorder-item:is([data-dragging], [data-settling]) {
   background: var(--color-background-base);
   box-shadow: 0 0 0 1px var(--color-stroke) inset, var(--shadow-lg);
@@ -534,6 +535,7 @@ html.has-native-glass:not(.theme-light) #root {
 /* Keep project controls from appearing as rows pass beneath the pointer. */
 .project-reorder-item[data-reordering] [data-no-drag],
 .sidebar-pinned-entry[data-reordering] [data-no-drag],
+.session-reorder-item[data-reordering] [data-no-drag],
 .reorder-item[data-reordering] .project-tree-header [data-no-drag] {
   visibility: hidden;
 }
