@@ -32,9 +32,38 @@
 }
 .mobile-header.mobile-assistant-header[data-floating="true"]
   > .mobile-header-title[data-capsule="true"] {
+  --assistant-capsule-spring: cubic-bezier(0.22, 1.2, 0.36, 1);
   display: block;
   padding: 0;
   border-radius: 24px;
+}
+.mobile-assistant-header > .mobile-header-title {
+  transform: scaleX(1);
+  transform-origin: center top;
+  transition: transform 340ms var(--assistant-capsule-spring);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  .mobile-header.mobile-assistant-header[data-floating="true"]
+    > .mobile-header-title[data-capsule="true"] {
+    --assistant-capsule-spring: linear(
+      0, 0.3 8%, 0.72 18%, 1.03 32%, 1.08 44%, 0.97 65%, 1.008 83%, 1
+    );
+  }
+}
+/* Keep vertical sizing in AnimatedCollapse: scaling Y would distort its
+   measured heights. Transitions preserve the current squeeze on reversal. */
+.mobile-assistant-header > .mobile-header-title:has(
+  > .mobile-assistant-activity-collapse[data-fold-state="opening"]
+) {
+  transform: scaleX(0.975);
+}
+.mobile-assistant-header > .mobile-header-title:has(
+  > .mobile-assistant-activity-collapse[data-fold-state="closing"]
+) {
+  transform: scaleX(1.02);
+}
+.zen-fold-item.mobile-assistant-activity-collapse {
+  --collapse-easing: var(--assistant-capsule-spring);
 }
 .mobile-assistant-profile {
   display: flex;
@@ -47,16 +76,13 @@
   border-top: 1px solid var(--mobile-separator);
 }
 .mobile-assistant-activity-label {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
+  display: block;
   overflow-wrap: anywhere;
   white-space: normal;
   margin: 0;
   font-size: 12px;
   line-height: 18px;
-  text-align: start;
+  text-align: center;
 }
 .mobile-assistant-header .mobile-assistant-identity {
   display: flex;
@@ -823,6 +849,11 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   min-height: 44px;
 }
 @media (prefers-reduced-motion: reduce) {
+  .mobile-header.mobile-assistant-header[data-floating="true"]
+    > .mobile-header-title[data-capsule="true"] {
+    transform: none;
+    transition: none;
+  }
   .assistant-chat[data-layout="mobile"] .assistant-message-row > * {
     transition: none;
   }

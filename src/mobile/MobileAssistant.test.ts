@@ -416,7 +416,7 @@ it("expands activity inside the center capsule and retains it through closing an
   await act(async () => vi.advanceTimersByTime(2000));
   await flush();
   expect(fold()?.dataset.foldState).toBe("opening");
-  expect(fold()?.textContent).toBe("Reading pi · ncmcli…");
+  expect(fold()?.textContent).toBe("Reading pi · ncmcli");
   expect(fold()?.inert).toBe(false);
   expect(node.querySelector(".assistant-messages .assistant-working")).toBeNull();
   data.messages([{
@@ -426,13 +426,13 @@ it("expands activity inside the center capsule and retains it through closing an
   await act(async () => vi.advanceTimersByTime(350));
   await flush();
   expect(fold()?.dataset.foldState).toBe("open");
-  expect(fold()?.textContent).toBe("Reading pi · ncmcli…");
+  expect(fold()?.textContent).toBe("Reading pi · ncmcli");
 
   data.update({ lifecycle: "idle", activity: undefined });
   await act(async () => vi.advanceTimersByTime(250));
   await flush();
   expect(fold()?.dataset.foldState).toBe("closing");
-  expect(fold()?.textContent).toBe("Reading pi · ncmcli…");
+  expect(fold()?.textContent).toBe("Reading pi · ncmcli");
   expect(fold()?.inert).toBe(true);
   expect(fold()?.getAttribute("aria-hidden")).toBe("true");
   act(() => vi.advanceTimersByTime(150));
@@ -443,7 +443,7 @@ it("expands activity inside the center capsule and retains it through closing an
   act(() => button("Send").click());
   await flush();
   expect(fold()?.dataset.foldState).toBe("opening");
-  expect(fold()?.textContent).toBe("Going through the files…");
+  expect(fold()?.textContent).toBe("Going through the files");
   expect(fold()?.inert).toBe(false);
   act(() => vi.advanceTimersByTime(200));
   expect(fold()?.dataset.foldState).toBe("opening");
@@ -473,7 +473,7 @@ it("localizes capsule activity and respects reduced motion", async () => {
   await flush();
   const fold = node.querySelector<HTMLElement>(".mobile-assistant-activity-collapse");
   expect(fold?.dataset.foldState).toBe("open");
-  expect(fold?.textContent).toBe("正在查看「pi · ncmcli」…");
+  expect(fold?.textContent).toBe("正在查看「pi · ncmcli」");
   data.update({ lifecycle: "idle", activity: undefined });
   await act(async () => vi.advanceTimersByTime(250));
   await flush();

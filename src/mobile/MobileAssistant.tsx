@@ -80,10 +80,13 @@ function MobileAssistantHeader({
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useRef<HTMLButtonElement>(null);
-  const lastActivity = useRef(activity);
+  // The live status already signals ongoing work; its copy's trailing ellipsis
+  // looks like truncation inside the capsule. Preserve punctuation in names.
+  const activityLabel = activity?.replace(/…$/, "");
+  const lastActivity = useRef(activityLabel);
   useLayoutEffect(() => {
-    if (activity) lastActivity.current = activity;
-  }, [activity]);
+    if (activityLabel) lastActivity.current = activityLabel;
+  }, [activityLabel]);
   useAssistantBack(2, menuOpen, () => setMenuOpen(false));
   const action = (run?: () => void) => {
     setMenuOpen(false);
@@ -128,7 +131,7 @@ function MobileAssistantHeader({
           >
             <div className="mobile-assistant-activity" role="status">
               <Shimmer as="p" className="mobile-assistant-activity-label">
-                {activity ?? lastActivity.current ?? ""}
+                {activityLabel ?? lastActivity.current ?? ""}
               </Shimmer>
             </div>
           </AnimatedCollapse>
