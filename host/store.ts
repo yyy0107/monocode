@@ -14,6 +14,8 @@ import type { Block, LinkedWorkItem } from "../src/features/sessions/model/sessi
 import {
   pendingSessionInputKey as pendingInputKey,
   sessionNotificationPreview,
+  sessionMessageActivityAt,
+  sessionRecencyAt,
 } from "../src/features/sessions/model/sessionActivity";
 import { sessionNeedsInput } from "../src/features/sessions/model/session";
 
@@ -187,6 +189,7 @@ export class HostStore {
           cached.needsInput !== undefined &&
           cached.providerSessionId !== undefined &&
           cached.lastUserMessageAt !== undefined &&
+          cached.activityAt !== undefined &&
           cached.lastReplyRevision !== undefined &&
           cached.pendingInputKey !== undefined &&
           cached.notificationPreview !== undefined &&
@@ -201,7 +204,7 @@ export class HostStore {
         );
         return fresh;
       })
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+      .sort((a, b) => sessionRecencyAt(b) - sessionRecencyAt(a));
   }
 
   sync(id: string, revision?: number): SessionSync {
@@ -478,6 +481,7 @@ export function summary(value: HostSession): HostSessionSummary {
     runId: value.runId,
     status: value.status,
     updatedAt: value.updatedAt,
+    activityAt: sessionMessageActivityAt(value.session, value.status === "running") ?? null,
     lastReplyRevision: replyRevision(value),
     lastCompletedRunId: value.lastCompletedRunId ?? null,
     pendingInputKey: pendingInputKey(value.session, value.runId),

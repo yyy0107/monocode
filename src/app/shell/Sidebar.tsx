@@ -21,6 +21,7 @@ import { basename } from "../../platform/tauri/fs";
 import { useShortcutLabel } from "../commands/useCommandShortcut";
 import { useDragResize } from "../../shared/hooks/useDragResize";
 import { useLockOverscroll } from "../../shared/hooks/useLockOverscroll";
+import { sessionRecencyAt } from "../../features/sessions/model/sessionActivity";
 import { useProjectDiffStats } from "../../features/source-control/hooks/useProjectDiffStats";
 import { useGitFileStatuses } from "../../features/source-control/hooks/useGitFileStatuses";
 import { SidebarWorktreeSwitcher } from "../../features/source-control/ui/SidebarWorktreeSwitcher";
@@ -1012,7 +1013,7 @@ function SidebarComponent(props: SidebarProps) {
   const pinnedSessions = shortcutSessions.filter((session) => session.pinned);
   const recentSessions = [...shortcutSessions].sort(
     (a, b) =>
-      b.updatedAt - a.updatedAt ||
+      sessionRecencyAt(b) - sessionRecencyAt(a) ||
       pathKey(a.cwd).localeCompare(pathKey(b.cwd)) ||
       a.id.localeCompare(b.id),
   );

@@ -91,7 +91,7 @@ export function parseOpenCodeSession(
       const id = `native-opencode-${nativeString(part.id)}`;
       if (part.type === "text" && typeof part.text === "string") {
         if (part.synthetic !== true && part.text.trim())
-          result.blocks.push({ id, role: "assistant", text: part.text });
+          result.blocks.push({ id, role: "assistant", text: part.text, startedAt });
       } else if (part.type === "reasoning" && typeof part.text === "string") {
         if (part.text.trim())
           result.blocks.push({ id, role: "reasoning", text: part.text });

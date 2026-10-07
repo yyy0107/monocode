@@ -150,12 +150,14 @@ export function parseClaudeSession(
           previous.block.role === "assistant"
         ) {
           previous.block.text += `\n\n${part.text}`;
+          if (startedAt != null) previous.block.sentAt = startedAt;
           continue;
         }
         const block: Block = {
           id: index === 0 ? id : `${id}-text-${index}`,
           role: "assistant",
           text: part.text,
+          startedAt,
         };
         result.blocks.push(block);
         previous = { messageId, block };

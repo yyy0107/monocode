@@ -70,6 +70,7 @@ describe("OpenCode session import", () => {
     expect(result.blocks[2].tool).toMatchObject({ callId: "call_1", title: "ls", status: "completed", detail: "a\nb" });
     expect(result.blocks[3].tool?.status).toBe("running");
     expect(result.blocks[0]).toMatchObject({ id: "native-opencode-msg_u", startedAt: 7 });
+    expect(result.blocks[4]).toMatchObject({ role: "assistant", startedAt: 8 });
     expect(result.title).toBeUndefined();
     expect(result.model).toBe("opencode:opencode/big-pickle");
     expect(result.createdAt).toBe(5);

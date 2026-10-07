@@ -1,4 +1,5 @@
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
+import { sessionMessageActivityAt } from "../features/sessions/model/sessionActivity";
 import {
   HOST_PROTOCOL_VERSION,
   REMOTE_PROVIDERS,
@@ -265,6 +266,7 @@ export class MobileClient {
         status: value.status, revision: value.revision, updatedAt: value.updatedAt,
         pinned: value.pinned, archived: value.archived,
         lastUserMessageAt: sentAt !== undefined && Number.isFinite(sentAt) && sentAt > 0 ? sentAt : null,
+        activityAt: sessionMessageActivityAt(value.session, value.status === "running") ?? null,
       };
       this.rememberSummaries(value.projectId, previous
         ? sessions.map((session) => session.id === item.id ? item : session)

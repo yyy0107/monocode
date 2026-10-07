@@ -40,8 +40,8 @@ describe("Claude session import", () => {
         row("a0", "u1", { type: "attachment" }),
         row("m1", "a0", user("caveat", { isMeta: true })),
         row("a1", "m1", assistant("msg_1", [{ type: "thinking", thinking: "plan" }])),
-        row("a2", "a1", assistant("msg_1", [{ type: "text", text: "first" }])),
-        row("a3", "a2", assistant("msg_1", [{ type: "text", text: "second" }])),
+        row("a2", "a1", { ...assistant("msg_1", [{ type: "text", text: "first" }]), timestamp: "2026-10-05T10:00:01Z" }),
+        row("a3", "a2", { ...assistant("msg_1", [{ type: "text", text: "second" }]), timestamp: "2026-10-05T10:00:02Z" }),
         row("a4", "a3", assistant("msg_1", [{ type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "ls" } }])),
         row("r1", "a4", user([{ type: "tool_result", tool_use_id: "toolu_1", content: "out", is_error: true }])),
         row("c1", "r1", user("<command-name>/model</command-name>\n<command-args>opus</command-args>")),
@@ -60,6 +60,10 @@ describe("Claude session import", () => {
       ["user", "/model opus"],
     ]);
     expect(result.blocks[3].tool).toMatchObject({ callId: "toolu_1", detail: "out", status: "error" });
+    expect(result.blocks[2]).toMatchObject({
+      startedAt: Date.parse("2026-10-05T10:00:01Z"),
+      sentAt: Date.parse("2026-10-05T10:00:02Z"),
+    });
     expect(result.blocks[0].id).toBe("native-claude-u1");
     expect(result.title).toBe("Named");
     expect(result.model).toBe("claude:opus-5-5");

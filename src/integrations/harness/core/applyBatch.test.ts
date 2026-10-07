@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   newSession,
   type Session,
@@ -24,6 +24,11 @@ function conversation(): Session {
 }
 
 describe("batched harness events", () => {
+  // Both paths receive one delivery at the same instant; wall-clock execution
+  // time must not affect the comparison of streamed content and boundaries.
+  beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(100_000));
+  afterEach(() => vi.restoreAllMocks());
+
   it("preserves mixed snapshots, repeated tokens, whitespace and message boundaries", () => {
     const events: HarnessEvent[] = [
       { type: "message.delta", text: " " },

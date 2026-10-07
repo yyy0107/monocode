@@ -139,6 +139,7 @@ export function parsePiSession(
               id: index === 0 ? id : `${id}-text-${index}`,
               role: "assistant",
               text: partText,
+              startedAt: Date.parse(nativeString(entry.timestamp)) || undefined,
             });
           if (part.type === "thinking" && typeof part.thinking === "string")
             result.blocks.push({

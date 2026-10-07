@@ -1920,6 +1920,24 @@ describe("project conversation sorting", () => {
     },
   );
 
+  it("uses message activity for automatic ordering while retaining a manual order", () => {
+    fixture();
+    props.projectHistory = props.projectHistory!.map((session, index) => ({
+      ...session,
+      activityAt: 10 + index,
+    }));
+    act(() => render());
+    expect(rowIds()).toEqual(["e", "d", "c", "b", "a"]);
+    expect(props.onSessionNavigationOrder).toHaveBeenLastCalledWith(["e", "d", "c", "b", "a"]);
+    props.projectHistory = props.projectHistory!.map((session) => ({
+      ...session,
+      activityAt: session.id === "a" ? 200 : session.activityAt,
+    }));
+    act(() => render());
+    expect(rowIds()).toEqual(["a", "e", "d", "c", "b"]);
+    act(() => saveSessionSidebarOrder(A, initial));
+    expect(rowIds()).toEqual(initial);
+  });
 
   it("preserves filtered slots and restores manual order after activity and remounting", () => {
     saveSessionSidebarOrder(A, initial);

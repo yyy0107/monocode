@@ -39,6 +39,7 @@ describe("Codex session import", () => {
       },
       {
         type: "event_msg",
+        timestamp: "2026-10-05T10:00:00Z",
         payload: { type: "user_message", message: "hello" },
       },
       {
@@ -72,6 +73,7 @@ describe("Codex session import", () => {
       },
       {
         type: "response_item",
+        timestamp: "2026-10-05T10:00:10Z",
         payload: {
           type: "message",
           role: "assistant",
@@ -91,6 +93,8 @@ describe("Codex session import", () => {
       "answer",
     ]);
     expect(result.blocks[0].providerTurnId).toBe("turn-1");
+    expect(result.blocks[0].startedAt).toBe(Date.parse("2026-10-05T10:00:00Z"));
+    expect(result.blocks[3].startedAt).toBe(Date.parse("2026-10-05T10:00:10Z"));
     expect(result.blocks[2].tool?.detail).toBe("done");
     expect(result.model).toBe("codex:gpt-5.4");
     expect(result.modelSettings).toEqual({ reasoningEffort: "high" });

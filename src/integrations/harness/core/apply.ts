@@ -312,6 +312,8 @@ function upsertPlan(
       ...current,
       text,
       streaming,
+      startedAt: current.startedAt ?? current.sentAt ?? Date.now(),
+      ...(text !== current.text ? { sentAt: Date.now() } : {}),
       plan: {
         ...(current.plan ?? { status: streaming ? "streaming" : "ready" }),
         ...(key ? { key } : {}),
@@ -808,6 +810,12 @@ function appendImage(
 }
 
 function appendBlock(session: Session, block: Block): Session {
+  if (
+    block.role === "assistant" || block.role === "image" || block.role === "plan"
+  ) {
+    const startedAt = block.startedAt ?? block.sentAt ?? Date.now();
+    block = { ...block, startedAt, sentAt: block.sentAt ?? startedAt };
+  }
   return {
     ...session,
     blocks: [
@@ -855,6 +863,12 @@ function patchStreaming(
       ...last,
       text: nextText,
       streaming,
+      ...(role === "assistant" && last.startedAt == null
+        ? { startedAt: last.sentAt ?? Date.now() }
+        : {}),
+      ...(role === "assistant" && nextText !== last.text
+        ? { sentAt: Date.now() }
+        : {}),
     };
     return { ...session, blocks };
   }
@@ -864,8 +878,9 @@ function patchStreaming(
     role,
     text: typeof input === "string" ? input : input.reduce(joinStreamText, ""),
     streaming,
-    // A thought is timed from its first token so the row can say how long it ran.
-    ...(role === "reasoning" ? { startedAt: Date.now() } : {}),
+    // Keep the response's first token time stable while its latest content time moves.
+    startedAt: Date.now(),
+    ...(role === "assistant" ? { sentAt: Date.now() } : {}),
   });
   return { ...session, blocks };
 }
