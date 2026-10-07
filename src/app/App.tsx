@@ -1890,21 +1890,28 @@ function Workspace({
     }
   }, [active?.id, providerSignInRequest]);
 
-  const nextApprovalSessionIds = useMemo(() => {
-    const ids = new Set<string>();
+  const [nextApprovalSessionIds, nextQuestionSessionIds] = useMemo(() => {
+    const approvals = new Set<string>();
+    const questions = new Set<string>();
     for (const session of sessions) {
       if (sessionNeedsInput(session)) {
-        ids.add(session.id);
-        if (session.orchestrationLeadId) ids.add(session.orchestrationLeadId);
+        approvals.add(session.id);
+        if (session.orchestrationLeadId) approvals.add(session.orchestrationLeadId);
+        if (session.pendingQuestion) questions.add(session.id);
       }
     }
-    return ids;
+    return [approvals, questions];
   }, [sessions]);
   const approvalSessionIdsRef = useRef(nextApprovalSessionIds);
   if (!setsEqual(approvalSessionIdsRef.current, nextApprovalSessionIds)) {
     approvalSessionIdsRef.current = nextApprovalSessionIds;
   }
   const approvalSessionIds = approvalSessionIdsRef.current;
+  const questionSessionIdsRef = useRef(nextQuestionSessionIds);
+  if (!setsEqual(questionSessionIdsRef.current, nextQuestionSessionIds)) {
+    questionSessionIdsRef.current = nextQuestionSessionIds;
+  }
+  const questionSessionIds = questionSessionIdsRef.current;
 
   const activeSessionId = inboxVisible
     ? composerFocused
@@ -11356,6 +11363,7 @@ function Workspace({
                   sessions={sidebarHistory}
                   busySessionIds={busySessionIds}
                   approvalSessionIds={approvalSessionIds}
+                  questionSessionIds={questionSessionIds}
                   activeSessionId={active?.id}
                   status={historyFailed ? "error" : "idle"}
                   pending={historyPending}

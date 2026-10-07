@@ -146,6 +146,7 @@ function ProjectSessionSectionComponent({
   sessions,
   busySessionIds,
   approvalSessionIds,
+  questionSessionIds,
   activeSessionId,
   openSessions = [],
   status,
@@ -327,6 +328,20 @@ function ProjectSessionSectionComponent({
           .map((session) => session.id),
       )
     : approvalSessionIds;
+  // Older Hosts report only needsInput; keep that wait generic rather than
+  // mislabeling a question as an approval.
+  const listedQuestionSessionIds = remoteProject
+    ? new Set(
+        remote.sessions
+          .filter(
+            (session) =>
+              session.needsInput &&
+              (!session.pendingInputKey ||
+                /(?:^|[:,])question:/.test(session.pendingInputKey)),
+          )
+          .map((session) => session.id),
+      )
+    : questionSessionIds;
   const projectSessions: SessionSummary[] = useMemo(
     () =>
       remoteProject
@@ -1030,7 +1045,13 @@ function ProjectSessionSectionComponent({
         busy={listedBusySessionIds.has(session.id)}
         done={unseenFinishedIds.has(session.id)}
         linkedUpdate={linkedSessionUpdateIds.has(session.id)}
-        needsApproval={listedApprovalSessionIds.has(session.id)}
+        waitingFor={
+          listedApprovalSessionIds.has(session.id)
+            ? listedQuestionSessionIds?.has(session.id) || session.orchestration
+              ? "input"
+              : "approval"
+            : undefined
+        }
         compact={compact}
         dense={dense}
         shortcut={!!shortcutId}
@@ -1511,7 +1532,7 @@ const SessionCard = memo(function SessionCard({
   busy,
   done,
   linkedUpdate,
-  needsApproval,
+  waitingFor,
   compact = false,
   dense = false,
   shortcut = false,
@@ -1532,7 +1553,7 @@ const SessionCard = memo(function SessionCard({
   busy: boolean;
   done: boolean;
   linkedUpdate: boolean;
-  needsApproval: boolean;
+  waitingFor?: "approval" | "input";
   compact?: boolean;
   dense?: boolean;
   shortcut?: boolean;
@@ -1589,7 +1610,9 @@ const SessionCard = memo(function SessionCard({
     compact && !orchestrationExpanded
       ? null
       : resolveModel(session.harness, session.model).name;
-  const statusClass = needsApproval
+  const waitingLabel =
+    waitingFor === "input" ? uiT("Needs input") : uiT("Need approval");
+  const statusClass = waitingFor
     ? "text-amber-400"
     : busy
       ? "text-accent"
@@ -1604,12 +1627,10 @@ const SessionCard = memo(function SessionCard({
     <span
       className={`flex shrink-0 items-center gap-1 text-[11px] tabular-nums ${statusClass}`}
     >
-      {needsApproval ? (
+      {waitingFor ? (
         <>
           <CircleAlert className="size-3" />
-          <span>
-            {orchestration ? uiT("Needs input") : uiT("Need approval")}
-          </span>
+          <span>{waitingLabel}</span>
         </>
       ) : busy ? (
         <>
@@ -1641,16 +1662,16 @@ const SessionCard = memo(function SessionCard({
     ? resolveModel(session.harness, session.model).name
     : undefined;
   const summaryStatus =
-    needsApproval || busy || failed || done || draft ? (
+    waitingFor || busy || failed || done || draft ? (
       status
     ) : (
       <span className={`shrink-0 text-[11px] ${statusClass}`}>
         {uiT("Idle")}
       </span>
     );
-  const denseStatus = needsApproval ? (
+  const denseStatus = waitingFor ? (
     <CircleAlert
-      aria-label={orchestration ? uiT("Needs input") : uiT("Need approval")}
+      aria-label={waitingLabel}
       className="size-3 shrink-0 text-amber-400"
     />
   ) : busy ? (
@@ -1968,7 +1989,7 @@ const SessionCard = memo(function SessionCard({
         } ${
           isSelected
             ? `bg-accent/15 text-content ${draft ? "border-content/30 border-dashed" : "border-transparent"}`
-            : needsApproval
+            : waitingFor
               ? "bg-content/20 text-content border-content/30 border-dashed"
               : isActive
                 ? `bg-selection text-content ${draft ? "border-content/30 border-dashed" : "border-transparent"}`

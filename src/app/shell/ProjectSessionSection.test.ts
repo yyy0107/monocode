@@ -600,6 +600,63 @@ describe("named project/session tree", () => {
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
 
+  it.each([
+    ["en", "Needs input", "Need approval", "Working..."],
+    ["zh-CN", "需要输入", "需要审批", "正在运行…"],
+  ] as const)(
+    "distinguishes questions from approvals in dense rows and summaries (%s)",
+    (language, inputLabel, approvalLabel, workingLabel) => {
+      props.busySessionIds = new Set(["a"]);
+      props.approvalSessionIds = new Set(["a"]);
+      props.questionSessionIds = new Set(["a"]);
+      setUiLanguage(language);
+      act(() => render());
+      expect(card("a").querySelector(`[aria-label="${inputLabel}"]`)).not.toBeNull();
+      expect(card("a").querySelector(`[aria-label="${approvalLabel}"]`)).toBeNull();
+      act(() =>
+        card("a").querySelector<HTMLElement>("[data-session-select]")!.focus(),
+      );
+      const tooltip = () => document.querySelector('[role="tooltip"]')!;
+      expect(tooltip().textContent).toContain(inputLabel);
+      expect(tooltip().textContent).not.toContain(approvalLabel);
+
+      // Changing the request kind must update a memoized card even though the
+      // combined waiting set did not change.
+      props.questionSessionIds = new Set();
+      act(() => render());
+      expect(card("a").querySelector(`[aria-label="${approvalLabel}"]`)).not.toBeNull();
+      expect(tooltip().textContent).toContain(approvalLabel);
+      expect(tooltip().textContent).not.toContain(inputLabel);
+
+      props.approvalSessionIds = new Set();
+      act(() => render());
+      expect(card("a").querySelector(`[aria-label="${approvalLabel}"]`)).toBeNull();
+      expect(tooltip().textContent).toContain(workingLabel);
+    },
+  );
+
+  it.each([
+    ["run:question:4", "Needs input"],
+    ["run:approval:3,question:4", "Needs input"],
+    ["run:approval:3", "Need approval"],
+    [undefined, "Needs input"],
+  ] as const)(
+    "labels remote waiting rows without requiring an open session (%s)",
+    (pendingInputKey, label) => {
+      configureSharedHost("machine", [{ id: "project", cwd: B, name: "beta" }]);
+      remoteState.rows.set(B, [
+        { ...hostRow("b"), status: "running", needsInput: true, pendingInputKey },
+      ]);
+      saveProjectTreeExpanded([A, B]);
+      act(() => render());
+      expect(card("b").querySelector(`[aria-label="${label}"]`)).not.toBeNull();
+      act(() =>
+        card("b").querySelector<HTMLElement>("[data-session-select]")!.focus(),
+      );
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(label);
+    },
+  );
+
   it("hides missing metadata and uses the row status priority in summaries", () => {
     props.projectHistory = [{ ...summary("a"), draft: true, updatedAt: 0 }];
     props.sessions = props.projectHistory;

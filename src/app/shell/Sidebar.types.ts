@@ -43,7 +43,10 @@ export type SidebarProps = {
   open: boolean;
   sessions: SessionSummary[];
   busySessionIds: Set<string>;
+  /** Sessions waiting on approvals or questions (also used by status filters). */
   approvalSessionIds: Set<string>;
+  /** Question subset, so waiting for an answer is not labeled as an approval. */
+  questionSessionIds?: ReadonlySet<string>;
   activeSessionId?: string;
   /** Retained live summaries, including blank/background chats; actual tabs
    * are identified separately by openSessionIds. */

@@ -479,6 +479,32 @@ describe("sidebar session multiselection", () => {
   });
 });
 
+describe("sidebar waiting status", () => {
+  it("shows input for questions, approval for permissions, and resumes working after an answer", () => {
+    props.approvalSessionIds = new Set(["session-1"]);
+    props.questionSessionIds = new Set(["session-1"]);
+    act(() => render());
+    expect(card().textContent).toContain("Needs input");
+    expect(card().textContent).not.toContain("Need approval");
+    expect(card().textContent).not.toContain("Working...");
+
+    props.questionSessionIds = new Set();
+    act(() => render());
+    expect(card().textContent).toContain("Need approval");
+    expect(card().textContent).not.toContain("Needs input");
+
+    props.questionSessionIds = new Set(["session-1"]);
+    act(() => render());
+    expect(card().textContent).toContain("Needs input");
+    props.questionSessionIds = new Set();
+    props.approvalSessionIds = new Set();
+    act(() => render());
+    expect(card().textContent).toContain("Working...");
+    expect(card().textContent).not.toContain("Needs input");
+    expect(card().textContent).not.toContain("Need approval");
+  });
+});
+
 describe("sidebar session IDs", () => {
   function openCopyIdMenu(sessionId: string) {
     act(() => {
