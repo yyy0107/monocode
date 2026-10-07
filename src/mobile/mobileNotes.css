@@ -121,43 +121,19 @@
   font-size: 13px;
   overflow-wrap: anywhere;
 }
-.mobile-note-tags button {
-  display: grid;
-  place-items: center;
-  min-width: 28px;
-  min-height: 28px;
-  border: 0;
-  background: transparent;
-}
-.mobile-note-editor {
+.mobile-note-viewer {
   padding: 16px 20px calc(32px + var(--mobile-safe-bottom));
 }
-.mobile-note-editor fieldset {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.mobile-note-viewer > * + * {
+  margin-top: 16px;
 }
 .mobile-note-title {
-  width: 100%;
   min-width: 0;
-  border: 0;
-  background: transparent;
-  outline: none;
-  font-size: 24px !important;
-  font-weight: 600 !important;
+  margin-bottom: 0;
+  font-size: 24px;
+  font-weight: 600;
   padding: 4px 0;
-}
-.mobile-note-tag-input {
-  width: 100%;
-  padding: 10px 0;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--color-stroke);
-  outline: none;
+  overflow-wrap: anywhere;
 }
 .mobile-note-actions {
   display: flex;
@@ -169,32 +145,6 @@
   align-items: center;
   gap: 6px;
   min-height: 44px;
-}
-.mobile-note-tabs {
-  display: flex;
-  gap: 16px;
-  border-bottom: 1px solid var(--color-stroke);
-}
-.mobile-note-tabs button {
-  min-height: 44px;
-  padding: 8px 4px;
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-}
-.mobile-note-tabs button[aria-selected="true"] {
-  border-bottom-color: var(--color-content);
-}
-.mobile-note-source {
-  width: 100%;
-  min-height: 45vh;
-  padding: 12px 0;
-  resize: vertical;
-  outline: none;
-  border: 0;
-  background: transparent;
-  line-height: 1.65;
-  font-family: var(--font-mono) !important;
 }
 .mobile-note-markdown {
   min-height: 35vh;

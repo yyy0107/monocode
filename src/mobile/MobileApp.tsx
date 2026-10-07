@@ -1645,7 +1645,7 @@ export function MobileApp() {
       </MobilePageOverlay>
       <MobilePageOverlay key={`notes:${client.connection?.environmentId}`} open={notesOpen && !!client.connection}>
         {client.connection && <MobileNotes ref={notesPage} client={client} hostKey={client.connection.environmentId}
-          projects={projects} cwd={project?.cwd} onClose={() => setNotesOpen(false)} onAddToChat={onNoteAddToChat} />}
+          projects={projects} onClose={() => setNotesOpen(false)} onAddToChat={onNoteAddToChat} />}
       </MobilePageOverlay>
       <SurfaceVisibilityContext.Provider value={!pageOverlayOpen}>
       <div className="mobile-assistant-background" inert={pageOverlayOpen} aria-hidden={pageOverlayOpen || undefined}>
