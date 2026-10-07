@@ -60,7 +60,11 @@ import {
   saveSessionSidebarFilters,
   type SessionSidebarFilters,
 } from "../../features/sessions/model/sessionFilters";
-import { compareSessionSummaries, filterSessionsByArchive } from "../../features/sessions/data/sessionHistory";
+import {
+  compareSessionSummaries,
+  filterSessionsByArchive,
+  mergeLiveSessionSummaries,
+} from "../../features/sessions/data/sessionHistory";
 import { sessionDisplayTitle } from "../../features/sessions/model/session";
 import {
   cachedRemoteProjectSessionsState,
@@ -955,17 +959,13 @@ function SidebarComponent(props: SidebarProps) {
                   createdAt: row.createdAt ?? row.updatedAt,
                 }))
               : (historyByProject.get(pathKey(path)) ?? []);
-            const knownIds = new Set(storedRows.map((row) => row.id));
             const liveRows = projectOpenSessions(path)
               .map((row) =>
                 remoteRows
                   ? { ...row, id: remoteSessionFor(row.id) ?? row.id }
                   : row,
               );
-            const rows = [
-              ...storedRows,
-              ...liveRows.filter((row) => !knownIds.has(row.id)),
-            ];
+            const rows = mergeLiveSessionSummaries(storedRows, liveRows);
             const busy = remoteRows
               ? new Set(
                   remoteRows

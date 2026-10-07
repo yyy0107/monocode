@@ -224,6 +224,7 @@ vi.mock("./shell/Sidebar", async () => {
       cwd,
       gitCwd,
       projectHistory = [],
+      openSessions = [],
       loadedProjectPaths = new Set(),
       failedProjectPaths = new Set(),
       onLoadProject,
@@ -249,6 +250,7 @@ vi.mock("./shell/Sidebar", async () => {
       cwd: string;
       gitCwd: string;
       projectHistory?: { id: string; cwd: string; title: string }[];
+      openSessions?: { id: string }[];
       loadedProjectPaths?: ReadonlySet<string>;
       failedProjectPaths?: ReadonlySet<string>;
       onLoadProject: (cwd: string) => Promise<void>;
@@ -273,6 +275,7 @@ vi.mock("./shell/Sidebar", async () => {
           "data-failed-projects": [...failedProjectPaths].join("|"),
           "data-active-session": activeSessionId,
           "data-sidebar-tab": tab,
+          "data-open-sessions": openSessions.map((session) => session.id).join("|"),
         },
         navigation,
         footer,
@@ -1842,6 +1845,12 @@ describe("App multi-project history", () => {
     const firstDraftId = workspace().querySelector<HTMLElement>(
       '[data-session-cwd="/project-b"]',
     )!.dataset.session;
+    expect(container.querySelector('[data-sidebar]')?.getAttribute("data-open-sessions"))
+      .not.toContain(firstDraftId);
+    expect(container.querySelector(`[data-open-history="${firstDraftId}"]`)).toBeNull();
+    expect(mocks.invoke.mock.calls.some(([command, args]) =>
+      command === "session_upsert" && args.session.id === firstDraftId,
+    )).toBe(false);
 
     // An untouched draft must not turn the explicit create action into a no-op.
     await click('[data-new-project-session="/project-b"]');
@@ -1850,6 +1859,8 @@ describe("App multi-project history", () => {
       '[data-session-cwd="/project-b"]',
     )!.dataset.session;
     expect(secondDraftId).not.toBe(firstDraftId);
+    expect(container.querySelector('[data-sidebar]')?.getAttribute("data-open-sessions"))
+      .not.toContain(secondDraftId);
     expect(workspace(firstDraftTab)).toBeNull();
     expect(
       container.querySelector('[data-sidebar]')?.getAttribute("data-active-session"),

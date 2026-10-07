@@ -10,7 +10,8 @@ it("keeps a host transcript in normal session state under its local tab ID", () 
     projectId: "project",
     revision: 2,
     status: "idle",
-    updatedAt: 1,
+    createdAt: 500,
+    updatedAt: 1_000,
     session: {
       ...shell,
       id: "host-session",
@@ -34,6 +35,8 @@ it("keeps a host transcript in normal session state under its local tab ID", () 
     worktreeCwd: "remote://env/home/me/repo-worktrees/dev",
     title: "Fix the build",
     blocks: snapshot.session.blocks,
+    createdAt: 500,
+    updatedAt: 1_000,
   });
   expect(shouldPersistSession(session)).toBe(false);
 });

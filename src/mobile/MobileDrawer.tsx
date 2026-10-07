@@ -32,6 +32,7 @@ import type { HostConnectionStatus } from "./client";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { formatMobileRelativeTime } from "./relativeTime";
 import { sortMobileProjects, sortMobileSessions } from "./sessionList";
+import { useListReorderMotion } from "../shared/hooks/useListReorderMotion";
 import type { MobileSheetPoint } from "./MobileSheet";
 import {
   canPullDrawerFrom,
@@ -154,6 +155,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   const historyTurn = useRef<Record<string, number>>({});
   const panel = useRef<HTMLElement>(null);
   const backdrop = useRef<HTMLDivElement>(null);
+  const sessionsList = useRef<HTMLDivElement>(null);
   const swipe = useRef<Swipe>(undefined);
   const dragClickUntil = useRef(0);
   const hold = useRef<{
@@ -429,6 +431,8 @@ export const MobileDrawer = memo(function MobileDrawer({
   const allSessions = useMemo(() => sortMobileSessions(
     tree.flatMap((item) => projectHistory(item).sessions ?? []),
   ).filter((item) => ownerById.has(item.projectId)), [tree, projectHistory, ownerById]);
+  const sessionOrder = useMemo(() => allSessions.map((item) => item.id), [allSessions]);
+  useListReorderMotion(sessionsList, sessionOrder, "data-session-id");
   const pins = useMemo(() => allSessions.filter((item) => item.pinned), [allSessions]);
   const recents = useMemo(() => allSessions.filter((item) => !item.pinned), [allSessions]);
   const failedProjects = useMemo(() => tree.filter((item) => {
@@ -580,7 +584,7 @@ export const MobileDrawer = memo(function MobileDrawer({
             <span>{t("New conversation")}</span>
           </button>
         </div>
-        <div className="mobile-drawer-sessions">
+        <div ref={sessionsList} className="mobile-drawer-sessions">
           <button
             type="button"
             className="mobile-drawer-item mobile-drawer-all-projects"

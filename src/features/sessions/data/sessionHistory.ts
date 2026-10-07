@@ -3,7 +3,6 @@ import { summarizeOrchestration } from "../../orchestration/model/orchestrationS
 import { fuzzyMatch } from "../../../shared/lib/fuzzy";
 import { pathKey, projectName } from "../../../shared/lib/paths";
 import { sameProjectPath } from "../../projects/model/recents";
-import { isBlankSession } from "../../projects/model/projectReturn";
 import {
   sessionDisplayTitle,
   sessionDraftBlock,
@@ -17,15 +16,14 @@ export type SessionGitHint = {
   branch?: string;
 };
 
-/** Empty conversations belong to an open pane, not retained history/cache. */
+/** New composers stay in their pane until a turn is sent or explicitly saved. */
 export function sidebarLiveSessions(
   sessions: readonly Session[],
-  openSessionIds: ReadonlySet<string>,
 ): Session[] {
   return sessions.filter(
     (session) =>
       !session.inboxAsk && !session.orchestrationLeadId && !session.workflowParentId &&
-      (openSessionIds.has(session.id) || !isBlankSession(session)),
+      (session.busy || session.blocks.some((block) => block.role === "user")),
   );
 }
 
@@ -117,6 +115,23 @@ function sessionSearchHit(row: SessionSummary, query: string): boolean {
   return fields.some((field) => field && fuzzyMatch(query, field) != null);
 }
 
+/** Reading or expanding a project must never count as conversation activity. */
+function sessionActivityAt(session: Session): number {
+  let latest = Math.max(
+    session.updatedAt ?? 0,
+    session.nativeSession?.updatedAt ?? 0,
+  );
+  for (const block of session.blocks) {
+    latest = Math.max(
+      latest,
+      block.sentAt ?? 0,
+      (block.startedAt ?? 0) +
+        (block.startedAt != null ? Math.max(0, block.durationMs ?? 0) : 0),
+    );
+  }
+  return latest;
+}
+
 export function summaryFromSession(
   session: Session,
   git?: SessionGitHint,
@@ -143,9 +158,29 @@ export function summaryFromSession(
       ? { branch: session.branch || git?.branch }
       : {}),
     ...(git?.repo ? { repo: git.repo } : {}),
-    createdAt: 0,
-    updatedAt: Date.now(),
+    createdAt:
+      session.createdAt ??
+      session.nativeSession?.createdAt ??
+      session.blocks.find((block) => block.role === "user")?.startedAt ??
+      0,
+    updatedAt: sessionActivityAt(session),
   };
+}
+
+/** Keep stored metadata while live activity catches up with the history cache. */
+export function mergeLiveSessionSummaries(
+  stored: readonly SessionSummary[],
+  live: readonly SessionSummary[],
+): SessionSummary[] {
+  const byId = new Map(stored.map((row) => [row.id, row]));
+  for (const row of live) {
+    const previous = byId.get(row.id);
+    if (!previous) byId.set(row.id, row);
+    else if (row.updatedAt > previous.updatedAt) {
+      byId.set(row.id, { ...previous, updatedAt: row.updatedAt });
+    }
+  }
+  return [...byId.values()];
 }
 
 /** Prefer the project's persisted origin name, then the overlay / folder name. */
@@ -301,11 +336,13 @@ function overlayProjectHistory(
     const storedIndex = indexById.get(session.id) ?? -1;
     if (storedIndex >= 0) {
       const stored = rows[storedIndex];
+      const updatedAt = Math.max(stored.updatedAt, sessionActivityAt(session));
       const draft = !!sessionDraftBlock(session);
       const automationId = session.automationId || stored.automationId;
       // Live provider, title and work item land before the next persist.
       const linkedWorkItem = session.linkedWorkItem ?? stored.linkedWorkItem;
       if (
+        stored.updatedAt !== updatedAt ||
         stored.harness !== session.harness ||
         stored.model !== session.model ||
         !!stored.draft !== draft ||
@@ -315,6 +352,7 @@ function overlayProjectHistory(
       ) {
         rows[storedIndex] = {
           ...stored,
+          updatedAt,
           harness: session.harness,
           model: session.model,
           title: session.title,
@@ -347,9 +385,6 @@ function overlayProjectHistory(
     .sort(compareSessionSummaries);
 }
 
-/** Live rows restamp `updatedAt` every overlay; a minute is below the list's clock. */
-const LIVE_UPDATED_AT_SLACK_MS = 60_000;
-
 function sameSummaryValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
@@ -362,14 +397,6 @@ function sameSummary(a: SessionSummary, b: SessionSummary): boolean {
   for (const key of keys) {
     const left = a[key as keyof SessionSummary];
     const right = b[key as keyof SessionSummary];
-    if (
-      key === "updatedAt" &&
-      a.createdAt === 0 &&
-      b.createdAt === 0 &&
-      Math.abs(a.updatedAt - b.updatedAt) < LIVE_UPDATED_AT_SLACK_MS
-    ) {
-      continue;
-    }
     if (!sameSummaryValue(left, right)) return false;
   }
   return true;

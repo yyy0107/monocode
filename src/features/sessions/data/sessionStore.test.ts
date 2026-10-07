@@ -23,6 +23,13 @@ it("keeps host-owned transcripts out of local session storage", () => {
   expect(shouldPersistSession(session)).toBe(false);
 });
 
+it("only persists a new composer after its first message is submitted", () => {
+  const draft = newSession("codex", "/repo");
+  expect(shouldPersistSession(draft)).toBe(false);
+  expect(shouldPersistSession({ ...draft, title: "My next conversation" })).toBe(false);
+  expect(shouldPersistSession(appendUser(draft, "First message"))).toBe(true);
+});
+
 describe("Claude Shell row recovery", () => {
   it("restores only matching placeholder rows and preserves tool output", () => {
     const blocks: Block[] = [

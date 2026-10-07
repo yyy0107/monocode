@@ -5,6 +5,7 @@ const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
 const { getSession } = await import("./sessionStore");
+const { summaryFromSession } = await import("./sessionHistory");
 
 /** A saved Codex session holding the one row this PR repairs. */
 function codexRecord(): SessionRecord {
@@ -37,6 +38,14 @@ function codexRecord(): SessionRecord {
 
 describe("restoring a session whose repair cannot be persisted", () => {
   beforeEach(() => invoke.mockReset());
+
+  it("preserves stored activity when an older transcript is reopened", async () => {
+    invoke.mockResolvedValue({ ...codexRecord(), createdAt: 100, updatedAt: 200,
+      blocks: [{ id: "u", role: "user", text: "Legacy conversation" }] });
+    const session = await getSession("s1");
+    expect(summaryFromSession(session!)).toMatchObject({ createdAt: 100, updatedAt: 200 });
+    expect(invoke.mock.calls.map(([command]) => command)).toEqual(["session_get"]);
+  });
 
   it("still returns the repaired session when the write fails", async () => {
     invoke.mockImplementation((cmd: string) => {

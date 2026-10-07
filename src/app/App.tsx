@@ -6314,6 +6314,7 @@ function Workspace({
                     text,
                     ...(attachments.length > 0 ? { attachments } : {}),
                     draft: true,
+                    startedAt: Date.now(),
                     ...(appRequestId ? { appRequestId } : {}),
                   },
                 ],
@@ -10139,7 +10140,7 @@ function Workspace({
   const sidebarOpenSessionIds = useMemo(() => openSessionIds(tabs), [tabs]);
   const liveOpenProjectSessions = useMemo(
     () =>
-      sidebarLiveSessions(sessions, sidebarOpenSessionIds).map((session) =>
+      sidebarLiveSessions(sessions).map((session) =>
         summaryFromSession(session, {
           ...(sameProjectPath(session.cwd, sidebarCwd) &&
           projectBranches?.current
@@ -10150,7 +10151,7 @@ function Workspace({
             : {}),
         }),
       ),
-    [projectBranches, sessions, sidebarCwd, sidebarOpenSessionIds],
+    [projectBranches, sessions, sidebarCwd],
   );
   const openProjectSessions = useStableSummaries(liveOpenProjectSessions);
 

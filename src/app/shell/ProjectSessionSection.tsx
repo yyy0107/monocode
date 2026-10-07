@@ -1,6 +1,7 @@
 import { useSidebarListPreview } from "./useSidebarListPreview";
 import { SidebarEntryReorderContext } from "./SidebarEntryReorder";
 import { AnimatedCollapse } from "../../shared/ui/AnimatedCollapse";
+import { useListReorderMotion } from "../../shared/hooks/useListReorderMotion";
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import { NO_BRANCH_LABEL } from "../../features/source-control/model/worktrees";
 import {
@@ -65,6 +66,7 @@ import { createDragGhost, suppressTextSelection } from "../../shared/lib/drag";
 import {
   compareSessionSummaries,
   filterSessionsByArchive,
+  mergeLiveSessionSummaries,
 } from "../../features/sessions/data/sessionHistory";
 import {
   buildSessionList,
@@ -413,11 +415,10 @@ function ProjectSessionSectionComponent({
         return hostId ? { ...session, id: hostId } : session;
       })
     : projectOpenSessions;
-  const knownSessionIds = new Set(projectSessions.map((session) => session.id));
-  const listedSessions = [
-    ...projectSessions,
-    ...listedOpenSessions.filter((session) => !knownSessionIds.has(session.id)),
-  ].filter(
+  const listedSessions = mergeLiveSessionSummaries(
+    projectSessions,
+    listedOpenSessions,
+  ).filter(
     (session) =>
       !session.orchestrationLeadId &&
       !session.workflowParentId &&
@@ -537,6 +538,15 @@ function ProjectSessionSectionComponent({
     searchNarrowed,
   );
   const sessionNavigationKey = sessionNavigationIds.join("\0");
+  // Activity re-sorts the list; rows slide to their new places instead of jumping.
+  const sessionRowOrder = sessionListEntries.flatMap((entry) =>
+    entry.kind === "session"
+      ? [entry.session.id]
+      : entry.kind === "folder"
+        ? []
+        : entry.sessions.map((session) => session.id),
+  );
+  useListReorderMotion(sectionRef, sessionRowOrder, "data-session-row");
   useEffect(() => {
     if (activeProject && !shortcutId)
       onSessionNavigationOrder?.(sessionNavigationIds);
@@ -1481,6 +1491,7 @@ function SessionListItem({
   return (
     <li
       ref={ref}
+      data-session-row={session.id}
       className={expanded === undefined ? undefined : "empty:hidden"}
     >
       {expanded === undefined ? (

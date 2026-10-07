@@ -9,9 +9,13 @@ import {
   replaceProjectHistory,
   reuseEqualSummaries,
   sidebarLiveSessions,
+  summaryFromSession,
+  mergeLiveSessionSummaries,
+  compareSessionSummaries,
 } from "./sessionHistory";
 import { pathKey } from "../../../shared/lib/paths";
 import { newSession } from "../model/session";
+import { appendUser } from "../../../integrations/harness/core/apply";
 import type { SessionSummary } from "./sessionStore";
 import type { OrchestrationRun } from "../../orchestration/model/orchestration";
 
@@ -31,7 +35,7 @@ function summary(id: string, cwd: string, updatedAt = 1): SessionSummary {
 }
 
 describe("sidebarLiveSessions", () => {
-  it("keeps open blank panes, drafts and background work without resurrecting orphan blanks", () => {
+  it("hides new composers while keeping explicitly saved drafts and background work", () => {
     const blank = (id: string) => ({ ...newSession("codex", "/repo"), id });
     const sessions = [
       blank("orphan"),
@@ -41,14 +45,57 @@ describe("sidebarLiveSessions", () => {
       { ...blank("history"), blocks: [{ id: "u", role: "user" as const, text: "Existing conversation" }] },
       { ...blank("worker"), orchestrationLeadId: "lead" },
     ];
-    expect(sidebarLiveSessions(sessions, new Set(["open-blank", "worker"])).map((session) => session.id))
-      .toEqual(["open-blank", "working", "draft", "history"]);
-    expect(sidebarLiveSessions(sessions, new Set()).map((session) => session.id))
+    expect(sidebarLiveSessions(sessions).map((session) => session.id))
       .toEqual(["working", "draft", "history"]);
   });
+
+  it.each(["/repo", "remote://host/repo"])(
+    "shows a new conversation once its first message is sent in %s",
+    (cwd) => {
+      const draft = newSession("codex", cwd);
+      expect(sidebarLiveSessions([draft])).toEqual([]);
+      const sent = appendUser(draft, "First message");
+      expect(sidebarLiveSessions([sent])).toEqual([sent]);
+    },
+  );
 });
 
 describe("historyWithLiveSessions", () => {
+  it("keeps conversation order when projects are revisited and history arrives", () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    try {
+      const older = appendUser({ ...newSession("codex", "/repo"), id: "a-old" }, "Older");
+      clock.mockReturnValue(20_000);
+      const newer = appendUser({ ...newSession("codex", "/repo"), id: "z-new" }, "Newer");
+      const sessions = [older, newer];
+      const initial = historyWithLiveSessions([], sessions, "/repo");
+      expect(initial.map((row) => row.id)).toEqual(["z-new", "a-old"]);
+
+      clock.mockReturnValue(120_000);
+      historyWithLiveSessions([], sessions, "/another-project");
+      expect(historyWithLiveSessions([], sessions, "/repo")).toEqual(initial);
+      const stored = initial.map((row) => ({ ...row }));
+      expect(historyWithLiveSessions(stored, sessions, "/repo")).toEqual(initial);
+      expect(allProjectHistoryWithLiveSessions(stored, sessions)).toEqual(initial);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("moves an existing chat on a new turn before persistence catches up, preserving pins", () => {
+    const session = {
+      ...newSession("codex", "/repo"),
+      id: "old",
+      blocks: [{ id: "turn", role: "user" as const, text: "Continue", startedAt: 3_000 }],
+    };
+    const stored = [summary("old", "/repo", 1_000), summary("recent", "/repo", 2_000),
+      { ...summary("pin", "/repo", 500), pinned: true }];
+    const rows = historyWithLiveSessions(stored, [session], "/repo");
+    expect(rows.map((row) => row.id)).toEqual(["pin", "old", "recent"]);
+    expect(rows[1].updatedAt).toBe(3_000);
+    expect(stored[0].updatedAt).toBe(1_000);
+  });
+
   const run: OrchestrationRun = {
     version: 1,
     leadId: "lead",
@@ -350,7 +397,7 @@ describe("historyWithLiveSessions", () => {
         };
         const sessions = [
           saved,
-          { ...newSession("codex", "c:/REPO/"), id: "new", busy: true },
+          { ...newSession("codex", "c:/REPO/"), id: "new", busy: true, updatedAt: 100 },
           { ...newSession("cursor", "/tmp/project-b"), id: "blank" },
         ];
         const gitForProject = (cwd: string) =>
@@ -672,7 +719,7 @@ describe("reuseEqualSummaries", () => {
     const stored = summary("a", "/p", 5);
     const live = { ...summary("b", "/p"), createdAt: 0, updatedAt: 1_000 };
     const previous = [live, stored];
-    const next = [{ ...live, updatedAt: 2_000 }, { ...stored }];
+    const next = [{ ...live }, { ...stored }];
     expect(reuseEqualSummaries(previous, next)).toBe(previous);
   });
 
@@ -685,9 +732,38 @@ describe("reuseEqualSummaries", () => {
     expect(result[1]).toBe(renamed);
   });
 
-  it("refreshes a live row once its clock moves past the slack", () => {
+  it("reflects real activity even when it happens within the same minute", () => {
     const live = { ...summary("b", "/p"), createdAt: 0, updatedAt: 0 };
-    const later = { ...live, updatedAt: 120_000 };
+    const later = { ...live, updatedAt: 1_000 };
     expect(reuseEqualSummaries([live], [later])[0]).toBe(later);
+  });
+});
+
+describe("summaryFromSession activity time", () => {
+  it("uses stored times for old transcripts without message timestamps", () => {
+    const session = { ...newSession("codex", "/repo"), createdAt: 10, updatedAt: 20,
+      blocks: [{ id: "u", role: "user" as const, text: "Legacy message" }] };
+    expect(summaryFromSession(session)).toMatchObject({ createdAt: 10, updatedAt: 20 });
+    expect(summaryFromSession(newSession("codex", "/repo")).updatedAt).toBe(0);
+  });
+
+  it("includes sent follow-ups and completed turn durations without consulting the clock", () => {
+    const session = { ...newSession("codex", "/repo"), updatedAt: 100,
+      blocks: [{ id: "u", role: "user" as const, text: "Continue", startedAt: 200, durationMs: 50, sentAt: 230 }] };
+    expect(summaryFromSession(session).updatedAt).toBe(250);
+    expect(summaryFromSession({ ...session, blocks: [{ ...session.blocks[0], sentAt: 300 }] }).updatedAt).toBe(300);
+  });
+});
+
+describe("mergeLiveSessionSummaries", () => {
+  it("keeps live activity ahead of stale history while retaining stored metadata", () => {
+    const stored = [summary("new", "/repo", 10), summary("middle", "/repo", 20)];
+    const live = [{ ...summary("new", "/repo", 30), title: "Stale shell title" }];
+    const merged = mergeLiveSessionSummaries(stored, live).sort(compareSessionSummaries);
+    expect(merged.map((row) => row.id)).toEqual(["new", "middle"]);
+    expect(merged[0].title).toBe(stored[0].title);
+    expect(merged[0].updatedAt).toBe(30);
+    expect(mergeLiveSessionSummaries(merged, [summary("new", "/repo", 5)])).toEqual(merged);
+    expect(stored[0].updatedAt).toBe(10);
   });
 });

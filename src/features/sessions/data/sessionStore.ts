@@ -1324,6 +1324,8 @@ function recordToSession(record: SessionRecord): Session {
   const linkedWorkItem = sanitizeLinkedWorkItem(record.linkedWorkItem);
   return {
     id: record.id,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
     nativeSession: sanitizeNativeSessionLink(
       record.nativeSession, record.harness, record.providerSessionId ?? undefined,
     ),

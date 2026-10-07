@@ -2298,6 +2298,25 @@ describe("recent sidebar conversations", () => {
     expect(recentIds()).toEqual([]);
   });
 
+  it("keeps a new live conversation first through project switches, collapse and stale history", () => {
+    props.projectHistory = [summary("older", A), { ...summary("middle", A), updatedAt: 2_000 }];
+    props.openSessions = [{ ...summary("new", A), updatedAt: 3_000 }];
+    saveProjectTreeExpanded([A, B]);
+    act(() => render());
+    const projectIds = () => [...project(A).querySelectorAll<HTMLElement>("[data-session-card]")]
+      .map((node) => node.dataset.sessionCard);
+    expect(projectIds()).toEqual(["new", "middle", "older"]);
+    props.cwd = B;
+    act(() => render());
+    act(() => project(A).querySelector<HTMLButtonElement>('button[aria-label="Collapse project"]')!.click());
+    settleFolds();
+    props.projectHistory = [...props.projectHistory, { ...summary("new", A), updatedAt: 1_500 }];
+    act(() => render());
+    expand(A);
+    expect(projectIds()).toEqual(["new", "middle", "older"]);
+    expect(recentIds()).toEqual(["new", "middle", "older"]);
+  });
+
   it("keeps an independent five-row preview with animated closing and rapid reversal", () => {
     props.projectHistory = Array.from({ length: 12 }, (_, index) => ({
       ...summary(`recent-${index}`, index % 2 ? A : B),
@@ -2339,7 +2358,7 @@ describe("recent sidebar conversations", () => {
     remoteState.rows.set(B, [{ ...hostRow("same", "Beta"), updatedAt: 20 }]);
     remoteState.bindings.set("blank-shell", "blank");
     props.openSessions = [
-      summary("shell:same", A),
+      { ...summary("shell:same", A), updatedAt: 10 },
       {
         ...summary("blank-shell", B),
         title: "",

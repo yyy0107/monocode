@@ -437,6 +437,9 @@ export type NativeSessionLink = {
 };
 
 export type Session = {
+  /** Stored activity timestamps, retained when projecting history/Host snapshots. */
+  createdAt?: number;
+  updatedAt?: number;
   /** Host-owned assistant brain, excluded from ordinary conversation lists. */
   assistantOwnerId?: string;
   titleState?: import("./titlePolicy").SessionTitleState;
