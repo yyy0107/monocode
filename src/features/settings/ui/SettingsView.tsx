@@ -233,6 +233,7 @@ import {
   defaultModelId,
   firstEnabledHarness,
   getModelSnapshot,
+  hasLiveCatalog,
   loadDefaultModels,
   loadHiddenPickerProviders,
   loadLastModelChoice,
@@ -4722,9 +4723,9 @@ function ProviderRow({
     models.length > 0 ? resolveModel(harness, selectedModel) : null;
 
   useEffect(() => {
-    if (!available || models.length > 0) return;
+    if (!available || hasLiveCatalog(harness)) return;
     void refreshHarnessCatalogs([harness]);
-  }, [available, harness, models.length]);
+  }, [available, harness]);
 
   const [update, setUpdate] = useState<HarnessUpdateState>({
     status: "idle",
