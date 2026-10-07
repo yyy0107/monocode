@@ -252,48 +252,38 @@ successful APK build also starts it. The server exposes only `/latest.json`,
 versioned `/apk/monocode-N.apk` packages, and `/health` on the fixed LAN address.
 Published packages do not require the Host token.
 
-### Publish at the end of a conversation turn
+### Publish manually
 
-On Linux, `.codex/hooks.json` connects `scripts/turn-publish.mjs` to Codex's
-`UserPromptSubmit`, `Stop`, and `Interrupt` events. A prompt records the mobile
-source fingerprint. When that turn ends, a changed fingerprint runs
-`npm run mobile:publish`; an unchanged, interrupted, planning, or already-handled
-turn is skipped. There is no per-save watcher or idle timer. Existing changes
-before the prompt are the baseline, so merely asking a question does not publish
-old work. A turn that began before hooks were loaded is also skipped.
-The shared entry snapshots both targets before either build, runs the existing
-`mobile/turn-publish.mjs` handler first, then handles desktop publication. Each
-target retains its own fingerprint and log. Mobile failures are reported without
-suppressing the desktop check.
+Builds and LAN publication are run manually; no conversation hooks are configured.
+On Linux, run from the repository root:
 
-Codex must load and trust the project hook definition before it runs. Review the
-hook in Codex when prompted, and start a new session after setup. The hooks run
-synchronously; build output goes to `build/mobile-publish/turns/*.log`, and the
-Stop result reports the download URL or failure. This is a turn-boundary trigger,
-not a semantic proof that a whole multi-turn feature is finished. See the
-[official hook lifecycle and trust documentation](https://learn.chatgpt.com/docs/hooks).
+```sh
+npm run mobile:publish
+# Equivalent script entry:
+bash mobile/task-publish.sh
+```
 
-The command uses `flock` to reject overlapping hook invocations, builds with
+The command uses `flock` to reject overlapping invocations, builds with
 `MONOCODE_MOBILE_DEFER_PUBLISH=1`, compares source fingerprints before and after
 the build, and only then publishes through the existing updater. A changed input
 or failed build leaves the previous LAN release in place. Fix or finish the task
 and invoke it again; it does not retry automatically. Avoid concurrent Android
-Studio or direct `mobile:apk` builds, which do not take this hook's lock.
+Studio or direct `mobile:apk` builds, which do not take this command's lock.
 
 Fingerprints cover Android sources, `src/mobile/` and its local imports,
 `src/styles/`, `public/`, mobile build/publish scripts, package manifests, and build
 configuration.
 Tests, documentation, iOS-only code, and generated outputs are excluded. The
 local import scan follows shared TypeScript/JavaScript, JSON, CSS and assets,
-including literal dynamic imports. Unrelated desktop source does not trigger it.
+including literal dynamic imports. Unrelated desktop source does not change it.
 An unchanged successful publication is skipped while it remains the latest LAN
 release. Local state lives in ignored `build/mobile-publish/`. The first invocation
 builds once because earlier manual releases have no source fingerprint.
 
 The build includes the existing TypeScript checks; task-specific checks must
-pass before finishing the turn. The hook cannot determine whether another editor
-or task has finished its work. It also does not install a phone update automatically.
-Verify the hook with `npm run test:mobile-publish`.
+pass before publishing. The command reports publication results in the terminal
+and does not install a phone update automatically. Verify changes to this workflow
+with `npm run test:mobile-publish`.
 
 Install the first APK containing this updater once. Subsequent updates use
 **Check for updates → Download and install**. If Android requests permission,

@@ -121,17 +121,18 @@ Updates require a newer semantic version; rebuilding `0.7.0` alone does not
 offer an update to an existing `0.7.0` installation. Older local builds with an
 empty updater public key need one manual reinstall to enable signed updates.
 
-### Publish desktop updates after a conversation turn
+### Publish desktop updates manually
 
-On the Linux x64 LAN update machine, `.codex/hooks.json` runs
-`scripts/turn-publish.mjs` for `UserPromptSubmit`, `Stop`, and `Interrupt`.
-It records mobile and desktop input fingerprints independently. At a completed
-turn, it snapshots both targets before building, then publishes changed mobile
-inputs followed by changed desktop inputs. A failed mobile build is reported
-without suppressing the desktop check. Source changes while waiting for the
-other target's build prevent publication of that unfinished work.
+Builds and LAN publication are run manually; no conversation hooks are configured.
+On the Linux x64 LAN update machine, run from the repository root:
 
-Desktop changes invoke `npm run desktop:publish`. This builds DEB and AppImage
+```bash
+npm run desktop:publish
+# Equivalent script entry:
+bash scripts/desktop-task-publish.sh
+```
+
+This builds DEB and AppImage
 locally, then builds a Windows x64 NSIS installer over `ssh wy-win`. All three
 packages use the same version. The workflow retrieves and verifies the Windows
 installer, signs every package locally, deploys to `/var/www/html`, and checks the HTTP feed and
@@ -161,12 +162,12 @@ files retain their original versions. A newer published stable version prevents
 an older checkout from replacing it. Both the public key and download signatures
 remain required.
 
-Unchanged, interrupted, planning and already-handled turns are skipped, as are
-turns with no starting snapshot. Tests, ordinary docs, mobile-only files and
-generated outputs are excluded; runtime Markdown bundled into the desktop or
-Host remains an input. Build/signing failures or source drift leave the previous
+Already-published source states are skipped after verifying the existing feed.
+Tests, ordinary docs, mobile-only files and generated outputs are excluded from
+the source fingerprint; runtime Markdown bundled into the desktop or Host remains
+an input. Build/signing failures or source drift leave the previous
 live feed in place, including Windows SSH/build failures; the feed advances only
-when both desktop platforms succeed. Failures do not create automatic retry turns.
+when both desktop platforms succeed. Failed publications must be retried manually.
 A shared `flock` under
 `~/.local/share/monocode/desktop-updates` (respecting `XDG_DATA_HOME` or
 `MONOCODE_DESKTOP_STATE_DIR`) prevents overlapping publications across worktrees.
@@ -175,14 +176,11 @@ The remote `build/windows-lan/build.lock` directory also rejects concurrent buil
 If a process was killed, inspect its `owner.json` and the Windows build processes
 before removing that stale lock; it is deliberately not cleared automatically.
 
-Review and trust the changed hook definition in Codex's `/hooks` UI before
-relying on automatic runs; see the [official hook trust documentation](https://learn.chatgpt.com/docs/hooks).
-Logs and successful source states are kept in ignored `build/desktop-publish/`.
-The Stop result reports the published DEB and Windows installer URLs or a failure.
-The Stop timeout allows up to one hour for mobile plus both desktop builds.
-Run relevant checks
-before finishing the turn, and use `npm run test:desktop-publish` to verify this
-workflow. The hook does not install updates or push Git changes.
+Successful source states and build artifacts are kept in ignored
+`build/desktop-publish/`. The command reports publication results in the terminal.
+Run relevant checks before publishing, and use `npm run test:desktop-publish` to
+verify changes to this workflow. Publication does not install updates or push
+Git changes.
 
 ### Ubuntu / Debian packages
 

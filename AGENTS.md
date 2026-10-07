@@ -46,35 +46,20 @@ Keep verification proportional to the change and minimize unnecessary testing.
 Never mark tasks complete or claim compatibility for an unrun scenario.
 Publishing, pushing and merging into main are separate scoped operations.
 
-## Mobile LAN publication at the end of a turn
+## Manual LAN publication
 
-The user authorizes automatic LAN APK publication when a completed conversation
-turn changes mobile-related source. `.codex/hooks.json` records the source state
-on `UserPromptSubmit` and compares it on `Stop`; changed inputs trigger the guarded
-`npm run mobile:publish` workflow. Interrupted turns do not publish. Run the
-relevant checks before finishing an editing turn, and preserve unrelated work.
+The user runs builds and LAN publication manually. Do not configure automatic
+publication hooks or build/publish at the end of a turn. Do not fall back to
+agent-run publication when hooks are unavailable. Run builds or publication only
+when the user explicitly requests them, after relevant checks pass.
 
-Do not also launch a manual build when the hook is active. If hooks are unavailable,
-compare mobile inputs at the start/end of the turn and use `npm run mobile:publish`
-once when they changed and relevant checks passed. No publication is needed for
-docs-only, tests-only or unrelated desktop/Host changes. Report only publication
-results actually observed; the Stop hook runs after the final response.
+For mobile publication, use `npm run mobile:publish` (`mobile/task-publish.sh`).
+It rejects overlapping invocations and skips publication if inputs change during
+the build. Do not run `mobile:apk` or Android Studio builds concurrently with it.
 
-Do not run `mobile:apk` or Android Studio builds concurrently with this workflow.
-It rejects overlapping hook invocations and skips publication if inputs change
-during the build. LAN publication is authorized; pushing and merging still require
-their own scope.
+For desktop publication, use `npm run desktop:publish`
+(`scripts/desktop-task-publish.sh`) on the Linux update server.
 
-## Desktop LAN publication at the end of a turn
-
-The user also authorizes automatic Linux x64 and Windows x64 desktop LAN publication when a
-completed turn changes desktop inputs. The shared `scripts/turn-publish.mjs`
-hook snapshots both targets before building, then runs mobile and desktop
-publication sequentially. Desktop inputs include desktop/shared UI, Rust,
-bundled Host, assets and build/publish configuration; mobile-only code, tests,
-ordinary documentation and generated outputs do not trigger desktop builds.
-
-Use the guarded `npm run desktop:publish` workflow on the Linux update server.
 It builds DEB and AppImage locally and NSIS via `ssh wy-win`, using
 `C:\Users\wy777\Documents\ohmymonocode` as the remote build repository.
 Transfer the current source snapshot into its ignored `build/windows-lan/workspace`
@@ -83,16 +68,12 @@ Sign all three packages with the existing local key (do not send it to Windows),
 and deploy packages before atomically
 replacing the LAN update feed. It assigns an increasing `next-patch-lan.N`
 version through an ignored Tauri config, without rewriting repository versions.
-Interrupted, planning and unchanged turns are skipped. A shared lock rejects
+Already-published source states are skipped. A shared lock rejects
 overlapping desktop publications across worktrees; source changes during build,
 signing or deployment prevent the feed from being replaced. Both desktop platforms
 must succeed at the same version before the feed advances. The remote builder also
 locks its workspace; after a crash, inspect the lock owner and processes before
 removing a stale `build/windows-lan/build.lock` directory.
 
-Do not also run a manual desktop build when the hook is active, and do not run
-direct Tauri builds concurrently with desktop publication. If hooks are
-unavailable, compare desktop inputs at turn start/end and run `desktop:publish`
-once after relevant checks pass when inputs changed. Report only observed
-publication results; the Stop hook runs after the final response. Hook changes
-must be reviewed and trusted in Codex before automatic execution begins.
+Do not run direct Tauri builds concurrently with desktop publication. Report only
+observed publication results. Pushing and merging require their own scope.
