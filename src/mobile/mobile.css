@@ -3641,8 +3641,21 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   flex-direction: column;
   gap: 2px;
   flex-shrink: 0;
+  max-height: 60%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
   padding-bottom: 8px;
   border-bottom: 0.5px solid var(--mobile-separator);
+}
+.mobile-drawer-top > * {
+  flex-shrink: 0;
+}
+.mobile-drawer-secondary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 2px;
 }
 .mobile-drawer-item {
   display: flex;
@@ -3671,7 +3684,7 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   text-overflow: ellipsis;
 }
 .mobile-drawer-more:active,
-.mobile-drawer-item:active {
+.mobile-drawer-item:not(.mobile-drawer-more-toggle):active {
   background: var(--color-selection);
 }
 .mobile-drawer-new {
@@ -3689,7 +3702,8 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   padding-top: 4px;
   scrollbar-width: none;
 }
-.mobile-drawer-sessions::-webkit-scrollbar {
+.mobile-drawer-sessions::-webkit-scrollbar,
+.mobile-drawer-top::-webkit-scrollbar {
   display: none;
 }
 /* Pinned and Recents are flat lists under small section headings. */
@@ -3774,10 +3788,22 @@ button.mobile-drawer-group-status {
   margin-bottom: 6px;
   font-weight: 600;
 }
-.mobile-drawer-item > .mobile-drawer-device-chevron {
+.mobile-drawer-item > .mobile-drawer-device-chevron,
+.mobile-drawer-item > .mobile-drawer-more-chevron {
   flex-basis: 16px;
   width: 16px;
   height: 16px;
+}
+.mobile-drawer-more-chevron {
+  transition: transform 200ms var(--mobile-drawer-easing);
+}
+.mobile-drawer-more-toggle[aria-expanded="true"] > .mobile-drawer-more-chevron {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-drawer-more-chevron {
+    transition: none;
+  }
 }
 .mobile-device-option-name {
   flex: 1;

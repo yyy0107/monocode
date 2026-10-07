@@ -3,6 +3,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -20,6 +21,7 @@ import {
   Home,
   LoaderCircle,
   MessageSquarePlus,
+  MoreHorizontal,
   Pin,
   Settings,
   TriangleAlert,
@@ -30,6 +32,7 @@ import type {
 } from "../features/connections/model/protocol";
 import { sessionDisplayTitle } from "../features/sessions/model/session";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
+import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import type { HostConnectionStatus } from "./client";
 import { MobileHostStatus } from "./MobileHostStatus";
@@ -142,6 +145,8 @@ export const MobileDrawer = memo(function MobileDrawer({
 }) {
   const { language, t } = useTranslation();
   const open = requestedOpen && active;
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreId = useId();
   // A just-opened project can precede the next project list refresh.
   const treeProjects = useMemo(() =>
     project && !projects.some((item) => item.id === project.id)
@@ -601,29 +606,9 @@ export const MobileDrawer = memo(function MobileDrawer({
               <span>{assistantName || t("Assistant")}</span>
             </button>
           )}
-          {onNotes && <button type="button" className="mobile-drawer-item" onClick={onNotes}>
-            <File size={22} /><span>{t("Notes")}</span>
-          </button>}
           <button type="button" className="mobile-drawer-item" onClick={onHome}>
             <Home size={22} />
             <span>{t("Sessions")}</span>
-          </button>
-          <button
-            type="button"
-            className="mobile-drawer-item mobile-drawer-all-projects"
-            onClick={onAllProjects}
-          >
-            <Folder size={22} />
-            <span>{t("Projects")}</span>
-          </button>
-          <button
-            type="button"
-            ref={projectTrigger}
-            className="mobile-drawer-item mobile-drawer-open-project"
-            onClick={onAddProject}
-          >
-            <FolderPlus size={22} />
-            <span>{t("Open project")}</span>
           </button>
           <button
             type="button"
@@ -634,6 +619,48 @@ export const MobileDrawer = memo(function MobileDrawer({
             <MessageSquarePlus size={22} />
             <span>{t("New conversation")}</span>
           </button>
+          <div>
+            <button
+              type="button"
+              className="mobile-drawer-item mobile-drawer-more-toggle"
+              aria-expanded={moreOpen}
+              aria-controls={moreId}
+              onClick={() => setMoreOpen((value) => !value)}
+            >
+              <MoreHorizontal size={22} />
+              <span>{t(moreOpen ? "Show less" : "More")}</span>
+              <ChevronDown size={16} className="mobile-drawer-more-chevron" />
+            </button>
+            <div id={moreId}>
+              <AnimatedCollapse expanded={moreOpen}>
+                <div className="mobile-drawer-secondary">
+                  {onNotes && (
+                    <button type="button" className="mobile-drawer-item" onClick={onNotes}>
+                      <File size={22} />
+                      <span>{t("Notes")}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="mobile-drawer-item mobile-drawer-all-projects"
+                    onClick={onAllProjects}
+                  >
+                    <Folder size={22} />
+                    <span>{t("Projects")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    ref={projectTrigger}
+                    className="mobile-drawer-item mobile-drawer-open-project"
+                    onClick={onAddProject}
+                  >
+                    <FolderPlus size={22} />
+                    <span>{t("Open project")}</span>
+                  </button>
+                </div>
+              </AnimatedCollapse>
+            </div>
+          </div>
         </div>
         <div ref={sessionsList} className="mobile-drawer-sessions">
           {projectsUnavailable && !tree.length ? (

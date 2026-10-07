@@ -535,19 +535,22 @@ describe("mobile sidebar recents", () => {
       "Show less",
     );
   });
-  it("keeps fixed Sessions, Projects, new-conversation and open-project entries", async () => {
+  it("keeps Assistant, Sessions and new conversation visible and reveals project actions under More", async () => {
+    const onAssistant = vi.fn();
     const onHome = vi.fn();
     const onAllProjects = vi.fn();
     const onNewSession = vi.fn();
     const onAddProject = vi.fn();
     await act(async () =>
-      render(true, { projects, project, onHome, onAllProjects, onNewSession, onAddProject }),
+      render(true, { projects, project, onAssistant, assistantName: "My helper", onHome, onAllProjects, onNewSession, onAddProject }),
     );
     expect(node.querySelector(".mobile-drawer-project-link")).toBeNull();
-    act(() =>
-      node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click(),
-    );
-    expect(onAllProjects).toHaveBeenCalledOnce();
+    expect(node.querySelector(".mobile-drawer-all-projects")).toBeNull();
+    expect(node.querySelector(".mobile-drawer-open-project")).toBeNull();
+    const assistant = node.querySelector<HTMLButtonElement>(".mobile-drawer-assistant")!;
+    expect(assistant.textContent).toBe("My helper");
+    act(() => assistant.click());
+    expect(onAssistant).toHaveBeenCalledOnce();
     act(() =>
       [...node.querySelectorAll<HTMLButtonElement>("button")]
         .find((button) => button.textContent === "Sessions")!
@@ -558,15 +561,33 @@ describe("mobile sidebar recents", () => {
       node.querySelector<HTMLButtonElement>(".mobile-drawer-new")!.click(),
     );
     expect(onNewSession).toHaveBeenLastCalledWith(project);
+    const more = node.querySelector<HTMLButtonElement>(".mobile-drawer-more-toggle")!;
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    act(() => more.click());
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    const disclosure = document.getElementById(more.getAttribute("aria-controls")!)!;
+    expect(disclosure.querySelector(".mobile-drawer-all-projects")).not.toBeNull();
+    act(() =>
+      node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click(),
+    );
+    expect(onAllProjects).toHaveBeenCalledOnce();
     const open = node.querySelector<HTMLButtonElement>(".mobile-drawer-open-project")!;
     expect(open.closest(".mobile-drawer-group")).toBeNull();
     act(() => open.click());
     expect(onAddProject).toHaveBeenCalledOnce();
+    act(() => vi.advanceTimersByTime(350));
+    act(() => more.click());
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    // Closing actions remain mounted for the animation but cannot be focused.
+    expect(open.closest("[inert]")).not.toBeNull();
+    act(() => vi.advanceTimersByTime(350));
+    expect(node.querySelector(".mobile-drawer-open-project")).toBeNull();
   });
 });
 
 it("shows the Notes entry only when supplied by a capable Host", () => {
   render();
+  act(() => node.querySelector<HTMLButtonElement>(".mobile-drawer-more-toggle")!.click());
   const notes = () => [...node.querySelectorAll<HTMLButtonElement>(".mobile-drawer-item")].find((button) => button.textContent === "Notes");
   expect(notes()).toBeUndefined();
   const onNotes = vi.fn();
