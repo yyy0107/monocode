@@ -44,7 +44,7 @@ export function InboxConnectMenu({
             onClose();
             onConnect(source);
           }}
-          className="flex h-7 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] leading-none text-content hover:bg-content/5"
+          className="flex h-7 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] leading-5 text-content hover:bg-content/5"
         >
           <InboxProviderMark
             provider={source}

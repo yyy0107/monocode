@@ -3716,8 +3716,7 @@ html.theme-light .drag-ghost-card {
   contain: layout paint;
 }
 
-.sidebar-transition-clip,
-.sidebar-rail-content {
+.sidebar-transition-clip {
   transform: translateX(0);
   transition: transform var(--collapse-duration) var(--collapse-easing);
 }
@@ -3731,10 +3730,47 @@ html.theme-light .drag-ghost-card {
   transform: translateX(calc(var(--sidebar-rail-width) - 100%));
 }
 
-.sidebar-rail[data-expanded="false"] .sidebar-rail-content {
-  transform: translateX(-100%);
+/*
+ * The rail does not slide. It stays at its final edge above the sidebar and
+ * crossfades with it: the sidebar's trailing strip ends exactly under the
+ * rail, so neither direction swaps surfaces on a single frame.
+ */
+.sidebar-rail {
+  z-index: 2;
 }
 
+.sidebar-rail-content {
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    opacity calc(var(--collapse-duration) * 0.55) ease-out
+      calc(var(--collapse-duration) * 0.45),
+    transform calc(var(--collapse-duration) * 0.55) var(--collapse-easing)
+      calc(var(--collapse-duration) * 0.45);
+}
+
+.sidebar-rail[data-expanded="false"] .sidebar-rail-content {
+  opacity: 0;
+  transform: translateX(-8px);
+  pointer-events: none;
+  transition:
+    opacity calc(var(--collapse-duration) * 0.4) ease-in,
+    transform calc(var(--collapse-duration) * 0.4) ease-in;
+}
+
+/* The sidebar fades as it tucks under the rail and returns while it slides out. */
+.sidebar-transition-content {
+  opacity: 1;
+  transition: opacity calc(var(--collapse-duration) * 0.45) ease-out;
+}
+
+.sidebar-transition[data-expanded="false"] .sidebar-transition-content {
+  opacity: 0;
+  transition: opacity calc(var(--collapse-duration) * 0.5) ease-in
+    calc(var(--collapse-duration) * 0.5);
+}
+
+.sidebar-transition[data-resizing] .sidebar-transition-content,
 .sidebar-transition[data-resizing],
 .sidebar-transition[data-resizing] .sidebar-transition-clip {
   transition: none;
@@ -4007,7 +4043,10 @@ html.theme-light .drag-ghost-card {
 
   .animated-collapse-size,
   .sidebar-transition-clip,
-  .sidebar-rail-content {
+  .sidebar-transition-content,
+  .sidebar-transition[data-expanded="false"] .sidebar-transition-content,
+  .sidebar-rail-content,
+  .sidebar-rail[data-expanded="false"] .sidebar-rail-content {
     transition: none;
   }
 

@@ -1300,23 +1300,38 @@ fn git_github_status_for() -> GitHubStatus {
             authenticated: false,
         };
     };
-    let mut cmd = Command::new(program);
-    cmd.args(["auth", "status", "--active", "--hostname", "github.com"])
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GH_PROMPT_DISABLED", "1")
-        .env("GH_PAGER", "cat")
-        .env("GIT_PAGER", "cat");
-    crate::harness::apply_gui_env(&mut cmd);
-    crate::hide_window_console(&mut cmd);
-    let authenticated = cmd
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false);
+    let auth_status = |active: bool| {
+        let mut cmd = Command::new(&program);
+        cmd.args(["auth", "status"]);
+        if active {
+            cmd.arg("--active");
+        }
+        cmd.args(["--hostname", "github.com"])
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GH_PROMPT_DISABLED", "1")
+            .env("GH_PAGER", "cat")
+            .env("GIT_PAGER", "cat");
+        crate::harness::apply_gui_env(&mut cmd);
+        crate::hide_window_console(&mut cmd);
+        cmd.output().ok()
+    };
+    // gh before 2.48 (e.g. Ubuntu's 2.46) rejects `--active`.
+    let authenticated = match auth_status(true) {
+        Some(output) if output.status.success() => true,
+        Some(output) if gh_rejects_active_flag(&output.stderr) => {
+            auth_status(false).is_some_and(|output| output.status.success())
+        }
+        _ => false,
+    };
     GitHubStatus {
         connected: authenticated,
         installed: true,
         authenticated,
     }
+}
+
+fn gh_rejects_active_flag(stderr: &[u8]) -> bool {
+    String::from_utf8_lossy(stderr).contains("unknown flag: --active")
 }
 
 /// Whether the active GitHub CLI account has starred the MonoCode repository.
