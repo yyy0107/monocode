@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { HarnessId } from "../../sessions/model/session";
+import { inspectHarnessBinary } from "../../../integrations/harness/core/child";
+import { runtimeProviderBinaryPath } from "./providerBinaryPaths";
 import {
   compareSemver,
   parseOpenCodeVersion,
@@ -90,4 +92,103 @@ export async function findHarnessUpdates({
     }),
   );
   return results.filter((update): update is HarnessUpdate => update !== null);
+}
+
+export type HarnessInstall = {
+  path: string;
+  realPath: string;
+  source: "npm" | "homebrew" | "bundled" | "other";
+  /** The app a bundled copy ships inside, e.g. ChatGPT. */
+  bundledBy: string | null;
+  /** Other installed, non-bundled copies on the search path. */
+  alternatives: { path: string; version: string }[];
+};
+
+/** How the binary MonoCode runs for `harness` was installed. */
+export function fetchHarnessInstall(harness: HarnessId): Promise<HarnessInstall> {
+  return invoke<HarnessInstall>("harness_install_info", {
+    provider: harness,
+    binaryPath: runtimeProviderBinaryPath(harness),
+  });
+}
+
+export type HarnessVersionInfo = {
+  installed?: string;
+  /** Only for `UPDATABLE_HARNESSES`; the rest have no feed to compare with. */
+  latest?: string;
+  /** Set when the running copy ships inside another app and cannot self-update. */
+  bundledBy?: string;
+  /** The newest other installed copy, when it is ahead of the running one. */
+  newerCopy?: { path: string; version: string };
+};
+
+/**
+ * Settings reads versions each time it opens, so the npm lookup is reused for
+ * a while; the manual refresh passes `force` to ask the registry again.
+ */
+const LATEST_TTL_MS = 10 * 60_000;
+const latestCache = new Map<HarnessId, { version: string; at: number }>();
+
+async function cachedLatestVersion(
+  harness: HarnessId,
+  force: boolean,
+): Promise<string> {
+  const cached = latestCache.get(harness);
+  if (!force && cached && Date.now() - cached.at < LATEST_TTL_MS) {
+    return cached.version;
+  }
+  const version = await fetchLatestHarnessVersion(harness);
+  latestCache.set(harness, { version, at: Date.now() });
+  return version;
+}
+
+/** Either side is left out when it cannot be read, offline or otherwise. */
+export async function readHarnessVersions(
+  harness: HarnessId,
+  options?: { force?: boolean },
+): Promise<HarnessVersionInfo> {
+  const updatable = UPDATABLE_HARNESSES.has(harness);
+  const [installed, latest, install] = await Promise.all([
+    inspectHarnessBinary(harness)
+      .then((result) => parseOpenCodeVersion(result.version ?? "") ?? undefined)
+      .catch(() => undefined),
+    updatable
+      ? cachedLatestVersion(harness, options?.force ?? false)
+          .then((version) => parseOpenCodeVersion(version) ?? undefined)
+          .catch(() => undefined)
+      : undefined,
+    updatable ? fetchHarnessInstall(harness).catch(() => undefined) : undefined,
+  ]);
+  return {
+    installed,
+    latest,
+    bundledBy:
+      install?.source === "bundled"
+        ? (install.bundledBy ?? "another app")
+        : undefined,
+    newerCopy: installed ? newestCopyAbove(install, installed) : undefined,
+  };
+}
+
+function newestCopyAbove(
+  install: HarnessInstall | undefined,
+  installed: string,
+): HarnessVersionInfo["newerCopy"] {
+  let best: HarnessVersionInfo["newerCopy"];
+  for (const copy of install?.alternatives ?? []) {
+    const version = parseOpenCodeVersion(copy.version);
+    if (!version || compareSemver(version, best?.version ?? installed) <= 0) {
+      continue;
+    }
+    best = { path: copy.path, version };
+  }
+  return best;
+}
+
+export function hasHarnessUpdate(info: HarnessVersionInfo | undefined): boolean {
+  return Boolean(
+    info?.installed &&
+      info.latest &&
+      compareSemver(info.latest, info.installed) > 0,
+  );
 }

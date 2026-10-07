@@ -16,6 +16,7 @@ import {
   Globe,
   ImagePlus,
   Loader,
+  MoreHorizontal,
   Pencil,
   Plus,
   RefreshCw,
@@ -46,6 +47,15 @@ import {
 } from "../../../shared/ui/ColorPickerPopover";
 import { Popover } from "../../../shared/ui/Popover";
 import { SecondaryButton } from "../../../shared/ui/SecondaryButton";
+import {
+  hasHarnessUpdate,
+  readHarnessVersions,
+  type HarnessVersionInfo,
+} from "../../providers/model/harnessUpdates";
+import {
+  runHarnessUpdate,
+  type HarnessUpdateState,
+} from "../../providers/ui/HarnessUpdateNotice";
 import { NativeSessionsPanel } from "./NativeSessionsPanel";
 import { JiraSettings } from "./JiraSettings";
 import { TitleModelSettings } from "./TitleModelSettings";
@@ -300,9 +310,15 @@ import {
 import { clearCachedRateLimits } from "../../providers/model/rateLimitsCache";
 import {
   AccountStatusLabel,
-  AccountUsageMeters,
   AccountUsageRefresh,
+  meterWindows,
+  UsageMeter,
 } from "../../providers/ui/ProviderAccountUsage";
+import {
+  ExplorerMenu,
+  type ExplorerMenuItem,
+} from "../../files/ui/ExplorerMenu";
+import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 import {
   loadSessionSidebarFilters,
   saveSessionSidebarFilters,
@@ -429,6 +445,7 @@ import {
   type RemoveWorktree,
 } from "../../source-control/model/worktrees";
 import type { Session } from "../../sessions/model/session";
+import { scrollWithin } from "../../../shared/lib/scrollWithin";
 
 /**
  * The `data-setting-id` Settings should reveal when it opens: one of the ids in
@@ -519,9 +536,7 @@ export function SettingsView({
     if (!revealed) return;
     // A project quick action lets the project card focus itself after discovery.
     if (!(revealed === "project-notifications" && notificationProjectPath)) {
-      document
-        .getElementById(settingDomId(revealed))
-        ?.scrollIntoView?.({ block: "center" });
+      scrollWithin(document.getElementById(settingDomId(revealed)), "center");
     }
     const timer = window.setTimeout(() => setRevealed(null), 1800);
     return () => window.clearTimeout(timer);
@@ -3754,9 +3769,57 @@ function ProvidersPage({
       )
     : (choice?.harness ?? null);
 
+  const [versions, setVersions] = useState<
+    Partial<Record<HarnessId, HarnessVersionInfo>>
+  >({});
+  const mounted = useRef(true);
   useEffect(() => {
-    void probeHarnessAvailability();
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
   }, []);
+  const loadVersions = useCallback(
+    async (harnesses: HarnessId[], force = false) => {
+      const entries = await Promise.all(
+        harnesses.map(
+          async (harness) =>
+            [harness, await readHarnessVersions(harness, { force })] as const,
+        ),
+      );
+      if (!mounted.current) return;
+      setVersions((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
+    },
+    [],
+  );
+
+  useEffect(() => {
+    void probeHarnessAvailability().then(() =>
+      loadVersions(HARNESSES.filter((harness) => isHarnessAvailable(harness))),
+    );
+  }, [loadVersions]);
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      // Re-detect binaries (a CLI may have been installed or removed since the
+      // last probe), then re-read versions and model catalogs of whatever is
+      // installed.
+      await probeHarnessAvailability({ force: true });
+      const installed = HARNESSES.filter((harness) =>
+        isHarnessAvailable(harness),
+      );
+      setVersions({});
+      await Promise.all([
+        loadVersions(installed, true),
+        refreshHarnessCatalogs(installed, { force: true }),
+      ]);
+    } finally {
+      if (mounted.current) setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     if (!scopeOptions.some((option) => option.value === scope)) {
@@ -3815,12 +3878,27 @@ function ProvidersPage({
         id="agent-clis"
         title={uiT("Agent CLIs")}
         action={
-          <Select
-            label={uiT("Provider defaults scope")}
-            value={scope}
-            options={scopeOptions}
-            onChange={setScope}
-          />
+          <div className="flex items-center gap-2">
+            <SecondaryButton
+              aria-label={uiT("Refresh agent CLIs")}
+              aria-busy={refreshing}
+              disabled={refreshing}
+              onClick={() => void onRefresh()}
+            >
+              {refreshing ? (
+                <Loader className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <RefreshCw className="size-3.5" aria-hidden />
+              )}
+              {refreshing ? uiT("Refreshing") : uiT("Refresh")}
+            </SecondaryButton>
+            <Select
+              label={uiT("Provider defaults scope")}
+              value={scope}
+              options={scopeOptions}
+              onChange={setScope}
+            />
+          </div>
         }
         description={
           project
@@ -3866,6 +3944,8 @@ function ProvidersPage({
               isDefault={isDefault}
               inPicker={inPicker}
               pickerLocked={pickerLocked}
+              version={versions[harness]}
+              onUpdated={() => void loadVersions([harness])}
               onDefault={onDefault}
               onModelChange={onModelChange}
               onPickerVisible={(visible) => onPickerVisible(harness, visible)}
@@ -3937,10 +4017,116 @@ type AccountEditor = {
   dataHome?: string;
 };
 
+/** The ⋯ menu for one account row: the actions a row needs only sometimes. */
+function ProviderAccountMenu({
+  label,
+  disabled,
+  busy,
+  canSignIn,
+  canSetDefault,
+  canRemove,
+  removeLocked,
+  onSignIn,
+  onSetDefault,
+  onRemove,
+}: {
+  label: string;
+  disabled: boolean;
+  busy: boolean;
+  canSignIn: boolean;
+  canSetDefault: boolean;
+  canRemove: boolean;
+  /** The shared default cannot be removed until another account replaces it. */
+  removeLocked: boolean;
+  onSignIn: () => void;
+  onSetDefault: () => void;
+  onRemove: () => void;
+}) {
+  const { t: uiT } = useTranslation();
+  const visible = useSurfaceVisibility();
+  const button = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!visible || disabled) setOpen(false);
+  }, [visible, disabled]);
+
+  const items: ExplorerMenuItem[] = [];
+  if (canSignIn) {
+    items.push({ kind: "item", id: "sign-in", label: uiT("Sign in again") });
+  }
+  if (canSetDefault) {
+    items.push({
+      kind: "item",
+      id: "default",
+      label: uiT("Use as shared default"),
+    });
+  }
+  if (canRemove) {
+    if (items.length > 0) items.push({ kind: "sep" });
+    items.push({
+      kind: "item",
+      id: "remove",
+      label: uiT("Remove account"),
+      icon: <Trash2 className="size-4" />,
+      danger: true,
+      disabled: removeLocked,
+      description: removeLocked
+        ? uiT("Choose another shared default first")
+        : undefined,
+    });
+  }
+  if (items.length === 0) return null;
+
+  const close = () => {
+    setOpen(false);
+    button.current?.focus();
+  };
+
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        disabled={disabled}
+        aria-label={uiT("Actions for {account}", { account: label })}
+        title={uiT("More actions")}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="grid size-7 place-items-center rounded-md text-content/40 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.96] disabled:opacity-35"
+      >
+        {busy ? (
+          <Loader className="size-3.5 animate-spin" />
+        ) : (
+          <MoreHorizontal className="size-4" />
+        )}
+      </button>
+      {visible && open && button.current ? (
+        <ExplorerMenu
+          anchor={button.current}
+          side="bottom"
+          align="end"
+          width={220}
+          ariaLabel={uiT("Actions for {account}", { account: label })}
+          items={items}
+          onPick={(id) => {
+            close();
+            if (id === "sign-in") onSignIn();
+            else if (id === "default") onSetDefault();
+            else if (id === "remove") onRemove();
+          }}
+          onClose={close}
+        />
+      ) : null}
+    </>
+  );
+}
+
 export function ProviderAccountsSettings() {
   const { t: uiT } = useTranslation();
   const [version, setVersion] = useState(0);
   const [editor, setEditor] = useState<AccountEditor | null>(null);
+  const [editorExpanded, setEditorExpanded] = useState(true);
   const [working, setWorking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [defaultsError, setDefaultsError] = useState<string | null>(null);
@@ -4002,14 +4188,25 @@ export function ProviderAccountsSettings() {
     [],
   );
 
-  const startAdd = (provider: ProviderAccountProvider) => {
+  const toggleEditor = (next: AccountEditor) => {
     setError(null);
-    setEditor({ provider, label: "", dataHome: "" });
+    if (
+      editor?.provider === next.provider &&
+      editor.accountId === next.accountId &&
+      Boolean(editor.importCurrent) === Boolean(next.importCurrent)
+    ) {
+      setEditorExpanded((expanded) => !expanded);
+      return;
+    }
+    setEditor(next);
+    setEditorExpanded(true);
   };
 
+  const startAdd = (provider: ProviderAccountProvider) =>
+    toggleEditor({ provider, label: "", dataHome: "" });
+
   const startRename = (account: ProviderAccount) => {
-    setError(null);
-    setEditor({
+    toggleEditor({
       provider: account.provider,
       accountId: account.id,
       label: account.label,
@@ -4149,10 +4346,8 @@ export function ProviderAccountsSettings() {
                 <button
                   type="button"
                   disabled={Boolean(working) || !profilesReady}
-                  onClick={() => {
-                    setError(null);
-                    setEditor({ provider, label: "", importCurrent: true });
-                  }}
+                  aria-expanded={editorExpanded && adding && Boolean(editor.importCurrent)}
+                  onClick={() => toggleEditor({ provider, label: "", importCurrent: true })}
                   className="shrink-0 rounded-md border border-content/10 px-2.5 py-1 text-[12px] text-content/70 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
                 >
                   {uiT("Import current Codex login")}
@@ -4161,6 +4356,7 @@ export function ProviderAccountsSettings() {
               <button
                 type="button"
                 disabled={Boolean(working) || !profilesReady}
+                aria-expanded={editorExpanded && adding && !editor.importCurrent}
                 onClick={() => startAdd(provider)}
                 className="flex shrink-0 items-center gap-1.5 rounded-md border border-content/10 px-2.5 py-1 text-[12px] text-content/70 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
               >
@@ -4177,16 +4373,24 @@ export function ProviderAccountsSettings() {
                   })}
                 </p>
               )}
-            {/* Rows share one grid so usage meters and actions align across accounts. */}
-            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] bg-content/[0.015] pl-[2.375rem]">
+            <div className="bg-content/[0.015] pl-[2.375rem]">
               {accounts.map((account) => {
                 const editing =
                   editor?.provider === provider &&
                   editor.accountId === account.id;
                 const removing = working === `remove:${provider}:${account.id}`;
+                const signingIn = working === `login:${provider}:${account.id}`;
                 const identity = identities[identityKey(account)];
                 const orgTag = identityOrganizationTag(identity);
                 const limits = usage.usage[accountUsageKey(account)];
+                const isSharedDefault =
+                  defaultsReady && account.id === sharedDefault;
+                // Sign-in only earns a visible button when the profile has no
+                // readable login; re-signing a working one lives in the menu.
+                const needsSignIn =
+                  identity === null ||
+                  (limits?.status === "unavailable" && !limits.error);
+                const windows = meterWindows(limits);
                 const dataHomeLabel = account.resolvedDataHome ?? account.dataHome ?? (
                   account.isDefault
                     ? uiT("Default CLI Data Home ({variable} or {path})", {
@@ -4197,78 +4401,75 @@ export function ProviderAccountsSettings() {
                 );
                 return (
                   <Fragment key={account.id}>
-                  <div className="col-span-full grid grid-cols-subgrid items-center gap-x-5 border-t border-content/5 px-4 py-2.5">
+                  <div className="flex items-start gap-3 border-t border-content/5 px-4 py-3">
                     <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <span className="truncate text-[12px] text-content/85">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                        <span className="min-w-0 truncate text-[12px] font-medium text-content/90">
                           {account.isDefault && account.label === "Default account"
                             ? uiT("Built-in CLI profile") : account.label}
                         </span>
                         {account.isDefault && account.label !== "Default account" && (
-                          <span className="shrink-0 text-[9px] text-content/45">{uiT("Built-in CLI profile")}</span>
+                          <span className="shrink-0 text-[10px] text-content/45">{uiT("Built-in CLI profile")}</span>
                         )}
                         {orgTag ? (
-                          <span className="max-w-[8rem] shrink-0 truncate rounded bg-content/[0.07] px-1 text-[9px] leading-4 text-content/50">
+                          <span className="max-w-[8rem] shrink-0 truncate rounded bg-content/[0.07] px-1 text-[10px] leading-4 text-content/50">
                             {orgTag}
                           </span>
                         ) : null}
-                        {defaultsReady && account.id === sharedDefault ? (
-                          <span className="shrink-0 rounded bg-accent/15 px-1.5 text-[9px] font-medium leading-4 text-accent">
+                        {isSharedDefault ? (
+                          <span className="shrink-0 rounded bg-accent/15 px-1.5 text-[10px] font-medium leading-4 text-accent">
                             {uiT("Default for new conversations")}
                           </span>
                         ) : null}
                       </div>
                       <div
                         data-provider-account-identity={identityKey(account)}
-                        className="mt-1 flex min-w-0 items-baseline gap-1.5 text-[11px]"
+                        title={uiT("Actual account")}
+                        className="mt-1 min-w-0 text-[11px]"
                       >
-                        <span className="shrink-0 text-content/45">{uiT("Actual account")}:</span>
                         <ProviderAccountSubtitle
                           identity={identity}
                           fallback={uiT(identity === undefined
                             ? "Reading account identity…"
                             : "No account identity could be read from this Home. Check the path or sign in.")}
-                          className="truncate text-content/75"
+                          className="block break-words text-content/75"
                         />
                       </div>
                       <AccountStatusLabel
                         status={accountStatus(limits, usage.now)}
-                        className="mt-0.5 max-w-full text-[10px]"
+                        wrap
+                        className="mt-1 max-w-full text-[10px]"
                       />
                       <div title={dataHomeLabel} className="mt-0.5 truncate font-mono text-[10px] text-content/40" data-provider-account-home>
                         {dataHomeLabel}
                       </div>
+                      {windows.length > 0 ? (
+                        <div className="mt-2.5 flex flex-wrap gap-x-5 gap-y-2">
+                          {windows.map((entry) => (
+                            <UsageMeter
+                              key={entry.title}
+                              title={entry.title}
+                              window={entry.window}
+                              now={usage.now}
+                              className="w-40"
+                            />
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="flex justify-end">
-                      <AccountUsageMeters limits={limits} now={usage.now} />
-                    </div>
-                    <div className="flex shrink-0 items-center justify-end gap-1">
-                      {(
-                        <button
-                          type="button"
+                    <div className="flex shrink-0 items-center gap-1">
+                      {needsSignIn || signingIn ? (
+                        <SecondaryButton
                           disabled={Boolean(working)}
                           aria-label={uiT("Sign in to {account}", { account: account.label })}
                           onClick={() => void signIn(account)}
-                          className="rounded-md px-2 py-1 text-[11px] text-content/60 hover:bg-content/10 disabled:opacity-35"
                         >
-                          {uiT(working === `login:${provider}:${account.id}` ? "Waiting for browser…" : "Sign in")}
-                        </button>
-                      )}
-                      {defaultsReady && account.id === sharedDefault ? null : (
-                        <button
-                          type="button"
-                          disabled={Boolean(working) || !defaultsReady}
-                          onClick={() =>
-                            void changeSharedDefault(provider, account.id)
-                          }
-                          aria-label={uiT("Use {account} as shared default", {
-                            account: account.label,
-                          })}
-                          className="rounded-md px-2 py-1 text-[11px] text-content/60 hover:bg-content/10 disabled:opacity-35"
-                        >
-                          {uiT("Use as shared default")}
-                        </button>
-                      )}
+                          {signingIn ? (
+                            <Loader className="size-3.5 animate-spin" aria-hidden />
+                          ) : null}
+                          {uiT(signingIn ? "Waiting for browser…" : "Sign in")}
+                        </SecondaryButton>
+                      ) : null}
                       <button
                         type="button"
                         disabled={Boolean(working)}
@@ -4276,49 +4477,41 @@ export function ProviderAccountsSettings() {
                           value0: String(account.label),
                         })}
                         title={uiT("Edit account and Data Home")}
+                        aria-expanded={editorExpanded && editing}
                         onClick={() => startRename(account)}
                         className="grid size-7 place-items-center rounded-md text-content/40 transition-transform duration-150 hover:bg-content/10 hover:text-content active:scale-[0.96] disabled:opacity-35"
                       >
                         <Pencil className="size-3.5" />
                       </button>
-                      {!account.isDefault ? (
-                        <button
-                          type="button"
-                          disabled={
-                            Boolean(working) || account.id === sharedDefault
-                          }
-                          aria-label={uiT("Remove {value0}", {
-                            value0: String(account.label),
-                          })}
-                          title={uiT("Remove account")}
-                          onClick={() => void removeAccount(account)}
-                          className="grid size-7 place-items-center rounded-md text-content/35 transition-transform duration-150 hover:bg-red-400/10 hover:text-red-400 active:scale-[0.96] disabled:opacity-35"
-                        >
-                          {removing ? (
-                            <Loader className="size-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="size-3.5" />
-                          )}
-                        </button>
-                      ) : null}
+                      <ProviderAccountMenu
+                        label={account.label}
+                        disabled={Boolean(working)}
+                        busy={removing}
+                        canSignIn={!needsSignIn && !signingIn}
+                        canSetDefault={defaultsReady && !isSharedDefault}
+                        canRemove={!account.isDefault}
+                        removeLocked={account.id === sharedDefault}
+                        onSignIn={() => void signIn(account)}
+                        onSetDefault={() =>
+                          void changeSharedDefault(provider, account.id)
+                        }
+                        onRemove={() => void removeAccount(account)}
+                      />
                     </div>
                   </div>
-                  <div className="col-span-full">
                   <ProviderAccountEditorDisclosure
-                    editor={editing ? editor : null}
+                    editor={editorExpanded && editing ? editor : null}
                     working={Boolean(working)}
                     onLabel={label => setEditor(current => current ? { ...current, label } : current)}
                     onDataHome={dataHome => setEditor(current => current ? { ...current, dataHome } : current)}
                     onCancel={() => setEditor(null)}
                     onSubmit={submitEditor}
                   />
-                  </div>
                   </Fragment>
                 );
               })}
-              <div className="col-span-full">
               <ProviderAccountEditorDisclosure
-                editor={adding ? editor : null}
+                editor={editorExpanded && adding ? editor : null}
                 working={Boolean(working)}
                 onLabel={(label) =>
                   setEditor((current) =>
@@ -4329,7 +4522,6 @@ export function ProviderAccountsSettings() {
                 onCancel={() => setEditor(null)}
                 onSubmit={submitEditor}
               />
-              </div>
             </div>
           </div>
         );
@@ -4501,6 +4693,8 @@ function ProviderRow({
   isDefault,
   inPicker,
   pickerLocked = false,
+  version,
+  onUpdated,
   onDefault,
   onModelChange,
   onPickerVisible,
@@ -4511,6 +4705,9 @@ function ProviderRow({
   inPicker: boolean;
   /** Globally hidden providers cannot be turned on per project. */
   pickerLocked?: boolean;
+  version?: HarnessVersionInfo;
+  /** Re-reads the installed version once a self-update finishes. */
+  onUpdated: () => void;
   onDefault: (harness: HarnessId, model: string) => void;
   onModelChange: (harness: HarnessId, model: string) => void;
   onPickerVisible: (visible: boolean) => void;
@@ -4526,13 +4723,87 @@ function ProviderRow({
     void refreshHarnessCatalogs([harness]);
   }, [available, harness, models.length]);
 
+  const [update, setUpdate] = useState<HarnessUpdateState>({
+    status: "idle",
+  });
+  const installed = available ? version?.installed : undefined;
+  const latest = version?.latest;
+  const bundledBy = available ? version?.bundledBy : undefined;
+  const behind = available && hasHarnessUpdate(version);
+  // A bundled copy updates only with its app, so it never gets an Update button.
+  const updatable = behind && !bundledBy;
+  const onUpdate = async () => {
+    if (!installed || !latest || update.status === "updating") return;
+    setUpdate({ status: "updating" });
+    const result = await runHarnessUpdate({ harness, installed, latest });
+    setUpdate(result);
+    onUpdated();
+  };
+  const versionText: ReactNode = !installed ? null : updatable && latest ? (
+    <span
+      className="font-mono"
+      title={uiT("Version {value0} installed, {value1} available", {
+        value0: installed,
+        value1: latest,
+      })}
+    >
+      <span className="text-warning">{installed}</span>
+      {" → "}
+      <span className="font-medium text-success">{latest}</span>
+    </span>
+  ) : latest
+        ? uiT("Version {value0} (latest)", { value0: installed })
+        : uiT("Version {value0}", { value0: installed });
+  // Saved path overrides apply on the next launch, like the CLI path editor.
+  const [binaryRevision, setBinaryRevision] = useState(0);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const pendingPath = providerBinaryPathChangePending(harness)
+    ? loadProviderBinaryPath(harness)
+    : null;
+  const newerCopy = bundledBy ? version?.newerCopy : undefined;
+  const switched = newerCopy != null && pendingPath === newerCopy.path;
+  const onUseCopy = async (copy: { path: string; version: string }) => {
+    if (switching) return;
+    setSwitching(true);
+    setSwitchError(null);
+    try {
+      const inspection = await inspectHarnessBinary(harness, copy.path);
+      const problem = binaryInspectionError(harness, inspection);
+      if (problem) throw new Error(problem);
+      if (!saveProviderBinaryPath(harness, copy.path)) {
+        throw new Error("Could not save the binary path.");
+      }
+      setBinaryRevision((value) => value + 1);
+    } catch (cause) {
+      setSwitchError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSwitching(false);
+    }
+  };
+  const sourceText = !bundledBy
+    ? null
+    : switched && newerCopy
+      ? uiT("Switched to {value0}. Restart MonoCode to apply.", {
+          value0: newerCopy.version,
+        })
+      : behind
+        ? uiT("Bundled with {app}; it updates with {app}.", { app: bundledBy })
+        : uiT("Bundled with {app}", { app: bundledBy });
+  const modelsText = available
+    ? uiT("{value0} {value1} available.", {
+        value0: String(models.length),
+        value1: String(models.length === 1 ? "model" : "models"),
+      })
+    : harnessUnavailableHint(harness);
+
   return (
     <Row
       label={
         <span className="flex items-center gap-2">
           <HarnessIcon harness={harness} className="size-4 shrink-0" />
           {HARNESS_TITLE[harness]}
-          <ProviderBinaryControl provider={harness} />
+          <ProviderBinaryControl key={binaryRevision} provider={harness} />
           {isDefault ? (
             <span className="rounded-full bg-content/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-content/60">
               {uiT("Default")}
@@ -4541,14 +4812,59 @@ function ProviderRow({
         </span>
       }
       description={
-        available
-          ? uiT("{value0} {value1} available.", {
-              value0: String(models.length),
-              value1: String(models.length === 1 ? "model" : "models"),
-            })
-          : harnessUnavailableHint(harness)
+        update.status === "failed" ? (
+          update.error
+        ) : switchError ? (
+          switchError
+        ) : versionText ? (
+          <>
+            {versionText}
+            {sourceText ? ` · ${sourceText}` : null} · {modelsText}
+          </>
+        ) : (
+          modelsText
+        )
       }
     >
+      {newerCopy && !switched ? (
+        <SecondaryButton
+          aria-label={uiT("Use {value0} {value1} at {value2}", {
+            value0: String(HARNESS_TITLE[harness]),
+            value1: newerCopy.version,
+            value2: newerCopy.path,
+          })}
+          title={newerCopy.path}
+          disabled={switching}
+          onClick={() => void onUseCopy(newerCopy)}
+        >
+          {switching ? (
+            <Loader className="size-3.5 animate-spin" aria-hidden />
+          ) : (
+            <ArrowDownCircle className="size-3.5 text-accent" aria-hidden />
+          )}
+          {uiT("Use {value0}", { value0: newerCopy.version })}
+        </SecondaryButton>
+      ) : null}
+      {updatable && update.status !== "updated" ? (
+        <SecondaryButton
+          aria-label={uiT("Update {value0}", {
+            value0: String(HARNESS_TITLE[harness]),
+          })}
+          disabled={update.status === "updating"}
+          onClick={() => void onUpdate()}
+        >
+          {update.status === "updating" ? (
+            <Loader className="size-3.5 animate-spin" aria-hidden />
+          ) : (
+            <ArrowDownCircle className="size-3.5 text-accent" aria-hidden />
+          )}
+          {update.status === "updating"
+            ? uiT("Updating")
+            : update.status === "failed"
+              ? uiT("Retry")
+              : uiT("Update")}
+        </SecondaryButton>
+      ) : null}
       {current ? (
         <Select
           label={uiT("{value0} model", {
@@ -4857,7 +5173,7 @@ function Row({
   /** Matches a `SETTINGS_INDEX` id so search can scroll here. */
   id?: string;
   label: ReactNode;
-  description?: string;
+  description?: ReactNode;
   children?: ReactNode;
 }) {
   const revealed = useContext(RevealedSetting);

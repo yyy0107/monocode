@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { SettingsView } from "./SettingsView";
+import * as scrollWithinModule from "../../../shared/lib/scrollWithin";
 import { loginHarness } from "../../../integrations/harness/core/auth";
 import { AppViewDialog } from "../../workspace/ui/AppViewDialog";
 import {
@@ -100,6 +101,32 @@ async function render(
       }),
     ),
   );
+}
+
+/** Opens an account row's ⋯ menu and returns the named item. */
+async function accountMenuItem(
+  account: string,
+  item: string,
+  root: ParentNode = container,
+) {
+  await act(async () =>
+    root
+      .querySelector<HTMLButtonElement>(`[aria-label="Actions for ${account}"]`)!
+      .click(),
+  );
+  return [
+    ...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+  ].find((button) => button.textContent?.includes(item));
+}
+
+/** A row signs in from its button when logged out, else from the ⋯ menu. */
+async function signInTo(account: string, root: ParentNode = container) {
+  const direct = root.querySelector<HTMLButtonElement>(
+    `[aria-label="Sign in to ${account}"]`,
+  );
+  const target =
+    direct ?? (await accountMenuItem(account, "Sign in again", root))!;
+  await act(async () => target.click());
 }
 
 function renderedSettingIds(): string[] {
@@ -413,7 +440,7 @@ describe("settings pages", () => {
     expect(providerAccounts(provider)[0]).toMatchObject({ id: "default", dataHome: "/custom/home", resolvedDataHome: "/custom/home" });
     expect(providerAccounts(provider)).toHaveLength(1);
     expect(identity().textContent).toContain("changed@example.com");
-    await act(async () => row.querySelector<HTMLButtonElement>('[aria-label="Sign in to Default account"]')!.click());
+    await signInTo("Default account", row);
     expect(loginHarness).toHaveBeenCalledWith(provider, "default");
   });
 
@@ -565,11 +592,8 @@ describe("settings pages", () => {
     );
     expect(providerAccounts("codex")[1]?.label).toBe("Work");
 
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>('[aria-label="Remove Work"]')!
-        .click(),
-    );
+    const remove = (await accountMenuItem("Work", "Remove account"))!;
+    await act(async () => remove.click());
     expect(ask).toHaveBeenCalled();
     expect(invoke).toHaveBeenCalledWith("provider_account_remove", {
       provider: "codex",
@@ -600,7 +624,7 @@ describe("settings pages", () => {
     expect(container.querySelector('[aria-label="Rename Personal"]')).not.toBeNull();
     expect(container.textContent).toContain(`/data/${provider}`);
     expect(loginHarness).not.toHaveBeenCalled();
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Sign in to Personal"]')!.click());
+    await signInTo("Personal");
     expect(loginHarness).toHaveBeenCalledWith(provider, account.id);
   });
 
@@ -770,7 +794,7 @@ describe("settings pages", () => {
 
   it("reopens, scrolls to, focuses and highlights the same project on a repeated notification settings request", async () => {
     vi.useFakeTimers();
-    const scroll = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
+    const scroll = vi.spyOn(scrollWithinModule, "scrollWithin");
     rememberNotificationProjects([
       {
         id: "repository:github.com/work/app",
@@ -812,8 +836,7 @@ describe("settings pages", () => {
     await render("inbox", { ...shortcut, notificationSettingsRequest: 2 });
 
     expect.soft(project.getAttribute("aria-expanded")).toBe("true");
-    expect.soft(scroll).toHaveBeenCalledWith({ block: "nearest" });
-    expect.soft(scroll.mock.contexts).toContain(card);
+    expect.soft(scroll).toHaveBeenCalledWith(card);
     expect.soft(document.activeElement === card).toBe(true);
     expect.soft(highlight()).not.toBeNull();
 
@@ -969,7 +992,14 @@ describe("settings pages", () => {
       const expected = SETTINGS_INDEX.filter(
         (entry) => entry.section === section,
       ).map((entry) => entry.id);
-      expect(renderedSettingIds().sort()).toEqual(expected.sort());
+      const rendered = new Set(renderedSettingIds());
+      if (section === "connections") {
+        for (const tab of container.querySelectorAll<HTMLButtonElement>('[role="tab"]')) {
+          await act(async () => tab.click());
+          for (const id of renderedSettingIds()) rendered.add(id);
+        }
+      }
+      expect([...rendered].sort()).toEqual(expected.sort());
     },
   );
 
@@ -1391,15 +1421,23 @@ it("saves a shared account only after publication, prevents removing it and supp
   });
   saveProviderAccount({ provider: "codex", id: "work", label: "9300" });
   await render("providers");
-  const choose = () => container.querySelector<HTMLButtonElement>('[aria-label="Use 9300 as shared default"]')!;
-  expect(choose().disabled).toBe(false);
-  await act(async () => choose().click());
+  const choose = () => accountMenuItem("9300", "Use as shared default");
+  const first = (await choose())!;
+  expect(first.disabled).toBe(false);
+  await act(async () => first.click());
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Unable to save fixture default");
-  expect(choose()).not.toBeNull();
   failSave = false;
-  await act(async () => choose().click());
-  expect(choose()).toBeNull();
-  expect(container.querySelector<HTMLButtonElement>('[aria-label="Remove 9300"]')?.disabled).toBe(true);
+  const retry = (await choose())!;
+  expect(retry).not.toBeUndefined();
+  await act(async () => retry.click());
+  // Once it is the default, the menu offers only removal, and that is locked.
+  const remove = (await accountMenuItem("9300", "Remove account"))!;
+  expect(remove.disabled).toBe(true);
+  expect(
+    [...document.body.querySelectorAll('[role="menuitem"]')].some((item) =>
+      item.textContent?.includes("Use as shared default"),
+    ),
+  ).toBe(false);
   expect(invoke).toHaveBeenCalledWith("provider_account_set_default", { provider: "codex", accountId: "work" });
   const calls = vi.mocked(invoke).mock.calls.map(call => call[0]);
   expect(calls.indexOf("provider_accounts_publish")).toBeLessThan(calls.indexOf("provider_account_set_default"));

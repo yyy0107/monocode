@@ -34,29 +34,33 @@ const STATUS_TEXT: Record<AccountStatusTone, string> = {
 /** Dot + word, e.g. "● Ready" or "● Exhausted back in 31m". */
 export function AccountStatusLabel({
   status,
+  wrap = false,
   className = "",
 }: {
   status: AccountStatus;
+  /** Lets a long reason wrap instead of truncating, for roomy rows. */
+  wrap?: boolean;
   className?: string;
 }) {
+  const fit = wrap ? "min-w-0 break-words" : "min-w-0 truncate";
   return (
     <span
-      className={`inline-flex min-w-0 items-center gap-1.5 ${className}`}
+      className={`inline-flex min-w-0 gap-1.5 ${wrap ? "items-baseline" : "items-center"} ${className}`}
       title={
         status.detail ? `${status.label} · ${status.detail}` : status.label
       }
     >
       <span
-        className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[status.tone]}`}
+        className={`size-1.5 shrink-0 rounded-full ${wrap ? "translate-y-[-1px]" : ""} ${STATUS_DOT[status.tone]}`}
         aria-hidden
       />
       <span
-        className={`${status.tone === "unknown" ? "min-w-0 truncate" : "shrink-0"} ${STATUS_TEXT[status.tone]}`}
+        className={`${status.tone === "unknown" ? fit : "shrink-0"} ${STATUS_TEXT[status.tone]}`}
       >
         {status.label}
       </span>
       {status.detail ? (
-        <span className="min-w-0 truncate text-content/40">
+        <span className={`${fit} text-content/40`}>
           {status.detail}
         </span>
       ) : null}
@@ -91,48 +95,6 @@ export function meterWindows(
     limits?.weekly ? { title: "Weekly", window: limits.weekly } : null,
     limits?.monthly ? { title: "Monthly", window: limits.monthly } : null,
   ].filter((entry) => entry != null);
-}
-
-/** Compact 5h / weekly meters for one account row. */
-export function AccountUsageMeters({
-  limits,
-  now,
-}: {
-  limits: ProviderRateLimits | undefined;
-  now: number;
-}) {
-  const windows = meterWindows(limits);
-
-  if (windows.length === 0) {
-    const loading =
-      !limits || limits.status === "idle" || limits.status === "fetching";
-    return (
-      <div className="hidden shrink-0 gap-4 sm:flex">
-        {loading ? (
-          <>
-            <MeterSkeleton />
-            <MeterSkeleton />
-          </>
-        ) : (
-          // The row's status line already explains why there is no data.
-          <span className="w-[19rem]" aria-hidden />
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="hidden shrink-0 gap-4 sm:flex">
-      {windows.map((entry) => (
-        <UsageMeter
-          key={entry.title}
-          title={entry.title}
-          window={entry.window}
-          now={now}
-        />
-      ))}
-    </div>
-  );
 }
 
 export function UsageMeter({
@@ -205,16 +167,6 @@ export function UsageMeter({
   );
 }
 
-function MeterSkeleton() {
-  return (
-    <div className="w-36 animate-pulse" aria-hidden>
-      <div className="h-3 w-20 rounded bg-content/10" />
-      <div className="mt-1.5 h-1 rounded-full bg-content/10" />
-    </div>
-  );
-}
-
-/** Bar colour by percent used; shared with the footer usage chip. */
 export function barClass(pct: number): string {
   if (pct >= 90) return "bg-red-400";
   if (pct >= 80) return "bg-amber-400";

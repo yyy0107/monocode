@@ -27,6 +27,7 @@ import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import {
   announceHarnessUpdated,
   claimLaunchHarnessUpdateCheck,
+  fetchHarnessInstall,
   fetchLatestHarnessVersion,
   findHarnessUpdates,
   onHarnessUpdated,
@@ -48,7 +49,7 @@ function checkForHarnessUpdates(): Promise<HarnessUpdate[]> {
 async function runLaunchCheck(): Promise<HarnessUpdate[]> {
   if (!(await claimLaunchHarnessUpdateCheck())) return [];
   await probeHarnessAvailability();
-  return findHarnessUpdates({
+  const updates = await findHarnessUpdates({
     harnesses: HARNESSES.filter(
       (id) =>
         UPDATABLE_HARNESSES.has(id) &&
@@ -58,9 +59,19 @@ async function runLaunchCheck(): Promise<HarnessUpdate[]> {
     installedVersion: async (id) => (await inspectHarnessBinary(id)).version,
     latestVersion: fetchLatestHarnessVersion,
   });
+  // A copy bundled inside another app only updates with that app, so its
+  // Update button could never succeed; Settings explains it instead.
+  const updatable = await Promise.all(
+    updates.map((update) =>
+      fetchHarnessInstall(update.harness)
+        .then((install) => install?.source !== "bundled")
+        .catch(() => true),
+    ),
+  );
+  return updates.filter((_, index) => updatable[index]);
 }
 
-type RowState =
+export type HarnessUpdateState =
   | { status: "idle" }
   | { status: "updating" }
   | { status: "updated"; version: string }
@@ -71,7 +82,9 @@ type RowState =
  * version the CLI reports afterwards, not the exit code. Its models are
  * reloaded before the row says so, so the picker is current by then.
  */
-async function runUpdate(update: HarnessUpdate): Promise<RowState> {
+export async function runHarnessUpdate(
+  update: HarnessUpdate,
+): Promise<HarnessUpdateState> {
   try {
     await updateHarnessCli(update.harness);
     const after = await inspectHarnessBinary(update.harness);
@@ -104,7 +117,9 @@ export function HarnessUpdateNotice({
   const { t: uiT } = useTranslation();
   const panelRef = useRef<HTMLElement>(null);
   const [updates, setUpdates] = useState<HarnessUpdate[]>([]);
-  const [rows, setRows] = useState<Partial<Record<HarnessId, RowState>>>({});
+  const [rows, setRows] = useState<
+    Partial<Record<HarnessId, HarnessUpdateState>>
+  >({});
 
   // Mounted in every window, so the window that ran the update tells the
   // others to pick up the new CLI's models too.
@@ -142,7 +157,7 @@ export function HarnessUpdateNotice({
   }, [visible, onHeightChange]);
   if (!visible) return null;
 
-  const stateOf = (harness: HarnessId): RowState =>
+  const stateOf = (harness: HarnessId): HarnessUpdateState =>
     rows[harness] ?? { status: "idle" };
   const busy = updates.some(
     (update) => stateOf(update.harness).status === "updating",
@@ -161,7 +176,7 @@ export function HarnessUpdateNotice({
         ...current,
         [update.harness]: { status: "updating" },
       }));
-      void runUpdate(update).then((result) =>
+      void runHarnessUpdate(update).then((result) =>
         setRows((current) => ({ ...current, [update.harness]: result })),
       );
     }
@@ -234,7 +249,7 @@ function HarnessUpdateRow({
   onUpdate,
 }: {
   update: HarnessUpdate;
-  state: RowState;
+  state: HarnessUpdateState;
   onUpdate: () => void;
 }) {
   const { t: uiT } = useTranslation();

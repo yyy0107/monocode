@@ -461,6 +461,7 @@ pub fn run() {
             harness_updates::harness_latest_version,
             harness_updates::harness_update_check_claim,
             harness_updates::harness_update,
+            harness_updates::harness_install_info,
             harness::provider_account_remove,
             provider_profiles::provider_accounts_publish,
             provider_profiles::provider_accounts_list,

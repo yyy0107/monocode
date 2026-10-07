@@ -1,9 +1,14 @@
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use serde::Serialize;
 use serde_json::Value;
 
-use crate::harness::{exec_output, is_resolved_harness_binary};
+use crate::harness::{
+    binaries_on_search_path, exec_output, is_resolved_harness_binary, resolve_harness_binary,
+};
 
 const REGISTRY_URL: &str = "https://registry.npmjs.org";
 const USER_AGENT: &str = "MonoCode";
@@ -31,6 +36,150 @@ fn update_args(provider: &str) -> Option<&'static [&'static str]> {
         "pi" => Some(&["update", "--self"]),
         _ => None,
     }
+}
+
+/// Where a CLI binary came from, judged by where its symlinks finally lead.
+/// `Bundled` copies ship inside another app (the ChatGPT desktop app links
+/// its Codex into `~/.local/bin`) and only update with that app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InstallSource {
+    Npm,
+    Homebrew,
+    Bundled,
+    Other,
+}
+
+fn install_source(real: &Path) -> (InstallSource, Option<String>) {
+    let normalized = real.to_string_lossy().replace('\\', "/");
+    let lower = normalized.to_lowercase();
+    if lower.contains("/node_modules/") {
+        return (InstallSource::Npm, None);
+    }
+    if ["/cellar/", "/homebrew/", "/linuxbrew/"]
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        return (InstallSource::Homebrew, None);
+    }
+    let segments: Vec<&str> = normalized.split('/').filter(|s| !s.is_empty()).collect();
+    if let Some(app) = segments
+        .iter()
+        .find(|segment| segment.to_lowercase().ends_with(".app"))
+    {
+        return (
+            InstallSource::Bundled,
+            Some(app_name(&app[..app.len() - 4])),
+        );
+    }
+    if let Some(index) = segments
+        .iter()
+        .position(|segment| segment.eq_ignore_ascii_case("resources"))
+    {
+        // Electron apps keep their payload in `<app>/resources` or, on
+        // Windows, `<app>/app/resources`.
+        let owner = segments[..index]
+            .iter()
+            .rev()
+            .find(|segment| !segment.eq_ignore_ascii_case("app"));
+        if let Some(owner) = owner {
+            return (InstallSource::Bundled, Some(app_name(owner)));
+        }
+    }
+    (InstallSource::Other, None)
+}
+
+fn app_name(raw: &str) -> String {
+    match raw.to_lowercase().as_str() {
+        "chatgpt" => "ChatGPT".to_string(),
+        "codex" => "Codex".to_string(),
+        "claude" => "Claude".to_string(),
+        _ => raw.to_string(),
+    }
+}
+
+#[derive(Serialize)]
+pub struct HarnessCopy {
+    path: String,
+    version: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessInstall {
+    path: String,
+    real_path: String,
+    source: InstallSource,
+    bundled_by: Option<String>,
+    /// Other installed copies on the search path that MonoCode could run
+    /// instead, bundled ones excluded.
+    alternatives: Vec<HarnessCopy>,
+}
+
+const VERSION_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn copy_version(path: &Path) -> Option<String> {
+    let output = exec_output(
+        &path.to_string_lossy(),
+        &["--version".to_string()],
+        None,
+        VERSION_TIMEOUT,
+    )
+    .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    semver_in(&text)
+}
+
+fn semver_in(text: &str) -> Option<String> {
+    text.split(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .find(|token| {
+            let parts: Vec<&str> = token.split('.').collect();
+            parts.len() >= 3 && parts[..3].iter().all(|part| !part.is_empty())
+        })
+        .map(|token| token.split('.').take(3).collect::<Vec<_>>().join("."))
+}
+
+fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+#[tauri::command]
+pub async fn harness_install_info(
+    provider: String,
+    binary_path: Option<String>,
+) -> Result<HarnessInstall, String> {
+    if npm_package(&provider).is_none() {
+        return Err(format!("No update feed for harness: {provider}"));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = resolve_harness_binary(&provider, binary_path.as_deref())?;
+        let real = canonical(&path);
+        let (source, bundled_by) = install_source(&real);
+        let mut seen = HashSet::from([real.clone()]);
+        let alternatives = binaries_on_search_path(&provider)
+            .into_iter()
+            .filter(|candidate| {
+                let candidate_real = canonical(candidate);
+                seen.insert(candidate_real.clone())
+                    && install_source(&candidate_real).0 != InstallSource::Bundled
+            })
+            .filter_map(|candidate| {
+                Some(HarnessCopy {
+                    version: copy_version(&candidate)?,
+                    path: candidate.to_string_lossy().into_owned(),
+                })
+            })
+            .collect();
+        Ok(HarnessInstall {
+            path: path.to_string_lossy().into_owned(),
+            real_path: real.to_string_lossy().into_owned(),
+            source,
+            bundled_by,
+            alternatives,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// A download plus, for npm installs, a full dependency install.
@@ -85,6 +234,14 @@ pub async fn harness_update(
         if !is_resolved_harness_binary(&command, Some(&binary_provider), binary_path.as_deref()) {
             return Err("harness_update: not a resolved harness CLI".to_string());
         }
+        let real = canonical(Path::new(&command));
+        if let (InstallSource::Bundled, owner) = install_source(&real) {
+            let owner = owner.unwrap_or_else(|| "another app".to_string());
+            return Err(format!(
+                "This CLI is bundled with {owner} ({}) and only updates with that app.",
+                real.display()
+            ));
+        }
         let output = exec_output(&command, &args, None, UPDATE_TIMEOUT)?;
         if output.status.success() {
             return Ok(());
@@ -127,6 +284,45 @@ mod tests {
         assert_eq!(npm_package("pi"), Some("@earendil-works/pi-coding-agent"));
         assert_eq!(npm_package("cursor"), None);
         assert_eq!(npm_package("../../evil"), None);
+    }
+
+    #[test]
+    fn classifies_install_sources_by_real_path() {
+        let source = |path: &str| install_source(Path::new(path));
+        assert_eq!(
+            source("/usr/lib/chatgpt/resources/codex"),
+            (InstallSource::Bundled, Some("ChatGPT".to_string()))
+        );
+        assert_eq!(
+            source("/Applications/Codex.app/Contents/Resources/codex"),
+            (InstallSource::Bundled, Some("Codex".to_string()))
+        );
+        assert_eq!(
+            source(r"C:\Program Files\ChatGPT\app\resources\codex.exe"),
+            (InstallSource::Bundled, Some("ChatGPT".to_string()))
+        );
+        assert_eq!(
+            source("/home/u/.nvm/versions/node/v24/lib/node_modules/@openai/codex/bin/codex.js").0,
+            InstallSource::Npm
+        );
+        assert_eq!(
+            source("/opt/homebrew/Cellar/codex/0.1.0/bin/codex").0,
+            InstallSource::Homebrew
+        );
+        assert_eq!(
+            source("/home/u/.local/share/claude/versions/2.1.0").0,
+            InstallSource::Other
+        );
+    }
+
+    #[test]
+    fn reads_the_version_a_cli_prints() {
+        assert_eq!(
+            semver_in("codex-cli 0.161.0\n"),
+            Some("0.161.0".to_string())
+        );
+        assert_eq!(semver_in("2.1.4 (Claude Code)"), Some("2.1.4".to_string()));
+        assert_eq!(semver_in("no version"), None);
     }
 
     #[test]

@@ -2848,6 +2848,27 @@ fn which_via_login_shell(name: &str) -> Option<PathBuf> {
     which_in_path(&gui_search_path(), name)
 }
 
+/// Every executable called `name` on the search path, in PATH order.
+pub(crate) fn binaries_on_search_path(name: &str) -> Vec<PathBuf> {
+    std::env::split_paths(std::ffi::OsStr::new(&gui_search_path()))
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .filter_map(|dir| existing_binary(dir.join(name)))
+        .collect()
+}
+
+/// The binary MonoCode runs for `provider`: the configured override when one
+/// is set, otherwise the auto-detected one.
+pub(crate) fn resolve_harness_binary(
+    provider: &str,
+    binary_path: Option<&str>,
+) -> Result<PathBuf, String> {
+    match binary_path.map(str::trim).filter(|path| !path.is_empty()) {
+        Some(path) => resolve_harness_binary_override(provider, path),
+        None => resolve_harness_binary_default(provider)
+            .ok_or_else(|| format!("{provider} CLI not found")),
+    }
+}
+
 fn which_in_path(path: &str, name: &str) -> Option<PathBuf> {
     std::env::split_paths(std::ffi::OsStr::new(path)).find_map(|dir| {
         if dir.as_os_str().is_empty() {
