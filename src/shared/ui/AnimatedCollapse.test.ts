@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement, type ComponentProps } from "react";
+import { act, createElement, useEffect, useState, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AnimatedCollapse } from "./AnimatedCollapse";
@@ -87,19 +87,23 @@ it("does not replay motion on mount and animates both opening and closing", () =
   expect(fold()?.dataset.foldState).toBe("open");
 });
 
-it("cancels the old closing timer on rapid reversal", () => {
-  render(true);
-  render(false);
-  act(() => vi.advanceTimersByTime(200));
-  render(true);
-  expect(fold()?.dataset.foldState).toBe("opening");
-  act(() => vi.advanceTimersByTime(150));
-  expect(fold()?.dataset.foldState).toBe("opening");
-  expect(fold()?.inert).toBe(false);
-  expect(child()?.getAttribute("data-visible")).toBe("true");
-  act(() => vi.advanceTimersByTime(200));
-  expect(fold()?.dataset.foldState).toBe("open");
-});
+it.each([false, true])(
+  "cancels the old closing timer on rapid reversal (retained: %s)",
+  (keepMounted) => {
+    const options = { keepMounted };
+    render(true, true, undefined, undefined, options);
+    render(false, true, undefined, undefined, options);
+    act(() => vi.advanceTimersByTime(200));
+    render(true, true, undefined, undefined, options);
+    expect(fold()?.dataset.foldState).toBe("opening");
+    act(() => vi.advanceTimersByTime(150));
+    expect(fold()?.dataset.foldState).toBe("opening");
+    expect(fold()?.inert).toBe(false);
+    expect(child()?.getAttribute("data-visible")).toBe("true");
+    act(() => vi.advanceTimersByTime(200));
+    expect(fold()?.dataset.foldState).toBe("open");
+  },
+);
 
 it("ignores nested animation events and eventually closes without animationend", () => {
   render(true);
@@ -178,6 +182,90 @@ it("does not prepare lazy content until opening and retains it through closing",
   content.mockClear();
   renderLazy(false);
   expect(content).not.toHaveBeenCalled();
+});
+
+it("retains state after first opening, hides settled content and defers hidden updates", () => {
+  const mount = vi.fn();
+  const unmount = vi.fn();
+  function StatefulChild({ label }: { label: string }) {
+    const [count, setCount] = useState(0);
+    const visible = useSurfaceVisibility();
+    useEffect(() => {
+      mount();
+      return unmount;
+    }, []);
+    return createElement(
+      "button",
+      {
+        "data-visible": visible,
+        onClick: () => setCount((value) => value + 1),
+      },
+      `${label}: ${count}`,
+    );
+  }
+  const prepare = vi.fn((label: string) => createElement(StatefulChild, { label }));
+  const retained = (expanded: boolean, label: string, parentVisible = true) =>
+    render(expanded, parentVisible, undefined, undefined, {
+      keepMounted: true,
+      children: () => prepare(label),
+    });
+  retained(false, "First");
+  expect(prepare).not.toHaveBeenCalled();
+  expect(fold()).toBeNull();
+  retained(true, "First");
+  const button = child()!;
+  act(() => button.click());
+  expect(button.textContent).toBe("First: 1");
+  retained(false, "First");
+  expect(fold()?.hidden).toBe(false);
+  expect(fold()?.inert).toBe(true);
+  expect(button.getAttribute("data-visible")).toBe("false");
+  prepare.mockClear();
+  act(() => vi.advanceTimersByTime(350));
+  expect(fold()?.hidden).toBe(true);
+  expect(fold()?.style.display).toBe("none");
+  retained(false, "Updated");
+  expect(prepare).not.toHaveBeenCalled();
+  expect(child()).toBe(button);
+  expect(button.textContent).toBe("First: 1");
+  expect(unmount).not.toHaveBeenCalled();
+  retained(true, "Updated");
+  expect(child()).toBe(button);
+  expect(button.textContent).toBe("Updated: 1");
+  expect(fold()?.hidden).toBe(false);
+  expect(fold()?.style.display).toBe("");
+  expect(button.getAttribute("data-visible")).toBe("true");
+  expect(mount).toHaveBeenCalledOnce();
+  // An expanded disclosure also stops parent-prop work when its sidebar hides.
+  retained(true, "Updated", false);
+  expect(button.getAttribute("data-visible")).toBe("false");
+  prepare.mockClear();
+  retained(true, "Latest", false);
+  expect(prepare).not.toHaveBeenCalled();
+  retained(true, "Latest");
+  expect(button.textContent).toBe("Latest: 1");
+  expect(button.getAttribute("data-visible")).toBe("true");
+});
+
+it("retains hidden content immediately with reduced motion", () => {
+  vi.spyOn(window, "matchMedia").mockReturnValue({
+    matches: true,
+  } as MediaQueryList);
+  const options = { keepMounted: true };
+  render(false, true, undefined, undefined, options);
+  expect(fold()).toBeNull();
+  render(true, true, undefined, undefined, options);
+  const button = child();
+  render(false, true, undefined, undefined, options);
+  expect(child()).toBe(button);
+  expect(fold()?.hidden).toBe(true);
+  expect(fold()?.inert).toBe(true);
+  expect(child()?.getAttribute("data-visible")).toBe("false");
+  render(true, true, undefined, undefined, options);
+  expect(child()).toBe(button);
+  expect(fold()?.dataset.foldState).toBe("open");
+  expect(fold()?.hidden).toBe(false);
+  expect(vi.getTimerCount()).toBe(0);
 });
 
 it("notifies only after entering, not on mount or while opening", () => {
@@ -302,6 +390,37 @@ describe("measured-height motion", () => {
     expect(fold()?.dataset.foldState).toBe("opening");
     act(() => vi.advanceTimersByTime(50));
     expect(fold()?.dataset.foldState).toBe("open");
+  });
+
+  it("remeasures retained content after unhiding and opens from zero height", () => {
+    const options = { keepMounted: true, animateContentResize: true };
+    renderHeight(true, options);
+    const button = child();
+    itemHeight = 160;
+    renderHeight(false, options);
+    itemHeight = 0;
+    act(() => animations[0].onfinish?.());
+    expect(fold()?.hidden).toBe(true);
+    expect(fold()?.style.height).toBe("0px");
+    expect(child()).toBe(button);
+    contentHeight = 240;
+    const measured = vi
+      .spyOn(fold()!.firstElementChild!, "getBoundingClientRect")
+      .mockImplementation(() => {
+        expect(fold()?.hidden).toBe(false);
+        expect(fold()?.style.display).toBe("");
+        return { height: contentHeight } as DOMRect;
+      });
+    renderHeight(true, options);
+    expect(measured).toHaveBeenCalled();
+    expect(animate).toHaveBeenLastCalledWith(
+      [{ height: "0px" }, { height: "240px" }],
+      expect.objectContaining({ duration: 220 }),
+    );
+    itemHeight = contentHeight;
+    act(() => animations[1].onfinish?.());
+    expect(fold()?.style.height).toBe("");
+    expect(child()).toBe(button);
   });
 
   it("retargets asynchronously loaded rows without jumping or extending the deadline", () => {

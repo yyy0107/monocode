@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -11,6 +12,22 @@ import {
   SurfaceVisibilityContext,
   useSurfaceVisibility,
 } from "./SurfaceVisibility";
+
+// Prop updates can wait while retained content is hidden. Visibility context
+// remains outside this boundary so descendants can dismiss portals and polling.
+const RetainedCollapseContent = memo(
+  function RetainedCollapseContent({
+    children,
+  }: {
+    visible: boolean;
+    children: ReactNode | (() => ReactNode);
+  }) {
+    return typeof children === "function" ? children() : children;
+  },
+  (previous, next) =>
+    previous.visible === next.visible &&
+    (!next.visible || previous.children === next.children),
+);
 
 /** Shared lifetime for disclosures and grid-sized panels. */
 export function useCollapseMotion(expanded: boolean, durationMs = 340) {
@@ -64,6 +81,7 @@ export function AnimatedCollapse({
   durationMs,
   motion = "grid",
   animateContentResize = false,
+  keepMounted = false,
   onEntered,
   children,
 }: {
@@ -72,6 +90,8 @@ export function AnimatedCollapse({
   durationMs?: number;
   motion?: "grid" | "height";
   animateContentResize?: boolean;
+  /** Retain content after its first opening and pause hidden parent-prop updates. */
+  keepMounted?: boolean;
   /** Runs after entering, never for an initially expanded mount. */
   onEntered?: () => void;
   /** Use a factory to defer expensive content preparation while closed. */
@@ -83,6 +103,8 @@ export function AnimatedCollapse({
     durationMs,
   );
   const entered = useRef(expanded);
+  const hasOpened = useRef(expanded);
+  if (expanded) hasOpened.current = true;
   const visibleHeight = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (!expanded) entered.current = false;
@@ -239,17 +261,24 @@ export function AnimatedCollapse({
     restart,
   ]);
 
-  if (!expanded && foldState === "closed") return null;
+  const hidden = !expanded && foldState === "closed";
+  if (hidden && (!keepMounted || !hasOpened.current)) return null;
   return (
     <div
       ref={itemRef}
       data-collapse-motion={heightMotion ? "height" : undefined}
       className={`zen-fold-item${className ? ` ${className}` : ""}`}
       style={
-        durationMs === undefined
-          ? undefined
-          : ({ "--collapse-duration": `${durationMs}ms` } as CSSProperties)
+        {
+          ...(durationMs === undefined
+            ? undefined
+            : { "--collapse-duration": `${durationMs}ms` }),
+          // Fold styles set display explicitly, so the hidden attribute alone
+          // cannot remove retained contents from layout and painting.
+          display: hidden ? "none" : undefined,
+        } as CSSProperties
       }
+      hidden={hidden}
       data-fold-state={foldState}
       aria-hidden={!expanded || undefined}
       inert={!expanded}
@@ -260,7 +289,15 @@ export function AnimatedCollapse({
     >
       <div ref={contentRef}>
         <SurfaceVisibilityContext.Provider value={parentVisible && expanded}>
-          {typeof children === "function" ? children() : children}
+          {keepMounted ? (
+            <RetainedCollapseContent visible={parentVisible && expanded}>
+              {children}
+            </RetainedCollapseContent>
+          ) : typeof children === "function" ? (
+            children()
+          ) : (
+            children
+          )}
         </SurfaceVisibilityContext.Provider>
       </div>
     </div>
