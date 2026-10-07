@@ -7,6 +7,7 @@ import {
 import { useConnectionAppearance, saveConnectionAppearance, removeConnectionAppearance } from "./connectionAppearance";
 import { connectionErrorMessage } from "./connectionError";
 import { MobileAssistant, type MobileAssistantHandle } from "./MobileAssistant";
+import { useMobileAssistantUnread } from "./useMobileAssistantUnread";
 import { resolveAssistantTarget } from "../features/assistant/model/assistantNavigation";
 import { useHostQueue } from "../features/connections/ui/useHostQueue";
 import { consumePlanCommand } from "../features/sessions/model/plan";
@@ -311,12 +312,6 @@ export function MobileApp() {
       return `data:${image.mime};base64,${image.data}`;
     };
   }, [client.connection?.environmentId, t]);
-  useEffect(() => {
-    if (!assistantHostId || !drawerOpen) return;
-    // Opening the drawer refreshes names changed by another client. Assistant
-    // chat syncs update the same identity immediately after local saves.
-    void assistantRpc("assistant.get").catch(() => {});
-  }, [assistantHostId, drawerOpen, assistantRpc]);
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
   const [projects, setProjects] = useState<HostProject[]>([]);
@@ -388,6 +383,12 @@ export function MobileApp() {
   const [pending, setPending] = useState<PendingCommand>();
   const [foreground, setForeground] = useState(true);
   const hostStatus = useHostConnectionStatus(client, connected, foreground);
+  const assistantUnreadCount = useMobileAssistantUnread(
+    assistantHostId,
+    assistantRpc,
+    drawerOpen && view !== "settings" && !pageOverlayOpen && foreground &&
+      connected && hostStatus.state === "connected" && client.hasCapability("assistant.v1"),
+  );
   const environmentId = client.connection?.environmentId;
   const previousEnvironment = useRef(environmentId);
   const hostScopeReady = previousEnvironment.current === environmentId;
@@ -2101,6 +2102,7 @@ export function MobileApp() {
         <MobileDrawer
           key={`drawer:${client.connection?.environmentId}`}
           assistantName={assistantIdentity && assistantIdentity.hostId === assistantHostId ? assistantIdentity.name : undefined}
+          assistantUnreadCount={assistantUnreadCount}
           onAssistant={onDrawerAssistant}
           onNotes={client.hasCapability("notes.v1") ? onDrawerNotes : undefined}
           open={drawerOpen && view !== "settings" && !pageOverlayOpen}

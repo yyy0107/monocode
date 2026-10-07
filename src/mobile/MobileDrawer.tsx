@@ -99,6 +99,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   onAssistant,
   onNotes,
   assistantName,
+  assistantUnreadCount = 0,
 }: {
   open: boolean;
   /** Keep the closing drawer mounted without accepting edge gestures on another page. */
@@ -137,6 +138,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   onAssistant?: () => void;
   onNotes?: () => void;
   assistantName?: string;
+  assistantUnreadCount?: number;
 }) {
   const { language, t } = useTranslation();
   const open = requestedOpen && active;
@@ -595,10 +597,18 @@ export const MobileDrawer = memo(function MobileDrawer({
             <button
               type="button"
               className="mobile-drawer-item mobile-drawer-assistant"
+              aria-label={assistantUnreadCount > 0 ? t("{name}, {count} unread messages", {
+                name: assistantName || t("Assistant"), count: assistantUnreadCount,
+              }) : undefined}
               onClick={onAssistant}
             >
               <Bot size={22} />
               <span>{assistantName || t("Assistant")}</span>
+              {assistantUnreadCount > 0 && (
+                <span className="mobile-drawer-assistant-badge" aria-hidden="true">
+                  {assistantUnreadCount > 99 ? "99+" : assistantUnreadCount}
+                </span>
+              )}
             </button>
           )}
           <button type="button" className="mobile-drawer-item" onClick={onHome}>

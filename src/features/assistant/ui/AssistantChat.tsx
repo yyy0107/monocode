@@ -200,7 +200,7 @@ export function AssistantChat({
   const [assistant, setAssistant] = useState<AssistantView | null>();
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   useEffect(() => {
-    if (!visible || chrome) return;
+    if (!visible) return;
     const markRead = () => {
       if (document.visibilityState !== "hidden")
         markAssistantRead(hostKey, messages);
@@ -208,7 +208,7 @@ export function AssistantChat({
     markRead();
     document.addEventListener("visibilitychange", markRead);
     return () => document.removeEventListener("visibilitychange", markRead);
-  }, [hostKey, messages, visible, chrome]);
+  }, [hostKey, messages, visible]);
   const visibleMessages = useMemo(
     () => chrome ? compactAssistantTimeline(messages) : messages,
     [messages, chrome],

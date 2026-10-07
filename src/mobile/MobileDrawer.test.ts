@@ -578,6 +578,22 @@ describe("mobile sidebar recents", () => {
   });
 });
 
+it("shows the assistant unread count with its custom name and hides the badge after reading", () => {
+  const props = { onAssistant: vi.fn(), assistantName: "My helper" };
+  const badge = () => node.querySelector(".mobile-drawer-assistant-badge");
+  const assistant = () => node.querySelector(".mobile-drawer-assistant")!;
+  render(true, { ...props, assistantUnreadCount: 3 });
+  expect(badge()?.textContent).toBe("3");
+  expect(assistant().getAttribute("aria-label")).toBe("My helper, 3 unread messages");
+  render(true, { ...props, assistantUnreadCount: 120 });
+  expect(badge()?.textContent).toBe("99+");
+  act(() => setUiLanguage("zh-CN"));
+  expect(assistant().getAttribute("aria-label")).toBe("My helper，120 条未读消息");
+  render(true, props);
+  expect(badge()).toBeNull();
+  expect(assistant().textContent).toBe("My helper");
+});
+
 it("shows the Notes entry only when supplied by a capable Host", () => {
   render();
   act(() => node.querySelector<HTMLButtonElement>(".mobile-drawer-more-toggle")!.click());

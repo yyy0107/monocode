@@ -1047,6 +1047,34 @@ it("closes only the nested settings picker on Escape", async () => {
   expect(data.close).not.toHaveBeenCalled();
 });
 
+it("acknowledges mobile assistant messages only while the page and document are visible", async () => {
+  const data = fixture();
+  data.messages([{ kind: "assistant", id: "reply", revision: 1, createdAt: 1, text: "Hello" }]);
+  const render = (visible: boolean) => act(() => root.render(
+    createElement(SurfaceVisibilityContext.Provider, { value: visible },
+      createElement(MobileAssistant, {
+        hostKey: "read-mobile", hostName: "Host", rpc: data.rpc as AssistantRpc, onOpen: () => {},
+      })),
+  ));
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  render(false);
+  await flush();
+  expect(localStorage.getItem("monocode.assistant-read:read-mobile")).toBeNull();
+  render(true);
+  await flush();
+  expect(localStorage.getItem("monocode.assistant-read:read-mobile")).toBeNull();
+  visibility.mockReturnValue("visible");
+  act(() => document.dispatchEvent(new Event("visibilitychange")));
+  expect(localStorage.getItem("monocode.assistant-read:read-mobile")).toBe("1");
+  render(false);
+  data.messages([{ kind: "assistant", id: "next", revision: 2, createdAt: 2, text: "New reply" }]);
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  expect(localStorage.getItem("monocode.assistant-read:read-mobile")).toBe("1");
+  render(true);
+  await flush();
+  expect(localStorage.getItem("monocode.assistant-read:read-mobile")).toBe("2");
+});
+
 it("keeps one log observer across revisions and stops background polling while hidden", async () => {
   const observers: Array<{ targets: Set<Element>; observe: ReturnType<typeof vi.fn>; disconnected: boolean }> = [];
   vi.stubGlobal("ResizeObserver", class {

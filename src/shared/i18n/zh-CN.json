@@ -2368,6 +2368,7 @@
   "Full view": "完整视图",
   "Each conversation keeps its own file and page tabs. Choose the default layout; the conversation toolbar can switch it at any time.": "每个会话独立保存文件和页面标签。选择默认布局，也可随时通过会话工具栏切换。",
   "Assistant, {count} unread messages": "助理，{count} 条未读消息",
+  "{name}, {count} unread messages": "{name}，{count} 条未读消息",
   "Assistant": "助理",
   "Assistant permissions": "助理权限",
   "Assistant name": "助理名称",

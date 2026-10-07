@@ -3683,6 +3683,22 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.mobile-drawer-assistant-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 6px;
+  border-radius: 999px;
+  background: var(--mobile-accent);
+  color: var(--mobile-accent-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
 .mobile-drawer-more:active,
 .mobile-drawer-item:not(.mobile-drawer-more-toggle):active {
   background: var(--color-selection);
