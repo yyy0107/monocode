@@ -4,6 +4,7 @@ import type {
   HostModelCatalog,
   RemoteProvider,
 } from "../features/connections/model/protocol";
+import { RUNTIME_MODES, type RuntimeMode } from "../features/sessions/model/session";
 import {
   accountChoices,
   configurationForAgent,
@@ -44,6 +45,27 @@ const catalog: HostModelCatalog = {
 };
 afterEach(() => localStorage.clear());
 describe("mobile defaults scoped to Host and Agent", () => {
+  it.each(RUNTIME_MODES)("restores %s permissions for every Agent on the saved Host", (runtimeMode) => {
+    const saved: MobileAgentDefaults = {
+      harness: "codex",
+      runtimeMode,
+      agents: { codex: { model: "codex:fast", accountId: "work" } },
+    };
+    saveMobileAgentDefaults("one", saved);
+    saveMobileAgentDefaults("two", { runtimeMode: "supervised" });
+    const restored = loadMobileAgentDefaults("one");
+    expect(restored).toEqual(saved);
+    expect(defaultConfiguration(catalog, restored)?.runtimeMode).toBe(runtimeMode);
+    const switched = withDefaultConfiguration(
+      restored,
+      configurationForAgent(catalog, restored, "claude")!,
+    );
+    expect(defaultConfiguration(catalog, switched)?.runtimeMode).toBe(runtimeMode);
+    expect(defaultConfiguration({ models: { claude: catalog.models.claude }, errors: {} }, restored)?.runtimeMode).toBe(runtimeMode);
+    expect(defaultConfiguration(catalog, loadMobileAgentDefaults("two"))?.runtimeMode).toBe("supervised");
+    expect(defaultConfiguration(catalog, loadMobileAgentDefaults("three"))?.runtimeMode).toBe("supervised");
+  });
+
   it("remembers each Agent independently and isolates Hosts even with the same account ID", () => {
     let first: MobileAgentDefaults = {
       harness: "codex",
@@ -206,6 +228,7 @@ describe("mobile defaults scoped to Host and Agent", () => {
     expect(loadMobileAgentDefaults("one")).toEqual({});
     saveMobileAgentDefaults("one", {
       harness: "fake" as RemoteProvider,
+      runtimeMode: "invalid" as RuntimeMode,
       agents: {
         codex: {
           modelSettings: {

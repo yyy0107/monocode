@@ -3489,6 +3489,36 @@ html.theme-light .mobile-settings {
 .mobile-settings-footer .mobile-form-error {
   margin: 0 0 12px;
 }
+.mobile-defaults-status {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--mobile-separator);
+  border-radius: 18px;
+  background: var(--mobile-card);
+  color: var(--color-content);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.mobile-defaults-status p { margin: 0 0 10px; }
+.mobile-defaults-status-heading { display: flex; align-items: center; gap: 8px; }
+.mobile-defaults-status-heading > svg { flex-shrink: 0; }
+.mobile-defaults-status strong { font-weight: 500; }
+.mobile-defaults-status [data-attention="true"] { color: #d87d68; }
+.mobile-defaults-status-issues { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.mobile-defaults-status-issues li { display: flex; flex-wrap: wrap; column-gap: 8px; }
+.mobile-defaults-status-issues small { width: 100%; font-size: inherit; color: color-mix(in srgb, var(--color-content) 65%, transparent); }
+.mobile-defaults-status-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.mobile-defaults-status-details { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0; border: 0; background: transparent; color: color-mix(in srgb, var(--color-content) 65%, transparent); }
+.mobile-defaults-status-details > svg { transition: transform 180ms ease; }
+.mobile-defaults-status-details[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.mobile-defaults-status-details:focus-visible { outline: 2px solid var(--mobile-accent); outline-offset: 3px; }
+.mobile-defaults-status-raw { display: grid; gap: 12px; margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--mobile-separator); }
+.mobile-defaults-status-raw dt { font-weight: 500; }
+.mobile-defaults-status-raw dd { margin: 2px 0 0; white-space: pre-wrap; color: color-mix(in srgb, var(--color-content) 65%, transparent); }
+@media (prefers-reduced-motion: reduce) {
+  .mobile-defaults-status-details > svg { transition: none; }
+}
 .mobile-settings-row {
   display: flex;
   align-items: center;

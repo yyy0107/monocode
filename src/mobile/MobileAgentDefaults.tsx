@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
-import { HARNESS_TITLE } from "../features/sessions/model/session";
+import {
+  DEFAULT_RUNTIME_MODE,
+  HARNESS_TITLE,
+  RUNTIME_MODES,
+  RUNTIME_MODE_LABEL,
+} from "../features/sessions/model/session";
+import { RuntimeModeIcon } from "../features/sessions/ui/RuntimeModeIcon";
 import type {
   HostModelCatalog,
   HostProviderAccounts,
@@ -27,6 +33,7 @@ import {
 } from "./agentDefaults";
 import type { MobilePreferencePanel } from "./MobileSettings";
 import type { MobileClient } from "./client";
+import { MobileAgentDefaultsStatus } from "./MobileAgentDefaultsStatus";
 
 /** Mounted in Settings only; discovery never holds up Home or a conversation. */
 export function MobileAgentDefaults({
@@ -114,12 +121,13 @@ export function MobileAgentDefaults({
   const saved = defaults.harness
     ? defaults.agents?.[defaults.harness]
     : undefined;
+  const runtimeMode = defaults.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const resolved = catalog && defaultConfiguration(catalog, defaults);
   const configuration: MobileConfiguration = resolved ?? {
     harness: defaults.harness ?? "codex",
     model: saved?.model ?? "",
     modelSettings: saved?.modelSettings ?? {},
-    runtimeMode: "supervised",
+    runtimeMode,
   };
   const { modelName, effort } = configurationLabels(catalog, configuration);
   const summary = resolved
@@ -128,12 +136,6 @@ export function MobileAgentDefaults({
         .join(" · ")
     : t(catalogLoading ? "Loading…" : "No models available");
   const unavailable = disabled || !hostId;
-  const errors = [
-    catalogError,
-    ...Object.values(catalog?.errors ?? {}),
-    accountsError,
-    ...Object.values(accounts ?? {}).flatMap(entries => entries?.flatMap(account => account.defaultError ? [t(account.defaultError)] : []) ?? []),
-  ].filter(Boolean);
   return (
     <section
       className="mobile-settings-group"
@@ -157,6 +159,34 @@ export function MobileAgentDefaults({
           </span>
           <ChevronRight size={18} />
         </button>
+        <div className="mobile-settings-row mobile-settings-row-stacked">
+          <span className="mobile-settings-icon" aria-hidden="true">
+            <RuntimeModeIcon mode={runtimeMode} size={24} />
+          </span>
+          <label
+            className="mobile-settings-label"
+            htmlFor="mobile-default-permissions"
+          >
+            <span>{t("Default permissions")}</span>
+          </label>
+          <MobileSelect
+            id="mobile-default-permissions"
+            label={t("Default permissions")}
+            sheetWidth={SHEET_WIDTH.list}
+            value={runtimeMode}
+            open={panel === "default-permissions"}
+            disabled={unavailable}
+            onOpenChange={(open) =>
+              onPanelChange(open ? "default-permissions" : null)
+            }
+            onChange={(mode) => change({ ...defaults, runtimeMode: mode })}
+            options={RUNTIME_MODES.map((mode) => ({
+              value: mode,
+              label: t(RUNTIME_MODE_LABEL[mode]),
+              icon: <RuntimeModeIcon mode={mode} size={22} />,
+            }))}
+          />
+        </div>
         {accountChoices(accounts ?? undefined, defaults).map(
           ({ agent, accounts: options }) => {
             const panelId = `account-${agent}` as const;
@@ -250,23 +280,17 @@ export function MobileAgentDefaults({
           {t("Provider accounts are unavailable on this Host.")}
         </p>
       ) : null}
-      {errors.length > 0 && (
-        <div className="mobile-settings-footer">
-          {errors.map((error, index) => (
-            <p key={index} className="mobile-form-error" role="alert">
-              {error}
-            </p>
-          ))}
-          <button
-            type="button"
-            className="mobile-button"
-            disabled={unavailable || catalogLoading || accountsLoading}
-            onClick={() => setRetry((value) => value + 1)}
-          >
-            {t("Retry")}
-          </button>
-        </div>
-      )}
+      <MobileAgentDefaultsStatus
+        catalog={catalog}
+        catalogError={catalogError}
+        accounts={accounts}
+        accountsError={accountsError}
+        defaults={defaults}
+        harness={configuration.harness}
+        loading={catalogLoading || accountsLoading}
+        disabled={unavailable}
+        onRetry={() => setRetry((value) => value + 1)}
+      />
       <MobileModelControls
         open={panel === "agent-defaults" && !unavailable}
         catalog={catalog}

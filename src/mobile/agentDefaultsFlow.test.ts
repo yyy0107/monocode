@@ -258,6 +258,7 @@ async function send() {
 function saveChosen(hostId = "defaults-one") {
   saveMobileAgentDefaults(hostId, {
     harness: "codex",
+    runtimeMode: "full-access",
     agents: {
       codex: {
         model: "codex:chosen",
@@ -288,6 +289,11 @@ describe("mobile Agent defaults settings and new conversations", () => {
     expect(dialog().textContent).toContain("Chosen");
     expect(dialog().textContent).toContain("High");
     await dismiss();
+    await click("Default permissions");
+    expect(dialog().querySelector('[aria-checked="true"]')?.textContent).toBe("Supervised");
+    expect(dialog().querySelectorAll('[role="radio"]')).toHaveLength(4);
+    await click("Full access", dialog());
+    expect(loadMobileAgentDefaults("defaults-one").runtimeMode).toBe("full-access");
     await click("Codex account");
     await click("Work account", dialog());
     expect(loadMobileAgentDefaults("defaults-one").agents?.codex).toEqual({
@@ -300,6 +306,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     ).toEqual({ effort: "high" });
     await act(async () => setUiLanguage("zh-CN"));
     expect(current('[aria-label="新会话"]')).not.toBeNull();
+    expect(current("#mobile-default-permissions")?.textContent).toContain("完全访问");
     expect(current("#mobile-account-codex")?.textContent).toContain(
       "Work account",
     );
@@ -312,6 +319,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     await click("首页菜单");
     await click("设置", dialog());
     await click("新会话");
+    expect(current("#mobile-default-permissions")?.textContent).toContain("完全访问");
     expect(current('[aria-label="新会话"]')?.textContent).toContain(
       "Chosen",
     );
@@ -344,6 +352,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
           model: "codex:chosen",
           modelSettings: { reasoningEffort: "high" },
           providerAccountId: "work",
+          runtimeMode: "full-access",
         }),
         { text: "Use my preferences" },
       );
@@ -358,10 +367,14 @@ describe("mobile Agent defaults settings and new conversations", () => {
     await click("Model and reasoning");
     await choose("Model", "First");
     await dismiss();
+    await click("Permissions: Full access");
+    await click("Auto", dialog());
     await settings(true);
     await defaultsPanel();
     await choose("Agent", HARNESS_TITLE.claude);
     await dismiss();
+    await click("Default permissions");
+    await click("Supervised", dialog());
     await click("Codex account");
     await click("Default account", dialog());
     await leaveSettings();
@@ -372,10 +385,12 @@ describe("mobile Agent defaults settings and new conversations", () => {
         harness: "codex",
         model: "codex:first",
         providerAccountId: "work",
+        runtimeMode: "auto",
       }),
       { text: "Keep this draft" },
     );
     expect(loadMobileAgentDefaults("defaults-one").harness).toBe("claude");
+    expect(loadMobileAgentDefaults("defaults-one").runtimeMode).toBe("supervised");
     expect(loadMobileAgentDefaults("defaults-one").agents?.codex?.model).toBe(
       "codex:chosen",
     );
@@ -405,7 +420,10 @@ describe("mobile Agent defaults settings and new conversations", () => {
     await defaultsPanel();
     await choose("Agent", HARNESS_TITLE.claude);
     await dismiss();
+    await click("Default permissions");
+    await click("Auto", dialog());
     await leaveSettings();
+    expect(current('[aria-label="Permissions: Supervised"]')).not.toBeNull();
     await input("Continue existing");
     await send();
     expect(host.dispatch).toHaveBeenCalledWith(
@@ -459,6 +477,8 @@ describe("mobile Agent defaults settings and new conversations", () => {
     await leaveSettings();
     host.providerAccounts.mockRejectedValue(new Error("Network offline"));
     await settings();
+    expect(current(".mobile-defaults-status [role=alert]")?.textContent).toContain("Accounts");
+    await click("Error details");
     expect(node.textContent).toContain("Network offline");
     host.providerAccounts.mockResolvedValue(accounts);
     await click("Retry");
@@ -515,6 +535,9 @@ describe("mobile Agent defaults settings and new conversations", () => {
     expect(
       current('[aria-label="New conversations"]')?.textContent,
     ).toContain("Claude model");
+    expect(current(".mobile-defaults-status [role=alert]")?.textContent).toContain("Default settings need attention");
+    expect(current(".mobile-defaults-status [role=status]")).toBeNull();
+    await click("Error details");
     expect(node.textContent).toContain("Codex is unavailable");
     expect(loadMobileAgentDefaults("defaults-one").harness).toBe("codex");
     host.models.mockResolvedValue(catalog);
@@ -523,6 +546,59 @@ describe("mobile Agent defaults settings and new conversations", () => {
       current('[aria-label="New conversations"]')?.textContent,
     ).toContain("Chosen");
     expect(host.models).toHaveBeenLastCalledWith(undefined, true);
+  });
+
+  it("identifies another agent's login warning without marking Codex as failed, and preserves raw details", async () => {
+    saveChosen();
+    host.models.mockResolvedValue({ ...catalog, errors: { antigravity: "Authentication required" } });
+    await render();
+    await settings();
+    const status = current(".mobile-defaults-status")!;
+    expect(status.querySelector('[role="alert"]')).toBeNull();
+    expect(status.querySelector('[role="status"]')?.textContent).toContain("Codex models loaded");
+    expect(status.querySelector("li strong")?.textContent).toBe("Antigravity");
+    expect(status.querySelector("li span")?.textContent).toContain("Authentication required");
+    expect(status.textContent).toContain("Sign in to this agent on the Host computer, then retry.");
+    expect(status.querySelector(".mobile-defaults-status-raw")).toBeNull();
+    await act(async () => setUiLanguage("zh-CN"));
+    expect(status.querySelector('[role="status"]')?.textContent).toContain("Codex 模型列表已加载");
+    expect(status.querySelector("li strong")?.textContent).toBe("Antigravity");
+    expect(status.querySelector("li span")?.textContent).toContain("需要认证");
+    await click("错误详情");
+    expect(status.querySelector("dd")?.textContent).toBe("Authentication required");
+    await click("错误详情");
+    expect(status.querySelector('.zen-fold-item[aria-hidden="true"][inert]')).not.toBeNull();
+    await click("错误详情");
+    expect(status.querySelector('.zen-fold-item[aria-hidden="true"]')).toBeNull();
+    let resolve!: (value: HostModelCatalog) => void;
+    host.cachedModels.mockReturnValue({ ...catalog, errors: { antigravity: "Authentication required" } });
+    host.models.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    await click("重试");
+    expect(status.getAttribute("aria-busy")).toBe("true");
+    expect(status.textContent).toContain("正在检查智能体…");
+    expect(status.querySelector<HTMLButtonElement>(".mobile-button")?.disabled).toBe(true);
+    await act(async () => resolve(catalog));
+    expect(current(".mobile-defaults-status")).toBeNull();
+    expect(loadMobileAgentDefaults("defaults-one").harness).toBe("codex");
+  });
+
+  it("treats a failed Host default account as informational when a named account is selected", async () => {
+    saveChosen();
+    host.providerAccounts.mockResolvedValue({
+      ...accounts,
+      codex: [
+        { id: "default", label: "Default account", defaultError: "This provider account is no longer available" },
+        { id: "work", label: "Work account" },
+      ],
+    });
+    await render();
+    await settings();
+    expect(current(".mobile-defaults-status [role=alert]")).toBeNull();
+    expect(current(".mobile-defaults-status li strong")?.textContent).toBe("Codex account");
+    expect(current(".mobile-defaults-status li span")?.textContent).toContain("Host default unavailable");
+    await click("Codex account");
+    await click("Host default unavailable", dialog());
+    expect(current(".mobile-defaults-status [role=alert]")?.textContent).toContain("Default settings need attention");
   });
 
   it("does not overwrite a manual model choice when a warmed catalog finishes refreshing", async () => {
@@ -551,6 +627,23 @@ describe("mobile Agent defaults settings and new conversations", () => {
     );
     expect(loadMobileAgentDefaults("defaults-one").agents?.codex?.model).toBe(
       "codex:chosen",
+    );
+  });
+
+  it("keeps saved permissions while an uncached model catalog loads", async () => {
+    saveChosen();
+    let resolve!: (catalog: HostModelCatalog) => void;
+    host.models.mockReturnValue(new Promise((done) => { resolve = done; }));
+    await render();
+    await click("New conversation", current(".mobile-home")!);
+    expect(current('[aria-label="Permissions: Full access"]')).not.toBeNull();
+    await act(async () => resolve(catalog));
+    expect(current('[aria-label="Permissions: Full access"]')).not.toBeNull();
+    await input("Use saved permissions");
+    await send();
+    expect(host.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "create", runtimeMode: "full-access" }),
+      { text: "Use saved permissions" },
     );
   });
 });

@@ -6,6 +6,11 @@ import {
 } from "../features/connections/model/protocol";
 import { findRemoteModel } from "../features/connections/model/remoteModels";
 import {
+  DEFAULT_RUNTIME_MODE,
+  RUNTIME_MODES,
+  type RuntimeMode,
+} from "../features/sessions/model/session";
+import {
   configurationForModel,
   type MobileConfiguration,
 } from "./MobileModelControls";
@@ -26,6 +31,7 @@ type AgentDefaults = {
 /** Defaults for one Host on this phone, independent of desktop preferences. */
 export type MobileAgentDefaults = {
   harness?: RemoteProvider;
+  runtimeMode?: RuntimeMode;
   agents?: Partial<Record<RemoteProvider, AgentDefaults>>;
 };
 type StoredDefaults = {
@@ -47,6 +53,7 @@ function strings(value: unknown): Record<string, string> | undefined {
 function parseDefaults(raw: unknown): MobileAgentDefaults {
   if (!isRecord(raw)) return {};
   const harness = REMOTE_PROVIDERS.find((value) => value === raw.harness);
+  const runtimeMode = RUNTIME_MODES.find((value) => value === raw.runtimeMode);
   const agents: MobileAgentDefaults["agents"] = {};
   for (const provider of REMOTE_PROVIDERS) {
     const value = isRecord(raw.agents) ? raw.agents[provider] : undefined;
@@ -70,7 +77,11 @@ function parseDefaults(raw: unknown): MobileAgentDefaults {
         : {}),
     };
   }
-  return { ...(harness ? { harness } : {}), agents };
+  return {
+    ...(harness ? { harness } : {}),
+    ...(runtimeMode ? { runtimeMode } : {}),
+    agents,
+  };
 }
 function read(): Record<string, unknown> {
   try {
@@ -154,6 +165,7 @@ export function configurationForAgent(
   return configurationForModel(
     findRemoteModel(models, saved?.model ?? "") ?? models[0],
     saved?.modelSettings,
+    defaults.runtimeMode ?? DEFAULT_RUNTIME_MODE,
   );
 }
 /** Resolve against the actual catalog without overwriting saved preferences. */

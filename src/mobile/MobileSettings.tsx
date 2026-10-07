@@ -24,7 +24,7 @@ export type MobileSettingsPage =
   "connections" | "updates" | "glass" | "archive";
 export type MobilePreferencePanel =
   "theme" | "accent" | "language" | "glass" | "follow-up" | "transcript-layout" |
-  "agent-defaults" | "account-claude" | "account-codex" |
+  "agent-defaults" | "default-permissions" | "account-claude" | "account-codex" |
   "connection-menu" | "connection-edit" | "connection-delete" | null;
 
 const SETTINGS_TITLES: Record<MobileSettingsPage, string> = {

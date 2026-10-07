@@ -33,6 +33,7 @@ import {
   X,
 } from "../shared/ui/icons";
 import {
+  DEFAULT_RUNTIME_MODE,
   sessionDisplayTitle,
   type Attachment,
   type QueuedMessage,
@@ -650,7 +651,8 @@ export function MobileApp() {
     setCatalog(cachedCatalog);
     setCatalogLoading(!cachedCatalog);
     setConfiguration((cachedCatalog && firstConfiguration(cachedCatalog, defaults)) ?? {
-      harness: "codex", model: "", modelSettings: {}, runtimeMode: "supervised",
+      harness: "codex", model: "", modelSettings: {},
+      runtimeMode: defaults.runtimeMode ?? DEFAULT_RUNTIME_MODE,
     });
     setSessionId(undefined);
     setChatPageKey(`draft:${item.id}:${turn}`);
