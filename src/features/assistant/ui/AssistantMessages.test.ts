@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AssistantMessage } from "../model/assistant";
 import { AssistantMessages } from "./AssistantMessages";
 import { AgentMarkdown } from "../../sessions/ui/AgentMarkdown";
+import { quoteAssistantReply, splitAssistantReply } from "../model/assistantReply";
 
 vi.mock("../../sessions/ui/AgentMarkdown", () => ({
   AgentMarkdown: vi.fn(({ text }: { text: string }) =>
@@ -26,6 +27,36 @@ afterEach(() => {
   act(() => root.unmount());
   node.remove();
   vi.unstubAllGlobals();
+});
+
+it.each([true, false])("separates the quote above a mobile sent bubble while retaining full copy text (mobile: %s)", (mobile) => {
+  const quote = "我先检查你电脑上\n\n本地提交和远程分支，再推送已有提交";
+  const text = `${quoteAssistantReply(quote)}\n\n你好\n请继续`;
+  const bindReply = vi.fn(() => ({}));
+  act(() => root.render(createElement(AssistantMessages, {
+    messages: [{ kind: "user", id: "sent", revision: 1, createdAt: 1, text }],
+    canRead: true,
+    mobile,
+    busy: false,
+    bindReply,
+    onOpen: vi.fn(),
+    onRespond: vi.fn(),
+  })));
+  expect(node.querySelector(".assistant-message-user")?.textContent).toBe(mobile ? "你好\n请继续" : text);
+  const context = node.querySelector(".assistant-message-reply-context");
+  if (mobile) {
+    expect(context?.textContent).toBe(quote);
+    expect(context?.querySelector("svg")).not.toBeNull();
+    expect(bindReply).toHaveBeenCalledWith(text, false);
+  } else expect(context).toBeNull();
+});
+
+it("recognizes legacy multiline quotes without consuming the reply's own paragraphs", () => {
+  expect(splitAssistantReply("> First\r\n> \r\n> Last\r\n\r\nReply\r\n\r\nDetails")).toEqual({
+    quote: "First\n\nLast", text: "Reply\r\n\r\nDetails",
+  });
+  for (const text of ["Hello\n\nWorld", "> literal without reply", "> Quote\nUnquoted\n\nBody", "A > B\n\nBody"])
+    expect(splitAssistantReply(text)).toBeUndefined();
 });
 
 it("leaves settled message rows alone while the final reply grows", () => {

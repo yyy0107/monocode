@@ -11,6 +11,7 @@ import {
 } from "../features/assistant/model/assistant";
 import type { AssistantRpc } from "../features/assistant/model/assistantClient";
 import { setUiLanguage } from "../shared/i18n/language";
+import { KEYBOARD_EVENT, installKeyboardMotion } from "./keyboardMotion";
 
 vi.mock("../features/assistant/ui/AssistantWorkerDetails", () => ({
   AssistantWorkerDetails: () => null,
@@ -154,6 +155,183 @@ async function mount() {
   await flush();
   return { ...data, ref, close };
 }
+
+function touch(target: Element, type: string, x: number, y = 100, pointerId = 1) {
+  act(() => target.dispatchEvent(new PointerEvent(type, {
+    bubbles: true, cancelable: true, pointerType: "touch", button: 0,
+    pointerId, clientX: x, clientY: y,
+  })));
+}
+async function mountConversation() {
+  const data = await mount();
+  data.messages([
+    { kind: "user", id: "user", revision: 1, createdAt: 1, text: "Question" },
+    { kind: "assistant", id: "reply", revision: 2, createdAt: 2, text: "A result\nNext line" },
+  ]);
+  await act(async () => vi.advanceTimersByTime(2000));
+  await flush();
+  return {
+    ...data,
+    log: node.querySelector<HTMLElement>(".assistant-messages")!,
+    bubble: node.querySelector<HTMLElement>(".assistant-message-assistant")!,
+    user: node.querySelector<HTMLElement>(".assistant-message-user")!,
+    field: node.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message assistant"]')!,
+  };
+}
+
+it("swipes a reply above the unchanged draft and sends the full quote with it", async () => {
+  const { bubble, field, rpc, log } = await mountConversation();
+  type(field, "Explain this");
+  touch(bubble, "pointerdown", 80);
+  touch(bubble, "pointermove", 160);
+  touch(bubble, "lostpointercapture", 160);
+  act(() => vi.advanceTimersByTime(500));
+  expect(log.dataset.messageSwipe).toBe("reply");
+  expect(node.querySelector('[role="dialog"][aria-label="Message actions"]')).toBeNull();
+  touch(bubble, "pointerup", 160);
+  expect(field.value).toBe("Explain this");
+  expect(node.querySelector(".mobile-assistant-reply-preview blockquote")?.textContent).toBe("A result\nNext line");
+  expect(log.inert).toBe(true);
+  expect(node.querySelector(".mobile-assistant-reply-backdrop")?.getAttribute("data-active")).toBe("true");
+  expect(document.activeElement).toBe(field);
+  expect(log.dataset.messageSwipe).toBeUndefined();
+  expect(rpc.mock.calls.some(([method]) => method === "assistant.send")).toBe(false);
+  act(() => button("Send").click());
+  await flush();
+  expect(rpc.mock.calls.find(([method]) => method === "assistant.send")?.[1].text).toBe("> A result\n> Next line\n\nExplain this");
+  expect(field.value).toBe("");
+  expect(log.inert).toBe(false);
+  expect(node.querySelector<HTMLElement>(".mobile-assistant-reply-collapse")?.inert).toBe(true);
+  act(() => vi.advanceTimersByTime(351));
+  expect(node.querySelector(".mobile-assistant-reply-preview")).toBeNull();
+});
+
+it("cancels reply focus with Back, the close button or the backdrop while preserving the draft", async () => {
+  const { bubble, field, log, ref, close } = await mountConversation();
+  type(field, "Keep my draft");
+  const reply = () => {
+    touch(bubble, "pointerdown", 80);
+    touch(bubble, "pointermove", 160);
+    touch(bubble, "pointerup", 160);
+  };
+  for (const cancel of [
+    () => ref.current!.back(),
+    () => node.querySelector<HTMLButtonElement>(".mobile-assistant-reply-cancel")!.click(),
+    () => node.querySelector<HTMLButtonElement>(".mobile-assistant-reply-backdrop")!.click(),
+  ]) {
+    reply();
+    act(() => cancel());
+    expect(field.value).toBe("Keep my draft");
+    expect(log.inert).toBe(false);
+    const fold = node.querySelector<HTMLElement>(".mobile-assistant-reply-collapse")!;
+    expect(fold.dataset.foldState).toBe("closing");
+    expect(fold.inert).toBe(true);
+    expect(fold.textContent).toContain("A result\nNext line");
+    // Reopening during exit keeps the content and restores interaction.
+    reply();
+    expect(fold.dataset.foldState).toBe("opening");
+    expect(fold.inert).toBe(false);
+    act(() => ref.current!.back());
+    act(() => vi.advanceTimersByTime(351));
+    expect(node.querySelector(".mobile-assistant-reply-preview")).toBeNull();
+  }
+  expect(close).not.toHaveBeenCalled();
+});
+
+it("restores a quoted draft after reopening and retains the same payload through a failed send", async () => {
+  const { bubble, field } = await mountConversation();
+  type(field, "Explain this");
+  touch(bubble, "pointerdown", 80);
+  touch(bubble, "pointermove", 160);
+  touch(bubble, "pointerup", 160);
+  act(() => root.unmount());
+  root = createRoot(node);
+  const data = await mount();
+  expect(node.querySelector("textarea")?.value).toBe("Explain this");
+  expect(node.querySelector(".mobile-assistant-reply-preview blockquote")?.textContent).toBe("A result\nNext line");
+  data.failSend(true);
+  act(() => button("Send").click());
+  await flush();
+  const sent = data.rpc.mock.calls.find(([method]) => method === "assistant.send")![1];
+  expect(sent.text).toBe("> A result\n> Next line\n\nExplain this");
+  expect(node.querySelector(".mobile-assistant-reply-preview")).not.toBeNull();
+  data.failSend(false);
+  act(() => button("Retry message").click());
+  await flush();
+  expect(data.rpc.mock.calls.filter(([method]) => method === "assistant.send").at(-1)![1]).toEqual(sent);
+  expect(localStorage.getItem("monocode.assistant-reply:host")).toBeNull();
+});
+
+it.each(["background", "user", "assistant"])("reveals every message time while swiping left from %s", async (start) => {
+  const { log, bubble, user, field } = await mountConversation();
+  const target = start === "background" ? log : start === "user" ? user : bubble;
+  expect(log.querySelectorAll(".assistant-swipe-time")).toHaveLength(2);
+  expect(bubble.parentElement!.querySelector(".assistant-message-meta")).toBeNull();
+  expect(log.querySelector(".assistant-message-meta button")).toBeNull();
+  touch(target, "pointerdown", 260);
+  touch(target, "pointermove", 160);
+  expect(log.dataset.messageSwipe).toBe("time");
+  act(() => vi.advanceTimersByTime(20));
+  const times = [...log.querySelectorAll<HTMLElement>(".assistant-swipe-time")];
+  for (const time of times) {
+    expect(time.style.transform).toBe("translate3d(6px, 0, 0)");
+    expect(time.style.opacity).toBe("1");
+  }
+  touch(target, "pointerup", 160);
+  expect(log.dataset.messageSwipe).toBeUndefined();
+  for (const time of times) expect(time.style.transform).toBe("");
+  expect(field.value).toBe("");
+});
+
+it("cancels short, reversed, vertical, interrupted and multiple-touch gestures", async () => {
+  const { log, bubble, user, field } = await mountConversation();
+  touch(bubble, "pointerdown", 80);
+  touch(bubble, "pointermove", 120);
+  touch(bubble, "pointerup", 120);
+  touch(bubble, "pointerdown", 80);
+  touch(bubble, "pointermove", 165);
+  touch(bubble, "pointermove", 85);
+  touch(bubble, "pointerup", 85);
+  touch(bubble, "pointerdown", 80);
+  touch(bubble, "pointermove", 85, 160);
+  touch(bubble, "pointermove", 180, 160);
+  touch(bubble, "pointerup", 180, 160);
+  touch(bubble, "pointerdown", 80);
+  touch(bubble, "pointermove", 180);
+  touch(bubble, "pointercancel", 180);
+  touch(bubble, "pointerdown", 80);
+  touch(bubble, "pointermove", 180);
+  touch(log, "pointerdown", 200, 100, 2);
+  touch(bubble, "pointerup", 180);
+  touch(log, "pointerup", 200, 100, 2);
+  touch(user, "pointerdown", 80);
+  touch(user, "pointermove", 180);
+  touch(user, "pointerup", 180);
+  expect(field.value).toBe("");
+  expect(log.dataset.messageSwipe).toBeUndefined();
+  act(() => vi.advanceTimersByTime(500));
+  expect(node.querySelector('[role="dialog"][aria-label="Message actions"]')).toBeNull();
+});
+
+it("keeps time gestures and copy available when replies are disabled", async () => {
+  const { log, bubble, field, update } = await mountConversation();
+  update({ enabled: false });
+  await act(async () => vi.advanceTimersByTime(2000));
+  await flush();
+  touch(bubble, "pointerdown", 80);
+  touch(bubble, "pointermove", 180);
+  touch(bubble, "pointerup", 180);
+  expect(field.value).toBe("");
+  touch(bubble, "pointerdown", 180);
+  touch(bubble, "pointermove", 80);
+  expect(log.dataset.messageSwipe).toBe("time");
+  touch(bubble, "pointerup", 80);
+  touch(bubble, "pointerdown", 80);
+  act(() => vi.advanceTimersByTime(450));
+  touch(bubble, "pointerup", 80);
+  expect(button("Reply").disabled).toBe(true);
+  expect(button("Copy").disabled).toBe(false);
+});
 it("expands activity inside the center capsule and retains it through closing and rapid restart", async () => {
   const data = await mount();
   const capsule = node.querySelector(".mobile-assistant-header > .mobile-header-title")!;
@@ -265,24 +443,25 @@ it("opens Reply on a stationary long press, cancels scrolling holds and closes w
   pointer("pointerdown");
   pointer("pointermove", 130);
   act(() => vi.advanceTimersByTime(500));
-  expect(node.querySelector('[role="dialog"][aria-label="Reply"]')).toBeNull();
+  expect(node.querySelector('[role="dialog"][aria-label="Message actions"]')).toBeNull();
   pointer("pointerdown");
   act(() => vi.advanceTimersByTime(449));
-  expect(node.querySelector('[role="dialog"][aria-label="Reply"]')).toBeNull();
+  expect(node.querySelector('[role="dialog"][aria-label="Message actions"]')).toBeNull();
   act(() => vi.advanceTimersByTime(1));
   expect(
-    node.querySelector('[role="dialog"][aria-label="Reply"]'),
+    node.querySelector('[role="dialog"][aria-label="Message actions"]'),
   ).not.toBeNull();
   pointer("pointerup");
   act(() => data.ref.current!.back());
   expect(data.close).not.toHaveBeenCalled();
   act(() => vi.advanceTimersByTime(400));
-  expect(node.querySelector('[role="dialog"][aria-label="Reply"]')).toBeNull();
+  expect(node.querySelector('[role="dialog"][aria-label="Message actions"]')).toBeNull();
   pointer("pointerdown");
   act(() => vi.advanceTimersByTime(450));
   pointer("pointerup");
   act(() => button("Reply").click());
-  expect(field.value).toBe("> A result\n\nExplain this");
+  expect(field.value).toBe("Explain this");
+  expect(node.querySelector(".mobile-assistant-reply-preview blockquote")?.textContent).toBe("A result");
   expect(document.activeElement).toBe(field);
   expect(
     data.rpc.mock.calls.some(([method]) => method === "assistant.send"),
@@ -440,6 +619,59 @@ it("opens and closes the settings sheet immediately with reduced motion", async 
   act(() => data.ref.current!.back());
   expect(node.querySelector(".mobile-assistant-settings-page")).toBeNull();
   expect(data.close).not.toHaveBeenCalled();
+});
+it("releases the settings action bar's space during typing and restores unsaved actions after keyboard reversal", async () => {
+  const stop = installKeyboardMotion();
+  const keyboard = (height: number) => act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+    detail: { height, viewport: 800, duration: 240, easing: "linear" },
+  })));
+  try {
+    await mount();
+    act(() => button("Assistant options").click());
+    act(() => button("Settings").click());
+    const name = node.querySelector<HTMLInputElement>('.assistant-settings input:not([type])')!;
+    type(name, "Unsaved name");
+    const actions = () => node.querySelector<HTMLElement>(".mobile-assistant-settings-actions");
+    const footer = node.querySelector(".assistant-settings-footer");
+    keyboard(320);
+    expect(actions()?.dataset.foldState).toBe("closing");
+    expect(actions()?.inert).toBe(true);
+    expect(node.querySelector(".assistant-settings-footer")).toBe(footer);
+    act(() => vi.advanceTimersByTime(80));
+    keyboard(0);
+    expect(actions()?.dataset.foldState).toBe("opening");
+    expect(actions()?.inert).toBe(false);
+    keyboard(320);
+    act(() => vi.advanceTimersByTime(251));
+    expect(actions()).toBeNull();
+    expect(node.querySelector(".assistant-settings-footer")).toBeNull();
+    expect(name.value).toBe("Unsaved name");
+    keyboard(0);
+    expect(actions()?.dataset.foldState).toBe("opening");
+    act(() => vi.advanceTimersByTime(251));
+    expect(actions()?.dataset.foldState).toBe("open");
+    expect(button("Save settings").disabled).toBe(false);
+    expect(button("Reset")).toBeDefined();
+  } finally { stop(); }
+});
+it("opens settings above an existing keyboard and restores actions without animation for reduced motion", async () => {
+  vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
+  const stop = installKeyboardMotion();
+  const keyboard = (height: number) => act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+    detail: { height, viewport: 800, duration: 240, easing: "linear" },
+  })));
+  try {
+    await mount();
+    keyboard(320);
+    act(() => button("Assistant options").click());
+    act(() => button("Settings").click());
+    expect(node.querySelector(".assistant-settings")).not.toBeNull();
+    expect(node.querySelector(".assistant-settings-footer")).toBeNull();
+    keyboard(0);
+    expect(node.querySelector<HTMLElement>(".mobile-assistant-settings-actions")?.dataset.foldState).toBe("open");
+    keyboard(320);
+    expect(node.querySelector(".assistant-settings-footer")).toBeNull();
+  } finally { stop(); }
 });
 it("uses the current generation for lifecycle controls from the phone menu", async () => {
   const data = await mount();

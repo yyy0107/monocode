@@ -6,7 +6,9 @@ const interactive = (target: EventTarget) =>
 
 /** Touch movement cancels the hold so reading/scrolling never opens a menu. */
 export function useAssistantReplyMenu(mobile: boolean, active: boolean) {
-  const [menu, setMenu] = useState<{ x: number; y: number; text: string }>();
+  const [menu, setMenu] = useState<{
+    x: number; y: number; text: string; replyable: boolean;
+  }>();
   const hold = useRef<
     { x: number; y: number; timer: ReturnType<typeof setTimeout> } | undefined
   >(undefined);
@@ -22,7 +24,7 @@ export function useAssistantReplyMenu(mobile: boolean, active: boolean) {
     if (!active) close();
     return cancelHold;
   }, [active, close, cancelHold]);
-  const bind = useCallback((text: string): HTMLAttributes<HTMLDivElement> => ({
+  const bind = useCallback((text: string, replyable = true): HTMLAttributes<HTMLDivElement> => ({
     tabIndex: 0,
     "aria-haspopup": mobile ? "dialog" : "menu",
     onContextMenu: (event) => {
@@ -31,7 +33,7 @@ export function useAssistantReplyMenu(mobile: boolean, active: boolean) {
       event.preventDefault();
       event.stopPropagation();
       cancelHold();
-      setMenu({ x: event.clientX, y: event.clientY, text });
+      setMenu({ x: event.clientX, y: event.clientY, text, replyable });
     },
     onKeyDown: (event) => {
       if (!active || interactive(event.target)) return;
@@ -41,7 +43,7 @@ export function useAssistantReplyMenu(mobile: boolean, active: boolean) {
       ) {
         event.preventDefault();
         const rect = event.currentTarget.getBoundingClientRect();
-        setMenu({ x: rect.left, y: rect.bottom, text });
+        setMenu({ x: rect.left, y: rect.bottom, text, replyable });
       }
     },
     onPointerDown: (event) => {
@@ -61,7 +63,7 @@ export function useAssistantReplyMenu(mobile: boolean, active: boolean) {
         y,
         timer: setTimeout(() => {
           hold.current = undefined;
-          setMenu({ x, y, text });
+          setMenu({ x, y, text, replyable });
         }, 450),
       };
     },

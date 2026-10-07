@@ -9,6 +9,7 @@ import {
   useState,
   type ComponentProps,
   type Ref,
+  type ReactNode,
 } from "react";
 import { AssistantChat } from "../features/assistant/ui/AssistantChat";
 import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
@@ -30,6 +31,8 @@ import {
   ArrowUp,
   Check,
   ChevronRight,
+  Copy,
+  CornerDownRight,
   File,
   MoreHorizontal,
   Pause,
@@ -44,6 +47,7 @@ import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { HARNESS_TITLE } from "../features/sessions/model/session";
 import { preserveInputFocus, usePreserveInputFocusOnTouch } from "./inputFocus";
 import { useMobileTextareaAutosize } from "./useMobileTextareaAutosize";
+import { keyboardHeight, keyboardMotionRemaining, onKeyboardMotion } from "./keyboardMotion";
 import "./assistant.css";
 
 const BackHandlers = createContext(new Map<number, () => void>());
@@ -197,6 +201,7 @@ function MobileAssistantSettingsPanel({
     <MobileSheet
       open={open}
       title={initialSetup ? "Set up assistant" : "Assistant settings"}
+      surface="solid"
       onClose={onClose}
     >
       <section className="mobile-assistant-settings-page">
@@ -217,6 +222,24 @@ function MobileAssistantSettingsPanel({
         <div className="mobile-assistant-settings-content">{children}</div>
       </section>
     </MobileSheet>
+  );
+}
+
+function MobileAssistantSettingsActions({ children }: { children: ReactNode }) {
+  const [motion, setMotion] = useState(() => ({
+    height: keyboardHeight(),
+    duration: keyboardMotionRemaining(),
+  }));
+  useLayoutEffect(() => onKeyboardMotion(setMotion), []);
+  return (
+    <AnimatedCollapse
+      className="mobile-assistant-settings-actions"
+      expanded={motion.height === 0}
+      durationMs={motion.duration}
+      motion="height"
+    >
+      {children}
+    </AnimatedCollapse>
   );
 }
 
@@ -244,6 +267,8 @@ function MobileAssistantControls({
 
 function MobileAssistantComposer({
   draft,
+  replyText,
+  onCancelReply,
   onDraftChange,
   onSend,
   onAttach,
@@ -262,6 +287,11 @@ function MobileAssistantComposer({
   const files = useRef<HTMLInputElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const [renderedAttachments, setRenderedAttachments] = useState(attachments);
+  const lastReply = useRef(replyText);
+  useLayoutEffect(() => {
+    if (replyText !== undefined) lastReply.current = replyText;
+  }, [replyText]);
+  useAssistantBack(1, replyText !== undefined, () => onCancelReply?.());
   usePreserveInputFocusOnTouch(form, input, true);
   useLayoutEffect(() => {
     if (attachments.length) setRenderedAttachments(attachments);
@@ -288,6 +318,21 @@ function MobileAssistantComposer({
   useMobileTextareaAutosize(input, draft, { minHeight: 28, viewportHeightRatio: 0.25 });
   return (
     <div ref={dock} className="mobile-assistant-compose-dock">
+      <AnimatedCollapse expanded={replyText !== undefined} className="mobile-assistant-reply-collapse">
+        <div className="mobile-assistant-reply-preview" aria-label={t("Replying to")}>
+          <blockquote>{replyText ?? lastReply.current}</blockquote>
+          <button
+            type="button"
+            className="mobile-assistant-reply-cancel"
+            aria-label={t("Cancel reply")}
+            onPointerDown={(e) => preserveInputFocus(e, input.current)}
+            onMouseDown={(e) => preserveInputFocus(e, input.current)}
+            onClick={onCancelReply}
+          >
+            <X size={18} />
+          </button>
+        </div>
+      </AnimatedCollapse>
       {retry && (
         <button
           type="button"
@@ -358,7 +403,7 @@ function MobileAssistantComposer({
             ref={input}
             rows={1}
             aria-label={t("Message assistant")}
-            placeholder={t("Ask your assistant…")}
+            placeholder={t(replyText !== undefined ? "Reply" : "Ask your assistant…")}
             value={draft}
             disabled={inputDisabled}
             onChange={(e) => onDraftChange(e.target.value)}
@@ -380,29 +425,67 @@ function MobileAssistantComposer({
 function MobileAssistantMessageMenu({
   open,
   point,
+  text = "",
+  replyable = true,
   disabled,
   onReply,
   onClose,
 }: AssistantMessageMenuProps) {
   const { t } = useTranslation();
+  const { copyMessage } = useContext(TranscriptPlatformContext);
+  const [copying, setCopying] = useState(false);
+  const [copyError, setCopyError] = useState<string>();
+  const copyRequest = useRef(0);
+  const lastMessage = useRef({ text, replyable });
+  useLayoutEffect(() => {
+    if (open) lastMessage.current = { text, replyable };
+  }, [open, text, replyable]);
+  useEffect(() => {
+    setCopying(false);
+    setCopyError(undefined);
+    return () => { copyRequest.current++; };
+  }, [open, text]);
+  const message = open ? { text, replyable } : lastMessage.current;
   useAssistantBack(3, open, onClose);
   return (
     <MobileSheet
       open={open}
-      title="Reply"
+      title="Message actions"
       placement="anchor"
       anchorPoint={point}
       width={SHEET_WIDTH.menu}
       onClose={onClose}
     >
-      <button
+      {message.replyable && <button
         type="button"
         className="mobile-sheet-row"
         disabled={disabled}
         onClick={onReply}
       >
+        <CornerDownRight size={20} />
         <span>{t("Reply")}</span>
+      </button>}
+      <button
+        type="button"
+        className="mobile-sheet-row"
+        disabled={copying || !message.text}
+        onClick={() => {
+          const request = ++copyRequest.current;
+          setCopying(true);
+          setCopyError(undefined);
+          void copyMessage(message.text).then(() => {
+            if (copyRequest.current === request) onClose();
+          }, (error: unknown) => {
+            if (copyRequest.current !== request) return;
+            setCopying(false);
+            setCopyError(error instanceof Error ? error.message : String(error));
+          });
+        }}
+      >
+        <Copy size={20} />
+        <span>{t("Copy")}</span>
       </button>
+      {copyError && <p role="alert">{t("Copy failed. ")}{copyError}</p>}
     </MobileSheet>
   );
 }
@@ -516,6 +599,7 @@ const chrome: AssistantChatChrome = {
   Header: MobileAssistantHeader,
   Controls: MobileAssistantControls,
   SettingsPanel: MobileAssistantSettingsPanel,
+  SettingsActions: MobileAssistantSettingsActions,
   Composer: MobileAssistantComposer,
   MessageMenu: MobileAssistantMessageMenu,
   Select: MobileAssistantSelect,

@@ -125,6 +125,95 @@
   overflow-anchor: none;
   overscroll-behavior-y: contain;
   scrollbar-width: none;
+  overflow-x: hidden;
+  overscroll-behavior-x: contain;
+  /* Reserve horizontal drags across bubbles and gaps for message gestures. */
+  touch-action: pan-y pinch-zoom;
+}
+.assistant-chat[data-layout="mobile"] .assistant-message-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 100%;
+}
+.assistant-chat[data-layout="mobile"] .assistant-message-row-user {
+  align-items: flex-end;
+}
+.assistant-message-reply-context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 88%;
+  margin: 4px 4px 6px;
+  color: var(--color-foreground-subtle);
+  font-size: 12px;
+  line-height: 18px;
+}
+.assistant-message-reply-context > svg {
+  flex-shrink: 0;
+}
+.assistant-message-reply-context > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-chat[data-layout="mobile"] .assistant-message-row-status {
+  align-items: center;
+}
+.assistant-chat[data-layout="mobile"] .assistant-message-row > .assistant-message:is(
+  .assistant-message-user, .assistant-message-assistant
+) {
+  width: fit-content;
+  max-width: 88%;
+}
+.assistant-chat[data-layout="mobile"] .assistant-message-row > :not(.assistant-swipe-time, .assistant-swipe-reply) {
+  transform: translateX(0);
+  transition: transform 200ms ease-out;
+}
+.assistant-swipe-time {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 76px;
+  color: var(--color-foreground-subtle);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: right;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateX(94px);
+  transition: transform 200ms ease-out, opacity 200ms ease-out, visibility 0s 200ms;
+}
+.assistant-swipe-reply {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-top: -16px;
+  border-radius: 50%;
+  color: var(--color-foreground-subtle);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms ease-out, background 160ms ease;
+}
+[data-reply-ready="true"] > .assistant-swipe-reply {
+  color: var(--mobile-accent);
+  background: var(--mobile-fill);
+}
+.assistant-message-row[data-message-swipe="time"] > .assistant-swipe-time {
+  visibility: visible;
+}
+.assistant-chat[data-layout="mobile"] .assistant-message-row[data-message-swipe] > * {
+  transition: none;
+  will-change: transform, opacity;
 }
 /* Auxiliary panels keep their space below the floating controls. */
 .assistant-chat[data-layout="mobile"]:has(
@@ -152,6 +241,8 @@
 .assistant-chat[data-layout="mobile"] .assistant-message-assistant {
   align-self: flex-start;
   background: var(--mobile-fill);
+}
+.assistant-chat[data-layout="mobile"] :is(.assistant-message-assistant, .assistant-message-user) {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
@@ -338,6 +429,61 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
 .mobile-assistant-compose-dock > * {
   pointer-events: auto;
 }
+.assistant-chat[data-layout="mobile"] .mobile-assistant-reply-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--color-background-base) 20%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 240ms ease, visibility 0s 240ms;
+}
+.assistant-chat[data-layout="mobile"] .mobile-assistant-reply-backdrop[data-active="true"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+.mobile-assistant-reply-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 0 16px;
+}
+.mobile-assistant-reply-preview blockquote {
+  width: fit-content;
+  max-width: 88%;
+  min-width: 0;
+  max-height: min(200px, 24dvh);
+  margin: 0;
+  padding: 13px 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 0;
+  border-radius: 25px;
+  background: var(--mobile-fill);
+  font-size: 16px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.assistant-chat[data-layout="mobile"] .mobile-assistant-reply-cancel {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--mobile-card);
+  color: var(--color-foreground-subtle);
+}
 .assistant-chat[data-layout="mobile"] .mobile-assistant-compose {
   min-height: 54px;
   width: 100%;
@@ -432,19 +578,17 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   border-radius: 22px;
   color: var(--mobile-accent);
 }
-.assistant-chat[data-layout="mobile"]
-  .mobile-sheet:has(> .mobile-sheet-content > .mobile-assistant-settings-page) {
-  height: min(90dvh, calc(100% - var(--mobile-safe-top) - 12px));
-  max-height: calc(100% - var(--mobile-safe-top) - 12px);
+/* Sheets portal beside the chat, so settings styles use their own roots. */
+.mobile-sheet:has(> .mobile-sheet-content > .mobile-assistant-settings-page) {
+  /* Keep the top fixed through native resize at the end of keyboard motion. */
+  height: max(0px, calc(100% - max(
+    calc(var(--mobile-viewport-full, 100dvh) * 0.1),
+    calc(var(--mobile-safe-top) + 12px)
+  )));
+  max-height: 100%;
   padding: 8px 0 0;
-  background: var(--color-background-base);
-  /* The opaque surface keeps nested pickers anchored to the viewport. */
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  will-change: auto;
 }
-.assistant-chat[data-layout="mobile"]
-  .mobile-sheet-content:has(> .mobile-assistant-settings-page) {
+.mobile-sheet-content:has(> .mobile-assistant-settings-page) {
   display: flex;
   flex: 1;
   overflow: hidden;
@@ -463,12 +607,10 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   grid-template-columns: 44px minmax(0, 1fr) 44px;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 4px 12px 8px;
   flex-shrink: 0;
 }
-.assistant-chat[data-layout="mobile"]
-  .mobile-assistant-settings-header
-  .mobile-icon-button {
+.mobile-assistant-settings-header .mobile-icon-button {
   border-radius: 50%;
   padding: 0;
   background: var(--mobile-card);
@@ -480,72 +622,65 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
 .mobile-assistant-settings-content {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-}
-.mobile-assistant-settings-content {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings-body {
-  padding: 16px 18px 24px;
-  gap: 14px;
+.assistant-settings[data-layout="mobile"] .assistant-settings-body {
+  padding: 8px 12px 16px;
+  gap: 12px;
   overscroll-behavior-y: contain;
   scrollbar-width: none;
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings-body::-webkit-scrollbar {
+.assistant-settings[data-layout="mobile"] .assistant-settings-body::-webkit-scrollbar {
   width: 0;
   height: 0;
   display: none;
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings-section {
+.assistant-settings[data-layout="mobile"] .assistant-settings-section {
   padding: 0;
   border: 0;
   gap: 10px;
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings-section > header {
-  padding-inline: 12px;
+.assistant-settings[data-layout="mobile"] .assistant-settings-section > header {
+  padding-inline: 4px;
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings-section h3 {
+.assistant-settings[data-layout="mobile"] .assistant-settings-section h3 {
   font-size: 13px;
   font-weight: 500;
   opacity: 0.6;
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings-section > p {
+.assistant-settings[data-layout="mobile"] .assistant-settings-section > p {
   margin: 0;
-  padding-inline: 12px;
+  padding-inline: 4px;
 }
-.assistant-chat[data-layout="mobile"]
-  .assistant-settings
+.assistant-settings[data-layout="mobile"]
   label:not(.assistant-check, .assistant-chip) {
   min-width: 0;
-  padding: 12px 14px;
-  border-radius: 18px;
+  padding: 8px 10px;
+  border-radius: 14px;
   background: var(--mobile-card);
   font-size: 13px;
   color: color-mix(in srgb, var(--color-content) 58%, transparent);
   gap: 8px;
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings-row {
+.assistant-settings[data-layout="mobile"] .assistant-settings-row {
   grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings .assistant-field {
-  padding: 12px 14px;
-  border-radius: 18px;
+.assistant-settings[data-layout="mobile"] .assistant-field {
+  padding: 8px 10px;
+  border-radius: 14px;
   background: var(--mobile-card);
 }
-.assistant-chat[data-layout="mobile"]
-  .assistant-settings
-  input:not([type="checkbox"]):not([type="radio"]),
-.assistant-chat[data-layout="mobile"] .assistant-settings select,
-.assistant-chat[data-layout="mobile"] .assistant-settings textarea {
+.assistant-settings[data-layout="mobile"]
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
   min-height: 46px;
   min-width: 0;
   width: 100%;
   border: 1px solid transparent;
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   outline: none;
   background: var(--mobile-fill);
   font-size: 16px;
@@ -553,90 +688,95 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   color: var(--color-content);
   transition: border-color 160ms ease;
 }
-.assistant-chat[data-layout="mobile"]
-  .assistant-settings
+.assistant-settings[data-layout="mobile"]
   :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
   border-color: color-mix(in srgb, var(--color-content) 28%, transparent);
 }
-.assistant-chat[data-layout="mobile"]
-  .assistant-settings
+.assistant-settings[data-layout="mobile"]
   :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea)[aria-invalid="true"] {
   border-color: #e04b44;
 }
-.assistant-chat[data-layout="mobile"]
-  .assistant-settings
+.assistant-settings[data-layout="mobile"]
   :is(input, textarea)::placeholder {
   color: color-mix(in srgb, var(--color-content) 44%, transparent);
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings select {
+.assistant-settings[data-layout="mobile"] select {
   padding-inline-end: 20px;
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings select option {
+.assistant-settings[data-layout="mobile"] select option {
   color: var(--color-content);
   background: var(--color-background-base);
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings textarea {
-  min-height: 112px;
+.assistant-settings[data-layout="mobile"] textarea {
+  min-height: 96px;
   max-height: 240px;
   field-sizing: content;
   overflow-y: auto;
   resize: none;
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings-disclosure {
+.assistant-settings[data-layout="mobile"] .assistant-settings-disclosure {
   flex: 1;
   min-height: 44px;
   font-size: 15px;
   font-weight: 500;
 }
-.assistant-chat[data-layout="mobile"] .assistant-chip > span {
-  padding: 8px 14px;
+.assistant-settings[data-layout="mobile"] .assistant-chip > span {
+  padding: 8px 10px;
   font-size: 14px;
   background: var(--mobile-fill);
   border-color: transparent;
 }
-.assistant-chat[data-layout="mobile"] .assistant-chip > input:checked + span {
+.assistant-settings[data-layout="mobile"] .assistant-chip > input:checked + span {
   background: var(--mobile-accent);
   color: var(--mobile-accent-foreground);
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings-footer {
-  padding: 10px 18px max(16px, var(--mobile-safe-bottom));
+.mobile-assistant-settings-actions {
+  flex-shrink: 0;
+  --collapse-easing: var(--mobile-keyboard-easing, ease);
+}
+.assistant-settings[data-layout="mobile"] .assistant-settings-footer {
+  padding: 8px 12px max(12px, var(--mobile-safe-bottom));
+  flex-wrap: wrap;
   border: 0;
 }
-.assistant-chat[data-layout="mobile"]
+.assistant-settings[data-layout="mobile"] .assistant-settings-footer > button {
+  min-height: 44px;
+}
+.assistant-settings[data-layout="mobile"]
   .assistant-settings-footer
   button[type="submit"] {
   flex: 1;
-  min-height: 52px;
-  border-radius: 26px;
+  min-height: 48px;
+  border-radius: 24px;
   background: var(--mobile-accent);
   color: var(--mobile-accent-foreground);
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings-group {
+.assistant-settings[data-layout="mobile"] .assistant-settings-group {
   min-width: 0;
   gap: 10px;
-  padding: 12px 0;
+  padding: 8px 0;
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings-group-title {
-  padding-inline: 12px;
+.assistant-settings[data-layout="mobile"] .assistant-settings-group-title {
+  padding-inline: 4px;
   font-size: 13px;
   opacity: 0.6;
 }
-.assistant-chat[data-layout="mobile"] .assistant-check-grid {
+.assistant-settings[data-layout="mobile"] .assistant-check-grid {
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings .assistant-check {
-  min-height: 50px;
+.assistant-settings[data-layout="mobile"] .assistant-check {
+  min-height: 46px;
   display: flex;
   flex-direction: row-reverse;
   justify-content: space-between;
-  padding: 10px 14px;
+  padding: 8px 10px;
   border-radius: 16px;
   background: var(--mobile-card);
   font-size: 14px;
   overflow-wrap: anywhere;
 }
-.assistant-chat[data-layout="mobile"] .assistant-check input[type="checkbox"] {
+.assistant-settings[data-layout="mobile"] .assistant-check input[type="checkbox"] {
   appearance: none;
   flex-shrink: 0;
   width: 44px;
@@ -647,7 +787,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   transition: background 180ms ease;
   cursor: pointer;
 }
-.assistant-chat[data-layout="mobile"]
+.assistant-settings[data-layout="mobile"]
   .assistant-check
   input[type="checkbox"]::after {
   content: "";
@@ -661,17 +801,17 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   box-shadow: 0 1px 3px #0002;
   transition: transform 180ms ease;
 }
-.assistant-chat[data-layout="mobile"]
+.assistant-settings[data-layout="mobile"]
   .assistant-check
   input[type="checkbox"]:checked {
   background: var(--mobile-accent);
 }
-.assistant-chat[data-layout="mobile"]
+.assistant-settings[data-layout="mobile"]
   .assistant-check
   input[type="checkbox"]:checked::after {
   transform: translateX(18px);
 }
-.assistant-chat[data-layout="mobile"] .assistant-settings small {
+.assistant-settings[data-layout="mobile"] small {
   font-size: 12px;
   line-height: 1.5;
 }
@@ -694,16 +834,19 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   min-height: 44px;
 }
 @media (prefers-reduced-motion: reduce) {
+  .assistant-chat[data-layout="mobile"] .assistant-message-row > * {
+    transition: none;
+  }
   .mobile-assistant-activity-label {
     animation: none;
   }
   .mobile-assistant-overlay,
   .mobile-assistant-compose-dock,
-  .assistant-chat[data-layout="mobile"]
-    .assistant-settings
+  .assistant-chat[data-layout="mobile"] .mobile-assistant-reply-backdrop,
+  .assistant-settings[data-layout="mobile"]
     :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea),
-  .assistant-chat[data-layout="mobile"] .assistant-check input[type="checkbox"],
-  .assistant-chat[data-layout="mobile"]
+  .assistant-settings[data-layout="mobile"] .assistant-check input[type="checkbox"],
+  .assistant-settings[data-layout="mobile"]
     .assistant-check
     input[type="checkbox"]::after {
     transition: none;

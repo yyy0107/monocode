@@ -118,12 +118,12 @@ it.each([
       await flush();
     }
     expect(shown()).toBe(text);
-    expect(!!node.querySelector(".assistant-message-meta")).toBe(!streaming);
+    expect(!!node.querySelector(".assistant-message-meta")).toBe(!mobile && !streaming);
     if (streaming) {
       update([{ ...reply(false), revision: 2 }]);
       await act(async () => vi.advanceTimersByTime(250));
       await flush();
-      expect(node.querySelector(".assistant-message-meta")).not.toBeNull();
+      expect(!!node.querySelector(".assistant-message-meta")).toBe(!mobile);
     }
   },
 );

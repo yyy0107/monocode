@@ -26,6 +26,7 @@ import type {
   RemoteAttachment,
 } from "../../connections/model/protocol";
 import { assistantErrorMessage } from "../model/assistantErrors";
+import { quoteAssistantReply } from "../model/assistantReply";
 import { REMOTE_PROVIDERS } from "../../connections/model/protocol";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { AssistantSettings } from "./AssistantSettings";
@@ -42,6 +43,7 @@ import {
   DesktopAssistantMessageMenu,
 } from "./DesktopAssistantChrome";
 import { useAssistantReplyMenu } from "./useAssistantReplyMenu";
+import { useAssistantMessageSwipe } from "./useAssistantMessageSwipe";
 import { AssistantMessages } from "./AssistantMessages";
 import { TranscriptPlatformContext } from "../../sessions/ui/TranscriptPlatform";
 import {
@@ -178,6 +180,15 @@ export function AssistantChat({
     }
   });
   const [retry, setRetry] = useState(() => client.pending());
+  const [replyText, setReplyText] = useState<string | undefined>(() => {
+    if (!chrome) return;
+    try {
+      return localStorage.getItem(`monocode.assistant-reply:${hostKey}`) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const cancelReply = useCallback(() => setReplyText(undefined), []);
   const [attachments, setAttachments] = useState<RemoteAttachment[]>([]);
   const log = useRef<HTMLDivElement>(null);
   const chat = useRef<HTMLElement>(null);
@@ -296,6 +307,16 @@ export function AssistantChat({
       /* Draft remains usable. */
     }
   }, [hostKey, draft]);
+  useEffect(() => {
+    if (!chrome) return;
+    try {
+      const key = `monocode.assistant-reply:${hostKey}`;
+      if (replyText === undefined) localStorage.removeItem(key);
+      else localStorage.setItem(key, replyText);
+    } catch {
+      /* The reply remains usable without persistent storage. */
+    }
+  }, [hostKey, chrome, replyText]);
   useLayoutEffect(() => {
     if (!visible) return;
     syncHeaderHeight(chat.current, !!chrome);
@@ -353,6 +374,7 @@ export function AssistantChat({
         await client.send(text, files);
         setRetry(undefined);
         setDraft("");
+        setReplyText(undefined);
         setAttachments([]);
       } finally {
         setRetry(client.pending());
@@ -441,25 +463,23 @@ export function AssistantChat({
   const workingLabel = t(activity.key, activity.params);
   const ui = chrome ?? desktopAssistantChrome;
   const mobile = !!chrome;
+  const replying = mobile && replyText !== undefined;
   const { Header, SettingsPanel, Controls, Composer } = ui;
   const settingsCovering =
     supported === true && (settingsOpen || assistant === null);
   const replyMenu = useAssistantReplyMenu(
     mobile,
-    visible && !!assistant && !settingsCovering,
+    visible && !!assistant && !settingsCovering && !replying,
   );
   const MessageMenu = ui.MessageMenu ?? DesktopAssistantMessageMenu;
   const replyDisabled =
     busy || !!retry || !assistant?.enabled || !assistant.triggers.user;
-  const reply = () => {
-    if (!replyMenu.menu || replyDisabled) return;
-    const quote = replyMenu.menu.text
-      .split(/\r?\n/)
-      .map((line) => `> ${line}`)
-      .join("\n");
+  const reply = (text: string) => {
+    if (replyDisabled) return;
     // Let the menu restore its previous focus before opening the mobile keyboard.
     flushSync(() => {
-      setDraft((previous) => `${quote}\n\n${previous}`);
+      if (mobile) setReplyText(text);
+      else setDraft((previous) => `${quoteAssistantReply(text)}\n\n${previous}`);
       replyMenu.close();
     });
     const input = chat.current?.querySelector<HTMLTextAreaElement>(
@@ -468,6 +488,16 @@ export function AssistantChat({
     input?.focus();
     input?.setSelectionRange(input.value.length, input.value.length);
   };
+  useAssistantMessageSwipe({
+    log,
+    active: mobile && visible && !!assistant && !settingsCovering && !replyMenu.menu && !replying,
+    replyDisabled,
+    cancelHold: replyMenu.cancelHold,
+    onReply: (id) => {
+      const message = visibleMessages.find((message) => message.id === id);
+      if (message?.kind === "assistant") reply(message.text);
+    },
+  });
   const errorNotice = (error || assistant?.error) && (
     <div className="assistant-error" role="alert">
       <span>{t(error ?? assistant!.error!)}</span>
@@ -615,6 +645,7 @@ export function AssistantChat({
                 }
                 mobile={mobile}
                 Select={ui.Select}
+                Actions={ui.SettingsActions}
                 personaSupported={personaSupported}
                 im={{
                   rpc,
@@ -664,6 +695,8 @@ export function AssistantChat({
                 <div
                   ref={log}
                   className="assistant-messages"
+                  inert={replying}
+                  aria-hidden={replying || undefined}
                   role="log"
                   data-follow-latest={followLog.current}
                   aria-label={t("Assistant messages")}
@@ -717,8 +750,22 @@ export function AssistantChat({
                       </div>
                     )}
                 </div>
+                {mobile && (
+                  <button
+                    type="button"
+                    className="mobile-assistant-reply-backdrop"
+                    data-active={replying}
+                    aria-label={t("Cancel reply")}
+                    aria-hidden={!replying || undefined}
+                    tabIndex={-1}
+                    disabled={!replying}
+                    onClick={cancelReply}
+                  />
+                )}
                 <Composer
                   draft={draft}
+                  replyText={mobile ? replyText : undefined}
+                  onCancelReply={cancelReply}
                   onDraftChange={setDraft}
                   attachments={attachments}
                   busy={busy}
@@ -744,7 +791,7 @@ export function AssistantChat({
                   onRemoveAttachment={(id) =>
                     setAttachments((a) => a.filter((f) => f.id !== id))
                   }
-                  onSend={() => void send(draft)}
+                  onSend={() => void send(replying ? `${quoteAssistantReply(replyText)}\n\n${draft}` : draft)}
                 />
               </div>
             )}
@@ -753,8 +800,12 @@ export function AssistantChat({
         <MessageMenu
           open={!!replyMenu.menu}
           point={replyMenu.menu}
+          text={replyMenu.menu?.text}
+          replyable={replyMenu.menu?.replyable}
           disabled={replyDisabled}
-          onReply={reply}
+          onReply={() => {
+            if (replyMenu.menu?.replyable) reply(replyMenu.menu.text);
+          }}
           onClose={replyMenu.close}
         />
       </section>

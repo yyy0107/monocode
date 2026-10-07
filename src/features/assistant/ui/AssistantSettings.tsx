@@ -1,4 +1,5 @@
 import {
+  Fragment,
   createContext,
   useContext,
   useEffect,
@@ -323,6 +324,7 @@ export function AssistantSettings({
   personaSupported = true,
   mobile = false,
   Select,
+  Actions = Fragment,
 }: {
   /** Live follow-ups; kept outside the draft so cancelling never resets edits. */
   reminders?: AssistantView["reminders"];
@@ -342,6 +344,7 @@ export function AssistantSettings({
   onCancelReminder?: (reminderId: string) => Promise<void>;
   /** Platform picker; omitted on desktop, which uses the searchable select. */
   Select?: ComponentType<AssistantSelectProps>;
+  Actions?: ComponentType<{ children: ReactNode }>;
   value: AssistantView | null;
   catalog: HostModelCatalog;
   catalogState?: "loading" | "ready" | "failed";
@@ -1250,48 +1253,50 @@ export function AssistantSettings({
             </div>
           </CollapsibleSection>
         </div>
-        <footer className="assistant-settings-footer">
-          {value && dirty && (
-            <>
-              <small className="assistant-settings-dirty" role="status">
-                {t("Unsaved changes")}
-              </small>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setDraft(initialDraft);
-                  setPickingProjects(
-                    new Set(
-                      value.watches
-                        .filter((watch) => watch.projectIds.length)
-                        .map((watch) => watch.id),
-                    ),
-                  );
-                  setIntervalUnit(
-                    unitFor(
-                      (value.schedules[0] ?? defaults.schedule).intervalMinutes,
-                    ),
-                  );
-                }}
-              >
-                {t("Reset")}
+        <Actions>
+          <footer className="assistant-settings-footer">
+            {value && dirty && (
+              <>
+                <small className="assistant-settings-dirty" role="status">
+                  {t("Unsaved changes")}
+                </small>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setDraft(initialDraft);
+                    setPickingProjects(
+                      new Set(
+                        value.watches
+                          .filter((watch) => watch.projectIds.length)
+                          .map((watch) => watch.id),
+                      ),
+                    );
+                    setIntervalUnit(
+                      unitFor(
+                        (value.schedules[0] ?? defaults.schedule).intervalMinutes,
+                      ),
+                    );
+                  }}
+                >
+                  {t("Reset")}
+                </button>
+              </>
+            )}
+            {onCancel && (
+              <button type="button" disabled={busy} onClick={onCancel}>
+                {t("Cancel")}
               </button>
-            </>
-          )}
-          {onCancel && (
-            <button type="button" disabled={busy} onClick={onCancel}>
-              {t("Cancel")}
+            )}
+            <button
+              type="submit"
+              className="assistant-primary"
+              disabled={!canSave}
+            >
+              {t(value ? "Save settings" : "Enable assistant")}
             </button>
-          )}
-          <button
-            type="submit"
-            className="assistant-primary"
-            disabled={!canSave}
-          >
-            {t(value ? "Save settings" : "Enable assistant")}
-          </button>
-        </footer>
+          </footer>
+        </Actions>
       </form>
     </SelectSlot.Provider>
   );

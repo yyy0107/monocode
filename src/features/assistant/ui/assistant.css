@@ -161,10 +161,14 @@
     padding: 8px 12px 16px;
   }
 }
-.assistant-chat {
+/* Settings retain their controls and tokens when rendered in a portal. */
+.assistant-chat,
+.assistant-settings {
   --assistant-line: var(--color-stroke);
   --assistant-fill: var(--color-surface);
   --assistant-fill-strong: var(--color-surface-hover);
+}
+.assistant-chat {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -172,11 +176,11 @@
   height: 100%;
   font-size: var(--text-ui-base);
 }
-.assistant-chat small {
+:is(.assistant-chat, .assistant-settings) small {
   opacity: 0.65;
 }
 /* Only Assistant-owned controls share this base; embedded UI keeps its styles. */
-.assistant-chat
+:is(.assistant-chat, .assistant-settings)
   :where(
     .assistant-icon-button,
     .assistant-primary,
@@ -204,7 +208,7 @@
     background 140ms ease,
     opacity 140ms ease;
 }
-.assistant-chat
+:is(.assistant-chat, .assistant-settings)
   :where(
     .assistant-icon-button,
     .assistant-primary,
@@ -226,7 +230,7 @@
   ):not(:disabled):hover {
   background: var(--color-surface-hover);
 }
-.assistant-chat
+:is(.assistant-chat, .assistant-settings)
   :where(
     .assistant-icon-button,
     .assistant-primary,
@@ -249,7 +253,7 @@
   opacity: 0.45;
   cursor: default;
 }
-.assistant-chat
+:is(.assistant-chat, .assistant-settings)
   :where(
     .assistant-icon-button,
     .assistant-primary,
@@ -269,15 +273,15 @@
     .assistant-habit-add,
     .assistant-habit-editor-actions > button
   ):focus-visible,
-.assistant-chip:focus-within {
+.assistant-chip > input:focus-visible + span {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
-.assistant-chat .assistant-primary {
+:is(.assistant-chat, .assistant-settings) .assistant-primary {
   background: var(--color-brand);
   color: var(--color-brand-foreground);
 }
-.assistant-chat .assistant-primary:not(:disabled):hover {
+:is(.assistant-chat, .assistant-settings) .assistant-primary:not(:disabled):hover {
   background: color-mix(in srgb, var(--color-brand) 88%, transparent);
 }
 .assistant-chat[data-layout="desktop"] .assistant-icon-button {
@@ -293,7 +297,7 @@
   .assistant-icon-button:not(:disabled):hover {
   background: var(--assistant-fill-strong);
 }
-.assistant-chat .assistant-danger:not(:disabled):hover {
+:is(.assistant-chat, .assistant-settings) .assistant-danger:not(:disabled):hover {
   color: #e04b44;
 }
 
@@ -853,9 +857,9 @@
 }
 
 /* Form controls */
-.assistant-chat input:not([type="checkbox"]),
-.assistant-chat select,
-.assistant-chat textarea {
+:is(.assistant-chat, .assistant-settings) input:not([type="checkbox"]),
+:is(.assistant-chat, .assistant-settings) select,
+:is(.assistant-chat, .assistant-settings) textarea {
   border: 1px solid var(--color-border-hover);
   border-radius: 8px;
   padding: 7px 9px;
@@ -863,13 +867,13 @@
   background: transparent;
   font: inherit;
 }
-.assistant-chat :is(input, select, textarea)[aria-invalid="true"] {
+:is(.assistant-chat, .assistant-settings) :is(input, select, textarea)[aria-invalid="true"] {
   border-color: #e04b44;
 }
-.assistant-chat select option {
+:is(.assistant-chat, .assistant-settings) select option {
   color: black;
 }
-.assistant-chat input[type="checkbox"] {
+:is(.assistant-chat, .assistant-settings) input[type="checkbox"] {
   accent-color: var(--color-accent);
 }
 
@@ -963,7 +967,7 @@
   text-overflow: ellipsis;
   opacity: 0.65;
 }
-.assistant-chat .assistant-settings-disclosure {
+:is(.assistant-chat, .assistant-settings) .assistant-settings-disclosure {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -989,7 +993,7 @@
 .assistant-settings-section > .zen-fold-item > * {
   padding-top: 12px;
 }
-.assistant-chat .assistant-settings-disclosure:not(:disabled):hover {
+:is(.assistant-chat, .assistant-settings) .assistant-settings-disclosure:not(:disabled):hover {
   background: transparent;
   opacity: 0.8;
 }
@@ -1066,7 +1070,7 @@
   opacity: 0.65;
   line-height: 1.5;
 }
-.assistant-chat .assistant-link-button {
+:is(.assistant-chat, .assistant-settings) .assistant-link-button {
   margin-left: auto;
   padding: 0 4px;
   background: transparent;
@@ -1074,7 +1078,7 @@
   font-size: var(--text-ui-sm);
   font-weight: 400;
 }
-.assistant-chat .assistant-link-button:not(:disabled):hover {
+:is(.assistant-chat, .assistant-settings) .assistant-link-button:not(:disabled):hover {
   background: transparent;
   text-decoration: underline;
 }
@@ -1123,7 +1127,7 @@
 .assistant-field-error {
   color: #e04b44;
 }
-.assistant-chat small.assistant-field-error {
+:is(.assistant-chat, .assistant-settings) small.assistant-field-error {
   opacity: 1;
 }
 .assistant-settings-footer {
@@ -1158,7 +1162,7 @@
   opacity: 0.65;
 }
 @media (prefers-reduced-motion: reduce) {
-  .assistant-chat * {
+  :is(.assistant-chat, .assistant-settings) * {
     scroll-behavior: auto;
   }
   .assistant-settings-page[data-fold-state],

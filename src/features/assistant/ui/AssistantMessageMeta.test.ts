@@ -35,6 +35,18 @@ async function flush() {
     for (let i = 0; i < 20; i++) await Promise.resolve();
   });
 }
+function openCopyMenu(kind = "assistant", label = "Copy") {
+  const bubble = node.querySelector(`.assistant-message-${kind}`)!;
+  act(() => {
+    bubble.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true, pointerType: "touch", button: 0, clientX: 80, clientY: 100,
+    }));
+    vi.advanceTimersByTime(450);
+  });
+  act(() => bubble.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "touch" })));
+  return [...node.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
+    .find((button) => button.textContent === label)!;
+}
 const sentAt = Date.UTC(2026, 9, 5, 12, 30);
 async function mount(mobile: boolean) {
   let messages: AssistantMessage[] = [
@@ -111,12 +123,16 @@ it.each([false, true])(
     expect(user.querySelector("time")?.dateTime).toBe(
       new Date(sentAt).toISOString(),
     );
-    const copy = node.querySelector<HTMLButtonElement>(
+    const copy = mobile ? openCopyMenu() : node.querySelector<HTMLButtonElement>(
       '.assistant-message-row-assistant button[aria-label="Copy message"]',
     )!;
+    if (mobile) {
+      expect(node.querySelector(".assistant-message-row-assistant .assistant-message-meta")).toBeNull();
+      expect(node.querySelector(".assistant-message-meta button")).toBeNull();
+    }
     await act(async () => copy.click());
     expect(await navigator.clipboard.readText()).toBe("**Original**\nreply");
-    expect(copy.getAttribute("aria-label")).toBe("Copied");
+    if (!mobile) expect(copy.getAttribute("aria-label")).toBe("Copied");
     markRead();
     await act(async () => {
       vi.advanceTimersByTime(2000);
@@ -162,7 +178,7 @@ it.each([false, true])(
     const newest = node.querySelectorAll(".assistant-message-row-user")[1];
     expect(older.querySelector(".assistant-read-state")).toBeNull();
     expect(older.querySelector("time")?.dateTime).toBe(new Date(sentAt).toISOString());
-    expect(older.querySelector('button[aria-label="Copy message"]')).not.toBeNull();
+    expect(!!older.querySelector('button[aria-label="Copy message"]')).toBe(!mobile);
     expect(newest.querySelector(".assistant-read-state")?.textContent).toBe("Unread");
     expect(node.querySelectorAll(".assistant-read-state")).toHaveLength(1);
 
@@ -209,7 +225,7 @@ it.each([
     expect(node.querySelector(".assistant-read-state")).toBeNull();
     const row = node.querySelector(".assistant-message-row-user")!;
     expect(row.querySelector("time")?.dateTime).toBe(new Date(sentAt).toISOString());
-    expect(row.querySelector('button[aria-label="Copy message"]')).not.toBeNull();
+    expect(!!row.querySelector('button[aria-label="Copy message"]')).toBe(!mobile);
 
     update([{ ...user, revision: 5, readAt: sentAt + 6000 }]);
     await act(async () => vi.advanceTimersByTime(2000));
@@ -227,25 +243,19 @@ it.each([
     expect(row.querySelector(".assistant-read-state")).toBeNull();
   },
 );
-it("uses the native mobile clipboard and localizes receipt labels", async () => {
+it.each(["assistant", "user"])("copies %s messages with the native clipboard and localized actions", async (kind) => {
   vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
   const write = vi.spyOn(Clipboard, "write").mockResolvedValue();
   setUiLanguage("zh-CN");
   await mount(true);
   expect(node.querySelector(".assistant-read-state")?.textContent).toBe("未读");
-  await act(async () =>
-    node
-      .querySelector<HTMLButtonElement>(
-        '.assistant-message-row-assistant button[aria-label="复制消息"]',
-      )!
-      .click(),
-  );
-  expect(write).toHaveBeenCalledWith({ string: "**Original**\nreply" });
-  expect(
-    node.querySelector(
-      '.assistant-message-row-assistant button[aria-label="已复制"]',
-    ),
-  ).not.toBeNull();
+  const copy = openCopyMenu(kind, "复制");
+  expect(node.querySelector('[role="dialog"][aria-label="消息操作"]')).not.toBeNull();
+  if (kind === "user") expect(copy.closest('[role="dialog"]')?.textContent).not.toContain("回复");
+  await act(async () => copy.click());
+  expect(write).toHaveBeenCalledWith({ string: kind === "assistant" ? "**Original**\nreply" : "My draft" });
+  act(() => vi.advanceTimersByTime(400));
+  expect(node.querySelector('[role="dialog"][aria-label="消息操作"]')).toBeNull();
 });
 it("surfaces a clipboard failure without claiming success", async () => {
   vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
@@ -253,13 +263,8 @@ it("surfaces a clipboard failure without claiming success", async () => {
     new Error("Clipboard unavailable"),
   );
   await mount(true);
-  await act(async () =>
-    node
-      .querySelector<HTMLButtonElement>(
-        '.assistant-message-row-assistant button[aria-label="Copy message"]',
-      )!
-      .click(),
-  );
+  const copy = openCopyMenu();
+  await act(async () => copy.click());
   expect(node.querySelector('[role="alert"]')?.textContent).toContain(
     "Clipboard unavailable",
   );

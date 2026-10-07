@@ -36,6 +36,8 @@ export type AssistantSettingsPanelProps = {
 };
 export type AssistantComposerProps = {
   draft: string;
+  replyText?: string;
+  onCancelReply?: () => void;
   onDraftChange: (draft: string) => void;
   onSend: () => void;
   onAttach: (files: File[]) => void;
@@ -52,6 +54,8 @@ export type AssistantChatChrome = {
   Header: ComponentType<AssistantHeaderProps>;
   Controls: ComponentType<AssistantControlsProps>;
   SettingsPanel: ComponentType<AssistantSettingsPanelProps>;
+  /** Optional platform wrapper for the settings action bar. */
+  SettingsActions?: ComponentType<{ children: ReactNode }>;
   Composer: ComponentType<AssistantComposerProps>;
   MessageMenu?: ComponentType<AssistantMessageMenuProps>;
   /** Settings picker; desktop falls back to the shared searchable select. */
@@ -73,6 +77,8 @@ export type AssistantSelectProps = {
 export type AssistantMessageMenuProps = {
   open: boolean;
   point?: { x: number; y: number };
+  text?: string;
+  replyable?: boolean;
   disabled: boolean;
   onReply: () => void;
   onClose: () => void;
