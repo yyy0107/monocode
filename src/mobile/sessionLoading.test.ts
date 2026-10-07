@@ -129,12 +129,14 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+// Departing pages remain in DOM briefly but cannot be selected by the user.
+const activePage = () => node.querySelector<HTMLElement>('[data-page-active="true"]')!;
 const mount = () => act(async () => root.render(createElement(MobileApp)));
-const transcript = () => node.querySelector<HTMLButtonElement>("[data-transcript]");
-const composer = () => node.querySelector<HTMLTextAreaElement>("textarea")!;
-const conversationLoading = () => node.querySelector(".mobile-chat > .mobile-loading");
+const transcript = () => activePage().querySelector<HTMLButtonElement>("[data-transcript]");
+const composer = () => activePage().querySelector<HTMLTextAreaElement>("textarea")!;
+const conversationLoading = () => activePage().querySelector(".mobile-chat > .mobile-loading");
 async function open(id: string) {
-  const homeRow = node.querySelector<HTMLButtonElement>(`.mobile-home-session[data-session-id="${id}"]`);
+  const homeRow = activePage().querySelector<HTMLButtonElement>(`.mobile-home-session[data-session-id="${id}"]`);
   if (homeRow) {
     await act(async () => homeRow.click());
     return;
@@ -146,7 +148,7 @@ async function open(id: string) {
 describe("mobile conversation loading UI", () => {
   const projectChat = async () => {
     await mount();
-    await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home-project[title="/project"]')!.click());
+    await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home-project[title="/project"]')!.click());
     await open("one");
   };
   const goBack = () => act(async () => node.querySelector<HTMLButtonElement>('header [aria-label="Back"]')!.click());
@@ -163,11 +165,11 @@ describe("mobile conversation loading UI", () => {
     host.summaries.set("newer", [summary("newer", 100)]);
     host.sessions.mockReturnValue(new Promise(() => {}));
     await mount();
-    expect([...node.querySelectorAll('.mobile-home-project[title]')].map((row) => row.getAttribute("title")))
+    expect([...activePage().querySelectorAll('.mobile-home-project[title]')].map((row) => row.getAttribute("title")))
       .toEqual(["/newer", "/project"]);
-    expect([...node.querySelectorAll('.mobile-home-recent [data-session-id]')].map((row) => row.getAttribute("data-session-id")))
+    expect([...activePage().querySelectorAll('.mobile-home-recent [data-session-id]')].map((row) => row.getAttribute("data-session-id")))
       .toEqual(["newer", "project"]);
-    expect(node.querySelector('.mobile-home .mobile-loading')).toBeNull();
+    expect(activePage().querySelector('.mobile-home .mobile-loading')).toBeNull();
     await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Menu"]')!.click());
     expect([...node.querySelectorAll('.mobile-drawer-project-link')].map((row) => row.getAttribute("title")))
       .toEqual(["/newer", "/project"]);
@@ -267,7 +269,7 @@ describe("mobile conversation loading UI", () => {
     expect(node.querySelector('.mobile-app')?.getAttribute('data-view')).toBe('home');
     await act(async () => action("Pin").click());
     expect(host.updateSession).toHaveBeenCalledWith("other", "other-chat", { pinned: true });
-    expect(node.querySelector('.mobile-home-pinned [data-session-id="other-chat"]')).not.toBeNull();
+    expect(activePage().querySelector('.mobile-home-pinned [data-session-id="other-chat"]')).not.toBeNull();
     expect(node.querySelector('.mobile-sheet-backdrop[data-fold-state="closing"]')?.hasAttribute('inert')).toBe(true);
     act(() => vi.advanceTimersByTime(150));
     expect(node.querySelector('[role="dialog"]')).toBeNull();
@@ -292,12 +294,53 @@ describe("mobile conversation loading UI", () => {
     host.sessions.mockReturnValue(history.promise);
     await mount();
     expect(node.querySelector(".mobile-app")?.getAttribute("data-view")).toBe("home");
-    expect(node.querySelector(".mobile-home-recent")?.textContent).toContain("Loading conversations…");
-    await act(async () => node.querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
+    expect(activePage().querySelector(".mobile-home-recent")?.textContent).toContain("Loading conversations…");
+    await act(async () => activePage().querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
     expect(conversationLoading()).toBeNull();
     expect(node.querySelector(".mobile-header-title strong")?.textContent).toBe("New conversation");
     expect(composer().disabled).toBe(false);
     await act(async () => history.resolve([]));
+  });
+
+  it("keeps the draft page through creation and follow-up sends, but animates a fresh draft in the same project", async () => {
+    await mount();
+    await act(async () => activePage().querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
+    const page = activePage();
+    const input = composer();
+    const sendDraft = async (text: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, text);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => activePage().querySelector<HTMLButtonElement>("[data-send]")!.click());
+    };
+
+    await sendDraft("First request");
+    expect(host.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "create", projectId: "project",
+    }), { text: "First request" });
+    expect(activePage()).toBe(page);
+    expect(composer()).toBe(input);
+    expect(transcript()?.textContent).toBe("one revision 1");
+
+    await sendDraft("Follow up");
+    expect(host.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "send", sessionId: "one", text: "Follow up",
+    }), undefined);
+    expect(activePage()).toBe(page);
+    expect(composer()).toBe(input);
+
+    await act(async () => node.querySelector<HTMLButtonElement>('header [aria-label="Menu"]')!.click());
+    await act(async () => node.querySelector<HTMLButtonElement>('.mobile-drawer-new')!.click());
+    expect(activePage()).not.toBe(page);
+    expect(composer()).not.toBe(input);
+    expect(page.isConnected).toBe(true);
+    expect(page.getAttribute("data-page-active")).toBe("false");
+    expect(page.hasAttribute("inert")).toBe(true);
+    expect(composer().value).toBe("");
+    expect(transcript()).toBeNull();
+    act(() => vi.advanceTimersByTime(240));
+    expect(page.isConnected).toBe(false);
   });
 
   it("falls back from an archived snapshot before history settles and retains a default model", async () => {

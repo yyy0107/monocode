@@ -43,6 +43,7 @@ import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { HARNESS_TITLE } from "../features/sessions/model/session";
 import { preserveInputFocus, usePreserveInputFocusOnTouch } from "./inputFocus";
+import { useMobileTextareaAutosize } from "./useMobileTextareaAutosize";
 import "./assistant.css";
 
 const BackHandlers = createContext(new Map<number, () => void>());
@@ -264,17 +265,7 @@ function MobileAssistantComposer({
   useLayoutEffect(() => {
     if (attachments.length) setRenderedAttachments(attachments);
   }, [attachments]);
-  useLayoutEffect(() => {
-    const field = input.current;
-    if (!field) return;
-    const resize = () => {
-      field.style.height = "0px";
-      field.style.height = `${Math.min(Math.max(field.scrollHeight, 28), Math.min(window.innerHeight * 0.25, 168))}px`;
-    };
-    resize();
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
-  }, [draft]);
+  useMobileTextareaAutosize(input, draft, { minHeight: 28, viewportHeightRatio: 0.25 });
   return (
     <div className="mobile-assistant-compose-dock">
       {retry && (

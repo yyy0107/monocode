@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -8,6 +9,10 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
+import { MobileOverlayHostContext, MobileOverlayLevelContext } from "./MobileOverlayHost";
+import { SurfaceVisibilityContext, useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
+import { keyboardMotionRemaining, onKeyboardMotion } from "./keyboardMotion";
 import { ArrowLeft } from "../shared/ui/icons";
 import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { useTranslation } from "../shared/i18n/useTranslation";
@@ -51,6 +56,7 @@ export function MobileSheet({
   open = true,
   title,
   onClose,
+  onExited,
   onBack,
   placement = "bottom",
   anchor,
@@ -67,6 +73,8 @@ export function MobileSheet({
   open?: boolean;
   title: string;
   onClose: () => void;
+  /** Release retained content after a controlled close finishes. */
+  onExited?: () => void;
   onBack?: () => void;
   placement?: "bottom" | "anchor";
   anchor?: RefObject<HTMLElement | null>;
@@ -83,17 +91,31 @@ export function MobileSheet({
   children: ReactNode;
 }) {
   const { t } = useTranslation();
+  const visible = useSurfaceVisibility();
+  const overlayHost = useContext(MobileOverlayHostContext);
+  const overlayLevel = useContext(MobileOverlayLevelContext);
+  const [dragClosing, setDragClosing] = useState(false);
+  const active = open && visible && !dragClosing;
+  useLayoutEffect(() => { if (open) setDragClosing(false); }, [open]);
   const { foldState, finish } = useCollapseMotion(
-    open,
-    open ? SHEET_MOTION_MS : SHEET_CLOSE_MS,
+    active,
+    active ? SHEET_MOTION_MS : SHEET_CLOSE_MS,
   );
   const backdrop = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLElement>(null);
-  usePreserveInputFocusOnTouch(backdrop, preserveFocus, false, open);
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    if (open) wasOpen.current = true;
+    else if (foldState === "closed" && wasOpen.current) {
+      wasOpen.current = false;
+      onExited?.();
+    }
+  }, [open, foldState, onExited]);
+  usePreserveInputFocusOnTouch(backdrop, preserveFocus, false, active);
   const [position, setPosition] = useState<CSSProperties>();
-  useSheetDrag(dialog, placement === "bottom" && open, onClose);
+  useSheetDrag(dialog, placement === "bottom" && open && visible, onClose, () => setDragClosing(true));
   useLayoutEffect(() => {
-    if (!open || placement !== "anchor") return;
+    if (!active || placement !== "anchor") return;
     const element = dialog.current;
     const trigger = anchor?.current;
     if (!element || (!trigger && !anchorPoint)) return;
@@ -170,54 +192,70 @@ export function MobileSheet({
           : style,
       );
     };
-    const resize = () => {
-      insets = safeInsets(element);
-      place();
-    };
-    // Scrolling the sheet's own list cannot move its anchor; skip measuring
-    // on each of those frames.
-    const scroll = (event: Event) => {
-      if (event.target instanceof Node && element.contains(event.target))
-        return;
-      place();
-    };
-    place();
-    // Keyboard motion moves the composer's anchor without resizing it or
-    // scrolling. Track its bounds while open, including when opened midway
-    // through that motion; point-anchored menus keep their original location.
     let frame: number | undefined;
-    let previousRect = trigger?.getBoundingClientRect();
-    const followAnchor = () => {
-      const rect = trigger!.getBoundingClientRect();
-      if (
-        rect.left !== previousRect?.left ||
-        rect.right !== previousRect?.right ||
-        rect.top !== previousRect?.top ||
-        rect.bottom !== previousRect?.bottom
-      ) {
-        previousRect = rect;
-        place();
+    let refreshInsets = false;
+    let until = performance.now() + keyboardMotionRemaining();
+    const animationRemaining = () => {
+      let remaining = 0;
+      // Only transforms/layout on the anchor or its ancestors move its box;
+      // child spinners and other infinite animations do not keep this awake.
+      for (let node: HTMLElement | null = trigger ?? null; node; node = node.parentElement) {
+        for (const animation of node.getAnimations?.() ?? []) {
+          if (animation.playState !== "running" && !animation.pending) continue;
+          const end = animation.effect?.getComputedTiming().endTime;
+          const time = animation.currentTime;
+          if (typeof end === "number" && Number.isFinite(end) && typeof time === "number")
+            remaining = Math.max(remaining, (end - time) / Math.abs(animation.playbackRate || 1));
+        }
       }
-      frame = requestAnimationFrame(followAnchor);
+      return remaining;
     };
-    if (trigger && !anchorPoint) frame = requestAnimationFrame(followAnchor);
-    const observer = new ResizeObserver(place);
+    const tick = () => {
+      frame = undefined;
+      if (refreshInsets) {
+        insets = safeInsets(element);
+        refreshInsets = false;
+      }
+      place();
+      if (trigger && !anchorPoint &&
+          (performance.now() < until || animationRemaining() > 0))
+        frame = requestAnimationFrame(tick);
+    };
+    const schedule = () => { frame ??= requestAnimationFrame(tick); };
+    const resize = () => { refreshInsets = true; schedule(); };
+    const scroll = (event: Event) => {
+      if (!(event.target instanceof Node && element.contains(event.target))) schedule();
+    };
+    const motion = (event: Event) => {
+      if (trigger && event.target instanceof Element && event.target.contains(trigger)) schedule();
+    };
+    const unsubscribe = onKeyboardMotion(({ duration }) => {
+      until = performance.now() + duration;
+      schedule();
+    });
+    place();
+    if (trigger && !anchorPoint && (keyboardMotionRemaining() > 0 || animationRemaining() > 0)) schedule();
+    const observer = new ResizeObserver(schedule);
     observer.observe(element);
     if (trigger) observer.observe(trigger);
     window.addEventListener("resize", resize);
     window.addEventListener("scroll", scroll, true);
-    viewport?.addEventListener("resize", place);
-    viewport?.addEventListener("scroll", place);
+    viewport?.addEventListener("resize", schedule);
+    viewport?.addEventListener("scroll", schedule);
+    const motionEvents = ["transitionrun", "transitionend", "transitioncancel", "animationstart", "animationend", "animationcancel"];
+    for (const name of motionEvents) window.addEventListener(name, motion, true);
     return () => {
       if (frame !== undefined) cancelAnimationFrame(frame);
+      unsubscribe();
       observer.disconnect();
       window.removeEventListener("resize", resize);
       window.removeEventListener("scroll", scroll, true);
-      viewport?.removeEventListener("resize", place);
-      viewport?.removeEventListener("scroll", place);
+      viewport?.removeEventListener("resize", schedule);
+      viewport?.removeEventListener("scroll", schedule);
+      for (const name of motionEvents) window.removeEventListener(name, motion, true);
     };
   }, [
-    open,
+    active,
     placement,
     anchor,
     anchorPoint,
@@ -228,7 +266,7 @@ export function MobileSheet({
     constrainWidthToAnchor,
   ]);
   useEffect(() => {
-    if (!open) return;
+    if (!active) return;
     const input = preserveFocus?.current;
     const keepInput = !!input && document.activeElement === input;
     const trigger = keepInput
@@ -236,10 +274,10 @@ export function MobileSheet({
       : (anchor?.current ?? (document.activeElement as HTMLElement | null));
     if (!keepInput) dialog.current?.focus();
     return () => {
-      if (trigger?.isConnected && document.activeElement !== trigger)
+      if (trigger?.isConnected && !trigger.closest("[inert], [aria-hidden=\"true\"]") && document.activeElement !== trigger)
         trigger.focus({ preventScroll: true });
     };
-  }, [open, anchor, preserveFocus]);
+  }, [active, anchor, preserveFocus]);
   const onKeyDown = useCallback(
     (event: {
       key: string;
@@ -281,23 +319,25 @@ export function MobileSheet({
     [onClose, preserveFocus],
   );
   useEffect(() => {
-    if (!open) return;
+    if (!active) return;
     const input = preserveFocus?.current;
     if (!input) return;
     // Pointer interaction keeps typing focus outside the sheet. Escape still
     // dismisses it, and an explicit Tab moves into its keyboard navigation.
     input.addEventListener("keydown", onKeyDown);
     return () => input.removeEventListener("keydown", onKeyDown);
-  }, [open, preserveFocus, onKeyDown]);
-  if (!open && foldState === "closed") return null;
-  return (
+  }, [active, preserveFocus, onKeyDown]);
+  if (!visible || (!active && foldState === "closed")) return null;
+  const content = (
+    <SurfaceVisibilityContext.Provider value={active}>
     <div
       ref={backdrop}
       className="mobile-sheet-backdrop"
+      style={overlayLevel === undefined ? undefined : { zIndex: overlayLevel }}
       data-placement={placement}
       data-fold-state={foldState}
-      inert={!open}
-      aria-hidden={!open || undefined}
+      inert={!active}
+      aria-hidden={!active || undefined}
       onAnimationEnd={(event) => {
         if (event.target === event.currentTarget) finish();
       }}
@@ -307,7 +347,7 @@ export function MobileSheet({
       onMouseDownCapture={(event) =>
         preserveInputFocus(event, preserveFocus?.current)
       }
-      onClick={onClose}
+      onClick={active ? onClose : undefined}
     >
       <section
         ref={dialog}
@@ -343,5 +383,7 @@ export function MobileSheet({
         </div>
       </section>
     </div>
+    </SurfaceVisibilityContext.Provider>
   );
+  return overlayHost ? createPortal(content, overlayHost) : content;
 }

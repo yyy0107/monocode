@@ -77,3 +77,15 @@ it("drains message pages in order and retains its cursor across polling", async 
   expect((await client.sync()).messages).toHaveLength(2);
   expect(rpc.mock.calls[2][1]).toMatchObject({ afterRevision: 1 });
 });
+
+it("reuses unchanged messages across empty and repeated incremental pages", () => {
+  const first = message("one", 2), second = message("two", 3);
+  const previous = [first, second];
+  expect(mergeAssistantMessages(previous, [])).toBe(previous);
+  expect(mergeAssistantMessages(previous, [message("one", 1), { ...second }])).toBe(previous);
+  const updated = mergeAssistantMessages(previous, [message("two", 4)]);
+  expect(updated).not.toBe(previous);
+  expect(updated[0]).toBe(first);
+  expect(updated[1]).toEqual(message("two", 4));
+  expect(previous[1]).toBe(second);
+});

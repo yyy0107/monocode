@@ -79,11 +79,15 @@ const STATE_LABEL = {
 
 /** Bottom sheet with a finished tool call's input, output and diff. */
 export function MobileToolSheet({
+  open = true,
+  onExited,
   block,
   cwd,
   onOpenFile,
   onClose,
 }: {
+  open?: boolean;
+  onExited?: () => void;
   block: Block;
   cwd?: string;
   onOpenFile?: (path: string) => void;
@@ -153,7 +157,7 @@ export function MobileToolSheet({
   );
 
   return (
-    <MobileSheet title="Tool details" onClose={onClose}>
+    <MobileSheet open={open} onExited={onExited} title="Tool details" onClose={onClose}>
       <div className="mobile-tool-sheet">
         <header className="mobile-detail-header">
           <div className="mobile-detail-title">

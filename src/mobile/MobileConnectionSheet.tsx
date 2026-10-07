@@ -4,6 +4,8 @@ import { useTranslation } from "../shared/i18n/useTranslation";
 import { MobileSheet } from "./MobileSheet";
 
 export function MobileConnectionSheet({
+  open = true,
+  onExited,
   url,
   token,
   disabled,
@@ -14,6 +16,8 @@ export function MobileConnectionSheet({
   onClose,
   anchor,
 }: {
+  open?: boolean;
+  onExited?: () => void;
   url: string;
   token: string;
   disabled: boolean;
@@ -26,7 +30,7 @@ export function MobileConnectionSheet({
 }) {
   const { t } = useTranslation();
   return (
-    <MobileSheet
+    <MobileSheet open={open} onExited={onExited}
       title="Add connection"
       placement="anchor"
       anchor={anchor}

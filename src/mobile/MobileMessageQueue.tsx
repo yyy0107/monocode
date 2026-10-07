@@ -16,6 +16,8 @@ import {
 } from "../shared/ui/icons";
 import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 import { useQueueDrag } from "./useQueueDrag";
+import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
+import { MobileSheetPresence } from "./MobileSheetPresence";
 
 type Props = Omit<ComponentProps<typeof MessageQueue>, "renderQueue"> & {
   onRestore: (message: QueuedMessage) => void | Promise<void>;
@@ -63,10 +65,11 @@ function MobileQueueView({
   canReorder: boolean;
 }) {
   const { t } = useTranslation();
+  const visible = useSurfaceVisibility();
   const [menuId, setMenuId] = useState<string>();
   const anchor = useRef<HTMLButtonElement>(null);
   const menuMessage = view.messages.find((message) => message.id === menuId);
-  const blocked = view.disabled || view.working;
+  const blocked = !visible || view.disabled || view.working;
   const sortable =
     !blocked && canReorder && !!onReorder && view.messages.length > 1;
   const sorting = useQueueDrag(
@@ -89,16 +92,16 @@ function MobileQueueView({
     (message) => message.id === sorting.drag?.id,
   );
   useEffect(() => {
-    if (!menuMessage && !sorting.drag) return;
+    if (!visible || (!menuMessage && !sorting.drag)) return;
     onOverlayChange?.(() => {
       sorting.cancel();
       setMenuId(undefined);
     });
     return () => onOverlayChange?.();
-  }, [!!menuMessage, !!sorting.drag, onOverlayChange]);
+  }, [visible, !!menuMessage, !!sorting.drag, onOverlayChange]);
   useEffect(() => {
-    if (menuId && !menuMessage) setMenuId(undefined);
-  }, [menuId, menuMessage]);
+    if (menuId && (!visible || !menuMessage)) setMenuId(undefined);
+  }, [visible, menuId, menuMessage]);
   return (
     <>
       <div className="mobile-queue">
@@ -187,7 +190,8 @@ function MobileQueueView({
           <MoreHorizontal size={20} />
         </div>
       )}
-      {menuMessage && (
+      <MobileSheetPresence open={visible && !!menuMessage}>
+      {menuMessage ? (
         <MobileSheet
           title="Queued message actions"
           placement="anchor"
@@ -234,7 +238,8 @@ function MobileQueueView({
             <span>{t("Cancel message send")}</span>
           </button>
         </MobileSheet>
-      )}
+      ) : null}
+      </MobileSheetPresence>
     </>
   );
 }

@@ -112,6 +112,10 @@ describe("mobile file preview and tool navigation", () => {
     expect(back).not.toBeNull();
     await act(async () => back!.click());
     expect(app.querySelector(".mobile-tool-sheet")).not.toBeNull();
+    const closingFile = app.querySelector(".mobile-file-sheet")!.closest(".mobile-sheet-backdrop")!;
+    expect(closingFile.getAttribute("data-fold-state")).toBe("closing");
+    expect(closingFile.hasAttribute("inert")).toBe(true);
+    await act(async () => closingFile.dispatchEvent(new Event("animationend", { bubbles: true })));
     expect(app.querySelector(".mobile-file-sheet")).toBeNull();
     await act(async () =>
       app
@@ -120,6 +124,9 @@ describe("mobile file preview and tool navigation", () => {
           new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
         ),
     );
+    const closingTool = app.querySelector(".mobile-tool-sheet")!.closest(".mobile-sheet-backdrop")!;
+    expect(closingTool.hasAttribute("inert")).toBe(true);
+    await act(async () => closingTool.dispatchEvent(new Event("animationend", { bubbles: true })));
     expect(app.querySelector('[role="dialog"]')).toBeNull();
     expect(uncaught).not.toHaveBeenCalled();
   });
@@ -142,6 +149,32 @@ describe("mobile file preview and tool navigation", () => {
       "first file",
     );
     expect(uncaught).not.toHaveBeenCalled();
+  });
+
+  it("hides portalled details when the conversation leaves without remounting its transcript", async () => {
+    const session = newSession("claude", "/repo");
+    session.blocks = [
+      { id: "user", role: "user", text: "Read files" },
+      { id: "read", role: "tool", text: "Read package.json",
+        tool: { kind: "read", status: "completed", detail: "File contents",
+          preview: { kind: "read", path: "/repo/package.json" } } },
+    ];
+    const snapshot: HostSession = { session, projectId: "project", revision: 1,
+      status: "idle", updatedAt: 1 };
+    const render = async (active: boolean) => act(async () => root.render(
+      createElement(MobileTranscript, { snapshot, active, disabled: false, onCommand: () => {} }),
+    ));
+    await render(true);
+    const transcript = app.querySelector(".agent-transcript");
+    await act(async () => app.querySelector<HTMLElement>("[data-tool-open-row]")!.click());
+    expect(app.querySelector('[role="dialog"]')).not.toBeNull();
+    await render(false);
+    expect(app.querySelector('[role="dialog"]')).toBeNull();
+    expect(app.querySelector('[role="log"]')!.hasAttribute("inert")).toBe(true);
+    expect(app.querySelector(".agent-transcript")).toBe(transcript);
+    await render(true);
+    expect(app.querySelector('[role="dialog"]')).toBeNull();
+    expect(app.querySelector(".agent-transcript")).toBe(transcript);
   });
 
   it("shows a read error without crashing", async () => {

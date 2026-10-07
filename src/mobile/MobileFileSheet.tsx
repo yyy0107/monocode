@@ -66,6 +66,8 @@ function formatBytes(size: number): string {
 
 /** Read-only file preview for a phone, fed by the Host's workspace reads. */
 export function MobileFileSheet({
+  open = true,
+  onExited,
   path,
   line,
   cwd,
@@ -74,6 +76,8 @@ export function MobileFileSheet({
   onBack,
   onClose,
 }: {
+  open?: boolean;
+  onExited?: () => void;
   path: string;
   line?: number;
   cwd?: string;
@@ -146,7 +150,7 @@ export function MobileFileSheet({
   }, [line, loaded]);
 
   return (
-    <MobileSheet title="File preview" onClose={onClose} onBack={onBack}>
+    <MobileSheet open={open} onExited={onExited} title="File preview" onClose={onClose} onBack={onBack}>
       <div className="mobile-file-sheet">
         <header className="mobile-detail-header">
           <FileTypeIcon name={name} isDir={false} />

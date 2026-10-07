@@ -1,4 +1,8 @@
-import { useEffect, useRef, useState, type HTMLAttributes } from "react";
+import { useCallback, useEffect, useRef, useState, type HTMLAttributes } from "react";
+
+const interactive = (target: EventTarget) =>
+  target instanceof Element &&
+  !!target.closest("a, button, input, textarea, select");
 
 /** Touch movement cancels the hold so reading/scrolling never opens a menu. */
 export function useAssistantReplyMenu(mobile: boolean, active: boolean) {
@@ -6,22 +10,19 @@ export function useAssistantReplyMenu(mobile: boolean, active: boolean) {
   const hold = useRef<
     { x: number; y: number; timer: ReturnType<typeof setTimeout> } | undefined
   >(undefined);
-  const cancelHold = () => {
+  const cancelHold = useCallback(() => {
     if (hold.current) clearTimeout(hold.current.timer);
     hold.current = undefined;
-  };
-  const close = () => {
+  }, []);
+  const close = useCallback(() => {
     cancelHold();
     setMenu(undefined);
-  };
+  }, [cancelHold]);
   useEffect(() => {
     if (!active) close();
     return cancelHold;
-  }, [active]);
-  const interactive = (target: EventTarget) =>
-    target instanceof Element &&
-    !!target.closest("a, button, input, textarea, select");
-  const bind = (text: string): HTMLAttributes<HTMLDivElement> => ({
+  }, [active, close, cancelHold]);
+  const bind = useCallback((text: string): HTMLAttributes<HTMLDivElement> => ({
     tabIndex: 0,
     "aria-haspopup": mobile ? "dialog" : "menu",
     onContextMenu: (event) => {
@@ -77,6 +78,6 @@ export function useAssistantReplyMenu(mobile: boolean, active: boolean) {
     onPointerUp: cancelHold,
     onPointerCancel: cancelHold,
     onPointerLeave: cancelHold,
-  });
+  }), [active, mobile, cancelHold]);
   return { menu: active ? menu : undefined, bind, close, cancelHold };
 }

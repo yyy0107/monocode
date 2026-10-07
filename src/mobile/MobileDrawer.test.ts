@@ -90,6 +90,28 @@ function touch(type: string, y = 100, x = 100, target: Element = row()) {
   );
 }
 describe("mobile sidebar sessions", () => {
+  it("finishes closing and ignores pulls while its owning page is inactive", () => {
+    render();
+    const panel = node.querySelector<HTMLElement>(".mobile-drawer")!;
+    Object.defineProperty(panel, "offsetWidth", { value: 300 });
+    touch("pointerdown", 100, 250);
+    touch("pointermove", 100, 100);
+    expect(panel.style.transform).toBe("translateX(-150px)");
+    const { onOpenChange } = render(true, { active: false });
+    expect(node.querySelector(".mobile-drawer")).toBe(panel);
+    expect(panel.style.transform).toBe("");
+    expect(panel.parentElement!.dataset.open).toBe("false");
+    expect(panel.parentElement!.hasAttribute("inert")).toBe(true);
+    const chat = document.createElement("main");
+    chat.className = "mobile-chat";
+    document.body.append(chat);
+    touch("pointerdown", 100, 20, chat);
+    touch("pointermove", 100, 250, chat);
+    touch("pointerup", 100, 250, chat);
+    chat.remove();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   it("lists pinned conversations first under their project and hides archives", () => {
     render();
     expect(

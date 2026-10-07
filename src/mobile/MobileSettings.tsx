@@ -1,5 +1,5 @@
 import { MobileSettingsIcon as SettingsIcon, MobileSettingsGlyph } from "./MobileSettingsIcon";
-import type { CSSProperties, ReactNode, RefObject } from "react";
+import { useCallback, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
 import {
   ChevronRight,
   Sparkles,
@@ -239,10 +239,17 @@ export function MobileSettings({
   appUpdates: ReturnType<typeof useMobileAppUpdates>;
 }) {
   const { t } = useTranslation();
+  const connectionButton = useRef<HTMLButtonElement | null>(null);
+  const setConnectionButton = useCallback((element: HTMLButtonElement | null) => {
+    const previous = connectionButton.current;
+    connectionButton.current = element;
+    // An exiting settings page must not clear the new page's shared anchor.
+    if (element || connectionTrigger.current === previous) connectionTrigger.current = element;
+  }, [connectionTrigger]);
   const addConnection = (
     <button
       className="mobile-settings-row mobile-connection-row mobile-connection-add"
-      ref={connectionTrigger}
+      ref={setConnectionButton}
       type="button"
       aria-label={t("Add connection")}
       aria-haspopup="dialog"

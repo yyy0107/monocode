@@ -127,6 +127,10 @@ import {
   saveThemePreference,
 } from "../features/settings/model/appearance";
 import { useNow } from "../shared/hooks/useNow";
+import { MobilePageOverlay, MobilePageTransition, useMobileHeaderMotion, type MobileRoute } from "./MobilePageTransition";
+import { MobileOverlayHostContext } from "./MobileOverlayHost";
+import { MobileSheetPresence } from "./MobileSheetPresence";
+import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 
 const client = new MobileClient(mobileStorage);
 
@@ -282,6 +286,10 @@ export function MobileApp() {
   const [project, setProject] = useState<HostProject>();
   const [sessions, setSessions] = useState<HostSessionSummary[]>([]);
   const [sessionId, setSessionId] = useState<string>();
+  // A draft keeps its page identity when its first send creates a session.
+  const [chatPageKey, setChatPageKey] = useState("draft");
+  const chatPageIdentity = useRef(chatPageKey);
+  chatPageIdentity.current = chatPageKey;
   const [snapshot, setSnapshot] = useState<HostSession>();
   const [nativeAccessResult, setNativeAccessResult] = useState<{
     key: string;
@@ -338,7 +346,7 @@ export function MobileApp() {
     ? JSON.stringify([client.connection?.environmentId, client.connection?.endpoint,
         sessionId, nativeLink.provider, nativeSourceKey(nativeLink), nativeLink.accountId])
     : undefined;
-  const checkNativeAccess = connected && foreground && view === "chat";
+  const checkNativeAccess = connected && foreground && !assistantOpen && view === "chat";
   const nativeAccess = checkNativeAccess && nativeAccessResult?.key === nativeAccessKey
     ? nativeAccessResult?.value : undefined;
   useEffect(() => {
@@ -375,6 +383,14 @@ export function MobileApp() {
   const [glass, setGlass] = useState<GlassSettings>(readGlassSettings);
   const navigation = useRef(0);
   const appRoot = useRef<HTMLDivElement>(null);
+  const [overlayHost, setOverlayHost] = useState<HTMLDivElement | null>(null);
+  const setAppRoot = useCallback((element: HTMLDivElement | null) => {
+    appRoot.current = element;
+    setOverlayHost(element);
+  }, []);
+  const header = useRef<HTMLElement>(null);
+  const navigationReady = useRef(false);
+  useEffect(() => { if (!loading) navigationReady.current = true; }, [loading]);
   const loadTiming = useRef<{ turn: number; id: string; start: number; cached: boolean }>(undefined);
   const queueView = useRef({ view, sessionId });
   const queueOverlayClose = useRef<(() => void) | undefined>(undefined);
@@ -466,7 +482,7 @@ export function MobileApp() {
   }, []);
 
   useEffect(() => {
-    if (!connected || !foreground || (view === "settings" && !drawerOpen)) return;
+    if (!connected || !foreground || assistantOpen || (view === "settings" && !drawerOpen)) return;
     let live = true;
     const turn = navigation.current;
     let timer: ReturnType<typeof setTimeout>;
@@ -534,6 +550,7 @@ export function MobileApp() {
   }, [
     connected,
     foreground,
+    assistantOpen,
     view,
     drawerOpen,
     project,
@@ -560,7 +577,7 @@ export function MobileApp() {
   });
 
   useEffect(() => {
-    if (!connected || !foreground || view !== "chat" || !snapshot) return;
+    if (!connected || !foreground || assistantOpen || view !== "chat" || !snapshot) return;
     let live = true;
     void client.sessionPreviews(snapshot.session.id).then((result) => {
       if (live && result)
@@ -570,7 +587,7 @@ export function MobileApp() {
         );
     });
     return () => { live = false; };
-  }, [connected, foreground, view, snapshot]);
+  }, [connected, foreground, assistantOpen, view, snapshot]);
 
   useEffect(() => {
     const environmentId = client.connection?.environmentId;
@@ -632,11 +649,13 @@ export function MobileApp() {
       harness: "codex", model: "", modelSettings: {}, runtimeMode: "supervised",
     });
     setSessionId(undefined);
+    setChatPageKey(`draft:${item.id}:${turn}`);
     setSnapshot(undefined);
     setSessionConfirmed(false);
     setAnimateFrom(undefined);
     setComposerPanel(null);
     setSessionActionsOpen(false);
+    setSessionStatusOpen(false);
     setView(nextView);
     setSessionEntrySource("other");
     setLoading(false);
@@ -697,6 +716,7 @@ export function MobileApp() {
       (known.projectId === restoredProjectId && !known.archived)) ? known : undefined;
     loadTiming.current = id ? { turn, id, start, cached: !!cached } : undefined;
     setSessionId(id);
+    setChatPageKey((current) => id ?? (current.startsWith("draft:") ? current : `draft:${restoredProjectId ?? project?.id ?? ""}`));
     setSnapshot(cached);
     setSessionConfirmed(false);
     if (cached) setConfiguration(configurationForSession(cached));
@@ -708,6 +728,7 @@ export function MobileApp() {
     setPlanMode(false);
     setComposerPanel(null);
     setSessionActionsOpen(false);
+    setSessionStatusOpen(false);
     setDrawerOpen(false);
     setView("chat");
     setSessionEntrySource(entrySource);
@@ -737,7 +758,7 @@ export function MobileApp() {
   const activity = useMobileActivity(client, {
     connected,
     foreground,
-    visibleSession: view === "chat" && !drawerOpen && !loading && sessionConfirmed && snapshot && snapshot.session.id === sessionId
+    visibleSession: view === "chat" && !assistantOpen && !drawerOpen && !loading && sessionConfirmed && snapshot && snapshot.session.id === sessionId
       ? { id: snapshot.session.id, projectId: snapshot.projectId, revision: snapshot.revision,
           lastCompletedRunId: snapshot.lastCompletedRunId, pendingInputKey: pendingSessionInputKey(snapshot.session, snapshot.runId) }
       : undefined,
@@ -758,6 +779,8 @@ export function MobileApp() {
   });
   const dispatch = useCallback(
     async (command?: HostCommand, text?: string | MobileFirstMessage) => {
+      const startedAt = navigation.current;
+      const startedPage = chatPageIdentity.current;
       setBusy(true);
       setError("");
       try {
@@ -796,6 +819,11 @@ export function MobileApp() {
           }
         }
         setSessionId(receipt.sessionId);
+        const samePage = navigation.current === startedAt && chatPageIdentity.current === startedPage;
+        if (!(samePage && queueView.current.view === "chat" &&
+          (queueView.current.sessionId === receipt.sessionId ||
+            (completedCommand?.type === "create" && !queueView.current.sessionId && project?.id === result.projectId))))
+          setChatPageKey(receipt.sessionId);
         setSnapshot(result);
         setSessionConfirmed(true);
         setConfiguration(configurationForSession(result));
@@ -891,9 +919,10 @@ export function MobileApp() {
           setAttachments(restored);
           setPlanMode(queued.intent === "plan");
           setComposerPanel(null);
-          requestAnimationFrame(() =>
-            document.querySelector<HTMLTextAreaElement>(".mobile-composer textarea")?.focus(),
-          );
+          requestAnimationFrame(() => {
+            if (generation === navigation.current)
+              appRoot.current?.querySelector<HTMLTextAreaElement>('[data-page-active="true"] .mobile-composer textarea')?.focus();
+          });
         },
       });
     } finally {
@@ -1036,6 +1065,9 @@ export function MobileApp() {
     setLoading(false);
     setComposerPanel(null);
     setSessionActionsOpen(false);
+    setSessionStatusOpen(false);
+    setAddingConnection(false);
+    setAddingProject(false);
     setPreferencePanel(null);
     setDrawerOpen(false);
     setSettingsPage("root");
@@ -1206,6 +1238,14 @@ export function MobileApp() {
   // Controls float above scrolling content; Home uses a plain title menu.
   const floatingHeader = true;
   const homeProject = projects.find((item) => item.id === homeProjectId);
+  const route: MobileRoute = {
+    key: view === "settings" ? `settings:${settingsPage}` : view === "chat" ? `chat:${chatPageKey}`
+      : `home:${homeProjectId ?? (allProjectsPage ? "all" : "root")}`,
+    section: view,
+    depth: view === "settings" ? (settingsPage === "root" ? 0 : settingsPage === "glass" ? 2 : 1)
+      : view === "home" ? (homeProjectId ? 2 : allProjectsPage ? 1 : 0) : 0,
+  };
+  useMobileHeaderMotion(header, route, navigationReady.current);
   const title =
     view === "chat"
       ? (snapshot &&
@@ -1280,15 +1320,17 @@ export function MobileApp() {
     if (close) setSearchOpen(false);
   };
   return (
+    <MobileOverlayHostContext.Provider value={overlayHost}>
     <div
-      ref={appRoot}
+      ref={setAppRoot}
       className="mobile-app"
       data-view={view}
       onPointerDownCapture={(event) => interceptSearchOutside(event, false)}
       onClickCapture={(event) => interceptSearchOutside(event, true)}
       onContextMenuCapture={(event) => interceptSearchOutside(event, true)}
     >
-      {assistantOpen && client.connection && (
+      <MobilePageOverlay key={`assistant:${client.connection?.environmentId}`} open={assistantOpen && !!client.connection}>
+      {client.connection && (
         <MobileAssistant
           ref={assistantPage}
           key={client.connection.environmentId}
@@ -1304,8 +1346,10 @@ export function MobileApp() {
           }}
         />
       )}
+      </MobilePageOverlay>
+      <SurfaceVisibilityContext.Provider value={!assistantOpen}>
       <div className="mobile-assistant-background" inert={assistantOpen} aria-hidden={assistantOpen || undefined}>
-      <header className="mobile-header" data-floating={floatingHeader} data-project={view === "home" && !!homeProject} data-search={view === "home" && searchOpen} inert={drawerOpen || assistantOpen}>
+      <header ref={header} className="mobile-header" data-floating={floatingHeader} data-project={view === "home" && !!homeProject} data-search={view === "home" && searchOpen} inert={drawerOpen || assistantOpen}>
         {view === "chat" && sessionEntrySource === "project" ? (
           <IconButton label="Back" onClick={() => openHome(projects.find((item) => item.id === project?.id))}>
             <ArrowLeft size={22} />
@@ -1405,15 +1449,13 @@ export function MobileApp() {
             </div>
           ) : null}
         </div>}
-        {view === "home" && (
           <MobileHeaderSearch
-            open={searchOpen}
+            open={view === "home" && searchOpen}
             query={searchQuery}
             onQueryChange={setSearchQuery}
             onClose={() => setSearchOpen(false)}
             trigger={searchTrigger}
           />
-        )}
         {/* A new conversation has nothing to act on until its first message. */}
         {view === "chat" && (snapshot || loading) ? (
           <div className="mobile-header-actions">
@@ -1489,6 +1531,8 @@ export function MobileApp() {
       )}
       </div>
 
+      <MobilePageTransition key={`pages:${client.connection?.environmentId}`} route={route}
+        animate={navigationReady.current} visible={!assistantOpen}>
       {view === "settings" ? (
         <MobileSettings
           page={settingsPage}
@@ -1748,13 +1792,21 @@ export function MobileApp() {
           />}
         </main>
       )}
+      </MobilePageTransition>
 
-      {connected && view !== "settings" && (
+      {connected && (
         <MobileDrawer
           key={`drawer:${client.connection?.environmentId}`}
           assistantName={assistantIdentity && assistantIdentity.hostId === assistantHostId ? assistantIdentity.name : undefined}
-          onAssistant={() => { setDrawerOpen(false); setAssistantOpen(true); }}
-          open={drawerOpen}
+          onAssistant={() => {
+            setDrawerOpen(false);
+            setComposerPanel(null);
+            setSessionStatusOpen(false);
+            setSessionActionsOpen(false);
+            setAssistantOpen(true);
+          }}
+          open={drawerOpen && view !== "settings" && !assistantOpen}
+          active={view !== "settings" && !assistantOpen}
           foreground={foreground}
           onOpenChange={onDrawerOpenChange}
           projects={projects}
@@ -1780,8 +1832,8 @@ export function MobileApp() {
           onSettings={onDrawerSettings}
         />
       )}
-      {(view === "chat" || view === "home") &&
-        (sessionActionsTarget ? sessionActionsSummary : snapshot) && (
+      <MobileSheetPresence open={sessionActionsOpen && view !== "settings" && !!(sessionActionsTarget ? sessionActionsSummary : snapshot)}>
+      {(sessionActionsTarget ? sessionActionsSummary : snapshot) ? (
         <MobileSessionActions
           key={sessionActionsTarget ?? sessionId ?? "draft"}
           open={sessionActionsOpen}
@@ -1808,8 +1860,10 @@ export function MobileApp() {
             setSessionActionsOpen(false);
           }}
         />
-      )}
-      {sessionStatusOpen && view === "chat" && snapshot && (
+      ) : null}
+      </MobileSheetPresence>
+      <MobileSheetPresence open={sessionStatusOpen && view === "chat" && !!snapshot}>
+      {snapshot ? (
         <MobileSessionStatus
           snapshot={snapshot}
           catalog={catalog}
@@ -1818,7 +1872,8 @@ export function MobileApp() {
           anchor={sessionStatusTrigger}
           onClose={() => setSessionStatusOpen(false)}
         />
-      )}
+      ) : null}
+      </MobileSheetPresence>
       <MobileHomeMenu
         open={homeMenuOpen && view === "home" && !drawerOpen}
         anchor={homeMenuTrigger}
@@ -1831,7 +1886,7 @@ export function MobileApp() {
         }}
         onSettings={() => navigate("settings")}
       />
-      {addingConnection && (
+      <MobileSheetPresence open={addingConnection}>
         <MobileConnectionSheet
           anchor={connectionTrigger}
           url={url}
@@ -1849,8 +1904,8 @@ export function MobileApp() {
             }
           }}
         />
-      )}
-      {addingProject && (
+      </MobileSheetPresence>
+      <MobileSheetPresence open={addingProject}>
         <MobileProjectPicker
           hostName={connectionName}
           anchor={projectTrigger}
@@ -1861,8 +1916,10 @@ export function MobileApp() {
             if (!busy) setAddingProject(false);
           }}
         />
-      )}
+      </MobileSheetPresence>
       </div>
+      </SurfaceVisibilityContext.Provider>
     </div>
+    </MobileOverlayHostContext.Provider>
   );
 }

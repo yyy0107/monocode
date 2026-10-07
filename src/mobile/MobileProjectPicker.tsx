@@ -24,6 +24,8 @@ function directoryParent(path?: string): string | null {
 
 /** Browse the connected computer's folders before registering a project. */
 export function MobileProjectPicker({
+  open: isOpen = true,
+  onExited,
   hostName,
   anchor,
   disabled,
@@ -31,6 +33,8 @@ export function MobileProjectPicker({
   onOpen,
   onClose,
 }: {
+  open?: boolean;
+  onExited?: () => void;
   hostName: string;
   anchor: RefObject<HTMLElement | null>;
   disabled: boolean;
@@ -48,6 +52,7 @@ export function MobileProjectPicker({
   const [error, setError] = useState<PickerError>();
   const [browseFailed, setBrowseFailed] = useState(false);
   const requestVersion = useRef(0);
+  const started = useRef(false);
   const requestedPath = useRef<string | undefined>(undefined);
   const inFlight = useRef(false);
   const folders = useRef<HTMLDivElement>(null);
@@ -86,18 +91,20 @@ export function MobileProjectPicker({
   );
 
   useEffect(() => {
+    if (!isOpen || started.current) return;
+    started.current = true;
     void browse();
-    return () => {
-      requestVersion.current++;
-    };
-  }, [browse]);
+  }, [isOpen, browse]);
+  useEffect(() => () => {
+    requestVersion.current++;
+    started.current = false;
+  }, []);
   useEffect(() => {
     if (folders.current) folders.current.scrollTop = 0;
   }, [directory?.path, filter]);
 
   const close = () => {
     if (blocked || inFlight.current) return;
-    requestVersion.current++;
     onClose();
   };
   const open = async () => {
@@ -127,7 +134,13 @@ export function MobileProjectPicker({
   );
 
   return (
-    <MobileSheet title="Open project" anchor={anchor} onClose={close}>
+    <MobileSheet open={isOpen} title="Open project" anchor={anchor} onClose={close}
+      onExited={() => {
+        requestVersion.current++;
+        started.current = false;
+        setOpening(false);
+        onExited?.();
+      }}>
       <div className="mobile-project-picker">
         <div className="mobile-project-picker-body">
           <header className="mobile-project-picker-heading">

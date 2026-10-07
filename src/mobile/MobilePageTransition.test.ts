@@ -1,0 +1,173 @@
+// @vitest-environment happy-dom
+import { act, createElement, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
+import { MobilePageOverlay, MobilePageTransition, mobileRouteDirection, type MobileRoute } from "./MobilePageTransition";
+import { MobileSheetPresence } from "./MobileSheetPresence";
+import { useMobilePageState } from "./mobilePageState";
+
+let root: Root;
+let node: HTMLDivElement;
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.useFakeTimers();
+  node = document.createElement("div");
+  document.body.append(node);
+  root = createRoot(node);
+});
+afterEach(() => {
+  act(() => root.unmount());
+  node.remove();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+const route = (key: string, section: MobileRoute["section"] = "home", depth = 0): MobileRoute => ({ key, section, depth });
+function Page({ name }: { name: string }) {
+  const visible = useSurfaceVisibility();
+  const [count, setCount] = useState(0);
+  const [expanded, setExpanded] = useMobilePageState("expanded", false);
+  return createElement("main", { className: "mobile-home-scroll", "data-visible": visible },
+    createElement("button", { onClick: () => setCount((value) => value + 1) }, `${name}:${count}`),
+    createElement("button", { "data-expand": true, onClick: () => setExpanded(!expanded) }, String(expanded)),
+  );
+}
+const render = (key: string, name = key, visible = true) => act(() => root.render(
+  createElement(MobilePageTransition, { route: route(key), visible, children: createElement(Page, { name }) }),
+));
+const current = () => node.querySelector<HTMLElement>('[data-page-active="true"]')!;
+const finish = () => act(() => vi.advanceTimersByTime(240));
+
+describe("mobile page transitions", () => {
+  it("starts without motion, then freezes an inert outgoing page until exit completes", () => {
+    render("home");
+    expect(current().hasAttribute("data-page-motion")).toBe(false);
+    render("chat", "loading");
+    const outgoing = node.querySelector<HTMLElement>('[data-page-active="false"]')!;
+    expect(outgoing.textContent).toContain("home");
+    expect(outgoing.hasAttribute("inert")).toBe(true);
+    expect(outgoing.getAttribute("aria-hidden")).toBe("true");
+    expect(outgoing.querySelector("main")?.dataset.visible).toBe("false");
+    render("chat", "loaded");
+    expect(outgoing.textContent).toContain("home");
+    expect(current().textContent).toContain("loaded");
+    finish();
+    expect(node.querySelectorAll(".mobile-page-layer")).toHaveLength(1);
+  });
+
+  it("keeps the same page instance for loading, streaming, and draft edits", () => {
+    render("chat", "loading");
+    const layer = current();
+    const button = layer.querySelector("button")!;
+    act(() => button.click());
+    render("chat", "streaming");
+    expect(current()).toBe(layer);
+    expect(current().querySelector("button")).toBe(button);
+    expect(button.textContent).toBe("streaming:1");
+    expect(node.querySelectorAll(".mobile-page-layer")).toHaveLength(1);
+  });
+
+  it("reverses to the retained page without resetting its local state", () => {
+    render("home");
+    const home = current();
+    act(() => home.querySelector("button")!.click());
+    render("chat");
+    render("home");
+    expect(current()).toBe(home);
+    expect(current().textContent).toContain("home:1");
+    finish();
+    expect(node.querySelectorAll(".mobile-page-layer")).toHaveLength(1);
+    expect(current().hasAttribute("inert")).toBe(false);
+  });
+
+  it("bounds rapid navigation to two layers and ignores an older exit completion", () => {
+    render("home");
+    render("project");
+    render("chat");
+    expect(node.querySelectorAll(".mobile-page-layer")).toHaveLength(2);
+    expect(node.textContent).not.toContain("home:");
+    finish();
+    expect(node.querySelectorAll(".mobile-page-layer")).toHaveLength(1);
+    expect(current().textContent).toContain("chat:");
+  });
+
+  it("restores list expansion and scroll offsets after the old DOM was released", () => {
+    render("home");
+    const home = current().querySelector("main")!;
+    act(() => home.querySelector<HTMLButtonElement>("[data-expand]")!.click());
+    home.scrollTop = 420;
+    home.dispatchEvent(new Event("scroll"));
+    render("chat");
+    finish();
+    render("home");
+    expect(current().querySelector("main")).not.toBe(home);
+    expect(current().querySelector("main")!.scrollTop).toBe(420);
+    expect(current().querySelector("[data-expand]")!.textContent).toBe("true");
+  });
+
+  it("makes the covered page invisible without replacing it", () => {
+    render("chat");
+    const page = current();
+    render("chat", "chat", false);
+    expect(current()).toBe(page);
+    expect(page.hasAttribute("inert")).toBe(true);
+    expect(page.querySelector("main")!.dataset.visible).toBe("false");
+    render("chat");
+    expect(page.querySelector("main")!.dataset.visible).toBe("true");
+  });
+
+  it("skips retained exits when reduced motion is enabled", () => {
+    vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
+    render("home");
+    render("chat");
+    expect(node.querySelectorAll(".mobile-page-layer")).toHaveLength(1);
+    expect(current().hasAttribute("data-page-motion")).toBe(false);
+  });
+
+  it("uses hierarchy for page direction and a fade for siblings", () => {
+    expect(mobileRouteDirection(route("root"), route("project", "home", 2))).toBe(1);
+    expect(mobileRouteDirection(route("chat", "chat"), route("root"))).toBe(-1);
+    expect(mobileRouteDirection(route("a", "chat"), route("b", "chat"))).toBe(0);
+    expect(mobileRouteDirection(route("root", "settings"), route("appearance", "settings", 1))).toBe(1);
+    expect(mobileRouteDirection(route("glass", "settings", 2), route("appearance", "settings", 1))).toBe(-1);
+  });
+});
+
+it("retains the assistant for an inert exit and supports reopening", () => {
+  const show = (open: boolean) => act(() => root.render(createElement(MobilePageOverlay,
+    { open, children: createElement(Page, { name: "assistant" }) })));
+  show(false);
+  expect(node.querySelector("main")).toBeNull();
+  show(true);
+  const page = node.querySelector("main");
+  show(false);
+  expect(node.querySelector("main")).toBe(page);
+  expect(node.querySelector(".mobile-page-overlay")!.hasAttribute("inert")).toBe(true);
+  show(true);
+  finish();
+  expect(node.querySelector("main")).toBe(page);
+  show(false);
+  finish();
+  expect(node.querySelector("main")).toBeNull();
+});
+
+it("freezes sheet payload on close and prevents late exits from removing a reopened sheet", () => {
+  let exited: (() => void) | undefined;
+  function Sheet({ open, value, onExited }: { open?: boolean; value: string; onExited?: () => void }) {
+    exited = onExited;
+    return createElement("div", { "data-open": open }, value);
+  }
+  const show = (open: boolean, value: string) => act(() => root.render(createElement(MobileSheetPresence,
+    { open, children: createElement(Sheet, { value }) })));
+  show(true, "old");
+  show(false, "changed");
+  expect(node.textContent).toBe("old");
+  const lateExit = exited!;
+  show(true, "new");
+  act(() => lateExit());
+  expect(node.textContent).toBe("new");
+  show(false, "ignored");
+  act(() => exited!());
+  expect(node.childElementCount).toBe(0);
+});

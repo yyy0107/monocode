@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   anchoredTurnHeight,
   installKeyboardMotion,
+  keyboardMotionRemaining,
+  onKeyboardMotion,
+  KEYBOARD_EVENT,
   settledEasing,
   transcriptFollow,
 } from "./keyboardMotion";
@@ -103,4 +106,67 @@ describe("keyboard page pan", () => {
       scrollY.mockRestore();
     }
   });
+});
+
+
+it("exposes remaining keyboard motion to late subscribers and honors reduced motion", () => {
+  let now = 0;
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+  const reduced = vi.spyOn(window, "matchMedia").mockReturnValue({ matches: false } as MediaQueryList);
+  const uninstall = installKeyboardMotion();
+  const listener = vi.fn();
+  const unsubscribe = onKeyboardMotion(listener);
+  const dispatch = () => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+    detail: { height: 300, viewport: 800, duration: 200, easing: "linear" },
+  }));
+  try {
+    dispatch();
+    now = 80;
+    expect(keyboardMotionRemaining()).toBe(120);
+    reduced.mockReturnValue({ matches: true } as MediaQueryList);
+    dispatch();
+    expect(keyboardMotionRemaining()).toBe(0);
+    expect(listener.mock.lastCall?.[0].duration).toBe(0);
+  } finally {
+    unsubscribe();
+    uninstall();
+    clock.mockRestore();
+    reduced.mockRestore();
+  }
+});
+
+
+it.each(["inert", "aria-hidden"])("ignores a departing transcript marked %s when following the keyboard", (attribute) => {
+  const pages = document.createElement("div");
+  const layer = (inactive: boolean) => {
+    const page = document.createElement("div");
+    if (inactive) page.setAttribute(attribute, attribute === "aria-hidden" ? "true" : "");
+    const transcript = document.createElement("div");
+    transcript.className = "mobile-desktop-transcript";
+    const scroller = document.createElement("div");
+    scroller.className = "agent-transcript";
+    const content = document.createElement("div");
+    Object.defineProperty(content, "offsetHeight", { value: 1000 });
+    Object.defineProperty(scroller, "clientHeight", { value: 500 });
+    Object.defineProperty(scroller, "scrollHeight", { value: 1000 });
+    scroller.scrollTop = inactive ? 0 : 500;
+    scroller.append(content);
+    transcript.append(scroller);
+    page.append(transcript);
+    pages.append(page);
+  };
+  layer(true);
+  layer(false);
+  document.body.append(pages);
+  const root = document.createElement("div");
+  const uninstall = installKeyboardMotion(root);
+  try {
+    window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+      detail: { height: 300, viewport: 800, duration: 200, easing: "linear" },
+    }));
+    expect(root.style.getPropertyValue("--mobile-keyboard-follow")).toBe("1");
+  } finally {
+    uninstall();
+    pages.remove();
+  }
 });

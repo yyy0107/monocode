@@ -117,6 +117,43 @@ describe("mobile session summary cache", () => {
     return { page, browser };
   };
 
+  it("reuses identical lists and rows without losing metadata updates or rewriting storage", async () => {
+    let values = [summary({ nativeStatus: { state: "ready", checkedAt: 1 } }), summary({ id: "other" })];
+    const client = new MobileClient(memory(), transport(() => structuredClone(values)));
+    await client.connect(endpoint, token);
+    const first = await client.sessions("project");
+    vi.advanceTimersByTime(1000);
+    vi.mocked(localStorage.setItem).mockClear();
+    expect(await client.sessions("project")).toBe(first);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(localStorage.setItem).not.toHaveBeenCalled();
+
+    // Metadata is not covered by the transcript revision, including nested
+    // native status fields which may only change while the provider is idle.
+    values = [{ ...values[0], pinned: true, title: "Renamed", nativeStatus: { state: "ready", checkedAt: 2 } }, values[1]];
+    const updated = await client.sessions("project");
+    expect(updated).not.toBe(first);
+    expect(updated[0]).toEqual(values[0]);
+    expect(updated[1]).toBe(first[1]);
+    values = [values[1]];
+    const removed = await client.sessions("project");
+    expect(removed).toHaveLength(1);
+    expect(removed[0]).toBe(first[1]);
+  });
+
+  it("reuses project lists until their content or Host changes", async () => {
+    let name = "Project";
+    const client = new MobileClient(memory(), transport(() => [{ id: "project", name, cwd: "/project" }]));
+    await client.connect(endpoint, token);
+    const first = await client.projects();
+    expect(await client.projects()).toBe(first);
+    name = "Renamed";
+    expect(await client.projects()).not.toBe(first);
+    const changed = await client.projects();
+    await client.reconnect();
+    expect(await client.projects()).not.toBe(changed);
+  });
+
   it("coalesces streaming revisions into one delayed write while keeping live summaries immediate", async () => {
     let value = snapshot();
     const client = new MobileClient(memory(), transport(() => ({ kind: "snapshot", value })));
@@ -176,6 +213,10 @@ describe("mobile session summary cache", () => {
     expect(restored.cachedSessions("project")).toEqual(live);
     vi.advanceTimersByTime(1_000);
     expect(localStorage.setItem).toHaveBeenCalledTimes(1);
+    // An unchanged poll needs neither a new persistence timer nor listeners.
+    await client.sessions("project");
+    expect(addPage).toHaveBeenCalledTimes(1);
+    live = live.map((item) => ({ ...item, title: `${item.title} updated` }));
     await client.sessions("project");
     expect(addPage).toHaveBeenCalledTimes(2);
     expect(addBrowser).toHaveBeenCalledTimes(2);

@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AgentTranscript } from "../features/sessions/ui/AgentTranscript";
 import { QuestionForm } from "../features/sessions/ui/QuestionForm";
@@ -6,6 +6,7 @@ import { questionFollowUp } from "../features/sessions/model/questionHistory";
 import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
 import { ArrowDownCircle } from "../shared/ui/icons";
 import type { Block } from "../features/sessions/model/session";
+import type { QuestionAnswer } from "../features/sessions/model/userQuestion";
 import type { ApprovalDecision } from "../integrations/harness";
 import type { EditorNavigation } from "../features/search/model/search";
 import type {
@@ -19,10 +20,17 @@ import {
 import { MobileToolSheet } from "./MobileToolSheet";
 import { MobileFileSheet } from "./MobileFileSheet";
 import { useTranscriptLayout } from "../features/sessions/hooks/useTranscriptLayout";
+import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
+import { useStableCallback } from "./useStableCallback";
 
 type Detail =
   | { kind: "tool"; block: Block }
   | { kind: "file"; path: string; line?: number; from?: Block };
+type Details = {
+  active?: Detail["kind"];
+  tool?: Extract<Detail, { kind: "tool" }>;
+  file?: Extract<Detail, { kind: "file" }>;
+};
 
 /** Host snapshots feed the same message renderer used by desktop sessions.
  * Memoized: typing in the composer re-renders the app, and the transcript
@@ -33,14 +41,21 @@ export const MobileTranscript = memo(function MobileTranscript({
   onCommand,
   readBinaryFile,
   animateFrom,
+  active = true,
 }: {
   snapshot: HostSession;
   disabled: boolean;
   onCommand: (command: HostCommand) => void | Promise<boolean>;
   readBinaryFile?: (path: string) => Promise<Uint8Array>;
   animateFrom?: string;
+  active?: boolean;
 }) {
-  const [detail, setDetail] = useState<Detail>();
+  const parentVisible = useSurfaceVisibility();
+  const visible = active && parentVisible;
+  const [detail, setDetail] = useState<Details>({});
+  useEffect(() => {
+    if (!visible) setDetail({});
+  }, [visible]);
   const layout = useTranscriptLayout();
   // Sheets portal to the app root: as a sibling of the composer dock they
   // would pick up the dock spacing rules and stop short of the screen bottom.
@@ -55,7 +70,9 @@ export const MobileTranscript = memo(function MobileTranscript({
       ...(readBinaryFile
         ? createMobileTranscriptPlatform(readBinaryFile)
         : mobileTranscriptPlatform),
-      openTool: (block: Block) => setDetail({ kind: "tool", block }),
+      openTool: (block: Block) => setDetail((current) => ({
+        ...current, active: "tool", tool: { kind: "tool", block },
+      })),
     }),
     [readBinaryFile],
   );
@@ -63,10 +80,12 @@ export const MobileTranscript = memo(function MobileTranscript({
   const openFile = useCallback(
     (path: string, navigation?: EditorNavigation) =>
       setDetail((current) => ({
-        kind: "file",
-        path,
-        line: navigation?.line,
-        from: current?.kind === "tool" ? current.block : undefined,
+        ...current,
+        active: "file",
+        file: {
+          kind: "file", path, line: navigation?.line,
+          from: current.active === "tool" ? current.tool?.block : undefined,
+        },
       })),
     [],
   );
@@ -78,11 +97,23 @@ export const MobileTranscript = memo(function MobileTranscript({
   );
   const { session, runId } = snapshot;
   const sessionId = session.id;
+  const workflowParent = useMemo(() => session.blocks.some((block) => block.workflowRun)
+    ? { id: session.id, harness: session.harness, model: session.model, modelSettings: session.modelSettings,
+      workflowRuns: session.workflowRuns, cwd: session.cwd } : undefined,
+  [session.id, session.blocks, session.harness, session.model, session.modelSettings, session.workflowRuns, session.cwd]);
+  const onQuestionFollowUp = useStableCallback((answer: QuestionAnswer) =>
+    disabled || !visible ? false : onCommand({ type: "send", commandId: crypto.randomUUID(), sessionId,
+      text: questionFollowUp(session, answer), followUpBehavior: "steer", questionAnswer: answer }));
+  const closeDetail = useCallback(() => setDetail((current) => ({ ...current, active: undefined })), []);
+  const releaseTool = useCallback(() => setDetail((current) =>
+    current.active === "tool" ? current : { ...current, tool: undefined }), []);
+  const releaseFile = useCallback(() => setDetail((current) =>
+    current.active === "file" ? current : { ...current, file: undefined }), []);
   // Memoized transcript blocks compare this callback; a fresh one on every
   // poll would re-render each block while a reply streams.
   const onApproval = useMemo(
     () =>
-      !disabled && runId
+      !disabled && visible && runId
         ? (requestId: number, decision: ApprovalDecision) =>
             onCommand({
               type: "approve",
@@ -93,7 +124,7 @@ export const MobileTranscript = memo(function MobileTranscript({
               decision,
             })
         : undefined,
-    [disabled, runId, sessionId, onCommand],
+    [disabled, visible, runId, sessionId, onCommand],
   );
   return (
     <TranscriptPlatformContext.Provider value={platform}>
@@ -103,9 +134,12 @@ export const MobileTranscript = memo(function MobileTranscript({
         data-layout={layout}
         role="log"
         aria-label="Conversation"
-        aria-live="polite"
+        aria-live={visible ? "polite" : "off"}
+        aria-hidden={!visible || undefined}
+        inert={!visible}
       >
         <AgentTranscript
+          visible={visible}
           touchScroll
           promptMotion="mobile"
           animateFrom={animateFrom}
@@ -115,12 +149,10 @@ export const MobileTranscript = memo(function MobileTranscript({
           harness={session.harness}
           model={session.model}
           modelSettings={session.modelSettings}
-          workflowParent={session.blocks.some((block) => block.workflowRun) ? { id: session.id, harness: session.harness, model: session.model, modelSettings: session.modelSettings, workflowRuns: session.workflowRuns, cwd: session.cwd } : undefined}
+          workflowParent={workflowParent}
           pendingQuestion={!!session.pendingQuestion}
           pendingQuestionHistoryId={session.pendingQuestion?.historyId}
-          onQuestionFollowUp={session.harness !== "codex" ? undefined : (answer) =>
-            disabled ? false : onCommand({ type: "send", commandId: crypto.randomUUID(), sessionId,
-              text: questionFollowUp(session, answer), followUpBehavior: "steer", questionAnswer: answer })}
+          onQuestionFollowUp={session.harness !== "codex" ? undefined : onQuestionFollowUp}
           onOpenFile={readBinaryFile ? openFile : undefined}
           onOpenDiff={readBinaryFile ? openFile : undefined}
           onJumpToBottomChange={setShowJump}
@@ -154,7 +186,7 @@ export const MobileTranscript = memo(function MobileTranscript({
       {session.pendingQuestion && (
         <fieldset
           className="mobile-shared-question"
-          disabled={disabled || !runId}
+          disabled={!visible || disabled || !runId}
         >
           <QuestionForm
             key={`${runId}:${session.pendingQuestion.requestId}`}
@@ -176,32 +208,37 @@ export const MobileTranscript = memo(function MobileTranscript({
       {sheetHost &&
         createPortal(
           <>
-            {detail?.kind === "tool" && (
+            {detail.tool && (
               <MobileToolSheet
+                open={visible && detail.active === "tool"}
+                onExited={releaseTool}
                 // Follow the live block so a running call fills in while open.
                 block={
                   session.blocks.find(
-                    (block) => block.id === detail.block.id,
-                  ) ?? detail.block
+                    (block) => block.id === detail.tool!.block.id,
+                  ) ?? detail.tool.block
                 }
                 cwd={session.cwd}
                 onOpenFile={readBinaryFile ? openFile : undefined}
-                onClose={() => setDetail(undefined)}
+                onClose={closeDetail}
               />
             )}
-            {detail?.kind === "file" && readBinaryFile && (
+            {detail.file && readBinaryFile && (
               <MobileFileSheet
-                path={detail.path}
-                line={detail.line}
+                open={visible && detail.active === "file"}
+                onExited={releaseFile}
+                path={detail.file.path}
+                line={detail.file.line}
                 cwd={session.cwd}
                 readBinaryFile={readBinaryFile}
                 onOpenFile={openFile}
                 onBack={
-                  detail.from
-                    ? () => setDetail({ kind: "tool", block: detail.from! })
+                  detail.file.from
+                    ? () => setDetail((current) => ({ ...current, active: "tool",
+                      tool: { kind: "tool", block: detail.file!.from! } }))
                     : undefined
                 }
-                onClose={() => setDetail(undefined)}
+                onClose={closeDetail}
               />
             )}
           </>,

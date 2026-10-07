@@ -29,13 +29,24 @@ export function useSheetDrag(
   sheet: RefObject<HTMLElement | null>,
   enabled: boolean,
   onClose: () => void,
+  onDismissStart?: () => void,
 ) {
   const close = useRef(onClose);
   close.current = onClose;
+  const dismissStart = useRef(onDismissStart);
+  dismissStart.current = onDismissStart;
   useEffect(() => {
     const element = sheet.current;
     if (!enabled || !element) return;
     const backdrop = element.parentElement;
+    element.style.transform = "";
+    element.style.transition = "";
+    element.style.animation = "";
+    if (backdrop) {
+      backdrop.style.opacity = "";
+      backdrop.style.transition = "";
+      backdrop.style.animation = "";
+    }
     let startY = 0;
     let lastY = 0;
     let lastAt = 0;
@@ -112,6 +123,11 @@ export function useSheetDrag(
           : `opacity ${duration}ms ease`;
       if (dismiss) {
         closing = true;
+        // The drag owns the exit from its current offset. The shared fold
+        // lifetime runs concurrently; its CSS keyframes must not restart it.
+        element.style.animation = "none";
+        if (backdrop) backdrop.style.animation = "none";
+        dismissStart.current?.();
         element.style.transform = `translateY(${height + 24}px)`;
         if (backdrop) backdrop.style.opacity = "0";
         if (reducedMotion) close.current();

@@ -87,6 +87,7 @@ async function render() {
 async function click(label: string, scope: Element = node) {
   const target = [...scope.querySelectorAll<HTMLButtonElement>("button")].find(
     (element) =>
+      !element.closest('[inert], [aria-hidden="true"]') &&
       (element.getAttribute("aria-label") ?? element.textContent?.trim()) ===
       label,
   );
@@ -100,6 +101,11 @@ async function pick() {
   expect(host.openProject).not.toHaveBeenCalled();
   await click("Open project", dialog);
   expect(host.openProject).toHaveBeenCalledExactlyOnceWith("/home/me/My app");
+  const backdrop = dialog.closest<HTMLElement>(".mobile-sheet-backdrop")!;
+  expect(backdrop.dataset.foldState).toBe("closing");
+  expect(backdrop.hasAttribute("inert")).toBe(true);
+  expect(node.querySelector('.mobile-sheet-backdrop:not([inert]) [role="dialog"]')).toBeNull();
+  await act(async () => backdrop.dispatchEvent(new Event("animationend", { bubbles: true })));
   expect(node.querySelector('[role="dialog"]')).toBeNull();
   expect(host.sessions).toHaveBeenCalledWith("new-project");
   expect(host.models).toHaveBeenCalledWith("new-project");

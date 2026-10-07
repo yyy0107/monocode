@@ -2,17 +2,35 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { KEYBOARD_EVENT, installKeyboardMotion } from "./keyboardMotion";
+import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 import { MobileSheet, type MobileSheetPoint } from "./MobileSheet";
 
 let root: Root;
 let node: HTMLDivElement;
 let trigger: HTMLButtonElement;
+let frames: Map<number, FrameRequestCallback>;
+let disposeKeyboard: (() => void) | undefined;
+function frame() {
+  act(() => {
+    const pending = [...frames.values()];
+    frames.clear();
+    pending.forEach(callback => callback(performance.now()));
+  });
+}
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   node = document.createElement("div");
   trigger = document.createElement("button");
   document.body.append(node, trigger);
   root = createRoot(node);
+  frames = new Map();
+  let frameId = 0;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function () {
       return this.classList.contains("mobile-sheet")
@@ -23,6 +41,8 @@ beforeEach(() => {
 });
 afterEach(() => {
   act(() => root.unmount());
+  disposeKeyboard?.();
+  disposeKeyboard = undefined;
   node.remove();
   trigger.remove();
   vi.restoreAllMocks();
@@ -79,18 +99,11 @@ describe("mobile popover position", () => {
     expect(sheet.style.top).toBe("252px");
   });
   it("follows a moving composer anchor without resize or scroll events and stops when closed", () => {
-    const frames = new Map<number, FrameRequestCallback>();
-    let frameId = 0;
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      frames.set(++frameId, callback);
-      return frameId;
-    });
-    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
-    const frame = () => act(() => {
-      const pending = [...frames.values()];
-      frames.clear();
-      pending.forEach(callback => callback(performance.now()));
-    });
+    disposeKeyboard = installKeyboardMotion();
+    const keyboard = () => act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+      detail: { height: 300, viewport: 800, duration: 200, easing: "linear" },
+    })));
+    keyboard(); // Also covers mounting midway through an already active motion.
     const bounds = vi.spyOn(trigger, "getBoundingClientRect");
     const move = (bottom: number) => bounds.mockReturnValue(
       new DOMRect(40, window.innerHeight - bottom, 44, 44),
@@ -119,14 +132,14 @@ describe("mobile popover position", () => {
     expect(frames.size).toBe(0);
   });
   it("leaves point-anchored menus fixed when their originating button moves", () => {
-    const requestFrame = vi.fn();
-    vi.stubGlobal("requestAnimationFrame", requestFrame);
+
     const sheet = render({ x: 72, y: 180 });
     vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(new DOMRect(40, 400, 44, 44));
     act(() => window.dispatchEvent(new Event("resize")));
+    frame();
     expect(sheet.style.left).toBe("72px");
     expect(sheet.style.top).toBe("180px");
-    expect(requestFrame).not.toHaveBeenCalled();
+    expect(frames.size).toBe(0);
   });
   it("overlaps a top title trigger at its exact top, including inside the usual popup padding", () => {
     vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(
@@ -146,6 +159,7 @@ describe("mobile popover position", () => {
     expect(sheet.style.left).toBe("72px");
     bounds.mockReturnValue(new DOMRect(72, 10, 296, 48));
     act(() => window.dispatchEvent(new Event("resize")));
+    frame();
     expect(sheet.style.width).toBe("220px");
     expect(sheet.style.left).toBe("148px");
     expect(sheet.style.top).toBe("10px");
@@ -202,4 +216,67 @@ describe("mobile popover position", () => {
     render(undefined, false);
     expect(node.querySelector(".mobile-sheet")).toBeNull();
   });
+});
+
+
+it("does not poll a stationary anchor and stops when native keyboard motion settles", () => {
+  let now = 0;
+  vi.spyOn(performance, "now").mockImplementation(() => now);
+  disposeKeyboard = installKeyboardMotion();
+  render();
+  expect(frames.size).toBe(0);
+  act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+    detail: { height: 300, viewport: 800, duration: 120, easing: "linear" },
+  })));
+  frame();
+  expect(frames.size).toBe(1);
+  now = 121;
+  frame();
+  expect(frames.size).toBe(0);
+});
+
+it("suspends hidden surfaces and never restores focus into an inert route", () => {
+  const content = (visible: boolean) => createElement(SurfaceVisibilityContext.Provider, { value: visible },
+    createElement(MobileSheet, { title: "Actions", onClose: () => {}, anchor: { current: trigger } }, "Body"));
+  act(() => root.render(content(true)));
+  const focus = vi.spyOn(trigger, "focus");
+  trigger.setAttribute("inert", "");
+  act(() => root.render(content(false)));
+  expect(node.querySelector(".mobile-sheet")).toBeNull();
+  expect(focus).not.toHaveBeenCalled();
+  expect(frames.size).toBe(0);
+});
+
+it("notifies exit once only after a previously open controlled sheet closes", () => {
+  vi.useFakeTimers();
+  const onExited = vi.fn();
+  const show = (open: boolean) => act(() => root.render(createElement(MobileSheet,
+    { title: "Actions", open, onClose: () => {}, onExited }, "Body")));
+  show(false);
+  expect(onExited).not.toHaveBeenCalled();
+  show(true);
+  show(false);
+  expect(onExited).not.toHaveBeenCalled();
+  act(() => vi.advanceTimersByTime(130));
+  expect(onExited).toHaveBeenCalledOnce();
+});
+
+
+it("tracks finite ancestor motion while ignoring perpetual decorative animations", () => {
+  let remaining = 80;
+  trigger.getAnimations = () => [{
+    playState: "running", currentTime: 0, playbackRate: 1,
+    effect: { getComputedTiming: () => ({ endTime: remaining }) },
+  }] as unknown as Animation[];
+  render();
+  expect(frames.size).toBe(1);
+  frame();
+  expect(frames.size).toBe(1);
+  remaining = 0;
+  frame();
+  expect(frames.size).toBe(0);
+  remaining = Infinity;
+  act(() => trigger.dispatchEvent(new Event("animationstart", { bubbles: true })));
+  frame();
+  expect(frames.size).toBe(0);
 });

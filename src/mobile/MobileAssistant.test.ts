@@ -2,6 +2,7 @@
 import { act, createElement, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 import { MobileAssistant, type MobileAssistantHandle } from "./MobileAssistant";
 import {
   fullAssistantPolicy,
@@ -740,4 +741,47 @@ it("closes only the nested settings picker on Escape", async () => {
   ).toBeNull();
   expect(node.querySelector(".mobile-assistant-settings-page")).toBe(page);
   expect(data.close).not.toHaveBeenCalled();
+});
+
+it("keeps one log observer across revisions and stops background polling while hidden", async () => {
+  const observers: Array<{ targets: Set<Element>; observe: ReturnType<typeof vi.fn>; disconnected: boolean }> = [];
+  vi.stubGlobal("ResizeObserver", class {
+    targets = new Set<Element>();
+    disconnected = false;
+    observe = vi.fn((element: Element) => { this.targets.add(element); });
+    unobserve = (element: Element) => { this.targets.delete(element); };
+    disconnect = () => { this.disconnected = true; this.targets.clear(); };
+    constructor() { observers.push(this); }
+  });
+  const data = fixture();
+  const props = { hostKey: "host", hostName: "Computer", rpc: data.rpc as AssistantRpc, onOpen: vi.fn() };
+  const render = (visible: boolean) => act(() => root.render(
+    createElement(SurfaceVisibilityContext.Provider, { value: visible }, createElement(MobileAssistant, props)),
+  ));
+  render(true);
+  await flush();
+  const log = node.querySelector<HTMLElement>('[role="log"]')!;
+  const observer = observers.find((entry) => entry.targets.has(log))!;
+  const reply: AssistantMessage = { kind: "assistant", id: "reply", revision: 1, createdAt: 1, text: "Reply" };
+  for (const revision of [1, 2]) {
+    data.messages([{ ...reply, revision, text: `Reply ${revision}` }]);
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    await flush();
+    expect(observers.find((entry) => entry.targets.has(log))).toBe(observer);
+    expect(observer.disconnected).toBe(false);
+  }
+  log.scrollTo = vi.fn();
+  observer.observe.mockClear();
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  await flush();
+  expect(log.scrollTo).not.toHaveBeenCalled();
+  expect(observer.observe).not.toHaveBeenCalled();
+  render(false);
+  expect(observer.disconnected).toBe(true);
+  data.rpc.mockClear();
+  await act(async () => vi.advanceTimersByTimeAsync(6000));
+  expect(data.rpc).not.toHaveBeenCalled();
+  render(true);
+  await flush();
+  expect(data.rpc).toHaveBeenCalledWith("assistant.get");
 });

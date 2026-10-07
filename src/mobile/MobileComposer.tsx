@@ -43,6 +43,7 @@ import {
 } from "./MobileModelControls";
 import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 import { preserveInputFocus, usePreserveInputFocusOnTouch } from "./inputFocus";
+import { useMobileTextareaAutosize } from "./useMobileTextareaAutosize";
 
 export type MobileComposerPanel =
   | "actions"
@@ -193,62 +194,23 @@ export function MobileComposer(props: Props) {
       host.style.removeProperty("--mobile-dock-height");
     };
   }, []);
-  useLayoutEffect(() => {
-    const element = area.current;
-    const container = form.current;
-    const widthSource = dock.current;
-    if (!element || !container || !widthSource) return;
-    const resize = () => {
-      // An offscreen copy measures wrapping without resetting the live field
-      // mid-animation or moving its caret.
-      const measure = element.cloneNode() as HTMLTextAreaElement;
-      measure.value = element.value;
-      measure.removeAttribute("id");
-      measure.setAttribute("aria-hidden", "true");
-      measure.inert = true;
-      measure.tabIndex = -1;
-      measure.className = "mobile-composer-measure";
-      const inset =
-        parseFloat(
-          getComputedStyle(container).getPropertyValue("--mobile-composer-input-inset"),
-        ) || 18;
-      const dockStyle = getComputedStyle(widthSource);
+  useMobileTextareaAutosize(area, props.value, {
+    minHeight: 36,
+    widthSource: dock,
+    measureWidth: () => {
+      const container = form.current;
+      const source = dock.current;
+      if (!container || !source) return 0;
       const formStyle = getComputedStyle(container);
-      const availableWidth =
-        widthSource.clientWidth -
+      const dockStyle = getComputedStyle(source);
+      const inset = parseFloat(formStyle.getPropertyValue("--mobile-composer-input-inset")) || 18;
+      return source.clientWidth -
         (parseFloat(dockStyle.paddingLeft) || 0) -
         (parseFloat(dockStyle.paddingRight) || 0) -
         (parseFloat(formStyle.borderLeftWidth) || 0) -
-        (parseFloat(formStyle.borderRightWidth) || 0);
-      Object.assign(measure.style, {
-        position: "absolute",
-        visibility: "hidden",
-        pointerEvents: "none",
-        transition: "none",
-        // Use the dock width so keyboard motion does not disturb the caret.
-        width: `${Math.max(0, availableWidth - inset * 2)}px`,
-        height: "0px",
-        minHeight: "0px",
-        maxHeight: "none",
-      });
-      element.after(measure);
-      const nextHeight = `${Math.max(36, Math.min(measure.scrollHeight, 168))}px`;
-      measure.remove();
-      if (element.style.height === nextHeight) return;
-      element.style.height = nextHeight;
-    };
-    resize();
-    // Observe available width without remeasuring on height-only changes.
-    let width = widthSource.clientWidth;
-    const observer = new ResizeObserver(() => {
-      const nextWidth = widthSource.clientWidth;
-      if (Math.abs(nextWidth - width) < 0.5) return;
-      width = nextWidth;
-      resize();
-    });
-    observer.observe(widthSource);
-    return () => observer.disconnect();
-  }, [props.value]);
+        (parseFloat(formStyle.borderRightWidth) || 0) - inset * 2;
+    },
+  });
   useEffect(() => {
     // Applying a setting, switching project or reading attachments briefly
     // disables the composer. Close any open sheet without disturbing the draft.

@@ -49,13 +49,14 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-async function render() {
+async function render(open = true) {
   await act(async () =>
     root.render(
       createElement(
         StrictMode,
         null,
         createElement(MobileProjectPicker, {
+          open,
           hostName: "My computer",
           anchor: { current: trigger },
           disabled: false,
@@ -76,6 +77,27 @@ function button(label: string) {
   expect(value, `button ${label}`).toBeDefined();
   return value!;
 }
+
+it("browses only when opened, preserves closing content and refreshes after a completed exit", async () => {
+  await render(false);
+  expect(browseDirectories).not.toHaveBeenCalled();
+  await render();
+  const count = browseDirectories.mock.calls.length;
+  expect(count).toBeGreaterThan(0);
+  const picker = node.querySelector(".mobile-project-picker")!;
+  await render(false);
+  expect(node.querySelector(".mobile-project-picker")).toBe(picker);
+  expect(picker.closest("[inert]")).not.toBeNull();
+  await render();
+  expect(browseDirectories).toHaveBeenCalledTimes(count);
+  expect(node.querySelector(".mobile-project-picker")).toBe(picker);
+  await render(false);
+  await act(async () => picker.closest(".mobile-sheet-backdrop")!
+    .dispatchEvent(new Event("animationend", { bubbles: true })));
+  expect(node.querySelector(".mobile-project-picker")).toBeNull();
+  await render();
+  expect(browseDirectories).toHaveBeenCalledTimes(count + 1);
+});
 async function click(label: string) {
   await act(async () => button(label).click());
 }

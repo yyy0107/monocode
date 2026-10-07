@@ -50,7 +50,7 @@ it("stretches the existing composer lens during resize and rasterizes only the s
   }
   expect(encode).toHaveBeenCalledOnce();
   expect(document.querySelector("feImage")?.getAttribute("height")).toBe("54");
-  vi.advanceTimersByTime(80);
+  vi.advanceTimersByTime(120);
   expect(encode).toHaveBeenCalledTimes(2);
   resize();
   expect(encode).toHaveBeenCalledTimes(2);
@@ -67,7 +67,7 @@ it("defers composer rasterization until its transitions finish", () => {
   vi.advanceTimersByTime(240);
   expect(encode).toHaveBeenCalledTimes(before);
   running = false;
-  vi.advanceTimersByTime(80);
+  vi.advanceTimersByTime(120);
   expect(encode).toHaveBeenCalledTimes(before + 1);
 });
 
@@ -92,14 +92,17 @@ it("cancels pending rasterization when liquid glass is disabled or disposed", ()
   expect(composer.style.getPropertyValue("--mobile-glass-refraction")).toBe("");
 });
 
-it("keeps immediate lens updates for other glass surfaces", () => {
+it("coalesces other glass surface resizing and updates only the settled lens", () => {
   const { width, height, encode, resize } = fixture("mobile-jump");
   width.mockReturnValue(51);
   height.mockReturnValue(47);
   const beforeResize = encode.mock.calls.length;
   resize();
-  expect(encode).toHaveBeenCalledTimes(beforeResize + 1);
+  vi.advanceTimersByTime(16);
+  expect(encode).toHaveBeenCalledTimes(beforeResize);
   expect(document.querySelector("feImage")?.getAttribute("height")).toBe("47");
+  vi.advanceTimersByTime(120);
+  expect(encode).toHaveBeenCalledTimes(beforeResize + 1);
   expect(vi.getTimerCount()).toBe(0);
 });
 
@@ -128,6 +131,71 @@ it("gives the stacked composer cards separate lenses and defers input resizing",
   height.mockReturnValue(164);
   callbacks.at(-1)!();
   expect(encode).toHaveBeenCalledTimes(before);
-  vi.advanceTimersByTime(80);
+  vi.advanceTimersByTime(120);
   expect(encode).toHaveBeenCalledTimes(before + 1);
+});
+
+
+it("ignores perpetual child animations when settling a panel lens", () => {
+  const { composer, height, encode, resize } = fixture("mobile-sheet");
+  composer.getAnimations = () => [{
+    playState: "running",
+    effect: { getComputedTiming: () => ({ iterations: Infinity }) },
+  }] as unknown as Animation[];
+  const before = encode.mock.calls.length;
+  height.mockReturnValue(173);
+  resize();
+  vi.advanceTimersByTime(120);
+  expect(encode).toHaveBeenCalledTimes(before + 1);
+});
+
+it("discovers portals incrementally without rescanning streamed transcript content", async () => {
+  const { composer } = fixture();
+  const scanRoot = vi.spyOn(document.body, "querySelectorAll");
+  const transcript = document.createElement("div");
+  document.body.append(transcript);
+  transcript.append(document.createTextNode("streaming"));
+  transcript.className = "streaming";
+  const portal = document.createElement("section");
+  portal.className = "mobile-sheet";
+  document.body.append(portal);
+  await vi.advanceTimersByTimeAsync(32);
+  expect(document.querySelectorAll("filter")).toHaveLength(2);
+  expect(scanRoot).not.toHaveBeenCalled();
+  composer.className = "plain";
+  portal.remove();
+  await vi.advanceTimersByTimeAsync(32);
+  expect(document.querySelectorAll("filter")).toHaveLength(0);
+});
+
+it("updates lenses when header capsule eligibility changes", async () => {
+  fixture();
+  const header = document.createElement("header");
+  header.className = "mobile-header";
+  const capsule = document.createElement("button");
+  header.append(capsule);
+  document.body.append(header);
+  await vi.advanceTimersByTimeAsync(32);
+  expect(document.querySelectorAll("filter")).toHaveLength(1);
+  header.dataset.floating = "true";
+  await vi.advanceTimersByTimeAsync(32);
+  expect(document.querySelectorAll("filter")).toHaveLength(2);
+  capsule.dataset.capsule = "false";
+  await vi.advanceTimersByTimeAsync(32);
+  expect(document.querySelectorAll("filter")).toHaveLength(1);
+});
+
+
+it("restores the original lens box on rapid resize reversal without encoding again", () => {
+  const { height, encode, resize } = fixture();
+  const before = encode.mock.calls.length;
+  height.mockReturnValue(67);
+  resize();
+  vi.advanceTimersByTime(16);
+  expect(document.querySelector("feImage")?.getAttribute("height")).toBe("67");
+  height.mockReturnValue(97);
+  resize();
+  vi.advanceTimersByTime(120);
+  expect(document.querySelector("feImage")?.getAttribute("height")).toBe("97");
+  expect(encode).toHaveBeenCalledTimes(before);
 });

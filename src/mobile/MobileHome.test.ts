@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, createRef, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -7,6 +7,7 @@ import type {
   HostSessionSummary,
 } from "../features/connections/model/protocol";
 import { setUiLanguage } from "../shared/i18n/language";
+import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 import { MobileHome } from "./MobileHome";
 
 const projects: HostProject[] = [
@@ -367,4 +368,36 @@ describe("mobile home and project history", () => {
     expect(node.textContent).toContain("已置顶");
     expect(node.textContent).toContain("monocode");
   });
+});
+
+it("pauses list refresh while the retained page is hidden", async () => {
+  const loadSessions = vi.fn(defaults.loadSessions);
+  const render = (visible: boolean) => act(() => root.render(
+    createElement(SurfaceVisibilityContext.Provider, { value: visible },
+      createElement(MobileHome, { ...defaults, loadSessions })),
+  ));
+  render(true);
+  await act(async () => {});
+  expect(loadSessions).toHaveBeenCalledTimes(2);
+  render(false);
+  loadSessions.mockClear();
+  await act(async () => vi.advanceTimersByTimeAsync(6000));
+  expect(loadSessions).not.toHaveBeenCalled();
+  render(true);
+  await act(async () => {});
+  expect(loadSessions).toHaveBeenCalledTimes(2);
+});
+
+it("does not clear the next page's search anchor when the retained project exits", () => {
+  const searchTrigger = createRef<HTMLButtonElement>();
+  const previous = createElement(MobileHome, { ...defaults, key: "previous", foreground: false,
+    project: projects[0], searchTrigger });
+  const next = createElement("button", { key: "next", ref: searchTrigger, "data-next-search": true }, "Search");
+  act(() => root.render(createElement(Fragment, null, previous)));
+  expect(searchTrigger.current?.className).toBe("mobile-home-search");
+  act(() => root.render(createElement(Fragment, null, next, previous)));
+  const anchor = node.querySelector<HTMLButtonElement>("[data-next-search]");
+  expect(searchTrigger.current).toBe(anchor);
+  act(() => root.render(createElement(Fragment, null, next)));
+  expect(searchTrigger.current).toBe(anchor);
 });

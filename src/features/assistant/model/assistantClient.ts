@@ -9,10 +9,15 @@ export function mergeAssistantMessages(
   previous: AssistantMessage[],
   incoming: AssistantMessage[],
 ): AssistantMessage[] {
+  if (!incoming.length) return previous;
   const entries = new Map(previous.map((m) => [m.id, m]));
+  let changed = false;
   for (const message of incoming)
-    if ((entries.get(message.id)?.revision ?? -1) < message.revision)
+    if ((entries.get(message.id)?.revision ?? -1) < message.revision) {
       entries.set(message.id, message);
+      changed = true;
+    }
+  if (!changed) return previous;
   return [...entries.values()].sort(
     (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
   );

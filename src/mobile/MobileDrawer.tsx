@@ -86,7 +86,8 @@ interface Swipe {
 // Memoized: the drawer stays mounted under the conversation, and typing in
 // the composer must not re-render every session row.
 export const MobileDrawer = memo(function MobileDrawer({
-  open,
+  open: requestedOpen,
+  active = true,
   foreground = true,
   onOpenChange,
   projects,
@@ -114,6 +115,8 @@ export const MobileDrawer = memo(function MobileDrawer({
   assistantName,
 }: {
   open: boolean;
+  /** Keep the closing drawer mounted without accepting edge gestures on another page. */
+  active?: boolean;
   foreground?: boolean;
   onOpenChange: (open: boolean) => void;
   projects: HostProject[];
@@ -146,6 +149,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   assistantName?: string;
 }) {
   const { language, t } = useTranslation();
+  const open = requestedOpen && active;
   // Current and running projects open automatically; manual collapses survive
   // background refreshes while this drawer lives.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
@@ -238,6 +242,12 @@ export const MobileDrawer = memo(function MobileDrawer({
   // While a finger moves the drawer, its position is written straight to the
   // DOM: a React render per pointer move would rebuild every session row.
   const [dragging, setDragging] = useState(false);
+  useLayoutEffect(() => {
+    if (active) return;
+    swipe.current = undefined;
+    cancelHold();
+    setDragging(false);
+  }, [active]);
   const follow = (translate: number, width: number) => {
     panel.current?.style.setProperty("transform", `translateX(${translate}px)`);
     backdrop.current?.style.setProperty(
@@ -368,6 +378,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   // anywhere on screen closes it. The drawer follows the finger
   // and settles by distance or flick speed.
   useEffect(() => {
+    if (!active) return;
     const begin = (event: PointerEvent) => {
       // A new touch means the previous drag produced no click to swallow.
       dragClickUntil.current = 0;
@@ -469,8 +480,9 @@ export const MobileDrawer = memo(function MobileDrawer({
       document.removeEventListener("pointermove", move, true);
       document.removeEventListener("pointerup", end, true);
       document.removeEventListener("pointercancel", end, true);
+      swipe.current = undefined;
     };
-  }, []);
+  }, [active]);
 
   const tree = sortMobileProjects(treeProjects, (id) =>
     id === project?.id ? sessions : (histories[id]?.sessions ?? []),
@@ -639,9 +651,8 @@ export const MobileDrawer = memo(function MobileDrawer({
             </button>
           ) : ordered.length ? (
             <div className="mobile-list mobile-session-list">
-              <MobileListPreview buttonClassName="mobile-drawer-more">
-                {ordered.map((session) => row(session, item))}
-              </MobileListPreview>
+              <MobileListPreview buttonClassName="mobile-drawer-more"
+                items={ordered} renderItem={(session) => row(session, item)} />
             </div>
           ) : (
             <p className="mobile-drawer-empty mobile-drawer-group-status">
@@ -716,9 +727,9 @@ export const MobileDrawer = memo(function MobileDrawer({
             <MobileListPreview
               buttonClassName="mobile-drawer-more"
               minimumVisibleCount={minimumVisibleProjects}
-            >
-              {tree.map(group)}
-            </MobileListPreview>
+              items={tree}
+              renderItem={group}
+            />
           ) : (
             <p className="mobile-drawer-empty">{t("Choose a project")}</p>
           )}

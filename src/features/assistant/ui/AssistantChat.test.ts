@@ -103,7 +103,7 @@ it("renders only public replies and one updated card without transcript logs", a
     method === "environment.describe"
       ? { capabilities: ["assistant.v1"] }
       : method === "assistant.get"
-        ? view
+        ? { ...view }
         : method === "assistant.messages"
           ? { entries: messages, nextRevision: 3, hasMore: false }
           : method === "models.list"
@@ -664,6 +664,7 @@ it("closes the reply portal when its workspace page is hidden and retains the dr
     document.querySelector('[role="menu"][aria-label="Reply"]'),
   ).toBeNull();
   render(true);
+  await flush();
   expect(node.querySelector("textarea")).toBe(field);
   expect(field.value).toBe("Keep draft");
 });
@@ -832,6 +833,7 @@ it("only acknowledges messages while the assistant page and document are visible
     await flush();
     expect(localStorage.getItem("monocode.assistant-read:read-host")).toBeNull();
     render(true);
+    await flush();
     expect(localStorage.getItem("monocode.assistant-read:read-host")).toBeNull();
     state.mockReturnValue("visible");
     act(() => document.dispatchEvent(new Event("visibilitychange")));

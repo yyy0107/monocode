@@ -1,7 +1,6 @@
 import { markAssistantRead } from "../model/assistantUnread";
 import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 import {
-  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -28,12 +27,8 @@ import type {
 } from "../../connections/model/protocol";
 import { assistantErrorMessage } from "../model/assistantErrors";
 import { REMOTE_PROVIDERS } from "../../connections/model/protocol";
-import { QuestionForm } from "../../sessions/ui/QuestionForm";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { AssistantSettings } from "./AssistantSettings";
-import { AssistantSessionCard } from "./AssistantSessionCard";
-import { AssistantMessageMeta } from "./AssistantMessageMeta";
-import { AssistantDateSeparator } from "./AssistantDateSeparator";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { AssistantWorkerDetails } from "./AssistantWorkerDetails";
 import { resolveAssistantTarget, type AssistantTarget } from "../model/assistantNavigation";
@@ -47,10 +42,9 @@ import {
   DesktopAssistantMessageMenu,
 } from "./DesktopAssistantChrome";
 import { useAssistantReplyMenu } from "./useAssistantReplyMenu";
-import { AgentMarkdown } from "../../sessions/ui/AgentMarkdown";
+import { AssistantMessages } from "./AssistantMessages";
 import { TranscriptPlatformContext } from "../../sessions/ui/TranscriptPlatform";
 import {
-  AfterTextReveal,
   useTranscriptRenderingPlatform,
 } from "../../sessions/ui/useTranscriptRenderingPlatform";
 import { Shimmer } from "../../../shared/ui/Shimmer";
@@ -196,12 +190,13 @@ export function AssistantChat({
   useEffect(() => {
     if (worker && !canRead(worker)) setWorkerOpen(false);
   }, [assistant, worker]);
-  const sync = async () => {
+  const sync = useCallback(async () => {
     const result = await client.sync();
     setAssistant(result.assistant);
     setMessages(result.messages);
-  };
+  }, [client]);
   useEffect(() => {
+    if (!visible) return;
     let disposed = false,
       fetching = false,
       capable = false,
@@ -253,7 +248,7 @@ export function AssistantChat({
       disposed = true;
       clearTimeout(timer);
     };
-  }, [client, rpc, attempt]);
+  }, [client, rpc, attempt, visible]);
   const loadCatalog = async (disposed: () => boolean = () => false) => {
     setCatalogState("loading");
     try {
@@ -300,14 +295,15 @@ export function AssistantChat({
     }
   }, [hostKey, draft]);
   useLayoutEffect(() => {
+    if (!visible) return;
     syncHeaderHeight(chat.current, !!chrome);
     const element = log.current;
     if (followLog.current && element)
       element.scrollTo?.({ top: followScrollTop(element, !!chrome) });
-  }, [messages, chrome]);
+  }, [messages, chrome, visible]);
   useEffect(() => {
     const element = log.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
+    if (!visible || !element || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
       syncHeaderHeight(chat.current, !!chrome);
       if (followLog.current)
@@ -316,13 +312,27 @@ export function AssistantChat({
     observer.observe(element);
     // Markdown grows between RPC updates while characters are being revealed.
     for (const child of element.children) observer.observe(child);
+    // Keep the observer across streaming revisions. Only actual row insertion
+    // or removal changes its targets; Markdown growth is handled by resize.
+    const children = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const child of record.removedNodes)
+          if (child instanceof Element) observer.unobserve?.(child);
+        for (const child of record.addedNodes)
+          if (child instanceof Element) observer.observe(child);
+      }
+    });
+    children.observe(element, { childList: true });
     const header = chat.current?.querySelector(chrome
       ? ".mobile-assistant-header > .mobile-header-title"
       : ".assistant-header");
     if (header) observer.observe(header);
-    return () => observer.disconnect();
-  }, [!!assistant, messages, chrome]);
-  const operation = async (action: () => Promise<unknown>) => {
+    return () => {
+      children.disconnect();
+      observer.disconnect();
+    };
+  }, [!!assistant, chrome, visible, supported, !!connectError]);
+  const operation = useCallback(async (action: () => Promise<unknown>) => {
     setBusy(true);
     setError(undefined);
     try {
@@ -333,7 +343,7 @@ export function AssistantChat({
     } finally {
       setBusy(false);
     }
-  };
+  }, [sync]);
   const send = (text: string, files = attachments) =>
     operation(async () => {
       try {
@@ -355,11 +365,12 @@ export function AssistantChat({
       });
       setSettingsOpen(false);
     });
-  const open = async (ref: SessionReference) => {
+  const open = useCallback(async (ref: SessionReference) => {
     setError(undefined);
     try {
       const current = await rpc<AssistantView | null>("assistant.get");
-      if (!canRead(ref, current))
+      if (!current?.policy.permissions["sessions.read"] ||
+        (current.policy.allowedProjects !== "all" && !current.policy.allowedProjects.includes(ref.projectId)))
         throw new Error(
           "This conversation is outside the assistant's current permissions.",
         );
@@ -371,7 +382,7 @@ export function AssistantChat({
     } catch (e) {
       setError(assistantErrorMessage(e));
     }
-  };
+  }, [hostKey, rpc, onOpen]);
   const labels = {
     idle: "Ready",
     running: "Working",
@@ -484,7 +495,7 @@ export function AssistantChat({
       ) : null}
     </div>
   );
-  const respond = (
+  const respond = useCallback((
     message: Extract<AssistantMessage, { kind: "input" }>,
     answer: object,
   ) =>
@@ -497,7 +508,10 @@ export function AssistantChat({
         requestId: message.requestId,
         ...answer,
       }),
-    );
+    ), [operation, rpc]);
+  // Polling returns fresh view objects even when access policy is unchanged.
+  const allowedProjectsKey = JSON.stringify(assistant?.policy.allowedProjects);
+  const messageProjects = useMemo(() => assistant?.policy.allowedProjects, [allowedProjectsKey]);
   return (
     <TranscriptPlatformContext.Provider value={renderingPlatform}>
       <section
@@ -671,122 +685,17 @@ export function AssistantChat({
                       </p>
                     </div>
                   )}
-                  {visibleMessages.map((message, index) => (
-                    <Fragment key={message.id}>
-                      <AssistantDateSeparator
-                        createdAt={message.createdAt}
-                        previousCreatedAt={visibleMessages[index - 1]?.createdAt}
-                      />
-                      {message.kind === "session-card" ? (
-                        <AssistantSessionCard
-                          key={message.id}
-                          message={message}
-                          onOpen={open}
-                          accessible={canRead(message.ref)}
-                          mobile={mobile}
-                        />
-                      ) : message.kind === "input" ? (
-                        <article
-                          className="assistant-input"
-                          key={message.id}
-                          data-resolved={message.resolved || undefined}
-                        >
-                          <p>{message.text}</p>
-                          {message.resolved ? (
-                            <small className="assistant-pill">
-                              {t("Resolved")}
-                            </small>
-                          ) : message.inputKind === "question" &&
-                            message.question ? (
-                            <QuestionForm
-                              prompt={message.question}
-                              onReply={(_request, reply) =>
-                                respond(message, { reply })
-                              }
-                            />
-                          ) : (
-                            <div className="assistant-input-actions">
-                              {(["allow", "deny"] as const).map((decision) => (
-                                <button
-                                  type="button"
-                                  key={decision}
-                                  className={
-                                    decision === "allow"
-                                      ? "assistant-primary"
-                                      : undefined
-                                  }
-                                  disabled={busy}
-                                  onClick={() => respond(message, { decision })}
-                                >
-                                  {t(decision === "allow" ? "Allow" : "Deny")}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </article>
-                      ) : (
-                        <div
-                          key={message.id}
-                          className={`assistant-message-row assistant-message-row-${message.kind}`}
-                        >
-                          <div
-                            {...(message.kind === "assistant"
-                              ? replyMenu.bind(message.text)
-                              : {})}
-                            className={`assistant-message assistant-message-${message.kind}`}
-                            data-streaming={
-                              (message.kind === "assistant" &&
-                                message.streaming) ||
-                              undefined
-                            }
-                          >
-                            {message.kind === "assistant" ? (
-                              <AgentMarkdown
-                                text={message.text}
-                                streaming={message.streaming}
-                                streamingKey={message.id}
-                                className="assistant-markdown"
-                                hardBreaks
-                              />
-                            ) : (
-                              <span>
-                                {message.kind === "status"
-                                  ? t(message.text)
-                                  : message.text}
-                              </span>
-                            )}
-                            {"attachments" in message &&
-                              message.attachments?.map((file) => (
-                                <small
-                                  className="assistant-attachment"
-                                  key={file.id}
-                                >
-                                  {file.name}
-                                </small>
-                              ))}
-                          </div>
-                          {(message.kind === "assistant" ||
-                            message.kind === "user") && (
-                            <AfterTextReveal
-                              entries={message.kind === "assistant" ? [message] : []}
-                            >
-                              <AssistantMessageMeta
-                                text={message.text}
-                                createdAt={message.createdAt}
-                                read={
-                                  message.kind === "user" &&
-                                  message.id === pendingUserMessageId &&
-                                  message.readAt !== undefined
-                                    ? message.readAt !== null
-                                    : undefined
-                                }
-                              />
-                            </AfterTextReveal>
-                          )}
-                        </div>
-                      )}
-                    </Fragment>
-                  ))}
+                  <AssistantMessages
+                    messages={visibleMessages}
+                    pendingUserMessageId={pendingUserMessageId}
+                    canRead={!!assistant.policy.permissions["sessions.read"]}
+                    allowedProjects={messageProjects}
+                    mobile={mobile}
+                    busy={busy}
+                    onOpen={open}
+                    onRespond={respond}
+                    bindReply={replyMenu.bind}
+                  />
                   {!mobile && assistant.lifecycle === "running" &&
                     !messages.some(
                       (message) =>

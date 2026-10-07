@@ -7,6 +7,7 @@ import { MobileMessageQueue } from "./MobileMessageQueue";
 import { LIQUID_GLASS_SELECTOR } from "./liquidGlass";
 import { setUiLanguage } from "../shared/i18n/language";
 import type { QueuedMessage } from "../features/sessions/model/session";
+import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 const mobileCss = readFileSync("src/mobile/mobile.css", "utf8");
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 let root: Root, node: HTMLDivElement;
@@ -101,6 +102,7 @@ it("cancels when another device changes the queue while dragging", () => {
 });
 function render(
   overrides: Partial<Parameters<typeof MobileMessageQueue>[0]> = {},
+  visible = true,
 ) {
   const props = {
     messages: [message],
@@ -112,7 +114,7 @@ function render(
     onOverlayChange: vi.fn(),
     ...overrides,
   };
-  act(() => root.render(createElement(MobileMessageQueue, props)));
+  act(() => root.render(createElement(SurfaceVisibilityContext.Provider, { value: visible }, createElement(MobileMessageQueue, props))));
   return props;
 }
 async function open() {
@@ -126,6 +128,13 @@ async function click(label: string) {
       .find((button) => button.textContent === label)!
       .click(),
   );
+}
+function finishMenuExit() {
+  const backdrop = node.querySelector<HTMLElement>(".mobile-sheet-backdrop")!;
+  expect(backdrop.dataset.foldState).toBe("closing");
+  expect(backdrop.hasAttribute("inert")).toBe(true);
+  act(() => backdrop.dispatchEvent(new Event("animationend", { bubbles: true })));
+  expect(node.querySelector('[role="dialog"]')).toBeNull();
 }
 it.each(["liquid", "frosted", "solid"])(
   "removes the queue fill and shadows while preserving the border and glass in %s mode",
@@ -186,7 +195,7 @@ it("returns the complete queued message, images and intent to the original compo
   await click("Edit message");
   expect(props.onRestore).toHaveBeenCalledWith(message);
   expect(node.querySelector("textarea")).toBeNull();
-  expect(node.querySelector('[role="dialog"]')).toBeNull();
+  finishMenuExit();
 });
 it("keeps the queue visible and reports restore failures", async () => {
   render({
@@ -228,7 +237,7 @@ it("closes with Escape and restores focus without changing the message", async (
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       ),
   );
-  expect(node.querySelector('[role="dialog"]')).toBeNull();
+  finishMenuExit();
   expect(document.activeElement).toBe(node.querySelector(".mobile-queue-pill"));
   expect(props.onDelete).not.toHaveBeenCalled();
   expect(props.onRestore).not.toHaveBeenCalled();
@@ -238,8 +247,18 @@ it("provides the native Back handler while a queue menu is open", async () => {
   await open();
   const close = props.onOverlayChange.mock.calls.find((args) => args[0])![0]!;
   act(() => close());
-  expect(node.querySelector('[role="dialog"]')).toBeNull();
+  finishMenuExit();
   expect(props.onOverlayChange).toHaveBeenLastCalledWith();
+});
+it("cancels an active drag when its page becomes hidden", () => {
+  vi.useFakeTimers();
+  const { pills, onReorder } = sortableQueue();
+  act(() => { pointer("pointerdown", 122, pills[0]); vi.advanceTimersByTime(400); });
+  expect(node.querySelector(".mobile-queue-drag-preview")).not.toBeNull();
+  render({ messages: [message, { ...message, id: "second", text: "Second" }, { ...message, id: "third", text: "Third" }], onReorder }, false);
+  act(() => pointer("pointerup", 224, window));
+  expect(node.querySelector(".mobile-queue-drag-preview")).toBeNull();
+  expect(onReorder).not.toHaveBeenCalled();
 });
 it("localizes attachment-only bubbles and menu labels", async () => {
   setUiLanguage("zh-CN");

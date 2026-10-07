@@ -154,6 +154,18 @@ export const nativeTransport: RpcTransport = async (
   return (data as { result: unknown }).result;
 };
 
+// Summary metadata can change without a transcript revision. Compare the full
+// JSON value, including optional/nested provider metadata, before reusing it.
+function sameCachedValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const previous = left as Record<string, unknown>, next = right as Record<string, unknown>;
+  const keys = Object.keys(previous);
+  return keys.length === Object.keys(next).length && keys.every((key) =>
+    Object.prototype.hasOwnProperty.call(next, key) && sameCachedValue(previous[key], next[key]));
+}
+
 export class MobileClient {
   connection?: Connection;
   private connectionStatus: HostConnectionStatus = { state: "disconnected" };
@@ -203,6 +215,7 @@ export class MobileClient {
   private previewLoads = new Map<string, Promise<HostSession | undefined>>();
   private catalogs = new Map<string, { value: HostModelCatalog; expires: number }>();
   private modelLoads = new Map<string, Promise<HostModelCatalog>>();
+  private projectList?: HostProject[];
   private summaries = new Map<string, HostSessionSummary[]>();
   private summariesEnvironmentId?: string;
   private summaryTurns = new Map<string, number>();
@@ -221,6 +234,7 @@ export class MobileClient {
     this.previewLoads.clear();
     this.catalogs.clear();
     this.modelLoads.clear();
+    this.projectList = undefined;
     this.summaries.clear();
     this.summariesEnvironmentId = undefined;
     this.summaryTurns.clear();
@@ -428,8 +442,13 @@ export class MobileClient {
       return Promise.reject(new Error("Connect to a Host first."));
     return this.requestWith<T>(this.connection, method, params);
   }
-  projects() {
-    return this.rpc<HostProject[]>("projects.list");
+  async projects() {
+    const epoch = this.cacheEpoch;
+    const projects = await this.rpc<HostProject[]>("projects.list");
+    if (epoch !== this.cacheEpoch) return projects;
+    if (this.projectList && sameCachedValue(this.projectList, projects)) return this.projectList;
+    this.projectList = projects;
+    return projects;
   }
   browseDirectories(path?: string) {
     return this.rpc<HostDirectory>(
@@ -498,12 +517,20 @@ export class MobileClient {
     browser?.addEventListener("pagehide", this.flushSummaryWrite);
   }
   private rememberSummaries(projectId: string, sessions: HostSessionSummary[]) {
-    this.cachedSessions(projectId);
+    const previous = this.cachedSessions(projectId);
+    const byId = new Map(previous?.map((item) => [item.id, item]));
+    const shared = sessions.map((item) => {
+      const known = byId.get(item.id);
+      return known && sameCachedValue(known, item) ? known : item;
+    });
+    if (previous?.length === shared.length && shared.every((item, index) => item === previous[index]))
+      return previous;
     this.summaries.delete(projectId);
-    this.summaries.set(projectId, sessions);
+    this.summaries.set(projectId, shared);
     if (this.summaries.size > SESSION_CACHE_PROJECT_LIMIT)
       this.summaries.delete(this.summaries.keys().next().value!);
     this.scheduleSummaryWrite();
+    return shared;
   }
   async sessions(projectId: string) {
     const epoch = this.cacheEpoch;
@@ -526,8 +553,7 @@ export class MobileClient {
         merged.set(item.id, item);
     }
     const sessions = [...merged.values()];
-    this.rememberSummaries(projectId, sessions);
-    return sessions;
+    return this.rememberSummaries(projectId, sessions);
   }
   activity() {
     return this.rpc<HostSessionActivity>("sessions.activity");

@@ -84,9 +84,21 @@ async function render() {
     root.render(createElement(MobileApp));
   });
 }
+function active<T extends Element = HTMLElement>(selector: string): T | null {
+  return [...node.querySelectorAll<T>(selector)]
+    .find(item => !item.closest('[inert]')) ?? null;
+}
+function finishClosingSheet(dialog: Element) {
+  const backdrop = dialog.closest<HTMLElement>(".mobile-sheet-backdrop")!;
+  expect(backdrop.dataset.foldState).toBe("closing");
+  expect(backdrop.hasAttribute("inert")).toBe(true);
+  act(() => backdrop.dispatchEvent(new Event("animationend", { bubbles: true })));
+  expect(dialog.isConnected).toBe(false);
+}
 function button(text: string) {
-  return [...node.querySelectorAll("button")].find(
-    (item) => item.getAttribute("aria-label") === text || item.textContent?.trim() === text,
+  return [...node.querySelectorAll<HTMLButtonElement>("button")].find(
+    (item) => !item.closest('[inert]') &&
+      (item.getAttribute("aria-label") === text || item.textContent?.trim() === text),
   )!;
 }
 function open() {
@@ -96,7 +108,7 @@ function open() {
   });
 }
 function input(selector: string, value: string) {
-  const field = node.querySelector<HTMLInputElement>(selector)!;
+  const field = active<HTMLInputElement>(selector)!;
   act(() => {
     Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
@@ -122,49 +134,53 @@ describe("mobile connection settings", () => {
       else button("Back").click();
     });
     await render();
-    expect(node.querySelector("#mobile-theme, #mobile-follow-up, #mobile-glass-effect")).toBeNull();
-    expect(node.querySelector("#mobile-language")).not.toBeNull();
+    expect(active("#mobile-theme, #mobile-follow-up, #mobile-glass-effect")).toBeNull();
+    expect(active("#mobile-language")).not.toBeNull();
     expect(button("Notifications").querySelector(".mobile-settings-value")?.textContent).toBe("Off");
     expect(button("Appearance").querySelector(".mobile-settings-value")?.textContent).toBe("Dark");
     act(() => button("Appearance").click());
-    expect(node.querySelector("header strong")?.textContent).toBe("Appearance");
+    expect(active("header strong")?.textContent).toBe("Appearance");
+    const appearancePage = active("#mobile-theme")!.closest(".mobile-page-layer")!;
     act(() => button("Glass").click());
-    expect(node.querySelector("#mobile-theme")).toBeNull();
-    expect(node.querySelector(".mobile-glass-preview")).not.toBeNull();
-    act(() => node.querySelector<HTMLButtonElement>("#mobile-glass-effect")!.click());
-    act(() => [...node.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((item) => item.textContent?.trim() === "Solid")!.click());
-    expect(node.querySelector<HTMLInputElement>("#mobile-glass-intensity")!.disabled).toBe(true);
-    act(() => node.querySelector<HTMLButtonElement>("#mobile-glass-effect")!.click());
+    expect(appearancePage.hasAttribute("inert")).toBe(true);
+    expect(active("#mobile-theme")).toBeNull();
+    act(() => appearancePage.dispatchEvent(new Event("animationend", { bubbles: true })));
+    expect(appearancePage.isConnected).toBe(false);
+    expect(active(".mobile-glass-preview")).not.toBeNull();
+    act(() => active<HTMLButtonElement>("#mobile-glass-effect")!.click());
+    act(() => [...node.querySelectorAll<HTMLButtonElement>('[role="radio"]')].filter(item => !item.closest('[inert]')).find((item) => item.textContent?.trim() === "Solid")!.click());
+    expect(active<HTMLInputElement>("#mobile-glass-intensity")!.disabled).toBe(true);
+    act(() => active<HTMLButtonElement>("#mobile-glass-effect")!.click());
     back();
-    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
+    expect(active('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     if (backMode === "native") {
-      expect(node.querySelector("header strong")?.textContent).toBe("Glass");
+      expect(active("header strong")?.textContent).toBe("Glass");
       back();
     }
-    expect(node.querySelector("header strong")?.textContent).toBe("Appearance");
-    expect(node.querySelector("#mobile-theme")).not.toBeNull();
-    expect(node.querySelector("#mobile-glass-effect")).toBeNull();
+    expect(active("header strong")?.textContent).toBe("Appearance");
+    expect(active("#mobile-theme")).not.toBeNull();
+    expect(active("#mobile-glass-effect")).toBeNull();
     expect(button("Glass").textContent).toContain("Solid");
     act(() => button("Glass").click());
-    expect(node.querySelector("#mobile-glass-effect")!.textContent).toBe("Solid");
-    expect(node.querySelector("#mobile-glass-effect")!.getAttribute("aria-expanded")).toBe("false");
+    expect(active("#mobile-glass-effect")!.textContent).toBe("Solid");
+    expect(active("#mobile-glass-effect")!.getAttribute("aria-expanded")).toBe("false");
     back();
     back();
-    expect(node.querySelector("#mobile-theme")).toBeNull();
-    expect(node.querySelector("#mobile-language")).not.toBeNull();
-    expect(node.querySelector("header strong")?.textContent).toBe("MonoCode");
+    expect(active("#mobile-theme")).toBeNull();
+    expect(active("#mobile-language")).not.toBeNull();
+    expect(active("header strong")?.textContent).toBe("MonoCode");
   });
 
   async function openConnectedSettings() {
     host.restore.mockResolvedValue(true);
     await render();
-    await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Home menu"]')!.click());
+    await act(async () => active<HTMLButtonElement>('[aria-label="Home menu"]')!.click());
     await act(async () => button("Settings").click());
   }
 
   it("keeps Add connection in the device list and disconnects through its switch", async () => {
     await openConnectedSettings();
-    const list = node.querySelector(".mobile-connection-list")!;
+    const list = active(".mobile-connection-list")!;
     expect(list.textContent).toContain("My computer");
     expect(list.textContent).toContain("Connected");
     expect(list.querySelector('[aria-label="Add connection"]')).not.toBeNull();
@@ -180,7 +196,7 @@ describe("mobile connection settings", () => {
     healthyStatus.state = "disconnected";
     host.connection.disabled = true;
     await openConnectedSettings();
-    const list = node.querySelector(".mobile-connection-list")!;
+    const list = active(".mobile-connection-list")!;
     expect(list.textContent).toContain("Disconnected");
     const toggle = list.querySelector<HTMLInputElement>('[role="switch"]')!;
     expect(toggle.checked).toBe(false);
@@ -193,20 +209,20 @@ describe("mobile connection settings", () => {
   it("opens connection actions on a hold, edits the local alias and icon, and preserves the Host name", async () => {
     await openConnectedSettings();
     vi.useFakeTimers();
-    const details = node.querySelector<HTMLButtonElement>(".mobile-connection-details")!;
+    const details = active<HTMLButtonElement>(".mobile-connection-details")!;
     act(() => details.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 70, clientY: 140 })));
     act(() => vi.advanceTimersByTime(449));
-    expect(node.querySelector('[role="dialog"][aria-label="Connection options"]')).toBeNull();
+    expect(active('[role="dialog"][aria-label="Connection options"]')).toBeNull();
     act(() => vi.advanceTimersByTime(1));
-    expect(node.querySelector('[role="dialog"][aria-label="Connection options"]')).not.toBeNull();
+    expect(active('[role="dialog"][aria-label="Connection options"]')).not.toBeNull();
     act(() => button("Edit").click());
-    expect(node.querySelector('[role="dialog"][aria-label="Edit connection"]')).not.toBeNull();
+    expect(active('[role="dialog"][aria-label="Edit connection"]')).not.toBeNull();
     expect(button("Save").disabled).toBe(true);
     input(".mobile-connection-name-field input", "Workstation");
     act(() => button("Terminal").click());
-    act(() => node.querySelector(".mobile-connection-editor")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    expect(node.querySelector(".mobile-connection-name")!.textContent).toBe("Workstation");
-    expect(node.querySelector(".mobile-header-title")!.textContent).toBe("MonoCode");
+    act(() => active(".mobile-connection-editor")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(active(".mobile-connection-name")!.textContent).toBe("Workstation");
+    expect(active(".mobile-header-title")!.textContent).toBe("MonoCode");
     expect(host.connection.name).toBe("My computer");
     expect(JSON.parse(localStorage.getItem("monocode.mobile.connectionAppearance:settings-host")!)).toEqual({ displayName: "Workstation", icon: "terminal" });
     vi.useRealTimers();
@@ -215,11 +231,11 @@ describe("mobile connection settings", () => {
   it("cancels long press when scrolling and keeps the switch separate from deletion", async () => {
     await openConnectedSettings();
     vi.useFakeTimers();
-    const details = node.querySelector<HTMLButtonElement>(".mobile-connection-details")!;
+    const details = active<HTMLButtonElement>(".mobile-connection-details")!;
     act(() => details.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 70, clientY: 140 })));
     act(() => details.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 70, clientY: 165 })));
     act(() => vi.advanceTimersByTime(500));
-    expect(node.querySelector('[role="dialog"][aria-label="Connection options"]')).toBeNull();
+    expect(active('[role="dialog"][aria-label="Connection options"]')).toBeNull();
     act(() => details.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
     act(() => button("Delete").click());
     expect(host.disconnect).not.toHaveBeenCalled();
@@ -232,41 +248,42 @@ describe("mobile connection settings", () => {
   it("opens the plain Home title dropdown and reuses the connection dialog anchored to that title", async () => {
     host.restore.mockResolvedValue(true);
     await render();
-    const title = node.querySelector<HTMLButtonElement>('.mobile-header-title[data-capsule="false"]')!;
+    const title = active<HTMLButtonElement>('.mobile-header-title[data-capsule="false"]')!;
     expect(title.tagName).toBe("BUTTON");
     expect(title.matches(LIQUID_GLASS_SELECTOR)).toBe(false);
     expect(title.getAttribute("aria-expanded")).toBe("false");
     await act(async () => { title.focus(); title.click(); });
-    const menu = node.querySelector<HTMLElement>('[role="dialog"][aria-label="Home menu"]')!;
+    const menu = active<HTMLElement>('[role="dialog"][aria-label="Home menu"]')!;
     expect(menu.closest(".mobile-sheet-backdrop")?.getAttribute("data-placement")).toBe("anchor");
     expect([...menu.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Add connection", "Settings"]);
     await act(async () => menu.querySelector<HTMLButtonElement>("button")!.click());
-    const form = node.querySelector<HTMLElement>('[role="dialog"][aria-label="Add connection"]')!;
+    const form = active<HTMLElement>('[role="dialog"][aria-label="Add connection"]')!;
     expect(form).not.toBeNull();
     expect(form.classList.contains("mobile-sheet")).toBe(true);
     input('input[type="url"]', "http://next-computer:3774");
     input('input[type="password"]', "new-device-token");
     act(() => form.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(node.querySelector('[role="dialog"][aria-label="Add connection"]')).toBeNull();
+    expect(active('[role="dialog"][aria-label="Add connection"]')).toBeNull();
+    finishClosingSheet(form);
     expect(document.activeElement).toBe(title);
     expect(host.connect).not.toHaveBeenCalled();
-    expect(node.querySelector(".mobile-app")?.getAttribute("data-view")).toBe("home");
+    expect(active(".mobile-app")?.getAttribute("data-view")).toBe("home");
   });
 
   it("opens Settings from the Home dropdown and returns to Home with translated menu labels", async () => {
     host.restore.mockResolvedValue(true);
     await render();
-    const title = () => node.querySelector<HTMLButtonElement>('[aria-label="Home menu"]')!;
+    const title = () => active<HTMLButtonElement>('[aria-label="Home menu"]')!;
     await act(async () => title().click());
     await act(async () => setUiLanguage("zh-CN"));
-    const menu = node.querySelector<HTMLElement>('[role="dialog"][aria-label="首页菜单"]')!;
+    const menu = active<HTMLElement>('[role="dialog"][aria-label="首页菜单"]')!;
     expect([...menu.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["添加连接", "设置"]);
     await act(async () => menu.querySelectorAll<HTMLButtonElement>("button")[1].click());
-    expect(node.querySelector(".mobile-app")?.getAttribute("data-view")).toBe("settings");
-    expect(node.querySelector("header strong")?.textContent).toBe("MonoCode");
-    await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="返回"]')!.click());
-    expect(node.querySelector(".mobile-app")?.getAttribute("data-view")).toBe("home");
-    expect(node.querySelector('.mobile-header-title')?.getAttribute("aria-expanded")).toBe("false");
+    expect(active(".mobile-app")?.getAttribute("data-view")).toBe("settings");
+    expect(active("header strong")?.textContent).toBe("MonoCode");
+    await act(async () => active<HTMLButtonElement>('[aria-label="返回"]')!.click());
+    expect(active(".mobile-app")?.getAttribute("data-view")).toBe("home");
+    expect(active('.mobile-header-title')?.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("renders the connection screen when LAN HTTP has no native randomUUID", async () => {
@@ -281,7 +298,7 @@ describe("mobile connection settings", () => {
 
   it("keeps connection fields in a dialog and cancels without connecting", async () => {
     await render();
-    expect(node.querySelector('input[type="url"], input[type="password"]')).toBeNull();
+    expect(active('input[type="url"], input[type="password"]')).toBeNull();
     open();
     input('input[type="url"]', "http://computer:3774");
     input('input[type="password"]', "device-token");
@@ -292,32 +309,32 @@ describe("mobile connection settings", () => {
           new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
         ),
     );
-    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
+    expect(active('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     expect(host.connect).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(button("Add connection"));
     open();
     expect(
-      node.querySelector<HTMLInputElement>('input[type="url"]')!.value,
+      active<HTMLInputElement>('input[type="url"]')!.value,
     ).toBe("http://computer:3774");
     expect(
-      node.querySelector<HTMLInputElement>('input[type="password"]')!.value,
+      active<HTMLInputElement>('input[type="password"]')!.value,
     ).toBe("");
   });
 
   it("switches and remembers language immediately without losing open form values", async () => {
     await render();
-    const language = node.querySelector<HTMLButtonElement>("#mobile-language")!;
+    const language = active<HTMLButtonElement>("#mobile-language")!;
     act(() => {
       language.focus();
       language.click();
     });
     act(() => {
-      [...node.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+      [...node.querySelectorAll<HTMLButtonElement>('[role="radio"]')].filter(item => !item.closest('[inert]'))
         .find((item) => item.textContent?.trim() === "简体中文")!
         .click();
     });
     expect(localStorage.getItem(UI_LANGUAGE_KEY)).toBe("zh-CN");
-    expect(node.querySelector("header strong")!.textContent).toBe("MonoCode");
+    expect(active("header strong")!.textContent).toBe("MonoCode");
     expect(button("外观").querySelector(".mobile-settings-value")?.textContent).toBe("深色");
     expect(button("通知").querySelector(".mobile-settings-value")?.textContent).toBe("关闭");
     expect(button("编写器").querySelector(".mobile-settings-value")?.textContent).toBe("引导");
@@ -326,13 +343,13 @@ describe("mobile connection settings", () => {
     input('input[type="password"]', "device-token");
     act(() => setUiLanguage("en"));
     expect(
-      node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')!.getAttribute("aria-label"),
+      active('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')!.getAttribute("aria-label"),
     ).toBe("Add connection");
     expect(
-      node.querySelector<HTMLInputElement>('input[type="url"]')!.value,
+      active<HTMLInputElement>('input[type="url"]')!.value,
     ).toBe("http://computer:3774");
     expect(
-      node.querySelector<HTMLInputElement>('input[type="password"]')!.value,
+      active<HTMLInputElement>('input[type="password"]')!.value,
     ).toBe("device-token");
     expect(host.connect).not.toHaveBeenCalled();
   });
@@ -340,7 +357,7 @@ describe("mobile connection settings", () => {
   it("opens appearance from the keyboard, cancels without changes and saves a selected option", async () => {
     await render();
     act(() => button("Appearance").click());
-    const appearance = node.querySelector<HTMLButtonElement>("#mobile-theme")!;
+    const appearance = active<HTMLButtonElement>("#mobile-theme")!;
     act(() => {
       appearance.focus();
       appearance.dispatchEvent(
@@ -348,7 +365,7 @@ describe("mobile connection settings", () => {
       );
     });
     expect(
-      node.querySelector('[role="radio"][aria-checked="true"]')!.textContent,
+      active('[role="radio"][aria-checked="true"]')!.textContent,
     ).toBe("Dark");
     act(() =>
       node
@@ -357,16 +374,16 @@ describe("mobile connection settings", () => {
           new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
         ),
     );
-    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
+    expect(active('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     expect(appearance.textContent).toBe("Dark");
     expect(document.activeElement).toBe(appearance);
     act(() => appearance.click());
     act(() =>
-      [...node.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+      [...node.querySelectorAll<HTMLButtonElement>('[role="radio"]')].filter(item => !item.closest('[inert]'))
         .find((item) => item.textContent?.trim() === "Light")!
         .click(),
     );
-    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
+    expect(active('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     expect(appearance.textContent).toBe("Light");
     expect(localStorage.getItem("monocode-mobile-theme")).toBe("light");
     act(() => button("Back").click());
@@ -385,17 +402,17 @@ describe("mobile connection settings", () => {
       "device-token",
     );
     expect(
-      node.querySelector('[role="dialog"] [role="alert"]')!.textContent,
+      active('[role="dialog"] [role="alert"]')!.textContent,
     ).toBe("Host rejected this token");
     expect(
-      node.querySelector<HTMLInputElement>('input[type="password"]')!.value,
+      active<HTMLInputElement>('input[type="password"]')!.value,
     ).toBe("device-token");
     act(() => setUiLanguage("zh-CN"));
     await submit();
-    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
+    expect(active('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     // A successful connection opens Home with the connected computer's projects.
-    expect(node.querySelector(".mobile-app")?.getAttribute("data-view")).toBe("home");
-    expect(node.querySelector("header strong")!.textContent).toBe("MonoCode");
-    expect(node.querySelector(".mobile-home-project strong")!.textContent).toBe("Connections");
+    expect(active(".mobile-app")?.getAttribute("data-view")).toBe("home");
+    expect(active("header strong")!.textContent).toBe("MonoCode");
+    expect(active(".mobile-home-project strong")!.textContent).toBe("Connections");
   });
 });

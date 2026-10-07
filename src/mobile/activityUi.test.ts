@@ -144,6 +144,8 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+// Departing pages remain in DOM briefly but cannot be selected by the user.
+const activePage = () => node.querySelector<HTMLElement>('[data-page-active="true"]')!;
 async function openMenu() {
   await act(async () => {
     node.querySelector<HTMLButtonElement>('button[aria-label="Menu"]')!.click();
@@ -165,7 +167,7 @@ async function clickProject() {
   await act(async () => {
     root.render(createElement(MobileApp));
   });
-  await act(async () => node.querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
+  await act(async () => activePage().querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
   await openMenu();
 }
 async function updateReply(id = "one") {
@@ -184,10 +186,10 @@ async function updateReply(id = "one") {
   });
 }
 describe("mobile header search", () => {
-  const visibleIds = () => [...node.querySelectorAll(".mobile-home [data-session-id]")]
+  const visibleIds = () => [...activePage().querySelectorAll(".mobile-home [data-session-id]")]
     .map((row) => row.getAttribute("data-session-id"));
   const searchButton = (label = "Search conversations") =>
-    node.querySelector<HTMLButtonElement>(`.mobile-home-search[aria-label="${label}"]`) ??
+    activePage().querySelector<HTMLButtonElement>(`.mobile-home-search[aria-label="${label}"]`) ??
     node.querySelector<HTMLButtonElement>(`header button[aria-label="${label}"]`)!;
   const input = () => node.querySelector<HTMLInputElement>("header .mobile-header-search input")!;
   const typeQuery = async (query: string) => {
@@ -203,7 +205,7 @@ describe("mobile header search", () => {
     const trigger = searchButton();
     await act(async () => trigger.click());
     expect(document.activeElement).toBe(input());
-    expect(node.querySelector(".mobile-home input")).toBeNull();
+    expect(activePage().querySelector(".mobile-home input")).toBeNull();
     expect(node.querySelector('header button[aria-label="Menu"]')!.hasAttribute("inert")).toBe(true);
     expect(node.querySelector("header .mobile-header-title")!.getAttribute("aria-hidden")).toBe("true");
     await typeQuery(" First ");
@@ -238,7 +240,7 @@ describe("mobile header search", () => {
     });
     expect(mocked.session.mock.calls.length).toBe(callsBeforeDismiss);
     expect(node.querySelector(".mobile-app")!.getAttribute("data-view")).toBe("home");
-    expect(node.querySelector(".mobile-home-projects")).not.toBeNull();
+    expect(activePage().querySelector(".mobile-home-projects")).not.toBeNull();
     expect(node.querySelector(".mobile-header-search")!.getAttribute("data-fold-state")).toBe("closing");
     await act(async () => vi.advanceTimersByTimeAsync(350));
     expect(node.querySelector(".mobile-header-search")).toBeNull();
@@ -246,12 +248,12 @@ describe("mobile header search", () => {
 
   it("keeps project search scoped, supports rapid reversal and localizes keyboard dismissal", async () => {
     await act(async () => root.render(createElement(MobileApp)));
-    await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home-project[title="/project"]')!.click());
+    await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home-project[title="/project"]')!.click());
     expect(node.querySelector('header button[aria-label="Search conversations"]')).toBeNull();
     expect(node.querySelector("header .mobile-header-title")!.tagName).toBe("DIV");
     expect(node.querySelector(".mobile-project-header-name svg")).toBeNull();
     expect(node.querySelector("header .mobile-header-host")!.textContent).toContain("Connected");
-    expect(node.querySelector(".mobile-home-host")).toBeNull();
+    expect(activePage().querySelector(".mobile-home-host")).toBeNull();
     const projectSearch = searchButton();
     expect(projectSearch.closest(".mobile-home-dock")).not.toBeNull();
     await act(async () => searchButton().click());
@@ -294,11 +296,11 @@ describe("mobile header search", () => {
       await typeQuery("Other");
       expect(visibleIds()).toEqual(["two"]);
       const callsBeforeDismiss = mocked.session.mock.calls.length;
-      await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home [data-session-id="two"]')!.click());
+      await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home [data-session-id="two"]')!.click());
       expect(mocked.session.mock.calls.length).toBe(callsBeforeDismiss);
       expect(node.querySelector(".mobile-app")!.getAttribute("data-view")).toBe("home");
       expect(node.querySelector(".mobile-header-search")).toBeNull();
-      await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home [data-session-id="two"]')!.click());
+      await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home [data-session-id="two"]')!.click());
       expect(mocked.session).toHaveBeenCalledWith("two");
       expect(node.querySelector(".mobile-app")!.getAttribute("data-view")).toBe("chat");
       expect(node.querySelector(".mobile-header-search")).toBeNull();
@@ -318,23 +320,23 @@ describe("mobile project conversation Back navigation", () => {
   const headerButton = (label: string) => node.querySelector<HTMLButtonElement>(`header button[aria-label="${label}"]`);
   const openProjectPage = async () => {
     await act(async () => root.render(createElement(MobileApp)));
-    await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home-project[title="/other"]')!.click());
+    await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home-project[title="/other"]')!.click());
   };
   const openRow = async () => {
-    await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home [data-session-id="two"]')!.click());
+    await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home [data-session-id="two"]')!.click());
   };
 
   it.each(["recent", "pinned", "search"])("returns a %s conversation to its project", async (entry) => {
     if (entry === "pinned") mocked.summaries[1].pinned = true;
     await openProjectPage();
     if (entry === "search") {
-      await act(async () => node.querySelector<HTMLButtonElement>(".mobile-home-search")!.click());
+      await act(async () => activePage().querySelector<HTMLButtonElement>(".mobile-home-search")!.click());
       await act(async () => {
         const input = node.querySelector<HTMLInputElement>(".mobile-header-search input")!;
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Other");
         input.dispatchEvent(new Event("input", { bubbles: true }));
       });
-      expect(node.querySelectorAll(".mobile-home [data-session-id]")).toHaveLength(1);
+      expect(activePage().querySelectorAll(".mobile-home [data-session-id]")).toHaveLength(1);
       await openRow(); // Existing outside-click behavior dismisses search first.
     }
     await openRow();
@@ -342,14 +344,14 @@ describe("mobile project conversation Back navigation", () => {
     expect(headerButton("Menu")).toBeNull();
     await act(async () => headerButton("Back")!.click());
     expect(node.querySelector("header strong")!.textContent).toBe("Other");
-    expect(node.querySelectorAll(".mobile-home [data-session-id]")).toHaveLength(1);
-    expect(node.querySelector('.mobile-home [data-session-id="two"]')).not.toBeNull();
+    expect(activePage().querySelectorAll(".mobile-home [data-session-id]")).toHaveLength(1);
+    expect(activePage().querySelector('.mobile-home [data-session-id="two"]')).not.toBeNull();
   });
 
   it.each(["existing", "draft"])("preserves the %s conversation's source through settings and localizes Back", async (kind) => {
     await openProjectPage();
     if (kind === "existing") await openRow();
-    else await act(async () => node.querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
+    else await act(async () => activePage().querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
     expect(headerButton("Back")).not.toBeNull();
     await swipeOpenDrawer();
     await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-settings")!.click());
@@ -531,7 +533,7 @@ describe("mobile unread indicators and notification navigation", () => {
     expect(mocked.session).not.toHaveBeenCalled();
     expect(node.querySelector(".mobile-app")?.getAttribute("data-view")).toBe("home");
     expect(node.querySelector("header strong")?.textContent).toBe("MonoCode");
-    await act(async () => node.querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
+    await act(async () => activePage().querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
     expect(node.querySelector("header strong")?.textContent).toBe(
       "New conversation",
     );
@@ -559,7 +561,7 @@ describe("mobile unread indicators and notification navigation", () => {
     await clickProject();
     await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
     expect(node.querySelector("header strong")?.textContent).toBe("All projects");
-    expect(node.querySelectorAll(".mobile-home-project strong")).toHaveLength(2);
+    expect(activePage().querySelectorAll(".mobile-home-project strong")).toHaveLength(2);
     expect(node.querySelector(".mobile-drawer-backdrop")?.getAttribute("data-open")).toBe("false");
     await openMenu();
     await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-settings")!.click());
@@ -576,14 +578,14 @@ describe("mobile unread indicators and notification navigation", () => {
       ].find((item) => item.getAttribute("aria-label") === `Conversations in ${name}`)!;
     expect(toggle("Project").getAttribute("aria-expanded")).toBe("true");
     expect(toggle("Other").getAttribute("aria-expanded")).toBe("false");
-    expect(node.querySelector('[data-session-id="two"]')).toBeNull();
+    expect(node.querySelector('.mobile-drawer [data-session-id="two"]')).toBeNull();
     await act(async () => toggle("Other").click());
     expect(toggle("Project").getAttribute("aria-expanded")).toBe("true");
     const drawer = () =>
       node.querySelector(".mobile-drawer-backdrop")!.getAttribute("data-open");
     expect(drawer()).toBe("true");
     await act(async () =>
-      node.querySelector<HTMLButtonElement>('[data-session-id="two"]')!.click(),
+      node.querySelector<HTMLButtonElement>('.mobile-drawer [data-session-id="two"]')!.click(),
     );
     expect(drawer()).toBe("false");
     expect(mocked.session).toHaveBeenCalledWith("two");
@@ -604,9 +606,9 @@ describe("mobile unread indicators and notification navigation", () => {
         .click(),
     );
     expect(node.querySelector("header strong")?.textContent).toBe("Other");
-    expect(node.querySelector(".mobile-home-projects")).toBeNull();
+    expect(activePage().querySelector(".mobile-home-projects")).toBeNull();
     expect(node.querySelector('.mobile-drawer-group-new')).toBeNull();
-    await act(async () => node.querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
+    await act(async () => activePage().querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
     expect(
       node.querySelector(".mobile-drawer-backdrop")!.getAttribute("data-open"),
     ).toBe("false");
@@ -623,7 +625,7 @@ describe("mobile unread indicators and notification navigation", () => {
     Object.defineProperty(node.querySelector(".mobile-drawer")!, "offsetWidth", {
       value: 300,
     });
-    const surface = node.querySelector(".mobile-home")!;
+    const surface = activePage().querySelector(".mobile-home")!;
     const touch = (type: string, target: Element, x: number, y = 300) =>
       act(() => {
         target.dispatchEvent(
@@ -659,8 +661,8 @@ describe("mobile unread indicators and notification navigation", () => {
   });
   it("opens a notification from another project in its owning project", async () => {
     await act(async () => root.render(createElement(MobileApp)));
-    await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home-project[title="/project"]')!.click());
-    await act(async () => node.querySelector<HTMLButtonElement>('.mobile-home [data-session-id="one"]')!.click());
+    await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home-project[title="/project"]')!.click());
+    await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home [data-session-id="one"]')!.click());
     expect(node.querySelector('header button[aria-label="Back"]')).not.toBeNull();
     await updateReply("two");
     expect(mocked.notify).toHaveBeenCalledTimes(1);

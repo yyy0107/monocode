@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type {
   HostProject,
   HostSessionSummary,
@@ -6,6 +6,8 @@ import type {
 import { sessionDisplayTitle } from "../features/sessions/model/session";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { useTranslation } from "../shared/i18n/useTranslation";
+import { useMobilePageState } from "./mobilePageState";
+import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 import {
   ChevronDown,
@@ -75,7 +77,14 @@ export function MobileHome({
   refreshKey?: number;
 }) {
   const { language, t } = useTranslation();
-  const owners = project ? [project] : projects;
+  const visible = useSurfaceVisibility();
+  const searchButton = useRef<HTMLButtonElement | null>(null);
+  const setSearchButton = useCallback((element: HTMLButtonElement | null) => {
+    if (searchTrigger && (element || searchTrigger.current === searchButton.current))
+      searchTrigger.current = element;
+    searchButton.current = element;
+  }, [searchTrigger]);
+  const owners = useMemo(() => project ? [project] : projects, [project, projects]);
   const idsKey = JSON.stringify(owners.map((item) => item.id));
   const [histories, setHistories] = useState<Record<string, History>>(() =>
     Object.fromEntries(owners.flatMap((item) => {
@@ -83,7 +92,7 @@ export function MobileHome({
       return sessions ? [[item.id, { sessions, failed: false }]] : [];
     })),
   );
-  const [pinnedOpen, setPinnedOpen] = useState(true);
+  const [pinnedOpen, setPinnedOpen] = useMobilePageState("pinned", true);
   const [retry, setRetry] = useState(0);
   const hold = useRef<{ pointerId: number; x: number; y: number; timer: ReturnType<typeof setTimeout>; moved: boolean; opened: boolean } | undefined>(undefined);
   const suppressClick = useRef<string | undefined>(undefined);
@@ -94,7 +103,7 @@ export function MobileHome({
   useEffect(() => {
     cancelHold();
     return cancelHold;
-  }, [inactive, foreground, project?.id, query]);
+  }, [inactive, foreground, visible, project?.id, query]);
   // Projects can arrive after mount or change when navigating within Home.
   // Fill only missing histories before paint; live results always take priority.
   useLayoutEffect(() => {
@@ -111,7 +120,7 @@ export function MobileHome({
   }, [idsKey, cachedSessions]);
 
   useEffect(() => {
-    if (!foreground) return;
+    if (!foreground || !visible) return;
     const ids: string[] = JSON.parse(idsKey);
     let live = true;
     let timer: ReturnType<typeof setTimeout>;
@@ -121,13 +130,14 @@ export function MobileHome({
       );
       if (!live) return;
       setHistories((current) => {
-        const next = { ...current };
+        let next = current;
         results.forEach((result, index) => {
           const id = ids[index];
-          next[id] =
-            result.status === "fulfilled"
-              ? { sessions: result.value, failed: false }
-              : { sessions: current[id]?.sessions, failed: true };
+          const sessions = result.status === "fulfilled" ? result.value : current[id]?.sessions;
+          const failed = result.status === "rejected";
+          if (current[id]?.sessions === sessions && current[id]?.failed === failed) return;
+          if (next === current) next = { ...current };
+          next[id] = { sessions, failed };
         });
         return next;
       });
@@ -138,27 +148,26 @@ export function MobileHome({
       live = false;
       clearTimeout(timer);
     };
-  }, [idsKey, foreground, loadSessions, retry, refreshKey]);
+  }, [idsKey, foreground, visible, loadSessions, retry, refreshKey]);
 
-  const orderedProjects = sortMobileProjects(
+  const orderedProjects = useMemo(() => sortMobileProjects(
     projects,
     (id) => histories[id]?.sessions ?? [],
-  );
-  const ownerById = new Map(owners.map((item) => [item.id, item]));
+  ), [projects, histories]);
+  const ownerById = useMemo(() => new Map(owners.map((item) => [item.id, item])), [owners]);
   const needle = query.trim().toLocaleLowerCase();
-  const ordered = sortMobileSessions(
+  const sessions = useMemo(() => sortMobileSessions(
     owners.flatMap((item) => histories[item.id]?.sessions ?? []),
-  )
-    .filter((item) => ownerById.has(item.projectId))
-    .filter(
+  ).filter((item) => ownerById.has(item.projectId)), [owners, ownerById, histories]);
+  const ordered = useMemo(() => sessions.filter(
       (item) =>
         !needle ||
         `${sessionDisplayTitle(item.title, item.harness) || t("Untitled conversation")} ${ownerById.get(item.projectId)?.name}`
           .toLocaleLowerCase()
           .includes(needle),
-    );
-  const pins = ordered.filter((item) => item.pinned);
-  const recent = ordered.filter((item) => !item.pinned);
+    ), [sessions, needle, ownerById, t]);
+  const pins = useMemo(() => ordered.filter((item) => item.pinned), [ordered]);
+  const recent = useMemo(() => ordered.filter((item) => !item.pinned), [ordered]);
   const loading = owners.some((item) => !histories[item.id]);
   const projectsLoading = loading && !owners.some((item) => histories[item.id]?.sessions);
   const failed = owners.filter((item) => histories[item.id]?.failed);
@@ -283,7 +292,7 @@ export function MobileHome({
                 <LoaderCircle size={17} className="mobile-spin" />
                 {t("Loading conversations…")}
               </div>
-            ) : <MobileListPreview>{orderedProjects.map((item) => (
+            ) : <MobileListPreview stateKey="projects" items={orderedProjects} renderItem={(item) => (
               <button
                 type="button"
                 className="mobile-home-project"
@@ -296,7 +305,7 @@ export function MobileHome({
                   <strong>{item.name}</strong>
                 </span>
               </button>
-            ))}</MobileListPreview>}
+            )} />}
             <button
               type="button"
               className="mobile-home-project mobile-home-add"
@@ -319,13 +328,13 @@ export function MobileHome({
               <ChevronDown size={18} />
             </button>
             <AnimatedCollapse expanded={pinnedOpen}>
-              <MobileListPreview key={needle}>{pins.map(row)}</MobileListPreview>
+              <MobileListPreview key={needle} stateKey={needle ? undefined : "pins"} items={pins} renderItem={row} />
             </AnimatedCollapse>
           </section>
         )}
         <section className="mobile-home-recent" aria-label={t("Recent")}>
           {!project && <h2>{t("Recent")}</h2>}
-          <MobileListPreview key={needle} initialLimit={20}>{recent.map(row)}</MobileListPreview>
+          <MobileListPreview key={needle} stateKey={needle ? undefined : "recent"} initialLimit={20} items={recent} renderItem={row} />
           {loading && (
             <div className="mobile-loading" role="status">
               <LoaderCircle className="mobile-spin" size={18} />
@@ -359,7 +368,7 @@ export function MobileHome({
         <div className="mobile-home-dock">
           {project && (
             <button
-              ref={searchTrigger}
+              ref={setSearchButton}
               type="button"
               className="mobile-home-search"
               aria-label={t(searchOpen ? "Close search" : "Search conversations")}

@@ -55,13 +55,14 @@ describe("MobileSheet drag", () => {
     vi.advanceTimersByTime(500);
     sheet.dispatchEvent(pointer("pointermove", 100 + distance));
     const moved = sheet.style.transform;
-    sheet.dispatchEvent(pointer("pointerup", 100 + distance));
+    act(() => { sheet.dispatchEvent(pointer("pointerup", 100 + distance)); });
     act(() => vi.advanceTimersByTime(settleMs));
     return {
       onClose,
       moved,
       rest: sheet.style.transform,
       transition: sheet.style.transition,
+      sheet,
     };
   }
 
@@ -69,6 +70,20 @@ describe("MobileSheet drag", () => {
     const { onClose, moved } = drag(220);
     expect(moved).toBe("translateY(220px)");
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts one inert close at release and never restarts a CSS exit", () => {
+    const { sheet, onClose } = drag(220, 0);
+    const backdrop = sheet.closest<HTMLElement>(".mobile-sheet-backdrop")!;
+    expect(backdrop.dataset.foldState).toBe("closing");
+    expect(backdrop.hasAttribute("inert")).toBe(true);
+    expect(backdrop.style.animation).toBe("none");
+    expect(sheet.style.animation).toBe("none");
+    expect(sheet.style.transform).toBe("translateY(524px)");
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(130));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(node.querySelector(".mobile-sheet")).toBeNull();
   });
 
   it("springs back after a short pull", () => {
@@ -128,7 +143,7 @@ describe("MobileSheet drag", () => {
       inner.dispatchEvent(event("move", 320));
       expect(inner.style.transform).toBe("translateY(220px)");
       expect(outer.style.transform).toBe("");
-      inner.dispatchEvent(event("up", 320));
+      act(() => { inner.dispatchEvent(event("up", 320)); });
       act(() => vi.advanceTimersByTime(131));
       expect(closePicker).toHaveBeenCalledOnce();
       expect(closeSettings).not.toHaveBeenCalled();

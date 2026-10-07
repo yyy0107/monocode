@@ -19,11 +19,14 @@ const FALLBACK_EASING = "cubic-bezier(0.2, 0, 0, 1)";
 
 let height = 0;
 let tracked = false;
+let motionEndsAt = 0;
 const listeners = new Set<(motion: KeyboardMotion) => void>();
 
 /** Whether the native shell reports keyboard motion. */
 export const keyboardTracked = () => tracked;
 export const keyboardHeight = () => height;
+/** Remaining native motion, including for a sheet opened midway through it. */
+export const keyboardMotionRemaining = () => Math.max(0, motionEndsAt - performance.now());
 
 export function onKeyboardMotion(listener: (motion: KeyboardMotion) => void) {
   listeners.add(listener);
@@ -111,9 +114,11 @@ function anchoredTurnChange(scroller: HTMLElement, delta: number) {
 }
 
 function contentRatio(delta: number) {
-  const scroller = document.querySelector<HTMLElement>(
+  // Departing pages remain mounted through their exit. Their transcript
+  // appears first in DOM order but must not control the active keyboard lift.
+  const scroller = [...document.querySelectorAll<HTMLElement>(
     ".mobile-desktop-transcript > .agent-transcript",
-  );
+  )].find(element => !element.closest('[inert], [aria-hidden="true"]'));
   if (!scroller) return 0;
   const style = getComputedStyle(scroller);
   const inner = scroller.firstElementChild as HTMLElement | null;
@@ -140,6 +145,8 @@ export function installKeyboardMotion(root = document.documentElement) {
     const reduced = window.matchMedia?.(
       "(prefers-reduced-motion: reduce)",
     ).matches;
+    const effectiveDuration = reduced ? 0 : duration;
+    motionEndsAt = performance.now() + effectiveDuration;
     root.style.setProperty("--mobile-viewport-full", `${viewport}px`);
     root.style.setProperty(
       "--mobile-keyboard-duration",
@@ -151,7 +158,7 @@ export function installKeyboardMotion(root = document.documentElement) {
       String(contentRatio(height - previous)),
     );
     root.style.setProperty("--mobile-keyboard-height", `${height}px`);
-    const motion = { height, previous, duration, easing };
+    const motion = { height, previous, duration: effectiveDuration, easing };
     for (const listener of listeners) listener(motion);
   };
   // The layout already keeps the composer above the keyboard. A WebView that
@@ -177,5 +184,6 @@ export function installKeyboardMotion(root = document.documentElement) {
     viewport?.removeEventListener("resize", unpan);
     tracked = false;
     height = 0;
+    motionEndsAt = 0;
   };
 }

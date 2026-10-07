@@ -20,6 +20,7 @@ import type { MobileSessionPatch } from "./client";
 
 export function MobileSessionActions({
   open = true,
+  onExited,
   snapshot,
   summary,
   anchor,
@@ -31,6 +32,7 @@ export function MobileSessionActions({
   onClose,
 }: {
   open?: boolean;
+  onExited?: () => void;
   snapshot?: HostSession;
   summary?: HostSessionSummary;
   anchor: RefObject<HTMLElement | null>;
@@ -94,6 +96,7 @@ export function MobileSessionActions({
     <MobileSheet
       key={page}
       open={open}
+      onExited={onExited}
       title={
         page === "rename"
           ? "Rename"

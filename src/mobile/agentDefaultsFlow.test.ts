@@ -185,15 +185,20 @@ afterEach(() => {
 async function render() {
   await act(async () => root.render(createElement(MobileApp)));
 }
+// Exiting pages remain mounted during their transition but are not interactive.
+function current<T extends Element = HTMLElement>(selector: string): T | null {
+  return [...node.querySelectorAll<T>(selector)].find((element) =>
+    !element.closest('[data-page-active="false"]')) ?? null;
+}
 function dialog() {
-  return node.querySelector<HTMLElement>(
+  return current<HTMLElement>(
     '.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]',
   )!;
 }
 async function click(label: string, scope: Element = node) {
   const button = [...scope.querySelectorAll<HTMLButtonElement>("button")].find(
     (button) =>
-      !button.closest('[inert], [aria-hidden="true"]') &&
+      !button.closest('[inert], [aria-hidden="true"], [data-page-active="false"]') &&
       (button.getAttribute("aria-label") === label ||
         button.textContent?.trim() === label ||
         button.querySelector("strong")?.textContent === label ||
@@ -207,16 +212,16 @@ async function settings(fromChat = false) {
   await click(fromChat ? "Menu" : "Home menu");
   await click(
     "Settings",
-    fromChat ? node.querySelector(".mobile-drawer")! : dialog(),
+    fromChat ? current(".mobile-drawer")! : dialog(),
   );
   await click("New conversations");
 }
 async function leaveSettings() {
-  await click("Back", node.querySelector("header")!);
-  await click("Back", node.querySelector("header")!);
+  await click("Back", current("header")!);
+  await click("Back", current("header")!);
 }
 async function defaultsPanel() {
-  const group = node.querySelector('[aria-label="New conversations"]')!;
+  const group = current('[aria-label="New conversations"]')!;
   await act(async () =>
     group
       .querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!
@@ -236,7 +241,7 @@ async function dismiss() {
 }
 async function input(text: string) {
   await act(async () => {
-    const field = node.querySelector("textarea")!;
+    const field = current("textarea")!;
     Object.getOwnPropertyDescriptor(
       HTMLTextAreaElement.prototype,
       "value",
@@ -246,8 +251,7 @@ async function input(text: string) {
 }
 async function send() {
   await act(async () =>
-    node
-      .querySelector("form.mobile-composer")!
+    current("form.mobile-composer")!
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
   );
 }
@@ -295,11 +299,11 @@ describe("mobile Agent defaults settings and new conversations", () => {
       loadMobileAgentDefaults("defaults-one").agents?.claude?.modelSettings,
     ).toEqual({ effort: "high" });
     await act(async () => setUiLanguage("zh-CN"));
-    expect(node.querySelector('[aria-label="新会话"]')).not.toBeNull();
-    expect(node.querySelector("#mobile-account-codex")?.textContent).toContain(
+    expect(current('[aria-label="新会话"]')).not.toBeNull();
+    expect(current("#mobile-account-codex")?.textContent).toContain(
       "Work account",
     );
-    expect(node.querySelector('[aria-label="新会话"]')?.textContent).toContain(
+    expect(current('[aria-label="新会话"]')?.textContent).toContain(
       "高",
     );
     act(() => root.unmount());
@@ -308,7 +312,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     await click("首页菜单");
     await click("设置", dialog());
     await click("新会话");
-    expect(node.querySelector('[aria-label="新会话"]')?.textContent).toContain(
+    expect(current('[aria-label="新会话"]')?.textContent).toContain(
       "Chosen",
     );
   });
@@ -319,13 +323,13 @@ describe("mobile Agent defaults settings and new conversations", () => {
       saveChosen();
       await render();
       if (entry === "project")
-        await click("Project", node.querySelector(".mobile-home-projects")!);
+        await click("Project", current(".mobile-home-projects")!);
       if (entry === "drawer") await click("Menu");
       await click(
         "New conversation",
         entry === "drawer"
-          ? node.querySelector(".mobile-drawer")!
-          : node.querySelector(".mobile-home")!,
+          ? current(".mobile-drawer")!
+          : current(".mobile-home")!,
       );
       await input("Use my preferences");
       await send();
@@ -346,7 +350,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
   it("keeps a draft's temporary configuration and account when Settings changes", async () => {
     saveChosen();
     await render();
-    await click("New conversation", node.querySelector(".mobile-home")!);
+    await click("New conversation", current(".mobile-home")!);
     await input("Keep this draft");
     await click("Model and reasoning");
     await choose("Model", "First");
@@ -389,8 +393,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     ]);
     await render();
     await act(async () =>
-      node
-        .querySelector<HTMLButtonElement>(
+      current<HTMLButtonElement>(
           '.mobile-home-session[data-session-id="session"]',
         )!
         .click(),
@@ -426,11 +429,11 @@ describe("mobile Agent defaults settings and new conversations", () => {
     });
     await render();
     await settings();
-    expect(node.querySelector("#mobile-account-codex")?.textContent).toContain(
+    expect(current("#mobile-account-codex")?.textContent).toContain(
       "Unavailable account (work)",
     );
     await leaveSettings();
-    await click("New conversation", node.querySelector(".mobile-home")!);
+    await click("New conversation", current(".mobile-home")!);
     await input("Do not switch accounts");
     await send();
     expect(host.dispatch).not.toHaveBeenCalled();
@@ -457,7 +460,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     host.providerAccounts.mockResolvedValue(accounts);
     await click("Retry");
     expect(node.textContent).not.toContain("Network offline");
-    expect(node.querySelector("#mobile-account-codex")?.textContent).toContain(
+    expect(current("#mobile-account-codex")?.textContent).toContain(
       "Default account",
     );
   });
@@ -507,14 +510,14 @@ describe("mobile Agent defaults settings and new conversations", () => {
     await render();
     await settings();
     expect(
-      node.querySelector('[aria-label="New conversations"]')?.textContent,
+      current('[aria-label="New conversations"]')?.textContent,
     ).toContain("Claude model");
     expect(node.textContent).toContain("Codex is unavailable");
     expect(loadMobileAgentDefaults("defaults-one").harness).toBe("codex");
     host.models.mockResolvedValue(catalog);
     await click("Retry");
     expect(
-      node.querySelector('[aria-label="New conversations"]')?.textContent,
+      current('[aria-label="New conversations"]')?.textContent,
     ).toContain("Chosen");
     expect(host.models).toHaveBeenLastCalledWith(undefined, true);
   });
@@ -528,7 +531,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     });
     host.models.mockReturnValue(pending);
     await render();
-    await click("New conversation", node.querySelector(".mobile-home")!);
+    await click("New conversation", current(".mobile-home")!);
     await click("Model and reasoning");
     await choose("Model", "First");
     await dismiss();
@@ -556,5 +559,5 @@ it("shows the actual shared Host default identity", async () => {
   ] });
   await render();
   await settings();
-  expect(node.querySelector("#mobile-account-codex")?.textContent).toContain("Follow Host default: 9300 · 9300@example.test");
+  expect(current("#mobile-account-codex")?.textContent).toContain("Follow Host default: 9300 · 9300@example.test");
 });

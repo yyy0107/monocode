@@ -73,6 +73,8 @@ function StatusField({
 
 /** Read-only overview of where the current conversation runs. */
 export function MobileSessionStatus({
+  open = true,
+  onExited,
   snapshot,
   catalog,
   hostName,
@@ -80,6 +82,8 @@ export function MobileSessionStatus({
   anchor,
   onClose,
 }: {
+  open?: boolean;
+  onExited?: () => void;
   snapshot: HostSession;
   catalog?: HostModelCatalog;
   hostName: string;
@@ -106,7 +110,7 @@ export function MobileSessionStatus({
     .filter(Boolean)
     .join(" · ");
   return (
-    <MobileSheet
+    <MobileSheet open={open} onExited={onExited}
       title="Status"
       placement="anchor"
       anchor={anchor}
