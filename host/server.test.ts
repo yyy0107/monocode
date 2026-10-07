@@ -724,6 +724,7 @@ describe("remote host API", () => {
     expect((await s.call("devices.list", {}, s.second.token)).value.error).toContain("Only this computer");
     s.store.markAdminDevice(s.first.id);
     const issued = (await s.call("devices.issue", { name: "Phone" })).value.result;
+    expect(issued.token).toMatch(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
     expect((await s.call("environment.describe", {}, issued.token)).status).toBe(200);
     const listed = (await s.call("devices.list")).value.result.devices;
     expect(listed.find((device: { id: string }) => device.id === issued.id)).toMatchObject({ name: "Phone", admin: false });

@@ -103,11 +103,19 @@ function button(text: string) {
       (item.getAttribute("aria-label") === text || item.textContent?.trim() === text),
   )!;
 }
+function chooseMethod(label: string) {
+  act(() =>
+    [...node.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+      .find((item) => !item.closest("[inert]") && item.textContent?.trim() === label)!
+      .click(),
+  );
+}
 function open() {
   act(() => {
     button("Add connection").focus();
     button("Add connection").click();
   });
+  chooseMethod("Pairing code");
 }
 function input(selector: string, value: string) {
   const field = active<HTMLInputElement>(selector)!;
@@ -301,8 +309,9 @@ describe("mobile connection settings", () => {
     const form = active<HTMLElement>('[role="dialog"][aria-label="Add connection"]')!;
     expect(form).not.toBeNull();
     expect(form.classList.contains("mobile-sheet")).toBe(true);
+    chooseMethod("Pairing code");
     input('input[type="url"]', "http://next-computer:3774");
-    input('input[type="password"]', "new-device-token");
+    input('input.mobile-pairing-code', "new-device-token");
     act(() => form.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(active('[role="dialog"][aria-label="Add connection"]')).toBeNull();
     finishClosingSheet(form);
@@ -339,10 +348,10 @@ describe("mobile connection settings", () => {
 
   it("keeps connection fields in a dialog and cancels without connecting", async () => {
     await render();
-    expect(active('input[type="url"], input[type="password"]')).toBeNull();
+    expect(active('input[type="url"], input.mobile-pairing-code')).toBeNull();
     open();
     input('input[type="url"]', "http://computer:3774");
-    input('input[type="password"]', "device-token");
+    input('input.mobile-pairing-code', "device-token");
     act(() =>
       node
         .querySelector('[role="dialog"]')!
@@ -358,7 +367,7 @@ describe("mobile connection settings", () => {
       active<HTMLInputElement>('input[type="url"]')!.value,
     ).toBe("http://computer:3774");
     expect(
-      active<HTMLInputElement>('input[type="password"]')!.value,
+      active<HTMLInputElement>('input.mobile-pairing-code')!.value,
     ).toBe("");
   });
 
@@ -380,8 +389,9 @@ describe("mobile connection settings", () => {
     expect(button("通知").querySelector(".mobile-settings-value")?.textContent).toBe("关闭");
     expect(button("编写器").querySelector(".mobile-settings-value")?.textContent).toBe("引导");
     act(() => button("添加连接").click());
+    chooseMethod("配对码");
     input('input[type="url"]', "http://computer:3774");
-    input('input[type="password"]', "device-token");
+    input('input.mobile-pairing-code', "device-token");
     act(() => setUiLanguage("en"));
     expect(
       active('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')!.getAttribute("aria-label"),
@@ -390,7 +400,7 @@ describe("mobile connection settings", () => {
       active<HTMLInputElement>('input[type="url"]')!.value,
     ).toBe("http://computer:3774");
     expect(
-      active<HTMLInputElement>('input[type="password"]')!.value,
+      active<HTMLInputElement>('input.mobile-pairing-code')!.value,
     ).toBe("device-token");
     expect(host.connect).not.toHaveBeenCalled();
   });
@@ -436,7 +446,7 @@ describe("mobile connection settings", () => {
     await render();
     open();
     input('input[type="url"]', "http://computer:3774");
-    input('input[type="password"]', "device-token");
+    input('input.mobile-pairing-code', "device-token");
     host.connect.mockRejectedValueOnce(new Error("Host rejected this token"));
     await submit();
     expect(host.connect).toHaveBeenCalledWith(
@@ -447,7 +457,7 @@ describe("mobile connection settings", () => {
       active('[role="dialog"] [role="alert"]')!.textContent,
     ).toBe("Host rejected this token");
     expect(
-      active<HTMLInputElement>('input[type="password"]')!.value,
+      active<HTMLInputElement>('input.mobile-pairing-code')!.value,
     ).toBe("device-token");
     act(() => setUiLanguage("zh-CN"));
     await submit();

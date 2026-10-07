@@ -71,7 +71,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose photos to attach to your messages.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Take a photo to attach to your message.</string>
+	<string>Scan a pairing QR code or take a photo to attach to your message.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

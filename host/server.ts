@@ -16,6 +16,7 @@ import {
   type RemoteProvider,
 } from "../src/features/connections/model/protocol";
 import { HostEngine } from "./engine";
+import { pairingCode } from "./store";
 import { assistantErrorCode } from "./assistant/errors";
 import { writeAttachmentChunk, readAttachmentChunk } from "./attachments";
 import type { LinkedWorkItem } from "../src/features/sessions/model/session";
@@ -566,7 +567,7 @@ export function createHostServer(
             if (input.method === "devices.issue") {
               const name = String(params.name ?? "").trim().slice(0, 80);
               if (!name) throw new Error("Device name is required");
-              result = engine.store.issueDevice(name);
+              result = engine.store.issueDevice(name, pairingCode());
             } else if (input.method === "devices.revoke") {
               const id = String(params.deviceId ?? "");
               const device = engine.store.devices().find(value => value.id === id);

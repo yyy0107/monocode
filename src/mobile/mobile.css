@@ -766,6 +766,112 @@ html[data-mobile-glass="solid"] :is(
 .mobile-connection-form {
   margin: 20px 0 6px;
 }
+.mobile-pairing {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 4px 6px;
+}
+.mobile-pairing-methods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  background: var(--mobile-fill);
+  border-radius: 14px;
+}
+.mobile-pairing-methods button {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  font-size: calc(14px + var(--mobile-popup-font-step, 0px));
+  font-weight: 600;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+.mobile-pairing-methods button span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mobile-pairing-methods button[aria-selected="true"] {
+  color: var(--color-content);
+  background: color-mix(in srgb, var(--color-content) 14%, var(--color-background-base));
+  box-shadow: 0 1px 4px color-mix(in srgb, #000 12%, transparent);
+}
+.mobile-pairing-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mobile-pairing-panel .mobile-connection-form {
+  margin: 0;
+}
+.mobile-pairing-hint {
+  margin: 0;
+  padding-inline: 4px;
+  font-size: calc(13px + var(--mobile-popup-font-step, 0px));
+  text-align: center;
+}
+.mobile-app input.mobile-pairing-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0.08em;
+}
+.mobile-qr-scanner {
+  position: relative;
+  width: min(100%, 300px);
+  aspect-ratio: 1;
+  margin-inline: auto;
+  overflow: hidden;
+  background: #111;
+  border-radius: 20px;
+}
+.mobile-qr-scanner video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mobile-qr-scanner:is([data-state="denied"], [data-state="unavailable"]) video {
+  visibility: hidden;
+}
+.mobile-qr-frame {
+  position: absolute;
+  inset: 16%;
+  border-radius: 16px;
+  box-shadow: 0 0 0 999px rgb(0 0 0 / 0.28);
+  outline: 2px solid rgb(255 255 255 / 0.85);
+}
+.mobile-qr-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  color: rgb(255 255 255 / 0.86);
+  font-size: calc(13px + var(--mobile-popup-font-step, 0px));
+  line-height: 1.5;
+  text-align: center;
+}
+.mobile-qr-overlay .mobile-button {
+  min-height: 38px;
+  color: #fff;
+  background: rgb(255 255 255 / 0.16);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-pairing-methods button {
+    transition: none;
+  }
+}
 .mobile-connection-dot,
 .mobile-attention-dot {
   display: block;
@@ -1736,13 +1842,24 @@ html.has-user-accent .mobile-send:not(:disabled) {
     transition: none;
   }
 }
+/* One row that scrolls sideways instead of wrapping into a tall block. */
 .mobile-composer-attachments {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 12px;
-  padding: 0 0 12px;
-  max-height: min(110px, 15dvh);
-  overflow-y: auto;
+  /* Room for remove buttons hanging over the chip corners; this list scrolls,
+     so anything outside its padding box is clipped. */
+  padding: 6px 6px 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.mobile-composer-attachments::-webkit-scrollbar {
+  display: none;
+}
+.mobile-composer-attachments > * {
+  flex-shrink: 0;
 }
 .mobile-composer-attachments button {
   min-width: 28px;
@@ -1835,10 +1952,16 @@ html.has-user-accent .mobile-send:not(:disabled) {
 }
 /* Forms reserve space after the keyboard rises and restore it immediately on
    dismissal. Moving the backdrop bottom every frame exposes the page below it
-   and repeatedly lays out the form. Input-free menus keep their existing motion. */
+   and repeatedly lays out the form, so the sheet rides the keyboard on a
+   compositor translate for the part of the travel the layout has not reserved.
+   Input-free menus keep their existing motion. */
 .mobile-sheet-backdrop[data-placement="bottom"]:has(> .mobile-sheet :is(input, textarea, select, [contenteditable])) {
   bottom: var(--mobile-keyboard-layout);
-  transition: none;
+  /* Unregistered, so the sheet inherits the substituted per-frame value. */
+  --mobile-sheet-keyboard-lift: max(0px, var(--mobile-keyboard) - var(--mobile-keyboard-layout));
+}
+.mobile-sheet-backdrop[data-placement="bottom"]:has(> .mobile-sheet :is(input, textarea, select, [contenteditable])) > .mobile-sheet {
+  translate: 0 calc(-1 * var(--mobile-sheet-keyboard-lift, 0px));
 }
 .mobile-sheet-backdrop[data-placement="bottom"] .mobile-sheet {
   animation: mobile-sheet-rise 200ms cubic-bezier(0.22, 1, 0.36, 1);

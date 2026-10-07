@@ -27,6 +27,15 @@ export type HostDevice = {
   lastSeen?: number;
 };
 
+// Crockford-style alphabet without 0/O/1/I; 32 symbols keep each byte unbiased.
+const PAIRING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/** A phone-friendly device token such as `XD5J-2J3U`, typed or scanned on mobile. */
+export function pairingCode(): string {
+  const symbols = [...randomBytes(8)].map((byte) => PAIRING_ALPHABET[byte % 32]).join("");
+  return `${symbols.slice(0, 4)}-${symbols.slice(4)}`;
+}
+
 export class HostStore {
   private transactionDepth = 0;
   onSessionSave?: (previous: HostSession | undefined, next: HostSession, event: unknown) => void;

@@ -510,11 +510,6 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
 .mobile-assistant-attachments.mobile-composer-attachments {
   /* Keep thumbnails and the remove buttons' touch targets inside the scroller. */
   padding: 10px 10px 12px;
-  /* A shortened viewport must still fit one complete 72px thumbnail row. */
-  max-height: max(94px, min(110px, 15dvh));
-}
-.mobile-assistant-attachments .attachment-chip-image {
-  flex-shrink: 0;
 }
 .mobile-assistant-attachments .attachment-chip-thumbnail {
   object-fit: contain;

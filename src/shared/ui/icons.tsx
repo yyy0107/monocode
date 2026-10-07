@@ -9,6 +9,7 @@ import {
   ArrowUp as ArrowUpIcon,
   BellOff as BellOffIcon,
   Bot as BotIcon,
+  CameraOff as CameraOffIcon,
   CaseSensitive as CaseSensitiveIcon,
   ChartNoAxesCombined as ChartNoAxesCombinedIcon,
   Check as CheckIcon,
@@ -93,7 +94,9 @@ import {
   RefreshCw as RefreshCwIcon,
   Regex as RegexIcon,
   Replace as ReplaceIcon,
+  RectangleEllipsis as RectangleEllipsisIcon,
   RotateCcw as RotateCcwIcon,
+  ScanQrCode as ScanQrCodeIcon,
   Search as SearchIcon,
   Settings as SettingsIcon,
   Share as ShareIcon,
@@ -242,6 +245,9 @@ export const ImagePlus = wrap(ImagePlusIcon, "ImagePlus");
 export const Inbox = wrap(InboxIcon, "Inbox");
 export const BellOff = wrap(BellOffIcon, "BellOff");
 export const Keyboard = wrap(KeyboardIcon, "Keyboard");
+export const PairingCode = wrap(RectangleEllipsisIcon, "PairingCode");
+export const ScanQrCode = wrap(ScanQrCodeIcon, "ScanQrCode");
+export const CameraOff = wrap(CameraOffIcon, "CameraOff");
 export const ListBullet = wrap(ListIcon, "ListBullet");
 export const ListEnd = wrap(ListEndIcon, "ListEnd");
 export const ListFilter = wrap(ListFilterIcon, "ListFilter");

@@ -79,6 +79,7 @@ import { MeterRing } from "../features/sessions/ui/ContextMeter";
 import { contextRatio } from "../features/sessions/model/contextUsage";
 import { mobileContextUsage } from "./contextUsage";
 import { MobileConnectionSheet } from "./MobileConnectionSheet";
+import { normalizePairingCode } from "./pairing";
 import { MobileSheet, SHEET_WIDTH, type MobileSheetPoint } from "./MobileSheet";
 import { MobileProjectPicker } from "./MobileProjectPicker";
 import { MobileDrawer } from "./MobileDrawer";
@@ -612,12 +613,12 @@ export function MobileApp() {
     });
   }, [connected, project?.id, sessionId, view]);
 
-  const connect = async () => {
+  const connect = async (credentials = { url, token }) => {
     setBusy(true);
     setError("");
     setPollError("");
     try {
-      await client.connect(url, token);
+      await client.connect(credentials.url, normalizePairingCode(credentials.token));
       const items = await client.projects();
       projectGeneration.current += 1;
       setProject(undefined);
@@ -2014,6 +2015,10 @@ export function MobileApp() {
           onUrlChange={setUrl}
           onTokenChange={setToken}
           onConnect={() => void connect()}
+          onConnectWith={(credentials) => {
+            setUrl(credentials.url);
+            void connect(credentials);
+          }}
           onClose={() => {
             if (!busy) {
               setAddingConnection(false);
