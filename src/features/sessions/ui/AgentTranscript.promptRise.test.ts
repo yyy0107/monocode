@@ -246,7 +246,7 @@ describe("prompt rise in the chat layout", () => {
     }
   });
 
-  it("keeps the full input surface visible during the lift before contracting", () => {
+  it("lifts at the input width but keeps the landed message height while narrowing", () => {
     render(first, false, { promptMotion: "mobile" });
     const surface = document.createElement("div");
     surface.setAttribute("data-prompt-launch-surface", "");
@@ -260,15 +260,16 @@ describe("prompt rise in the chat layout", () => {
     const [frames, timing] = animate.mock.calls[0];
     expect(frames[0]).toMatchObject({
       width: "340.00px",
-      height: "104.00px",
-      transform: "translate(-52.00px, 676.00px) scale(1.0000, 1.0000)",
+      height: "60.00px",
+      transform: "translate(-52.00px, 720.00px) scale(1.0000, 1.0000)",
     });
     const lift = frames.find((frame: Keyframe) => Number(frame.offset) * timing.duration >= 100);
-    expect(lift).toMatchObject({ width: "340.00px", height: "104.00px" });
+    expect(lift).toMatchObject({ width: "340.00px", height: "60.00px" });
     const contracting = frames.find((frame: Keyframe) => Number(frame.offset) * timing.duration >= 320);
     expect(parseFloat(contracting.width)).toBeLessThan(330);
     expect(parseFloat(contracting.width)).toBeGreaterThan(200);
     expect(frames.at(-1)).toMatchObject({ width: "200.00px", height: "60.00px" });
+    expect(frames.every((frame: Keyframe) => frame.height === "60.00px")).toBe(true);
     expect(animate.mock.calls[1][0][0]).toEqual({ opacity: 1 });
   });
 

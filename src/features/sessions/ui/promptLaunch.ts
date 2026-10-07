@@ -108,8 +108,9 @@ export type PromptFlight = {
 
 /**
  * Flies a sent prompt's bubble out of the composer text it was typed in: it
- * briefly lifts at the composer's size, contracts on the way up, and lands
- * with a jelly wobble. Without an origin it rises from `fromBottom`.
+ * briefly lifts at the composer's width with its final content height, narrows
+ * on the way up, and lands with a jelly wobble. Without an origin it rises
+ * from `fromBottom`.
  */
 export function flyPromptBubble(
   bubble: HTMLElement,
@@ -127,8 +128,6 @@ export function flyPromptBubble(
   const startWidth = launch
     ? Math.max(target.width, Math.min(launch.width, target.right - view.left - 4))
     : target.width;
-  // Never clip a tall message just to match a shorter input surface.
-  const startHeight = launch ? Math.max(target.height, launch.height) : target.height;
   const startLeft = target.right - startWidth;
   const dx = launch
     ? Math.max(view.left - startLeft, Math.min(0, launch.left - startLeft))
@@ -138,7 +137,6 @@ export function flyPromptBubble(
     (child): child is HTMLElement => child instanceof HTMLElement,
   );
   const reshape = startWidth - target.width > 1;
-  const resizeHeight = startHeight - target.height > 1;
   if (reshape) {
     for (const child of content) {
       child.style.width = `${child.getBoundingClientRect().width}px`;
@@ -164,16 +162,16 @@ export function flyPromptBubble(
       // Stretch along the flight, squash on landing; roughly keep the volume.
       const scaleY = 1 + jelly;
       const scaleX = 1 - jelly * 0.7;
-      const height = startHeight + (target.height - startHeight) * width;
       return {
         offset,
         transformOrigin: "100% 100%",
-        transform: `translate(${(dx * rest).toFixed(2)}px, ${(dy * rest - (height - target.height)).toFixed(2)}px) ` +
+        transform: `translate(${(dx * rest).toFixed(2)}px, ${(dy * rest).toFixed(2)}px) ` +
           `scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})`,
+        // The input surface includes controls and padding the message doesn't.
+        height: `${target.height.toFixed(2)}px`,
         ...(reshape
           ? { width: `${(startWidth + (target.width - startWidth) * width).toFixed(2)}px` }
           : {}),
-        ...(resizeHeight ? { height: `${height.toFixed(2)}px` } : {}),
       };
     }),
     { duration, easing: "linear" },
