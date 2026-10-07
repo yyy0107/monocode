@@ -290,7 +290,7 @@ it.each([false, true])(
       ids.includes("/work/beta"),
     )!;
     expect(call[2]).toBe("y");
-    expect(call[4]?.activationDistance).toBe(8);
+    expect(call[4]?.activationDistance).toBe(3);
     Object.defineProperty(header, "offsetHeight", { value: 32 });
     expect(call[4]?.collapsedSize?.("/work/beta", header.parentElement!)).toBe(32);
   },
@@ -312,14 +312,17 @@ it("temporarily folds only the dragged project's children and animates them back
     )?.dataset.foldState,
   ).toBe("open");
   act(() => fold.dispatchEvent(new Event("animationend", { bubbles: true })));
-  expect(beta.querySelector("[data-project-children]")).toBeNull();
+  const retained = beta.querySelector("[data-project-children]");
+  expect(retained).not.toBeNull();
+  expect(fold.hidden).toBe(true);
 
   reorderState.draggingId = null;
   await renderTree(props);
   const reopening = beta.querySelector<HTMLElement>(".zen-fold-item")!;
   expect(reopening.dataset.foldState).toBe("opening");
   expect(reopening.inert).toBe(false);
-  expect(beta.querySelector("[data-project-children]")).not.toBeNull();
+  expect(beta.querySelector("[data-project-children]")).toBe(retained);
+  expect(reopening.hidden).toBe(false);
   expect(props.onToggleProject).not.toHaveBeenCalled();
 });
 
@@ -431,8 +434,8 @@ it("reveals matching projects in collapsed groups only for the duration of searc
   expect(fold.inert).toBe(true);
   act(() => fold.dispatchEvent(new Event("animationend", { bubbles: true })));
   expect(
-    container.querySelector('[data-project-path="/work/beta"]'),
-  ).toBeNull();
+    container.querySelector('[data-project-path="/work/beta"]')?.closest("[hidden]"),
+  ).toBe(fold);
 });
 
 it("distinguishes identically named projects by their accessible path and exposes its scroll container", async () => {
@@ -863,7 +866,7 @@ it("does not let a queued disclosure override an external project selection", as
   expect(onActivateProject).not.toHaveBeenCalled();
 });
 
-it("does not prepare session sections for closed projects", async () => {
+it("defers unopened session sections and retains them without repeated hidden preparation", async () => {
   const prepare = vi.fn((path: string) =>
     createElement("button", { "data-session": path }, "Conversation"),
   );
@@ -879,6 +882,20 @@ it("does not prepare session sections for closed projects", async () => {
   expect(new Set(prepare.mock.calls.map(([path]) => path))).toEqual(
     new Set(["/work/alpha"]),
   );
+  const session = container.querySelector('[data-session="/work/alpha"]');
+  await renderTree(props);
+  const fold = container.querySelector<HTMLElement>(
+    '[data-project-path="/work/alpha"] .zen-fold-item',
+  )!;
+  act(() => fold.dispatchEvent(new Event("animationend", { bubbles: true })));
+  expect(fold.hidden).toBe(true);
+  prepare.mockClear();
+  await renderTree({ ...props, renderProjectChildren: (path) => prepare(path) });
+  expect(prepare).not.toHaveBeenCalled();
+  expect(container.querySelector('[data-session="/work/alpha"]')).toBe(session);
+  await renderTree({ ...props, expandedPaths: new Set(["/work/alpha"]) });
+  expect(container.querySelector('[data-session="/work/alpha"]')).toBe(session);
+  expect(fold.hidden).toBe(false);
 });
 
 it("reveals projects in batches of five independently for pins, groups and loose projects", async () => {

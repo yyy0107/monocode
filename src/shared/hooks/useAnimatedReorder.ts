@@ -50,7 +50,11 @@ export function useAnimatedReorder<T extends string>(
   }, []);
 
   const onItemPointerDown = useCallback(
-    (id: T, event: ReactPointerEvent) => {
+    (
+      id: T,
+      event: ReactPointerEvent,
+      gestureExternalDrop?: ReorderExternalDrop<T>,
+    ) => {
       if (event.button !== 0) return;
       finishSettling.current?.();
       if (cleanup.current) return;
@@ -58,7 +62,8 @@ export function useAnimatedReorder<T extends string>(
       suppressClickUntil.current = 0;
       const items = latest.current.ids;
       const from = items.indexOf(id);
-      if (items.length < 2 || from < 0) return;
+      const external = () => gestureExternalDrop ?? latest.current.externalDrop;
+      if (from < 0 || (items.length < 2 && !external())) return;
       const elements = items.map((item) => nodes.current.get(item));
       if (elements.some((element) => !element)) return;
       const tabs = elements as HTMLElement[];
@@ -131,7 +136,7 @@ export function useAnimatedReorder<T extends string>(
         }
         releasePointer();
         if (active) suppressClickUntil.current = performance.now() + 400;
-        latest.current.externalDrop?.onEnd?.(id);
+        external()?.onEnd?.(id);
         cleanup.current = null;
         finishSettling.current = null;
         setDraggingId(null);
@@ -203,7 +208,9 @@ export function useAnimatedReorder<T extends string>(
         pointerPosition = ev[coordinate];
         if (!active) {
           if (
-            Math.abs(pointerPosition - startPosition) <
+            (external()
+              ? Math.hypot(ev.clientX - event.clientX, ev.clientY - event.clientY)
+              : Math.abs(pointerPosition - startPosition)) <
             (latest.current.options?.activationDistance ?? 5)
           )
             return;
@@ -238,7 +245,7 @@ export function useAnimatedReorder<T extends string>(
           handle.dataset.dragging = "true";
         }
         overExternalTarget =
-          latest.current.externalDrop?.onMove(id, ev) ?? false;
+          external()?.onMove(id, ev) ?? false;
         if (overExternalTarget) {
           window.cancelAnimationFrame(frame);
           frame = 0;
@@ -255,7 +262,7 @@ export function useAnimatedReorder<T extends string>(
           reset();
           return;
         }
-        if (commit && event && latest.current.externalDrop?.onDrop(id, event)) {
+        if (commit && event && external()?.onDrop(id, event)) {
           reset();
           return;
         }

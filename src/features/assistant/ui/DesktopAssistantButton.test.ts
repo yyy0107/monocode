@@ -85,7 +85,7 @@ it("shows unseen replies and opens the latest message's Host without polling uns
   expect(button().getAttribute("aria-label")).toBe(
     "Assistant, 2 unread messages",
   );
-  expect(button().textContent).toContain("Remote task finished");
+  expect(button().textContent).toBe("Remote task finished2");
   expect(
     mocks.rpc.mock.calls
       .filter(([id]) => id === "old")
@@ -100,6 +100,7 @@ it("shows unseen replies and opens the latest message's Host without polling uns
   expect(button().textContent).toContain("local-reply");
   act(() => markAssistantRead("env-local", messages.local));
   expect(button().getAttribute("aria-label")).toBe("Assistant");
+  expect(button().textContent).toBe("Assistant");
   expect(localStorage.getItem("monocode.assistant-read:env-local")).toBe("2");
 });
 

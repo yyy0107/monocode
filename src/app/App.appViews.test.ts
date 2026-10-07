@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { newSession, type Session } from "../features/sessions/model/session";
+import { beginComposerAttachmentRead, clearComposerDraft, getComposerDraft, setComposerAttachmentCount, setComposerDraft } from "../features/sessions/model/draftCache";
 import { ADD_TO_CHAT_EVENT, type AddToChatRequest } from "../features/sessions/model/quoteDraft";
 import {
   newAppViewWorkspaceTab,
@@ -144,11 +145,11 @@ vi.mock("./shell/MenuBar", async () => {
     MENU_BAR_HEIGHT: 36,
     MenuBar: ({
       dispatch,
-      windowCenter,
+      windowLeading,
       windowActions,
     }: {
       dispatch: (id: string) => void;
-      windowCenter?: ReactNode;
+      windowLeading?: ReactNode;
       windowActions?: ReactNode;
     }) =>
       el(
@@ -172,7 +173,7 @@ vi.mock("./shell/MenuBar", async () => {
             id,
           ),
         ),
-        loadMenuBarVisible() ? el("div", { "data-window-center": true }, windowCenter) : null,
+        loadMenuBarVisible() ? el("div", { "data-window-leading": true }, windowLeading) : null,
         loadMenuBarVisible() ? windowActions : null,
         loadMenuBarVisible() ? el(WindowControls) : null,
       ),
@@ -227,6 +228,8 @@ vi.mock("./shell/Sidebar", async () => {
       failedProjectPaths = new Set(),
       onLoadProject,
       onNewInProject,
+      onSelectProject,
+      onPinSession,
       onSelectSession,
       onRenameSession,
       onSelectRemoteSession,
@@ -250,6 +253,8 @@ vi.mock("./shell/Sidebar", async () => {
       failedProjectPaths?: ReadonlySet<string>;
       onLoadProject: (cwd: string) => Promise<void>;
       onNewInProject: (cwd: string) => void;
+      onSelectProject: (cwd: string) => void;
+      onPinSession: (id: string, pinned: boolean) => void;
       onSelectSession: (id: string, cwd?: string) => void;
       onRenameSession: (id: string, title: string) => void;
       onSelectRemoteSession: (cwd: string, id: string) => void;
@@ -290,7 +295,16 @@ vi.mock("./shell/Sidebar", async () => {
           },
           "Publish navigation",
         ),
+        el("button", {
+          "data-pin-first": true,
+          onClick: () => onPinSession("first", true),
+        }, "Pin first"),
         ...["/project-a", "/project-b"].flatMap((path) => [
+          el("button", {
+            key: `select-project-${path}`,
+            "data-select-project": path,
+            onClick: () => onSelectProject(path),
+          }, "Select project"),
           el(
             "button",
             {
@@ -738,6 +752,9 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  for (const pane of container.querySelectorAll<HTMLElement>("[data-session]")) {
+    clearComposerDraft(pane.dataset.session!);
+  }
   await act(async () => root.unmount());
   container.remove();
   vi.restoreAllMocks();
@@ -836,6 +853,23 @@ describe("terminal dock disclosure motion", () => {
       grid().dispatchEvent(event);
     });
 
+  it("keeps dock animation completion from rendering App again", async () => {
+    await mount();
+    for (const open of [false, true]) {
+      mocks.notificationFocus.mockClear();
+      await click(open
+        ? '[data-command="Terminal: Toggle Dock"]'
+        : "[data-terminal-hide]");
+      // Business visibility/focus changes may render App; settling must not.
+      const renders = mocks.notificationFocus.mock.calls.length;
+      expect(renders).toBeGreaterThan(0);
+      expect(grid().dataset.foldState).toBe(open ? "opening" : "closing");
+      finish();
+      expect(grid().dataset.foldState).toBe(open ? "open" : "closed");
+      expect(mocks.notificationFocus).toHaveBeenCalledTimes(renders);
+    }
+  });
+
   it.each(["bottom", "top", "left", "right"] as const)(
     "animates the %s dock with stable tracks while retaining its terminal instance",
     async (side) => {
@@ -906,7 +940,7 @@ describe("App workspace app views", () => {
   it("opens Assistant as a reusable workspace page and retains its draft across chat switches", async () => {
     await mount();
     expect(container.querySelector('[data-sidebar] [data-open-assistant]')).toBeNull();
-    expect(container.querySelector('[data-window-center] [data-open-assistant]')).not.toBeNull();
+    expect(container.querySelector('[data-window-leading] [data-open-assistant]')).not.toBeNull();
     await click("[data-open-assistant]");
     const assistantTab = activeTabId();
     expect(assistantTab).not.toBe(firstId);
@@ -994,6 +1028,29 @@ describe("App workspace app views", () => {
     },
   );
 
+  it("keeps sidebar animation phases from rendering the entire workspace again", async () => {
+    saveMenuBarVisible(false);
+    await mount();
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[data-window-navigation] button[aria-label^="Toggle Sidebar"]',
+    )!;
+    for (const open of [false, true]) {
+      mocks.notificationFocus.mockClear();
+      await act(async () => toggle.click());
+      // This hook runs on each App render; only the actual toggle needs one.
+      expect(mocks.notificationFocus).toHaveBeenCalledTimes(1);
+      expect(toggle.getAttribute("aria-pressed") === "true").toBe(open);
+      const rail = container.querySelector<HTMLElement>("[data-sidebar-rail]")!;
+      expect(rail.dataset.foldState).toBe(open ? "closing" : "opening");
+      await act(async () => rail.querySelector(".sidebar-rail-content")!.dispatchEvent(Object.assign(
+        new Event("transitionend", { bubbles: true }),
+        { propertyName: "transform" },
+      )));
+      expect(rail.dataset.foldState).toBe(open ? "closed" : "open");
+      expect(mocks.notificationFocus).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("folds only the navigation menu and supports reversing before the animation ends", async () => {
     saveMenuBarVisible(false);
     await mount();
@@ -1019,11 +1076,11 @@ describe("App workspace app views", () => {
     expect(container.querySelector('[data-activity-bar="sidebar-top"]')).toBe(menu);
     await act(async () => toggle.click());
     act(() => fold()!.dispatchEvent(new Event("animationend", { bubbles: true })));
-    expect(fold()).toBeNull();
-    expect(container.querySelector('[data-activity-bar="sidebar-top"]')).toBeNull();
+    expect(fold()?.hidden).toBe(true);
+    expect(container.querySelector('[data-activity-bar="sidebar-top"]')).toBe(menu);
     await act(async () => toggle.click());
     expect(fold()?.dataset.foldState).toBe("opening");
-    expect(container.querySelector('[data-activity-bar="sidebar-top"]')).not.toBeNull();
+    expect(container.querySelector('[data-activity-bar="sidebar-top"]')).toBe(menu);
   });
 
   it("closes and unmounts Notes when it is disabled, without disturbing Settings", async () => {
@@ -1108,7 +1165,7 @@ describe("App workspace app views", () => {
       expect(editor).not.toBeNull();
       expect(editor?.getAttribute("data-file-cwd")).toBe("/repo");
       expect(mocks.fileOpen).toHaveBeenCalledWith("/repo", "/repo/file.ts");
-      expect(workspace(firstId).querySelector("[data-file-editor]")).toBeNull();
+      expect(workspace(firstId)).toBeNull();
     },
   );
 
@@ -1224,7 +1281,7 @@ describe("App workspace app views", () => {
   );
 
   it.each(["file", "diff"])(
-    "discards a pending %s open when its blank chat is replaced",
+    "preserves a pending %s open instead of replacing its blank chat",
     async (surface) => {
       let finishOpen!: (path: string) => void;
       const resolver = surface === "file" ? mocks.fileOpen : mocks.diffOpen;
@@ -1252,7 +1309,9 @@ describe("App workspace app views", () => {
         surface === "file" ? '[data-open-file-line="10"]' : "[data-open-diff]",
       );
       await click('[data-select-session="replacement"]');
-      expect(activeTabId()).toBe(firstId);
+      const replacementTab = activeTabId();
+      expect(replacementTab).not.toBe(firstId);
+      expect(workspace(firstId)).not.toBeNull();
       const composer = workspace().querySelector(
         '[data-session="replacement"]',
       );
@@ -1260,7 +1319,7 @@ describe("App workspace app views", () => {
       expect(composer?.getAttribute("data-composer-focused")).toBe("true");
       await act(async () => finishOpen("/repo/file.ts"));
       await act(async () => vi.dynamicImportSettled());
-      expect(activeTabId()).toBe(firstId);
+      expect(activeTabId()).toBe(replacementTab);
       expect(ownedFileTabs()).toHaveLength(0);
       expect(
         workspace().querySelector("[data-file-editor], [data-diff-cwd]"),
@@ -1278,6 +1337,9 @@ describe("App workspace app views", () => {
             .fileNavigationLine,
         ).toBeUndefined();
       }
+      await selectSession("first");
+      expect(activeTabId()).toBe(firstId);
+      expect(ownedFileTabs()).toHaveLength(1);
     },
   );
 
@@ -1297,9 +1359,7 @@ describe("App workspace app views", () => {
             : '[data-file-editor="/repo/file.ts"][data-file-cwd="/repo"][data-file-diff="true"]',
         ),
       ).not.toBeNull();
-      expect(
-        workspace(firstId).querySelector("[data-file-editor], [data-diff-cwd]"),
-      ).toBeNull();
+      expect(workspace(firstId)).toBeNull();
     },
   );
 
@@ -1545,7 +1605,7 @@ describe("Workflow create in chat", () => {
         }]);
         expect(container.querySelector('[data-app-page="workflows"]')?.getAttribute("aria-hidden")).toBe("true");
         expect(workspace().querySelector('[data-session]')?.getAttribute("data-session-block-count")).toBe("0");
-        expect(container.querySelectorAll('[data-session]')).toHaveLength(cwd === "/repo" ? 2 : 3);
+        expect(container.querySelectorAll('[data-session]')).toHaveLength(2);
         if (cwd === "/repo") expect(activeTabId()).toBe(firstId);
       } finally {
         window.removeEventListener(ADD_TO_CHAT_EVENT, onInsert);
@@ -1775,6 +1835,35 @@ describe("App multi-project history", () => {
     expect(historyRows[0].textContent).toBe(row.title);
   });
 
+  it("creates and focuses a distinct chat on every project new-session click", async () => {
+    await mount();
+    await click('[data-new-project-session="/project-b"]');
+    const firstDraftTab = activeTabId();
+    const firstDraftId = workspace().querySelector<HTMLElement>(
+      '[data-session-cwd="/project-b"]',
+    )!.dataset.session;
+
+    // An untouched draft must not turn the explicit create action into a no-op.
+    await click('[data-new-project-session="/project-b"]');
+    expect(activeTabId()).not.toBe(firstDraftTab);
+    const secondDraftId = workspace().querySelector<HTMLElement>(
+      '[data-session-cwd="/project-b"]',
+    )!.dataset.session;
+    expect(secondDraftId).not.toBe(firstDraftId);
+    expect(workspace(firstDraftTab)).toBeNull();
+    expect(
+      container.querySelector('[data-sidebar]')?.getAttribute("data-active-session"),
+    ).toBe(secondDraftId);
+
+    // Creating from another project must not reactivate either old draft.
+    await selectSession("recent");
+    await click('[data-new-project-session="/project-b"]');
+    const thirdDraftId = workspace().querySelector<HTMLElement>(
+      '[data-session-cwd="/project-b"]',
+    )!.dataset.session;
+    expect([firstDraftId, secondDraftId]).not.toContain(thirdDraftId);
+  });
+
   it("creates a chat in an inactive project's remembered worktree", async () => {
     const { setWorktreeFocus } =
       await import("../features/source-control/model/worktreeFocus");
@@ -1793,6 +1882,84 @@ describe("App multi-project history", () => {
       ),
     ).not.toBeNull();
     await act(async () => setWorktreeFocus("/project-b", undefined));
+  });
+
+  it.each(["text", "whitespace", "attachment", "reading"])(
+    "keeps an unsent %s draft on navigation and cleans it only after clearing and leaving again",
+    async (kind) => {
+      await mount();
+      let finishRead: (() => void) | undefined;
+      if (kind === "text") setComposerDraft("first", "Keep my prompt");
+      if (kind === "whitespace") setComposerDraft("first", "  \n");
+      if (kind === "attachment") setComposerAttachmentCount("first", 1);
+      if (kind === "reading") finishRead = beginComposerAttachmentRead("first");
+      await selectSession("recent");
+      expect(workspace(firstId)).not.toBeNull();
+      await selectSession("first");
+      expect(activeTabId()).toBe(firstId);
+      if (kind === "text") expect(getComposerDraft("first")).toBe("Keep my prompt");
+      if (kind === "whitespace") expect(getComposerDraft("first")).toBe("  \n");
+      finishRead?.();
+      clearComposerDraft("first");
+      await click('[data-new-project-session="/project-b"]');
+      expect(workspace(firstId)).toBeNull();
+      expect(container.querySelector('[data-sidebar]')?.getAttribute("data-sidebar")).toBe("/project-b");
+    },
+  );
+
+  it("keeps an unsent draft in its original project when selecting a different project", async () => {
+    await mount();
+    setComposerDraft("first", "Keep this in repo");
+    await click('[data-select-project="/project-b"]');
+    expect(activeTabId()).not.toBe(firstId);
+    expect(workspace(firstId).querySelector('[data-session="first"]')?.getAttribute("data-session-cwd")).toBe("/repo");
+    expect(workspace().querySelector('[data-session]')?.getAttribute("data-session-cwd")).toBe("/project-b");
+    expect(getComposerDraft("first")).toBe("Keep this in repo");
+  });
+
+  it("protects a pinned blank before its persistence finishes", async () => {
+    let finishPin!: () => void;
+    const invoke = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation((command, args) =>
+      command === "session_set_pinned"
+        ? new Promise<void>((resolve) => { finishPin = resolve; })
+        : invoke(command, args),
+    );
+    await mount();
+    await click("[data-pin-first]");
+    await selectSession("recent");
+    expect(workspace(firstId)).not.toBeNull();
+    await act(async () => finishPin());
+  });
+
+  it("does not replace an unsent prompt when opening a stored conversation", async () => {
+    const replacement = {
+      ...newSession("codex", "/repo"),
+      id: "replacement",
+      blocks: [{ id: "prompt", role: "user" as const, text: "Existing chat" }],
+    };
+    const invoke = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation((command, args) =>
+      command === "session_get" && args.sessionId === replacement.id
+        ? Promise.resolve(replacement)
+        : invoke(command, args),
+    );
+    await mount();
+    setComposerDraft("first", "Unsent prompt");
+    await click('[data-select-session="replacement"]');
+    expect(activeTabId()).not.toBe(firstId);
+    expect(workspace(firstId)).not.toBeNull();
+    expect(getComposerDraft("first")).toBe("Unsent prompt");
+  });
+
+  it("keeps a blank conversation behind tools, then removes it when another chat is opened", async () => {
+    await mount();
+    await click("[data-open-assistant]");
+    expect(workspace(firstId)).not.toBeNull();
+    await click('[data-new-project-session="/project-b"]');
+    expect(workspace(firstId)).toBeNull();
+    // A restored background blank was never visited and is not swept away.
+    expect(workspace(recentId)).not.toBeNull();
   });
 
   it("does not reuse the previous project's keyboard order when the new branch is collapsed", async () => {

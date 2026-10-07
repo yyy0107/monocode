@@ -187,7 +187,13 @@ import {
   taggedMcpServers,
   type McpTag,
 } from "../model/mcpPicker";
-import { getComposerMcpTags, setComposerMcpTags } from "../model/draftCache";
+import {
+  beginComposerAttachmentRead,
+  getComposerMcpTags,
+  setComposerAttachmentCount,
+  setComposerDraft,
+  setComposerMcpTags,
+} from "../model/draftCache";
 import { type McpConnection } from "../../settings/model/mcp";
 import {
   getCachedMcpSettings,
@@ -639,6 +645,10 @@ export function Composer({
 
   const syncHasValue = useCallback(
     (text: string, files: Attachment[]) => {
+      if (sessionId) {
+        setComposerDraft(sessionId, text);
+        setComposerAttachmentCount(sessionId, files.length);
+      }
       setHasValue(
         text.trim().length > 0 ||
           files.length > 0 ||
@@ -647,7 +657,7 @@ export function Composer({
           !!handoffCard,
       );
     },
-    [inboxCard, noteCard, handoffCard],
+    [inboxCard, noteCard, handoffCard, sessionId],
   );
 
   // A leading mode command in the text shows the same pill as picking the mode.
@@ -744,6 +754,7 @@ export function Composer({
   };
 
   const rememberAttachmentRead = useCallback((work: Promise<void>) => {
+    const finishRead = sessionId ? beginComposerAttachmentRead(sessionId) : undefined;
     const flight = work.then(
       () => undefined,
       () => undefined,
@@ -753,8 +764,9 @@ export function Composer({
     pasteFlightRef.current = joined;
     void joined.finally(() => {
       if (pasteFlightRef.current === joined) pasteFlightRef.current = null;
+      finishRead?.();
     });
-  }, []);
+  }, [sessionId]);
 
   const readDroppedAttachments = useCallback(
     (read: () => Promise<Attachment[]>) => {
@@ -821,9 +833,10 @@ export function Composer({
         }
         attachmentsRef.current = [];
         borrowedAttachmentIdsRef.current.clear();
+        if (sessionId) setComposerAttachmentCount(sessionId, 0);
       });
     };
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     if (harnessSupportsAttachments(harness)) return;
@@ -1782,10 +1795,16 @@ export function Composer({
 
   const attachFromPicker = () => {
     if (!attachmentsSupported) return;
-    void pickAttachments().then((files) => {
-      addAttachments(files);
-      ref.current?.focus();
-    });
+    const generation = pasteGenerationRef.current;
+    rememberAttachmentRead(
+      pickAttachments().then((files) => {
+        if (pasteGenerationRef.current !== generation) {
+          files.forEach(revokeAttachment);
+          return;
+        }
+        addAttachments(files);
+      }),
+    );
   };
 
   const openReferencePicker = (trigger: "@" | "/") => {

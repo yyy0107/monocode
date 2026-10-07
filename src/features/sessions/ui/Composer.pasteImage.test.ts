@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MAX_ATTACHMENTS } from "../model/attachments";
 import { Composer } from "./Composer";
+import { clearComposerDraft, hasComposerDraftContent } from "../model/draftCache";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 
@@ -153,6 +154,54 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  clearComposerDraft("attachment-presence");
+});
+
+it("protects a draft throughout an async attachment read and releases it after removal or send", async () => {
+  let release!: (value: string[]) => void;
+  const original = invoke.getMockImplementation()!;
+  invoke.mockImplementation((command, args) =>
+    command === "clipboard_file_paths"
+      ? new Promise<string[]>((resolve) => { release = resolve; })
+      : original(command, args),
+  );
+  draw({ sessionId: "attachment-presence" });
+  const textarea = container.querySelector("textarea")!;
+  expect(hasComposerDraftContent("attachment-presence")).toBe(false);
+  paste(textarea);
+  expect(hasComposerDraftContent("attachment-presence")).toBe(true);
+  await act(async () => release([]));
+  await waitForAttachments(1);
+  expect(hasComposerDraftContent("attachment-presence")).toBe(true);
+  // Hiding and showing the same composer retains its attachment and guard.
+  rerender({ sessionId: "attachment-presence", enabled: false });
+  expect(chipCount()).toBe(1);
+  rerender({ sessionId: "attachment-presence", enabled: true });
+  act(() => container.querySelector<HTMLButtonElement>('[aria-label^="Remove "]')!.click());
+  expect(hasComposerDraftContent("attachment-presence")).toBe(false);
+  paste(textarea);
+  await act(async () => release([]));
+  await waitForAttachments(1);
+  await send();
+  expect(submit.mock.calls[0][1]).toHaveLength(1);
+  expect(hasComposerDraftContent("attachment-presence")).toBe(false);
+});
+
+it("releases the draft guard when an attachment read fails", async () => {
+  let fail!: (reason: Error) => void;
+  let failImage!: (reason: Error) => void;
+  invoke.mockImplementation((command) => new Promise((_, reject) => {
+    if (command === "clipboard_file_paths") fail = reject;
+    else failImage = reject;
+  }));
+  draw({ sessionId: "attachment-presence" });
+  paste(container.querySelector("textarea")!);
+  expect(hasComposerDraftContent("attachment-presence")).toBe(true);
+  await act(async () => fail(new Error("Clipboard unavailable")));
+  expect(hasComposerDraftContent("attachment-presence")).toBe(true);
+  await act(async () => failImage(new Error("Image read failed")));
+  await settleUntil(() => !hasComposerDraftContent("attachment-presence"), "failed attachment read");
+  expect(chipCount()).toBe(0);
 });
 
 it("attaches an image the paste event reports as neither file nor text", async () => {

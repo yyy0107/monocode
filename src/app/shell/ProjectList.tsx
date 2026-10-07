@@ -36,6 +36,14 @@ import {
 import { useLockOverscroll } from "../../shared/hooks/useLockOverscroll";
 import { useProjectDiffStats } from "../../features/source-control/hooks/useProjectDiffStats";
 import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
+import { orderByIds } from "../../shared/lib/reorder";
+import {
+  loadSidebarPinnedOrder,
+  reorderSidebarPins,
+  saveSidebarPinnedOrder,
+  subscribeSidebarPinnedOrder,
+} from "../model/sidebarPinnedOrder";
+import { SidebarEntryReorderContext } from "./SidebarEntryReorder";
 import { useTabGroupLogos } from "../../features/projects/hooks/useTabGroupLogos";
 import { basename, type GitDiffStats } from "../../platform/tauri/fs";
 import { formatInteger } from "../../shared/lib/numbers";
@@ -129,7 +137,10 @@ export type ProjectListProps = {
 const PROJECT_COLLAPSE_DURATION_MS = 280;
 
 function collapsedProjectHeaderSize(_id: string, node: HTMLElement) {
-  return node.querySelector<HTMLElement>("[data-project-header]")?.offsetHeight;
+  return (
+    node.querySelector<HTMLElement>("[data-project-header]")?.offsetHeight ??
+    node.offsetHeight
+  );
 }
 
 function updateScrollMask(element: HTMLDivElement) {
@@ -202,6 +213,12 @@ export function ProjectList({
       : undefined;
   const [railOrder, setRailOrder] = useState(loadProjectRailOrder);
   const [pinnedPaths, setPinnedPaths] = useState(loadPinnedProjects);
+  const [pinnedOrder, setPinnedOrder] = useState(loadSidebarPinnedOrder);
+  useEffect(
+    () =>
+      subscribeSidebarPinnedOrder(() => setPinnedOrder(loadSidebarPinnedOrder())),
+    [],
+  );
   const [groupLabels, setGroupLabels] = useState(loadTabGroupLabels);
   const [groupColors, setGroupColors] = useState(loadTabGroupColors);
   const [groupMascots, setGroupMascots] = useState(loadTabGroupMascots);
@@ -440,6 +457,18 @@ export function ProjectList({
     saveProjectRailOrder(next);
   };
 
+  const onReorderPins = (ids: string[]) => {
+    const all = [
+      ...pinnedOrder,
+      ...pinnedEntries.map((entry) => `session:${entry.id}`),
+      ...sections.pinned.map((item) => item.path),
+    ];
+    const next = reorderSidebarPins(all, ids);
+    saveSidebarPinnedOrder(next);
+    setPinnedOrder(next);
+    onReorderProjects(ids.filter((id) => allProjects.has(pathKey(id))));
+  };
+
   return (
     <ProjectSummaryContext.Provider
       value={{
@@ -479,13 +508,14 @@ export function ProjectList({
               expanded={sectionExpanded("pinned")}
               onToggleExpanded={() => toggleSection("pinned")}
               leadingEntries={pinnedEntries}
+              itemOrder={pinnedOrder}
               items={sections.pinned}
               muteStatuses={muteStatuses}
               cwd={cwd}
               busy={busy}
               statsEnabled={statsEnabled ?? !compact}
               tree={tree}
-              onReorder={onReorderProjects}
+              onReorder={onReorderPins}
               pinned
               searchActive={searchActive}
               onSelect={onSelectProject}
@@ -547,6 +577,7 @@ export function ProjectList({
                 onToggleExpanded={() => toggleSection("workflows")}
               />
               <AnimatedCollapse
+                keepMounted
                 expanded={sectionExpanded("workflows")}
                 motion="height"
                 className="project-tree-collapse"
@@ -572,6 +603,7 @@ export function ProjectList({
                 />
               )}
               <AnimatedCollapse
+                keepMounted
                 expanded={sectionExpanded("groups")}
                 motion="height"
                 className="project-tree-collapse"
@@ -684,6 +716,7 @@ function ProjectSection({
   onToggleExpanded,
   items,
   leadingEntries = [],
+  itemOrder,
   section,
   muteStatuses,
   emptyLabel,
@@ -712,6 +745,7 @@ function ProjectSection({
   onToggleExpanded: () => void;
   items: RecentProject[];
   leadingEntries?: ProjectListEntry[];
+  itemOrder?: string[];
   section?: "recent";
   muteStatuses: ReadonlyMap<string, string | null>;
   emptyLabel?: string;
@@ -745,20 +779,27 @@ function ProjectSection({
     String(searchActive),
     searchActive,
   );
-  const mountedEntries = leadingEntries.slice(0, preview.mountedCount);
-  const mountedItems = items.slice(
-    0,
-    Math.max(0, preview.mountedCount - leadingEntries.length),
+  const rows = orderByIds<{
+    id: string;
+    entry?: ProjectListEntry;
+    project?: RecentProject;
+  }>(
+    [
+      ...leadingEntries.map((entry) => ({ id: `session:${entry.id}`, entry })),
+      ...items.map((project) => ({ id: project.path, project })),
+    ],
+    itemOrder ?? [],
   );
   const sortable = useAnimatedReorder(
-    items
-      .slice(0, Math.max(0, preview.count - leadingEntries.length))
-      .map((item) => item.path),
+    rows
+      .slice(0, preview.count)
+      .filter((row) => pinned || row.project)
+      .map((row) => row.id),
     onReorder,
     "y",
     undefined,
     {
-      activationDistance: 8,
+      activationDistance: 3,
       collapsedSize: tree ? collapsedProjectHeaderSize : undefined,
     },
   );
@@ -777,6 +818,7 @@ function ProjectSection({
         />
       )}
       <AnimatedCollapse
+        keepMounted
         expanded={compact || hideHeader || expanded}
         motion="height"
         className="project-tree-collapse"
@@ -795,48 +837,91 @@ function ProjectSection({
                 : "flex flex-col gap-px px-2"
             }
           >
-            {mountedEntries.map((entry, index) => (
-              <AnimatedCollapse key={entry.id} expanded={index < preview.count}>
-                {entry.content}
-              </AnimatedCollapse>
-            ))}
-            {mountedItems.map((item, index) => (
-              <AnimatedCollapse
-                key={item.path}
-                expanded={index + leadingEntries.length < preview.count}
-              >
-                <ProjectCard
-                  compact={compact}
-                  key={item.path}
-                  item={item}
-                  muteStatus={muteStatuses.get(pathKey(item.path)) ?? undefined}
-                  selected={
-                    (!searchActive || !!tree) && sameProjectPath(item.path, cwd)
-                  }
-                  busy={isBusyPath(item.path, busy)}
-                  statsEnabled={
-                    statsEnabled && (!tree || sameProjectPath(item.path, cwd))
-                  }
-                  tree={tree}
-                  pinned={pinned}
-                  sortable={sortable}
-                  onSelect={onSelect}
-                  onTogglePin={onTogglePin}
-                  onContextMenu={onContextMenu}
-                  onOpenMenu={onOpenMenu}
-                  groupLabels={groupLabels}
-                  groupColors={groupColors}
-                  groupCustomColors={groupCustomColors}
-                  groupLogos={groupLogos}
-                  groupMascots={groupMascots}
-                />
-              </AnimatedCollapse>
-            ))}
+            {rows
+              .slice(0, preview.mountedCount)
+              .map(({ id, entry, project: item }, index) => (
+                <AnimatedCollapse key={id} expanded={index < preview.count}>
+                  {() => {
+                    if (entry)
+                      return (
+                        <SidebarEntry
+                          entry={entry}
+                          id={id}
+                          sortable={pinned ? sortable : undefined}
+                        />
+                      );
+                    if (!item) return null;
+                    return (
+                      <ProjectCard
+                        compact={compact}
+                        key={item.path}
+                        item={item}
+                        muteStatus={
+                          muteStatuses.get(pathKey(item.path)) ?? undefined
+                        }
+                        selected={
+                          (!searchActive || !!tree) &&
+                          sameProjectPath(item.path, cwd)
+                        }
+                        busy={isBusyPath(item.path, busy)}
+                        statsEnabled={
+                          statsEnabled &&
+                          (!tree || sameProjectPath(item.path, cwd))
+                        }
+                        tree={tree}
+                        pinned={pinned}
+                        sortable={sortable}
+                        onSelect={onSelect}
+                        onTogglePin={onTogglePin}
+                        onContextMenu={onContextMenu}
+                        onOpenMenu={onOpenMenu}
+                        groupLabels={groupLabels}
+                        groupColors={groupColors}
+                        groupCustomColors={groupCustomColors}
+                        groupLogos={groupLogos}
+                        groupMascots={groupMascots}
+                      />
+                    );
+                  }}
+                </AnimatedCollapse>
+              ))}
             {preview.button}
           </div>
         </div>
       </AnimatedCollapse>
     </div>
+  );
+}
+
+function SidebarEntry({
+  entry,
+  id,
+  sortable,
+}: {
+  entry: ProjectListEntry;
+  id: string;
+  sortable?: SortableHandle;
+}) {
+  const content =
+    typeof entry.content === "function" ? entry.content() : entry.content;
+  if (!sortable) return content;
+  return (
+    <SidebarEntryReorderContext.Provider
+      value={{
+        dragging: sortable.draggingId !== null,
+        onPointerDown: (event, externalDrop) =>
+          sortable.onItemPointerDown(id, event, externalDrop),
+        consumeClick: sortable.consumeClick,
+      }}
+    >
+      <div
+        ref={(node) => sortable.setItemRef(id, node)}
+        data-sidebar-pinned-entry={id}
+        className="reorder-item sidebar-pinned-entry relative"
+      >
+        {content}
+      </div>
+    </SidebarEntryReorderContext.Provider>
   );
 }
 
@@ -952,7 +1037,7 @@ function ProjectGroupSection({
     "y",
     undefined,
     {
-      activationDistance: 8,
+      activationDistance: 3,
       collapsedSize: tree ? collapsedProjectHeaderSize : undefined,
     },
   );
@@ -1040,6 +1125,7 @@ function ProjectGroupSection({
         </div>
       )}
       <AnimatedCollapse
+        keepMounted
         expanded={expanded}
         motion={tree ? "height" : undefined}
         className={tree ? "project-tree-collapse" : undefined}
@@ -1216,7 +1302,7 @@ function ProjectCard({
           : selected
             ? "bg-selection-strong text-content"
             : "opacity-65"
-      } cursor-default`}
+      } cursor-grab`}
       onPointerEnter={hover.triggerProps.onPointerEnter}
       onPointerLeave={hover.triggerProps.onPointerLeave}
       onPointerDown={(event) => {
@@ -1308,6 +1394,7 @@ function ProjectCard({
         }
         aria-description={remote?.cwd ?? item.path}
         aria-current={selected ? "true" : undefined}
+        aria-expanded={tree && expandable ? expanded : undefined}
         aria-haspopup="dialog"
         aria-describedby={hover.open ? hover.id : undefined}
         onFocus={() => {
@@ -1318,8 +1405,8 @@ function ProjectCard({
         onKeyDown={hover.triggerProps.onKeyDown}
         className={
           compact
-            ? "relative grid size-8 place-items-center"
-            : `flex min-w-0 flex-1 cursor-default items-center gap-2 text-left ${tree ? "pl-2 group-hover:pr-12 group-has-[:focus-visible]:pr-12" : "transition-[padding] duration-150 motion-reduce:transition-none group-hover:pr-6 group-has-[:focus-visible]:pr-6"}`
+            ? "relative grid size-8 cursor-grab place-items-center"
+            : `flex min-w-0 flex-1 cursor-grab items-center gap-2 text-left ${tree ? "pl-2 group-hover:pr-12 group-has-[:focus-visible]:pr-12" : "transition-[padding] duration-150 motion-reduce:transition-none group-hover:pr-6 group-has-[:focus-visible]:pr-6"}`
         }
       >
         {compact ? (
@@ -1638,6 +1725,7 @@ function ProjectCard({
     >
       {header}
       <AnimatedCollapse
+        keepMounted
         expanded={expanded && sortable?.draggingId !== item.path}
         motion="height"
         className="project-tree-collapse"

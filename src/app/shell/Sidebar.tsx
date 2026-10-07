@@ -105,11 +105,12 @@ function SidebarComponent(props: SidebarProps) {
   } = props;
   const toggleLabel = useShortcutLabel("Toggle Sidebar", "App: Toggle Sidebar");
   const quickOpenLabel = useShortcutLabel("Quick Open", "App: Go to File");
+  const [initialWidth] = useState(loadSidebarWidth);
   const resize = useDragResize({
     min: SIDEBAR_WIDTH_MIN,
     max: () => Math.min(SIDEBAR_WIDTH_MAX, Math.floor(window.innerWidth * 0.5)),
     defaultWidth: SIDEBAR_WIDTH_DEFAULT,
-    initial: loadSidebarWidth(),
+    initial: initialWidth,
     onCommit: saveSidebarWidth,
   });
   const [expandedPaths, setExpandedPaths] = useState(() =>
@@ -1235,7 +1236,7 @@ function SidebarComponent(props: SidebarProps) {
               needsApprovalPaths={approvalPaths}
               projectSummaries={projectSummaries}
               pinnedEntries={tab === "sessions" ? pinnedSessions.map((session) => ({
-                id: `${pathKey(session.cwd)}:${session.id}`,
+                id: JSON.stringify([pathKey(session.cwd), session.id]),
                 content: () => renderChildren(session.cwd, session.id),
               })) : undefined}
               recentEntries={

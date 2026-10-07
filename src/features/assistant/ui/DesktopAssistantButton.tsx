@@ -112,20 +112,17 @@ export function DesktopAssistantButton({
       aria-pressed={active}
       title={preview ? `${label}: ${preview}` : label}
       onClick={() => onOpen(latest?.machineId)}
-      className={`mx-1 flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-lg px-2 text-ui-sm transition-colors ${active ? "bg-selection text-content" : "text-foreground-subtle hover:bg-surface-hover hover:text-content"}`}
+      className={`mx-1 flex h-7 min-w-0 max-w-sm items-center gap-1.5 rounded-lg px-2 text-ui-sm transition-colors ${active ? "bg-selection text-content" : "text-foreground-subtle hover:bg-surface-hover hover:text-content"}`}
     >
       <Bot className="size-4 shrink-0" />
-      <span>{t("Assistant")}</span>
+      <span className="min-w-0 truncate">{preview || t("Assistant")}</span>
       {latest ? (
-        <>
-          <span className="hidden max-w-40 truncate xl:block">{preview}</span>
-          <span
-            aria-hidden
-            className="rounded-full bg-brand px-1.5 text-xs text-brand-foreground"
-          >
-            {unread.length > 99 ? "99+" : unread.length}
-          </span>
-        </>
+        <span
+          aria-hidden
+          className="shrink-0 rounded-full bg-brand px-1.5 text-xs text-brand-foreground"
+        >
+          {unread.length > 99 ? "99+" : unread.length}
+        </span>
       ) : null}
     </button>
   );

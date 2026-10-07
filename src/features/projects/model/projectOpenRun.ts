@@ -35,12 +35,14 @@ export function planProjectOpenRun({
   sessions,
   activeTabId,
   paths,
+  canReuseBlank,
 }: {
   memory: ProjectReturnMemory;
   tabs: WorkspaceTab[];
   sessions: Session[];
   activeTabId: string;
   paths: readonly string[];
+  canReuseBlank?: (sessionId: string) => boolean;
 }): ProjectOpenStep[] {
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   const seed =
@@ -79,7 +81,11 @@ export function planProjectOpenRun({
     }
     // Only the first folder can take the blank session; the rest would
     // otherwise overwrite it in turn.
-    if (decision.action === "reuse-blank" && !blankReused) {
+    if (
+      decision.action === "reuse-blank" &&
+      !blankReused &&
+      (canReuseBlank?.(decision.sessionId) ?? true)
+    ) {
       blankReused = true;
       steps.push({
         action: "reuse-blank",

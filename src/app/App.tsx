@@ -33,6 +33,11 @@ import { persistManualSessionTitle } from "../features/sessions/data/sessionStor
 import { acceptQuickLaunch } from "./model/quickLaunchSession";
 import { useWorkspaceNavigation } from "./hooks/useWorkspaceNavigation";
 import { useIdleSessionDetach } from "./hooks/useIdleSessionDetach";
+import { useEmptySessionCleanup } from "./hooks/useEmptySessionCleanup";
+import {
+  isDisposableEmptySession,
+  tabHasSessionResources,
+} from "./model/emptySessionCleanup";
 import { HarnessEventQueue } from "./model/harnessFlush";
 import {
   handleAgentApp,
@@ -101,10 +106,8 @@ import {
   type CSSProperties,
 } from "react";
 import { Sidebar } from "./shell/Sidebar";
-import {
-  SIDEBAR_MOTION_STYLE,
-  SIDEBAR_TRANSITION_MS,
-} from "./shell/SidebarTransition";
+import { SidebarRail } from "./shell/SidebarTransition";
+import { SidebarMain } from "./shell/SidebarMain";
 import { ApprovalToasts } from "../features/sessions/ui/ApprovalToasts";
 import { HarnessUpdateNotice } from "../features/providers/ui/HarnessUpdateNotice";
 import { WhatsNewDialog } from "./shell/WhatsNewDialog";
@@ -245,7 +248,6 @@ import { releaseNotesForVersion } from "./model/releaseNotes";
 import { orderByIds } from "../shared/lib/reorder";
 import {
   addTerminalToDock,
-  applyDockGridStyle,
   closeTerminalInDock,
   createProjectTerminal,
   findProjectTerminal,
@@ -592,8 +594,8 @@ import { PaneTree } from "../features/workspace/ui/PaneTree";
 import { SessionSurfaceActions } from "../features/workspace/ui/SessionSurfaceToolbar";
 import { SessionPane } from "../features/sessions/ui/SessionPane";
 import { SessionSurface } from "../features/sessions/ui/SessionSurface";
-import { ProjectTerminalDock } from "../features/terminal/ui/ProjectTerminalDock";
-import { AnimatedCollapse, useCollapseMotion } from "../shared/ui/AnimatedCollapse";
+import { TerminalDockLayout } from "./shell/TerminalDockLayout";
+import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 import { lazySurface } from "../shared/ui/lazySurface";
 import { preloadNavigationWhenIdle } from "./model/preloadNavigation";
@@ -1305,6 +1307,33 @@ function Workspace({
   projectTerminalFocusedRef.current = projectTerminalFocused;
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
+  const historyForCleanupRef = useRef(history);
+  historyForCleanupRef.current = history;
+  const pendingTabResources = useRef(new Map<string, number>());
+  const resolveTabResource = useCallback(<T,>(tabId: string, work: Promise<T>) => {
+    pendingTabResources.current.set(
+      tabId,
+      (pendingTabResources.current.get(tabId) ?? 0) + 1,
+    );
+    return work.finally(() => {
+      const remaining = (pendingTabResources.current.get(tabId) ?? 1) - 1;
+      if (remaining) pendingTabResources.current.set(tabId, remaining);
+      else pendingTabResources.current.delete(tabId);
+    });
+  }, []);
+  const canDiscardEmptySession = useCallback((id: string) => {
+    const session = sessionsRef.current.find((entry) => entry.id === id);
+    return (
+      !!session &&
+      isDisposableEmptySession(session) &&
+      !remoteSessionFor(id) &&
+      !historyForCleanupRef.current.some((entry) => entry.id === id) &&
+      !tabsRef.current.some((tab) =>
+        leafIds(tab.layout).includes(id) &&
+        (tabHasSessionResources(tab) || pendingTabResources.current.has(tab.id)),
+      )
+    );
+  }, []);
 
   const projectWorktree = useWorktreeFocus(projectCwd);
   /** Tab or session id -> the workspace it was opened or moved in. A tab
@@ -1373,6 +1402,7 @@ function Workspace({
       }
     },
     createTab: (project, focus) => createWorkspaceTab(project, focus),
+    canReuseBlank: canDiscardEmptySession,
   });
   // Every ordinary tab activation supersedes an unfinished workspace request,
   // including opening a session in the same tab or selecting a project.
@@ -2347,6 +2377,45 @@ function Workspace({
     );
   }, []);
 
+  const discardEmptySessionReferences = useCallback(
+    (ids: ReadonlySet<string>) => {
+      for (const id of ids) {
+        loadedSessionCache.current.delete(id);
+        openingSessionIds.current.delete(id);
+        lastPersisted.current.delete(id);
+        workspacePins.current.delete(id);
+      }
+      for (const tab of tabsRef.current) {
+        if (leafIds(tab.layout).every((id) => ids.has(id)))
+          workspacePins.current.delete(tab.id);
+      }
+      projectReturnRef.current = new Map(
+        [...projectReturnRef.current].filter(([, id]) => !ids.has(id)),
+      );
+      const currentTab = tabsRef.current.find(
+        (tab) => tab.id === activeTabIdRef.current,
+      );
+      commitTabVisit(pruneTabVisitHistory(
+        tabVisitRef.current,
+        new Set(sessionsRef.current
+          .filter((session) => !ids.has(session.id))
+          .map((session) => session.id)),
+        currentTab ? (anchorSessionId(currentTab) ?? "") : "",
+      ));
+    },
+    [commitTabVisit],
+  );
+
+  useEmptySessionCleanup({
+    tabs,
+    sessions,
+    activeTabId,
+    enabled: workspaceVisible && !activeAppView,
+    canDiscard: canDiscardEmptySession,
+    setTabs,
+    onDiscard: discardEmptySessionReferences,
+  });
+
   // Back/forward walk the chats shown in the focused column (one workspace
   // per window, so tab visits no longer move).
   const visitedSessionId = useMemo(() => {
@@ -2465,19 +2534,21 @@ function Workspace({
   );
 
   const onNewInProject = useCallback(
-    (cwd: string) => {
+    (cwd: string, options?: { reuseDraft?: boolean }) => {
       workspaceNavigation.cancel();
       const focus = worktreeFocus(cwd);
       const desiredWorktree =
         focus && pathKey(focus.path) !== pathKey(cwd) ? focus.path : undefined;
-      // Reuse an untouched draft in the same project instead of stacking up
-      // another "新会话" row every time the user clicks the + button.
-      const reusable = sessionsRef.current.find(
-        (session) =>
-          sameProjectPath(session.cwd, cwd) &&
-          (session.worktreeCwd ?? undefined) === desiredWorktree &&
-          isReusableDraftSession(session),
-      );
+      // Explicit new-session actions always create. Composer launchers may
+      // opt into reusing an untouched draft to receive their initial text.
+      const reusable = options?.reuseDraft
+        ? sessionsRef.current.find(
+            (session) =>
+              sameProjectPath(session.cwd, cwd) &&
+              (session.worktreeCwd ?? undefined) === desiredWorktree &&
+              isReusableDraftSession(session),
+          )
+        : undefined;
       if (reusable) {
         const hostTab = tabsRef.current.find((entry) =>
           leafIds(entry.layout).includes(reusable.id),
@@ -3824,7 +3895,10 @@ function Workspace({
           target.surfaceMode ??
           (loadFileTabMode() === "workspace" ? "unified" : "split");
         const resolved = path
-          ? ((await resolveOpenablePath(diffCwd, path)) ?? path)
+          ? ((await resolveTabResource(
+              target.id,
+              resolveOpenablePath(diffCwd, path),
+            )) ?? path)
           : undefined;
         if (
           !tabsRef.current.some(
@@ -4066,15 +4140,12 @@ function Workspace({
 
     // A blank conversation can already own open documents or an unsent draft.
     // Replacing it would transfer those surfaces to a different conversation.
-    if (tab.editorPanes.length || (tab.terminalPanes ?? []).length)
-      return false;
+    if (tabHasSessionResources(tab)) return false;
 
-    const paneId = isBlankSession(
-      sessionsRef.current.find((entry) => entry.id === tab.focusedId),
-    )
+    const paneId = canDiscardEmptySession(tab.focusedId)
       ? tab.focusedId
       : leafIds(tab.layout).find((id) =>
-          isBlankSession(sessionsRef.current.find((entry) => entry.id === id)),
+          canDiscardEmptySession(id),
         );
     if (!paneId || paneId === session.id) return false;
 
@@ -4602,9 +4673,7 @@ function Workspace({
 
       const replaceTarget =
         !leafIds(tab.layout).includes(sessionId) &&
-        isBlankSession(
-          sessionsRef.current.find((entry) => entry.id === targetId),
-        );
+        canDiscardEmptySession(targetId);
 
       if (replaceTarget) {
         lastPersisted.current.delete(targetId);
@@ -5125,10 +5194,6 @@ function Workspace({
       const open = sessionsRef.current.find(
         (session) => session.id === sessionId,
       );
-      if (open && shouldPersistSession(open)) {
-        await upsertSession(open).catch(() => undefined);
-      }
-      await setSessionPinned(sessionId, pinned).catch(() => undefined);
       setHistory((current) => {
         const existing = current.find((entry) => entry.id === sessionId);
         if (existing) {
@@ -5140,6 +5205,10 @@ function Workspace({
           pinned,
         });
       });
+      if (open && shouldPersistSession(open)) {
+        await upsertSession(open).catch(() => undefined);
+      }
+      await setSessionPinned(sessionId, pinned).catch(() => undefined);
     },
     [],
   );
@@ -5309,7 +5378,7 @@ function Workspace({
         previous &&
         looksLikeProject(previous) &&
         !sameProjectPath(previous, normalized) &&
-        !isBlankSession(current)
+        !canDiscardEmptySession(current.id)
       ) {
         setProjectCwd(normalized);
         setRecents(rememberProject(normalized));
@@ -5603,6 +5672,7 @@ function Workspace({
         sessions: sessionsRef.current,
         activeTabId: activeTabIdRef.current,
         paths,
+        canReuseBlank: canDiscardEmptySession,
       });
       const last = steps[steps.length - 1];
       if (!last) return;
@@ -5981,7 +6051,10 @@ function Workspace({
         owner.surfaceMode ??
         (loadFileTabMode() === "workspace" ? "unified" : "split");
       void (async () => {
-        const resolved = await resolveFileOpenRequest(fileCwd, path, options);
+        const resolved = await resolveTabResource(
+          owner.id,
+          resolveFileOpenRequest(fileCwd, path, options),
+        );
         if (
           !tabsRef.current.some(
             (tab) =>
@@ -9930,7 +10003,7 @@ function Workspace({
         ),
       openSession: (cwd, sessionId) => onSelectRemoteSession(cwd, sessionId),
       createViaChat: (cwd, prompt, options) => {
-        const sessionId = onNewInProject(cwd);
+        const sessionId = onNewInProject(cwd, { reuseDraft: true });
         if (options?.send) setWorkflowSendRequest({ sessionId, prompt });
         else setWorkflowComposerRequest({ sessionId, prompt });
       },
@@ -10780,41 +10853,6 @@ function Workspace({
     };
   }, []);
 
-  const dockGridRef = useRef<HTMLDivElement>(null);
-  const dockDragSize = useRef<number | null>(null);
-  const dockMotion = useCollapseMotion(dockVisible);
-  const paintDockSize = useCallback((size: number) => {
-    const dock = findProjectTerminal(
-      projectTerminalsRef.current,
-      projectCwdRef.current,
-    );
-    const el = dockGridRef.current;
-    if (!dock || !el) return;
-    dockDragSize.current = size;
-    el.style.transitionProperty = "none";
-    applyDockGridStyle(el, dock.side, size);
-  }, []);
-  const commitDockSize = useCallback(
-    (size: number) => {
-      dockDragSize.current = null;
-      dockGridRef.current?.style.removeProperty("transition-property");
-      onProjectTerminalSize(size);
-    },
-    [onProjectTerminalSize],
-  );
-  useLayoutEffect(() => {
-    if (!dockVisible) dockDragSize.current = null;
-    if (dockDragSize.current != null) return;
-    const el = dockGridRef.current;
-    if (!el) return;
-    el.style.removeProperty("transition-property");
-    applyDockGridStyle(
-      el,
-      currentProjectDock?.side ?? lastDockSide ?? "bottom",
-      dockVisible ? (currentProjectDock?.size ?? 0) : 0,
-    );
-  }, [currentProjectDock, dockVisible, lastDockSide]);
-
   const lastRemoteSnapshot = useRef(new Map<string, HostSession>());
   const onRemoteSnapshot = useCallback(
     (shellId: string, snapshot?: HostSession) => {
@@ -11142,7 +11180,7 @@ function Workspace({
       />
     ) : null;
 
-  const windowCenter = (
+  const windowLeading = (
     <DesktopAssistantButton
       active={activeAppView === "assistant"}
       onOpen={onOpenAssistant}
@@ -11150,7 +11188,7 @@ function Workspace({
   );
 
   const updateStatus = useUpdateStatus();
-  const activityBarProps = {
+  const activityBarProps = useMemo(() => ({
     updateStatus,
     onShowProjects,
     cwd: sidebarCwd,
@@ -11182,8 +11220,31 @@ function Workspace({
     updateNotice,
     onOpenWhatsNew,
     onDismissUpdate: () => setUpdateNotice(null),
-  } satisfies ActivityBarProps;
-  const railMotion = useCollapseMotion(!sessionSidebarOpen, SIDEBAR_TRANSITION_MS);
+  } satisfies ActivityBarProps), [
+    updateStatus, onShowProjects, sidebarCwd, recents, sessions, liveAgents,
+    active?.id, onSelectLiveAgent, onSelectProject, pickProject, onRemoveProject,
+    onGoToFile, onOpenInbox, notesEnabled, onOpenNotes, onOpenSettings,
+    onOpenAutomations, onOpenWorkflows, activeAppView, appPage, inboxUnseen,
+    onOpenNotificationSettings, updateNotice, onOpenWhatsNew,
+  ]);
+  const sidebarNavigation = useMemo(() => (
+    <div id="sidebar-navigation-menu" className="shrink-0">
+      <AnimatedCollapse expanded={navigationExpanded} keepMounted>
+        <ActivityBar layout="sidebar-top" {...activityBarProps} />
+      </AnimatedCollapse>
+    </div>
+  ), [navigationExpanded, activityBarProps]);
+  const sidebarFooter = useMemo(() => (
+    <ActivityBar layout="sidebar-footer" {...activityBarProps} />
+  ), [activityBarProps]);
+  const sidebarWorkflows = useMemo(() => (
+    <WorkflowSidebarSection
+      activeSessionId={active?.id}
+      onOpenSession={(sessionId) => void onSelectHistorySession(sessionId)}
+      onOpenWorkflows={onOpenWorkflows}
+      workflowsActive={activeAppView === "workflows"}
+    />
+  ), [active?.id, onSelectHistorySession, onOpenWorkflows, activeAppView]);
 
   return (
     <WorkflowAppContext.Provider value={workflowApp}>
@@ -11223,7 +11284,7 @@ function Workspace({
                     onToggleNavigation={
                       sessionSidebarOpen ? onToggleNavigation : undefined
                     }
-                    windowCenter={windowCenter}
+                    windowLeading={windowLeading}
                     windowActions={surfaceModeToggle}
                   />
                 ) : null}
@@ -11239,7 +11300,7 @@ function Workspace({
                     onToggleNavigation={
                       sessionSidebarOpen ? onToggleNavigation : undefined
                     }
-                    windowCenter={windowCenter}
+                    windowLeading={windowLeading}
                     windowActions={surfaceModeToggle}
                   />
                 ) : null}
@@ -11251,63 +11312,18 @@ function Workspace({
                   />
                 ) : null}
               </div>
-              <div className="flex min-h-0 min-w-0 flex-1">
-                <div
-                  data-fold-state={railMotion.foldState}
-                  className="animated-collapse-size grid h-full min-h-0 shrink-0"
-                  style={
-                    {
-                      ...SIDEBAR_MOTION_STYLE,
-                      gridTemplateColumns: sessionSidebarOpen ? "0px" : "48px",
-                    } as CSSProperties
-                  }
-                  aria-hidden={sessionSidebarOpen || undefined}
-                  inert={sessionSidebarOpen || undefined}
-                  onTransitionEnd={(event) => {
-                    if (
-                      event.target === event.currentTarget &&
-                      event.propertyName === "grid-template-columns"
-                    )
-                      railMotion.finish();
-                  }}
-                >
-                  <div className="min-w-0 overflow-hidden">
-                    <SurfaceVisibilityContext.Provider value={!sessionSidebarOpen}>
-                      {!sessionSidebarOpen ||
-                      railMotion.foldState !== "closed" ? (
-                        <ActivityBar
-                          layout="rail"
-                          chromeInMenuBar
-                          {...activityBarProps}
-                        />
-                      ) : null}
-                    </SurfaceVisibilityContext.Provider>
-                  </div>
-                </div>
+              <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                <SidebarRail open={!sessionSidebarOpen}>
+                  <ActivityBar
+                    layout="rail"
+                    chromeInMenuBar
+                    {...activityBarProps}
+                  />
+                </SidebarRail>
                 <Sidebar
-                  navigation={
-                    <div id="sidebar-navigation-menu" className="shrink-0">
-                      <AnimatedCollapse expanded={navigationExpanded}>
-                        <ActivityBar layout="sidebar-top" {...activityBarProps} />
-                      </AnimatedCollapse>
-                    </div>
-                  }
-                  footer={
-                    <ActivityBar
-                      layout="sidebar-footer"
-                      {...activityBarProps}
-                    />
-                  }
-                  workflowsSection={
-                    <WorkflowSidebarSection
-                      activeSessionId={active?.id}
-                      onOpenSession={(sessionId) =>
-                        void onSelectHistorySession(sessionId)
-                      }
-                      onOpenWorkflows={onOpenWorkflows}
-                      workflowsActive={activeAppView === "workflows"}
-                    />
-                  }
+                  navigation={sidebarNavigation}
+                  footer={sidebarFooter}
+                  workflowsSection={sidebarWorkflows}
                   recents={recents}
                   onSelectProject={onSelectProject}
                   onOpenProject={pickProject}
@@ -11392,7 +11408,7 @@ function Workspace({
                   linkedSessionUpdateIds={linkedSessionUpdateIds}
                 />
 
-                <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
+                <SidebarMain open={sessionSidebarOpen}>
                   <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                     <main className="relative flex min-h-0 min-w-0 flex-1">
                       {APP_PAGE_KINDS.filter(
@@ -11435,73 +11451,25 @@ function Workspace({
                         <SurfaceVisibilityContext.Provider
                           value={workspaceVisible}
                         >
-                          <div
-                            ref={dockGridRef}
-                            data-terminal-dock-layout
-                            data-fold-state={dockMotion.foldState}
-                            className="animated-collapse-size pane-card-gutter grid h-full min-h-0 min-w-0 flex-1"
-                            onTransitionEnd={(event) => {
-                              if (
-                                event.target === event.currentTarget &&
-                                (event.propertyName === "grid-template-rows" ||
-                                  event.propertyName ===
-                                    "grid-template-columns")
-                              )
-                                dockMotion.finish();
-                            }}
+                          <TerminalDockLayout
+                            projectTerminals={projectTerminals}
+                            currentDock={currentProjectDock}
+                            projectCwd={projectCwd}
+                            workspaceVisible={workspaceVisible}
+                            lastDockSide={lastDockSide}
+                            focused={projectTerminalFocused}
+                            onFocus={focusProjectTerminal}
+                            onHide={onHideProjectTerminal}
+                            onSideChange={onProjectTerminalSide}
+                            onSizeCommit={onProjectTerminalSize}
+                            onAddTerminal={onNewTerminal}
+                            onSelectTerminal={onSelectProjectTerminal}
+                            onCloseTerminal={onCloseProjectTerminal}
+                            onCloseOtherTerminals={onCloseOtherProjectTerminals}
+                            onReorderTerminals={onReorderProjectTerminals}
+                            onTerminalMetaChange={onTerminalMetaChange}
+                            onMoveToPane={onMoveDockToPane}
                           >
-                            {projectTerminals.map((dock) => {
-                              const show =
-                                workspaceVisible &&
-                                dock.open &&
-                                sameProjectPath(dock.projectPath, projectCwd);
-                              const present =
-                                workspaceVisible &&
-                                sameProjectPath(dock.projectPath, projectCwd) &&
-                                (show || dockMotion.foldState === "closing");
-                              return (
-                                <div
-                                  key={dock.projectPath}
-                                  className={
-                                    present
-                                      ? `h-full min-h-0 min-w-0 w-full ${show ? "" : "overflow-hidden"}`
-                                      : "hidden"
-                                  }
-                                  style={
-                                    present ? { gridArea: "dock" } : undefined
-                                  }
-                                  aria-hidden={!show}
-                                  inert={!show || undefined}
-                                >
-                                  <SurfaceVisibilityContext.Provider
-                                    value={show}
-                                  >
-                                    <ProjectTerminalDock
-                                      dock={dock}
-                                      focused={show && projectTerminalFocused}
-                                      onFocus={focusProjectTerminal}
-                                      onHide={onHideProjectTerminal}
-                                      onSideChange={onProjectTerminalSide}
-                                      onSizePaint={paintDockSize}
-                                      onSizeCommit={commitDockSize}
-                                      onAddTerminal={onNewTerminal}
-                                      onSelectTerminal={onSelectProjectTerminal}
-                                      onCloseTerminal={onCloseProjectTerminal}
-                                      onCloseOtherTerminals={
-                                        onCloseOtherProjectTerminals
-                                      }
-                                      onReorderTerminals={
-                                        onReorderProjectTerminals
-                                      }
-                                      onTerminalMetaChange={
-                                        onTerminalMetaChange
-                                      }
-                                      onMoveToPane={onMoveDockToPane}
-                                    />
-                                  </SurfaceVisibilityContext.Provider>
-                                </div>
-                              );
-                            })}
                             <div
                               className="relative flex min-h-0 min-w-0 flex-row"
                               style={{
@@ -11603,7 +11571,7 @@ function Workspace({
                                 ))}
                               </div>
                             </div>
-                          </div>
+                          </TerminalDockLayout>
                           {[...linkedWorkItemPanels.values()].map((panel) => (
                             <LinkedWorkItemPanel
                               repairSessions={repairSessions}
@@ -11657,7 +11625,7 @@ function Workspace({
                         );
                       })}
                   </div>
-                </div>
+                </SidebarMain>
               </div>
 
               {paletteOpen ? (

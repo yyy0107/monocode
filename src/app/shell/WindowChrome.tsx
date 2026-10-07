@@ -128,6 +128,15 @@ export function TabVisitNav({
           className="size-6"
         />
       </div>
+      {onTogglePanel ? (
+        <IconButton
+          label={panelLabel}
+          active={panelActive}
+          onClick={onTogglePanel}
+        >
+          <PanelLeft className="size-4" />
+        </IconButton>
+      ) : null}
       <IconButton label={backLabel} disabled={!canGoBack} onClick={onGoBack}>
         <ArrowLeft className="size-4" />
       </IconButton>
@@ -156,15 +165,6 @@ export function TabVisitNav({
           )}
         </IconButton>
       ) : null}
-      {onTogglePanel ? (
-        <IconButton
-          label={panelLabel}
-          active={panelActive}
-          onClick={onTogglePanel}
-        >
-          <PanelLeft className="size-4" />
-        </IconButton>
-      ) : null}
     </div>
   );
 }
@@ -177,12 +177,12 @@ export const WINDOW_DRAG_BAR_HEIGHT = 40;
 
 /** Keep native window dragging independent of the active page or pane layout. */
 export function WindowDragBar({
-  windowCenter,
+  windowLeading,
   windowActions,
   ...props
 }: Parameters<typeof TabVisitNav>[0] & {
-  /** Centered window-wide destination and its notification preview. */
-  windowCenter?: ReactNode;
+  /** Left-aligned window-wide destination and its notification preview. */
+  windowLeading?: ReactNode;
   /** Window-wide actions shown just before the window controls. */
   windowActions?: ReactNode;
 }) {
@@ -191,7 +191,7 @@ export function WindowDragBar({
       data-window-drag-bar
       data-tauri-drag-region="deep"
       onMouseDownCapture={startWindowDrag}
-      className="shell-chrome relative grid shrink-0 grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] select-none items-center"
+      className="shell-chrome relative grid shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] select-none items-center"
       style={{ height: WINDOW_DRAG_BAR_HEIGHT }}
     >
       <WindowNavigation {...props} />
@@ -200,11 +200,10 @@ export function WindowDragBar({
         style={{ minWidth: WINDOW_NAVIGATION_END }}
       />
       <div
-        data-window-center
-        data-tauri-drag-region="false"
-        className="flex min-w-0 items-center justify-center"
+        data-window-leading
+        className="flex min-w-0 items-center"
       >
-        {windowCenter}
+        {windowLeading}
       </div>
       <div className="flex min-w-0 items-center justify-end self-stretch">
         {windowActions ? (

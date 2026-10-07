@@ -484,6 +484,7 @@ html.has-native-glass:not(.theme-light) #root {
 }
 
 .reorder-item:is([data-dragging], [data-settling]) > .project-tree-header,
+.sidebar-pinned-entry:is([data-dragging], [data-settling]) [data-session-card],
 .project-reorder-item:is([data-dragging], [data-settling]) {
   background: var(--color-background-base);
   box-shadow: 0 0 0 1px var(--color-stroke) inset, var(--shadow-lg);
@@ -497,6 +498,7 @@ html.has-native-glass:not(.theme-light) #root {
 
 /* Keep project controls from appearing as rows pass beneath the pointer. */
 .project-reorder-item[data-reordering] [data-no-drag],
+.sidebar-pinned-entry[data-reordering] [data-no-drag],
 .reorder-item[data-reordering] .project-tree-header [data-no-drag] {
   visibility: hidden;
 }
@@ -3622,8 +3624,11 @@ html.theme-light .drag-ghost-card {
     grid-template-columns var(--collapse-duration) var(--collapse-easing);
 }
 
-.sidebar-transition {
-  transition-property: width;
+.sidebar-transition,
+.sidebar-rail {
+  /* Commit available workspace width once. Only the surfaces move in between. */
+  transition: none;
+  z-index: 1;
 }
 
 /* Isolate the fixed-width sidebar's layout and paint as its viewport narrows. */
@@ -3631,25 +3636,23 @@ html.theme-light .drag-ghost-card {
   contain: layout paint;
 }
 
-.sidebar-transition-content {
-  opacity: 1;
+.sidebar-transition-clip,
+.sidebar-rail-content {
   transform: translateX(0);
-  transition:
-    transform var(--collapse-duration) var(--collapse-easing),
-    opacity var(--collapse-duration) var(--collapse-easing);
+  transition: transform var(--collapse-duration) var(--collapse-easing);
 }
 
 .sidebar-transition[data-expanded="false"] {
   pointer-events: none;
 }
 
-.sidebar-transition[data-expanded="false"] .sidebar-transition-content {
-  opacity: 0.65;
-  transform: translateX(-12px);
+.sidebar-transition[data-expanded="false"] .sidebar-transition-clip,
+.sidebar-rail[data-expanded="false"] .sidebar-rail-content {
+  transform: translateX(-100%);
 }
 
 .sidebar-transition[data-resizing],
-.sidebar-transition[data-resizing] .sidebar-transition-content {
+.sidebar-transition[data-resizing] .sidebar-transition-clip {
   transition: none;
 }
 
@@ -3919,7 +3922,8 @@ html.theme-light .drag-ghost-card {
   }
 
   .animated-collapse-size,
-  .sidebar-transition-content {
+  .sidebar-transition-clip,
+  .sidebar-rail-content {
     transition: none;
   }
 

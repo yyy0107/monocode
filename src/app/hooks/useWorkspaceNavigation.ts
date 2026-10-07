@@ -40,6 +40,7 @@ type Options = {
   ) => Promise<void>;
   activateTab: (id: string) => void;
   createTab: (project: string, focus?: WorktreeFocus) => string;
+  canReuseBlank?: (sessionId: string) => boolean;
 };
 
 const workspaceKey = (project: string, path: string) =>
@@ -150,6 +151,7 @@ export function useWorkspaceNavigation(options: Options) {
           } else if (
             session &&
             isBlankSession(session) &&
+            (view.canReuseBlank?.(session.id) ?? true) &&
             sameProjectPath(session.cwd, next.project)
           ) {
             moving.current.add(session.id);

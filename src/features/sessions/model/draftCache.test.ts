@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   clearComposerDraft,
+  beginComposerAttachmentRead,
+  hasComposerDraftContent,
+  setComposerAttachmentCount,
   getComposerDraft,
   getComposerMcpTags,
   setComposerDraft,
@@ -9,6 +12,28 @@ import {
 import { newMcpTag } from "./mcpPicker";
 
 describe("draftCache", () => {
+  it("protects whitespace and attachments independently when text is cleared", () => {
+    const id = "presence";
+    setComposerDraft(id, "  \n");
+    expect(hasComposerDraftContent(id)).toBe(true);
+    setComposerAttachmentCount(id, 1);
+    setComposerDraft(id, "");
+    expect(hasComposerDraftContent(id)).toBe(true);
+    setComposerAttachmentCount(id, 0);
+    expect(hasComposerDraftContent(id)).toBe(false);
+  });
+
+  it("protects overlapping attachment reads until both finish", () => {
+    const id = "reading";
+    const first = beginComposerAttachmentRead(id);
+    const second = beginComposerAttachmentRead(id);
+    first();
+    first();
+    expect(hasComposerDraftContent(id)).toBe(true);
+    second();
+    expect(hasComposerDraftContent(id)).toBe(false);
+  });
+
   it("returns undefined for a session that never had a draft", () => {
     expect(getComposerDraft("never-seen")).toBeUndefined();
   });

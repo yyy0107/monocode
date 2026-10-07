@@ -805,7 +805,8 @@ describe("sidebar pinned sessions", () => {
     expect(fold.dataset.foldState).toBe("closing");
     expect(fold.inert).toBe(true);
     act(() => fold.dispatchEvent(new Event("animationend", { bubbles: true })));
-    expect(group.querySelector('[data-session-card="session-1"]')).toBeNull();
+    expect(fold.hidden).toBe(true);
+    expect(group.querySelector('[data-session-card="session-1"]')).not.toBeNull();
     expect(
       JSON.parse(
         localStorage.getItem("monocode.pinnedSessionsCollapsed") ?? "{}",
@@ -1437,14 +1438,28 @@ describe("single sidebar layout and width", () => {
     act(render);
     const shell = container.querySelector<HTMLElement>("[data-sidebar-transition]")!;
     expect(shell.hasAttribute("inert")).toBe(true);
-    act(() => shell.dispatchEvent(Object.assign(new Event("transitionend", { bubbles: true }), { propertyName: "width" })));
-    expect(container.querySelector("aside")).toBeNull();
+    act(() => shell.querySelector(".sidebar-transition-clip")!.dispatchEvent(Object.assign(new Event("transitionend", { bubbles: true }), { propertyName: "transform" })));
+    expect(container.querySelector("aside")!.closest("[hidden]")).not.toBeNull();
     props.open = true;
     act(render);
     expect(card()).not.toBeNull();
   });
 
-  it("keeps content during collapse, hides its portal and unmounts after the fallback timer", () => {
+  it("reads the saved width only on mount, not on sidebar updates or reopening", () => {
+    const read = vi.spyOn(localStorage, "getItem");
+    act(render);
+    const widthReads = () => read.mock.calls.filter(([key]) => key === "monocode.sidebarWidth").length;
+    expect(widthReads()).toBe(1);
+    props = { ...props, pending: true };
+    act(render);
+    props = { ...props, open: false };
+    act(render);
+    props = { ...props, open: true };
+    act(render);
+    expect(widthReads()).toBe(1);
+  });
+
+  it("keeps content during collapse, hides its portal and reuses the list after reopening", () => {
     vi.useFakeTimers();
     localStorage.setItem("monocode.sidebarWidth", "390");
     act(render);
@@ -1462,9 +1477,17 @@ describe("single sidebar layout and width", () => {
     expect(document.querySelector('[role="menu"]')).toBeNull();
     act(() => vi.advanceTimersByTime(100));
     expect(container.querySelector("aside")).toBe(aside);
+    expect(aside!.closest("[hidden]")).toBeNull();
     act(() => vi.advanceTimersByTime(1000));
-    expect(container.querySelector("aside")).toBeNull();
+    expect(container.querySelector("aside")).toBe(aside);
+    expect(aside!.closest("[hidden]")).not.toBeNull();
     expect(localStorage.getItem("monocode.sidebarWidth")).toBe("390");
+    props.open = true;
+    act(render);
+    expect(container.querySelector("aside")).toBe(aside);
+    expect(aside!.closest("[hidden]")).toBeNull();
+    // Retained surfaces follow the same visibility contract as parked tabs.
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
   });
 
   it("reverses collapse without letting the old timeout remove the reopened sidebar", () => {
@@ -1488,7 +1511,7 @@ describe("single sidebar layout and width", () => {
     act(render);
     props.open = false;
     act(render);
-    expect(container.querySelector("aside")).toBeNull();
+    expect(container.querySelector("aside")!.closest("[hidden]")).not.toBeNull();
     expect(container.querySelector<HTMLElement>("[data-sidebar-transition]")!.style.width).toBe("0px");
   });
 

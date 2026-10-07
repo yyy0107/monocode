@@ -21,6 +21,39 @@ import type { McpTag } from "./mcpPicker";
 
 const drafts = new Map<string, string>();
 const mcpTags = new Map<string, McpTag[]>();
+const attachmentCounts = new Map<string, number>();
+const attachmentReads = new Map<string, number>();
+
+/** Metadata only: the mounted Composer still owns attachments and their URLs. */
+export function setComposerAttachmentCount(
+  sessionId: string,
+  count: number,
+): void {
+  if (count > 0) attachmentCounts.set(sessionId, count);
+  else attachmentCounts.delete(sessionId);
+}
+
+/** Register before yielding to a file read, including reads that later fail. */
+export function beginComposerAttachmentRead(sessionId: string): () => void {
+  attachmentReads.set(sessionId, (attachmentReads.get(sessionId) ?? 0) + 1);
+  let finished = false;
+  return () => {
+    if (finished) return;
+    finished = true;
+    const remaining = (attachmentReads.get(sessionId) ?? 1) - 1;
+    if (remaining > 0) attachmentReads.set(sessionId, remaining);
+    else attachmentReads.delete(sessionId);
+  };
+}
+
+export function hasComposerDraftContent(sessionId: string): boolean {
+  return !!(
+    drafts.get(sessionId)?.length ||
+    mcpTags.get(sessionId)?.length ||
+    attachmentCounts.get(sessionId) ||
+    attachmentReads.get(sessionId)
+  );
+}
 
 export function getComposerDraft(sessionId: string): string | undefined {
   return drafts.get(sessionId);
@@ -50,4 +83,6 @@ export function setComposerMcpTags(sessionId: string, tags: McpTag[]): void {
 export function clearComposerDraft(sessionId: string): void {
   drafts.delete(sessionId);
   mcpTags.delete(sessionId);
+  attachmentCounts.delete(sessionId);
+  attachmentReads.delete(sessionId);
 }

@@ -35,8 +35,8 @@ type Props = {
   sidebarOpen?: boolean;
   navigationExpanded?: boolean;
   onToggleNavigation?: () => void;
-  /** Centered window-wide destination and its notification preview. */
-  windowCenter?: ReactNode;
+  /** Left-aligned window-wide destination and its notification preview. */
+  windowLeading?: ReactNode;
   /** Window-wide actions shown just before the window controls. */
   windowActions?: ReactNode;
 };
@@ -55,7 +55,7 @@ export function MenuBar({
   sidebarOpen = false,
   navigationExpanded,
   onToggleNavigation,
-  windowCenter,
+  windowLeading,
   windowActions,
 }: Props) {
   const { t: uiT } = useTranslation();
@@ -203,7 +203,7 @@ export function MenuBar({
       }}
       className={`shell-chrome shrink-0 select-none items-center gap-0.5 border-b border-stroke text-[12px] ${
         visible
-          ? "relative grid grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] px-2"
+          ? "relative grid grid-cols-[auto_minmax(0,1fr)_auto] px-2"
           : "sidebar-glass absolute z-30 flex px-2"
       }`}
       style={{
@@ -270,11 +270,10 @@ export function MenuBar({
       {visible ? (
         <>
           <div
-            data-window-center
-            data-tauri-drag-region="false"
-            className="flex min-w-0 items-center justify-center"
+            data-window-leading
+            className="flex min-w-0 items-center"
           >
-            {windowCenter}
+            {windowLeading}
           </div>
           <div className="flex min-w-0 items-center justify-end self-stretch">
             {windowActions ? (

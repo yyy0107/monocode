@@ -1,4 +1,5 @@
 import { useSidebarListPreview } from "./useSidebarListPreview";
+import { SidebarEntryReorderContext } from "./SidebarEntryReorder";
 import { AnimatedCollapse } from "../../shared/ui/AnimatedCollapse";
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import { NO_BRANCH_LABEL } from "../../features/source-control/model/worktrees";
@@ -27,6 +28,7 @@ import {
 import {
   Fragment,
   memo,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -1177,7 +1179,7 @@ function ProjectSessionSectionComponent({
                             savePinnedSessionsCollapsed(cwd, collapsed);
                           }}
                         />
-                        <AnimatedCollapse expanded={expanded}>
+                        <AnimatedCollapse expanded={expanded} keepMounted>
                           <ul
                             className={`flex flex-col ${dense ? "w-full gap-px px-0 pt-px" : "gap-px p-1"}`}
                           >
@@ -1546,6 +1548,7 @@ const SessionCard = memo(function SessionCard({
 }) {
   const { t: uiT } = useTranslation();
   const skipClickUntil = useRef(0);
+  const sidebarReorder = useContext(SidebarEntryReorderContext);
   const prefetchTimer = useRef<number | null>(null);
   const orchestrationTooltipRootRef = useRef<HTMLDivElement>(null);
   const orchestrationTooltipId = useId();
@@ -1553,7 +1556,8 @@ const SessionCard = memo(function SessionCard({
   const [orchestrationTooltipOpen, setOrchestrationTooltipOpen] =
     useState(false);
   const metadataHover = useHoverSummary<HTMLDivElement>({
-    enabled: dense && !orchestrationTooltipOpen && !dragging,
+    enabled:
+      dense && !orchestrationTooltipOpen && !dragging && !sidebarReorder?.dragging,
   });
   const orchestration = session.orchestration;
   const failed = orchestration?.tasks.some((task) => task.status === "failed");
@@ -1736,6 +1740,7 @@ const SessionCard = memo(function SessionCard({
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     metadataHover.close();
     if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest("[data-no-drag]")) return;
     // Warm the transcript during the press. Opening stays on click so a
     // drag-to-pane gesture does not switch conversations.
     if (prefetchTimer.current != null) {
@@ -1743,6 +1748,56 @@ const SessionCard = memo(function SessionCard({
       prefetchTimer.current = null;
     }
     onPrefetch?.(session.id);
+    if (sidebarReorder) {
+      const source = event.currentTarget;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      let ghost: ReturnType<typeof createDragGhost> | undefined;
+      const clearDrop = () => {
+        ghost?.dispose();
+        ghost = undefined;
+        source.style.removeProperty("opacity");
+        setExternalPaneDrop(null);
+      };
+      sidebarReorder.onPointerDown(
+        event,
+        onPlaceOnPane
+          ? {
+              onMove: (_id, ev) => {
+                const over = paneDropFromPoint(ev.clientX, ev.clientY);
+                if (!over) {
+                  clearDrop();
+                  return false;
+                }
+                ghost ??= createDragGhost(
+                  source,
+                  startX,
+                  startY,
+                  uiT("Open in split view"),
+                );
+                ghost.move(ev.clientX, ev.clientY, over.id !== session.id);
+                source.style.opacity = "0";
+                setExternalPaneDrop({
+                  fromId: session.id,
+                  overId: over.id,
+                  edge: over.edge,
+                });
+                return true;
+              },
+              onDrop: (_id, ev) => {
+                const over = paneDropFromPoint(ev.clientX, ev.clientY);
+                if (!over) return false;
+                if (over.id !== session.id)
+                  onPlaceOnPane(session.id, over.id, over.edge);
+                return true;
+              },
+              onEnd: clearDrop,
+            }
+          : undefined,
+      );
+      return;
+    }
+
     if (!onPlaceOnPane) return;
     const handle = event.currentTarget;
     const pointerId = event.pointerId;
@@ -1882,7 +1937,10 @@ const SessionCard = memo(function SessionCard({
         }}
         onClick={(event) => {
           metadataHover.close();
-          if (performance.now() < skipClickUntil.current) return;
+          if (
+            sidebarReorder?.consumeClick() ||
+            performance.now() < skipClickUntil.current
+          ) return;
           onSelect(session.id, event);
         }}
         onContextMenu={
@@ -1893,7 +1951,7 @@ const SessionCard = memo(function SessionCard({
               }
             : undefined
         }
-        className={`relative border flex w-full cursor-default select-none touch-none rounded-lg text-left ${dense ? `h-8 flex-row items-center gap-1 ${shortcut ? "px-2" : compact ? "pl-[54px] pr-2" : "pl-8 pr-2"}` : `flex-col px-2.5 ${cardPaddingY}`} ${
+        className={`relative border flex w-full ${sidebarReorder ? "cursor-grab" : "cursor-default"} select-none touch-none rounded-lg text-left ${dense ? `h-8 flex-row items-center gap-1 ${shortcut ? "px-2" : compact ? "pl-[54px] pr-2" : "pl-8 pr-2"}` : `flex-col px-2.5 ${cardPaddingY}`} ${
           dragging ? "opacity-0" : ""
         } ${
           isSelected

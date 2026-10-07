@@ -82,17 +82,21 @@ it.each(["Linux", "Windows"])(
     const bar = container.querySelector("[data-window-drag-bar]")!;
     expect(press(bar.querySelector(":scope > div")!).defaultPrevented).toBe(true);
     expect(native.startDragging).toHaveBeenCalledOnce();
+    expect(press(bar.querySelector("[data-window-leading]")!).defaultPrevented).toBe(true);
+    expect(native.startDragging).toHaveBeenCalledTimes(2);
   },
 );
 
 it("keeps navigation and native window controls clickable", () => {
   render();
   const sidebar = container.querySelector<HTMLButtonElement>(
-    "[data-window-navigation] button:last-child",
+    '[data-window-navigation] button[aria-label^="Toggle Sidebar"]',
   )!;
   const minimize = container.querySelector<HTMLButtonElement>(
     '[aria-label="Minimize window"]',
   )!;
+  const productIcon = container.querySelector('[data-window-navigation] img[alt="MonoCode"]')!;
+  expect(productIcon.parentElement?.nextElementSibling).toBe(sidebar);
   expect(press(sidebar.querySelector("svg")!).defaultPrevented).toBe(false);
   expect(press(minimize.querySelector("svg")!).defaultPrevented).toBe(false);
   act(() => {

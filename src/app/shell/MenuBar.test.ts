@@ -92,7 +92,7 @@ afterEach(() => {
 });
 
 describe("MenuBar", () => {
-  it("starts a blank-bar drag during capture and closes an open menu without waiting", () => {
+  it.each(["[data-menu-bar]", "[data-window-leading]"])("starts a blank-bar drag from %s during capture and closes an open menu without waiting", (selector) => {
     render();
     act(() => menuButton("File")!.click());
     expect(document.querySelector('[role="menu"]')).not.toBeNull();
@@ -106,7 +106,7 @@ describe("MenuBar", () => {
     });
     try {
       act(() => {
-        container.querySelector("[data-menu-bar]")!.dispatchEvent(event);
+        container.querySelector(selector)!.dispatchEvent(event);
         expect(windowMock.startDragging).toHaveBeenCalledOnce();
       });
       expect(event.defaultPrevented).toBe(true);
@@ -148,8 +148,10 @@ describe("MenuBar", () => {
     expect(bar.firstElementChild?.firstElementChild).toBe(navigation);
     expect(navigation.nextElementSibling).toBe(menuButton("File"));
     expect(bar.lastElementChild?.lastElementChild).toBe(controls);
-    const [back, forward, toggle] =
+    const [toggle, back, forward] =
       navigation.querySelectorAll<HTMLButtonElement>("button");
+    const productIcon = navigation.querySelector('img[alt="MonoCode"]')!;
+    expect(productIcon.parentElement?.nextElementSibling).toBe(toggle);
     expect(back.getAttribute("aria-label")).toMatch(/^Back/);
     expect(forward.getAttribute("aria-label")).toMatch(/^Forward/);
     expect(forward.getAttribute("aria-disabled")).toBe("true");

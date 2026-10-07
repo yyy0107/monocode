@@ -78,6 +78,7 @@ async function mount(
   sessions = [chat("blank")],
   activeId = sessions[0].id,
   initialTabs = sessions.map((s) => ({ ...newTab(s.id), id: `tab-${s.id}` })),
+  canReuseBlank?: (sessionId: string) => boolean,
 ) {
   function Harness() {
     const [state, setState] = useState(() => ({
@@ -94,6 +95,7 @@ async function mount(
     const focus = useWorktreeFocus(state.project);
     navigation = useWorkspaceNavigation({
       ...state,
+      canReuseBlank,
       pins,
       tabWorkspace: (tab, list) =>
         pins.get(tab.id) ?? workspaceTabWorktree(tab, list),
@@ -156,6 +158,15 @@ async function mount(
   }
   await act(async () => root.render(createElement(Harness)));
 }
+
+it("opens another workspace without moving a blank protected by its composer or resources", async () => {
+  await mount(undefined, undefined, undefined, () => false);
+  await act(async () => navigation.selectWorkspace(project, treeA));
+  expect(move).not.toHaveBeenCalled();
+  expect(view.activeTabId).toBe("tab-created");
+  expect(view.sessions.find((session) => session.id === "blank")?.worktreeCwd).toBeUndefined();
+  expect(view.sessions.find((session) => session.id === "created")?.worktreeCwd).toBe(treeA.path);
+});
 const select = async (focus?: WorktreeFocus) => {
   await act(async () => navigation.selectWorkspace(project, focus));
 };

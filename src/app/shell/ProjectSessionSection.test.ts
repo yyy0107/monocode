@@ -138,7 +138,12 @@ const hostRow = (id: string, title = id): HostSessionSummary => ({
 const project = (path: string) =>
   container.querySelector<HTMLElement>(`[data-project-path="${path}"]`)!;
 const card = (id: string) =>
-  container.querySelector<HTMLElement>(`[data-project-path] [data-session-card="${id}"]`)!;
+  // Closed project/group trees are retained; queries model their visible rows.
+  ([
+    ...container.querySelectorAll<HTMLElement>(
+      `[data-project-path] [data-session-card="${id}"]`,
+    ),
+  ].find((node) => !node.closest("[hidden]")) ?? null)!;
 const input = () =>
   container.querySelector<HTMLInputElement>(
     'input[aria-label="Search projects and conversations"], input[aria-label="Search conversations"]',
@@ -298,7 +303,7 @@ describe("named project/session tree", () => {
     expect(loadProjectTreeExpanded(A)).toEqual(new Set());
     settleFolds();
     expect(card("a")).toBeNull();
-    expect(fold(A)).toBeNull();
+    expect(fold(A)?.hidden).toBe(true);
     act(() => header(B).click());
     expect(props.onSelectProject).not.toHaveBeenCalled();
     expect(fold(B)?.dataset.foldState).toBe("opening");
@@ -674,6 +679,8 @@ describe("named project/session tree", () => {
     );
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
     settleFolds();
+    // Browsers blur focus inside display:none; happy-dom keeps it on retained DOM.
+    act(() => (document.activeElement as HTMLElement | null)?.blur());
     expand(A);
     act(() =>
       card("a").querySelector<HTMLElement>("[data-session-select]")!.focus(),
@@ -893,6 +900,7 @@ describe("named project/session tree", () => {
         "button[aria-expanded]",
       )!;
       const fold = () => group.querySelector<HTMLElement>(".zen-fold-item");
+      const member = card("member");
       expect(fold()?.dataset.foldState).toBe("open");
       act(() => toggle.click());
       expect(fold()?.dataset.foldState).toBe("closing");
@@ -900,9 +908,11 @@ describe("named project/session tree", () => {
       expect(card("member")).not.toBeNull();
       settleFolds();
       expect(card("member")).toBeNull();
+      expect(fold()?.hidden).toBe(true);
+      expect(group.querySelector('[data-session-card="member"]')).toBe(member);
       act(() => toggle.click());
       expect(fold()?.dataset.foldState).toBe("opening");
-      expect(card("member")).not.toBeNull();
+      expect(card("member")).toBe(member);
       act(() =>
         fold()!.dispatchEvent(new Event("animationend", { bubbles: true })),
       );
@@ -1744,6 +1754,179 @@ describe("named project/session tree", () => {
 });
 
 describe("unified pinned sidebar group", () => {
+  function pinnedRows() {
+    return [
+      ...container.querySelectorAll<HTMLElement>(
+        '[data-project-section="pinned"] [data-sidebar-pinned-entry], [data-project-section="pinned"] [data-project-path]',
+      ),
+    ];
+  }
+
+  function measurePins() {
+    const rows = pinnedRows();
+    rows.forEach((row, index) => {
+      row.getBoundingClientRect = () => ({
+        x: 0,
+        y: index * 33,
+        top: index * 33,
+        bottom: index * 33 + 32,
+        left: 0,
+        right: 240,
+        width: 240,
+        height: 32,
+        toJSON() {},
+      });
+      Object.defineProperty(row, "offsetHeight", {
+        value: 32,
+        configurable: true,
+      });
+      const header = row.querySelector("[data-project-header]");
+      if (header)
+        Object.defineProperty(header, "offsetHeight", {
+          value: 32,
+          configurable: true,
+        });
+      row.setPointerCapture = vi.fn();
+      row.hasPointerCapture = () => true;
+      row.releasePointerCapture = vi.fn();
+    });
+    return rows;
+  }
+
+  function pointer(target: EventTarget, type: string, y: number, x = 40) {
+    act(() =>
+      target.dispatchEvent(
+        new PointerEvent(type, {
+          pointerId: 1,
+          button: 0,
+          clientX: x,
+          clientY: y,
+          bubbles: true,
+        }),
+      ),
+    );
+  }
+
+  function pinFixtures() {
+    vi.spyOn(window, "matchMedia").mockReturnValue({
+      matches: true,
+    } as MediaQueryList);
+    savePinnedProjects([A]);
+    saveProjectTreeExpanded([]);
+    props.projectHistory = [
+      { ...summary("same", A, "Alpha pin"), pinned: true },
+      { ...summary("same", B, "Beta pin"), pinned: true },
+    ];
+    props.sessions = [];
+    act(() => render());
+  }
+
+  it("moves projects and conversations through the same slots immediately and restores their order", () => {
+    pinFixtures();
+    const initial = measurePins();
+    const name = project(A).querySelector<HTMLElement>("[data-project-select]")!;
+    expect(name.classList.contains("cursor-grab")).toBe(true);
+    pointer(name, "pointerdown", 82);
+    pointer(window, "pointermove", 78);
+    // No timers or long press are required to start dragging.
+    expect(project(A).dataset.dragging).toBe("true");
+    expect(document.body.style.cursor).toBe("grabbing");
+    pointer(window, "pointerup", 16);
+    act(() => name.click());
+    expect(pinnedRows()).toEqual([initial[2], initial[0], initial[1]]);
+    expect(props.onSelectProject).not.toHaveBeenCalled();
+    expect(loadProjectTreeExpanded(A).size).toBe(0);
+
+    const rows = measurePins();
+    const session = rows[2].querySelector<HTMLElement>("[data-session-card]")!;
+    expect(session.classList.contains("cursor-grab")).toBe(true);
+    pointer(session, "pointerdown", 82);
+    pointer(window, "pointermove", 78);
+    expect(rows[2].dataset.dragging).toBe("true");
+    pointer(window, "pointerup", 16);
+    act(() => session.click());
+    expect(pinnedRows()).toEqual([initial[1], initial[2], initial[0]]);
+    expect(props.onSelectSession).not.toHaveBeenCalled();
+
+    const order = pinnedRows().map(
+      (row) => row.dataset.sidebarPinnedEntry ?? row.dataset.projectPath,
+    );
+    act(() => root.render(null));
+    act(() => render());
+    expect(
+      pinnedRows().map(
+        (row) => row.dataset.sidebarPinnedEntry ?? row.dataset.projectPath,
+      ),
+    ).toEqual(order);
+    // A fresh press after dropping remains an ordinary click.
+    const restored = project(A).querySelector<HTMLElement>(
+      "[data-project-select]",
+    )!;
+    measurePins();
+    pointer(restored, "pointerdown", 49);
+    pointer(window, "pointerup", 49);
+    act(() => restored.click());
+    expect(loadProjectTreeExpanded(A).has(A)).toBe(true);
+    pointer(restored, "pointerdown", 49);
+    pointer(window, "pointerup", 49);
+    act(() => restored.click());
+    expect(loadProjectTreeExpanded(A).has(A)).toBe(false);
+  });
+
+  it.each(["Escape", "pointercancel", "blur"])(
+    "cancels mixed pin sorting on %s without opening the conversation",
+    (reason) => {
+      pinFixtures();
+      const rows = measurePins();
+      const session = rows[0].querySelector<HTMLElement>("[data-session-card]")!;
+      pointer(session, "pointerdown", 16);
+      pointer(window, "pointermove", 82);
+      act(() =>
+        window.dispatchEvent(
+          reason === "Escape"
+            ? new KeyboardEvent("keydown", { key: "Escape" })
+            : new Event(reason),
+        ),
+      );
+      act(() => session.click());
+      expect(pinnedRows()).toEqual(rows);
+      expect(props.onSelectSession).not.toHaveBeenCalled();
+      expect(document.body.style.cursor).toBe("");
+      expect(document.documentElement.classList.contains("is-reordering")).toBe(
+        false,
+      );
+    },
+  );
+
+  it("keeps horizontal pane drops available even for a single pinned conversation", () => {
+    vi.spyOn(window, "matchMedia").mockReturnValue({
+      matches: true,
+    } as MediaQueryList);
+    props.projectHistory = [{ ...summary("pinned", B), pinned: true }];
+    props.sessions = [];
+    props.onPlaceSessionOnPane = vi.fn();
+    saveProjectTreeExpanded([]);
+    act(() => render());
+    const rows = measurePins();
+    expect(rows).toHaveLength(1);
+    const session = rows[0].querySelector<HTMLElement>("[data-session-card]")!;
+    const pane = document.createElement("div");
+    pane.dataset.paneId = "workspace-pane";
+    vi.spyOn(document, "elementFromPoint").mockReturnValue(pane);
+    pointer(session, "pointerdown", 16);
+    pointer(window, "pointermove", 16, 350);
+    expect(document.querySelector(".drag-ghost")).not.toBeNull();
+    pointer(window, "pointerup", 16, 350);
+    act(() => session.click());
+    expect(props.onPlaceSessionOnPane).toHaveBeenCalledWith(
+      "pinned",
+      "workspace-pane",
+      expect.any(String),
+    );
+    expect(props.onSelectSession).not.toHaveBeenCalled();
+    expect(document.querySelector(".drag-ghost")).toBeNull();
+    expect(session.style.opacity).toBe("");
+  });
   it("keeps collapsed-project shortcuts scoped across duplicate Host ids and native sessions", () => {
     configureSharedHost("machine", [
       { id: "alpha-host", cwd: A, name: "alpha" },

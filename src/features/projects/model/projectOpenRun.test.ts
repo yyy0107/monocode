@@ -43,6 +43,16 @@ function creates(steps: ProjectOpenStep[]) {
 }
 
 describe("planning a run of folders", () => {
+  it("opens new project tabs when the active blank owns an unsent draft or resources", () => {
+    const state = workspace([blank("draft", "/alpha")]);
+    const steps = planProjectOpenRun({
+      ...state,
+      paths: ["/one", "/two"],
+      canReuseBlank: () => false,
+    });
+    expect(steps.map((step) => step.action)).toEqual(["create", "create"]);
+    expect(state.sessions[0].cwd).toBe("/alpha");
+  });
   it("gives every folder its own session and tab, in selection order", () => {
     const state = workspace();
     const steps = planProjectOpenRun({
