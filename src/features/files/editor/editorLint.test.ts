@@ -138,6 +138,38 @@ describe("syntaxDiagnostics", () => {
     expect(syntaxDiagnostics(state)).toEqual([]);
   });
 
+  it("does not flag JSX type arguments or the code after them", () => {
+    const state = stateWith(
+      [
+        "function A() {",
+        "  return (",
+        "    <Segmented<Map<string, number>>",
+        "      value={value}",
+        "      onChange={(next) => setValue(next)}",
+        "    />",
+        "  );",
+        "}",
+        "function B() {",
+        "  const { t: uiT } = useTranslation();",
+        "  return uiT;",
+        "}",
+        "",
+      ].join("\n"),
+      typescriptJsx(),
+    );
+    expect(syntaxDiagnostics(state)).toEqual([]);
+  });
+
+  it("still flags a real error after JSX type arguments", () => {
+    const state = stateWith(
+      "const a = <List<Item> items={items} />;\nfunction go() {\n  return (1;\n}\n",
+      typescriptJsx(),
+    );
+    const diagnostics = syntaxDiagnostics(state);
+    expect(diagnostics.length).toBeGreaterThan(0);
+    expect(state.doc.lineAt(diagnostics[0].from).number).toBe(3);
+  });
+
   it("still flags a real TypeScript syntax error", () => {
     const state = stateWith("function go() {\n  return 1;\n", typescript());
     expect(syntaxDiagnostics(state).length).toBeGreaterThan(0);

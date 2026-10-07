@@ -1,7 +1,8 @@
-import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
+import { ensureSyntaxTree, language, syntaxTree } from "@codemirror/language";
 import { diagnosticCount, linter, type Diagnostic } from "@codemirror/lint";
 import type { EditorState, Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import type { Tree } from "@lezer/common";
 import { basename } from "../../../platform/tauri/fs";
 
 /**
@@ -103,27 +104,67 @@ export function syntaxDiagnostics(state: EditorState): Diagnostic[] {
 
   // Viewport parsing leaves a dummy error at the frontier (~3kb in). Lint
   // has to finish the tree or it will underline the next `import` forever.
-  const tree =
+  const parsed =
     ensureSyntaxTree(state, state.doc.length, PARSE_BUDGET_MS) ??
     syntaxTree(state);
-  if (tree.length === 0) return [];
+  if (parsed.length === 0) return [];
+  const tree = withoutJsxTypeArguments(state, parsed);
 
   const incomplete = tree.length < state.doc.length;
   const diagnostics: Diagnostic[] = [];
   tree.iterate({
     enter: (node) => {
+      if (diagnostics.length >= MAX_DIAGNOSTICS) return false;
       if (!node.type.isError) return true;
       if (incomplete && node.from >= tree.length) return false;
       if (isGrammarGap(state, node.node.parent, node.from)) return false;
-      if (diagnostics.length < MAX_DIAGNOSTICS) {
-        diagnostics.push(errorDiagnostic(state, node.from, node.to));
-      }
+      diagnostics.push(errorDiagnostic(state, node.from, node.to));
       // Error nodes nest, and stacking the children on top of the parent just
       // paints the same typo several times over.
       return false;
     },
   });
   return diagnostics;
+}
+
+/**
+ * `<Select<Option> …>`: an opening tag (or a type reference) with its own type
+ * arguments, one level of nesting deep. Lezer's JSX grammar has no type
+ * arguments, and the resync after one strands the rest of the file.
+ */
+const JSX_TYPE_ARGUMENTS = /<[A-Za-z_$][\w$.]*(<(?:[^<>\n]|<[^<>\n]*>)*>)/g;
+
+/**
+ * Lint a copy whose tag type arguments are blanked to spaces of equal length,
+ * so positions still line up with the document. Dropping type arguments
+ * leaves a type reference valid too, so a match there changes nothing. Only
+ * reparse when the first error sits at or after the first blanked argument.
+ */
+function withoutJsxTypeArguments(state: EditorState, tree: Tree): Tree {
+  const parser = state.facet(language)?.parser;
+  if (!parser || tree.length < state.doc.length) return tree;
+  let firstError = -1;
+  tree.iterate({
+    enter: (node) => {
+      if (firstError >= 0) return false;
+      if (node.type.isError) firstError = node.from;
+      return firstError < 0;
+    },
+  });
+  if (firstError < 0) return tree;
+
+  const text = state.doc.toString();
+  const parts: string[] = [];
+  let last = 0;
+  for (const match of text.matchAll(JSX_TYPE_ARGUMENTS)) {
+    const start = match.index + match[0].length - match[1].length;
+    if (!parts.length && start > firstError) return tree;
+    parts.push(text.slice(last, start), " ".repeat(match[1].length));
+    last = start + match[1].length;
+  }
+  if (!parts.length) return tree;
+  parts.push(text.slice(last));
+  return parser.parse(parts.join(""));
 }
 
 /** Arrow `(x): x is T =>`, including tuple predicates like `x is [K, V]`. */
@@ -134,6 +175,9 @@ const TYPED_CATCH = /^catch\s*\(\s*[\w$]+\s*:/;
 
 // Multiline JSX comments: `{` then block-comment then `}`.
 const JSX_BLOCK_COMMENT = /^\{\s*\/\*/;
+
+/** The gap patterns are anchored at the node start; none reads further. */
+const GAP_PREFIX_CHARS = 128;
 
 /** Tailwind v4 at-rules the CSS grammar doesn't know. */
 const TAILWIND_AT =
@@ -153,10 +197,25 @@ function isGrammarGap(
   if (TYPE_PREDICATE.test(line) || TYPEOF_IMPORT.test(line)) return true;
 
   for (; parent; parent = parent.parent as typeof parent) {
-    const text = state.doc.sliceString(parent.from, parent.to);
-    if (parent.name === "CatchClause" && TYPED_CATCH.test(text)) return true;
-    if (parent.name === "JSXEscape" && JSX_BLOCK_COMMENT.test(text)) return true;
-    if (parent.name === "AtRule" && TAILWIND_AT.test(text)) return true;
+    const pattern =
+      parent.name === "CatchClause"
+        ? TYPED_CATCH
+        : parent.name === "JSXEscape"
+          ? JSX_BLOCK_COMMENT
+          : parent.name === "AtRule"
+            ? TAILWIND_AT
+            : null;
+    // Ancestors reach up to the whole file; slicing each one per error node
+    // made a large file's lint pass block for hundreds of milliseconds.
+    if (
+      pattern?.test(
+        state.doc.sliceString(
+          parent.from,
+          Math.min(parent.to, parent.from + GAP_PREFIX_CHARS),
+        ),
+      )
+    )
+      return true;
   }
   return false;
 }
