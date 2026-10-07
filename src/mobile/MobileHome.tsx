@@ -102,6 +102,7 @@ export function MobileHome({
 }) {
   const { t } = useTranslation();
   const visible = useSurfaceVisibility();
+  const wasVisible = useRef(foreground && visible);
   const searchButton = useRef<HTMLButtonElement | null>(null);
   const setSearchButton = useCallback((element: HTMLButtonElement | null) => {
     if (searchTrigger && (element || searchTrigger.current === searchButton.current))
@@ -134,19 +135,22 @@ export function MobileHome({
     return cancelHold;
   }, [inactive, foreground, visible, project?.id, query]);
   // Projects can arrive after mount or change when navigating within Home.
-  // Fill only missing histories before paint; live results always take priority.
+  // Pick up lists refreshed by the drawer before Home resumes painting/polling.
   useLayoutEffect(() => {
+    const resumed = foreground && visible && !wasVisible.current;
+    wasVisible.current = foreground && visible;
     const ids: string[] = JSON.parse(idsKey);
     setHistories((current) => {
       let next = current;
       for (const id of ids) {
-        if (current[id]?.sessions) continue;
+        if (current[id]?.sessions && !resumed) continue;
         const sessions = cachedSessions?.(id);
-        if (sessions) next = { ...next, [id]: { sessions, failed: current[id]?.failed ?? false } };
+        if (sessions && current[id]?.sessions !== sessions)
+          next = { ...next, [id]: { sessions, failed: current[id]?.failed ?? false } };
       }
       return next;
     });
-  }, [idsKey, cachedSessions]);
+  }, [idsKey, cachedSessions, foreground, visible]);
 
   useEffect(() => {
     if (!foreground || !visible) return;

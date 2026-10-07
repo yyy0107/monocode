@@ -300,7 +300,7 @@ describe("mobile session summary cache", () => {
     expect(client.cachedSessions("project")).toBeUndefined();
   });
 
-  it("keeps newer lists and metadata mutations when older list requests finish later", async () => {
+  it("coalesces concurrent list reads while allowing a fresh read after metadata mutations", async () => {
     const responses: ((value: HostSessionSummary[]) => void)[] = [];
     const updated = summary({ revision: 2, title: "Renamed", pinned: true, archived: true });
     const client = new MobileClient(memory(), transport((method) => {
@@ -310,14 +310,17 @@ describe("mobile session summary cache", () => {
     }));
     await client.connect(endpoint, token);
     const older = client.sessions("project");
-    const newer = client.sessions("project");
-    responses[1]([summary()]);
-    await newer;
-    responses[0]([]);
+    expect(client.sessions("project")).toBe(older);
+    expect(responses).toHaveLength(1);
+    responses[0]([summary()]);
     expect(await older).toEqual([summary()]);
     const beforeEdit = client.sessions("project");
     await client.updateSession("project", "session", { title: "Renamed", pinned: true, archived: true });
-    responses[2]([summary()]);
+    const afterEdit = client.sessions("project");
+    expect(afterEdit).not.toBe(beforeEdit);
+    responses[2]([updated]);
+    await afterEdit;
+    responses[1]([summary()]);
     expect(await beforeEdit).toEqual([updated]);
     vi.advanceTimersByTime(1_000);
     expect(readSessionCache("host-1").get("project")).toEqual([updated]);
@@ -327,6 +330,38 @@ describe("mobile session summary cache", () => {
     expect(await beforeDelete).toEqual([]);
     vi.advanceTimersByTime(1_000);
     expect(readSessionCache("host-1").get("project")).toEqual([]);
+  });
+
+  it("coalesces project loads and rejects an old Host response without replacing the new pending load", async () => {
+    const responses: ((value: { id: string; name: string; cwd: string }[]) => void)[] = [];
+    const client = new MobileClient(memory(), transport(() => new Promise((resolve) => { responses.push(resolve); })));
+    await client.connect(endpoint, token);
+    const old = client.projects();
+    expect(client.projects()).toBe(old);
+    expect(responses).toHaveLength(1);
+    await client.connect("https://other-computer.example", token);
+    const current = client.projects();
+    responses[0]([{ id: "old", name: "Old Host", cwd: "/old" }]);
+    await expect(old).rejects.toThrow("Host connection changed");
+    expect(client.projects()).toBe(current);
+    responses[1]([{ id: "new", name: "New Host", cwd: "/new" }]);
+    expect(await current).toEqual([{ id: "new", name: "New Host", cwd: "/new" }]);
+  });
+
+  it("refreshes after opening a project even if an older project list is still pending", async () => {
+    const project = { id: "project", name: "Project", cwd: "/project" };
+    const responses: ((value: typeof project[]) => void)[] = [];
+    const client = new MobileClient(memory(), transport((method) => method === "projects.open" ? project
+      : new Promise((resolve) => { responses.push(resolve); })));
+    await client.connect(endpoint, token);
+    const beforeOpen = client.projects();
+    await client.openProject(project.cwd);
+    const afterOpen = client.projects();
+    expect(afterOpen).not.toBe(beforeOpen);
+    responses[0]([]);
+    responses[1]([project]);
+    expect(await beforeOpen).toEqual([project]);
+    expect(await afterOpen).toEqual([project]);
   });
 
   it("remembers new and updated conversations from sync before the next list refresh", async () => {

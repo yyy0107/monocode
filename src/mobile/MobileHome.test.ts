@@ -395,6 +395,18 @@ describe("mobile home and project history", () => {
     expect(node.textContent).toContain("会话");
     expect(node.textContent).toContain("Computer");
   });
+
+  it("uses the drawer's newest cached history before its resumed request finishes", async () => {
+    const cache = new Map([["one", [session("old", "one", 1)]], ["two", [] as HostSessionSummary[]]]);
+    const cachedSessions = (id: string) => cache.get(id);
+    const loadSessions = vi.fn(async (id: string) => cache.get(id)!);
+    await render({ cachedSessions, loadSessions });
+    await render({ cachedSessions, loadSessions, foreground: false });
+    cache.set("one", [session("new", "one", 2)]);
+    loadSessions.mockImplementation(() => new Promise(() => {}));
+    await render({ cachedSessions, loadSessions });
+    expect(ids(".mobile-home-recent")).toEqual(["new"]);
+  });
 });
 
 it("pauses list refresh while the retained page is hidden", async () => {

@@ -216,7 +216,10 @@ export class MobileClient {
   private catalogs = new Map<string, { value: HostModelCatalog; expires: number }>();
   private modelLoads = new Map<string, Promise<HostModelCatalog>>();
   private projectList?: HostProject[];
+  private projectLoad?: Promise<HostProject[]>;
+  private projectTurn = 0;
   private summaries = new Map<string, HostSessionSummary[]>();
+  private summaryLoads = new Map<string, { turn: number; promise: Promise<HostSessionSummary[]> }>();
   private summariesEnvironmentId?: string;
   private summaryTurns = new Map<string, number>();
   private summaryWrite?: {
@@ -235,7 +238,9 @@ export class MobileClient {
     this.catalogs.clear();
     this.modelLoads.clear();
     this.projectList = undefined;
+    this.projectLoad = undefined;
     this.summaries.clear();
+    this.summaryLoads.clear();
     this.summariesEnvironmentId = undefined;
     this.summaryTurns.clear();
   }
@@ -442,10 +447,22 @@ export class MobileClient {
       return Promise.reject(new Error("Connect to a Host first."));
     return this.requestWith<T>(this.connection, method, params);
   }
-  async projects() {
+  projects(): Promise<HostProject[]> {
+    if (this.projectLoad) return this.projectLoad;
+    const pending = this.loadProjects().finally(() => {
+      if (this.projectLoad === pending) this.projectLoad = undefined;
+    });
+    this.projectLoad = pending;
+    return pending;
+  }
+  private async loadProjects() {
     const epoch = this.cacheEpoch;
+    const turn = ++this.projectTurn;
     const projects = await this.rpc<HostProject[]>("projects.list");
-    if (epoch !== this.cacheEpoch) return projects;
+    if (epoch !== this.cacheEpoch) throw new Error(translate("Host connection changed."));
+    // Opening a project invalidates lists started before that mutation. Join
+    // its replacement request instead of publishing the old project's list.
+    if (turn !== this.projectTurn) return this.projectList ?? this.projects();
     if (this.projectList && sameCachedValue(this.projectList, projects)) return this.projectList;
     this.projectList = projects;
     return projects;
@@ -456,8 +473,15 @@ export class MobileClient {
       path === undefined ? {} : { path },
     );
   }
-  openProject(cwd: string) {
-    return this.rpc<HostProject>("projects.open", { cwd: cwd.trim() });
+  async openProject(cwd: string) {
+    const epoch = this.cacheEpoch;
+    const project = await this.rpc<HostProject>("projects.open", { cwd: cwd.trim() });
+    if (epoch !== this.cacheEpoch) throw new Error(translate("Host connection changed."));
+    this.projectTurn += 1;
+    this.projectLoad = undefined;
+    if (this.projectList)
+      this.projectList = [...this.projectList.filter((item) => item.id !== project.id), project];
+    return project;
   }
   /** Last known list, including a bounded preview restored for this Host. */
   cachedSessions(projectId: string): HostSessionSummary[] | undefined {
@@ -532,10 +556,19 @@ export class MobileClient {
     this.scheduleSummaryWrite();
     return shared;
   }
-  async sessions(projectId: string) {
+  sessions(projectId: string): Promise<HostSessionSummary[]> {
+    const current = this.summaryLoads.get(projectId);
+    if (current && current.turn === this.summaryTurns.get(projectId)) return current.promise;
+    const turn = this.nextSummaryTurn(projectId);
+    const promise = this.loadSummaries(projectId, turn).finally(() => {
+      if (this.summaryLoads.get(projectId)?.promise === promise) this.summaryLoads.delete(projectId);
+    });
+    this.summaryLoads.set(projectId, { turn, promise });
+    return promise;
+  }
+  private async loadSummaries(projectId: string, turn: number) {
     const epoch = this.cacheEpoch;
     const environmentId = this.connection?.environmentId;
-    const turn = this.nextSummaryTurn(projectId);
     const known = this.cachedSessions(projectId);
     const knownById = new Map(known?.map((item) => [item.id, item]));
     const value = await this.rpc<HostSessionSummary[]>("sessions.list", { projectId });

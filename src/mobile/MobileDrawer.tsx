@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type RefObject,
@@ -125,11 +126,11 @@ export const MobileDrawer = memo(function MobileDrawer({
   const { language, t } = useTranslation();
   const open = requestedOpen && active;
   // A just-opened project can precede the next project list refresh.
-  const treeProjects =
+  const treeProjects = useMemo(() =>
     project && !projects.some((item) => item.id === project.id)
       ? [project, ...projects]
-      : projects;
-  const projectIds = JSON.stringify(treeProjects.map((item) => item.id));
+      : projects, [project, projects]);
+  const projectIds = useMemo(() => JSON.stringify(treeProjects.map((item) => item.id)), [treeProjects]);
   const [histories, setHistories] = useState<
     Record<string, ProjectHistory | undefined>
   >(() => Object.fromEntries(treeProjects.flatMap((item) => {
@@ -252,23 +253,27 @@ export const MobileDrawer = memo(function MobileDrawer({
     };
   }, [open]);
   const readHistory = useCallback(
-    async (projectId: string) => {
+    async (projectId: string, isCurrent: () => boolean = () => true) => {
       const turn = (historyTurn.current[projectId] ?? 0) + 1;
       historyTurn.current[projectId] = turn;
-      setHistories((current) => ({
-        ...current,
-        [projectId]: { ...current[projectId], loading: true, failed: false },
-      }));
+      // Refresh known rows silently. Toggling loading on every poll rebuilt the
+      // entire list twice even when the client returned the same cached array.
+      setHistories((current) => current[projectId]?.sessions ||
+        (current[projectId]?.loading && !current[projectId]?.failed) ? current : ({
+          ...current,
+          [projectId]: { ...current[projectId], loading: true, failed: false },
+        }));
       try {
         const sessions = await loadSessions(projectId);
-        if (historyTurn.current[projectId] === turn)
-          setHistories((current) => ({
-            ...current,
-            [projectId]: { sessions, loading: false, failed: false },
-          }));
+        if (isCurrent() && historyTurn.current[projectId] === turn)
+          setHistories((current) => current[projectId]?.sessions === sessions &&
+            !current[projectId]?.loading && !current[projectId]?.failed ? current : ({
+              ...current,
+              [projectId]: { sessions, loading: false, failed: false },
+            }));
       } catch {
-        if (historyTurn.current[projectId] === turn)
-          setHistories((current) => ({
+        if (isCurrent() && historyTurn.current[projectId] === turn)
+          setHistories((current) => current[projectId]?.failed && !current[projectId]?.loading ? current : ({
             ...current,
             [projectId]: {
               ...current[projectId],
@@ -289,7 +294,7 @@ export const MobileDrawer = memo(function MobileDrawer({
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
       await Promise.allSettled(
-        ids.filter((id) => id !== project?.id).map(readHistory),
+        ids.filter((id) => id !== project?.id).map((id) => readHistory(id, () => live)),
       );
       if (live) timer = setTimeout(refresh, 3_000);
     };
@@ -409,27 +414,27 @@ export const MobileDrawer = memo(function MobileDrawer({
     };
   }, [active]);
 
-  const tree = sortMobileProjects(treeProjects, (id) =>
+  const tree = useMemo(() => sortMobileProjects(treeProjects, (id) =>
     id === project?.id ? sessions : (histories[id]?.sessions ?? []),
-  );
-  const projectHistory = (item: HostProject): ProjectHistory =>
+  ), [treeProjects, project?.id, sessions, histories]);
+  const projectHistory = useCallback((item: HostProject): ProjectHistory =>
     item.id === project?.id
       ? { sessions, loading: loading && !sessions.length, failed: false }
-      : (histories[item.id] ?? { loading: true, failed: false });
+      : (histories[item.id] ?? { loading: true, failed: false }), [project?.id, sessions, loading, histories]);
   const treeLoading = !tree.some((item) => item.id === project?.id
     ? sessions.length > 0 || cachedSessions?.(item.id) !== undefined
     : histories[item.id]?.sessions !== undefined) &&
     tree.some((item) => projectHistory(item).loading);
-  const ownerById = new Map(tree.map((item) => [item.id, item]));
-  const allSessions = sortMobileSessions(
+  const ownerById = useMemo(() => new Map(tree.map((item) => [item.id, item])), [tree]);
+  const allSessions = useMemo(() => sortMobileSessions(
     tree.flatMap((item) => projectHistory(item).sessions ?? []),
-  ).filter((item) => ownerById.has(item.projectId));
-  const pins = allSessions.filter((item) => item.pinned);
-  const recents = allSessions.filter((item) => !item.pinned);
-  const failedProjects = tree.filter((item) => {
+  ).filter((item) => ownerById.has(item.projectId)), [tree, projectHistory, ownerById]);
+  const pins = useMemo(() => allSessions.filter((item) => item.pinned), [allSessions]);
+  const recents = useMemo(() => allSessions.filter((item) => !item.pinned), [allSessions]);
+  const failedProjects = useMemo(() => tree.filter((item) => {
     const history = projectHistory(item);
     return history.failed && !history.sessions;
-  });
+  }), [tree, projectHistory]);
   const row = (item: HostSessionSummary) => {
     const owner = ownerById.get(item.projectId)!;
     // Actions edit through the current project's summary list.
@@ -655,4 +660,14 @@ export const MobileDrawer = memo(function MobileDrawer({
       </nav>
     </div>
   );
+}, (previous, next) => {
+  // Closed drawers retain their last rendered preview while chat streams and
+  // activity updates. Opening receives every latest prop before it is usable;
+  // lifecycle/gesture changes must still reach the mounted surface immediately.
+  if (!previous.open && !next.open)
+    return previous.active === next.active && previous.foreground === next.foreground &&
+      previous.onOpenChange === next.onOpenChange && previous.loadSessions === next.loadSessions &&
+      previous.cachedSessions === next.cachedSessions;
+  const keys = Object.keys(next) as (keyof typeof next)[];
+  return keys.length === Object.keys(previous).length && keys.every((key) => Object.is(previous[key], next[key]));
 });

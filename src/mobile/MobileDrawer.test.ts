@@ -340,6 +340,41 @@ describe("mobile sidebar recents", () => {
     updatedAt,
     ...extra,
   });
+
+  it("keeps the mounted hidden list unchanged and uses the latest rows and actions on reopening", () => {
+    const onOpenChange = vi.fn();
+    const loadSessions = vi.fn(async () => []);
+    const onSession = vi.fn();
+    const props = { onOpenChange, loadSessions, projects: [project], project };
+    render(false, { ...props, sessions: [session(project.id, 1, { title: "Old title" })] });
+    const panel = node.querySelector(".mobile-drawer");
+    const sessions = [session(project.id, 2, { title: "Latest title" })];
+    render(false, { ...props, sessions, onSession, now: 200 });
+    expect(node.textContent).toContain("Old title");
+    expect(node.textContent).not.toContain("Latest title");
+    render(true, { ...props, sessions, onSession, now: 200 });
+    expect(node.querySelector(".mobile-drawer")).toBe(panel);
+    expect(node.textContent).toContain("Latest title");
+    act(() => node.querySelector<HTMLButtonElement>('[data-session-id="project-chat"]')!.click());
+    expect(onSession).toHaveBeenCalledExactlyOnceWith("project-chat", project);
+  });
+
+  it("does not render session rows again for unchanged background refreshes", async () => {
+    const title = vi.fn(() => "Cached conversation");
+    const item = session("android", 100);
+    Object.defineProperty(item, "title", { get: title });
+    const history = [item];
+    const loadSessions = vi.fn(async () => history);
+    await act(async () => render(true, {
+      projects: [projects[0]], project: undefined, sessions: [], loadSessions,
+      cachedSessions: () => history,
+    }));
+    title.mockClear();
+    loadSessions.mockClear();
+    await act(async () => vi.advanceTimersByTimeAsync(6_000));
+    expect(loadSessions).toHaveBeenCalledTimes(2);
+    expect(title).not.toHaveBeenCalled();
+  });
   it.each([false, true])("shows pending input before running for a pinned=%s conversation and clears it after responding", (pinned) => {
     const waiting = session(project.id, 100, { status: "running", needsInput: true, pinned });
     const props = { projects: [project], project, sessions: [waiting], unreadIds: new Set([waiting.id]) };
