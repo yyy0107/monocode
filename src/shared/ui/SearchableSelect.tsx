@@ -213,7 +213,7 @@ export function SearchableSelect({
         }
       >
         <span
-          className={`min-w-0 truncate ${variant === "panel" ? "flex-1 text-right" : variant === "pill" || variant === "row" ? "" : "flex-1"} ${selected ? "text-content" : "text-content/40"}`}
+          className={`min-w-0 truncate leading-normal ${variant === "panel" ? "flex-1 text-right" : variant === "pill" || variant === "row" ? "" : "flex-1"} ${selected ? "text-content" : "text-content/40"}`}
         >
           {selected?.label ?? placeholder}
         </span>
@@ -301,7 +301,7 @@ export function SearchableSelect({
                         <Check className="size-3" strokeWidth={2} />
                       ) : null}
                     </span>
-                    <span className="min-w-0 flex-1 truncate">
+                    <span className="min-w-0 flex-1 truncate leading-normal">
                       {option.label}
                     </span>
                   </button>
