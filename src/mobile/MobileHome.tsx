@@ -331,17 +331,8 @@ export function MobileHome({
                 </button>
               );
             }} />}
-            {needle ? !matchingProjects.length && (
+            {needle && !matchingProjects.length && (
               <p className="mobile-home-empty">{t("No matching projects")}</p>
-            ) : (
-              <button
-                type="button"
-                className="mobile-home-project mobile-home-add"
-                onClick={(event) => onAddProject(event.currentTarget)}
-              >
-                <FolderPlus size={21} />
-                <span>{t("Open project")}</span>
-              </button>
             )}
           </section>
         )}
@@ -425,6 +416,19 @@ export function MobileHome({
             );
           })}
         </MobileSheet>
+      )}
+      {projectsPage && (
+        <div className="mobile-home-dock">
+          <button
+            type="button"
+            className="mobile-home-new mobile-home-open-project"
+            aria-haspopup="dialog"
+            onClick={(event) => onAddProject(event.currentTarget)}
+          >
+            <FolderPlus size={22} />
+            <span>{t("Open project")}</span>
+          </button>
+        </div>
       )}
       {!!projects.length && !projectsPage && (
         <div className="mobile-home-dock">

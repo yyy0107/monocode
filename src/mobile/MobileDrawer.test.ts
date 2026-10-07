@@ -57,9 +57,7 @@ function render(open = true, props: Record<string, unknown> = {}) {
         now: 100,
         hostName: "Host",
         hostStatus: { state: "connected" },
-        projectTrigger: { current: null },
         loadSessions: async () => [],
-        onAddProject: () => {},
         onHome: () => {},
         onAllProjects: () => {},
         onSession,
@@ -535,14 +533,13 @@ describe("mobile sidebar recents", () => {
       "Show less",
     );
   });
-  it("keeps Assistant, Sessions and new conversation visible and reveals project actions under More", async () => {
+  it("keeps Assistant, Sessions and new conversation visible and reveals Projects under More", async () => {
     const onAssistant = vi.fn();
     const onHome = vi.fn();
     const onAllProjects = vi.fn();
     const onNewSession = vi.fn();
-    const onAddProject = vi.fn();
     await act(async () =>
-      render(true, { projects, project, onAssistant, assistantName: "My helper", onHome, onAllProjects, onNewSession, onAddProject }),
+      render(true, { projects, project, onAssistant, assistantName: "My helper", onHome, onAllProjects, onNewSession }),
     );
     expect(node.querySelector(".mobile-drawer-project-link")).toBeNull();
     expect(node.querySelector(".mobile-drawer-all-projects")).toBeNull();
@@ -567,21 +564,17 @@ describe("mobile sidebar recents", () => {
     expect(more.getAttribute("aria-expanded")).toBe("true");
     const disclosure = document.getElementById(more.getAttribute("aria-controls")!)!;
     expect(disclosure.querySelector(".mobile-drawer-all-projects")).not.toBeNull();
-    act(() =>
-      node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click(),
-    );
+    const allProjects = node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!;
+    act(() => allProjects.click());
     expect(onAllProjects).toHaveBeenCalledOnce();
-    const open = node.querySelector<HTMLButtonElement>(".mobile-drawer-open-project")!;
-    expect(open.closest(".mobile-drawer-group")).toBeNull();
-    act(() => open.click());
-    expect(onAddProject).toHaveBeenCalledOnce();
+    expect(node.textContent).not.toContain("Open project");
     act(() => vi.advanceTimersByTime(350));
     act(() => more.click());
     expect(more.getAttribute("aria-expanded")).toBe("false");
     // Closing actions remain mounted for the animation but cannot be focused.
-    expect(open.closest("[inert]")).not.toBeNull();
+    expect(allProjects.closest("[inert]")).not.toBeNull();
     act(() => vi.advanceTimersByTime(350));
-    expect(node.querySelector(".mobile-drawer-open-project")).toBeNull();
+    expect(node.querySelector(".mobile-drawer-all-projects")).toBeNull();
   });
 });
 

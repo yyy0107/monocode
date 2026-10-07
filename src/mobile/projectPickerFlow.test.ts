@@ -15,6 +15,7 @@ const host = vi.hoisted(() => ({
     environmentId: "project-picker-flow",
   },
   getConnectionStatus: () => healthyStatus,
+  hasCapability: () => false,
   subscribeConnectionStatus: () => () => {},
   restore: vi.fn(async () => true),
   verify: vi.fn(async () => {}),
@@ -122,7 +123,7 @@ describe("mobile project folder picker entry points", () => {
     expect(host.browseDirectories).toHaveBeenCalledWith(undefined);
     await pick();
   });
-  it("uses the same picker from the drawer and closes the drawer after selecting a project", async () => {
+  it("opens a project from the project list capsule reached through the drawer", async () => {
     registered.push({
       id: "old-project",
       name: "Existing app",
@@ -130,7 +131,11 @@ describe("mobile project folder picker entry points", () => {
     });
     await render();
     await click("Menu");
-    await click("Open project");
+    await click("More");
+    await click("Projects", node.querySelector(".mobile-drawer")!);
+    const capsule = node.querySelector<HTMLButtonElement>(".mobile-home-open-project");
+    expect(capsule).not.toBeNull();
+    await act(async () => capsule!.click());
     await pick();
     const drawer = node.querySelector(".mobile-drawer-backdrop")!;
     expect(drawer.getAttribute("data-open")).toBe("false");

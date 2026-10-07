@@ -1515,10 +1515,6 @@ export function MobileApp() {
     setHostPickerOpen(true);
   });
   const probeHost = useCallback((connection: Connection) => client.probeConnection(connection), []);
-  const onDrawerAddProject = useStableCallback(() => {
-    setError("");
-    setAddingProject(true);
-  });
   const onDrawerLoadSessions = useStableCallback((projectId: string) =>
     client.sessions(projectId),
   );
@@ -2125,10 +2121,8 @@ export function MobileApp() {
           onHost={onDrawerHost}
           projectsPending={projectsPending}
           projectsUnavailable={projectsUnavailable}
-          projectTrigger={projectTrigger}
           loadSessions={onDrawerLoadSessions}
           cachedSessions={onCachedSessions}
-          onAddProject={onDrawerAddProject}
           onHome={onDrawerHome}
           onAllProjects={onDrawerAllProjects}
           onSession={onDrawerSession}

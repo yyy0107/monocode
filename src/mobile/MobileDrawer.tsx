@@ -17,7 +17,6 @@ import {
   Computer,
   File,
   Folder,
-  FolderPlus,
   Home,
   LoaderCircle,
   MessageSquarePlus,
@@ -88,8 +87,6 @@ export const MobileDrawer = memo(function MobileDrawer({
   onHost,
   projectsPending = false,
   projectsUnavailable = false,
-  projectTrigger,
-  onAddProject,
   onHome,
   onAllProjects,
   loadSessions,
@@ -123,8 +120,6 @@ export const MobileDrawer = memo(function MobileDrawer({
   onHost?: () => void;
   projectsPending?: boolean;
   projectsUnavailable?: boolean;
-  projectTrigger: RefObject<HTMLButtonElement | null>;
-  onAddProject: () => void;
   onHome: () => void;
   onAllProjects: () => void;
   /** Reads another project's conversations; the current one arrives as `sessions`. */
@@ -647,15 +642,6 @@ export const MobileDrawer = memo(function MobileDrawer({
                   >
                     <Folder size={22} />
                     <span>{t("Projects")}</span>
-                  </button>
-                  <button
-                    type="button"
-                    ref={projectTrigger}
-                    className="mobile-drawer-item mobile-drawer-open-project"
-                    onClick={onAddProject}
-                  >
-                    <FolderPlus size={22} />
-                    <span>{t("Open project")}</span>
                   </button>
                 </div>
               </AnimatedCollapse>

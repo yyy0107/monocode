@@ -78,6 +78,22 @@ const ids = (area: string) =>
   );
 
 describe("mobile home and project history", () => {
+  it.each([
+    { label: "populated", projects, query: "" },
+    { label: "empty", projects: [], query: "" },
+    { label: "search with no matches", projects, query: "missing-project" },
+  ])("opens the picker from the capsule in a $label project list", async ({ projects, query }) => {
+    const onAddProject = vi.fn();
+    await render({ projectsPage: true, projects, query, onAddProject });
+    const button = node.querySelector<HTMLButtonElement>(".mobile-home-open-project")!;
+    expect(button.textContent).toBe("Open project");
+    expect(button.closest(".mobile-home-dock")).not.toBeNull();
+    expect(button.closest(".mobile-home-scroll")).toBeNull();
+    expect(node.querySelector(".mobile-home-add")).toBeNull();
+    act(() => button.click());
+    expect(onAddProject).toHaveBeenCalledExactlyOnceWith(button);
+  });
+
   it("shows each project's state from its full history and clears it when work finishes", async () => {
     const history = Array.from({ length: 25 }, (_, index) => session(`idle-${index}`, "one", 100 - index));
     history.push(session("running-plan", "one", 1, { status: "running" }));
