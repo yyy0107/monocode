@@ -13,6 +13,14 @@
   font-size: 16px;
   padding-inline: var(--mobile-safe-left) var(--mobile-safe-right);
 }
+.assistant-chat[data-layout="mobile"],
+.assistant-chat[data-layout="mobile"] * {
+  scrollbar-width: none;
+}
+.assistant-chat[data-layout="mobile"]::-webkit-scrollbar,
+.assistant-chat[data-layout="mobile"] *::-webkit-scrollbar {
+  display: none;
+}
 .assistant-chat[data-layout="mobile"] .assistant-availability {
   flex: 1;
   display: grid;
@@ -498,6 +506,18 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   align-items: flex-end;
   gap: 2px;
   width: 100%;
+}
+.mobile-assistant-attachments.mobile-composer-attachments {
+  /* Keep thumbnails and the remove buttons' touch targets inside the scroller. */
+  padding: 10px 10px 12px;
+  /* A shortened viewport must still fit one complete 72px thumbnail row. */
+  max-height: max(94px, min(110px, 15dvh));
+}
+.mobile-assistant-attachments .attachment-chip-image {
+  flex-shrink: 0;
+}
+.mobile-assistant-attachments .attachment-chip-thumbnail {
+  object-fit: contain;
 }
 .assistant-chat[data-layout="mobile"] .mobile-assistant-compose textarea {
   flex: 1;
