@@ -36,6 +36,7 @@ let load: ReturnType<
 >;
 let onSend: ReturnType<typeof vi.fn>;
 let overrides: Record<string, any>;
+let context = 0;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -45,7 +46,7 @@ beforeEach(() => {
   root = createRoot(node);
   load = vi.fn(async () => catalog);
   onSend = vi.fn();
-  overrides = {};
+  overrides = { skillsContextKey: `codex:project:${++context}` };
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -143,7 +144,7 @@ function deferred<T>() {
 }
 
 describe("mobile skills and slash completion", () => {
-  it("loads only on demand, searches the plus-menu sheet and inserts without sending", async () => {
+  it("loads only on demand, lists skills in the plus menu and inserts without sending", async () => {
     await render();
     expect(load).not.toHaveBeenCalled();
     await input("Before after", 7);
@@ -152,17 +153,8 @@ describe("mobile skills and slash completion", () => {
     expect(node.querySelector(".mobile-composer-project")).toBeNull();
     expect(option("review")).toBeDefined();
     expect(load).toHaveBeenCalledWith(true);
-    await act(async () => {
-      const search = node.querySelector<HTMLInputElement>(
-        'input[type="search"]',
-      )!;
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )!.set!.call(search, "rev");
-      search.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(option("lint")).toBeUndefined();
+    expect(node.querySelector('.mobile-skill-picker input, .mobile-skill-picker h2')).toBeNull();
+    expect(option("lint")).toBeDefined();
     await choose("review");
     expect(area().value).toBe("Before /review after");
     expect(area().selectionStart).toBe(15);
@@ -204,14 +196,14 @@ describe("mobile skills and slash completion", () => {
     expect(area().value).toBe("/");
   });
 
-  it("keeps native invocations, aliases, hints and arguments exact", async () => {
+  it.each(["pi", "omp"])("keeps %s native invocations, aliases, hints and arguments exact", async (harness) => {
     const native = {
       native: true,
       canCompact: true,
       skills: [
         {
           kind: "native" as const,
-          source: "pi" as const,
+          source: harness as "pi" | "omp",
           name: "audit",
           invocation: "skill:audit",
           description: "Native 中文",
@@ -223,12 +215,12 @@ describe("mobile skills and slash completion", () => {
     load.mockResolvedValue(native);
     await render({
       configuration: {
-        harness: "pi",
-        model: "pi:test",
+        harness,
+        model: `${harness}:test`,
         modelSettings: {},
         runtimeMode: "supervised",
       },
-      skillsContextKey: "pi:project",
+      skillsContextKey: `${harness}:project:${context}`,
     });
     await input("/review @raw", 7);
     expect(load).toHaveBeenCalledWith(false);
@@ -249,6 +241,29 @@ describe("mobile skills and slash completion", () => {
     await click("Retry");
     expect(option("review")).toBeDefined();
     expect(area().value).toBe("/rev");
+  });
+
+  it("reopens the add menu with cached skills and still toggles plan mode", async () => {
+    const onPlanModeChange = vi.fn();
+    await render({ onPlanModeChange });
+    await click("Add to message");
+    expect(option("review")).toBeDefined();
+    const closeMenu = async () => act(async () => {
+      node.querySelector('[role="dialog"]')!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    await closeMenu();
+    // An unresolved second response would have shown loading on every reopen.
+    load.mockReturnValue(deferred<HostSkillCatalog>().promise);
+    await click("Add to message");
+    expect(load).toHaveBeenCalledOnce();
+    expect(option("review")).toBeDefined();
+    expect(node.querySelector('.mobile-skill-picker [role="status"]')).toBeNull();
+    await act(async () => node.querySelector<HTMLButtonElement>('[role="switch"]')!.click());
+    expect(onPlanModeChange).toHaveBeenCalledWith(true);
+    expect(area().value).toBe("");
+    expect(onSend).not.toHaveBeenCalled();
   });
 
   it("hides a previous context immediately and ignores its late catalog", async () => {

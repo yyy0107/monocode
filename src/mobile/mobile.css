@@ -1903,13 +1903,15 @@ html.has-user-accent .mobile-send:not(:disabled) {
 }
 .mobile-skill-picker {
   display: flex;
+  flex-shrink: 0;
   min-height: 0;
+  /* Reserve the list area before loading so the actions above never move. */
+  height: min(40dvh, 360px);
   flex-direction: column;
   gap: 8px;
-  padding: 4px;
-}
-.mobile-skill-picker > input[type="search"] {
-  --mobile-popup-font-step: 0px;
+  padding: 4px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .mobile-skill-heading {
   display: flex;
@@ -1917,10 +1919,6 @@ html.has-user-accent .mobile-send:not(:disabled) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-}
-.mobile-skill-heading h2 {
-  margin: 0;
-  font-size: calc(14px + var(--mobile-popup-font-step, 0px));
 }
 .mobile-skill-heading > strong {
   padding-left: 8px;
@@ -1932,7 +1930,8 @@ html.has-user-accent .mobile-send:not(:disabled) {
   overscroll-behavior: contain;
 }
 .mobile-skill-picker .mobile-skill-options {
-  max-height: min(40dvh, 360px);
+  flex-shrink: 0;
+  overflow-y: visible;
 }
 .mobile-skill-options .mobile-sheet-row {
   align-items: flex-start;
@@ -1951,6 +1950,15 @@ html.has-user-accent .mobile-send:not(:disabled) {
   width: 16px;
   height: 16px;
   margin-top: 2px;
+}
+/* Match the action rows above while keeping the smaller skill glyph centered. */
+.mobile-skill-picker .mobile-sheet-row {
+  gap: 16px;
+  padding-inline: 14px;
+}
+.mobile-skill-picker .mobile-sheet-row > svg {
+  flex-basis: 22px;
+  width: 22px;
 }
 .mobile-skill-options .mobile-sheet-row-text {
   min-width: 0;

@@ -111,7 +111,6 @@ export function MobileComposer(props: Props) {
   const panelAnchor = useRef<HTMLButtonElement>(null);
   const skillListId = useId();
   const [slash, setSlash] = useState<SlashToken | null>(null);
-  const [skillQuery, setSkillQuery] = useState("");
   const [skillActive, setSkillActive] = useState(0);
   const dismissedSlash = useRef<string | null>(null);
   const insertion = useRef({ start: props.value.length, end: props.value.length });
@@ -125,9 +124,9 @@ export function MobileComposer(props: Props) {
     ...(skillsState.catalog?.skills ?? []).filter(skill => !["operator", "mono", "monocode"].includes(skill.name) &&
       (skill.kind === "native" || !["plan", "compact", "orchestrator", "draft", "btw", "mcp", "add-to-folder"].includes(skill.name))),
   ], [props.canCompact, skillsState.catalog]);
-  const options = rankSkills(commands, props.panel === "actions" ? skillQuery : slash?.query ?? "");
-  useEffect(() => { setSlash(null); setSkillQuery(""); setSkillActive(0); }, [skillsKey]);
-  useEffect(() => { setSkillActive(0); }, [slash?.query, skillQuery]);
+  const options = rankSkills(commands, props.panel === "actions" ? "" : slash?.query ?? "");
+  useEffect(() => { setSlash(null); setSkillActive(0); }, [skillsKey]);
+  useEffect(() => { setSkillActive(0); }, [slash?.query]);
   useEffect(() => {
     if (props.disabled) setSlash(null);
   }, [props.disabled]);
@@ -376,7 +375,6 @@ export function MobileComposer(props: Props) {
                 disabled={props.disabled}
                 onClick={(event) => {
                   panelAnchor.current = event.currentTarget;
-                  setSkillQuery("");
                   setSkillActive(0);
                   props.onPanelChange("actions");
                 }}
@@ -622,9 +620,6 @@ export function MobileComposer(props: Props) {
         {props.loadSkills && <>
           <div className="mobile-menu-divider" role="separator" />
           <div className="mobile-skill-picker">
-            <div className="mobile-skill-heading"><h2>{t("Skills and commands")}</h2></div>
-            <input type="search" aria-label={t("Search skills and commands")} placeholder={t("Search skills and commands")}
-              value={skillQuery} onChange={event => setSkillQuery(event.currentTarget.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
             <MobileSkillList skills={options.filter(skill => skill !== PLAN_COMMAND)} loading={skillsState.loading} failed={!!skillsState.failed} error={skillsState.error}
               active={skillActive} id={skillListId} onPick={pickSkill} onActive={setSkillActive} onRetry={() => void skillsState.reload(true)} />
           </div>
