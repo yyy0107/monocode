@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import fontScale from "./scripts/postcss-font-scale.mjs";
 import { resolve } from "node:path";
 import { renameSync } from "node:fs";
 
@@ -93,6 +94,8 @@ export default defineConfig({
       ],
     },
   },
+  // Settings → Appearance font sizes and reduced-motion override.
+  css: { postcss: { plugins: [fontScale()] } },
   build: { outDir: "dist-mobile", rollupOptions: { input: "mobile.html" } },
   // Capacitor loads index.html. Keep mobile.html separate from the desktop entry.
   resolve: { alias: { "@mobile": resolve("src/mobile") } },

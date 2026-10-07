@@ -1,5 +1,6 @@
 import { useEffect, type CSSProperties } from "react";
 import "./AstraWelcome.css";
+import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 
 const DURATION_MS = 7600;
 const STARS = Array.from(
@@ -30,7 +31,7 @@ const SPARKLES = Array.from(
 /** A decorative layer confined to the session, with no input interception. */
 export function AstraWelcome({ onDone }: { onDone: () => void }) {
   useEffect(() => {
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const reducedMotion = reducedMotionQuery();
     if (reducedMotion.matches) {
       onDone();
       return;

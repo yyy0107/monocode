@@ -6,6 +6,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { reducedMotionQuery } from "../shared/lib/reducedMotion";
 import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { SurfaceVisibilityContext, useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import { MobilePageStateContext, type MobilePageState } from "./mobilePageState";
@@ -27,7 +28,7 @@ export function mobileRouteDirection(from: MobileRoute, to: MobileRoute): Direct
   if (from.section === "settings") return -1;
   return to.section === "chat" ? 1 : -1;
 }
-const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+const reducedMotion = () => reducedMotionQuery().matches;
 
 /** Interrupt from the visible position, and let the shared lifetime own cleanup. */
 function usePageMotion(

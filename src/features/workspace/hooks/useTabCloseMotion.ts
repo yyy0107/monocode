@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { loadTabAnimationsEnabled } from "../../settings/model/settings";
+import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 
 export type TabMotionEntry<T extends { id: string }> = {
   id: string;
@@ -10,7 +11,7 @@ export type TabMotionEntry<T extends { id: string }> = {
 };
 
 function reducedMotion() {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return reducedMotionQuery().matches;
 }
 
 function orderWithClosingTabs(

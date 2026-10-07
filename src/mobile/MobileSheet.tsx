@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { reducedMotionQuery } from "../shared/lib/reducedMotion";
 import { createPortal } from "react-dom";
 import { MobileOverlayHostContext, MobileOverlayLevelContext } from "./MobileOverlayHost";
 import { SurfaceVisibilityContext, useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
@@ -413,7 +414,7 @@ export function MobileSheet({
   useLayoutEffect(() => {
     const element = dialog.current;
     if (!element || placement !== "anchor") return;
-    if (!element.animate || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    if (!element.animate || reducedMotionQuery().matches) {
       element.style.removeProperty("transform");
       element.style.removeProperty("opacity");
       return;

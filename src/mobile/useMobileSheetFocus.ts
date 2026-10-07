@@ -1,5 +1,6 @@
 import { useEffect, type RefObject } from "react";
 import { keyboardHeight, keyboardMotionRemaining, onKeyboardMotion } from "./keyboardMotion";
+import { reducedMotionQuery } from "../shared/lib/reducedMotion";
 
 /** Reveal fields inside their sheet without letting the WebView pan the page. */
 export function useMobileSheetFocus(
@@ -34,7 +35,7 @@ export function useMobileSheetFocus(
         const box = scroller.getBoundingClientRect();
         const rect = field.getBoundingClientRect();
         if (rect.top >= box.top + 12 && rect.bottom <= box.bottom - 12) return;
-        const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        const reduced = reducedMotionQuery().matches;
         scroller.scrollTo({
           top: Math.max(0, Math.min(
             scroller.scrollHeight - scroller.clientHeight,

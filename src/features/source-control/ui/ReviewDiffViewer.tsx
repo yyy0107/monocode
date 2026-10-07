@@ -23,9 +23,10 @@ const viewerStyle = {
   "--diffs-dark-bg": "var(--color-background-base)",
   "--diffs-light": "var(--color-content)",
   "--diffs-dark": "var(--color-content)",
+  // Settings → Appearance → Code font and size.
   "--diffs-font-family":
-    'Consolas, "Cascadia Mono", "Liberation Mono", ui-monospace, monospace',
-  "--diffs-font-size": "12px",
+    'var(--user-code-font,) Consolas, "Cascadia Mono", "Liberation Mono", ui-monospace, monospace',
+  "--diffs-font-size": "calc(12px * var(--code-font-scale, 1))",
 } as CSSProperties;
 
 export const ReviewDiffViewer = memo(function ReviewDiffViewer({

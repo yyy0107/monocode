@@ -5,6 +5,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
+import { reducedMotionQuery } from "../../../../../shared/lib/reducedMotion";
 import { cn } from "../lib/utils.js";
 import { STATUS_DOT } from "../workflow-graph/run-status-presentation.js";
 import type { StepRunStatus } from "../workflow-graph/types.js";
@@ -38,7 +39,7 @@ export function prefersReducedMotion(): boolean {
   return (
     typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    reducedMotionQuery().matches
   );
 }
 

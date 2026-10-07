@@ -13,6 +13,7 @@ import {
   btwSurfaceHarness,
   sessionBtwThreads,
 } from "../model/btw";
+import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 import { groupTurns } from "../model/transcriptActivity";
 import {
   DEFAULT_RUNTIME_MODE,
@@ -77,7 +78,7 @@ const NO_MESSAGES: BtwMessage[] = [];
 const NO_BLOCKS: Block[] = [];
 
 function reducedMotion() {
-  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  return reducedMotionQuery().matches;
 }
 
 /**

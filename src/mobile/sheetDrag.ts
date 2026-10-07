@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
+import { reducedMotionQuery } from "../shared/lib/reducedMotion";
 
 /** Pull distance, as a share of the sheet height, that dismisses on release. */
 const DISMISS_SHARE = 0.28;
@@ -146,9 +147,7 @@ export function useSheetDrag(
       if (!dragging) return;
       dragging = false;
       const height = element.offsetHeight;
-      const reducedMotion = window.matchMedia?.(
-        "(prefers-reduced-motion: reduce)",
-      ).matches;
+      const reducedMotion = reducedMotionQuery().matches;
       const settled = detents
         ? settleDetent(base() + lastY - startY, velocity, halfTop(), halfHeight(), detent)
         : undefined;

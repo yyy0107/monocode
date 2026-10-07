@@ -21,7 +21,6 @@ import {
   RotateCcw,
   Search,
   Trash2,
-  X,
 } from "../../../shared/ui/icons";
 import {
   createContext,
@@ -34,6 +33,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
@@ -53,6 +53,42 @@ import { McpSettings } from "./McpSettings";
 import { InboxProviderMark } from "../../inbox/ui/InboxProviderMark";
 import { RemoveProjectDialog } from "../../projects/ui/RemoveProjectDialog";
 import { SettingsNav } from "../../../app/shell/SettingsRail";
+import { Switch } from "../../workflows/kit/components/ui/switch";
+import { SettingsSearchInput } from "../../workflows/kit/settings/SettingsSearchInput";
+import {
+  FontSizeInput,
+} from "../../workflows/kit/settings/SettingsPageParts";
+import { Input } from "../../workflows/kit/components/ui/input";
+import {
+  activeScheme,
+  activeScope,
+  applyFontSize,
+  applyProfile,
+  applyReducedMotion,
+  CODE_FONT_PRESETS,
+  CONTENT_FONT_PRESETS,
+  CONTRAST_MAX,
+  CONTRAST_MIN,
+  DEFAULT_PROFILE,
+  enableSeparateSchemes,
+  FONT_SIZE_LIMITS,
+  FONT_WEIGHT_LABELS,
+  FONT_WEIGHTS,
+  loadFontSize,
+  loadProfile,
+  loadReducedMotion,
+  loadSeparateSchemes,
+  normalizeFontFamily,
+  REDUCED_MOTION_DEFAULT,
+  saveFontSize,
+  saveProfile,
+  saveReducedMotion,
+  saveSeparateSchemes,
+  type AppearanceProfile,
+  type FontSizeKind,
+  type FontWeight,
+  type ReducedMotionPreference,
+} from "../model/typography";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { useColorScheme } from "../../../shared/hooks/useColorScheme";
 import {
@@ -143,6 +179,7 @@ import {
   NEW_THREAD_BACKGROUND_EFFECT_DEFAULT,
   type NewThreadBackgroundEffect,
   type TranscriptLayout,
+  type ColorScheme,
 } from "../model/appearance";
 import {
   pickAndSaveChatBackground,
@@ -566,7 +603,7 @@ export function SettingsView({
                 ref={lockOverscroll}
                 className="@container/settings min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
               >
-                <div className="mx-auto w-full max-w-5xl px-5 py-6 pb-16 @min-[560px]/settings:px-8 @min-[560px]/settings:py-8">
+                <div className="mx-auto w-full max-w-4xl px-5 py-6 pb-16 @min-[560px]/settings:px-8 @min-[560px]/settings:py-8">
                   <PageHeader
                     title={settingsSectionLabel(section)}
                     description={settingsSectionDescription(section)}
@@ -671,37 +708,26 @@ function SettingsSearch({
 
   return (
     <div ref={root} className="relative shrink-0">
-      <label className="flex h-7 w-48 items-center gap-2 rounded-md border border-content/10 px-2 text-content/45 focus-within:border-content/20">
-        <Search className="size-3.5 shrink-0" />
-        <input
-          ref={input}
-          role="combobox"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={uiT("Search settings")}
-          aria-label={uiT("Search settings")}
-          aria-expanded={open}
-          aria-controls={listId}
-          spellCheck={false}
-          autoComplete="off"
-          className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35"
-        />
-        {query ? (
-          <button
-            type="button"
-            aria-label={uiT("Clear settings search")}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              setQuery("");
-              input.current?.focus();
-            }}
-            className="grid size-4 shrink-0 place-items-center rounded text-content/45 hover:text-content"
-          >
-            <X className="size-3" strokeWidth={2} />
-          </button>
-        ) : null}
-      </label>
+      <SettingsSearchInput
+        ref={input}
+        role="combobox"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder={uiT("Search settings")}
+        aria-label={uiT("Search settings")}
+        aria-expanded={open}
+        aria-controls={listId}
+        spellCheck={false}
+        autoComplete="off"
+        clearLabel={uiT("Clear settings search")}
+        onClear={() => {
+          setQuery("");
+          input.current?.focus();
+        }}
+        containerClassName="w-56"
+        className="h-8 rounded-lg"
+      />
       {open ? (
         <Popover
           anchor={root}
@@ -719,7 +745,7 @@ function SettingsSearch({
           className="overflow-y-auto overscroll-contain p-1"
         >
           {results.length === 0 ? (
-            <p className="px-2 py-1.5 text-[12px] text-content/45">
+            <p className="px-2 py-1.5 text-ui-base text-foreground-subtle">
               {uiT("No matching settings")}
             </p>
           ) : (
@@ -732,14 +758,12 @@ function SettingsSearch({
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setActive(index)}
                 onClick={() => go(result)}
-                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] ${
-                  index === active
-                    ? "bg-selection text-content"
-                    : "text-content hover:bg-content/5"
+                className={`flex min-h-7 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-ui-base text-foreground ${
+                  index === active ? "bg-menu-hover" : ""
                 }`}
               >
                 <span className="min-w-0 flex-1 truncate">{result.label}</span>
-                <span className="shrink-0 text-[11px] text-content/40">
+                <span className="shrink-0 text-ui-sm text-foreground-subtlest">
                   {result.settingId ? result.sectionLabel : uiT("Page")}
                 </span>
               </button>
@@ -1965,8 +1989,52 @@ function useAppearanceSettings() {
     null,
   );
   const [uiScale, setUiScale] = useState(loadUiScale);
+  const [fontSizes, setFontSizes] = useState<Record<FontSizeKind, number>>(
+    () => ({
+      ui: loadFontSize("ui"),
+      content: loadFontSize("content"),
+      code: loadFontSize("code"),
+    }),
+  );
+  const [reducedMotion, setReducedMotion] =
+    useState<ReducedMotionPreference>(loadReducedMotion);
+  const [separateSchemes, setSeparateSchemes] = useState(loadSeparateSchemes);
+  const colorScheme = useColorScheme();
+  const [editingScheme, setEditingScheme] = useState<ColorScheme>(activeScheme);
+  const profileScope = separateSchemes ? editingScheme : "shared";
+  const [profile, setProfile] = useState<AppearanceProfile>(() =>
+    loadProfile(activeScope()),
+  );
 
   useEffect(() => subscribeUiScale(() => setUiScale(loadUiScale())), []);
+  // Follow the theme so the editor opens on the mode that is on screen.
+  useEffect(() => setEditingScheme(colorScheme), [colorScheme]);
+  useEffect(() => setProfile(loadProfile(profileScope)), [profileScope]);
+
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
+
+  /** Saves into the mode being edited; applies it when that mode is showing. */
+  const updateProfile = useCallback(
+    (patch: Partial<AppearanceProfile>) => {
+      const next = saveProfile(profileScope, {
+        ...profileRef.current,
+        // Shared colour is edited by the accent/tint handlers; keep theirs.
+        ...(profileScope === "shared"
+          ? {
+              accentColor: loadAccentColor(),
+              hue: loadThemeHue(),
+              saturation: loadThemeSaturation(),
+            }
+          : null),
+        ...patch,
+      });
+      profileRef.current = next;
+      if (profileScope === activeScope()) applyProfile(next);
+      setProfile(next);
+    },
+    [profileScope],
+  );
 
   const onThemePreference = useCallback((next: ThemePreference) => {
     applyThemePreference(next);
@@ -1975,10 +2043,14 @@ function useAppearanceSettings() {
   }, []);
 
   const onAccentColor = useCallback((value: string | null) => {
+    if (loadSeparateSchemes()) {
+      updateProfile({ accentColor: value });
+      return;
+    }
     const next = applyAccentColor(value);
     saveAccentColor(next);
     setAccentColor(next);
-  }, []);
+  }, [updateProfile]);
 
   const onOpacity = useCallback((percent: number) => {
     const next = applySidebarOpacity(percent / 100);
@@ -1999,12 +2071,16 @@ function useAppearanceSettings() {
   }, []);
 
   const onTint = useCallback((hue: number, saturation: number) => {
+    if (loadSeparateSchemes()) {
+      updateProfile({ hue, saturation });
+      return;
+    }
     const next = applyThemeTint(hue, saturation);
     saveThemeHue(next.hue);
     saveThemeSaturation(next.saturation);
     setThemeHue(next.hue);
     setThemeSaturation(next.saturation);
-  }, []);
+  }, [updateProfile]);
 
   const onDarkLightness = useCallback((value: number) => {
     const next = applyThemeDarkLightness(value);
@@ -2091,7 +2167,46 @@ function useAppearanceSettings() {
     void applyUiScale(next);
   }, []);
 
+  const onFontSize = useCallback((kind: FontSizeKind, value: number) => {
+    const next = applyFontSize(kind, saveFontSize(kind, value));
+    setFontSizes((current) => ({ ...current, [kind]: next }));
+  }, []);
+
+  const onReducedMotion = useCallback((next: ReducedMotionPreference) => {
+    saveReducedMotion(next);
+    applyReducedMotion(next);
+    setReducedMotion(next);
+  }, []);
+
+  const onSeparateSchemes = useCallback((next: boolean) => {
+    if (next) enableSeparateSchemes();
+    else saveSeparateSchemes(false);
+    const scope = activeScope();
+    const active = loadProfile(scope);
+    applyProfile(active);
+    setAccentColor(loadAccentColor());
+    setThemeHue(loadThemeHue());
+    setThemeSaturation(loadThemeSaturation());
+    setEditingScheme(activeScheme());
+    setProfile(active);
+    setSeparateSchemes(next);
+  }, []);
+
   const restoreDefaults = useCallback(() => {
+    for (const kind of ["ui", "content", "code"] as const)
+      onFontSize(kind, FONT_SIZE_LIMITS[kind].default);
+    onReducedMotion(REDUCED_MOTION_DEFAULT);
+    if (loadSeparateSchemes()) onSeparateSchemes(false);
+    // Typography defaults; colour defaults follow through the calls below.
+    const shared = saveProfile("shared", {
+      ...loadProfile("shared"),
+      ...DEFAULT_PROFILE,
+      accentColor: loadAccentColor(),
+      hue: loadThemeHue(),
+      saturation: loadThemeSaturation(),
+    });
+    applyProfile(shared);
+    setProfile(shared);
     onThemePreference(THEME_PREFERENCE_DEFAULT);
     onAccentColor(ACCENT_COLOR_DEFAULT);
     onOpacity(Math.round(SIDEBAR_OPACITY_DEFAULT * 100));
@@ -2113,6 +2228,9 @@ function useAppearanceSettings() {
     onUiScale(Math.round(UI_SCALE_DEFAULT * 100));
   }, [
     chatBackgroundPath,
+    onFontSize,
+    onReducedMotion,
+    onSeparateSchemes,
     onBlur,
     onBodyGlass,
     onChatBackgroundEmptyOpacity,
@@ -2132,12 +2250,22 @@ function useAppearanceSettings() {
 
   return {
     themePreference,
-    accentColor,
+    accentColor: separateSchemes ? profile.accentColor : accentColor,
     opacity,
     popoverOpacity,
     blur,
-    themeHue,
-    themeSaturation,
+    themeHue: separateSchemes ? profile.hue : themeHue,
+    themeSaturation: separateSchemes ? profile.saturation : themeSaturation,
+    fontSizes,
+    reducedMotion,
+    separateSchemes,
+    editingScheme,
+    profile,
+    onFontSize,
+    onReducedMotion,
+    onSeparateSchemes,
+    onEditingScheme: setEditingScheme,
+    updateProfile,
     themeDarkLightness,
     bodyGlass,
     showExcludedFiles,
@@ -2179,9 +2307,15 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
     <>
       <Group
         title={uiT("Theme")}
-        description={uiT(
-          "Dark and light share the same tint, so the color settings below apply to both.",
-        )}
+        description={
+          appearance.separateSchemes
+            ? uiT(
+                "Dark and light keep their own colors, fonts and contrast; edit each mode below.",
+              )
+            : uiT(
+                "Dark and light share the same tint, so the color settings below apply to both.",
+              )
+        }
       >
         <Row
           id="theme"
@@ -2199,19 +2333,12 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             onChange={appearance.onThemePreference}
           />
         </Row>
-        <Row
-          id="accent-color"
-          label={uiT("Accent color")}
-          description={uiT(
-            "Used for the composer send button and your message bubbles.",
-          )}
-        >
-          <AccentColorPicker
-            value={appearance.accentColor}
-            onChange={appearance.onAccentColor}
-          />
-        </Row>
+        {appearance.separateSchemes ? null : (
+          <AccentRow appearance={appearance} />
+        )}
       </Group>
+
+      <TypographyCards appearance={appearance} />
 
       <Group
         title={uiT("Color")}
@@ -2219,38 +2346,9 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
           "Hue and saturation tint every surface. Lightness only moves the dark theme.",
         )}
       >
-        <Row
-          id="hue"
-          label={uiT("Hue")}
-          description={uiT("Base hue for accents and tinted surfaces.")}
-        >
-          <Slider
-            label={uiT("Hue")}
-            value={appearance.themeHue}
-            display={`${appearance.themeHue}°`}
-            min={THEME_HUE_MIN}
-            max={THEME_HUE_MAX}
-            onChange={(value) =>
-              appearance.onTint(value, appearance.themeSaturation)
-            }
-          />
-        </Row>
-        <Row
-          id="saturation"
-          label={uiT("Saturation")}
-          description={uiT(
-            "How strongly the hue tints the interface. Zero keeps it neutral.",
-          )}
-        >
-          <Slider
-            label={uiT("Saturation")}
-            value={appearance.themeSaturation}
-            display={`${appearance.themeSaturation}%`}
-            min={THEME_SATURATION_MIN}
-            max={THEME_SATURATION_MAX}
-            onChange={(value) => appearance.onTint(appearance.themeHue, value)}
-          />
-        </Row>
+        {appearance.separateSchemes ? null : (
+          <TintRows appearance={appearance} />
+        )}
         <Row
           id="dark-lightness"
           label={uiT("Dark-mode lightness")}
@@ -2384,6 +2482,316 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             label={uiT("Show excluded files")}
             on={appearance.showExcludedFiles}
             onChange={appearance.onShowExcludedFiles}
+          />
+        </Row>
+      </Group>
+    </>
+  );
+}
+
+function AccentRow({ appearance }: { appearance: AppearanceSettings }) {
+  const { t: uiT } = useTranslation();
+  return (
+    <Row
+      id="accent-color"
+      label={uiT("Accent color")}
+      description={uiT(
+        "Used for the composer send button and your message bubbles.",
+      )}
+    >
+      <AccentColorPicker
+        value={appearance.accentColor}
+        onChange={appearance.onAccentColor}
+      />
+    </Row>
+  );
+}
+
+function TintRows({ appearance }: { appearance: AppearanceSettings }) {
+  const { t: uiT } = useTranslation();
+  return (
+    <>
+      <Row
+        id="hue"
+        label={uiT("Hue")}
+        description={uiT("Base hue for accents and tinted surfaces.")}
+      >
+        <Slider
+          label={uiT("Hue")}
+          value={appearance.themeHue}
+          display={`${appearance.themeHue}°`}
+          min={THEME_HUE_MIN}
+          max={THEME_HUE_MAX}
+          onChange={(value) =>
+            appearance.onTint(value, appearance.themeSaturation)
+          }
+        />
+      </Row>
+      <Row
+        id="saturation"
+        label={uiT("Saturation")}
+        description={uiT(
+          "How strongly the hue tints the interface. Zero keeps it neutral.",
+        )}
+      >
+        <Slider
+          label={uiT("Saturation")}
+          value={appearance.themeSaturation}
+          display={`${appearance.themeSaturation}%`}
+          min={THEME_SATURATION_MIN}
+          max={THEME_SATURATION_MAX}
+          onChange={(value) => appearance.onTint(appearance.themeHue, value)}
+        />
+      </Row>
+    </>
+  );
+}
+
+const CUSTOM_FONT = "__custom__";
+
+/** Preset font list plus a free-text family for anything else installed. */
+function FontFamilySelect({
+  label,
+  value,
+  defaultLabel,
+  presets,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  defaultLabel: string;
+  presets: readonly string[];
+  onChange: (value: string) => void;
+}) {
+  const { t: uiT } = useTranslation();
+  const isPreset = value === "" || presets.includes(value);
+  const [custom, setCustom] = useState(!isPreset);
+  const [draft, setDraft] = useState(isPreset ? "" : value);
+  useEffect(() => {
+    if (value !== "" && !presets.includes(value)) {
+      setCustom(true);
+      setDraft(value);
+    }
+  }, [value, presets]);
+
+  const commit = () => {
+    const next = normalizeFontFamily(draft);
+    setDraft(next);
+    if (next !== value) onChange(next);
+  };
+
+  return (
+    <>
+      {custom ? (
+        <Input
+          size="lg"
+          value={draft}
+          aria-label={uiT("Custom {font}", { font: label })}
+          placeholder={uiT("Font name")}
+          spellCheck={false}
+          onChange={(event) => setDraft(event.currentTarget.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+          className="w-36 rounded-lg"
+        />
+      ) : null}
+      <div className="w-40">
+        <Select
+          label={label}
+          value={custom ? CUSTOM_FONT : value}
+          options={[
+            { value: "", label: defaultLabel },
+            ...presets.map((font) => ({ value: font, label: font })),
+            { value: CUSTOM_FONT, label: uiT("Custom…") },
+          ]}
+          onChange={(next) => {
+            if (next === CUSTOM_FONT) {
+              setCustom(true);
+              return;
+            }
+            setCustom(false);
+            setDraft("");
+            onChange(next);
+          }}
+        />
+      </div>
+    </>
+  );
+}
+
+function FontWeightSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: FontWeight;
+  onChange: (value: FontWeight) => void;
+}) {
+  const { t: uiT } = useTranslation();
+  return (
+    <div className="w-28">
+      <Select
+        label={label}
+        value={String(value)}
+        options={FONT_WEIGHTS.map((weight) => ({
+          value: String(weight),
+          label: uiT(FONT_WEIGHT_LABELS[weight]),
+        }))}
+        onChange={(next) => onChange(Number(next) as FontWeight)}
+      />
+    </div>
+  );
+}
+
+/** Sizes, motion and the per-mode font/contrast card (ZCode settings cards). */
+function TypographyCards({ appearance }: { appearance: AppearanceSettings }) {
+  const { t: uiT } = useTranslation();
+  const { profile, updateProfile } = appearance;
+  const sizeRows: { kind: FontSizeKind; label: string; description: string }[] =
+    [
+      {
+        kind: "ui",
+        label: uiT("Interface font size"),
+        description: uiT("Adjust the base font size of MonoCode."),
+      },
+      {
+        kind: "content",
+        label: uiT("Content font size"),
+        description: uiT("Adjust the base font size of conversations and documents."),
+      },
+      {
+        kind: "code",
+        label: uiT("Code font size"),
+        description: uiT(
+          "Adjust the base font size of code in chat and diff views.",
+        ),
+      },
+    ];
+
+  return (
+    <>
+      <Group>
+        {sizeRows.map((row) => (
+          <Row
+            key={row.kind}
+            id={`${row.kind}-font-size`}
+            label={row.label}
+            description={row.description}
+          >
+            <FontSizeInput
+              value={appearance.fontSizes[row.kind]}
+              min={FONT_SIZE_LIMITS[row.kind].min}
+              max={FONT_SIZE_LIMITS[row.kind].max}
+              ariaLabel={row.label}
+              onChange={(value) => appearance.onFontSize(row.kind, value)}
+            />
+          </Row>
+        ))}
+      </Group>
+
+      <Group>
+        <Row
+          id="reduced-motion"
+          label={uiT("Reduce motion")}
+          description={uiT(
+            "Reduce animations, or follow the system setting.",
+          )}
+        >
+          <Segmented
+            label={uiT("Reduce motion")}
+            value={appearance.reducedMotion}
+            options={[
+              { value: "system", label: uiT("System") },
+              { value: "on", label: uiT("On") },
+              { value: "off", label: uiT("Off") },
+            ]}
+            onChange={appearance.onReducedMotion}
+          />
+        </Row>
+        <Row
+          id="separate-schemes"
+          label={uiT("Separate light and dark settings")}
+          description={uiT(
+            "Choose colors, fonts and contrast for each mode separately.",
+          )}
+        >
+          <Toggle
+            label={uiT("Separate light and dark settings")}
+            on={appearance.separateSchemes}
+            onChange={appearance.onSeparateSchemes}
+          />
+        </Row>
+      </Group>
+
+      <Group>
+        {appearance.separateSchemes ? (
+          <div className="flex items-center justify-between gap-4 px-4 py-3">
+            <span className="text-ui-base font-medium text-foreground">
+              {uiT("Editing")}
+            </span>
+            <Segmented
+              label={uiT("Editing")}
+              value={appearance.editingScheme}
+              options={[
+                { value: "light", label: uiT("Light") },
+                { value: "dark", label: uiT("Dark") },
+              ]}
+              onChange={appearance.onEditingScheme}
+            />
+          </div>
+        ) : null}
+        {appearance.separateSchemes ? (
+          <>
+            <AccentRow appearance={appearance} />
+            <TintRows appearance={appearance} />
+          </>
+        ) : null}
+        <Row id="ui-font-weight" label={uiT("Interface font style")}>
+          <FontWeightSelect
+            label={uiT("Interface font style")}
+            value={profile.uiWeight}
+            onChange={(uiWeight) => updateProfile({ uiWeight })}
+          />
+        </Row>
+        <Row id="content-font" label={uiT("Content font")}>
+          <FontFamilySelect
+            label={uiT("Content font")}
+            value={profile.contentFont}
+            defaultLabel={uiT("Same as interface font")}
+            presets={CONTENT_FONT_PRESETS}
+            onChange={(contentFont) => updateProfile({ contentFont })}
+          />
+          <FontWeightSelect
+            label={uiT("Content font style")}
+            value={profile.contentWeight}
+            onChange={(contentWeight) => updateProfile({ contentWeight })}
+          />
+        </Row>
+        <Row id="code-font" label={uiT("Code font")}>
+          <FontFamilySelect
+            label={uiT("Code font")}
+            value={profile.codeFont}
+            defaultLabel={uiT("System")}
+            presets={CODE_FONT_PRESETS}
+            onChange={(codeFont) => updateProfile({ codeFont })}
+          />
+          <FontWeightSelect
+            label={uiT("Code font style")}
+            value={profile.codeWeight}
+            onChange={(codeWeight) => updateProfile({ codeWeight })}
+          />
+        </Row>
+        <Row id="contrast" label={uiT("Contrast")}>
+          <Slider
+            label={uiT("Contrast")}
+            value={profile.contrast}
+            display={String(profile.contrast)}
+            min={CONTRAST_MIN}
+            max={CONTRAST_MAX}
+            onChange={(contrast) => updateProfile({ contrast })}
           />
         </Row>
       </Group>
@@ -4368,12 +4776,12 @@ function PageHeader({
   description: string;
 }) {
   return (
-    <header className="pb-4">
-      <h1 className="text-[20px] font-semibold leading-tight text-content">
+    <header className="pb-6">
+      <h1 className="text-ui-xl font-semibold leading-tight text-foreground">
         {title}
       </h1>
       {description ? (
-        <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-content/45">
+        <p className="mt-1.5 max-w-xl text-ui-base leading-6 text-foreground-subtle">
           {description}
         </p>
       ) : null}
@@ -4394,7 +4802,8 @@ function Group({
 }: {
   /** Matches a `SETTINGS_INDEX` id when the whole card is the search target. */
   id?: string;
-  title: ReactNode;
+  /** Untitled groups render as a bare ZCode settings card. */
+  title?: ReactNode;
   description?: string;
   action?: ReactNode;
   children: ReactNode;
@@ -4406,22 +4815,28 @@ function Group({
     <section
       id={id ? settingDomId(id) : undefined}
       data-setting-id={id}
-      className="pt-8 first:pt-0"
+      className={title || description || action ? "pt-8 first:pt-0" : "pt-5 first:pt-0"}
     >
-      <div className="flex items-end gap-4 pb-2.5">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-[13px] font-semibold text-content">{title}</h2>
-          {description ? (
-            <p className="mt-1 text-[12px] leading-relaxed text-content/45">
-              {description}
-            </p>
-          ) : null}
+      {title || description || action ? (
+        <div className="flex items-end gap-4 pb-3">
+          <div className="min-w-0 flex-1">
+            {title ? (
+              <h2 className="text-ui-lg font-semibold text-foreground">
+                {title}
+              </h2>
+            ) : null}
+            {description ? (
+              <p className="mt-1 text-ui-base leading-6 text-foreground-subtle">
+                {description}
+              </p>
+            ) : null}
+          </div>
+          {action ? <div className="shrink-0 pb-0.5">{action}</div> : null}
         </div>
-        {action ? <div className="shrink-0 pb-0.5">{action}</div> : null}
-      </div>
+      ) : null}
       <div
         className={`overflow-hidden rounded-xl border bg-card transition-colors ${
-          flash ? "border-accent/60" : "border-stroke"
+          flash ? "border-accent/60" : "border-border"
         }`}
       >
         {children}
@@ -4449,14 +4864,14 @@ function Row({
     <div
       id={id ? settingDomId(id) : undefined}
       data-setting-id={id}
-      className={`settings-row flex items-start gap-6 border-b border-content/5 px-4 py-3.5 transition-colors last:border-b-0 ${
+      className={`settings-row flex items-center gap-6 border-t border-border px-4 py-3 transition-colors first:border-t-0 ${
         flash ? "bg-accent/10" : ""
       }`}
     >
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-content">{label}</div>
+        <div className="text-ui-base font-medium text-foreground">{label}</div>
         {description ? (
-          <p className="mt-1 text-[12px] leading-relaxed text-content/45">
+          <p className="mt-0.5 text-ui-caption leading-5 text-foreground-subtle">
             {description}
           </p>
         ) : null}
@@ -4485,7 +4900,7 @@ function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className="inline-grid max-w-full shrink-0 gap-0.5 rounded-md border border-content/10 p-0.5 text-[12px]"
+      className="inline-grid max-w-full shrink-0 gap-1 text-ui-base"
       style={{
         gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))`,
       }}
@@ -4502,10 +4917,10 @@ function Segmented<T extends string>({
           role="radio"
           aria-checked={value === option.value}
           onClick={() => onChange(option.value)}
-          className={`min-w-0 rounded-[5px] px-2.5 py-1 ${
+          className={`h-7 min-w-0 truncate rounded-full px-3 font-medium transition-colors ${
             value === option.value
-              ? "bg-selection text-content"
-              : "text-content/50 hover:text-content"
+              ? "bg-selection text-foreground"
+              : "text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
           }`}
         >
           {option.label}
@@ -4536,7 +4951,7 @@ function Slider({
 }) {
   return (
     <div
-      className={`flex w-56 max-w-full items-center gap-3 ${disabled ? "opacity-40" : ""}`}
+      className={`flex w-60 max-w-full items-center gap-4 ${disabled ? "opacity-40" : ""}`}
     >
       <input
         type="range"
@@ -4549,10 +4964,15 @@ function Slider({
         aria-valuenow={value}
         aria-label={label}
         disabled={disabled}
-        className="sidebar-opacity-slider min-w-0 flex-1 disabled:cursor-not-allowed"
+        className="settings-slider min-w-0 flex-1 disabled:cursor-not-allowed"
+        style={
+          {
+            "--slider-fill": `${max > min ? ((value - min) / (max - min)) * 100 : 0}%`,
+          } as CSSProperties
+        }
         onChange={(event) => onChange(Number(event.target.value))}
       />
-      <span className="w-10 shrink-0 text-right text-[12px] text-content tabular-nums">
+      <span className="w-10 shrink-0 text-right text-ui-base text-foreground tabular-nums">
         {display}
       </span>
     </div>
@@ -4645,26 +5065,15 @@ function Toggle({
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
+    <Switch
       aria-label={label}
-      aria-checked={on}
+      checked={on}
       disabled={disabled}
-      onClick={() => {
-        onChange(!on);
+      onCheckedChange={(next) => {
+        onChange(next);
         playCue("switch");
       }}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        on ? "bg-accent" : "bg-content/20"
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 size-4 rounded-full bg-white transition-[left] ${
-          on ? "left-4.5" : "left-0.5"
-        }`}
-      />
-    </button>
+    />
   );
 }
 
@@ -4760,7 +5169,7 @@ function Select({
         aria-expanded={open}
         aria-haspopup="listbox"
         onClick={() => setOpen((prev) => !prev)}
-        className="flex w-full items-center justify-between gap-2 rounded-md border border-content/10 bg-content/5 px-2 py-1 text-left text-[12px] text-content outline-none hover:border-content/20"
+        className="flex h-8 w-full items-center justify-between gap-1.5 rounded-lg border border-input-border bg-input pl-3 pr-2 text-left text-ui-base text-foreground outline-none transition-colors hover:border-input-border-hover focus-visible:border-input-border-focused aria-expanded:border-input-border-hover"
       >
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
           {selected?.icon ? (
@@ -4773,7 +5182,7 @@ function Select({
           </span>
         </span>
         <ChevronDown
-          className={`size-3.5 shrink-0 text-content/50 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`size-3.5 shrink-0 text-foreground-subtle transition-transform ${open ? "rotate-180" : ""}`}
         />
       </button>
       {open ? (
@@ -4810,10 +5219,8 @@ function Select({
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setActive(index)}
                 onClick={() => pick(option.value)}
-                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] ${
-                  highlighted || isSelected
-                    ? "bg-selection text-content"
-                    : "text-content hover:bg-content/5"
+                className={`flex min-h-7 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-ui-base text-foreground ${
+                  highlighted ? "bg-menu-hover" : ""
                 }`}
               >
                 {option.icon ? (
@@ -4823,7 +5230,7 @@ function Select({
                 ) : null}
                 <span className="min-w-0 flex-1 truncate">{option.label}</span>
                 {isSelected ? (
-                  <Check className="size-3.5 shrink-0" strokeWidth={2.25} />
+                  <Check className="size-4 shrink-0 text-foreground-subtle" />
                 ) : null}
               </button>
             );

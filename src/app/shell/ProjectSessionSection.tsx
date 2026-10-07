@@ -8,6 +8,7 @@ import {
   inWorktreeFocus,
   useWorktreeFocus,
 } from "../../features/source-control/model/worktreeFocus";
+import { reducedMotionQuery } from "../../shared/lib/reducedMotion";
 import { OrchestrationSidebarAgents } from "../../features/orchestration/ui/OrchestrationSidebarAgents";
 import { SessionWorkflowRunLines } from "../../features/workflows/ui/SessionWorkflowRunLines";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -1453,7 +1454,7 @@ function SessionListItem({
       !el ||
       !(content instanceof HTMLElement) ||
       typeof el.animate !== "function" ||
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      reducedMotionQuery().matches
     )
       return;
     // The card takes its place at once; everything below starts where it was

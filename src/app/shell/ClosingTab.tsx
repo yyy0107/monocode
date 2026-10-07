@@ -4,6 +4,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { reducedMotionQuery } from "../../shared/lib/reducedMotion";
 import { tabCloseDuration } from "../../shared/lib/motion";
 
 type Props = {
@@ -28,7 +29,7 @@ export function TabWidthMotion({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    if (reducedMotionQuery().matches) {
       onFinishRef.current();
       return;
     }
