@@ -2187,6 +2187,24 @@ describe("codex subagents", () => {
     __codexTestReset();
   });
 
+
+  it("keeps identified child deltas and nested threads in their own conversations", async () => {
+    const { events, turn } = await startTurn("s1");
+    notify("item/started", { threadId: "thr_1", item: { id: "spawn", type: "collabAgentToolCall", tool: "spawnAgent", prompt: "Review", agentsStates: { child: { status: "running" } } } });
+    notify("item/agentMessage/delta", { threadId: "child", itemId: "answer", delta: "Full " });
+    notify("item/agentMessage/delta", { threadId: "child", itemId: "answer", delta: "answer" });
+    notify("item/completed", { threadId: "child", item: { id: "answer", type: "agentMessage", text: "Full answer" } });
+    notify("item/started", { threadId: "child", item: { id: "nested", type: "collabAgentToolCall", tool: "spawnAgent", prompt: "Inspect", agentsStates: { grandchild: { status: "running" } } } });
+    notify("item/completed", { threadId: "grandchild", item: { id: "nested-answer", type: "agentMessage", text: "Nested answer" } });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    const session = events.reduce(applyHarnessEvent, newSession("codex", "/repo"));
+    const transcript = session.blocks.find((row) => row.tool?.callId === "spawn")!.agentRun!.transcript!;
+    expect(transcript.filter((row) => row.role === "assistant").map((row) => row.text)).toEqual(["Full answer"]);
+    expect(transcript.find((row) => row.tool?.callId === "nested")!.agentRun!.transcript!.map((row) => row.text)).toEqual(["Inspect", "Nested answer"]);
+    expect(session.blocks.filter((row) => row.role === "assistant")).toEqual([]);
+  });
+
   it("mirrors a child thread's work onto the row that spawned it", async () => {
     const { events, turn } = await startTurn("s1");
     notify("item/started", {
@@ -2264,6 +2282,7 @@ describe("codex subagents", () => {
     expect(events).toContainEqual({
       type: "image.generated",
       itemId: "child_image",
+      agentCallId: "collab_1",
       path: "/app-data/generated-images/image.png",
       name: "generated-image",
       mimeType: "image/png",

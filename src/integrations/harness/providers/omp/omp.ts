@@ -1,3 +1,4 @@
+import { piImageMaterializer } from "../pi/piImages";
 import {
   bindSession,
   cancelTurn,
@@ -27,7 +28,7 @@ import type {
  * Pi and speaks the same RPC protocol, so both run on the `piFamily` core.
  */
 export function sendOmpTurn(input: SendTurnInput): Promise<void> {
-  return sendTurn(OMP_FLAVOR, input);
+  return sendTurn(OMP_FLAVOR, input, piImageMaterializer());
 }
 
 export function compactOmpContext(input: CompactContextInput): Promise<void> {

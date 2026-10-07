@@ -1,4 +1,10 @@
 {
+  "Read-only text": "只读文本",
+  "Wrap lines": "自动换行",
+  "Go to start": "跳到开头",
+  "Go to end": "跳到末尾",
+  "Copy all": "复制全文",
+  "Large message shown as plain text for smooth scrolling.": "长消息以纯文本显示，便于流畅滚动。",
   "Back to chat": "返回会话",
   "More actions": "更多操作",
   "Built-in CLI profile": "内置 CLI 配置",
@@ -3343,5 +3349,11 @@
   "Image is too large (maximum 20 MB).": "图片过大（最大 20 MB）。",
   "Image must be a PNG, JPG, GIF, WebP, or SVG file.": "图片必须是 PNG、JPG、GIF、WebP 或 SVG 文件。",
   "Remove tag {tag}": "移除标签 {tag}",
-  "Add tags": "添加标签"
+  "Add tags": "添加标签",
+  "Subagent conversation": "子智能体会话",
+  "Historical subagent records may be incomplete.": "历史子智能体记录可能不完整。",
+  "The provider supplied only part of this subagent's conversation.": "提供方仅提供了此子智能体的部分会话记录。",
+  "Waiting for subagent messages…": "正在等待子智能体消息…",
+  "The provider did not supply this subagent's conversation.": "提供方未提供此子智能体的会话记录。",
+  "This subagent record is no longer available.": "此子智能体记录已不可用。"
 }

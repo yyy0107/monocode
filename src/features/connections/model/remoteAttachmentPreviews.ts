@@ -1,3 +1,5 @@
+import { walkTranscript } from "../../sessions/model/agentTranscript";
+import type { Block } from "../../sessions/model/session";
 import type { HostSession } from "./protocol";
 
 type Chunk = { data: string; offset: number; size: number };
@@ -13,13 +15,19 @@ export function reuseRemoteAttachmentPreviews(
   if (!known || known.session.id !== snapshot.session.id || snapshot === known)
     return snapshot;
   const previous = new Map(
-    known.session.blocks.flatMap((block) => block.attachments ?? [])
+    [...walkTranscript(known.session.blocks)].flatMap((block) => block.attachments ?? [])
       .filter((file) => file.data !== undefined)
       .map((file) => [file.id, file]),
   );
   if (!previous.size) return snapshot;
   let changed = false;
-  const blocks = snapshot.session.blocks.map((block) => {
+  const visit = (rows: Block[]): Block[] => rows.map((block) => {
+    if (block.agentRun?.transcript) {
+      const transcript = visit(block.agentRun.transcript);
+      if (transcript.some((row, index) => row !== block.agentRun!.transcript![index])) {
+        changed = true; block = { ...block, agentRun: { ...block.agentRun, transcript } };
+      }
+    }
     let blockChanged = false;
     const attachments = block.attachments?.map((file) => {
       const before = previous.get(file.id);
@@ -32,6 +40,7 @@ export function reuseRemoteAttachmentPreviews(
     });
     return blockChanged ? { ...block, attachments } : block;
   });
+  const blocks = visit(snapshot.session.blocks);
   return changed ? { ...snapshot, session: { ...snapshot.session, blocks } } : snapshot;
 }
 
@@ -48,13 +57,19 @@ export async function withRemoteAttachmentPreviews(
   }) => Promise<Chunk>,
 ): Promise<HostSession> {
   const previous = new Map(
-    (known?.session.id === snapshot.session.id ? known.session.blocks : [])
+    [...walkTranscript(known?.session.id === snapshot.session.id ? known.session.blocks : [])]
       .flatMap((block) => block.attachments ?? [])
       .map((file) => [file.id, file]),
   );
   let changed = false;
-  const blocks = await Promise.all(
-    snapshot.session.blocks.map(async (block) => {
+  const visit = (rows: Block[]): Promise<Block[]> => Promise.all(
+    rows.map(async (block) => {
+      if (block.agentRun?.transcript) {
+        const transcript = await visit(block.agentRun.transcript);
+        if (transcript.some((row, index) => row !== block.agentRun!.transcript![index])) {
+          changed = true; block = { ...block, agentRun: { ...block.agentRun, transcript } };
+        }
+      }
       if (!block.attachments?.length) return block;
       const attachments = await Promise.all(
         block.attachments.map(async (file) => {
@@ -117,6 +132,7 @@ export async function withRemoteAttachmentPreviews(
       return { ...block, attachments };
     }),
   );
+  const blocks = await visit(snapshot.session.blocks);
   return changed
     ? { ...snapshot, session: { ...snapshot.session, blocks } }
     : snapshot;

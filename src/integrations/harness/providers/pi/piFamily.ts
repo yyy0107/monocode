@@ -759,6 +759,36 @@ function interjectionFromCustomMessage(
   };
 }
 
+function emitPiAgentEvent(live: Live, event: HarnessEvent): void {
+  if (event.type === "image.generated" && "data" in event) publishPiImage(live, event);
+  else live.onEvent(event);
+}
+
+function publishPiImage(live: Live, image: RawImage): void {
+  const key = `${image.agentCallId ?? "root"}:${image.itemId}`;
+  if (live.imageIds.has(key)) return;
+  live.imageIds.add(key);
+  const materialize = live.imageMaterializer;
+  if (!materialize) { live.onEvent(image); return; }
+  const token = live.settleToken;
+  live.pendingImages = live.pendingImages.then(async () => {
+    if (live.cancelled || live.muteUpdates || live.settleToken !== token) return;
+    try {
+      const saved = await materialize(image);
+      if (live.cancelled || live.muteUpdates || live.settleToken !== token) {
+        await saved.discard().catch(() => undefined); return;
+      }
+      live.onEvent({ ...saved.event, ...(image.agentCallId ? { agentCallId: image.agentCallId } : {}) });
+    } catch (error) {
+      if (live.cancelled || live.muteUpdates || live.settleToken !== token) return;
+      const message = `Could not save Pi image: ${error instanceof Error ? error.message : String(error)}`;
+      live.onEvent(image.agentCallId
+        ? { type: "agent.step", callId: image.agentCallId, stepId: `${image.itemId}:error`, kind: "message", text: message }
+        : { type: "session.error", message });
+    }
+  });
+}
+
 function handleFrame(
   flavor: PiFlavor,
   sessionId: string,
@@ -984,7 +1014,7 @@ function handleFrame(
         preview: previewFromTool(tool.name, tool.input, execUpdate.detail),
       });
       if (toolKindFromName(tool.name) === "agent") {
-        for (const event of piSubagentEvents(tool.id, tool.input, rec.partialResult, false)) live.onEvent(event);
+        for (const event of piSubagentEvents(tool.id, tool.input, rec.partialResult, false)) emitPiAgentEvent(live, event);
       }
     }
   }
@@ -1004,7 +1034,7 @@ function handleFrame(
         preview: previewFromTool(tool.name, tool.input, execEnd.detail),
       });
       if (toolKindFromName(tool.name) === "agent") {
-        for (const event of piSubagentEvents(tool.id, tool.input, rec.result, true, execEnd.isError)) live.onEvent(event);
+        for (const event of piSubagentEvents(tool.id, tool.input, rec.result, true, execEnd.isError)) emitPiAgentEvent(live, event);
       }
     }
   }
@@ -1012,27 +1042,7 @@ function handleFrame(
   if (flavor.id === "pi" && execEnd) {
     const result = toolImagesFromEvent(rec);
     for (const message of result.errors) live.onEvent({ type: "session.error", message });
-    for (const image of result.images) {
-      if (live.imageIds.has(image.itemId)) continue;
-      live.imageIds.add(image.itemId);
-      const materialize = live.imageMaterializer;
-      if (!materialize) { live.onEvent(image); continue; }
-      const token = live.settleToken;
-      live.pendingImages = live.pendingImages.then(async () => {
-        if (live.cancelled || live.muteUpdates || live.settleToken !== token) return;
-        try {
-          const saved = await materialize(image);
-          if (live.cancelled || live.muteUpdates || live.settleToken !== token) {
-            await saved.discard().catch(() => undefined);
-            return;
-          }
-          live.onEvent(saved.event);
-        } catch (error) {
-          if (!live.cancelled && !live.muteUpdates && live.settleToken === token)
-            live.onEvent({ type: "session.error", message: `Could not save Pi image: ${error instanceof Error ? error.message : String(error)}` });
-        }
-      });
-    }
+    for (const image of result.images) publishPiImage(live, image);
   }
 
   if (isAgentSettled(rec)) {

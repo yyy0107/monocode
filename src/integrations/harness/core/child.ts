@@ -54,6 +54,11 @@ function listen<T>(
   return backend ? backend.listen(event, handler) : tauriListen(event, handler);
 }
 
+/** Read provider records on the same machine as the running process. */
+export function readProviderRecords<T>(command: "cursor_subagent_runs", args: Record<string, unknown>): Promise<T> {
+  return invoke<T>(command, args);
+}
+
 type LinePayload = { sessionId: string; line: string };
 type ExitPayload = { sessionId: string; code: number | null; pid?: number; error?: string };
 type SsePayload = { sessionId: string; data: string };

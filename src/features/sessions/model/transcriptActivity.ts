@@ -567,7 +567,7 @@ export function subagentModelName(block: Block): string | undefined {
  */
 export function subagentReport(block: Block): string | undefined {
   if (toolCallState(block) === "pending") return undefined;
-  return block.tool?.detail?.trim() || undefined;
+  return (block.tool?.output ?? block.tool?.detail)?.trim() || undefined;
 }
 
 /** A failed delegated call must stay visible even when the work trail folds. */

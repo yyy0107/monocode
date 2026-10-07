@@ -1000,12 +1000,12 @@ function refreshCursorSubagents(live: Live): Promise<void> {
   const job = (async () => {
     const runs = await readStoredCursorSubagentRuns(
       live.acpSessionId,
-      [...live.agentTools.keys()].slice(-256),
+      [...live.agentTools.keys()],
       live.subagentRevisions,
     ).catch(() => []);
     if (live.muteUpdates || live.subagentGeneration !== generation) return;
     for (const run of runs) {
-      if (!live.agentTools.has(run.toolCallId)) continue;
+      // The reader verifies native parent/spawn ancestry, including nested runs.
       live.subagentRevisions[run.agentId] = run.revision;
       live.subagentRuns.set(run.toolCallId, run);
       for (const event of cursorSubagentEvents(

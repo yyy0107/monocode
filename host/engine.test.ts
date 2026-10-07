@@ -284,6 +284,29 @@ describe("headless session ownership", () => {
     expect(readdirSync(store.attachmentDir)).toHaveLength(1);
   });
 
+  it("persists generated child images inside their agent and authorizes session reads", async () => {
+    const { engine, store, turns, id } = setup();
+    engine.command({ type: "send", commandId: "child-paint", sessionId: id, text: "Paint" });
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    const emit = turns[0].input.onEvent;
+    emit({ type: "tool.started", callId: "painter", title: "Painter", kind: "agent" });
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    const event = { type: "image.generated" as const, agentCallId: "painter", itemId: "paint", name: "saved.png", data: png, mimeType: "image/png" };
+    emit(event);
+    emit(event);
+    const blocks = store.session(id).session.blocks;
+    expect(blocks.filter(block => block.role === "image")).toHaveLength(0);
+    const images = blocks.find(block => block.tool?.callId === "painter")?.agentRun?.transcript?.filter(block => block.role === "image");
+    expect(images).toHaveLength(1);
+    const file = images![0].attachments![0];
+    expect(readAttachmentChunk(store, { sessionId: id, id: file.id, offset: 0 }).data).toBe(png);
+    expect(JSON.stringify(store.session(id))).not.toContain(png);
+    expect(readdirSync(store.attachmentDir)).toHaveLength(1);
+    turns[0].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+    expect(store.session(id).session.blocks.find(block => block.tool?.callId === "painter")?.agentRun?.transcript?.[0].attachments?.[0].id).toBe(file.id);
+  });
+
   it("shows image-save errors and removes files when database persistence fails", async () => {
     const { engine, store, turns, id } = setup();
     engine.command({ type: "send", commandId: "bad-image", sessionId: id, text: "Paint" });

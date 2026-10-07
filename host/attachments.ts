@@ -1,3 +1,4 @@
+import { walkTranscript } from "../src/features/sessions/model/agentTranscript";
 import {
   mkdirSync,
   openSync,
@@ -154,7 +155,7 @@ export function readAttachmentChunk(store: HostStore, input: Record<string, unkn
       ? message.attachments ?? [] : [];
   } else {
     const session = store.session(String(input.sessionId ?? ""));
-    files = [...session.session.blocks.flatMap((block) => block.attachments ?? []), ...session.session.queuedMessages?.flatMap((row) => row.attachments) ?? []];
+    files = [...[...walkTranscript(session.session.blocks)].flatMap((block) => block.attachments ?? []), ...session.session.queuedMessages?.flatMap((row) => row.attachments) ?? []];
   }
   const attachment = files.find((file) => file.id === input.id);
   if (!attachment) throw new Error("Attachment not found");

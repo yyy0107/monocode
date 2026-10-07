@@ -24,6 +24,7 @@ export const TranscriptPlatformContext = createContext<
     textRevealQueue?: TextRevealQueue;
     /** Clients without a side panel show a finished tool call's details on tap. */
     openTool?: (block: Block) => void;
+    openAgent?: (block: Block) => void;
     /** Clients without a side panel list a group's steps in a sheet instead of unfolding it inline. */
     openActivity?: (steps: Block[]) => void;
     /** Clients without a side panel read a whole plan in their own view. */

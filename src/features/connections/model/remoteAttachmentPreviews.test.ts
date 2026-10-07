@@ -77,3 +77,15 @@ it("downloads a persisted generated-image attachment without using its Host path
   expect(result.session.blocks[0].attachments?.[0]?.data).toBe(btoa("image"));
   expect(read).toHaveBeenCalledWith({ sessionId: "session", id: "image", offset: 0 });
 });
+
+it("hydrates and reuses images inside nested subagent transcripts", async () => {
+  const value = snapshot();
+  const image = value.session.blocks[0];
+  value.session.blocks = [{ id: "agent", role: "tool", text: "Explore", agentRun: { name: "Explore", steps: [], transcript: [image] } }];
+  const read = vi.fn(async () => ({ offset: 5, size: 5, data: btoa("image") }));
+  const first = await withRemoteAttachmentPreviews("nested-machine", value, undefined, read);
+  expect(first.session.blocks[0].agentRun!.transcript![0].attachments![0].data).toBe(btoa("image"));
+  const second = await withRemoteAttachmentPreviews("nested-machine", value, first, read);
+  expect(second.session.blocks[0].agentRun!.transcript![0].attachments![0].data).toBe(btoa("image"));
+  expect(read).toHaveBeenCalledTimes(1);
+});

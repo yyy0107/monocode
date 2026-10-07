@@ -1219,7 +1219,7 @@ function sanitizeAgentRun(value: unknown): AgentRunMeta | null {
     const kind = row.kind;
     if (
       !id ||
-      (kind !== "tool" && kind !== "message" && kind !== "reasoning")
+      (kind !== "tool" && kind !== "message" && kind !== "reasoning" && kind !== "user")
     ) {
       return [];
     }
@@ -1248,6 +1248,14 @@ function sanitizeAgentRun(value: unknown): AgentRunMeta | null {
     ...(typeof record.agentType === "string" && record.agentType.trim()
       ? { agentType: record.agentType.trim() }
       : {}),
+    ...(typeof record.providerSessionId === "string" ? { providerSessionId: record.providerSessionId } : {}),
+    ...(record.coverage === "recorded" || record.coverage === "partial" ? { coverage: record.coverage } : {}),
+    ...(Array.isArray(record.transcript) ? { transcript: record.transcript.flatMap((entry) => {
+      if (!entry || typeof entry !== "object" || typeof entry.id !== "string" ||
+          typeof entry.role !== "string" || typeof entry.text !== "string") return [];
+      const block = sanitizeBlock(entry as Block);
+      return block ? [block] : [];
+    }) } : {}),
     steps: steps.slice(-PERSISTED_AGENT_STEPS),
   };
 }

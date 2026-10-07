@@ -11,6 +11,7 @@ import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { SurfaceVisibilityContext, useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import { MobilePageStateContext, type MobilePageState } from "./mobilePageState";
 import { MobileOverlayLevelContext } from "./MobileOverlayHost";
+import { ReadonlyTextStateContext } from "../shared/ui/ReadonlyTextView";
 import "./pageMotion.css";
 
 export const MOBILE_PAGE_MOTION_MS = 220;
@@ -129,7 +130,9 @@ function PageLayer({ active, visible, enter, direction, page, children, onExited
     >
       <MobilePageStateContext.Provider value={page}>
         <SurfaceVisibilityContext.Provider value={active && visible}>
-          {children}
+          <ReadonlyTextStateContext.Provider value={page.values}>
+            {children}
+          </ReadonlyTextStateContext.Provider>
         </SurfaceVisibilityContext.Provider>
       </MobilePageStateContext.Provider>
     </div>

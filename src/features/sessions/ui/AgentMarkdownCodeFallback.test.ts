@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { MarkdownDocumentPreview } from "./MarkdownDocumentPreview";
+import { TranscriptPlatformContext } from "./TranscriptPlatform";
+import { EditorView } from "@codemirror/view";
 
 const mocked = vi.hoisted(() => ({ fail: false }));
 vi.mock("streamdown", async (importOriginal) => {
@@ -96,6 +98,26 @@ describe("code highlighting failure containment (desktop and mobile)", () => {
       node.querySelector<HTMLElement>('code[role="link"]')!.click(),
     );
     expect(onOpenFile).toHaveBeenCalledWith("/repo/package.json", undefined);
+    expect(uncaught).not.toHaveBeenCalled();
+  });
+
+  it("virtualizes long mobile fences without invoking the full-block highlighter", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const code = Array.from({ length: 1600 }, (_, i) => `const value${i} = ${i};`).join("\n");
+    const platform = { localFiles: false, copyText: async () => {}, copyMessage: async () => {},
+      openExternal: async () => {}, readBinaryFile: async () => new Uint8Array() };
+    await act(async () => {
+      await import("../../../shared/ui/ReadonlyTextEditor");
+      root.render(createElement(TranscriptPlatformContext.Provider, { value: platform },
+        createElement(AgentMarkdown, { text: `Before\n\n\`\`\`js\n${code}\n\`\`\`\n\nAfter` })));
+    });
+    await act(async () => {});
+    const view = EditorView.findFromDOM(node.querySelector<HTMLElement>(".cm-editor")!)!;
+    expect(view.state.doc.toString()).toBe(code + "\n");
+    expect(node.querySelector("[data-highlighted]")).toBeNull();
+    expect(node.querySelectorAll(".cm-line").length).toBeLessThan(100);
+    expect(node.textContent).toContain("Before");
+    expect(node.textContent).toContain("After");
     expect(uncaught).not.toHaveBeenCalled();
   });
 });

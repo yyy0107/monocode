@@ -1,3 +1,4 @@
+import { agentTranscript } from "../model/agentTranscript";
 import { AttachmentList } from "./AttachmentList";
 import "./AgentTranscript.css";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
@@ -2944,6 +2945,7 @@ function SubagentPanel({
   onOpenDiff?: (path: string) => void;
 }) {
   const { t: uiT } = useTranslation();
+  const { openAgent } = useContext(TranscriptPlatformContext);
   const name = subagentName(block);
   const brief = subagentBrief(block);
   const model = subagentModelName(block);
@@ -2953,7 +2955,7 @@ function SubagentPanel({
   // The run's trail as transcript blocks, so the panel groups it the way the
   // main transcript groups the agent's own work: what it said, then the calls
   // that line introduced, folding behind it once it moves on.
-  const stepBlocks = useMemo(() => steps.map(agentStepBlock), [steps]);
+  const stepBlocks = useMemo(() => agentTranscript(block), [block.agentRun]);
   const status = subagentStatusLine(block, steps);
   const report = subagentReport(block);
   const failed = state === "rejected";
@@ -2998,7 +3000,7 @@ function SubagentPanel({
 
   // A run that has not reported a step yet has nothing to open into. The row
   // still holds its place, so the chevron arriving does not move anything.
-  if (steps.length === 0 && !report) {
+  if (!openAgent && stepBlocks.length === 0 && !report) {
     return (
       <div
         aria-label={uiT("Subagent: {value0}", { value0: String(name) })}
@@ -3016,14 +3018,14 @@ function SubagentPanel({
     <div className="flex min-w-0 flex-col">
       <button
         type="button"
-        aria-expanded={open}
+        aria-expanded={openAgent ? undefined : open}
         aria-label={
-          open
+          open && !openAgent
             ? uiT("Hide {value0}'s work", { value0: String(name) })
             : uiT("Show {value0}'s work", { value0: String(name) })
         }
         title={brief}
-        onClick={onToggle}
+        onClick={openAgent ? () => openAgent(block) : onToggle}
         // An open row keeps the wash it lit up under the cursor, so the panel
         // below reads as hanging off it rather than off the transcript.
         className={`group -mx-1.5 flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors duration-200 hover:bg-content/8 ${
@@ -3039,7 +3041,7 @@ function SubagentPanel({
         />
       </button>
       <div className="zen-phase-body" data-open={open}>
-        <AnimatedCollapse expanded={open}>
+        <AnimatedCollapse expanded={!openAgent && open}>
           {() => (
             /*
              * No scroll window of its own. Each phase inside already keeps the
@@ -3112,29 +3114,6 @@ function SubagentMascot({
  * A mirrored step as the transcript block it stands for, so a subagent's trail
  * goes through the same rows — labels, file chips, diffs — as the main agent's.
  */
-function agentStepBlock(step: AgentStep): Block {
-  if (step.kind !== "tool") {
-    return {
-      id: step.id,
-      role: step.kind === "reasoning" ? "reasoning" : "assistant",
-      text: step.text,
-    };
-  }
-  return {
-    id: step.id,
-    role: "tool",
-    text: step.text,
-    tool: {
-      callId: step.id,
-      title: step.text,
-      ...(step.toolKind ? { kind: step.toolKind } : {}),
-      ...(step.status ? { status: step.status } : {}),
-      ...(step.detail ? { detail: step.detail } : {}),
-      ...(step.preview ? { preview: step.preview } : {}),
-    },
-  };
-}
-
 /** What a delegated run is up to: its newest step, or how much it got through. */
 /**
  * A run is counted, never narrated. Echoing the call in flight put a second
@@ -3143,12 +3122,13 @@ function agentStepBlock(step: AgentStep): Block {
  */
 function subagentStatusLine(block: Block, steps: AgentStep[]): string {
   if (toolCallState(block) === "rejected") return "failed";
-  const tools = steps.filter((step) => step.kind === "tool").length;
+  const fullTools = block.agentRun?.transcript?.filter((row) => row.role === "tool");
+  const tools = fullTools?.length ?? steps.filter((step) => step.kind === "tool").length;
   if (tools === 0) return "";
   const count = tools === 1 ? "1 step" : `${tools} steps`;
   // A step that failed inside a run that went on to finish still has to say so
   // here, or the row reads clean until someone opens the trail.
-  const failed = steps.filter(
+  const failed = fullTools?.filter((row) => isFailedStatus(row.tool?.status)).length ?? steps.filter(
     (step) => step.kind === "tool" && isFailedStatus(step.status),
   ).length;
   if (!failed) return count;

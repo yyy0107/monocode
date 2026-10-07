@@ -201,7 +201,7 @@ export type ToolPreview = {
 };
 
 /** One thing a subagent did, mirrored into the parent transcript. */
-export type AgentStepKind = "tool" | "message" | "reasoning";
+export type AgentStepKind = "tool" | "message" | "reasoning" | "user";
 
 export type AgentStep = {
   /** Provider step identity, so repeats merge instead of stacking up. */
@@ -228,6 +228,11 @@ export type AgentRunMeta = {
   /** Model reported for the child, which may differ from its parent. */
   model?: string;
   steps: AgentStep[];
+  /** Complete captured conversation. Steps remain a bounded compatibility preview. */
+  transcript?: Block[];
+  providerSessionId?: string;
+  /** Partial means the source only supplied a tail or some events were lost. */
+  coverage?: "recorded" | "partial";
 };
 
 export type AttachmentKind = "image" | "audio" | "file";
@@ -339,6 +344,9 @@ export type Block = {
     kind?: string;
     status?: string;
     detail?: string;
+    /** Full provider request and result, independent of the short row preview. */
+    input?: string;
+    output?: string;
     preview?: ToolPreview;
     /** Left running by the agent when it yielded; the turn waits on it. */
     background?: boolean;

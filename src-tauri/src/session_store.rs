@@ -274,19 +274,18 @@ pub fn session_upsert(
 }
 
 fn generated_image_paths(blocks: &Value) -> Vec<String> {
-    blocks
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|block| block.get("role").and_then(Value::as_str) == Some("image"))
-        .filter_map(|block| {
-            block
-                .get("image")
-                .and_then(|image| image.get("path"))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .collect()
+    let mut paths = Vec::new();
+    for block in blocks.as_array().into_iter().flatten() {
+        if block.get("role").and_then(Value::as_str) == Some("image") {
+            if let Some(path) = block.pointer("/image/path").and_then(Value::as_str) {
+                paths.push(path.to_owned());
+            }
+        }
+        if let Some(children) = block.pointer("/agentRun/transcript") {
+            paths.extend(generated_image_paths(children));
+        }
+    }
+    paths
 }
 
 #[tauri::command(async)]

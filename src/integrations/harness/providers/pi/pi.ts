@@ -1,5 +1,4 @@
-import { isTauri } from "@tauri-apps/api/core";
-import { saveGeneratedImage, deleteGeneratedImages } from "../../../../platform/tauri/fs";
+import { piImageMaterializer } from "./piImages";
 import {
   bindSession,
   cancelTurn,
@@ -30,13 +29,7 @@ import type {
  * keep working; TUI-only widgets do not appear in MonoCode.
  */
 export function sendPiTurn(input: SendTurnInput): Promise<void> {
-  return sendTurn(PI_FLAVOR, input, typeof isTauri === "function" && isTauri() ? async image => {
-    const asset = await saveGeneratedImage({ data: image.data, name: image.name });
-    return { event: { type: "image.generated", itemId: image.itemId,
-      path: asset.path, name: image.name, mimeType: asset.mimeType, size: asset.size },
-      discard: () => deleteGeneratedImages([asset.path]),
-    };
-  } : undefined);
+  return sendTurn(PI_FLAVOR, input, piImageMaterializer());
 }
 
 export function compactPiContext(input: CompactContextInput): Promise<void> {

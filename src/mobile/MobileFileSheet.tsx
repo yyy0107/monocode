@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useContext, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { isLongText, ReadonlyTextView } from "../shared/ui/ReadonlyTextView";
+import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
 import { AgentMarkdown } from "../features/sessions/ui/AgentMarkdown";
 import { sniffImageMime } from "../features/files/model/filePreview";
 import { displayPath } from "../shared/lib/paths";
 import { useTranslation } from "../shared/i18n/useTranslation";
-import { MobileSheet } from "./MobileSheet";
+import { MobileSheet, MobileSheetHeader } from "./MobileSheet";
 
 /** Large files stay readable on a phone only up to a point; past it we just say so. */
 export const MAX_PREVIEW_BYTES = 512 * 1024;
@@ -11,8 +13,6 @@ export const MAX_PREVIEW_BYTES = 512 * 1024;
 export const MAX_IMAGE_PREVIEW_BYTES = 10 * 1024 * 1024;
 /** Syntax highlighting gets slow on long files, so they fall back to plain text. */
 const MAX_HIGHLIGHT_BYTES = 96 * 1024;
-/** Plain text renders this many lines at a time, more as the reader scrolls. */
-export const LINE_CHUNK = 300;
 
 type Loaded =
   | { kind: "loading" }
@@ -74,7 +74,9 @@ export function MobileFileSheet({
   onOpenFile,
   onBack,
   onClose,
+  embedded = false,
 }: {
+  embedded?: boolean;
   open?: boolean;
   onExited?: () => void;
   path: string;
@@ -86,6 +88,7 @@ export function MobileFileSheet({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  const { copyText } = useContext(TranscriptPlatformContext);
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const extension = fileExtension(path);
   const name = path.split(/[\\/]/).pop() || path;
@@ -129,7 +132,7 @@ export function MobileFileSheet({
     if (loaded.kind !== "text") return undefined;
     // Rendered markdown and highlighting are all-at-once; long files fall
     // back to the lazily rendered plain view.
-    if (loaded.size > MAX_HIGHLIGHT_BYTES) return undefined;
+    if (loaded.size > MAX_HIGHLIGHT_BYTES || isLongText(loaded.text)) return undefined;
     if (extension === "md" || extension === "markdown") return loaded.text;
     // A cited line needs the numbered plain view to scroll to it.
     if (line) return undefined;
@@ -157,9 +160,7 @@ export function MobileFileSheet({
     ? { "--mobile-file-gutter": `${String(loaded.text.split("\n").length).length}ch` } as CSSProperties
     : undefined;
 
-  return (
-    <MobileSheet open={open} onExited={onExited} title="File preview" onClose={onClose} onBack={onBack}
-      detents header={{ title: name, subtitle: displayPath(path, cwd) }}>
+  const content = (
       <div className="mobile-file-sheet" data-view={view} style={gutter}>
         {loaded.kind === "loading" ? (
           <p className="mobile-muted mobile-detail-note">{t("Loading…")}</p>
@@ -205,46 +206,27 @@ export function MobileFileSheet({
             onOpenFile={onOpenFile}
           />
         ) : (
-          <LazyLines text={loaded.text} line={line} />
+          isLongText(loaded.text)
+            ? <ReadonlyTextView key={path} text={loaded.text} line={line} stateKey={`file:${path}`} onCopy={copyText} />
+            : <PlainLines text={loaded.text} line={line} />
         )}
       </div>
-    </MobileSheet>
   );
+  const header = { title: name, subtitle: displayPath(path, cwd) };
+  if (embedded) return <><MobileSheetHeader {...header} onBack={onBack} onClose={onClose} />
+    <div className="mobile-sheet-page-scroll" data-mobile-page-scroll>{content}</div></>;
+  return <MobileSheet open={open} onExited={onExited} title="File preview" onClose={onClose} onBack={onBack}
+    detents header={header}>{content}</MobileSheet>;
 }
 
-/** Numbered plain text that renders in chunks so huge files stay responsive. */
-function LazyLines({ text, line }: { text: string; line?: number }) {
-  const { t } = useTranslation();
+/** Only short cited files reach this path; long sources use the virtual viewport. */
+function PlainLines({ text, line }: { text: string; line?: number }) {
   const lines = useMemo(() => text.split("\n"), [text]);
-  // Start with enough lines to reach a cited line plus some context below it.
-  const initial = Math.max(LINE_CHUNK, (line ?? 0) + LINE_CHUNK / 2);
-  const [count, setCount] = useState(initial);
-  const more = useRef<HTMLButtonElement>(null);
-  useEffect(() => setCount(initial), [text, initial]);
-  const remaining = lines.length - count;
-
-  useEffect(() => {
-    const target = more.current;
-    if (!target || remaining <= 0 || typeof IntersectionObserver !== "function")
-      return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting))
-          setCount((value) => value + LINE_CHUNK);
-      },
-      {
-        root: target.closest(".mobile-sheet-content"),
-        rootMargin: "0px 0px 600px 0px",
-      },
-    );
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [remaining]);
 
   return (
     <>
       <pre className="mobile-detail-pre mobile-file-plain">
-        {lines.slice(0, count).map((text, index) => (
+        {lines.map((text, index) => (
           <span
             key={index}
             data-line={index + 1}
@@ -255,18 +237,6 @@ function LazyLines({ text, line }: { text: string; line?: number }) {
           </span>
         ))}
       </pre>
-      {remaining > 0 ? (
-        <button
-          ref={more}
-          type="button"
-          className="mobile-button mobile-detail-action"
-          onClick={() => setCount((value) => value + LINE_CHUNK)}
-        >
-          {t("Show {count} more lines", {
-            count: Math.min(LINE_CHUNK, remaining),
-          })}
-        </button>
-      ) : null}
     </>
   );
 }

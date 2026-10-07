@@ -57,6 +57,8 @@ export function cursorSubagentEvents(
       ...(run.model ? { agentModel: run.model } : {}),
     },
   ];
+  events.push({ type: "agent.updated", callId: run.toolCallId, prompt: run.prompt ?? undefined,
+    providerSessionId: run.agentId, coverage: run.partial ? "partial" : "recorded" });
   for (const step of run.steps) {
     const args =
       step.args && typeof step.args === "object" && !Array.isArray(step.args)
@@ -80,6 +82,8 @@ export function cursorSubagentEvents(
       ...(step.kind === "tool"
         ? {
             toolKind: kind,
+            input: JSON.stringify(args, null, 2), output: step.output,
+            toolCallId: step.toolCallId,
             status: step.status,
             // A preview's output is not shown on the row, so a failure has to
             // carry its own text to be readable at all.
@@ -111,13 +115,13 @@ export async function recoverCursorSubagents(
   if (!rows.length) return session;
   const runs = await readStoredCursorSubagentRuns(
     session.providerSessionId,
-    rows.map((row) => row.tool!.callId!).slice(-256),
+    rows.map((row) => row.tool!.callId!),
   ).catch(() => []);
   const titles = new Map(
     rows.map((row) => [row.tool!.callId, row.tool!.title ?? row.text]),
   );
   for (const run of runs) {
-    if (!titles.has(run.toolCallId)) continue;
+    // Nested runs are returned only after their verified parent.
     for (const event of cursorSubagentEvents(run, titles.get(run.toolCallId)))
       session = applyHarnessEvent(session, event);
   }

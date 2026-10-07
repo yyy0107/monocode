@@ -234,7 +234,7 @@ describe("OpenCode subagent trails", () => {
     expect(events.filter((event) => event.type === "message.delta")).toEqual([]);
   });
 
-  it("streams child reasoning and tools, including nested tasks, without user or hidden text", async () => {
+  it("streams child prompts, reasoning and tools while preserving nested tasks and excluding hidden text", async () => {
     const events: HarnessEvent[] = [];
     const { done } = await startTurn(events);
     task("a", "child");
@@ -263,7 +263,9 @@ describe("OpenCode subagent trails", () => {
     await done;
     const session = events.reduce(applyHarnessEvent, newSession("opencode", "/repo"));
     const steps = session.blocks.find((block) => block.tool?.callId === "a")?.agentRun?.steps;
-    expect(steps?.map((step) => step.text)).toEqual(["Trace imports", "Read auth.ts", "Subagent", "Nested answer"]);
+    expect(steps?.map((step) => step.text)).toEqual(["Private prompt", "Trace imports", "Read auth.ts", "Subagent"]);
+    const transcript = session.blocks.find((block) => block.tool?.callId === "a")?.agentRun?.transcript;
+    expect(transcript?.find((block) => block.tool?.kind === "agent")?.agentRun?.transcript?.map((block) => block.text)).toEqual(["Nested answer"]);
     expect(steps?.find((step) => step.toolKind === "read")?.status).toBe("failed");
     expect(steps?.find((step) => step.toolKind === "read")?.detail).toBe(
       "File missing",

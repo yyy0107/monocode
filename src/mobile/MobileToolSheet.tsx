@@ -1,4 +1,5 @@
-import { useContext, useState, type ReactNode } from "react";
+import { useContext, useMemo, useState, type ReactNode } from "react";
+import { isLongText, ReadonlyTextView } from "../shared/ui/ReadonlyTextView";
 import { isReadTool } from "../integrations/harness/core/preview";
 import { FilePreview } from "../features/files/ui/FilePreview";
 import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
@@ -47,8 +48,8 @@ export function toolDetails(block: Block, cwd?: string) {
   const result = preview?.output?.trimEnd() || undefined;
   // Most adapters replace detail with the returned text on completion. Older
   // shell previews may carry output separately and leave the request in detail.
-  const output = result ?? (state !== "pending" ? body : undefined);
-  const input = result && body && body !== result ? body : undefined;
+  const output = tool?.output ?? result ?? (state !== "pending" ? body : undefined);
+  const input = tool?.input ?? (result && body && body !== result ? body : undefined);
   // A running detail can be a request or partial output; do not mislabel it.
   const details = !input && !output ? body : undefined;
   const path = preview?.path
@@ -105,7 +106,7 @@ export function MobileToolSheet({
   const { copyText } = useContext(TranscriptPlatformContext);
   const [copied, setCopied] = useState<string>();
   const { label, state, input, output, details, readOutput, path, preview } =
-    toolDetails(block, cwd);
+    useMemo(() => toolDetails(block, cwd), [block, cwd]);
 
   const copy = (key: string, text: string) => {
     void copyText(text).then(() => {
@@ -160,7 +161,9 @@ export function MobileToolSheet({
         </button>
       </div>
       {notice}
-      <pre className="mobile-detail-pre">{text}</pre>
+      {isLongText(text)
+        ? <ReadonlyTextView text={text} stateKey={`${block.id}:${key}`} />
+        : <pre className="mobile-detail-pre">{text}</pre>}
     </section>
   );
 

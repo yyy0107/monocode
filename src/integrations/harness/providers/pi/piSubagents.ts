@@ -6,6 +6,7 @@ import {
   textFromContent,
   toolKindFromName,
   toolTitle,
+  toolImagesFromEvent,
 } from "./piProtocol";
 
 /** Pi extension results and omp TaskToolDetails are cumulative snapshots. */
@@ -88,6 +89,8 @@ export function piSubagentEvents(
       ...(model ? { agentModel: model } : {}),
       ...(report ? { detail: report } : {}),
     });
+    events.push({ type: "agent.updated", callId: rowId, prompt: records(final.messages).some((message) => message.role === "user") ? undefined : stringField(entry, "task") ?? stringField(input, "prompt"),
+      coverage: records(final.messages).length ? "recorded" : "partial" });
     const emit = (
       step: Omit<
         Extract<HarnessEvent, { type: "agent.step" }>,
@@ -109,6 +112,12 @@ export function piSubagentEvents(
         .map((message) => [message.toolCallId, message]),
     );
     messages.forEach((message, messageIndex) => {
+      if (message.role === "user") {
+        const text = textFromContent(message.content);
+        if (text)
+          emit({ stepId: `${rowId}:user:${messageIndex}`, kind: "user", text });
+        return;
+      }
       if (message.role !== "assistant") return;
       records(message.content).forEach((part, partIndex) => {
         const stepId = `${rowId}:message:${messageIndex}:${partIndex}`;
@@ -145,7 +154,26 @@ export function piSubagentEvents(
             // on the row, so this is the one place the error can be read.
             ...(outcome?.isError && output ? { detail: output } : {}),
             preview: previewFromTool(tool, args, output),
+            input: JSON.stringify(args, null, 2), output,
           });
+          if (outcome) {
+            const images = toolImagesFromEvent({ type: "tool_execution_end", toolCallId: `${rowId}:${id ?? stepId}`, result: outcome });
+            events.push(...images.images.map((image) => ({ ...image, agentCallId: rowId })));
+            images.errors.forEach((text, index) => emit({ stepId: `${stepId}:image-error:${index}`, kind: "message", text }));
+          }
+          if (id && toolKindFromName(tool) === "agent" && outcome) {
+            const nestedId = `${rowId}:tool:${id}`;
+            const nested = piSubagentEvents(nestedId, args, outcome, true, !!outcome.isError);
+            for (const event of nested) {
+              if (event.type === "tool.updated" && event.callId !== nestedId) {
+                events.push({ type: "agent.step", callId: nestedId, stepId: event.callId,
+                  kind: "tool", toolKind: "agent", text: event.title ?? "Subagent", status: event.status,
+                  output: event.detail });
+              } else if (event.type === "tool.updated" && event.callId === nestedId && event.kind === "other") {
+                events.push({ ...event, kind: "agent" });
+              } else events.push(event);
+            }
+          }
         }
       });
     });

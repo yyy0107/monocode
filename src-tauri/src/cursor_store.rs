@@ -33,6 +33,7 @@ pub struct CursorSubagentRun {
     model: Option<String>,
     prompt: Option<String>,
     steps: Vec<CursorSubagentStep>,
+    partial: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -43,6 +44,8 @@ pub struct CursorSubagentStep {
     text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     args: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -153,6 +156,10 @@ fn lookup_subagent_runs(
                 prompt,
                 steps,
                 model,
+                partial: connection.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM blobs WHERE length(data) > 8388608 AND substr(data,1,1)=x'7b')",
+                    [], |row| row.get::<_, bool>(0),
+                ).unwrap_or(true),
             });
         }
     }
@@ -189,12 +196,12 @@ fn read_subagent_steps(
 ) -> rusqlite::Result<(Option<String>, Vec<CursorSubagentStep>, Option<String>)> {
     // Filter before reading bytes: stores also contain large binary snapshots.
     let mut statement = connection.prepare(
-        "SELECT id, data FROM blobs WHERE length(data) <= ?1 AND substr(data, 1, 1) = x'7b' ORDER BY rowid DESC LIMIT 600",
+        "SELECT id, data FROM blobs WHERE length(data) <= ?1 AND substr(data, 1, 1) = x'7b' ORDER BY rowid",
     )?;
-    let rows = statement.query_map([MAX_BLOB_BYTES as i64], |row| {
+    let rows = statement.query_map([8 * 1024 * 1024_i64], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
     })?;
-    let mut messages: Vec<(String, Value)> = rows
+    let messages: Vec<(String, Value)> = rows
         .filter_map(Result::ok)
         .filter_map(|(id, data)| {
             serde_json::from_slice(&data)
@@ -202,7 +209,6 @@ fn read_subagent_steps(
                 .map(|message| (id, message))
         })
         .collect();
-    messages.reverse();
     let mut steps: Vec<CursorSubagentStep> = Vec::new();
     let mut tools = HashMap::new();
     let mut prompt = None;
@@ -223,10 +229,14 @@ fn read_subagent_steps(
         if role == Some("user") && prompt.is_none() {
             let text = cursor_content_text(content);
             if let Some((_, query)) = text.split_once("<user_query>") {
-                prompt = Some(cap_text(
-                    query.split("</user_query>").next().unwrap_or(query).trim(),
-                    2_000,
-                ));
+                prompt = Some(
+                    query
+                        .split("</user_query>")
+                        .next()
+                        .unwrap_or(query)
+                        .trim()
+                        .to_owned(),
+                );
             }
         }
         let Some(content) = content.and_then(Value::as_array) else {
@@ -250,8 +260,9 @@ fn read_subagent_steps(
                     } else {
                         "message"
                     },
-                    text: cap_text(text, 2_000),
+                    text: text.to_owned(),
                     tool_name: None,
+                    tool_call_id: None,
                     args: None,
                     status: None,
                     output: None,
@@ -272,6 +283,7 @@ fn read_subagent_steps(
                         .get("toolName")
                         .and_then(Value::as_str)
                         .map(str::to_owned),
+                    tool_call_id: Some(call_id.to_owned()),
                     args: part.get("args").cloned(),
                     status: Some("in_progress"),
                     output: None,
@@ -285,14 +297,11 @@ fn read_subagent_steps(
                     steps[*index].status = Some(if failed { "failed" } else { "completed" });
                     let output = cursor_content_text(part.get("result"));
                     if !output.trim().is_empty() {
-                        steps[*index].output = Some(cap_text(&output, 8_000));
+                        steps[*index].output = Some(output);
                     }
                 }
             }
         }
-    }
-    if steps.len() > 300 {
-        steps.drain(..steps.len() - 300);
     }
     Ok((prompt, steps, model))
 }
@@ -687,7 +696,7 @@ mod tests {
     }
 
     #[test]
-    fn bounds_child_history_and_ignores_oversized_messages() {
+    fn preserves_complete_child_history_and_long_messages() {
         let fixture = TestStore::new();
         let (_, connection) = fixture.child("child", "parent", "spawn");
         for index in 0..305 {
@@ -703,9 +712,10 @@ mod tests {
             serde_json::json!({"role":"assistant","content":[{"type":"text","text":"x".repeat(MAX_BLOB_BYTES)}]}),
         );
         let (_, steps, _) = read_subagent_steps(&connection, "child").unwrap();
-        assert_eq!(steps.len(), 300);
-        assert_eq!(steps[0].text, "Message 5");
-        assert_eq!(steps[299].text, "Message 304");
+        assert_eq!(steps.len(), 306);
+        assert_eq!(steps[0].text, "Message 0");
+        assert_eq!(steps[304].text, "Message 304");
+        assert_eq!(steps[305].text.len(), MAX_BLOB_BYTES);
     }
 
     #[test]

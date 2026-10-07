@@ -1,7 +1,7 @@
+import { applyAgentEvent } from "./agentTranscript";
+import { agentTranscript, updateAgentTool } from "../../../features/sessions/model/agentTranscript";
 import { applyNativeTitle } from "../../../features/sessions/model/titlePolicy";
 import type {
-  AgentRunMeta,
-  AgentStep,
   Attachment,
   Block,
   Session,
@@ -67,9 +67,20 @@ export function applyHarnessEvent(
       return patchStreaming(session, "assistant", event.text, true);
     case "message.completed":
       return finishRole(session, "assistant");
-    case "image.generated":
+    case "image.generated": {
       if (!("path" in event)) return session;
-      return appendImage(session, event);
+      if (!event.agentCallId) return appendImage(session, event);
+      const blocks = updateAgentTool(session.blocks, event.agentCallId, (block) => {
+        const rows = agentTranscript(block);
+        const id = `${event.agentCallId}:image:${event.itemId}`;
+        if (rows.some((row) => row.id === id)) return block;
+        const transcript = appendImage({ ...session, blocks: rows }, event).blocks;
+        if (transcript.length === rows.length) return block;
+        transcript[transcript.length - 1] = { ...transcript[transcript.length - 1], id };
+        return { ...block, agentRun: { name: block.text, steps: [], ...block.agentRun, transcript } };
+      });
+      return blocks === session.blocks ? session : { ...session, blocks };
+    }
     case "reasoning.delta":
       return patchStreaming(session, "reasoning", event.text, true);
     case "reasoning.completed":
@@ -97,7 +108,8 @@ export function applyHarnessEvent(
         agentModel: event.agentModel,
       });
     case "agent.step":
-      return recordAgentStep(session, event);
+    case "agent.updated":
+      return applyAgentEvent(session, event);
     case "approval.requested":
       return attachApproval(session, event);
     case "approval.resolved": {
@@ -684,6 +696,16 @@ export function promoteLastAssistantToPlan(
 }
 
 function stopBlockProgress(block: Block): Block {
+  if (block.agentRun?.transcript) {
+    const transcript = block.agentRun.transcript.map((child) => {
+      const stopped = stopBlockProgress(child);
+      if (stopped.tool && ["in_progress", "pending", "running"].includes(stopped.tool.status ?? ""))
+        return { ...stopped, tool: { ...stopped.tool, status: "cancelled" } };
+      return stopped;
+    });
+    if (transcript.some((entry, index) => entry !== block.agentRun!.transcript![index]))
+      block = { ...block, agentRun: { ...block.agentRun, transcript } };
+  }
   let stopped = block.streaming ? sealStream(block) : block;
   if (stopped.orchestration?.status === "planning") {
     stopped = {
@@ -986,6 +1008,15 @@ function upsertTool(
     background?: boolean;
   },
 ): Session {
+  if (!session.blocks.some((block) => block.tool?.callId === patch.callId)) {
+    const nested = updateAgentTool(session.blocks, patch.callId, (block) =>
+      upsertTool({ ...session, blocks: [block] }, patch).blocks[0]);
+    if (nested !== session.blocks) return { ...session, blocks: nested };
+    // An unchanged nested call still belongs there.
+    let found = false;
+    updateAgentTool(session.blocks, patch.callId, (block) => { found = true; return block; });
+    if (found) return session;
+  }
   const index = findToolIndex(session, patch);
   const previous = index < 0 ? undefined : session.blocks[index];
   const status = patch.status ?? previous?.tool?.status;
@@ -998,7 +1029,7 @@ function upsertTool(
     finished && startedAt != null ? Math.max(0, Date.now() - startedAt) : undefined
   );
   if (index < 0) {
-    const detail = capToolDetail(patch.detail);
+    const detail = patch.kind === "agent" ? patch.detail : capToolDetail(patch.detail);
     const preview = fillPreview(patch.preview, detail, patch.kind, patch.title);
     const label = finalToolLabel(
       session,
@@ -1027,7 +1058,7 @@ function upsertTool(
     });
   }
   const prev = session.blocks[index];
-  const detail = capToolDetail(patch.detail) ?? prev.tool?.detail;
+  const detail = ((patch.kind ?? prev.tool?.kind) === "agent" ? patch.detail : capToolDetail(patch.detail)) ?? prev.tool?.detail;
   const preview = fillPreview(
     mergeToolPreview(patch.preview, prev.tool?.preview),
     detail,
@@ -1041,7 +1072,8 @@ function upsertTool(
     preview,
   );
   const kind = patch.kind ?? prev.tool?.kind;
-  const agentName = prev.agentRun?.steps.length ? prev.agentRun.name : label;
+  const agentName = prev.agentRun && prev.agentRun.name !== prev.text && !isWeakToolTitle(prev.agentRun.name)
+    ? prev.agentRun.name : label;
   if (
     prev.text === label &&
     prev.streaming === streaming &&
@@ -1075,6 +1107,7 @@ function upsertTool(
         }
       : {}),
     tool: {
+      ...prev.tool,
       callId: patch.callId,
       title: label,
       kind,
@@ -1130,110 +1163,6 @@ function fillPreview(
     return stubFilePreview(kind, title);
   }
   return undefined;
-}
-
-/**
- * How much of a subagent's trail the parent keeps. A delegated run can be
- * thousands of calls long; the transcript only ever shows a window of it, and
- * an unbounded array would grow the saved session without bound.
- */
-const MAX_AGENT_STEPS = 300;
-
-const MAX_AGENT_STEP_CHARS = 2_000;
-
-/**
- * Mirrors one subagent action onto its parent Agent tool block. Steps merge by
- * provider id, so a call that starts pending and later completes stays one row
- * instead of appearing twice.
- */
-function recordAgentStep(
-  session: Session,
-  event: Extract<HarnessEvent, { type: "agent.step" }>,
-): Session {
-  const index = session.blocks.findIndex(
-    (block) => block.tool?.callId === event.callId,
-  );
-  if (index < 0) return session;
-  const prev = session.blocks[index];
-  const text = capAgentStepText(event.text);
-  // A tool step earns a row on its label alone; prose with nothing in it does
-  // not.
-  if (!text && event.kind !== "tool") return session;
-
-  const run = prev.agentRun;
-  const detail = capToolDetail(event.detail);
-  const step: AgentStep = {
-    id: event.stepId,
-    kind: event.kind,
-    text,
-    ...(event.toolKind ? { toolKind: event.toolKind } : {}),
-    ...(event.status ? { status: event.status } : {}),
-    ...(detail ? { detail } : {}),
-    ...(event.preview ? { preview: event.preview } : {}),
-  };
-
-  const at = run?.steps.findIndex((entry) => entry.id === event.stepId) ?? -1;
-  let steps: AgentStep[];
-  if (run && at >= 0) {
-    const existing = run.steps[at];
-    steps = run.steps.slice();
-    steps[at] = {
-      ...existing,
-      ...step,
-      // A completion carries the result, not the request: keep the label the
-      // call announced itself with rather than letting the result rename it.
-      text: text || existing.text,
-      preview: mergeToolPreview(event.preview, existing.preview),
-    };
-  } else {
-    steps = [...(run?.steps ?? []), step];
-    if (steps.length > MAX_AGENT_STEPS) {
-      steps = steps.slice(steps.length - MAX_AGENT_STEPS);
-    }
-  }
-
-  const next: AgentRunMeta = {
-    ...(run?.model ? { model: run.model } : {}),
-    name:
-      event.agentName ||
-      run?.name ||
-      prev.tool?.title ||
-      prev.text ||
-      "Subagent",
-    ...((event.agentType ?? run?.agentType)
-      ? { agentType: event.agentType ?? run?.agentType }
-      : {}),
-    steps,
-  };
-  if (run && sameAgentRun(run, next)) return session;
-  const blocks = session.blocks.slice();
-  blocks[index] = { ...prev, agentRun: next };
-  return { ...session, blocks };
-}
-
-function sameAgentRun(a: AgentRunMeta, b: AgentRunMeta): boolean {
-  if (a.name !== b.name || a.agentType !== b.agentType || a.model !== b.model)
-    return false;
-  if (a.steps.length !== b.steps.length) return false;
-  return a.steps.every((step, index) => sameAgentStep(step, b.steps[index]));
-}
-
-function sameAgentStep(a: AgentStep, b: AgentStep): boolean {
-  return (
-    a.id === b.id &&
-    a.kind === b.kind &&
-    a.text === b.text &&
-    a.toolKind === b.toolKind &&
-    a.status === b.status &&
-    a.detail === b.detail &&
-    samePreview(a.preview, b.preview)
-  );
-}
-
-function capAgentStepText(value: string): string {
-  const text = value.trim();
-  if (text.length <= MAX_AGENT_STEP_CHARS) return text;
-  return `${text.slice(0, MAX_AGENT_STEP_CHARS)}\u2026`;
 }
 
 function findToolIndex(

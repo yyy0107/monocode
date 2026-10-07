@@ -1,5 +1,6 @@
 import type {
   AgentStepKind,
+  AgentRunMeta,
   Attachment,
   InterjectionMeta,
   NativeSessionLink,
@@ -39,6 +40,7 @@ export type HarnessEvent =
   | { type: "message.completed" }
   | {
       type: "image.generated";
+      agentCallId?: string;
       itemId: string;
       data: string;
       name: string;
@@ -47,6 +49,7 @@ export type HarnessEvent =
     }
   | {
       type: "image.generated";
+      agentCallId?: string;
       itemId: string;
       path: string;
       name: string;
@@ -100,6 +103,25 @@ export type HarnessEvent =
       /** The subagent's own name, when the provider only reveals it here. */
       agentName?: string;
       agentType?: string;
+      /** Actual child tool identity when stepId is namespaced. */
+      toolCallId?: string;
+      input?: string;
+      output?: string;
+      append?: boolean;
+      streaming?: boolean;
+      /** Explicit nested path, excluding callId, when IDs are not globally unique. */
+      agentPath?: string[];
+    }
+  | {
+      type: "agent.updated";
+      callId: string;
+      agentPath?: string[];
+      name?: string;
+      model?: string;
+      agentType?: string;
+      providerSessionId?: string;
+      prompt?: string;
+      coverage?: AgentRunMeta["coverage"];
     }
   | {
       type: "approval.requested";

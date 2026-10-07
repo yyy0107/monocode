@@ -872,6 +872,7 @@ function handleNotification(
     }
     live.onEvent(event);
   }
+  emitCodexAgentInfo(live, rec);
   if (method === "item/completed") showCodexAsyncQuestion(live, rec);
   // Metadata and steps can arrive before the spawn. Create its row first.
   let replay: Promise<void> | undefined;
@@ -1012,6 +1013,7 @@ async function materializeGeneratedImage(
     live.onEvent({
       type: "image.generated",
       itemId: event.itemId,
+      ...(event.agentCallId ? { agentCallId: event.agentCallId } : {}),
       path: asset.path,
       name: event.name,
       mimeType: asset.mimeType,
@@ -1026,12 +1028,10 @@ async function materializeGeneratedImage(
     ) {
       return;
     }
-    live.onEvent({
-      type: "session.error",
-      message: `Could not save generated image: ${
-        cause instanceof Error ? cause.message : String(cause)
-      }`,
-    });
+    const message = `Could not save generated image: ${cause instanceof Error ? cause.message : String(cause)}`;
+    live.onEvent(event.agentCallId
+      ? { type: "agent.step", callId: event.agentCallId, stepId: `${event.itemId}:error`, kind: "message", text: message }
+      : { type: "session.error", message });
   }
 }
 
@@ -1134,34 +1134,71 @@ function handleSubagentNotification(
   if (
     method !== "item/started" &&
     method !== "item/completed" &&
-    method !== "thread/started"
+    method !== "thread/started" &&
+    !method.startsWith("item/")
   )
     return;
   const backlog = live.pendingSubagent.get(threadId) ?? [];
-  if (backlog.length >= MAX_PENDING_SUBAGENT) return;
+  if (backlog.length >= MAX_PENDING_SUBAGENT) {
+    // Retain a visible gap marker until this thread is attached to its spawn.
+    backlog.splice(0, 1);
+    pendingSubagentGaps(live).add(threadId);
+  }
   backlog.push({ method, params });
   live.pendingSubagent.set(threadId, backlog);
 }
 
-function emitSubagentSteps(
-  live: Live,
-  callId: string,
-  method: string,
-  params: unknown,
-): void | Promise<void> {
+const codexAgentGaps = new WeakMap<Live, Set<string>>();
+function pendingSubagentGaps(live: Live): Set<string> {
+  let gaps = codexAgentGaps.get(live);
+  if (!gaps) { gaps = new Set(); codexAgentGaps.set(live, gaps); }
+  return gaps;
+}
+function emitCodexAgentInfo(live: Live, rec: Record<string, unknown> | null): void {
+  const item = asRecord(rec?.item);
+  if (!item) return;
+  const ids = codexSubagentThreadIds(item);
+  for (const id of ids) {
+    const callId = live.subagentThreads.get(id);
+    if (!callId) continue;
+    live.onEvent({ type: "agent.updated", callId, providerSessionId: id,
+      prompt: item.tool === "spawnAgent" || item.type === "subAgentActivity" ? stringField(item, "prompt") : undefined,
+      model: stringField(item, "model"), coverage: pendingSubagentGaps(live).has(id) ? "partial" : undefined });
+    const prompt = stringField(item, "prompt");
+    const itemId = stringField(item, "id");
+    if (prompt && itemId && item.type === "collabAgentToolCall" && item.tool !== "spawnAgent")
+      live.onEvent({ type: "agent.step", callId, stepId: `${itemId}:prompt`, kind: "user", text: prompt });
+  }
+}
+
+async function emitSubagentSteps(
+  live: Live, callId: string, method: string, params: unknown,
+): Promise<void> {
+  const rec = asRecord(params);
+  const duplicate = bindSubagentThreads(live, method, rec);
   const image = mapCodexNotification(method, params).events.find(
-    (event): event is Extract<HarnessEvent, { type: "image.generated" }> =>
-      event.type === "image.generated",
+    (event): event is Extract<HarnessEvent, { type: "image.generated" }> => event.type === "image.generated",
   );
   if (image) {
-    if (live.emittedGeneratedImages.has(image.itemId)) return;
-    live.emittedGeneratedImages.add(image.itemId);
-    if ("data" in image) return materializeGeneratedImage(live, image);
-    live.onEvent(image);
+    const key = `${callId}:${image.itemId}`;
+    if (live.emittedGeneratedImages.has(key)) return;
+    live.emittedGeneratedImages.add(key);
+    const scoped = { ...image, agentCallId: callId };
+    if ("data" in scoped) await materializeGeneratedImage(live, scoped);
+    else live.onEvent(scoped);
     return;
   }
   for (const event of mapCodexSubagentSteps(callId, method, params)) {
+    if (duplicate && event.type === "agent.step" && event.toolKind === "agent") continue;
     live.onEvent(event);
+  }
+  emitCodexAgentInfo(live, rec);
+  for (const child of codexSubagentThreadIds(asRecord(rec?.item) ?? {})) {
+    const owner = live.subagentThreads.get(child);
+    if (!owner) continue;
+    const backlog = live.pendingSubagent.get(child);
+    live.pendingSubagent.delete(child);
+    for (const step of backlog ?? []) await emitSubagentSteps(live, owner, step.method, step.params);
   }
 }
 

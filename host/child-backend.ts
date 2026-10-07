@@ -4,6 +4,7 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { readCursorSubagents } from "./cursor-subagents";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { readFile, stat } from "node:fs/promises";
@@ -187,6 +188,8 @@ export class HostChildBackend implements ChildBackend {
       case "harness_sse_close":
         this.stopStream(id);
         return undefined as T;
+      case "cursor_subagent_runs":
+        return readCursorSubagents(args) as T;
       case "harness_read_text_file": {
         const path = String(args.path ?? "");
         const info = await stat(path);

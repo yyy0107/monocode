@@ -1,9 +1,11 @@
+import { newSession } from "../src/features/sessions/model/session";
+import { applyHarnessEvent } from "../src/integrations/harness/core/apply";
 import { afterEach, expect, it } from "vitest";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HostStore } from "./store";
-import { writeAttachmentChunk, saveGeneratedImageAttachment } from "./attachments";
+import { writeAttachmentChunk, saveGeneratedImageAttachment, readAttachmentChunk } from "./attachments";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
@@ -47,4 +49,23 @@ it("accepts ordered chunks and an identical retry while rejecting changes", () =
       data: "YQ==",
     }),
   ).toThrow("Invalid attachment ID");
+});
+
+
+it("authorizes nested images through their owning session and syncs child changes", () => {
+  const directory = mkdtempSync(join(tmpdir(), "nested-attachment-test-"));
+  const store = new HostStore(join(directory, "host.db"));
+  cleanups.push(() => { store.close(); rmSync(directory, { recursive: true, force: true }); });
+  const project = store.addProject("/repo", "Repo");
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+  const file = saveGeneratedImageAttachment(store, png, "image.png");
+  let session = newSession("codex", "/repo");
+  session = applyHarnessEvent(session, { type: "tool.started", callId: "spawn", kind: "agent", title: "Child" });
+  const first = store.save({ projectId: project.id, session, revision: 1, updatedAt: 1, status: "running" }, { type: "send" });
+  session = applyHarnessEvent(session, { type: "image.generated", agentCallId: "spawn", itemId: "image", path: file.path!, name: file.name, size: file.size, mimeType: file.mimeType, attachment: file });
+  store.save({ ...first, session, revision: first.revision + 1 }, { type: "update" });
+  expect(readAttachmentChunk(store, { sessionId: session.id, id: file.id, offset: 0 }).data).toBe(png);
+  const sync = store.sync(session.id, first.revision);
+  expect(sync.kind).toBe("delta");
+  if (sync.kind === "delta") expect(sync.blocks[0].agentRun!.transcript![0].attachments![0].id).toBe(file.id);
 });

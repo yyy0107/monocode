@@ -1,3 +1,4 @@
+import { MobileAgentSheet } from "./MobileAgentSheet";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AgentTranscript } from "../features/sessions/ui/AgentTranscript";
@@ -10,7 +11,7 @@ import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPla
 import { ArrowDownCircle } from "../shared/ui/icons";
 import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import type { Block } from "../features/sessions/model/session";
-import { isToolBlock, toolCallState } from "../features/sessions/model/transcriptActivity";
+import { isSubagentBlock, isToolBlock, toolCallState } from "../features/sessions/model/transcriptActivity";
 import type { QuestionAnswer } from "../features/sessions/model/userQuestion";
 import type { ApprovalDecision } from "../integrations/harness";
 import type { EditorNavigation } from "../features/search/model/search";
@@ -32,6 +33,7 @@ import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import { useStableCallback } from "./useStableCallback";
 
 type Detail =
+  | { kind: "agent"; blockId: string; fromActivity?: Block[] }
   | { kind: "question"; blockId: string }
   | { kind: "plan"; blockId: string }
   | { kind: "activity"; steps: Block[] }
@@ -39,6 +41,7 @@ type Detail =
   | { kind: "file"; path: string; line?: number; from?: Block; fromActivity?: Block[] };
 type Details = {
   active?: Detail["kind"];
+  agent?: Extract<Detail, { kind: "agent" }>;
   activity?: Extract<Detail, { kind: "activity" }>;
   tool?: Extract<Detail, { kind: "tool" }>;
   file?: Extract<Detail, { kind: "file" }>;
@@ -108,6 +111,9 @@ export const MobileTranscript = memo(function MobileTranscript({
         ? createMobileTranscriptPlatform(readBinaryFile)
         : mobileTranscriptPlatform),
       resolveNoteImage,
+      openAgent: (block: Block) => setDetail((current) => ({
+        ...current, active: "agent", agent: { kind: "agent", blockId: block.id },
+      })),
       openTool: (block: Block) => setDetail((current) => ({
         ...current, active: "tool", tool: { kind: "tool", block },
       })),
@@ -179,12 +185,14 @@ export const MobileTranscript = memo(function MobileTranscript({
     current.active === "plan" ? current : { ...current, plan: undefined }), []);
   const closeDetail = useCallback(() => setDetail((current) => ({ ...current, active: undefined })), []);
   const releaseActivity = useCallback(() => setDetail((current) =>
-    current.active === "activity" || (current.active === "tool" && current.tool?.fromActivity)
+    current.active === "activity" || (current.active === "agent" && current.agent?.fromActivity) || (current.active === "tool" && current.tool?.fromActivity)
       ? current : { ...current, activity: undefined,
         tool: current.tool?.fromActivity ? undefined : current.tool }), []);
-  const openStep = useCallback((block: Block) => setDetail((current) => ({
-    ...current, active: "tool", tool: { kind: "tool", block, fromActivity: current.activity?.steps },
-  })), []);
+  const openStep = useCallback((block: Block) => setDetail((current) => isSubagentBlock(block) ? ({
+    ...current, active: "agent", agent: { kind: "agent", blockId: block.id, fromActivity: current.activity?.steps },
+  }) : ({ ...current, active: "tool", tool: { kind: "tool", block, fromActivity: current.activity?.steps } })), []);
+  const releaseAgent = useCallback(() => setDetail((current) =>
+    current.active === "agent" ? current : { ...current, agent: undefined }), []);
   const releaseTool = useCallback(() => setDetail((current) =>
     current.active === "tool" ? current : { ...current, tool: undefined }), []);
   const releaseFile = useCallback(() => setDetail((current) =>
@@ -374,9 +382,14 @@ export const MobileTranscript = memo(function MobileTranscript({
                 </div>
               </MobileSheet>
             )}
+            {detail.agent && !detail.agent.fromActivity && <MobileAgentSheet key={detail.agent.blockId} open={visible && detail.active === "agent"}
+              onExited={releaseAgent} blocks={session.blocks} blockId={detail.agent.blockId}
+              cwd={session.cwd} readBinaryFile={readBinaryFile} onClose={closeDetail}
+              onBack={detail.agent.fromActivity ? () => setDetail((current) => ({ ...current, active: "activity" })) : undefined} />}
             {detail.activity && (
               <MobileActivitySheet
                 open={visible && (detail.active === "activity" ||
+                  (detail.active === "agent" && !!detail.agent?.fromActivity) ||
                   (detail.active === "tool" && !!detail.tool?.fromActivity))}
                 onExited={releaseActivity}
                 // Follow live blocks so a running group fills in while open.
@@ -389,10 +402,14 @@ export const MobileTranscript = memo(function MobileTranscript({
                     return isToolBlock(current) && toolCallState(current) === "pending";
                   })}
                 onStep={openStep}
+                sessionBlocks={session.blocks}
+                readBinaryFile={readBinaryFile}
+                selectedAgent={detail.active === "agent" && detail.agent?.fromActivity
+                  ? session.blocks.find((block) => block.id === detail.agent!.blockId) : undefined}
                 selectedStep={detail.tool?.fromActivity
                   ? session.blocks.find((block) => block.id === detail.tool!.block.id) ?? detail.tool.block
                   : undefined}
-                onBack={() => setDetail((current) => ({ ...current, active: "activity", tool: undefined }))}
+                onBack={() => setDetail((current) => ({ ...current, active: "activity", tool: undefined, agent: undefined }))}
                 onOpenFile={readBinaryFile ? openFile : undefined}
                 onClose={closeDetail}
               />

@@ -2,6 +2,7 @@ import { translate as translateUi } from "../../../shared/i18n/language";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { TranscriptPlatformContext } from "./TranscriptPlatform";
+import { isLongText, ReadonlyTextView } from "../../../shared/ui/ReadonlyTextView";
 import {
   Component,
   createContext,
@@ -300,6 +301,7 @@ function MarkdownCode({
   ...props
 }: MarkdownCodeProps) {
   const incomplete = useIsCodeFenceIncomplete();
+  const { localFiles } = useContext(TranscriptPlatformContext);
   const block = Object.prototype.hasOwnProperty.call(props, "data-block");
   if (!block) {
     const text = textContent(children);
@@ -350,7 +352,9 @@ function MarkdownCode({
 
   const meta = codeMeta(node);
   const fence = parseCodeFence(className, meta);
-  if (fence.language.toLowerCase() === "mermaid") {
+  const code = textContent(children);
+  const virtualCode = !localFiles && isLongText(code);
+  if (fence.language.toLowerCase() === "mermaid" && !virtualCode) {
     return (
       <MermaidBlock code={textContent(children)} incomplete={incomplete} />
     );
@@ -359,7 +363,6 @@ function MarkdownCode({
     fence.fileName ??
     (fence.language ? fileNameForLanguage(fence.language) : "");
   const lineNumbers = !/\bnoLineNumbers\b/.test(meta);
-  const code = textContent(children);
   // highlightLanguageFor swaps the fence language for "js" so Shiki still
   // colors plaintext fences, but Streamdown's CodeBlock reuses that same
   // value for the header label. Without this, a `text` fence would show a
@@ -379,11 +382,14 @@ function MarkdownCode({
       ) : null}
       {fence.filePath ? (
         <MarkdownCodePath path={fence.filePath} startLine={fence.startLine} />
-      ) : isPlaintextFallback ? (
+      ) : isPlaintextFallback || virtualCode ? (
         <span className="markdown-code-fallback-label">{fence.language}</span>
       ) : null}
       <CodeCopyButton code={code} />
-      <CodeHighlightBoundary code={code}>
+      {virtualCode ? (
+        <ReadonlyTextView text={code} startLine={fence.startLine}
+          stateKey={`code:${fence.filePath ?? fence.language}:${code.slice(0, 120)}`} />
+      ) : <CodeHighlightBoundary code={code}>
         <CodeBlock
           className={className}
           code={code}
@@ -392,7 +398,7 @@ function MarkdownCode({
           lineNumbers={lineNumbers}
           startLine={fence.startLine}
         />
-      </CodeHighlightBoundary>
+      </CodeHighlightBoundary>}
     </div>
   );
 }
@@ -669,6 +675,13 @@ export const AgentMarkdown = memo(function AgentMarkdown({
       );
     });
   };
+
+  if (!localFiles && text.length > 96_000) return (
+    <div className={className}>
+      <p className="mobile-detail-note">{uiT("Large message shown as plain text for smooth scrolling.")}</p>
+      <ReadonlyTextView text={text} stateKey={`message:${text.slice(0, 120)}`} onCopy={copyText} />
+    </div>
+  );
 
   return (
     <RemoteMediaContext.Provider value={remoteMedia}>

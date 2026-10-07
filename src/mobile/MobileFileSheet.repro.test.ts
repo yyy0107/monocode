@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
+import { EditorView } from "@codemirror/view";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newSession } from "../features/sessions/model/session";
 import type { HostSession } from "../features/connections/model/protocol";
-import { LINE_CHUNK, MobileFileSheet } from "./MobileFileSheet";
+import { MobileFileSheet } from "./MobileFileSheet";
 import { MobileTranscript } from "./MobileTranscript";
 
 vi.mock("@capacitor/core", () => ({
@@ -203,35 +204,19 @@ describe("mobile file preview and tool navigation", () => {
     expect(uncaught).not.toHaveBeenCalled();
   });
 
-  it("renders long plain files in chunks and keeps cited lines reachable", async () => {
-    const total = LINE_CHUNK * 4;
-    const text = Array.from({ length: total }, (_, i) => `line ${i + 1}`).join(
-      "\n",
-    );
-    const cited = LINE_CHUNK * 2 + 10;
-    await renderFile(
-      "/repo/big.log",
-      async () => new TextEncoder().encode(text),
-      cited,
-    );
-    const rendered = () => app.querySelectorAll("[data-line]").length;
-    expect(rendered()).toBe(cited + LINE_CHUNK / 2);
-    expect(
-      app.querySelector('[data-current="true"]')?.getAttribute("data-line"),
-    ).toBe(String(cited));
-    const more = () =>
-      [...app.querySelectorAll("button")].find((button) =>
-        button.textContent?.includes("more lines"),
-      );
-    await act(async () => more()!.click());
-    expect(rendered()).toBe(cited + LINE_CHUNK * 1.5);
-    await act(async () => more()!.click());
-    expect(rendered()).toBe(total);
-    expect(
-      [...app.querySelectorAll("button")].some((button) =>
-        button.textContent?.includes("more lines"),
-      ),
-    ).toBe(false);
+  it("virtualizes long files and opens the cited line without mounting preceding lines", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const total = 1200;
+    const text = Array.from({ length: total }, (_, i) => `line ${i + 1}`).join("\n");
+    const cited = 610;
+    await act(async () => { await import("../shared/ui/ReadonlyTextEditor"); });
+    await renderFile("/repo/big.log", async () => new TextEncoder().encode(text), cited);
+    await vi.waitFor(async () => { await act(async () => {}); expect(app.querySelector(".cm-editor")).not.toBeNull(); });
+    const view = EditorView.findFromDOM(app.querySelector<HTMLElement>(".cm-editor")!)!;
+    expect(view.state.doc.toString()).toBe(text);
+    expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(cited);
+    expect(app.querySelectorAll(".cm-line").length).toBeLessThan(100);
+    expect(app.textContent).not.toContain("more lines");
     expect(uncaught).not.toHaveBeenCalled();
   });
 });

@@ -1,3 +1,4 @@
+import { walkTranscript } from "./agentTranscript";
 import { stopStreaming } from "../../../integrations/harness/core/apply";
 import { forgetHarnessSession } from "../../../integrations/harness/core/registry";
 import {
@@ -146,9 +147,9 @@ async function removeSession(
   if (stopped) await flushSessionCheckpoint(sessionId);
   let savedSummary: SessionSummary | undefined;
   if (options.mode === "delete") {
-    const imagePaths = stopped?.blocks.flatMap((block) =>
+    const imagePaths = [...walkTranscript(stopped?.blocks ?? [])].flatMap((block) =>
       block.role === "image" && block.image ? [block.image.path] : [],
-    ) ?? [];
+    );
     await orchestrator.deleteSession(sessionId, () =>
       deleteSession(sessionId, imagePaths),
     );

@@ -1000,7 +1000,13 @@ function emitTool(live: Live, part: OpenCodePart): void {
 }
 
 /** How many parts an unidentified child may bank before its row is known. */
-const MAX_PENDING_SUBAGENT = 64;
+const MAX_PENDING_SUBAGENT = 1024;
+const openCodeGaps = new WeakMap<Live, Set<string>>();
+function subagentGaps(live: Live): Set<string> {
+  let gaps = openCodeGaps.get(live);
+  if (!gaps) { gaps = new Set(); openCodeGaps.set(live, gaps); }
+  return gaps;
+}
 
 /**
  * Task metadata names the child session. Arrival order is not an identity:
@@ -1024,6 +1030,7 @@ function bindSubagentSession(
 ): void {
   if (live.subagentSessions.get(sessionId) === callId) return;
   live.subagentSessions.set(sessionId, callId);
+  live.onEvent({ type: "agent.updated", callId, providerSessionId: sessionId, coverage: subagentGaps(live).has(sessionId) ? "partial" : undefined });
   const model = live.subagentModels.get(sessionId);
   if (model) live.onEvent({ type: "tool.updated", callId, kind: "agent", agentModel: model });
   const backlog = live.pendingSubagent.get(sessionId);
@@ -1053,8 +1060,7 @@ function handleSubagentEvent(
     const agent = stringField(info, "agent");
     const model = stringField(info, "modelID");
     // Nested agents share the outer trail, but have their own model.
-    if (role === "assistant" && model && !(agent && KNOWN_HIDDEN_AGENTS.has(agent)) &&
-        live.sessionParentById.get(sessionId) === live.openCodeSessionId) {
+    if (role === "assistant" && model && !(agent && KNOWN_HIDDEN_AGENTS.has(agent))) {
       live.subagentModels.set(sessionId, model);
       const callId = live.subagentSessions.get(sessionId);
       if (callId) live.onEvent({ type: "tool.updated", callId, kind: "agent", agentModel: model });
@@ -1102,9 +1108,11 @@ function mirrorSubagentPart(
   const index = backlog.findIndex((entry) => entry.id === part.id);
   if (index >= 0) backlog[index] = part;
   else backlog.push(part);
-  if (backlog.length > MAX_PENDING_SUBAGENT) backlog.shift();
+  if (backlog.length > MAX_PENDING_SUBAGENT) { backlog.shift(); subagentGaps(live).add(sessionId); }
   if (!live.pendingSubagent.has(sessionId) && live.pendingSubagent.size >= 32) {
-    live.pendingSubagent.delete(live.pendingSubagent.keys().next().value!);
+    const oldest = live.pendingSubagent.keys().next().value!;
+    subagentGaps(live).add(oldest);
+    live.pendingSubagent.delete(oldest);
   }
   live.pendingSubagent.set(sessionId, backlog);
 }
@@ -1116,7 +1124,7 @@ function emitSubagentStep(
   part: OpenCodePart,
 ): void {
   if (part.messageID && !live.messageRoleById.has(part.messageID)) return;
-  if (roleForPart(live, part) !== "assistant") return;
+  if (roleForPart(live, part) !== "assistant" && roleForPart(live, part) !== "user") return;
   if (part.type === "text" || part.type === "reasoning") {
     const text = part.text?.trim();
     if (!text) return;
@@ -1124,7 +1132,7 @@ function emitSubagentStep(
       type: "agent.step",
       callId,
       stepId: `${sessionId}:${part.id}`,
-      kind: part.type === "reasoning" ? "reasoning" : "message",
+      kind: roleForPart(live, part) === "user" ? "user" : part.type === "reasoning" ? "reasoning" : "message",
       text,
     });
     return;
@@ -1154,6 +1162,8 @@ function emitSubagentStep(
     stepId: `${sessionId}:${part.callID ?? part.id}`,
     kind: "tool",
     text: title,
+    input: state.input !== undefined ? JSON.stringify(state.input, null, 2) : undefined,
+    output: detailFromToolPart(part),
     toolKind: kind,
     status: failed
       ? "failed"
@@ -1164,7 +1174,12 @@ function emitSubagentStep(
     ...(failed ? { detail: detailFromToolPart(part) } : {}),
     ...(preview ? { preview } : {}),
   });
-  if (kind === "agent") trackSubagentRow(live, callId, part);
+  if (kind === "agent") {
+    const nestedId = `${sessionId}:${part.callID ?? part.id}`;
+    live.onEvent({ type: "agent.updated", callId: nestedId,
+      prompt: stringField(asRecord(state.input), "prompt") });
+    trackSubagentRow(live, nestedId, part);
+  }
 }
 
 async function waitApproval(

@@ -186,7 +186,7 @@ describe("ACP child routing", () => {
     expect(start("b")[1]).toMatchObject({ callId: "b", text: "Second child" });
   });
 
-  it("keeps nested work on its ancestor and suppresses child context and completion", () => {
+  it("keeps nested work on its direct parent and suppresses child context and completion", () => {
     const router = new AcpSubagents();
     router.route({}, [
       { type: "tool.started", callId: "root", title: "Explore", kind: "agent" },
@@ -199,14 +199,14 @@ describe("ACP child routing", () => {
       router.route(params, [
         { type: "message.delta", text: "Nested answer" },
       ])[0],
-    ).toMatchObject({ type: "agent.step", callId: "root" });
+    ).toMatchObject({ type: "agent.step", callId: "nested" });
     expect(
       router.route(params, [
         { type: "context", used: 999 },
         { type: "message.completed" },
         { type: "session.ended" },
       ]),
-    ).toEqual([]);
+    ).toEqual([expect.objectContaining({ type: "agent.step", callId: "nested", streaming: false })]);
   });
 
   it("replaces whole prose snapshots and starts a new step after tools", () => {

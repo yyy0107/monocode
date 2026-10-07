@@ -1,3 +1,4 @@
+import { MobileAgentSheet } from "./MobileAgentSheet";
 import type { ComponentType } from "react";
 import type { Block } from "../features/sessions/model/session";
 import {
@@ -58,6 +59,9 @@ export function MobileActivitySheet({
   onStep,
   onClose,
   selectedStep,
+  selectedAgent,
+  sessionBlocks,
+  readBinaryFile,
   onBack,
   onOpenFile,
 }: {
@@ -69,6 +73,9 @@ export function MobileActivitySheet({
   onStep: (block: Block) => void;
   onClose: () => void;
   selectedStep?: Block;
+  selectedAgent?: Block;
+  sessionBlocks?: Block[];
+  readBinaryFile?: (path: string) => Promise<Uint8Array>;
   onBack: () => void;
   onOpenFile?: (path: string) => void;
 }) {
@@ -77,7 +84,7 @@ export function MobileActivitySheet({
     <MobileSheet
       open={open}
       onExited={onExited}
-      title={selectedStep ? "Tool details" : "Activity"}
+      title={selectedAgent ? "Subagent conversation" : selectedStep ? "Tool details" : "Activity"}
       onClose={onClose}
       detents
     >
@@ -86,12 +93,15 @@ export function MobileActivitySheet({
           slide
           visible={open}
           route={{
-            key: selectedStep ? `tool:${selectedStep.id}` : "activity",
+            key: selectedAgent ? `agent:${selectedAgent.id}` : selectedStep ? `tool:${selectedStep.id}` : "activity",
             section: "chat",
-            depth: selectedStep ? 1 : 0,
+            depth: selectedAgent || selectedStep ? 1 : 0,
           }}
         >
-          {selectedStep ? (
+          {selectedAgent ? (
+            <MobileAgentSheet embedded key={selectedAgent.id} open={open} blocks={sessionBlocks ?? steps}
+              blockId={selectedAgent.id} cwd={cwd} readBinaryFile={readBinaryFile} onBack={onBack} onClose={onClose} />
+          ) : selectedStep ? (
             <MobileToolSheet
               embedded
               block={selectedStep}

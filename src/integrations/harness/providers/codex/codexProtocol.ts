@@ -1110,9 +1110,7 @@ export function codexSubagentThreadIds(
 
 /**
  * A child thread's own notification, mirrored onto the agent row that spawned
- * it. Only settled items are mirrored: the deltas that stream inside a child
- * thread carry no item identity, so they cannot be merged onto a step without
- * stacking the same sentence up again on every chunk.
+ * it. Deltas need an item identity; completed items replace their streamed snapshot.
  */
 export function mapCodexSubagentSteps(
   callId: string,
@@ -1125,10 +1123,9 @@ export function mapCodexSubagentSteps(
       ? [{ type: "tool.updated", callId, kind: "agent", agentModel: model }]
       : [];
   }
-  if (method !== "item/started" && method !== "item/completed") return [];
   const rec = asRecord(params);
   const item = asRecord(rec?.item);
-  const itemId = stringField(item, "id");
+  const itemId = stringField(item, "id") ?? stringField(rec, "itemId");
   if (!rec || !itemId) return [];
   return mapCodexNotification(method, params).events.flatMap(
     (event): HarnessEvent[] => {
@@ -1146,6 +1143,8 @@ export function mapCodexSubagentSteps(
             stepId: event.callId,
             kind: "tool",
             text: event.title ?? "",
+            input: typeof item?.command === "string" ? item.command : item?.arguments !== undefined ? JSON.stringify(item.arguments, null, 2) : undefined,
+            output: event.type === "tool.updated" ? event.detail ?? event.preview?.output : undefined,
             ...(event.kind ? { toolKind: event.kind } : {}),
             ...(event.status ? { status: event.status } : {}),
             ...(detail ? { detail } : {}),
@@ -1161,6 +1160,8 @@ export function mapCodexSubagentSteps(
             stepId: `${itemId}:text`,
             kind: "message",
             text: event.text,
+            append: method !== "item/started" && method !== "item/completed",
+            streaming: method !== "item/completed",
           },
         ];
       }
@@ -1172,6 +1173,8 @@ export function mapCodexSubagentSteps(
             stepId: `${itemId}:reasoning`,
             kind: "reasoning",
             text: event.text,
+            append: method !== "item/started" && method !== "item/completed",
+            streaming: method !== "item/completed",
           },
         ];
       }

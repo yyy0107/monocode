@@ -1080,6 +1080,33 @@ describe("claude legacy account resume", () => {
 });
 
 describe("claude subagents", () => {
+  it("captures early child deltas, reconciles the final message and preserves nested tool output", async () => {
+    const { events, turn } = await startTurn("s1");
+    const child = (event: Record<string, unknown>) => emit({ type: "stream_event", parent_tool_use_id: "spawn", event });
+    child({ type: "message_start", message: { id: "child-message" } });
+    child({ type: "content_block_delta", delta: { type: "text_delta", text: "Full " } });
+    emit({ type: "assistant", message: { content: [{ type: "tool_use", id: "spawn", name: "Agent", input: { description: "Review", prompt: "Review everything" } }] } });
+    child({ type: "content_block_delta", delta: { type: "text_delta", text: "answer" } });
+    emit({ type: "assistant", parent_tool_use_id: "spawn", message: { id: "child-message", content: [
+      { type: "text", text: "Full answer" },
+      { type: "tool_use", id: "nested", name: "Agent", input: { description: "Inspect", prompt: "Inspect this" } },
+    ] } });
+    emit({ type: "assistant", parent_tool_use_id: "nested", message: { id: "nested-message", content: [
+      { type: "tool_use", id: "read", name: "Read", input: { file_path: "/repo/a" } },
+    ] } });
+    emit({ type: "user", parent_tool_use_id: "nested", message: { content: [
+      { type: "tool_result", tool_use_id: "read", content: "success".repeat(2000) },
+    ] } });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+    const session = events.reduce(applyHarnessEvent, newSession("claude", "/repo"));
+    const transcript = session.blocks.find((row) => row.tool?.callId === "spawn")!.agentRun!.transcript!;
+    expect(transcript.filter((row) => row.role === "assistant").map((row) => row.text)).toEqual(["Full answer"]);
+    expect(transcript[0].text).toBe("Review everything");
+    const nested = transcript.find((row) => row.tool?.callId === "nested")!;
+    expect(nested.agentRun!.transcript!.find((row) => row.tool?.callId === "read")!.tool?.output).toBe("success".repeat(2000));
+  });
+
   it.each(["allow", "deny"] as const)(
     "routes a child permission decision: %s",
     async (decision) => {

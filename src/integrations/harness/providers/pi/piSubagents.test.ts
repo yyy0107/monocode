@@ -57,6 +57,7 @@ describe("Pi subagent snapshots", () => {
     expect(session.blocks).toHaveLength(1);
     expect(session.blocks[0].agentRun?.model).toBe("claude-haiku-4-5");
     expect(session.blocks[0].agentRun?.steps).toEqual([
+      expect.objectContaining({ kind: "user", text: "Private task input" }),
       expect.objectContaining({
         kind: "reasoning",
         text: "Follow the imports",
@@ -201,4 +202,21 @@ describe("omp task progress", () => {
       status: "in_progress",
     });
   });
+});
+
+
+it("keeps nested Pi runs and their generated images in the child conversation", () => {
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+  const result = { details: { results: [{ agent: "outer", messages: [
+    { role: "assistant", content: [{ type: "toolCall", id: "nested", name: "subagent", arguments: { task: "Inspect" } }] },
+    { role: "toolResult", toolCallId: "nested", details: { results: [{ agent: "inner", messages: [
+      { role: "assistant", content: [{ type: "text", text: "Nested result" }, { type: "toolCall", id: "image", name: "paint", arguments: {} }] },
+      { role: "toolResult", toolCallId: "image", content: [{ type: "image", mimeType: "image/png", data: png }] },
+    ] }] } },
+  ] }] } };
+  const events = piSubagentEvents("spawn", {}, result, true);
+  const session = apply(events);
+  const nested = session.blocks[0].agentRun!.transcript!.find((row) => row.tool?.kind === "agent")!;
+  expect(nested.agentRun!.transcript![0].text).toBe("Nested result");
+  expect(events.find((event) => event.type === "image.generated")).toMatchObject({ agentCallId: "spawn:tool:nested", data: png });
 });

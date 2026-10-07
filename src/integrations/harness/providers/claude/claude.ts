@@ -666,6 +666,19 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   }
 }
 
+const pendingClaudeChildren = new WeakMap<Live, Map<string, { rows: Record<string, unknown>[]; partial: boolean }>>();
+function flushClaudeChildren(live: Live, callId: string): void {
+  const pending = pendingClaudeChildren.get(live)?.get(callId);
+  if (!pending) return;
+  pendingClaudeChildren.get(live)!.delete(callId);
+  if (pending.partial) live.onEvent({ type: "agent.updated", callId, coverage: "partial" });
+  for (const rec of pending.rows) {
+    if (rec.type === "stream_event") handleStreamEvent(live, rec);
+    else if (rec.type === "assistant") handleAssistant(live, rec);
+    else if (rec.type === "user") noteSubagentResults(live, rec);
+  }
+}
+
 function handleLine(sessionId: string, live: Live, line: string): void {
   const rec = parseJsonLine(line);
   if (!rec) return;
@@ -719,6 +732,16 @@ function handleLine(sessionId: string, live: Live, line: string): void {
   }
 
   if (live.muteUpdates) return;
+  const parentId = stringField(rec, "parent_tool_use_id");
+  if (parentId && !live.toolsById.has(parentId) && ["stream_event", "assistant", "user"].includes(type ?? "")) {
+    let pending = pendingClaudeChildren.get(live);
+    if (!pending) { pending = new Map(); pendingClaudeChildren.set(live, pending); }
+    const entry = pending.get(parentId) ?? { rows: [], partial: false };
+    entry.rows.push(rec);
+    if (entry.rows.length > 1024) { entry.rows.shift(); entry.partial = true; }
+    pending.set(parentId, entry);
+    return;
+  }
 
   const sessionIdFromLine = sessionIdFromMessage(rec);
   if (
@@ -809,11 +832,40 @@ function handleLine(sessionId: string, live: Live, line: string): void {
   }
 }
 
+type ChildStream = { messageId?: string; tools: Map<number, InFlightTool> };
+const childStreams = new WeakMap<Live, Map<string, ChildStream>>();
+function childStream(live: Live, parent: string): ChildStream {
+  let streams = childStreams.get(live);
+  if (!streams) { streams = new Map(); childStreams.set(live, streams); }
+  let stream = streams.get(parent);
+  if (!stream) { stream = { tools: new Map() }; streams.set(parent, stream); }
+  return stream;
+}
+function emitAgentInfo(live: Live, tool: InFlightTool): void {
+  if (!isAgentToolName(tool.name)) return;
+  live.onEvent({ type: "agent.updated", callId: tool.id,
+    prompt: stringField(tool.input, "prompt"), agentType: stringField(tool.input, "subagent_type"),
+    model: stringField(tool.input, "model") });
+  flushClaudeChildren(live, tool.id);
+}
+
 function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
   const subagent = isSubagentMessage(rec);
+  const parentId = stringField(rec, "parent_tool_use_id");
+  const stream = parentId ? childStream(live, parentId) : undefined;
+  const raw = asRecord(rec.event);
+  if (stream && raw?.type === "message_start") {
+    stream.messageId = stringField(asRecord(raw.message), "id");
+    stream.tools.clear();
+  }
   const delta = streamDeltaFromEvent(rec);
   if (delta) {
-    if (subagent) return;
+    if (subagent) {
+      if (parentId && stream?.messageId) live.onEvent({ type: "agent.step", callId: parentId,
+        stepId: `${stream.messageId}:${delta.kind === "assistant" ? "text" : "thinking"}`,
+        kind: delta.kind === "assistant" ? "message" : "reasoning", text: delta.text, append: true, streaming: true });
+      return;
+    }
     if (delta.kind === "assistant") {
       closePendingAssistantMessage(live);
       live.emittedAssistant = joinStreamText(live.emittedAssistant, delta.text);
@@ -829,6 +881,8 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
   if (started) {
     if (subagent) {
       noteSubagentTool(live, rec, started.id, started.name, started.input);
+      const tool = live.toolsById.get(started.id);
+      if (tool && stream) stream.tools.set(started.index, tool);
       return;
     }
     const tool: InFlightTool = {
@@ -851,13 +905,22 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
       status: isAgentToolName(tool.name) ? "in_progress" : "pending",
       preview: previewFromTool(tool.name, tool.input),
     });
+    emitAgentInfo(live, tool);
     emitTaskListIfNeeded(live, tool.name, tool.input);
     return;
   }
 
   const jsonDelta = inputJsonDeltaFromEvent(rec);
   if (jsonDelta) {
-    if (subagent) return;
+    if (subagent) {
+      const tool = stream?.tools.get(jsonDelta.index);
+      if (tool) {
+        tool.partialJson += jsonDelta.partial;
+        const input = tryParseJsonRecord(tool.partialJson);
+        if (input) noteSubagentTool(live, rec, tool.id, tool.name, input);
+      }
+      return;
+    }
     const tool = live.toolsByIndex.get(jsonDelta.index);
     if (!tool) return;
     tool.partialJson += jsonDelta.partial;
@@ -877,6 +940,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
       detail: summarizeToolRequest(tool.name, parsed),
       preview: previewFromTool(tool.name, parsed),
     });
+    emitAgentInfo(live, tool);
     emitTaskListIfNeeded(live, tool.name, parsed);
     return;
   }
@@ -922,6 +986,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
           status: isAgentToolName(streamed.name) ? "in_progress" : "pending",
           preview: previewFromTool(streamed.name, use.input),
         });
+        emitAgentInfo(live, streamed);
         emitTaskListIfNeeded(live, streamed.name, use.input);
       }
       if (use.name === "ExitPlanMode") {
@@ -953,6 +1018,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
       const plan = extractExitPlanModePlan(use.input);
       if (plan) live.onEvent({ type: "plan", text: plan });
     }
+    emitAgentInfo(live, tool);
     emitTaskListIfNeeded(live, tool.name, tool.input);
   }
 
@@ -1464,6 +1530,9 @@ function noteSubagentTool(
     status: "in_progress",
   });
   if (!id) return;
+  const existing = live.toolsById.get(id);
+  const tool: InFlightTool = { id, name, input, title, partialJson: existing?.partialJson ?? "" };
+  live.toolsById.set(id, tool);
   const preview = previewFromTool(name, input);
   live.onEvent({
     type: "agent.step",
@@ -1473,8 +1542,10 @@ function noteSubagentTool(
     text: title,
     toolKind: toolKindFromName(name),
     status: "in_progress",
+    input: JSON.stringify(input, null, 2),
     ...(preview ? { preview } : {}),
   });
+  emitAgentInfo(live, tool);
 }
 
 /**
@@ -1505,6 +1576,7 @@ function noteSubagentNarration(
       stepId: `${messageId}:thinking`,
       kind: "reasoning",
       text: thinking,
+      streaming: false,
     });
   }
   const text = assistantTextBlocks(rec).join("").trim();
@@ -1515,6 +1587,7 @@ function noteSubagentNarration(
       stepId: `${messageId}:text`,
       kind: "message",
       text,
+      streaming: false,
     });
   }
 }
@@ -1535,8 +1608,17 @@ function noteSubagentResults(
       text: "",
       status: result.isError ? "failed" : "completed",
       ...(result.isError && result.text ? { detail: result.text } : {}),
+      output: result.text,
     });
   }
+  const content = asRecord(rec.message)?.content;
+  const text = Array.isArray(content) ? content.flatMap((part) => {
+    const value = asRecord(part);
+    return value?.type === "text" && typeof value.text === "string" ? [value.text] : [];
+  }).join("\n") : typeof content === "string" ? content : "";
+  if (text) live.onEvent({ type: "agent.step", callId: parent.id,
+    stepId: `${stringField(rec, "uuid") ?? crypto.randomUUID()}:user`, kind: "user", text });
+
 }
 
 function isBackgroundedAgentTool(live: Live, toolUseId: string): boolean {

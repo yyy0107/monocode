@@ -13,7 +13,8 @@ type Step = Extract<HarnessEvent, { type: "agent.step" }>;
 export class AcpSubagents {
   private tools = new Set<string>();
   private owners = new Map<string, string>();
-  private pending = new Map<string, Step[]>();
+  private pending = new Map<string, HarnessEvent[]>();
+  private gaps = new Set<string>();
   private prose = new Map<
     string,
     { id: number; kind: "message" | "reasoning"; text: string }
@@ -33,10 +34,10 @@ export class AcpSubagents {
         this.tools.add(event.callId);
         const backlog = this.pending.get(event.callId) ?? [];
         this.pending.delete(event.callId);
-        return [event, ...backlog];
+        return this.release([event, ...(event.kind === "agent" ? this.metadata(event.callId, params) : []), ...backlog]);
       });
     }
-    const output: Step[] = [];
+    const output: HarnessEvent[] = [];
     for (const event of events) {
       if (event.type === "tool.started" || event.type === "tool.updated") {
         this.owners.set(event.callId, parent);
@@ -45,6 +46,7 @@ export class AcpSubagents {
           type: "agent.step",
           callId: parent,
           stepId: `tool:${event.callId}`,
+          toolCallId: event.callId,
           kind: "tool",
           text: event.title ?? "",
           toolKind: event.kind,
@@ -57,7 +59,11 @@ export class AcpSubagents {
             ? { detail: event.detail }
             : {}),
           preview: event.preview,
+          ...(event.type === "tool.updated" && event.detail !== undefined ? { output: event.detail } : {}),
+          input: this.input(params),
         });
+        if (event.kind === "agent" && event.agentModel)
+          output.push({ type: "agent.updated", callId: event.callId, model: event.agentModel });
       } else if (
         event.type === "message.delta" ||
         event.type === "reasoning.delta"
@@ -70,10 +76,7 @@ export class AcpSubagents {
         const type =
           update?.sessionUpdate ?? update?.session_update ?? update?.type;
         const snapshot = type === "agent_message" || type === "agent_thought";
-        prose.text = (snapshot ? event.text : prose.text + event.text).slice(
-          0,
-          2_000,
-        );
+        prose.text = snapshot ? event.text : prose.text + event.text;
         this.prose.set(parent, prose);
         output.push({
           type: "agent.step",
@@ -81,30 +84,87 @@ export class AcpSubagents {
           stepId: `${kind}:${prose.id}`,
           kind,
           text: prose.text,
+          streaming: !snapshot,
         });
       }
-      // Child plans, context meters and lifecycle notifications belong to the
+      else if (event.type === "message.completed" || event.type === "reasoning.completed") {
+        const prose = this.prose.get(parent);
+        if (prose) output.push({ type: "agent.step", callId: parent,
+          stepId: `${prose.kind}:${prose.id}`, kind: prose.kind, text: prose.text, streaming: false });
+        this.prose.delete(parent);
+      }
+      else if (event.type === "image.generated") output.push({ ...event, agentCallId: parent });
+      else if (event.type === "plan") output.push({ type: "agent.step", callId: parent,
+        stepId: `plan:${event.key ?? "current"}`, kind: "message", text: event.text,
+        append: event.append, streaming: event.streaming });
+      // Child context meters and lifecycle notifications belong to the
       // child too; they must never replace or finish the parent's own work.
     }
-    if (this.tools.has(parent)) return output;
+    const expanded = output.flatMap((event): HarnessEvent[] => {
+      if (event.type !== "agent.step" || event.kind !== "tool") return [event];
+      const id = event.toolCallId!;
+      return [event, ...(event.toolKind === "agent" ? this.metadata(id, params) : [])];
+    });
+    if (this.attached(parent)) return this.release(expanded);
     const backlog = this.pending.get(parent) ?? [];
-    for (const step of output) {
-      const index = backlog.findIndex((entry) => entry.stepId === step.stepId);
-      if (index < 0) backlog.push(step);
-      else
-        backlog[index] = {
-          ...backlog[index],
-          ...step,
-          text: step.text || backlog[index].text,
-          toolKind: step.toolKind ?? backlog[index].toolKind,
-          status: step.status ?? backlog[index].status,
-          preview: mergeToolPreview(step.preview, backlog[index].preview),
-        };
+    for (const event of expanded) {
+      const index = event.type === "agent.step"
+        ? backlog.findIndex((entry) => entry.type === "agent.step" && entry.callId === event.callId && entry.stepId === event.stepId)
+        : -1;
+      if (index < 0) backlog.push(event);
+      else {
+        const before = backlog[index] as Step;
+        const step = event as Step;
+        backlog[index] = { ...before, ...step, text: step.text || before.text,
+          toolKind: step.toolKind ?? before.toolKind, status: step.status ?? before.status,
+          preview: mergeToolPreview(step.preview, before.preview) };
+      }
     }
-    this.pending.set(parent, backlog.slice(-64));
-    if (this.pending.size > 32)
-      this.pending.delete(this.pending.keys().next().value!);
+    if (backlog.length > 1024) { backlog.splice(0, backlog.length - 1024); this.gaps.add(parent); }
+    this.pending.set(parent, backlog);
+    if (this.pending.size > 32) {
+      const oldest = this.pending.keys().next().value!;
+      this.pending.delete(oldest); this.gaps.add(oldest);
+    }
     return [];
+  }
+
+  private attached(id: string): boolean {
+    const seen = new Set<string>();
+    while (this.owners.has(id)) {
+      if (seen.has(id)) return false;
+      seen.add(id); id = this.owners.get(id)!;
+    }
+    return this.tools.has(id);
+  }
+
+  private release(events: HarnessEvent[]): HarnessEvent[] {
+    return events.flatMap((event): HarnessEvent[] => {
+      const id = event.type === "agent.step" && event.kind === "tool" ? event.toolCallId : undefined;
+      if (!id) return [event];
+      const backlog = this.pending.get(id) ?? [];
+      this.pending.delete(id);
+      return [event, ...(this.gaps.has(id) ? [{ type: "agent.updated" as const, callId: id, coverage: "partial" as const }] : []), ...this.release(backlog)];
+    });
+  }
+
+  private input(params: unknown): string | undefined {
+    const envelope = record(params);
+    const update = record(envelope?.update) ?? envelope;
+    const tool = record(update?.toolCall) ?? record(update?.tool_call) ?? update;
+    const input = tool?.rawInput ?? tool?.raw_input ?? tool?.input;
+    return input === undefined ? undefined : typeof input === "string" ? input : JSON.stringify(input, null, 2);
+  }
+
+  private metadata(callId: string, params: unknown): HarnessEvent[] {
+    const raw = this.input(params);
+    let input: Record<string, unknown> | undefined;
+    try { input = raw ? record(JSON.parse(raw)) : undefined; } catch { /* Plain tool input. */ }
+    const prompt = text(input?.prompt ?? input?.task);
+    const model = text(input?.model);
+    if (!prompt && !model && !this.gaps.has(callId)) return [];
+    return [{ type: "agent.updated", callId, prompt, model,
+      coverage: this.gaps.has(callId) ? "partial" : undefined }];
   }
 
   private parent(params: unknown): string | undefined {
@@ -136,12 +196,7 @@ export class AcpSubagents {
     }
     parent ??= id ? this.owners.get(id) : undefined;
     if (!parent || parent === id) return undefined;
-    const seen = new Set<string>();
-    while (this.owners.has(parent) && !seen.has(parent)) {
-      seen.add(parent);
-      parent = this.owners.get(parent)!;
-    }
-    return seen.has(parent) ? undefined : parent;
+    return parent;
   }
 }
 

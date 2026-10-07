@@ -1,3 +1,4 @@
+import { walkTranscript } from "../features/sessions/model/agentTranscript";
 import type { Note, NoteUpsert } from "../features/notes/notesText";
 import type { NoteImageAsset } from "../features/notes/noteImagesText";
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
@@ -835,7 +836,7 @@ export class MobileClient {
     if (existing) return existing;
     const known = this.snapshots.get(sessionId);
     const connection = this.connection;
-    if (!known || !connection || !known.session.blocks.some((block) =>
+    if (!known || !connection || ![...walkTranscript(known.session.blocks)].some((block) =>
       block.attachments?.some((file) => file.kind === "image" &&
         file.data === undefined && !file.previewUrl && file.size <= MOBILE_ATTACHMENT_BYTES)))
       return known;

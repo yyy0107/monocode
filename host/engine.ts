@@ -72,6 +72,7 @@ const BATCHED = new Set<string>([
   "reasoning.delta",
   "tool.updated",
   "agent.step",
+  "agent.updated",
   "status",
 ]);
 
@@ -1954,8 +1955,9 @@ export class HostEngine {
     let savedImage: Attachment | undefined;
     if (event.type === "image.generated" && "data" in event) {
       if (live.imageRunId !== runId) { live.imageRunId = runId; live.imageIds = new Set(); }
-      if (live.imageIds!.has(event.itemId)) return;
-      live.imageIds!.add(event.itemId);
+      const imageKey = `${event.agentCallId ?? "root"}:${event.itemId}`;
+      if (live.imageIds!.has(imageKey)) return;
+      live.imageIds!.add(imageKey);
       try {
         if (
           event.mimeType &&
@@ -1970,6 +1972,7 @@ export class HostEngine {
         event = {
           type: "image.generated",
           itemId: event.itemId,
+          ...(event.agentCallId ? { agentCallId: event.agentCallId } : {}),
           path: savedImage.path!,
           name: savedImage.name,
           mimeType: savedImage.mimeType,
@@ -1978,10 +1981,10 @@ export class HostEngine {
           ...(event.alt ? { alt: event.alt } : {}),
         };
       } catch (error) {
-        event = {
-          type: "session.error",
-          message: `Could not save generated image: ${error instanceof Error ? error.message : String(error)}`,
-        };
+        const message = `Could not save generated image: ${error instanceof Error ? error.message : String(error)}`;
+        event = event.agentCallId
+          ? { type: "agent.step", callId: event.agentCallId, stepId: `${event.itemId}:error`, kind: "message", text: message }
+          : { type: "session.error", message };
       }
     }
     this.orchestration.observe(id, event);

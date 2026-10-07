@@ -1,4 +1,5 @@
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
+import { isLongText, ReadonlyTextView } from "../../../shared/ui/ReadonlyTextView";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { ChevronDown, CircleDashed, X } from "../../../shared/ui/icons";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
@@ -82,12 +83,17 @@ export function FilePreview({
   const path = preview.path;
   const filePath = path ? (resolveWorkspacePath(path, cwd) ?? path) : undefined;
   const fileName = preview.fileName || fileNameOf(path);
-  const lines = (preview.lines ?? [])
+  const lines = useMemo(() => (preview.lines ?? [])
     .filter(
       (line) =>
         line.kind === "add" || line.kind === "del" || line.kind === "context",
     )
-    .slice(0, variant === "list" ? undefined : MAX_PREVIEW_LINES);
+    .slice(0, variant === "list" ? undefined : MAX_PREVIEW_LINES), [preview.lines, variant]);
+  const longDiff = useMemo(() => {
+    if (variant !== "list") return undefined;
+    const text = lines.map(line => `${line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}${line.number ?? ""}\t${line.text}`).join("\n");
+    return isLongText(text) ? text : undefined;
+  }, [lines, variant]);
   const showDiff =
     preview.contentOnly ||
     lines.some((line) => line.kind === "add" || line.kind === "del");
@@ -141,7 +147,7 @@ export function FilePreview({
                 {uiT("Empty file")}
               </p>
             ) : null}
-            <div className="w-max min-w-full">
+            {longDiff !== undefined ? <ReadonlyTextView text={longDiff} diff stateKey={`diff:${path ?? contentId}`} /> : <div className="w-max min-w-full">
               {lines.map((line, index) => (
                 <PreviewLine
                   key={`${line.number ?? index}-${line.kind}-${index}`}
@@ -151,7 +157,7 @@ export function FilePreview({
                   list
                 />
               ))}
-            </div>
+            </div>}
           </div>
         </AnimatedCollapse>
       </section>
