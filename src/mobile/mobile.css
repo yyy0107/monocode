@@ -834,12 +834,19 @@ html[data-mobile-glass="solid"] :is(
   border-radius: 20px;
 }
 .mobile-qr-scanner video {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-.mobile-qr-scanner:is([data-state="denied"], [data-state="unavailable"]) video {
+  /* Keep the WebView's native play placeholder hidden until playback is ready. */
   visibility: hidden;
+}
+.mobile-qr-scanner[data-state="scanning"] video {
+  visibility: visible;
+}
+.mobile-qr-scanner video::-webkit-media-controls,
+.mobile-qr-scanner video::-webkit-media-controls-start-playback-button {
+  display: none !important;
 }
 .mobile-qr-frame {
   position: absolute;
@@ -866,6 +873,34 @@ html[data-mobile-glass="solid"] :is(
   min-height: 38px;
   color: #fff;
   background: rgb(255 255 255 / 0.16);
+}
+.mobile-qr-loading {
+  gap: 20px;
+  background: radial-gradient(
+    circle at 50% 42%,
+    color-mix(in srgb, var(--mobile-accent) 10%, #111),
+    #111 70%
+  );
+}
+.mobile-qr-loading-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 20px;
+  color: rgb(255 255 255 / 0.85);
+  background: rgb(255 255 255 / 0.05);
+}
+.mobile-qr-loading-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: rgb(255 255 255 / 0.6);
+}
+.mobile-qr-loading-label > svg {
+  flex-shrink: 0;
 }
 @media (prefers-reduced-motion: reduce) {
   .mobile-pairing-methods button {

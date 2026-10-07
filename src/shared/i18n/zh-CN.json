@@ -3306,6 +3306,7 @@
   "Scan the QR code shown by MonoCode Host on your computer.": "扫描电脑上 MonoCode Host 显示的二维码。",
   "Camera access is off. Allow it in system settings, or use a pairing code.": "相机权限已关闭。请在系统设置中允许，或改用配对码。",
   "The camera is not available on this device. Use a pairing code instead.": "此设备无法使用相机，请改用配对码。",
+  "Starting camera…": "正在启动相机…",
   "This QR code is not a MonoCode pairing code.": "这不是 MonoCode 配对二维码。",
   "Scan a QR code or enter a pairing code.": "扫码或输入配对码连接。",
   "Scan this QR code in the MonoCode mobile app, or enter this computer's Host URL and the pairing code. The code is shown only once.": "在 MonoCode 手机应用中扫描此二维码，或填入此电脑的主机地址和配对码。配对码仅显示一次。",

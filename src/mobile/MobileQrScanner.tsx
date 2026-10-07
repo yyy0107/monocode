@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CameraOff, LoaderCircle } from "../shared/ui/icons";
+import { CameraOff, LoaderCircle, ScanQrCode } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
 
 type ScannerState = "starting" | "scanning" | "denied" | "unavailable";
@@ -102,11 +102,17 @@ export function MobileQrScanner({ active, onDetected }: {
   const blocked = state === "denied" || state === "unavailable";
   return (
     <div className="mobile-qr-scanner" data-state={state}>
-      <video ref={video} muted playsInline autoPlay aria-hidden="true" />
-      {!blocked && <span className="mobile-qr-frame" aria-hidden="true" />}
+      <video ref={video} muted playsInline autoPlay controls={false} aria-hidden="true" />
+      {state === "scanning" && <span className="mobile-qr-frame" aria-hidden="true" />}
       {state === "starting" && (
-        <span className="mobile-qr-overlay">
-          <LoaderCircle size={22} className="mobile-spin" />
+        <span className="mobile-qr-overlay mobile-qr-loading" role="status">
+          <span className="mobile-qr-loading-icon" aria-hidden="true">
+            <ScanQrCode size={30} />
+          </span>
+          <span className="mobile-qr-loading-label">
+            <LoaderCircle size={16} className="mobile-spin" aria-hidden="true" />
+            <span>{t("Starting camera…")}</span>
+          </span>
         </span>
       )}
       {blocked && (
