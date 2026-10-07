@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Block } from "../model/session";
 import { AgentTranscript } from "./AgentTranscript";
-import { notePromptLaunch } from "./promptLaunch";
+import { notePromptLaunch, takePromptLaunch } from "./promptLaunch";
 
 const appearance = vi.hoisted(() => ({
   layout: "chat" as "chat" | "full",
@@ -37,6 +37,7 @@ function render(blocks: Block[], busy = true, options: { promptMotion?: "mobile"
 }
 
 beforeEach(() => {
+  vi.useFakeTimers();
   appearance.layout = "chat";
   appearance.anchor = true;
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -54,8 +55,8 @@ beforeEach(() => {
         return { left: 20, top: 700, bottom: 740, width: 300, height: 40 } as DOMRect;
       return (
         this.dataset.promptAnchor || this.classList.contains("user-message-bubble")
-          ? { left: 200, top: 0, bottom: 60, height: 60 }
-          : { left: 0, top: 0, bottom: 800, height: 800 }
+          ? { left: 200, right: 400, width: 200, top: 0, bottom: 60, height: 60 }
+          : { left: 0, right: 400, width: 400, top: 0, bottom: 800, height: 800 }
       ) as DOMRect;
     },
   );
@@ -69,6 +70,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  takePromptLaunch();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -86,13 +89,16 @@ function risenPrompts() {
 }
 
 describe("prompt rise in the chat layout", () => {
-  it("rises the first prompt of a fresh session from the upper screen", () => {
+  it("rises the first prompt from the bottom when no composer origin was recorded", () => {
     render(first);
+    act(() => vi.advanceTimersByTime(20));
 
     expect(risenPrompts()).toEqual(["u1"]);
     const [rise] = animate.mock.calls[0];
     const [fade] = animate.mock.calls[1];
-    expect(rise[0]).toEqual({ transform: "translateY(240px)" });
+    expect(rise[0]).toMatchObject({
+      transform: "translate(0.00px, 732.00px) scale(1.0000, 1.0000)",
+    });
     expect(fade).toEqual([{ opacity: 0 }, { opacity: 1 }]);
   });
 
@@ -102,8 +108,8 @@ describe("prompt rise in the chat layout", () => {
     const turn = container.querySelector<HTMLElement>(".transcript-turn")!;
     expect(turn.dataset.promptRise).toBe("rising");
 
-    const animation = animate.mock.results[0].value as { onfinish: () => void };
-    act(() => animation.onfinish());
+    act(() => vi.advanceTimersByTime(20));
+    act(() => vi.advanceTimersToNextTimer());
     expect(turn.dataset.promptRise).toBe("revealing");
 
     act(() => vi.advanceTimersByTime(320));
@@ -114,18 +120,21 @@ describe("prompt rise in the chat layout", () => {
   it("rises each newly sent prompt", () => {
     render(first, false);
     render(second);
+    act(() => vi.advanceTimersByTime(20));
 
     expect(risenPrompts()).toEqual(["u2"]);
   });
 
   it("does not replay an existing conversation on mount", () => {
     render(second);
+    act(() => vi.advanceTimersByTime(20));
 
     expect(animate).not.toHaveBeenCalled();
   });
 
   it("preserves the default mount behavior when an explicit submission marker is supplied", () => {
     render(second, true, { animateFrom: "u2" });
+    act(() => vi.advanceTimersByTime(20));
     expect(animate).not.toHaveBeenCalled();
   });
 
@@ -133,6 +142,7 @@ describe("prompt rise in the chat layout", () => {
     appearance.layout = "full";
     render(first);
     render(second);
+    act(() => vi.advanceTimersByTime(20));
 
     expect(animate).not.toHaveBeenCalled();
   });
@@ -141,6 +151,7 @@ describe("prompt rise in the chat layout", () => {
     appearance.anchor = false;
     render(first);
     render(second);
+    act(() => vi.advanceTimersByTime(20));
 
     expect(animate).not.toHaveBeenCalled();
   });
@@ -158,11 +169,16 @@ describe("prompt rise in the chat layout", () => {
       expect(row.style.visibility).toBe("");
       expect(risenPrompts()).toEqual(["u2"]);
       expect(animate.mock.contexts[0]).toHaveProperty("className", expect.stringContaining("user-message-bubble"));
-      expect(animate.mock.calls[0][0][0]).toMatchObject({ transform: "translate(0px, 604px) scale(0.86)" });
-      expect(animate.mock.calls[0][0].at(-1)).toMatchObject({ transform: "none" });
+      expect(animate.mock.calls[0][0][0]).toMatchObject({
+        transform: "translate(0.00px, 604.00px) scale(1.0000, 1.0000)",
+      });
+      expect(animate.mock.calls[0][0].at(-1)).toMatchObject({
+        transform: "translate(0.00px, 0.00px) scale(1.0000, 1.0000)",
+      });
       expect(animate.mock.calls[1][0][0]).toEqual({ opacity: 0 });
       const turn = row.closest<HTMLElement>(".transcript-turn")!;
-      act(() => animate.mock.results[0].value.onfinish());
+      // The rest of the turn follows once the bubble lands.
+      act(() => vi.advanceTimersToNextTimer());
       expect(turn.dataset.promptRise).toBe("revealing");
       act(() => vi.advanceTimersByTime(200));
       expect(turn.dataset.promptRise).toBeUndefined();
@@ -183,10 +199,11 @@ describe("prompt rise in the chat layout", () => {
       render(second, true, { promptMotion: "mobile" });
       act(() => vi.advanceTimersByTime(20));
       expect(risenPrompts()).toEqual(["u2"]);
-      // From the composer text's bottom-left corner to the anchored bubble.
+      // Starts as wide as the composer text, under it, then narrows into place.
       expect(animate.mock.calls[0][0][0]).toMatchObject({
-        transform: "translate(-180px, 680px) scale(0.86)",
-        transformOrigin: "0% 100%",
+        transform: "translate(-80.00px, 680.00px) scale(1.0000, 1.0000)",
+        transformOrigin: "100% 100%",
+        width: "300.00px",
       });
       expect(animate.mock.calls[1][0][0]).toEqual({ opacity: 0.4 });
       // The origin is spent: the next send without one rises from the dock.
@@ -200,10 +217,59 @@ describe("prompt rise in the chat layout", () => {
     }
   });
 
-  it("cancels a pending mobile entrance when the transcript unmounts", () => {
+  it("flies a desktop send out of its composer text", () => {
     vi.useFakeTimers();
     try {
-      render(first, true, { promptMotion: "mobile" });
+      render(first, false);
+      const origin = document.createElement("textarea");
+      origin.dataset.launchOrigin = "true";
+      notePromptLaunch(origin);
+      render(second);
+      const row = container.querySelector<HTMLElement>('[data-prompt-anchor="u2"]')!;
+      expect(row.style.visibility).toBe("hidden");
+      act(() => vi.advanceTimersByTime(20));
+      expect(risenPrompts()).toEqual(["u2"]);
+      expect(animate.mock.contexts[0]).toHaveProperty("className", expect.stringContaining("user-message-bubble"));
+      expect(animate.mock.calls[0][0][0]).toMatchObject({
+        transform: "translate(-80.00px, 680.00px) scale(1.0000, 1.0000)",
+      });
+      // Once the composer origin is spent, later sends still start at the bottom.
+      render([...second, { id: "u3", role: "user", text: "Again" }]);
+      act(() => vi.advanceTimersByTime(20));
+      expect(animate.mock.calls.at(-2)![0][0]).toMatchObject({
+        transform: "translate(0.00px, 732.00px) scale(1.0000, 1.0000)",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts desktop sends above the dock even when the recorded origin has expired", () => {
+    render(first, false);
+    const now = vi.spyOn(performance, "now").mockReturnValue(0);
+    const origin = document.createElement("textarea");
+    origin.dataset.launchOrigin = "true";
+    notePromptLaunch(origin);
+    now.mockReturnValue(15_001);
+
+    render(second);
+    const scroller = container.querySelector<HTMLElement>(".agent-transcript")!;
+    // Measure after the cleared composer has published its new layout.
+    scroller.style.paddingBottom = "128px";
+    expect(animate).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(20));
+
+    expect(risenPrompts()).toEqual(["u2"]);
+    expect(animate.mock.calls[0][0][0]).toMatchObject({
+      transform: "translate(0.00px, 604.00px) scale(1.0000, 1.0000)",
+    });
+    expect(animate.mock.calls[1][0][0]).toEqual({ opacity: 0 });
+  });
+
+  it.each([undefined, "mobile"] as const)("cancels a pending entrance when the transcript unmounts (motion=%s)", (promptMotion) => {
+    vi.useFakeTimers();
+    try {
+      render(first, true, { promptMotion });
       const row = container.querySelector<HTMLElement>('[data-prompt-anchor="u1"]')!;
       act(() => root.unmount());
       act(() => vi.advanceTimersByTime(20));
@@ -214,11 +280,13 @@ describe("prompt rise in the chat layout", () => {
     }
   });
 
-  it("keeps mobile history and reduced-motion sends still", () => {
-    render(second, false, { promptMotion: "mobile" });
+  it.each([undefined, "mobile"] as const)("keeps history and reduced-motion sends still (motion=%s)", (promptMotion) => {
+    render(second, false, { promptMotion });
+    act(() => vi.advanceTimersByTime(20));
     expect(animate).not.toHaveBeenCalled();
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
-    render([...second, { id: "u3", role: "user", text: "Again" }], true, { promptMotion: "mobile" });
+    render([...second, { id: "u3", role: "user", text: "Again" }], true, { promptMotion });
+    act(() => vi.advanceTimersByTime(20));
     expect(animate).not.toHaveBeenCalled();
     expect(container.querySelector<HTMLElement>('[data-prompt-anchor="u3"]')!.style.visibility).toBe("");
   });

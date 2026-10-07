@@ -168,7 +168,12 @@ import {
   transcriptMutationNeedsRepaint,
   transcriptWordRanges,
 } from "../model/transcriptHighlights";
-import { takePromptLaunch, type PromptLaunchOrigin } from "./promptLaunch";
+import {
+  flyPromptBubble,
+  takePromptLaunch,
+  type PromptFlight,
+  type PromptLaunchOrigin,
+} from "./promptLaunch";
 
 const NEAR_BOTTOM_PX = 16;
 /*
@@ -381,12 +386,12 @@ function AgentTranscriptComponent({
   const promptAnchor = useTranscriptAnchor();
   const lastUserId = lastUserBlockId(blocks, managed);
   const seenUserId = useRef(lastUserId);
-  // Where the previous turn sat before a phone send moves it, read while the
+  // Where the previous turn sat before a send moves it, read while the
   // DOM still shows the old layout so earlier turns can glide up continuously.
   const priorTurn = useRef<PriorTurn | undefined>(undefined);
   if (lastUserId !== seenUserId.current) {
     seenUserId.current = lastUserId;
-    if (promptMotion === "mobile") priorTurn.current = measureLastTurn(scroller.current);
+    priorTurn.current = measureLastTurn(scroller.current);
     if (lastUserId && !anchorTurn) setAnchorTurn(true);
   }
   const currentModelName = harness
@@ -607,9 +612,9 @@ function AgentTranscriptComponent({
     pinTranscript(el);
   }, [lastUserId, pinTranscript, setShowJump]);
 
-  // In the chat layout a sent prompt rises from the upper screen into its
-  // anchored spot at the top. On mount this only plays for a session's first
-  // send.
+  // In the chat layout a sent prompt flies from the composer (or the bottom
+  // of the viewport) into its anchored spot. On mount this only plays for a
+  // session's first send, or an explicitly marked mobile submission.
   const introducePrompt = useRef({ chat: false, anchor: false, visible });
   introducePrompt.current = {
     chat: transcriptLayout === "chat",
@@ -3945,12 +3950,8 @@ function userTurnCount(blocks: Block[], managed = false): number {
   ).length;
 }
 
-const PROMPT_RISE_MS = 560;
 // Keep in sync with the prompt-turn-reveal animation in index.css.
 const PROMPT_REVEAL_MS = 320;
-const PROMPT_FADE_MS = 480;
-// Where the prompt starts, as a fraction of the viewport height from the top.
-const PROMPT_RISE_FROM = 0.3;
 
 type PriorTurn = { element: HTMLElement; top: number };
 
@@ -3960,22 +3961,21 @@ function measureLastTurn(scroller: HTMLElement | null): PriorTurn | undefined {
   return element ? { element, top: element.getBoundingClientRect().top } : undefined;
 }
 
-/** Fades the prompt in while sliding it from the upper viewport to its row. */
+/** Flies the prompt from the composer or bottom edge into its anchored row. */
 function riseIntoAnchor(
   scroller: HTMLElement | null,
   blockId: string,
   motion?: "mobile",
   prior?: PriorTurn,
 ) {
-  const launch = motion === "mobile" ? takePromptLaunch() : undefined;
+  const launch = takePromptLaunch();
   const row = scroller?.querySelector<HTMLElement>(
     `[data-prompt-anchor="${CSS.escape(blockId)}"]`,
   );
   if (!scroller || !row || typeof row.animate !== "function") return;
   if (reducedMotionQuery().matches) return;
   const turn = row.closest<HTMLElement>(".transcript-turn");
-  const mobile = motion === "mobile";
-  const revealDuration = mobile ? 200 : PROMPT_REVEAL_MS;
+  const revealDuration = motion === "mobile" ? 200 : PROMPT_REVEAL_MS;
   let animations: Animation[] = [];
   let frame = 0;
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
@@ -3990,44 +3990,21 @@ function riseIntoAnchor(
   };
   const start = () => {
     row.style.removeProperty("visibility");
-    if (mobile) {
-      const flight = launchIntoAnchor(scroller, row, turn, launch, prior);
-      if (!flight) {
-        turn?.removeAttribute("data-prompt-rise");
-        return;
-      }
-      animations = flight.animations;
-      releaseFlight = flight.release;
-      animations[0].onfinish = flight.release;
-      // The rest of the turn follows once the bubble lands, not after its wobble.
-      landTimer = setTimeout(reveal, flight.landedMs);
-      return;
-    }
-    const view = scroller.getBoundingClientRect();
-    const bounds = row.getBoundingClientRect();
-    const dy = Math.max(0, view.top + view.height * PROMPT_RISE_FROM - bounds.top);
-    if (dy <= 1) {
+    const flight = launchIntoAnchor(scroller, row, turn, launch, prior);
+    if (!flight) {
       turn?.removeAttribute("data-prompt-rise");
       return;
     }
-    const rise = row.animate(
-      [{ transform: `translateY(${dy}px)` }, { transform: "translateY(0)" }],
-      { duration: PROMPT_RISE_MS, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
-    );
-    const fade = row.animate([{ opacity: 0 }, { opacity: 1 }], {
-      duration: PROMPT_FADE_MS,
-      easing: "ease-out",
-    });
-    animations = [rise, fade];
-    turn?.setAttribute("data-prompt-rise", "rising");
-    rise.onfinish = reveal;
+    animations = flight.animations;
+    releaseFlight = flight.release;
+    // The rest of the turn follows once the bubble lands, not after its wobble.
+    landTimer = setTimeout(reveal, flight.landedMs);
   };
-  if (mobile) {
-    // Let the sibling dock publish its cleared draft height before measuring.
-    row.style.visibility = "hidden";
-    turn?.setAttribute("data-prompt-rise", "rising");
-    frame = requestAnimationFrame(start);
-  } else start();
+  // Let the sibling dock publish its cleared draft height before measuring.
+  // A missing or expired composer origin still launches from the bottom.
+  row.style.visibility = "hidden";
+  turn?.setAttribute("data-prompt-rise", "rising");
+  frame = requestAnimationFrame(start);
   return () => {
     cancelAnimationFrame(frame);
     for (const animation of animations) animation.cancel();
@@ -4039,66 +4016,10 @@ function riseIntoAnchor(
   };
 }
 
-// Sampled once per ~16ms; linear steps between samples trace the springs.
-const LAUNCH_FRAME_MS = 16;
-const LAUNCH_MAX_MS = 1000;
-// Travel: a quick, nearly critically damped spring with a hint of overshoot.
-const LAUNCH_TRAVEL_FREQUENCY = 14;
-const LAUNCH_TRAVEL_DAMPING = 0.8;
-// Jelly: a loose spring that stretches with travel speed and wobbles on landing.
-const LAUNCH_JELLY_STIFFNESS = 1400;
-const LAUNCH_JELLY_DAMPING = 0.22;
-const LAUNCH_JELLY_STRETCH = 0.018;
-const LAUNCH_JELLY_LIMIT = 0.12;
-// Width: narrows from the composer to the bubble a little behind the travel.
-const LAUNCH_WIDTH_FREQUENCY = 10;
-
-type LaunchFrame = { offset: number; travel: number; jelly: number; width: number };
-
-/** Steps the travel, jelly and width springs until everything settles. */
-function launchFrames(intensity: number): { frames: LaunchFrame[]; landedMs: number } {
-  const step = 1 / 240;
-  const travelK = LAUNCH_TRAVEL_FREQUENCY ** 2;
-  const travelC = 2 * LAUNCH_TRAVEL_DAMPING * LAUNCH_TRAVEL_FREQUENCY;
-  const jellyC = 2 * LAUNCH_JELLY_DAMPING * Math.sqrt(LAUNCH_JELLY_STIFFNESS);
-  const widthK = LAUNCH_WIDTH_FREQUENCY ** 2;
-  const widthC = 2 * LAUNCH_WIDTH_FREQUENCY;
-  let travel = 0, travelV = 0, jelly = 0, jellyV = 0, width = 0, widthV = 0;
-  let landedMs: number | undefined;
-  const samples: Omit<LaunchFrame, "offset">[] = [];
-  let ms = 0;
-  for (let tick = 0; ms <= LAUNCH_MAX_MS; tick++) {
-    ms = tick * step * 1000;
-    if (tick % Math.round(LAUNCH_FRAME_MS / (step * 1000)) === 0) {
-      samples.push({ travel, jelly, width: Math.min(width, 1) });
-      const settled = Math.abs(1 - travel) < 0.002 && Math.abs(travelV) < 0.05 &&
-        Math.abs(jelly) < 0.003 && Math.abs(jellyV) < 0.05 && width > 0.995;
-      if (settled && samples.length > 2) break;
-    }
-    if (landedMs === undefined && travel > 0.97) landedMs = ms;
-    travelV += (travelK * (1 - travel) - travelC * travelV) * step;
-    travel += travelV * step;
-    const stretch = LAUNCH_JELLY_STRETCH * intensity * travelV;
-    jellyV += (LAUNCH_JELLY_STIFFNESS * (stretch - jelly) - jellyC * jellyV) * step;
-    jelly = Math.max(-LAUNCH_JELLY_LIMIT, Math.min(LAUNCH_JELLY_LIMIT, jelly + jellyV * step));
-    widthV += (widthK * (1 - width) - widthC * widthV) * step;
-    width += widthV * step;
-  }
-  samples[samples.length - 1] = { travel: 1, jelly: 0, width: 1 };
-  return {
-    frames: samples.map((sample, index) => ({
-      ...sample,
-      offset: index / (samples.length - 1),
-    })),
-    landedMs: landedMs ?? samples.length * LAUNCH_FRAME_MS,
-  };
-}
-
 /**
- * Flies a phone prompt's bubble out of the composer text it was typed in: it
- * starts as wide as the composer, narrows to its own width on the way up, and
- * lands with a jelly wobble. Earlier turns ride the same spring upward, so the
- * send reads as one motion. The first animation is the bubble's flight.
+ * Flies a sent prompt's bubble out of the composer text it was typed in.
+ * Earlier turns ride the same spring upward, so the send reads as one motion.
+ * The first animation is the bubble's flight.
  */
 function launchIntoAnchor(
   scroller: HTMLElement,
@@ -4106,71 +4027,13 @@ function launchIntoAnchor(
   turn: HTMLElement | null,
   launch: PromptLaunchOrigin | undefined,
   prior: PriorTurn | undefined,
-): { animations: Animation[]; landedMs: number; release: () => void } | undefined {
+): PromptFlight | undefined {
   const bubble = row.querySelector<HTMLElement>(".user-message-bubble") ?? row;
   const view = scroller.getBoundingClientRect();
-  const target = bubble.getBoundingClientRect();
   const dock = parseFloat(getComputedStyle(scroller).paddingBottom) || 0;
-  const dockTop = view.bottom - dock;
-  // The composer may have shrunk since the send; never start below the dock.
-  const fromBottom = launch
-    ? Math.min(launch.bottom, view.bottom)
-    : dockTop - 8;
-  const dy = fromBottom - target.bottom;
-  if (dy <= 1) return undefined;
-  const style = getComputedStyle(bubble);
-  const inset = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
-  // The bubble keeps its right edge, so it widens leftward toward the
-  // composer text without leaving the screen.
-  const startWidth = launch
-    ? Math.max(target.width, Math.min(launch.width + inset, target.right - view.left - 4))
-    : target.width;
-  const startLeft = target.right - startWidth;
-  const dx = launch
-    ? Math.max(view.left - startLeft, Math.min(0, launch.left - (parseFloat(style.paddingLeft) || 0) - startLeft))
-    : 0;
-  // Pin the content to its final width so text never rewraps mid-flight.
-  const content = [...bubble.children].filter(
-    (child): child is HTMLElement => child instanceof HTMLElement,
-  );
-  const reshape = startWidth - target.width > 1;
-  if (reshape) {
-    for (const child of content) child.style.width = `${child.getBoundingClientRect().width}px`;
-    bubble.style.maxWidth = "none";
-  }
-  let released = false;
-  const release = () => {
-    if (released || !reshape) return;
-    released = true;
-    for (const child of content) child.style.removeProperty("width");
-    bubble.style.removeProperty("max-width");
-  };
-  const { frames, landedMs } = launchFrames(Math.min(1, dy / 400));
-  const duration = frames.length > 1 ? (frames.length - 1) * LAUNCH_FRAME_MS : LAUNCH_FRAME_MS;
-  const flight = bubble.animate(
-    frames.map(({ offset, travel, jelly, width }) => {
-      const rest = 1 - travel;
-      // Stretch along the flight, squash on landing; roughly keep the volume.
-      const scaleY = 1 + jelly;
-      const scaleX = 1 - jelly * 0.7;
-      return {
-        offset,
-        transformOrigin: "100% 100%",
-        transform: `translate(${(dx * rest).toFixed(2)}px, ${(dy * rest).toFixed(2)}px) ` +
-          `scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})`,
-        ...(reshape
-          ? { width: `${(startWidth + (target.width - startWidth) * width).toFixed(2)}px` }
-          : {}),
-      };
-    }),
-    { duration, easing: "linear" },
-  );
-  // Text the reader just watched leave the composer is visible from the start.
-  const fade = bubble.animate([{ opacity: launch ? 0.4 : 0 }, { opacity: 1 }], {
-    duration: launch ? 140 : 200,
-    easing: "ease-out",
-  });
-  const animations = [flight, fade];
+  const flight = flyPromptBubble(bubble, view, launch, view.bottom - dock - 8);
+  if (!flight) return undefined;
+  const { frames, duration } = flight;
   // The send scrolls the previous turns up in one jump; glide them instead.
   const shift = prior?.element.isConnected
     ? prior.top - prior.element.getBoundingClientRect().top
@@ -4194,10 +4057,10 @@ function launchIntoAnchor(
     ) {
       // Turns that stay above the viewport for the whole glide need no motion.
       if (element.getBoundingClientRect().bottom + shift < view.top) break;
-      animations.push(element.animate(glide, { duration, easing: "linear" }));
+      flight.animations.push(element.animate(glide, { duration, easing: "linear" }));
     }
   }
-  return { animations, landedMs, release };
+  return flight;
 }
 
 function isNearBottom(el: HTMLElement): boolean {
