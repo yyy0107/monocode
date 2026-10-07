@@ -1,5 +1,7 @@
+import { createPortal } from "react-dom";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { LAYER } from "../../../shared/lib/layers";
+import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 
 export function FileActionError({
   message,
@@ -9,7 +11,9 @@ export function FileActionError({
   onDismiss: () => void;
 }) {
   const { t: uiT } = useTranslation();
-  return (
+  const visible = useSurfaceVisibility();
+  if (!visible) return null;
+  return createPortal(
     <div
       role="alert"
       className="fixed bottom-4 right-4 flex max-w-sm items-start gap-3 rounded-xl border border-red-400/30 bg-[#252525] px-3 py-2 text-xs text-red-300 shadow-xl"
@@ -24,6 +28,7 @@ export function FileActionError({
       >
         {uiT("Dismiss")}
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }

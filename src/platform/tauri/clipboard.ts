@@ -221,7 +221,18 @@ async function attachmentsFromClipboardPaths(paths: string[]) {
 export async function nativeClipboardAttachments(
   text: string,
 ): Promise<NativeClipboardPaste> {
-  const paths = await readClipboardFilePaths();
+  let paths: string[];
+  let pathFailure: { error: unknown } | undefined;
+  try {
+    paths = await readClipboardFilePaths();
+  } catch (error) {
+    // Some image clipboard owners answer a URI-list request with another
+    // type. arboard reports that as a read failure even though image/png is
+    // readable. An image-only paste must still try the image reader.
+    if (text) throw error;
+    pathFailure = { error };
+    paths = [];
+  }
   if (paths.length) {
     const { files, consumed } = await attachmentsFromClipboardPaths(paths);
     if (!files.length)
@@ -245,7 +256,12 @@ export async function nativeClipboardAttachments(
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     // An empty clipboard is a no-op. A real read failure still surfaces.
-    if (reason === "The clipboard does not contain an image.") return { files: [] };
+    if (reason === "The clipboard does not contain an image.") {
+      // Neither reader succeeded: do not disguise the failed file read as an
+      // empty clipboard. File-URI pastes never take this image fallback.
+      if (pathFailure) throw pathFailure.error;
+      return { files: [] };
+    }
     throw error;
   }
 }

@@ -438,7 +438,51 @@ it("leaves a text paste to the webview without reading the native clipboard", as
   expect(submit).not.toHaveBeenCalled();
 });
 
-it("reports a clipboard it could not read instead of trying the image", async () => {
+it("pastes a readable image even when the clipboard owner rejects the file-list request", async () => {
+  invoke.mockImplementation(async (command: string) => {
+    if (command === "clipboard_file_paths")
+      throw "The clipboard could not be read on this system.";
+    if (command === "clipboard_image") return PNG_BYTES.buffer;
+    return [];
+  });
+  paste(render());
+  await waitForAttachments(1);
+  expect(alert()).toBeNull();
+  expect(invoke).toHaveBeenCalledWith("clipboard_image");
+  await send();
+  expect(submit.mock.calls[0][1]).toEqual([
+    expect.objectContaining({ name: "clipboard-image.png", kind: "image" }),
+  ]);
+});
+
+it("keeps the file-read error when the image fallback finds no image", async () => {
+  invoke.mockImplementation(async (command: string) => {
+    if (command === "clipboard_file_paths")
+      throw "The clipboard could not be read on this system.";
+    if (command === "clipboard_image")
+      throw "The clipboard does not contain an image.";
+    return [];
+  });
+  paste(render());
+  await waitForAlert();
+  expect(alert()).toBe("The clipboard could not be read on this system.");
+  expect(chipCount()).toBe(0);
+});
+
+it("reports a failed image fallback rather than silently ignoring the paste", async () => {
+  invoke.mockImplementation(async (command: string) => {
+    if (command === "clipboard_file_paths") throw "File-list read failed";
+    if (command === "clipboard_image")
+      throw "Clipboard image is too large to attach (maximum 20 MB).";
+    return [];
+  });
+  paste(render());
+  await waitForAlert();
+  expect(alert()).toBe("Clipboard image is too large to attach (maximum 20 MB).");
+  expect(chipCount()).toBe(0);
+});
+
+it("reports an unreadable file-URI clipboard instead of trying an unrelated image", async () => {
   invoke.mockImplementation(async (command: string) => {
     if (command === "clipboard_file_paths")
       throw "The clipboard could not be read on this system.";
