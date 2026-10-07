@@ -87,7 +87,7 @@ it.each([false, true])("pastes image-only messages, previews them and retries th
   const sent = rpc.mock.calls.find(([method]) => method === "assistant.send")![1];
   expect(sent).toMatchObject({ text: "", attachments: [{ name: "photo.png", mimeType: "image/png", kind: "image", size: 4 }] });
   expect(sent.attachments[0]).not.toHaveProperty("previewFile");
-  expect(button("Upload photos").disabled).toBe(true);
+  expect(button("Attach files").disabled).toBe(true);
   expect(node.querySelector(".assistant-attachment-preview")).not.toBeNull();
   fail(false);
   act(() => [...node.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent === "Retry message")!.click());
@@ -98,11 +98,11 @@ it.each([false, true])("pastes image-only messages, previews them and retries th
   expect(revoke).toHaveBeenCalledWith("blob:assistant-preview");
 });
 
-it.each([false, true])("selects multiple photos, removes a preview and accepts dropped images (%s)", async mobile => {
+it.each([false, true])("selects multiple photos through the attachment button, removes a preview and accepts dropped images (%s)", async mobile => {
   const { rpc } = await mount(mobile);
-  const input = node.querySelector<HTMLInputElement>('input[accept="image/*"]')!;
+  const input = node.querySelector<HTMLInputElement>('input[type="file"]')!;
   const click = vi.spyOn(input, "click");
-  act(() => button("Upload photos").click());
+  act(() => button("Attach files").click());
   expect(click).toHaveBeenCalledOnce();
   Object.defineProperty(input, "files", { value: [photo(), photo()] });
   act(() => input.dispatchEvent(new Event("change", { bubbles: true })));
@@ -138,5 +138,5 @@ it("blocks concurrent uploads and shows errors without leaving send enabled", as
   expect(node.textContent).toContain("Attachments must be at most 20 MB");
   expect(rpc.mock.calls.some(([method]) => method === "attachments.upload")).toBe(false);
   expect(button("Send").disabled).toBe(true);
-  expect(button("Upload photos").disabled).toBe(false);
+  expect(button("Attach files").disabled).toBe(false);
 });

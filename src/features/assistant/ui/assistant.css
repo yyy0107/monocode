@@ -615,6 +615,26 @@
   margin-top: 6px;
   font-size: var(--text-ui-sm);
 }
+.assistant-message-media {
+  display: flex;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  margin-bottom: 6px;
+}
+.assistant-message-row-user .assistant-message-media {
+  align-self: flex-end;
+  margin-left: auto;
+}
+.assistant-message-media > * {
+  flex: 0 0 auto;
+}
+.assistant-chat .assistant-message-media button {
+  padding: 0;
+  background: transparent;
+}
 .assistant-working {
   font-size: var(--text-ui-caption);
   opacity: 0.8;

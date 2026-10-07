@@ -89,3 +89,26 @@ it("reuses unchanged messages across empty and repeated incremental pages", () =
   expect(updated[1]).toEqual(message("two", 4));
   expect(previous[1]).toBe(second);
 });
+
+it("reads assistant image chunks by public message without a session or Host path", async () => {
+  const rpc = vi.fn().mockResolvedValueOnce({ data: btoa("abc"), offset: 3, size: 5 })
+    .mockResolvedValueOnce({ data: btoa("de"), offset: 5, size: 5 });
+  const client = new AssistantClient("host", rpc);
+  const file = { id: "photo", name: "photo.png", kind: "image" as const, mimeType: "image/png", size: 5 };
+  expect(await client.readImage("message", file)).toBe(btoa("abcde"));
+  expect(rpc.mock.calls).toEqual([
+    ["attachments.read", { messageId: "message", id: "photo", offset: 0 }],
+    ["attachments.read", { messageId: "message", id: "photo", offset: 3 }],
+  ]);
+});
+it.each([
+  { data: "", offset: 0, size: 5 },
+  { data: btoa("abc"), offset: 3, size: 6 },
+  { data: btoa("ab"), offset: 2, size: 5 },
+  { data: btoa("a"), offset: 3, size: 5 },
+])("rejects invalid assistant image transfer metadata (%j)", async chunk => {
+  const client = new AssistantClient("host", vi.fn().mockResolvedValue(chunk));
+  await expect(client.readImage("message", {
+    id: "photo", name: "photo.png", kind: "image", mimeType: "image/png", size: 5,
+  })).rejects.toThrow("Invalid image transfer");
+});

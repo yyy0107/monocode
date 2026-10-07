@@ -12,6 +12,7 @@ import { decodeGeneratedPng } from "../src/integrations/harness/core/generatedIm
 import { join } from "node:path";
 import type { Attachment } from "../src/features/sessions/model/session";
 import type { RemoteAttachment } from "../src/features/connections/model/protocol";
+import type { AssistantMessage } from "../src/features/assistant/model/assistant";
 import type { HostStore } from "./store";
 
 export const MAX_REMOTE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
@@ -138,12 +139,24 @@ export function resolveAttachments(
   });
 }
 
-/** Reads only an attachment already accepted into this session. Paths supplied
+/** Reads only an attachment accepted into a session or public assistant message. Paths supplied
  * by the client are never used, and each response stays below the RPC cap. */
 export function readAttachmentChunk(store: HostStore, input: Record<string, unknown>) {
-  const session = store.session(String(input.sessionId ?? ""));
-  const attachment = [...session.session.blocks.flatMap((block) => block.attachments ?? []), ...session.session.queuedMessages?.flatMap((row) => row.attachments) ?? []]
-    .find((file) => file.id === input.id);
+  let files: RemoteAttachment[];
+  if (input.messageId !== undefined) {
+    if (typeof input.messageId !== "string" || input.sessionId !== undefined)
+      throw new Error("Invalid attachment message");
+    const row = store.db.prepare(
+      "SELECT payload FROM assistant_messages WHERE id=? ORDER BY revision DESC LIMIT 1",
+    ).get(input.messageId);
+    const message: AssistantMessage | undefined = row ? JSON.parse(String(row.payload)) : undefined;
+    files = message?.kind === "user" || message?.kind === "assistant"
+      ? message.attachments ?? [] : [];
+  } else {
+    const session = store.session(String(input.sessionId ?? ""));
+    files = [...session.session.blocks.flatMap((block) => block.attachments ?? []), ...session.session.queuedMessages?.flatMap((row) => row.attachments) ?? []];
+  }
+  const attachment = files.find((file) => file.id === input.id);
   if (!attachment || attachment.kind !== "image") throw new Error("Image attachment not found");
   const offset = input.offset;
   if (!Number.isSafeInteger(offset) || Number(offset) < 0 || Number(offset) > attachment.size)

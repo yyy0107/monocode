@@ -135,4 +135,22 @@ export class AssistantClient {
     }
     return ref;
   }
+  async readImage(messageId: string, file: RemoteAttachment): Promise<string> {
+    if (file.kind !== "image" || !Number.isSafeInteger(file.size) || file.size <= 0 || file.size > 20 * 1024 * 1024)
+      throw new Error("Invalid image transfer");
+    const pieces: string[] = [];
+    let offset = 0;
+    while (offset < file.size) {
+      const chunk = await this.rpc<{ data: string; offset: number; size: number }>("attachments.read", {
+        messageId, id: file.id, offset,
+      });
+      if (chunk.size !== file.size || chunk.offset <= offset || chunk.offset > file.size ||
+          atob(chunk.data).length !== chunk.offset - offset ||
+          (chunk.offset < file.size && (chunk.offset - offset) % 3 !== 0))
+        throw new Error("Invalid image transfer");
+      pieces.push(chunk.data);
+      offset = chunk.offset;
+    }
+    return pieces.join("");
+  }
 }

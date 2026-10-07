@@ -12,8 +12,10 @@ import {
 } from "./AssistantMessageMeta";
 import { AssistantDateSeparator } from "./AssistantDateSeparator";
 import { CornerDownRight } from "../../../shared/ui/icons";
+import { AssistantMessageImage, type ReadAssistantImage } from "./AssistantMessageImage";
 
 type MessageActions = {
+  readImage?: ReadAssistantImage;
   onOpen: (ref: SessionReference) => void;
   onRespond: (
     message: Extract<AssistantMessage, { kind: "input" }>,
@@ -35,6 +37,7 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
   onOpen,
   onRespond,
   bindReply,
+  readImage,
 }: MessageActions & {
   message: AssistantMessage;
   previousCreatedAt?: number;
@@ -47,6 +50,10 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
   const reply = mobile && message.kind === "user"
     ? splitAssistantReply(message.text)
     : undefined;
+  const files = "attachments" in message ? message.attachments ?? [] : [];
+  const images = readImage ? files.filter(file => file.kind === "image") : [];
+  const otherFiles = readImage ? files.filter(file => file.kind !== "image") : files;
+  const hasBubble = ("text" in message && !!message.text) || !!otherFiles.length;
   const time = mobile && (
     <AssistantMessageTime
       createdAt={message.createdAt}
@@ -133,7 +140,12 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
               <span title={reply.quote}>{reply.quote}</span>
             </div>
           )}
-          <div
+          {images.length > 0 && readImage && (
+            <div className="assistant-message-media user-message-media">
+              {images.map(file => <AssistantMessageImage key={file.id} messageId={message.id} file={file} readImage={readImage} />)}
+            </div>
+          )}
+          {hasBubble && <div
             {...(message.kind === "assistant" ||
             (mobile && message.kind === "user")
               ? bindReply(message.text, message.kind === "assistant")
@@ -156,13 +168,12 @@ const AssistantMessageRow = memo(function AssistantMessageRow({
                 {message.kind === "status" ? t(message.text) : reply?.text ?? message.text}
               </span>
             )}
-            {"attachments" in message &&
-              message.attachments?.map((file) => (
+            {otherFiles.map((file) => (
                 <small className="assistant-attachment" key={file.id}>
                   {file.name}
                 </small>
               ))}
-          </div>
+          </div>}
           {((message.kind === "assistant" && !mobile) ||
             message.kind === "user") && (
             <AfterTextReveal

@@ -1960,6 +1960,13 @@ html.has-user-accent
   padding: 0;
 }
 
+[data-composer-layout="desktop"]
+  .composer-attachments
+  .attachment-chip-thumbnail {
+  width: 72px;
+  height: 72px;
+}
+
 [data-composer-layout="desktop"] .composer-footer {
   container: composer-toolbar / inline-size;
   padding: 0;

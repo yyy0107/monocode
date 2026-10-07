@@ -28,6 +28,7 @@ import type {
   HostModelCatalog,
   HostProject,
   HostSessionSummary,
+  RemoteAttachment,
 } from "../../connections/model/protocol";
 import { assistantErrorMessage } from "../model/assistantErrors";
 import { quoteAssistantReply } from "../model/assistantReply";
@@ -119,6 +120,8 @@ export function AssistantChat({
       ),
     [hostKey, rpc],
   );
+  const readImage = useCallback((messageId: string, file: RemoteAttachment) =>
+    client.readImage(messageId, file), [client]);
   // Undefined means the first sync is pending; null confirms setup is needed.
   const [assistant, setAssistant] = useState<AssistantView | null>();
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
@@ -755,6 +758,7 @@ export function AssistantChat({
                     </div>
                   )}
                   <AssistantMessages
+                    readImage={readImage}
                     messages={visibleMessages}
                     pendingUserMessageId={pendingUserMessageId}
                     canRead={!!assistant.policy.permissions["sessions.read"]}

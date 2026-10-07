@@ -16,7 +16,6 @@ import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   ArrowLeft,
   ArrowUp,
-  ImagePlus,
   LoaderCircle,
   Pause,
   Play,
@@ -235,7 +234,6 @@ function DesktopAssistantComposer({
   const { t } = useTranslation();
   const input = useRef<HTMLTextAreaElement>(null);
   const files = useRef<HTMLInputElement>(null);
-  const photos = useRef<HTMLInputElement>(null);
   // Chips stay rendered while the tray collapses after the last removal.
   const [renderedAttachments, setRenderedAttachments] = useState(attachments);
   useLayoutEffect(() => {
@@ -320,31 +318,6 @@ function DesktopAssistantComposer({
           >
             <Plus size={18} />
           </button>
-          <button
-            type="button"
-            className="assistant-icon-button"
-            aria-label={t("Upload photos")}
-            title={t("Upload photos")}
-            disabled={attachDisabled}
-            onClick={() => photos.current?.click()}
-          >
-            <ImagePlus size={18} />
-          </button>
-          <input
-            ref={photos}
-            type="file"
-            accept="image/*"
-            multiple
-            className="assistant-file-input"
-            tabIndex={-1}
-            aria-hidden="true"
-            disabled={attachDisabled}
-            onChange={(e) => {
-              const selected = Array.from(e.target.files ?? []);
-              e.target.value = "";
-              if (selected.length) onAttach(selected);
-            }}
-          />
           <input
             ref={files}
             type="file"
