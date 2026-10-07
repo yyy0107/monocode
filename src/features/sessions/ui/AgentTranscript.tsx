@@ -1330,12 +1330,17 @@ function LiveFoldTitle({
   waitingLabel?: string;
   background?: string[];
   modelName?: string;
-  /** The client shows the clock under the live turn instead. */
+  /** The client shows an activity clock under the live turn. */
   clockHidden?: boolean;
 }) {
-  const elapsedMs = useElapsedFrom(startedAt, paused || clockHidden);
+  const elapsedMs = useElapsedFrom(startedAt, paused);
+  const elapsed = formatElapsed(elapsedMs);
+  // The footer's clock tracks the current activity; the fold line keeps the
+  // turn's total beside the model name.
   const working = clockHidden
-    ? formatWorkingDuration(null, modelName)
+    ? elapsed
+      ? `${formatWorkingDuration(null, modelName)} · ${elapsed}`
+      : formatWorkingDuration(null, modelName)
     : formatWorkingDuration(elapsedMs, modelName);
   // Yielding with a command still going is not the end of the turn. The clock
   // keeps running and the line says what it is waiting on.
