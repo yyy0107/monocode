@@ -15,7 +15,7 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
-function setup(harness: "codex" | "claude" = "codex") {
+function setup(harness: "codex" | "claude" | "pi" | "omp" = "codex") {
   const directory = mkdtempSync(join(tmpdir(), "monocode-engine-test-"));
   const store = new HostStore(join(directory, "host.db"));
   const project = store.addProject(directory, "Test");
@@ -38,7 +38,7 @@ function setup(harness: "codex" | "claude" = "codex") {
     answer: vi.fn(),
   };
   // Native sources resolve inside the fixture, never in the developer's home.
-  const engine = new HostEngine(store, { codex: provider, claude: provider }, undefined, {
+  const engine = new HostEngine(store, { codex: provider, claude: provider, pi: provider, omp: provider }, undefined, {
     native: { environment: { home: join(directory, "home"), env: {} } },
   });
   const created = engine.command({
@@ -50,6 +50,9 @@ function setup(harness: "codex" | "claude" = "codex") {
     runtimeMode: "supervised",
   });
   cleanups.push(async () => {
+    // Workflow initialization writes asynchronously; let it finish before
+    // removing the fixture's directory.
+    await engine.workflows.ready;
     await engine.close();
     store.close();
     rmSync(directory, { recursive: true, force: true });
@@ -78,6 +81,7 @@ describe("headless session ownership", () => {
       expect(store.session(id)).toMatchObject({ updatedAt: 1_000, supportsQueue: true });
       expect(store.summaries()[0].updatedAt).toBe(1_000);
     } finally {
+      await restarted.workflows.ready;
       await restarted.close();
     }
   });
@@ -177,6 +181,73 @@ describe("headless session ownership", () => {
     expect(provider.bind).toHaveBeenCalledWith(id, "imported-native", current.session.cwd, "saved-account");
     expect(turns[0].input.providerAccountId).toBe("saved-account");
     turns[0].finish();
+  });
+
+  it.each(["codex", "pi", "omp"] as const)(
+    "resumes the saved %s conversation after its idle process is released",
+    async (harness) => {
+      vi.useFakeTimers();
+      const { engine, store, provider, turns, id } = setup(harness);
+      await engine.ready;
+      engine.nativeSessions.setAutoSync(false);
+      provider.readSessionTitle = vi.fn(async () => null);
+      let retained: string | undefined;
+      provider.bind = vi.fn((_id, providerId) => { retained = providerId; });
+      provider.stop = vi.fn(async () => { retained = undefined; turns.at(-1)?.finish(); });
+      const identities: Array<string | undefined> = [];
+      const send = provider.send;
+      provider.send = vi.fn((input) => { identities.push(retained); return send(input); });
+      const current = store.session(id);
+      store.save({ ...current, revision: current.revision + 1,
+        session: { ...current.session, providerAccountId: "saved-account" } }, { type: "test" });
+
+      engine.command({ type: "send", commandId: "before-idle", sessionId: id, text: "Remember this task" });
+      await vi.waitFor(() => expect(turns).toHaveLength(1));
+      turns[0].input.onEvent({ type: "session.providerBound", providerSessionId: "original-thread" });
+      if (harness === "codex") turns[0].input.onEvent({ type: "session.error", message: "You've hit your usage limit" });
+      turns[0].finish();
+      await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+      expect(provider.stop).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(provider.stop).toHaveBeenCalledOnce();
+      expect(retained).toBeUndefined();
+
+      engine.command({ type: "send", commandId: "after-idle", sessionId: id, text: "Continue" });
+      await vi.waitFor(() => expect(turns).toHaveLength(2));
+      expect(identities).toEqual([undefined, "original-thread"]);
+      expect(provider.bind).toHaveBeenLastCalledWith(id, "original-thread", current.session.cwd, "saved-account");
+      turns[1].finish();
+    },
+  );
+
+  it("waits for idle cleanup before rebinding and sending a follow-up", async () => {
+    vi.useFakeTimers();
+    const { engine, store, provider, turns, id } = setup();
+    await engine.ready;
+    engine.nativeSessions.setAutoSync(false);
+    provider.readSessionTitle = vi.fn(async () => null);
+    engine.command({ type: "send", commandId: "before-cleanup", sessionId: id, text: "First turn" });
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    turns[0].input.onEvent({ type: "session.providerBound", providerSessionId: "original-thread" });
+    turns[0].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+    let finishStop = () => {};
+    provider.stop = vi.fn().mockImplementationOnce(() => new Promise<void>((resolve) => { finishStop = resolve; }));
+    try {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(provider.stop).toHaveBeenCalledOnce();
+      vi.mocked(provider.bind).mockClear();
+      engine.command({ type: "send", commandId: "during-cleanup", sessionId: id, text: "Continue" });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(turns).toHaveLength(1);
+      expect(provider.bind).not.toHaveBeenCalled();
+      finishStop();
+      await vi.waitFor(() => expect(turns).toHaveLength(2));
+      expect(provider.bind).toHaveBeenCalledWith(id, "original-thread", store.session(id).session.cwd);
+    } finally {
+      finishStop();
+      turns.at(-1)?.finish();
+    }
   });
   it("persists generated PNG history, deduplicates events and enforces session ownership", async () => {
     const { engine, store, turns, id } = setup();
@@ -893,6 +964,7 @@ describe("headless session ownership", () => {
       "retained",
       value.session.cwd,
     );
+    await recovered.workflows.ready;
     await recovered.close();
   });
 

@@ -71,6 +71,7 @@ async function setup(harness: "codex" | "claude" | "pi" | "omp" = "codex") {
   cleanups.push(async () => {
     for (const release of gates) release();
     for (const received of Object.values(turns)) for (const turn of received) turn.finish();
+    await engine.workflows.ready;
     await engine.close();
     store.close();
     rmSync(directory, { recursive: true, force: true });

@@ -345,7 +345,7 @@ export class HostEngine {
   private closing = false;
   private readonly titles: SessionTitleCoordinator;
   private parked = new Map<string, { harness: string; timer: ReturnType<typeof setTimeout> }>();
-  /** Drain old adapters before reusing this conversation ID with another agent. */
+  /** Drain idle or replaced adapters before starting another turn. */
   private providerStops = new Map<string, Set<RemoteProvider>>();
   private providerCleanups = new Map<string, Promise<void>>();
   /** Writer lock and external-CLI checks for native sessions. */
@@ -1846,7 +1846,14 @@ export class HostEngine {
         else {
           const timer = setTimeout(() => {
             this.parked.delete(session.id);
-            if (!this.running.has(session.id)) void provider.stop(session.id).catch(() => undefined).finally(() => { this.checkoutReleases.get(session.id)?.(); this.checkoutReleases.delete(session.id); });
+            if (this.running.has(session.id)) return;
+            // stop() also forgets the adapter's resume binding. The next turn
+            // must wait for cleanup and bind the persisted conversation again.
+            this.boundSessions.delete(session.id);
+            const stops = this.providerStops.get(session.id) ?? new Set<RemoteProvider>();
+            stops.add(session.harness as RemoteProvider);
+            this.providerStops.set(session.id, stops);
+            void this.cleanPreviousProviders(session.id).catch(() => undefined);
           }, 5 * 60_000);
           timer.unref?.();
           this.parked.set(session.id, { harness: session.harness, timer });
