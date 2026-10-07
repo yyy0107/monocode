@@ -5,6 +5,7 @@ import type {
 } from "../features/connections/model/protocol";
 import { sessionDisplayTitle } from "../features/sessions/model/session";
 import { useTranslation } from "../shared/i18n/useTranslation";
+import { useConnectionAppearance } from "./connectionAppearance";
 import { useMobilePageState } from "./mobilePageState";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import {
@@ -70,6 +71,8 @@ export function MobileHome({
   onAddProject,
   onHost,
   onAddConnection,
+  otherHosts,
+  onSwitchHost,
   onSessionActions,
   sessionActionsId,
   refreshKey = 0,
@@ -96,6 +99,9 @@ export function MobileHome({
   onAddProject: (trigger: HTMLButtonElement) => void;
   onHost?: (trigger: HTMLButtonElement) => void;
   onAddConnection?: (trigger: HTMLButtonElement) => void;
+  /** Other paired Hosts; choosing one makes it active. */
+  otherHosts?: { environmentId: string; name: string }[];
+  onSwitchHost?: (environmentId: string) => void;
   onSessionActions?: (session: HostSessionSummary, trigger: HTMLButtonElement, point?: MobileSheetPoint) => void;
   sessionActionsId?: string;
   refreshKey?: number;
@@ -297,17 +303,27 @@ export function MobileHome({
                 </button>
               )}
             </div>
-            <button
-              type="button"
-              className="mobile-home-host"
-              onClick={(event) => onHost?.(event.currentTarget)}
-            >
-              <span className="mobile-home-host-icon">
-                <Computer size={22} />
-                <MobileHostStatus status={hostStatus} />
-              </span>
-              <span>{hostName}</span>
-            </button>
+            <div className="mobile-home-host-list">
+              <button
+                type="button"
+                className="mobile-home-host"
+                onClick={(event) => onHost?.(event.currentTarget)}
+              >
+                <span className="mobile-home-host-icon">
+                  <Computer size={22} />
+                  <MobileHostStatus status={hostStatus} />
+                </span>
+                <span>{hostName}</span>
+              </button>
+              {otherHosts?.map((host) => (
+                <SavedHost
+                  key={host.environmentId}
+                  environmentId={host.environmentId}
+                  name={host.name}
+                  onSwitch={onSwitchHost}
+                />
+              ))}
+            </div>
           </section>
         )}
         {root && !needle && !projects.length && (
@@ -481,5 +497,32 @@ export function MobileHome({
         </div>
       )}
     </main>
+  );
+}
+
+function SavedHost({
+  environmentId,
+  name,
+  onSwitch,
+}: {
+  environmentId: string;
+  name: string;
+  onSwitch?: (environmentId: string) => void;
+}) {
+  const { t } = useTranslation();
+  const label = useConnectionAppearance(environmentId).displayName || name;
+  return (
+    <button
+      type="button"
+      className="mobile-home-host"
+      data-inactive="true"
+      aria-label={t("Switch to {host}", { host: label })}
+      onClick={() => onSwitch?.(environmentId)}
+    >
+      <span className="mobile-home-host-icon">
+        <Computer size={22} />
+      </span>
+      <span>{label}</span>
+    </button>
   );
 }

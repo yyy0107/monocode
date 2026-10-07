@@ -82,6 +82,10 @@ export function PairingHostField({
   else if (hosts && hosts.length === 0) status = t("No network address found on this computer.");
   else if (current && !current.reachable)
     status = t("The Host cannot be reached at this address. Another program may be using the port, or a firewall blocks it. Fix it, then check again.");
+  else if (current?.kind === "tailscale")
+    status = t("Tailscale address: the phone must have Tailscale turned on and signed in to the same tailnet. Otherwise choose a local network address.");
+  else if (current)
+    status = t("Local network address: the phone must be on the same Wi-Fi as this computer.");
 
   return (
     <div className="flex flex-col gap-1.5">

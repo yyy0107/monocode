@@ -1,4 +1,5 @@
 import { useConnectionAppearance, saveConnectionAppearance, removeConnectionAppearance } from "./connectionAppearance";
+import { connectionErrorMessage } from "./connectionError";
 import { MobileAssistant, type MobileAssistantHandle } from "./MobileAssistant";
 import { resolveAssistantTarget } from "../features/assistant/model/assistantNavigation";
 import { useHostQueue } from "../features/connections/ui/useHostQueue";
@@ -70,6 +71,7 @@ import {
   type PendingCommand,
   type MobileFirstMessage,
   type MobileSessionPatch,
+  type Connection,
 } from "./client";
 import type { MobileComposerPanel } from "./MobileComposer";
 import { createMobileDraft, MobileDraftComposer } from "./MobileDraftComposer";
@@ -286,6 +288,7 @@ export function MobileApp() {
   const connectionName = connectionAppearance.displayName || client.connection?.name || "MonoCode";
   const [connected, setConnected] = useState(false);
   const [connectionRevision, setConnectionRevision] = useState(0);
+  const [savedHosts, setSavedHosts] = useState<Connection[]>([]);
   const assistantHostId = connected ? client.connection?.environmentId : undefined;
   useEffect(() => {
     if (!assistantHostId || !drawerOpen) return;
@@ -613,12 +616,29 @@ export function MobileApp() {
     });
   }, [connected, project?.id, sessionId, view]);
 
-  const connect = async (credentials = { url, token }) => {
+  const refreshSavedHosts = useCallback(() => {
+    void client.savedConnections().then(setSavedHosts).catch(() => undefined);
+  }, [client]);
+  useEffect(refreshSavedHosts, [refreshSavedHosts, connectionRevision, connected]);
+  const connect = (credentials = { url, token }) =>
+    activateConnection(
+      () => client.connect(credentials.url, normalizePairingCode(credentials.token)),
+      (problem) => connectionErrorMessage(problem, credentials.url),
+    );
+  const switchHost = (environmentId: string) => {
+    if (busy) return;
+    navigation.current += 1;
+    void activateConnection(() => client.switchTo(environmentId), message);
+  };
+  const activateConnection = async (
+    open: () => Promise<void>,
+    describe: (problem: unknown) => string,
+  ) => {
     setBusy(true);
     setError("");
     setPollError("");
     try {
-      await client.connect(credentials.url, normalizePairingCode(credentials.token));
+      await open();
       const items = await client.projects();
       projectGeneration.current += 1;
       setProject(undefined);
@@ -640,9 +660,10 @@ export function MobileApp() {
       setPending(await client.pending());
       await restoreLocation(items);
     } catch (problem) {
-      setError(message(problem));
+      setError(describe(problem));
     } finally {
       setBusy(false);
+      refreshSavedHosts();
     }
   };
   const openProject = async (
@@ -1168,7 +1189,10 @@ export function MobileApp() {
     } catch (problem) {
       setError(message(problem));
       throw problem;
-    } finally { setBusy(false); }
+    } finally { setBusy(false); refreshSavedHosts(); }
+    // Deleting the active Host falls back to another paired one.
+    const next = remove ? (await client.savedConnections())[0] : undefined;
+    if (next) await activateConnection(() => client.switchTo(next.environmentId), message);
   };
   const reconnect = async () => {
     setBusy(true);
@@ -1741,6 +1765,8 @@ export function MobileApp() {
             setError("");
             setAddingConnection(true);
           }}
+          otherHosts={savedHosts.filter((host) => host.environmentId !== client.connection?.environmentId)}
+          onSwitchHost={switchHost}
         />
       ) : (
         <main className="mobile-chat" inert={drawerOpen || assistantOpen}>

@@ -36,6 +36,8 @@ const host = vi.hoisted(() => ({
   connection: { endpoint: "http://computer:3774", name: "My computer", environmentId: "settings-host", disabled: false },
   restore: vi.fn(async () => false),
   pending: vi.fn(async () => undefined),
+  savedConnections: vi.fn(async () => []),
+  switchTo: vi.fn(async () => undefined),
   connect: vi.fn(async () => {}),
   projects: vi.fn(async () => [
     { id: "one", name: "Connections", cwd: "/projects/Connections" },

@@ -62,7 +62,7 @@ public class MonoCodeCredentialsPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise)
     ]
     private func query(_ call: CAPPluginCall) -> [String: Any]? {
-        guard let key = call.getString("key"), ["connection", "pending"].contains(key) else {
+        guard let key = call.getString("key"), ["connection", "connections", "pending"].contains(key) else {
             call.reject("Invalid storage key")
             return nil
         }

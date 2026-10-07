@@ -36,6 +36,8 @@ const host = vi.hoisted(() => ({
   },
   restore: vi.fn(async () => true),
   pending: vi.fn(async () => undefined),
+  savedConnections: vi.fn(async () => []),
+  switchTo: vi.fn(async () => undefined),
   verify: vi.fn(async () => {}),
   getConnectionStatus: () => healthyStatus,
   subscribeConnectionStatus: () => () => {},

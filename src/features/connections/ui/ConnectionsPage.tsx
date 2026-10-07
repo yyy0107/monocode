@@ -317,9 +317,6 @@ function AddDeviceDialog({
               </button>
             </div>
           </div>
-          <p className="text-ui-caption leading-5 text-foreground-subtle">
-            {t("Your phone must be on the same network or tailnet as this computer.")}
-          </p>
           <div className="flex justify-end">
             <button
               type="button"

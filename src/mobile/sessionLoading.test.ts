@@ -13,6 +13,8 @@ const host = vi.hoisted(() => ({
   restore: vi.fn(async () => true),
   verify: vi.fn(async () => {}),
   pending: vi.fn(async () => undefined),
+  savedConnections: vi.fn(async () => []),
+  switchTo: vi.fn(async () => undefined),
   projects: vi.fn(async () => [{ id: "project", cwd: "/project", name: "Project" }]),
   sessions: vi.fn(), models: vi.fn(), session: vi.fn(), nativeAccess: vi.fn(), dispatch: vi.fn(),
   cache: new Map<string, HostSession>(),
@@ -28,6 +30,8 @@ vi.mock("./client", () => ({
     restore = host.restore;
     verify = host.verify;
     pending = host.pending;
+    savedConnections = host.savedConnections;
+    switchTo = host.switchTo;
     projects = host.projects;
     sessions = host.sessions;
     updateSession = host.updateSession;

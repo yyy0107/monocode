@@ -19,6 +19,8 @@ const host = vi.hoisted(() => ({
   restore: vi.fn(async () => true),
   verify: vi.fn(async () => {}),
   pending: vi.fn(async () => undefined),
+  savedConnections: vi.fn(async () => []),
+  switchTo: vi.fn(async () => undefined),
   projects: vi.fn(async () => [...registered]),
   sessions: vi.fn(async () => []),
   cachedModels: () => undefined,

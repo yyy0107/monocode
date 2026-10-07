@@ -1,6 +1,6 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 
-export type StorageKey = "connection" | "pending";
+export type StorageKey = "connection" | "connections" | "pending";
 export interface MobileStorage {
   get(key: StorageKey): Promise<string | null>;
   set(key: StorageKey, value: string): Promise<void>;

@@ -30,6 +30,8 @@ vi.mock("./client", () => ({
     subscribeConnectionStatus = () => () => {};
     restore = async () => true;
     pending = async () => undefined;
+    savedConnections = async () => [];
+    switchTo = async () => undefined;
     verify = async () => {};
     projects = async () => [
       { id: "project", name: "Project", cwd: "/project" },

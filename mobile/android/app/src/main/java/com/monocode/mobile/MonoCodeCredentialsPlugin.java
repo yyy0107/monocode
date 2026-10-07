@@ -26,7 +26,7 @@ public class MonoCodeCredentialsPlugin extends Plugin {
     }
     private String key(PluginCall call) {
         String key = call.getString("key");
-        if (!"connection".equals(key) && !"pending".equals(key)) {
+        if (!"connection".equals(key) && !"connections".equals(key) && !"pending".equals(key)) {
             call.reject("Invalid storage key");
             return null;
         }
