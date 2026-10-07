@@ -3,12 +3,11 @@ import type { HostProviderAccounts, HostProviderUsage } from "../features/connec
 import { accountStatus } from "../features/providers/model/accountUsageStatus";
 import { fetchingRateLimits, errorRateLimits } from "../features/providers/model/rateLimits";
 import { AccountStatusLabel, meterWindows, UsageMeter } from "../features/providers/ui/ProviderAccountUsage";
-import { ProviderAccountSubtitle } from "../features/providers/ui/ProviderAccountSubtitle";
 import { HARNESS_TITLE } from "../features/sessions/model/session";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { useNow } from "../shared/hooks/useNow";
 import { useTranslation } from "../shared/i18n/useTranslation";
-import { RefreshCw } from "../shared/ui/icons";
+import { Info, RefreshCw } from "../shared/ui/icons";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import type { MobileClient } from "./client";
 import "./mobileProviderAccounts.css";
@@ -46,6 +45,12 @@ export function MobileProviderAccounts({ client, hostId, enabled }: {
     setState(previous => ({ ...(previous.hostId === hostId ? previous : empty(hostId)), loading: true, error: "" }));
     void (async () => {
       try {
+        // A running Host can be upgraded without reconnecting the phone.
+        // Recheck its descriptor before treating cached capabilities as final.
+        if (refresh > 0 || !client.hasCapability("providerAccounts.usage.v1")) {
+          await client.verify();
+          if (!current()) return;
+        }
         const accounts = await client.providerAccounts();
         if (!current()) return;
         const supported = client.hasCapability("providerAccounts.usage.v1");
@@ -114,7 +119,12 @@ export function MobileProviderAccounts({ client, hostId, enabled }: {
       {!connected ? <p className="mobile-settings-footer">{t("Connect to a Host to view account usage.")}</p> : null}
       {shown.error ? <p className="mobile-form-error" role="alert">{t(shown.error)}</p> : null}
       {shown.accounts === null ? <p className="mobile-settings-footer">{t("Provider accounts are unavailable on this Host.")}</p>
-        : shown.unsupported ? <p className="mobile-settings-footer">{t("Update this Host to view account usage.")}</p> : null}
+        : shown.unsupported ? <div className="mobile-account-notice" role="status">
+          <Info size={18} aria-hidden />
+          <div><strong>{t("Host update required")}</strong>
+            <p>{t("This Host does not support account usage yet. Update and restart it, then refresh.")}</p>
+          </div>
+        </div> : null}
       {shown.loading && !count ? <p role="status" className="mobile-settings-footer">{t("Loading accounts…")}</p> : null}
       {connected && shown.accounts && !count && !shown.loading ?
         <p className="mobile-settings-footer">{t("No shared accounts are available on this Host.")}</p> : null}
@@ -126,7 +136,7 @@ export function MobileProviderAccounts({ client, hostId, enabled }: {
           <section key={provider} className="mobile-settings-group" aria-label={HARNESS_TITLE[provider]}>
             <h2 className="mobile-account-provider"><HarnessIcon harness={provider} className="size-4" />{HARNESS_TITLE[provider]}</h2>
             {defaults?.defaultError ? <p className="mobile-form-error" role="alert">{defaults.defaultError}</p> : null}
-            <div className="mobile-settings-card">
+            <div className="mobile-account-list">
               {accounts.map(account => {
                 const limits = shown.usage[`${provider}:${account.id}`];
                 const status = accountStatus(limits, now);
@@ -135,22 +145,25 @@ export function MobileProviderAccounts({ client, hostId, enabled }: {
                   ? t("Built-in CLI profile") : account.label;
                 return (
                   <article key={account.id} className="mobile-account-row" aria-label={label}>
-                    <div className="mobile-account-heading"><strong>{label}</strong>
+                    <div className="mobile-account-heading">
+                      <strong>{label}</strong>
+                      {account.identity?.plan ? <span className="mobile-account-plan">{account.identity.plan}</span> : null}
                       {!defaults?.defaultError && defaults?.defaultAccountId === account.id ?
-                        <span className="mobile-account-badge">{t("Default for new conversations")}</span> : null}
+                        <span className="mobile-account-badge" aria-label={t("Default for new conversations")}
+                          title={t("Default for new conversations")}>{t("Default for new chats")}</span> : null}
                     </div>
-                    <ProviderAccountSubtitle identity={account.identity} fallback={t("Account identity unavailable")}
-                      className="mobile-account-identity" />
+                    <p className="mobile-account-identity">
+                      {account.identity?.email || account.identity?.name?.trim() || t("Account identity unavailable")}
+                    </p>
                     {account.identity?.organization ? <p className="mobile-account-detail">{account.identity.organization}</p> : null}
-                    <AccountStatusLabel wrap className="mobile-account-detail"
-                      status={{ ...status, ...(shown.unsupported ? { tone: "unknown" as const } : {}),
-                        detail: null, label: t(shown.unsupported ? "Usage unavailable" : status.label) }} />
+                    {!shown.unsupported ? <AccountStatusLabel wrap className="mobile-account-status"
+                      status={{ ...status, detail: null, label: t(status.label) }} /> : null}
                     {limits?.status === "error" && windows.length > 0 ?
                       <p className="mobile-form-error" role="status">{t(limits.error || "Unable to refresh account usage.")}</p> : null}
                     {windows.length ? <div className="mobile-account-meters">
                       {windows.map(entry => <UsageMeter key={entry.title} {...entry} now={now} showRemaining className="mobile-account-meter" />)}
                     </div> : null}
-                    {limits?.updatedAt && windows.length ? <p className="mobile-account-detail">
+                    {limits?.updatedAt && windows.length ? <p className="mobile-account-updated">
                       {t("Updated {time}", { time: new Date(limits.updatedAt).toLocaleString(language) })}
                     </p> : null}
                   </article>

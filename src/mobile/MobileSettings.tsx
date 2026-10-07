@@ -382,7 +382,7 @@ export function MobileSettings({
     );
 
   if (page === "accounts")
-    return <main key="accounts" className="mobile-content mobile-settings">{providerAccounts}</main>;
+    return <main key="accounts" className="mobile-content mobile-settings mobile-settings-accounts">{providerAccounts}</main>;
 
   if (page === "agents")
     return (

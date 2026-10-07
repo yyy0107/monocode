@@ -21,6 +21,7 @@ const accounts = (): HostProviderAccounts => ({
 let host: {
   connection: { environmentId: string; name: string };
   hasCapability: ReturnType<typeof vi.fn>;
+  verify: ReturnType<typeof vi.fn<() => Promise<void>>>;
   providerAccounts: ReturnType<typeof vi.fn<() => Promise<HostProviderAccounts | null>>>;
   providerAccountUsage: ReturnType<typeof vi.fn<(input: { provider: string; accountId: string; refresh?: boolean }) => Promise<HostProviderUsage | null>>>;
 };
@@ -34,6 +35,7 @@ beforeEach(() => {
   host = {
     connection: { environmentId: "host-a", name: "Computer A" },
     hasCapability: vi.fn(() => true),
+    verify: vi.fn(async () => {}),
     providerAccounts: vi.fn(async () => accounts()),
     providerAccountUsage: vi.fn(async ({ provider }) => provider === "claude"
       ? parseClaudeOAuthUsage(JSON.stringify({ seven_day: { utilization: 85 } })) : limits()),
@@ -57,12 +59,13 @@ it("shows each profile's actual identity, shared default badge and remaining win
   const builtin = node.querySelector('article[aria-label="Built-in CLI profile"]')!;
   expect(builtin.textContent).toContain("builtin@example.test");
   expect(builtin.textContent).not.toContain("work@example.test");
-  expect(builtin.textContent).not.toContain("Default for new conversations");
-  expect(node.querySelector('article[aria-label="工作账号"]')?.textContent).toContain("Default for new conversations");
+  expect(builtin.querySelector(".mobile-account-badge")).toBeNull();
+  expect(node.querySelector('article[aria-label="工作账号"] .mobile-account-badge')?.getAttribute("aria-label")).toBe("Default for new conversations");
   expect(node.textContent).toContain("77% left");
   expect(node.textContent).toContain("15% left");
   expect(node.querySelectorAll('[role="progressbar"]')).toHaveLength(3);
-  expect(node.querySelector('[aria-label="Reveal email"]')).not.toBeNull();
+  expect(node.querySelector('[aria-label="Reveal email"]')).toBeNull();
+  expect(builtin.querySelector(".mobile-account-identity")?.textContent).toBe("builtin@example.test");
   expect(host.providerAccountUsage).toHaveBeenCalledTimes(3);
 });
 
@@ -71,6 +74,7 @@ it("refreshes the account list and retains the last successful snapshot on parti
   const oldTime = node.querySelector('article[aria-label="工作账号"]')!.textContent!.match(/Updated .*/)?.[0];
   host.providerAccountUsage.mockImplementation(async ({ provider }) => errorRateLimits(provider as "codex" | "claude", "Unable to refresh account usage."));
   await act(async () => refresh().click());
+  expect(host.verify).toHaveBeenCalledTimes(1);
   expect(host.providerAccounts).toHaveBeenCalledTimes(2);
   expect(host.providerAccountUsage.mock.calls.slice(3).every(([input]) => input.refresh)).toBe(true);
   expect(node.querySelector('article[aria-label="工作账号"]')?.textContent).toContain(oldTime!);
@@ -95,9 +99,43 @@ it("renders successful accounts while another account is still loading", async (
 it("keeps metadata on old Hosts without attempting quota requests", async () => {
   host.hasCapability.mockReturnValue(false);
   await render();
-  expect(node.textContent).toContain("Update this Host");
+  expect(node.textContent).toContain("Host update required");
+  expect(node.textContent).toContain("Update and restart it, then refresh.");
   expect(node.textContent).toContain("工作账号");
   expect(node.textContent).not.toContain("Checking…");
+  expect(node.querySelectorAll(".mobile-account-status")).toHaveLength(0);
+  expect(host.verify).toHaveBeenCalledTimes(1);
+  expect(host.providerAccountUsage).not.toHaveBeenCalled();
+});
+
+it("rechecks stale capabilities when opening the page after a Host upgrade", async () => {
+  host.hasCapability.mockReturnValue(false);
+  host.verify.mockImplementation(async () => { host.hasCapability.mockReturnValue(true); });
+  await render();
+  expect(host.verify).toHaveBeenCalledTimes(1);
+  expect(node.textContent).not.toContain("Host update required");
+  expect(node.textContent).toContain("77% left");
+});
+
+it("recovers from an unsupported method after upgrading the Host and refreshing", async () => {
+  host.providerAccountUsage.mockResolvedValue(null);
+  await render();
+  expect(node.textContent).toContain("Host update required");
+  host.providerAccountUsage.mockResolvedValue(limits());
+  await act(async () => refresh().click());
+  expect(host.verify).toHaveBeenCalledTimes(1);
+  expect(node.textContent).not.toContain("Host update required");
+  expect(node.textContent).toContain("77% left");
+});
+
+it("stops loading when a pending capability recheck outlives the page", async () => {
+  let finish!: () => void;
+  host.hasCapability.mockReturnValue(false);
+  host.verify.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await render();
+  await render("host-a", true, false);
+  await act(async () => finish());
+  expect(host.providerAccounts).not.toHaveBeenCalled();
   expect(host.providerAccountUsage).not.toHaveBeenCalled();
 });
 
@@ -145,6 +183,6 @@ it("localizes labels without changing user labels or provider identity", async (
   expect(node.textContent).toContain("内置");
   expect(node.textContent).toContain("工作账号");
   expect(node.textContent).toContain("work@example.test");
-  expect(node.querySelector('[aria-label="显示邮箱"]')).not.toBeNull();
+  expect(node.querySelector('[aria-label="显示邮箱"]')).toBeNull();
   expect(host.providerAccounts).toHaveBeenCalledTimes(1);
 });
