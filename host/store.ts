@@ -11,7 +11,10 @@ import type {
   SessionSync,
 } from "../src/features/connections/model/protocol";
 import type { Block, LinkedWorkItem } from "../src/features/sessions/model/session";
-import { pendingSessionInputKey as pendingInputKey } from "../src/features/sessions/model/sessionActivity";
+import {
+  pendingSessionInputKey as pendingInputKey,
+  sessionNotificationPreview,
+} from "../src/features/sessions/model/sessionActivity";
 import { sessionNeedsInput } from "../src/features/sessions/model/session";
 
 const CACHED_SESSIONS = 32;
@@ -163,6 +166,7 @@ export class HostStore {
           cached.lastUserMessageAt !== undefined &&
           cached.lastReplyRevision !== undefined &&
           cached.pendingInputKey !== undefined &&
+          cached.notificationPreview !== undefined &&
           !cached.nativeSession?.nativeIds &&
           !cached.nativeSession?.blockIds.length
         )
@@ -422,6 +426,7 @@ export function summary(value: HostSession): HostSessionSummary {
     lastReplyRevision: replyRevision(value),
     lastCompletedRunId: value.lastCompletedRunId ?? null,
     pendingInputKey: pendingInputKey(value.session, value.runId),
+    notificationPreview: sessionNotificationPreview(value.session),
     id: value.session.id,
     cwd: value.session.cwd,
     title: value.session.title,

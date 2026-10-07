@@ -31,6 +31,77 @@ afterEach(() => {
   store = undefined;
 });
 
+describe("session summary notification previews", () => {
+  it("uses the latest visible reply and excludes thoughts, tools, drafts and internal output", () => {
+    const value = snapshot();
+    value.session.blocks.push(
+      { id: "old-reply", role: "assistant", text: "Previous result" },
+      { id: "reply", role: "assistant", text: "  Fixed the login.\nTests pass.\n\nMore details follow.  " },
+      { id: "thought", role: "reasoning", text: "Private reasoning" },
+      { id: "tool", role: "tool", text: "Raw command output" },
+      { id: "internal-reply", role: "assistant", text: "Hidden output", internal: true },
+      { id: "draft", role: "user", text: "Unsent request", draft: true },
+    );
+    expect(summary(value).notificationPreview).toEqual({
+      reply: "Fixed the login. Tests pass.",
+      input: null,
+    });
+    value.session.blocks.push({ id: "next-reply", role: "assistant", text: "The next result" });
+    expect(summary(value).notificationPreview?.reply).toBe("The next result");
+  });
+
+  it("previews pending questions and approvals without reusing the previous reply", () => {
+    const value = snapshot();
+    value.session.blocks.push(
+      { id: "reply", role: "assistant", text: "Previous result" },
+      { id: "decided", role: "tool", text: "Old approval", approval: { requestId: 1, decided: "allow" } },
+      { id: "approval", role: "tool", text: "Shell", tool: { title: "npm run deploy" }, approval: { requestId: 2 } },
+    );
+    expect(summary(value).notificationPreview?.input).toBe("npm run deploy");
+    value.session.pendingQuestion = {
+      requestId: 3,
+      title: "Deployment",
+      questions: [{ id: "q", prompt: "Which environment should I deploy to?", options: [], multiSelect: false, allowCustom: true }],
+    };
+    expect(summary(value).notificationPreview?.input).toBe("Which environment should I deploy to?");
+    delete value.session.pendingQuestion;
+    value.session.blocks.at(-1)!.approval!.decided = "deny";
+    expect(summary(value).notificationPreview?.input).toBeNull();
+  });
+
+  it("includes plans and failure notices and bounds long previews without breaking emoji", () => {
+    const value = snapshot();
+    value.session.blocks.push({ id: "plan", role: "plan", text: "Implement the authentication flow" });
+    expect(summary(value).notificationPreview?.reply).toBe("Implement the authentication flow");
+    value.session.blocks.push({ id: "error", role: "system", text: "Connection failed", notice: "error" });
+    expect(summary(value).notificationPreview?.reply).toBe("Connection failed");
+    value.session.blocks.push({ id: "long", role: "assistant", text: "✅".repeat(238) + "🚀".repeat(10) });
+    expect(summary(value).notificationPreview?.reply).toBe("✅".repeat(238) + "🚀…");
+    value.session.blocks = [];
+    expect(summary(value).notificationPreview).toEqual({ reply: null, input: null });
+  });
+
+  it("backfills persisted summaries from older Hosts and updates previews after a new reply", () => {
+    store = new HostStore(":memory:");
+    const project = store.addProject("/project", "Project");
+    const value = snapshot();
+    value.session.blocks.push({ id: "reply", role: "assistant", text: "First result" });
+    let current = store.save({ ...value, projectId: project.id }, { type: "output" });
+    const legacy = { ...store.summaries(project.id)[0] };
+    delete legacy.notificationPreview;
+    store.db.prepare("UPDATE sessions SET summary=? WHERE id=?").run(JSON.stringify(legacy), value.session.id);
+    expect(store.summaries(project.id)[0].notificationPreview).toEqual({ reply: "First result", input: null });
+    const persisted = store.db.prepare("SELECT summary FROM sessions WHERE id=?").get(value.session.id)!;
+    expect(JSON.parse(String(persisted.summary)).notificationPreview.reply).toBe("First result");
+    current = store.save({
+      ...current,
+      revision: current.revision + 1,
+      session: { ...current.session, blocks: [...current.session.blocks, { id: "next", role: "assistant", text: "Updated result" }] },
+    }, { type: "output" });
+    expect(store.summaries(project.id)[0].notificationPreview?.reply).toBe("Updated result");
+  });
+});
+
 describe("session summary send timestamps", () => {
   it("distinguishes provider input IDs reused in another run", () => {
     const first = snapshot();

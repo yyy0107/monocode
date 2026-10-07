@@ -97,6 +97,11 @@ final class MobileActivityTracker {
             activity.id = row.getString("id"); activity.projectId = row.getString("projectId"); activity.title = row.optString("title");
             activity.revision = row.getLong("revision"); activity.reply = row.optLong("lastReplyRevision", 0);
             activity.finished = nullable(row, "lastCompletedRunId"); activity.input = nullable(row, "pendingInputKey");
+            JSONObject preview = row.optJSONObject("notificationPreview");
+            if (preview != null) {
+                activity.replyPreview = nullable(preview, "reply");
+                activity.inputPreview = nullable(preview, "input");
+            }
             activity.archived = row.optBoolean("archived");
             activities.add(activity);
         }
@@ -134,10 +139,11 @@ final class MobileActivityTracker {
         return PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
     private static void show(Context context, String environmentId, SessionActivityState.Notice notice, JSONObject texts) {
-        String body = texts.optString(notice.input ? "input" : "reply", notice.input ? "This conversation needs your input." : "A new reply is ready.");
+        String body = notice.body(texts.optString(notice.input ? "input" : "reply", notice.input ? "This conversation needs your input." : "A new reply is ready."));
         NotificationCompat.Builder notification = new NotificationCompat.Builder(context, REPLIES)
             .setSmallIcon(R.drawable.ic_stat_monocode).setContentTitle(notice.activity.title.isEmpty() ? "MonoCode" : notice.activity.title)
-            .setContentText(body).setCategory(NotificationCompat.CATEGORY_MESSAGE).setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentText(body).setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE).setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_SOUND | NotificationCompat.DEFAULT_VIBRATE)
             .setAutoCancel(true).setContentIntent(openIntent(context, environmentId, notice.activity.projectId, notice.activity.id));
         try { NotificationManagerCompat.from(context).notify(environmentId + ":" + notice.activity.id, 1, notification.build()); }

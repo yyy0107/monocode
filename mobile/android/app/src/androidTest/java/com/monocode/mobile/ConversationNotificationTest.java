@@ -119,7 +119,8 @@ public final class ConversationNotificationTest {
                     int offset = 0;
                     while (offset < length) { int read = reader.read(body, offset, length - offset); if (read < 0) break; offset += read; }
                     received[0] = new JSONObject(new String(body));
-                    JSONObject reply = new JSONObject(old.toString()).put("revision", 12).put("lastReplyRevision", 12).put("lastCompletedRunId", "new");
+                    JSONObject reply = new JSONObject(old.toString()).put("revision", 12).put("lastReplyRevision", 12).put("lastCompletedRunId", "new")
+                        .put("notificationPreview", new JSONObject().put("reply", "Login now works. Tests pass.").put("input", JSONObject.NULL));
                     byte[] response = new JSONObject().put("result", new JSONObject().put("environmentId", "test-host").put("sessions", new JSONArray().put(reply))).toString().getBytes(StandardCharsets.UTF_8);
                     socket.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + response.length + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.UTF_8));
                     socket.getOutputStream().write(response);
@@ -155,7 +156,8 @@ public final class ConversationNotificationTest {
             }
             assertNotNull("Background conversation reply should reach the system notification manager; received polls=" + polls.get(), delivered);
             assertEquals("Test conversation", delivered.getNotification().extras.getString(Notification.EXTRA_TITLE));
-            assertEquals("A new reply is ready.", delivered.getNotification().extras.getString(Notification.EXTRA_TEXT));
+            assertEquals("Login now works. Tests pass.", delivered.getNotification().extras.getString(Notification.EXTRA_TEXT));
+            assertEquals("Login now works. Tests pass.", delivered.getNotification().extras.getString(Notification.EXTRA_BIG_TEXT));
             assertEquals("Remote card and conversation alert should be posted", 2, manager.getActiveNotifications().length);
             assertEquals(0, delivered.getNotification().flags & Notification.FLAG_ONGOING_EVENT);
             assertNotEquals(0, delivered.getNotification().flags & Notification.FLAG_AUTO_CANCEL);

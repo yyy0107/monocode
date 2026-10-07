@@ -98,7 +98,9 @@ export function showBrowserActivityNotification(
     return;
   try {
     const notification = new Notification(session.title || "MonoCode", {
-      body: mobileNotificationTexts()[kind],
+      body:
+        session.notificationPreview?.[kind]?.trim() ||
+        mobileNotificationTexts()[kind],
       tag: `${environmentId}:${session.id}`,
     });
     notification.onclick = () => {

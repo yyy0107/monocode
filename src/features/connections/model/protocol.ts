@@ -6,6 +6,7 @@ import type { Skill } from "../../skills/model/skillTypes";
 import type { HarnessId } from "../../sessions/model/session";
 import type { OrchestrationWorkspace, TaskStatus } from "../../orchestration/model/orchestrationState";
 import type { ProposedTask } from "../../orchestration/model/orchestrationPlan";
+import type { SessionNotificationPreview } from "../../sessions/model/sessionActivity";
 
 /** Public run projection. Execution credentials and journals remain on Host. */
 export type HostOrchestrationView = {
@@ -157,6 +158,8 @@ export type HostSessionSummary = Omit<
   /** Last submitted user block's timestamp; absent on older Hosts. */
   lastUserMessageAt?: number | null;
   pendingInputKey?: string | null;
+  /** Transcript excerpts for notification delivery; absent on older Hosts. */
+  notificationPreview?: SessionNotificationPreview;
   linkedWorkItem?: LinkedWorkItem;
   needsInput?: boolean;
   branch?: string;

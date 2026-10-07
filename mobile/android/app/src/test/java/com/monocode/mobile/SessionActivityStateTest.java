@@ -6,6 +6,26 @@ import java.util.Arrays;
 import java.util.Collections;
 
 public class SessionActivityStateTest {
+    @Test public void deliveredNoticesUseTheirConversationReplyOrInputAndDoNotReplayOnPreviewChanges() {
+        SessionActivityState state = new SessionActivityState();
+        state.observe(Arrays.asList(activity(10, 8, "old", null)), null);
+        SessionActivityState.Activity reply = activity(12, 12, "new", null);
+        reply.replyPreview = "Login now works.";
+        SessionActivityState.Notice notice = state.observe(Arrays.asList(reply), null).get(0);
+        assertEquals("Login now works.", notice.body("New reply"));
+        reply.replyPreview = "Updated result";
+        assertTrue(state.observe(Arrays.asList(reply), null).isEmpty());
+        SessionActivityState.Activity input = activity(13, 13, "new", "question:1");
+        input.replyPreview = "Previous reply";
+        input.inputPreview = "Which environment should I deploy to?";
+        notice = state.observe(Arrays.asList(input), null).get(0);
+        assertEquals("Which environment should I deploy to?", notice.body("Needs input"));
+        input.inputPreview = "  ";
+        assertEquals("Needs input", notice.body("Needs input"));
+        input.inputPreview = null;
+        assertEquals("Needs input", notice.body("Needs input"));
+    }
+
     @Test public void staleArchivedSnapshotDoesNotReplayDeliveredCompletion() {
         SessionActivityState state = new SessionActivityState();
         state.observe(Arrays.asList(activity(10, 8, "old", null)), null);
