@@ -25,7 +25,7 @@ import type { HostConnectionStatus } from "./client";
 import { MobileSheet, type MobileSheetPoint } from "./MobileSheet";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { MobileListPreview } from "./MobileListPreview";
-import { MobileSessionCard } from "./MobileSessionCard";
+import { MobileSessionRow } from "./MobileSessionRow";
 import { sortMobileProjects } from "./sessionList";
 import {
   filterMobileSessions,
@@ -205,10 +205,9 @@ export function MobileHome({
   const row = (item: HostSessionSummary) => {
     const owner = ownerById.get(item.projectId)!;
     return (
-      <MobileSessionCard
+      <MobileSessionRow
         key={item.id}
         session={item}
-        projectName={project ? undefined : owner.name}
         now={now}
         unread={unreadIds.has(item.id)}
         aria-haspopup={onSessionActions ? "dialog" : undefined}

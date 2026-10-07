@@ -247,17 +247,22 @@ describe("mobile home and project history", () => {
     expect(node.querySelector(".mobile-home-filter")).toBeNull();
   });
 
-  it("shows the latest answer, project and running state on each card", async () => {
+  it("lists each conversation as a plain row with its title and state or age", async () => {
     const loadSessions = async (id: string) => id === "one"
-      ? [session("busy", id, 40, { status: "running", preview: "Updated two files." })]
+      ? [
+          session("busy", id, 40, { status: "running" }),
+          session("asking", id, 30, { needsInput: true }),
+          session("idle", id, 20, { pinned: true }),
+        ]
       : [];
     await render({ loadSessions });
-    const card = node.querySelector('[data-session-id="busy"]')!;
-    expect(card.getAttribute("data-state")).toBe("running");
-    expect(card.querySelector(".mobile-session-card-meta")?.textContent).toBe("Working·monocode");
-    expect(card.querySelector(".mobile-session-card-preview")?.textContent).toBe("Updated two files.");
-    await render({ project: projects[0], loadSessions });
-    expect(node.querySelector(".mobile-session-card-project")).toBeNull();
+    const row = (id: string) => node.querySelector(`[data-session-id="${id}"]`)!;
+    expect(row("busy").querySelector('[aria-label="Working"]')).not.toBeNull();
+    expect(row("asking").querySelector('[aria-label="Needs input"]')).not.toBeNull();
+    expect(row("idle").querySelector("strong")?.textContent).toBe("idle");
+    expect(row("idle").querySelector("time")).not.toBeNull();
+    expect(row("idle").querySelector('[aria-label="Pinned"]')).not.toBeNull();
+    expect(node.querySelector(".mobile-session-card")).toBeNull();
   });
 
   it("searches beyond the twenty-row recent preview and resets expansion for a new project", async () => {
@@ -350,7 +355,6 @@ describe("mobile home and project history", () => {
     expect(node.textContent).toContain("主机");
     expect(node.textContent).toContain("会话");
     expect(node.textContent).toContain("Computer");
-    expect(node.textContent).toContain("monocode");
   });
 });
 

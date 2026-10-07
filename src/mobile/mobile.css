@@ -1119,111 +1119,51 @@ html[data-mobile-glass="solid"] :is(
   top: -5px;
   border-top: 1px solid var(--mobile-separator);
 }
-.mobile-session-card {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  column-gap: 16px;
+/* Conversations are a plain list: the title, then its state or age. */
+.mobile-home-session {
+  display: flex;
   align-items: center;
+  gap: 10px;
   width: 100%;
-  margin-bottom: 10px;
-  padding: 18px 18px 18px 17px;
-  border: 1px solid var(--mobile-separator);
-  border-radius: var(--mobile-card-radius);
-  background: var(--mobile-card);
+  min-height: 52px;
+  padding: 12px 2px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
   color: var(--color-content);
   text-align: left;
 }
-.mobile-session-card:active {
-  background: var(--color-selection);
-}
-.mobile-session-card-icon {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: var(--mobile-fill);
-}
-.mobile-session-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-.mobile-session-card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.mobile-session-card-head > strong {
+.mobile-home-session > strong {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 400;
+  line-height: 26px;
 }
-.mobile-session-card-head > time,
-.mobile-session-card-pin {
+.mobile-home-session > time,
+.mobile-home-session-pin,
+.mobile-home-session-state {
   flex-shrink: 0;
-  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+  color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
-.mobile-session-card-head > time {
-  font-size: 13px;
+.mobile-home-session > time {
+  font-size: 15px;
 }
-.mobile-session-card-meta {
+.mobile-home-session-state {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
-  font-size: 14px;
-  color: color-mix(in srgb, var(--color-content) 55%, transparent);
 }
-.mobile-session-card-state {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 5px;
-}
-.mobile-session-card[data-state="running"] .mobile-session-card-state {
+.mobile-home-session[data-state="running"] .mobile-home-session-state {
   color: var(--mobile-accent);
 }
-.mobile-session-card[data-state="input"] .mobile-session-card-state {
+.mobile-home-session[data-state="input"] .mobile-home-session-state {
   color: var(--color-warning);
 }
-.mobile-session-card-project {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.mobile-session-card-project > svg {
-  flex-shrink: 0;
-}
-.mobile-session-card-project > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mobile-session-card-preview {
-  grid-column: 1 / -1;
-  display: block;
-  margin-top: 16px;
-  padding: 16px 18px;
-  border-radius: 16px;
-  background: var(--mobile-fill);
-  font-size: 15px;
-  line-height: 1.45;
-}
-/* Clamp the text itself so the padding never shows a sliver of a third line. */
-.mobile-session-card-preview > span {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+.mobile-home-session:active {
+  background: var(--color-selection);
 }
 /* Home keeps one compact, high-contrast action at the thumb's corner. */
 .mobile-home:not([data-project="true"]) .mobile-home-dock {

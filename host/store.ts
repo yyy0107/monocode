@@ -13,7 +13,6 @@ import type {
 import type { Block, LinkedWorkItem } from "../src/features/sessions/model/session";
 import { pendingSessionInputKey as pendingInputKey } from "../src/features/sessions/model/sessionActivity";
 import { sessionNeedsInput } from "../src/features/sessions/model/session";
-import { proseSummary } from "../src/features/sessions/model/transcriptActivity";
 
 const CACHED_SESSIONS = 32;
 
@@ -414,7 +413,6 @@ export function summary(value: HostSession): HostSessionSummary {
     (block) => block.role === "user" && !block.draft && !block.internal,
   );
   const sentAt = lastUserMessage?.sentAt ?? lastUserMessage?.startedAt;
-  const preview = replyPreview(value.session.blocks);
   return {
     projectId: value.projectId,
     revision: value.revision,
@@ -448,22 +446,7 @@ export function summary(value: HostSession): HostSessionSummary {
     orchestrationLeadId: value.session.orchestrationLeadId,
     ...(value.session.workflowParentId ? { workflowParentId: value.session.workflowParentId } : {}),
     assistantOwnerId: value.session.assistantOwnerId,
-    ...(preview ? { preview } : {}),
   };
-}
-
-const PREVIEW_LENGTH = 160;
-
-/** One plain line of the latest visible answer, for list cards. */
-function replyPreview(blocks: readonly Block[]): string | undefined {
-  const reply = blocks.findLast(
-    (block) => block.role === "assistant" && !block.internal && !!block.text.trim(),
-  );
-  const text = reply ? proseSummary(reply.text) : "";
-  if (!text) return undefined;
-  return text.length > PREVIEW_LENGTH
-    ? `${text.slice(0, PREVIEW_LENGTH - 1).trimEnd()}…`
-    : text;
 }
 
 function isReplyBlock(block: Block): boolean {

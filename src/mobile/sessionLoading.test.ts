@@ -269,7 +269,7 @@ describe("mobile conversation loading UI", () => {
     expect(node.querySelector('.mobile-app')?.getAttribute('data-view')).toBe('home');
     await act(async () => action("Pin").click());
     expect(host.updateSession).toHaveBeenCalledWith("other", "other-chat", { pinned: true });
-    expect(activePage().querySelector('[data-session-id="other-chat"] .mobile-session-card-pin')).not.toBeNull();
+    expect(activePage().querySelector('[data-session-id="other-chat"] .mobile-home-session-pin')).not.toBeNull();
     expect(node.querySelector('.mobile-sheet-backdrop[data-fold-state="closing"]')?.hasAttribute('inert')).toBe(true);
     act(() => vi.advanceTimersByTime(150));
     expect(node.querySelector('[role="dialog"]')).toBeNull();
