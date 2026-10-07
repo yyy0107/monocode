@@ -2244,12 +2244,11 @@ html.has-user-accent
 
 .composer-model-controls > [data-model-picker-trigger] {
   min-width: calc(var(--spacing) * 13);
+  max-width: 320px;
   flex-shrink: 1;
 }
 
-.composer-model-controls
-  > [data-model-picker-trigger]
-  > span:not([aria-hidden]) {
+.composer-model-controls > [data-model-picker-trigger] > .model-picker-name {
   min-width: 0;
   flex-shrink: 1;
   overflow: hidden;
