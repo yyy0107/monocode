@@ -24,6 +24,7 @@ import {
   toolCallLabel,
   turnCopyText,
   subagentModelName,
+  workDiffStats,
   workKind,
   workSummaryLine,
 } from "./transcriptActivity";
@@ -1531,5 +1532,35 @@ describe("subagent model labels", () => {
     expect(subagentModelName(row("custom-model-v2"))).toBe("custom-model-v2");
     for (const model of [undefined, "", "auto", "inherit", "default"])
       expect(subagentModelName(row(model))).toBeUndefined();
+  });
+});
+
+describe("workDiffStats", () => {
+  it("totals edit additions and deletions from counts or diff lines", () => {
+    const counted = shell("counted");
+    counted.tool = {
+      ...counted.tool!,
+      kind: "edit",
+      preview: { kind: "write", path: "a.ts", additions: 4, deletions: 1 },
+    };
+    const lines = shell("lines");
+    lines.tool = {
+      ...lines.tool!,
+      kind: "edit",
+      preview: {
+        kind: "write",
+        path: "b.ts",
+        lines: [
+          { kind: "add", text: "x" },
+          { kind: "del", text: "y" },
+          { kind: "del", text: "z" },
+          { kind: "context", text: "w" },
+        ],
+      },
+    };
+    expect(workDiffStats([counted, lines, shell("ls")])).toEqual({
+      additions: 5,
+      deletions: 3,
+    });
   });
 });

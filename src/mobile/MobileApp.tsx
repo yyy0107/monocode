@@ -179,9 +179,9 @@ type View = "home" | "chat" | "settings";
 function HeaderMoreIcon() {
   return (
     <svg width={24} height={24} viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="4.5" cy="12" r="2.25" fill="currentColor" />
+      <circle cx="12" cy="4.5" r="2.25" fill="currentColor" />
       <circle cx="12" cy="12" r="2.25" fill="currentColor" />
-      <circle cx="19.5" cy="12" r="2.25" fill="currentColor" />
+      <circle cx="12" cy="19.5" r="2.25" fill="currentColor" />
     </svg>
   );
 }
@@ -1864,6 +1864,15 @@ export function MobileApp() {
                   );
                 }
               : undefined
+          }
+          onStatus={
+            sessionActionsTarget
+              ? undefined
+              : () => {
+                  sessionStatusTrigger.current = sessionActionsTrigger.current;
+                  setSessionActionsOpen(false);
+                  setSessionStatusOpen(true);
+                }
           }
           onClose={() => {
             setSessionActionsOpen(false);

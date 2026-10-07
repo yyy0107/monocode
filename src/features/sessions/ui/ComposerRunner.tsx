@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, type RefObject } from "react";
+import { useLayoutEffect, useRef, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
   COIN_EDGE_PATH,
@@ -35,15 +35,8 @@ import {
   type Obstacle,
   type RunnerTrack,
 } from "../model/composerRunner";
-import { projectKey, projectName } from "../../../shared/lib/paths";
-import {
-  loadTabGroupColors,
-  loadTabGroupCustomColors,
-  loadTabGroupMascots,
-  resolveTabGroupColor,
-  resolveTabGroupMascot,
-} from "../../workspace/model/tabGroups";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
+import { useProjectMascotAppearance } from "../../projects/ui/useProjectMascotAppearance";
 import { observeAnimationVisibility } from "../../../shared/lib/animationVisibility";
 
 type Props = {
@@ -83,19 +76,7 @@ export function ComposerRunner({
   enabledRef.current = enabled;
   onExitedRef.current = onExited;
 
-  const project = projectName(cwd);
-  const key = projectKey(cwd);
-  const appearance = useMemo(() => {
-    return {
-      name: resolveTabGroupMascot(key, loadTabGroupMascots()),
-      color: resolveTabGroupColor(
-        key,
-        loadTabGroupColors(),
-        loadTabGroupCustomColors(),
-        project,
-      ),
-    };
-  }, [key, project]);
+  const { project, ...appearance } = useProjectMascotAppearance(cwd);
 
   useLayoutEffect(() => {
     const layer = layerRef.current;

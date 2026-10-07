@@ -84,6 +84,7 @@ export function MobileToolSheet({
   block,
   cwd,
   onOpenFile,
+  onBack,
   onClose,
 }: {
   open?: boolean;
@@ -91,6 +92,8 @@ export function MobileToolSheet({
   block: Block;
   cwd?: string;
   onOpenFile?: (path: string) => void;
+  /** Returns to the step list this call was opened from. */
+  onBack?: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -157,7 +160,7 @@ export function MobileToolSheet({
   );
 
   return (
-    <MobileSheet open={open} onExited={onExited} title="Tool details" onClose={onClose}>
+    <MobileSheet open={open} onExited={onExited} title="Tool details" onBack={onBack} onClose={onClose}>
       <div className="mobile-tool-sheet">
         <header className="mobile-detail-header">
           <div className="mobile-detail-title">

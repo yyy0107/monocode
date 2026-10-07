@@ -873,6 +873,23 @@ export function workSummaryLine(steps: Block[], live = false): string {
   ].join(" · ");
 }
 
+/** Lines a run of edits added and removed, for a compact `+N −M` badge. */
+export function workDiffStats(steps: Block[]): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const step of steps) {
+    const preview = step.tool?.preview;
+    if (!isToolBlock(step) || preview?.kind !== "write") continue;
+    additions +=
+      preview.additions ??
+      (preview.lines ?? []).filter((line) => line.kind === "add").length;
+    deletions +=
+      preview.deletions ??
+      (preview.lines ?? []).filter((line) => line.kind === "del").length;
+  }
+  return { additions, deletions };
+}
+
 /** The icon a run of work answers to: whatever it did most of. */
 export function workKind(steps: Block[]): ActivityPhaseKind {
   return (

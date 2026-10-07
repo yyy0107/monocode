@@ -2468,6 +2468,7 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 }
 
 /* Tool and file detail sheets. */
+.mobile-activity-sheet,
 .mobile-tool-sheet,
 .mobile-file-sheet {
   display: flex;
@@ -2506,6 +2507,84 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 }
 .mobile-detail-section {
   min-width: 0;
+}
+/* A group's steps hang off one rail, each opening its own details. */
+.mobile-activity-steps {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mobile-activity-step {
+  position: relative;
+}
+.mobile-activity-step + .mobile-activity-step::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  height: 16px;
+  inset-inline-start: 22px;
+  border-inline-start: 1px solid var(--mobile-separator);
+}
+.mobile-activity-step > button,
+.mobile-activity-step[data-kind="note"] {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--color-content);
+  text-align: left;
+}
+.mobile-activity-step > button:active {
+  background: var(--color-selection);
+}
+.mobile-activity-step[data-kind="note"] {
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+}
+.mobile-activity-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 22px;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+}
+.mobile-activity-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(14px + var(--mobile-popup-font-step, 0px));
+}
+.mobile-activity-text.mobile-detail-mono {
+  font-family: var(--font-mono);
+  font-size: calc(13px + var(--mobile-popup-font-step, 0px));
+}
+.mobile-activity-step > button > svg:last-child {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+}
+.mobile-activity-step > button > .mobile-activity-failed {
+  color: #e36464;
+}
+.mobile-activity-diff {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.mobile-activity-diff [data-kind="add"] {
+  color: #34c759;
+}
+.mobile-activity-diff [data-kind="del"] {
+  color: #e36464;
 }
 .mobile-detail-section-head {
   display: flex;
@@ -3710,4 +3789,17 @@ button.mobile-settings-row:active {
 }
 .mobile-archive-restore:disabled {
   opacity: 0.4;
+}
+
+/* The live turn's mascot and clock hold still when motion is reduced. */
+@media (prefers-reduced-motion: reduce) {
+  .transcript-live-footer .mascot-active,
+  .transcript-live-footer .mascot-rest,
+  .transcript-live-footer .shimmer-text {
+    animation: none;
+  }
+  .transcript-live-footer .mascot-talk {
+    animation: none;
+    opacity: 0;
+  }
 }

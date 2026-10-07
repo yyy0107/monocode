@@ -4,6 +4,8 @@ import {
   Copy,
   ChevronRight,
   CircleDot,
+  GitBranch,
+  Info,
   Pencil,
   Pin,
   Trash2,
@@ -29,6 +31,7 @@ export function MobileSessionActions({
   onUpdate,
   onDelete,
   onMarkUnread,
+  onStatus,
   onClose,
 }: {
   open?: boolean;
@@ -41,6 +44,8 @@ export function MobileSessionActions({
   onUpdate: (patch: MobileSessionPatch) => Promise<void>;
   onDelete?: () => Promise<void>;
   onMarkUnread?: () => Promise<void>;
+  /** Opens the conversation's status details; offered from the conversation header. */
+  onStatus?: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -62,6 +67,8 @@ export function MobileSessionActions({
   const pinned = summary?.pinned ?? snapshot?.pinned;
   const archived = summary?.archived ?? snapshot?.archived;
   const running = (summary?.status ?? snapshot?.status) === "running";
+  const branch =
+    summary?.branch ?? snapshot?.session.branch ?? snapshot?.autoWorktreeBranch;
   const run = async (action: () => Promise<void>) => {
     if (disabled || inFlight.current) return;
     inFlight.current = true;
@@ -122,6 +129,32 @@ export function MobileSessionActions({
             {summary && <p className="mobile-session-menu-title">{sessionDisplayTitle(summary.title, summary.harness) || t("Untitled conversation")}</p>}
             {session && (
               <>
+                {branch && (
+                  <button
+                    className="mobile-sheet-row"
+                    disabled={blocked}
+                    onClick={() => copy(branch)}
+                  >
+                    <GitBranch size={20} />
+                    <span className="mobile-sheet-row-text">
+                      <span>{t("Copy branch")}</span>
+                      <small>{branch}</small>
+                    </span>
+                  </button>
+                )}
+                {onStatus && (
+                  <button
+                    className="mobile-sheet-row"
+                    disabled={blocked}
+                    onClick={onStatus}
+                  >
+                    <Info size={20} />
+                    <span>{t("Session status")}</span>
+                  </button>
+                )}
+                {(branch || onStatus) && (
+                  <div className="mobile-menu-divider" role="separator" />
+                )}
                 <button
                   className="mobile-sheet-row"
                   disabled={blocked}

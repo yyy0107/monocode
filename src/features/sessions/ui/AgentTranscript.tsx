@@ -58,6 +58,7 @@ import { TerminalSpinner } from "./TerminalSpinner";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { Popover } from "../../../shared/ui/Popover";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
+import { useProjectMascotAppearance } from "../../projects/ui/useProjectMascotAppearance";
 import type { ApprovalDecision } from "../../../integrations/harness";
 import {
   isHarnessAuthError,
@@ -137,6 +138,7 @@ import {
   toolCallLabel,
   toolCallState,
   turnCopyText,
+  workDiffStats,
   workKind,
   workSummaryLine,
   type ActivityPhase,
@@ -281,6 +283,7 @@ function AgentTranscriptComponent({
     animateFrom,
   });
   const { t: uiT } = useTranslation();
+  const { liveClockInFooter } = useContext(TranscriptPlatformContext);
   const blocks = useMemo(() => {
     let turnHarness = harness;
     let changed = false;
@@ -948,6 +951,7 @@ function AgentTranscriptComponent({
               }
               background={backgroundTasks}
               modelName={turnModelName}
+              clockHidden={liveClockInFooter}
             />
           ) : durationMs != null ? (
             formatWorkingDuration(durationMs, turnModelName, true)
@@ -1063,6 +1067,9 @@ function AgentTranscriptComponent({
           const foldWork = foldEntries.filter(
             ({ entry }) => entry.type !== "subagents",
           );
+          const lastItem = items.at(-1);
+          const liveActivity =
+            lastItem?.type === "activity" ? lastItem : undefined;
           const foldLineRow = (
             <TurnRow key="work-fold" folded={!showFoldLine}>
               <WorkFoldLine
@@ -1174,6 +1181,26 @@ function AgentTranscriptComponent({
                   <WorkflowRunCard block={block} parent={workflowParent!} />
                 </div>
               ))}
+              {isLastTurn && liveClockInFooter && cwd ? (
+                <AnimatedCollapse expanded={live}>
+                  {() => (
+                    <LiveTurnFooter
+                      cwd={cwd}
+                      startedAt={startedAt}
+                      paused={waitingForApproval}
+                      label={
+                        waitingForApproval
+                          ? uiT(pendingQuestion ? "Waiting for answers" : "Waiting for approval")
+                          : answering
+                            ? uiT("Responding")
+                            : liveActivity
+                              ? workSummaryLine(liveActivity.blocks, true)
+                              : uiT("Thinking")
+                      }
+                    />
+                  )}
+                </AnimatedCollapse>
+              ) : null}
               {/* The accessory keeps the pane's props, which go stale once parked. */}
               {isLastTurn && latestTurnAccessory && !parked
                 ? latestTurnAccessory
@@ -1264,21 +1291,27 @@ function LiveFoldTitle({
   waitingLabel,
   background,
   modelName,
+  clockHidden = false,
 }: {
   startedAt?: number;
   paused: boolean;
   waitingLabel?: string;
   background?: string[];
   modelName?: string;
+  /** The client shows the clock under the live turn instead. */
+  clockHidden?: boolean;
 }) {
-  const elapsedMs = useElapsedFrom(startedAt, paused);
+  const elapsedMs = useElapsedFrom(startedAt, paused || clockHidden);
+  const working = clockHidden
+    ? formatWorkingDuration(null, modelName)
+    : formatWorkingDuration(elapsedMs, modelName);
   // Yielding with a command still going is not the end of the turn. The clock
   // keeps running and the line says what it is waiting on.
   const text = paused
     ? (waitingLabel ?? "Waiting for approval")
     : background?.length
-      ? `${formatWorkingDuration(elapsedMs, modelName)} · ${backgroundLabel(background)}`
-      : formatWorkingDuration(elapsedMs, modelName);
+      ? `${working} · ${backgroundLabel(background)}`
+      : working;
   const shimmer = (
     <Shimmer className="min-w-0 truncate font-sans text-sm" duration={1}>
       {text}
@@ -1290,6 +1323,49 @@ function LiveFoldTitle({
     </span>
   ) : (
     shimmer
+  );
+}
+
+/**
+ * What sits under the reply while it is being written, for clients that keep
+ * the turn clock in view there: the project's mascot, what the agent is doing
+ * and how long it has been at it.
+ */
+function LiveTurnFooter({
+  cwd,
+  startedAt,
+  paused,
+  label,
+}: {
+  cwd: string;
+  startedAt?: number;
+  paused: boolean;
+  label: string;
+}) {
+  const elapsedMs = useElapsedFrom(startedAt, paused);
+  const mascot = useProjectMascotAppearance(cwd);
+  const elapsed = formatElapsed(elapsedMs);
+  return (
+    <div
+      className="transcript-live-footer flex min-w-0 items-center gap-2 px-4 pt-2 pb-1 font-sans text-sm @md:px-6"
+      data-live-footer
+    >
+      <ProjectMascot
+        project={mascot.project}
+        name={mascot.name}
+        color={mascot.color}
+        active={!paused}
+        className="size-4 shrink-0"
+      />
+      <Shimmer className="min-w-0 truncate" duration={1.6}>
+        {`${label}…`}
+      </Shimmer>
+      {elapsed ? (
+        <span className="ms-auto shrink-0 tabular-nums text-foreground-subtlest">
+          {elapsed}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -2355,9 +2431,13 @@ function ActivityPhaseGroup({
   onOpenDiff?: (path: string) => void;
 }) {
   const { t: uiT } = useTranslation();
+  const { openActivity } = useContext(TranscriptPlatformContext);
   const [override, setOverride] = useState<boolean | null>(null);
   const waiting = phase.steps.some(needsApproval);
-  const open = waiting || (override ?? active);
+  // Clients with a step sheet keep the live window inline but never unfold a
+  // settled group; a step waiting on approval stays inline so it can be answered.
+  const sheet = !!openActivity && !waiting;
+  const open = waiting || (sheet ? active : (override ?? active));
   const [liveScroller, setLiveScroller] = useState<HTMLDivElement | null>(null);
   useLivePhaseScroll(liveScroller, active && open, phase.steps);
   // Steps already here when the group mounted, or that landed while it was
@@ -2416,18 +2496,23 @@ function ActivityPhaseGroup({
     );
   }
 
+  const diff = sheet ? workDiffStats(phase.steps) : undefined;
   return (
     <div className="flex min-w-0 flex-col">
       <button
         type="button"
-        aria-expanded={open}
+        aria-expanded={sheet ? undefined : open}
+        aria-haspopup={sheet ? "dialog" : undefined}
         aria-label={
-          open
-            ? uiT("Hide the steps for {value0}", { value0: String(title) })
-            : uiT("Show the steps for {value0}", { value0: String(title) })
+          sheet
+            ? uiT("Show the steps for {value0}", { value0: String(title) })
+            : open
+              ? uiT("Hide the steps for {value0}", { value0: String(title) })
+              : uiT("Show the steps for {value0}", { value0: String(title) })
         }
-        onClick={() => setOverride(!open)}
+        onClick={() => (sheet ? openActivity!(phase.steps) : setOverride(!open))}
         className="group flex w-full min-w-0 items-center gap-1.5 py-1 text-left"
+        data-activity-sheet={sheet || undefined}
       >
         {/*
          * The two icons share one 14px box, so the swap is instant: fading
@@ -2448,13 +2533,24 @@ function ActivityPhaseGroup({
               }
             />
           )}
-          <ChevronRight
-            className={`zen-disclosure-chevron absolute size-3.5 ${
-              open ? "rotate-90" : ""
-            }`}
-          />
+          {!sheet && (
+            <ChevronRight
+              className={`zen-disclosure-chevron absolute size-3.5 ${
+                open ? "rotate-90" : ""
+              }`}
+            />
+          )}
         </span>
         {label}
+        {diff && (diff.additions > 0 || diff.deletions > 0) && (
+          <span className="activity-diff-badge shrink-0 font-mono text-xs">
+            <span className="text-emerald-400">+{diff.additions}</span>
+            <span className="ms-1 text-red-400">−{diff.deletions}</span>
+          </span>
+        )}
+        {sheet && (
+          <ChevronRight className="size-3.5 shrink-0 text-foreground-subtlest" />
+        )}
       </button>
       <div className="zen-phase-body" data-open={open}>
         <AnimatedCollapse expanded={open}>

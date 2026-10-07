@@ -3152,5 +3152,10 @@
   "completed": "已完成",
   "Hosts": "主机",
   "Filter conversations": "筛选会话",
-  "Recents": "最近"
+  "Recents": "最近",
+  "Copy branch": "复制分支",
+  "Session status": "会话状态",
+  "Responding": "正在回复",
+  "Waiting for answers": "等待回答",
+  "Waiting for approval": "等待批准"
 }

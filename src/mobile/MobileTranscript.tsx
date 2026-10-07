@@ -6,6 +6,7 @@ import { questionFollowUp } from "../features/sessions/model/questionHistory";
 import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
 import { ArrowDownCircle } from "../shared/ui/icons";
 import type { Block } from "../features/sessions/model/session";
+import { isToolBlock, toolCallState } from "../features/sessions/model/transcriptActivity";
 import type { QuestionAnswer } from "../features/sessions/model/userQuestion";
 import type { ApprovalDecision } from "../integrations/harness";
 import type { EditorNavigation } from "../features/search/model/search";
@@ -18,16 +19,19 @@ import {
   createMobileTranscriptPlatform,
 } from "./transcriptPlatform";
 import { MobileToolSheet } from "./MobileToolSheet";
+import { MobileActivitySheet } from "./MobileActivitySheet";
 import { MobileFileSheet } from "./MobileFileSheet";
 import { useTranscriptLayout } from "../features/sessions/hooks/useTranscriptLayout";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import { useStableCallback } from "./useStableCallback";
 
 type Detail =
-  | { kind: "tool"; block: Block }
+  | { kind: "activity"; steps: Block[] }
+  | { kind: "tool"; block: Block; fromActivity?: Block[] }
   | { kind: "file"; path: string; line?: number; from?: Block };
 type Details = {
   active?: Detail["kind"];
+  activity?: Extract<Detail, { kind: "activity" }>;
   tool?: Extract<Detail, { kind: "tool" }>;
   file?: Extract<Detail, { kind: "file" }>;
 };
@@ -73,6 +77,10 @@ export const MobileTranscript = memo(function MobileTranscript({
       openTool: (block: Block) => setDetail((current) => ({
         ...current, active: "tool", tool: { kind: "tool", block },
       })),
+      openActivity: (steps: Block[]) => setDetail((current) => ({
+        ...current, active: "activity", activity: { kind: "activity", steps },
+      })),
+      liveClockInFooter: true,
     }),
     [readBinaryFile],
   );
@@ -105,6 +113,11 @@ export const MobileTranscript = memo(function MobileTranscript({
     disabled || !visible ? false : onCommand({ type: "send", commandId: crypto.randomUUID(), sessionId,
       text: questionFollowUp(session, answer), followUpBehavior: "steer", questionAnswer: answer }));
   const closeDetail = useCallback(() => setDetail((current) => ({ ...current, active: undefined })), []);
+  const releaseActivity = useCallback(() => setDetail((current) =>
+    current.active === "activity" ? current : { ...current, activity: undefined }), []);
+  const openStep = useCallback((block: Block) => setDetail((current) => ({
+    ...current, active: "tool", tool: { kind: "tool", block, fromActivity: current.activity?.steps },
+  })), []);
   const releaseTool = useCallback(() => setDetail((current) =>
     current.active === "tool" ? current : { ...current, tool: undefined }), []);
   const releaseFile = useCallback(() => setDetail((current) =>
@@ -208,6 +221,23 @@ export const MobileTranscript = memo(function MobileTranscript({
       {sheetHost &&
         createPortal(
           <>
+            {detail.activity && (
+              <MobileActivitySheet
+                open={visible && detail.active === "activity"}
+                onExited={releaseActivity}
+                // Follow live blocks so a running group fills in while open.
+                steps={detail.activity.steps.map((step) =>
+                  session.blocks.find((block) => block.id === step.id) ?? step)}
+                cwd={session.cwd}
+                live={snapshot.status === "running" &&
+                  detail.activity.steps.some((step) => {
+                    const current = session.blocks.find((block) => block.id === step.id) ?? step;
+                    return isToolBlock(current) && toolCallState(current) === "pending";
+                  })}
+                onStep={openStep}
+                onClose={closeDetail}
+              />
+            )}
             {detail.tool && (
               <MobileToolSheet
                 open={visible && detail.active === "tool"}
@@ -220,6 +250,12 @@ export const MobileTranscript = memo(function MobileTranscript({
                 }
                 cwd={session.cwd}
                 onOpenFile={readBinaryFile ? openFile : undefined}
+                onBack={
+                  detail.tool.fromActivity
+                    ? () => setDetail((current) => ({ ...current, active: "activity",
+                      activity: { kind: "activity", steps: detail.tool!.fromActivity! } }))
+                    : undefined
+                }
                 onClose={closeDetail}
               />
             )}
