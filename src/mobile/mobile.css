@@ -1299,7 +1299,7 @@ html[data-mobile-glass="solid"] :is(
   top: -5px;
   border-top: 1px solid var(--mobile-separator);
 }
-/* Conversations are a plain list: the title, then its state or age. */
+/* Conversations are a plain list: the agent, title, then its state or age. */
 .mobile-home-session {
   display: flex;
   align-items: center;
@@ -1312,6 +1312,11 @@ html[data-mobile-glass="solid"] :is(
   background: transparent;
   color: var(--color-content);
   text-align: left;
+}
+.mobile-home-session-icon {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
 }
 .mobile-home-session > strong {
   flex: 1;

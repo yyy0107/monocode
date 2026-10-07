@@ -13,6 +13,10 @@ are not prerequisites for local work.
 - Desktop and headless Host reuse adapters, but runtime image persistence differs.
 - Keep optional question/image fields compatible with existing consumers and history.
 - Application-owned text follows `docs/localization.md`; preserve provider/user values.
+- Session lists, including archived conversations, must show the corresponding
+  agent icon before the display title instead of an agent-name text prefix.
+  Reuse `HarnessIcon` and `sessionDisplayTitle` on desktop and mobile; strip only
+  application-added prefixes for display, preserving stored titles and user text.
 - Expand/collapse interactions MUST animate in both directions. Reuse
   `src/shared/ui/AnimatedCollapse.tsx` for vertical disclosure content and the
   exported `useCollapseMotion` plus `animated-collapse-size` styles for grid-sized

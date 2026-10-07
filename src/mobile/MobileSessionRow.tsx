@@ -2,11 +2,12 @@ import type { ButtonHTMLAttributes } from "react";
 import type { HostSessionSummary } from "../features/connections/model/protocol";
 import { sessionDisplayTitle } from "../features/sessions/model/session";
 import { sessionRecencyAt } from "../features/sessions/model/sessionActivity";
+import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { LoaderCircle, Pin, TriangleAlert } from "../shared/ui/icons";
 import { formatMobileRelativeTime } from "./relativeTime";
 
-/** One conversation in a list page: its title, then its state or age. */
+/** One conversation in a list page: its agent, title, then its state or age. */
 export function MobileSessionRow({
   session,
   now,
@@ -28,6 +29,10 @@ export function MobileSessionRow({
       data-state={state}
       {...button}
     >
+      <HarnessIcon
+        harness={session.harness}
+        className="mobile-home-session-icon"
+      />
       <strong>
         {sessionDisplayTitle(session.title, session.harness) ||
           t("Untitled conversation")}

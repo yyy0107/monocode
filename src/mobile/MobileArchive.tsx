@@ -3,6 +3,8 @@ import type {
   HostProject,
   HostSessionSummary,
 } from "../features/connections/model/protocol";
+import { sessionDisplayTitle } from "../features/sessions/model/session";
+import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { translate } from "../shared/i18n/language";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { formatMobileRelativeTime } from "./relativeTime";
@@ -97,9 +99,13 @@ export function MobileArchive({
           <div className="mobile-settings-card">
             {sessions.map((session) => (
               <div key={session.id} className="mobile-settings-row">
+                <span className="mobile-settings-icon">
+                  <HarnessIcon harness={session.harness} className="size-6" />
+                </span>
                 <span className="mobile-settings-label">
                   <span className="mobile-archive-title">
-                    {session.title || t("Untitled")}
+                    {sessionDisplayTitle(session.title, session.harness) ||
+                      t("Untitled")}
                   </span>
                   <small>
                     {formatMobileRelativeTime(session.updatedAt, now, language)}
@@ -109,7 +115,9 @@ export function MobileArchive({
                   type="button"
                   className="mobile-settings-action mobile-archive-restore"
                   aria-label={t("Restore {title}", {
-                    title: session.title || t("Untitled"),
+                    title:
+                      sessionDisplayTitle(session.title, session.harness) ||
+                      t("Untitled"),
                   })}
                   disabled={disabled || restoring !== undefined}
                   onClick={() => void restore(session)}

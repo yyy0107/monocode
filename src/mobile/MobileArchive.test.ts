@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import codexIcon from "../assets/providers/codex.svg";
 import type {
   HostProject,
   HostSessionSummary,
@@ -47,7 +48,7 @@ it("lists only archived conversations and drops a restored one", async () => {
     projectId === "one"
       ? [
           session("live", projectId),
-          session("old", projectId, { archived: true }),
+          session("old", projectId, { archived: true, title: "codex · old" }),
         ]
       : [session("other", projectId)];
   const onRestore = vi.fn(async () => {});
@@ -65,13 +66,17 @@ it("lists only archived conversations and drops a restored one", async () => {
   expect(node.textContent).toContain("alpha");
   expect(node.textContent).not.toContain("beta");
   expect(node.textContent).not.toContain("live");
+  expect(node.querySelector(".mobile-archive-title")?.textContent).toBe("old");
+  expect(
+    node.querySelector(".mobile-settings-icon img")?.getAttribute("src"),
+  ).toBe(codexIcon);
   const restore = node.querySelector<HTMLButtonElement>(
     'button[aria-label="Restore old"]',
   )!;
   await act(async () => restore.click());
 
   expect(onRestore).toHaveBeenCalledWith(
-    expect.objectContaining({ id: "old", projectId: "one" }),
+    expect.objectContaining({ id: "old", projectId: "one", title: "codex · old" }),
   );
   expect(node.textContent).toContain("No archived conversations");
 });
