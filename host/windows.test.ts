@@ -32,13 +32,27 @@ const temporary = () => {
   return dir;
 };
 
+const npmPackage = (
+  directory: string,
+  name: string,
+  bin: unknown,
+  files: Record<string, string>,
+) => {
+  const root = join(directory, "node_modules", ...name.split("/"));
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name, bin }));
+  for (const [file, text] of Object.entries(files)) {
+    mkdirSync(join(root, file, ".."), { recursive: true });
+    writeFileSync(join(root, file), text);
+  }
+  return root;
+};
+
 it("runs npm provider entry points directly with literal arguments and bundled Node", async () => {
   const directory = temporary();
-  const entry = join(directory, "node_modules/@openai/codex/bin/codex.js");
-  mkdirSync(join(directory, "node_modules/@openai/codex/bin"), {
-    recursive: true,
+  npmPackage(directory, "@openai/codex", { codex: "bin/codex.js" }, {
+    "bin/codex.js": "console.log(JSON.stringify(process.argv.slice(2)))",
   });
-  writeFileSync(entry, "console.log(JSON.stringify(process.argv.slice(2)))");
   const args = [
     "path with spaces",
     "a&b",
@@ -60,6 +74,50 @@ it("runs npm provider entry points directly with literal arguments and bundled N
   await expect(
     providerLaunch(join(directory, "unknown.cmd"), args, "win32"),
   ).rejects.toThrow("Unsupported");
+});
+
+it("follows each npm package's declared bin for Windows shims", async () => {
+  const directory = temporary();
+  const claude = npmPackage(
+    directory,
+    "@anthropic-ai/claude-code",
+    { claude: "bin/claude.exe" },
+    { "bin/claude.exe": "" },
+  );
+  expect(
+    await providerLaunch(join(directory, "claude.cmd"), ["-p"], "win32"),
+  ).toEqual({ command: join(claude, "bin/claude.exe"), args: ["-p"] });
+
+  const pi = npmPackage(
+    directory,
+    "@earendil-works/pi-coding-agent",
+    { pi: "dist/bundle/cli.js" },
+    { "dist/bundle/cli.js": "" },
+  );
+  expect(
+    await providerLaunch(join(directory, "pi.cmd"), ["--mode", "rpc"], "win32"),
+  ).toEqual({
+    command: process.execPath,
+    args: [join(pi, "dist/bundle/cli.js"), "--mode", "rpc"],
+  });
+
+  const legacy = temporary();
+  const old = npmPackage(legacy, "@anthropic-ai/claude-code", { claude: "cli.js" }, {
+    "cli.js": "",
+  });
+  expect(
+    await providerLaunch(join(legacy, "claude.cmd"), [], "win32"),
+  ).toEqual({ command: process.execPath, args: [join(old, "cli.js")] });
+});
+
+it("treats an npm shim whose declared executable is gone as not installed", async () => {
+  const directory = temporary();
+  npmPackage(directory, "@anthropic-ai/claude-code", { claude: "bin/claude.exe" }, {
+    "bin/claude.exe.old.1": "",
+  });
+  await expect(
+    providerLaunch(join(directory, "claude.cmd"), [], "win32"),
+  ).rejects.toThrow();
 });
 
 it("uses an unlimited, unelevated per-user task and preserves literal paths", () => {

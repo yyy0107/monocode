@@ -5,9 +5,15 @@ import { homedir } from "node:os";
 import { delimiter, dirname, extname, join, basename } from "node:path";
 import type { RemoteProvider } from "../src/features/connections/model/protocol";
 
-const npmEntries: Record<string, string> = {
-  codex: "node_modules/@openai/codex/bin/codex.js",
-  claude: "node_modules/@anthropic-ai/claude-code/cli.js",
+/** npm packages whose Windows .cmd shims MonoCode launches, by shim name. */
+const npmPackages: Record<string, string[]> = {
+  codex: ["@openai/codex"],
+  claude: ["@anthropic-ai/claude-code"],
+  "pi-coding-agent": [
+    "@earendil-works/pi-coding-agent",
+    "@mariozechner/pi-coding-agent",
+  ],
+  pi: ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"],
 };
 
 const binaryNames: Record<RemoteProvider, string[]> = {
@@ -189,21 +195,51 @@ export async function resolveProvider(
   );
 }
 
-/** npm's Windows .cmd wrappers cannot be spawned directly. Run their known
- * package entry point with the bundled Node, preserving argv without a shell.
- * Custom .cmd/.bat wrappers are deliberately not interpreted as shell text. */
+/** The executable an npm package declares for `name`, beside its .cmd shim.
+ * Packages move between a JS entry (`cli.js`) and a native `.exe`, so follow
+ * the manifest instead of a fixed path. */
+async function npmBinEntry(shim: string, name: string): Promise<string> {
+  for (const pkg of npmPackages[name] ?? []) {
+    const root = join(dirname(shim), "node_modules", ...pkg.split("/"));
+    let manifest: { bin?: unknown };
+    try {
+      manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    } catch {
+      continue;
+    }
+    const bin = manifest.bin;
+    const relative =
+      typeof bin === "string"
+        ? bin
+        : bin && typeof bin === "object"
+          ? (bin as Record<string, unknown>)[name]
+          : undefined;
+    if (typeof relative !== "string") continue;
+    const entry = join(root, relative);
+    if (!(await stat(entry)).isFile())
+      throw new Error("Missing npm provider entry point");
+    return entry;
+  }
+  throw new Error("Unsupported Windows provider launcher");
+}
+
+/** npm's Windows .cmd wrappers cannot be spawned directly. Run their package's
+ * declared entry point (JS with the bundled Node, or a native .exe), preserving
+ * argv without a shell. Custom .cmd/.bat wrappers are deliberately not
+ * interpreted as shell text. */
 export async function providerLaunch(
   command: string,
   args: string[],
   platform = process.platform,
 ): Promise<{ command: string; args: string[] }> {
   if (platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
-    const provider = basename(command, extname(command)).toLowerCase();
-    const relative = npmEntries[provider];
-    if (!relative) throw new Error("Unsupported Windows provider launcher");
-    const entry = join(dirname(command), relative);
-    if (!(await stat(entry)).isFile())
-      throw new Error("Missing npm provider entry point");
+    const entry = await npmBinEntry(
+      command,
+      basename(command, extname(command)).toLowerCase(),
+    );
+    if (/\.exe$/i.test(entry)) return { command: entry, args };
+    if (!/\.(cjs|mjs|js)$/i.test(entry))
+      throw new Error("Unsupported Windows provider launcher");
     return { command: process.execPath, args: [entry, ...args] };
   }
   if (/\.(cjs|mjs|js)$/i.test(command))
