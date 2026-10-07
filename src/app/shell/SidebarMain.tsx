@@ -5,7 +5,11 @@ import {
 } from "./SidebarTransition";
 import { reducedMotionQuery } from "../../shared/lib/reducedMotion";
 
-/** Keep text width fixed during the slide and resize it only at the endpoints. */
+/**
+ * Follow the sidebar's edge while resizing continuously. The left edge slides
+ * with the sidebar and the width interpolates with the same curve, so the right
+ * edge stays put and centered content glides instead of jumping at an endpoint.
+ */
 export function SidebarMain({
   open,
   children,
@@ -26,14 +30,20 @@ export function SidebarMain({
     const el = ref.current!;
     const previous = layout.current;
     const changing = previous && previous.open !== open;
-    const canAnimate =
-      typeof el.animate === "function" &&
-      !reducedMotionQuery().matches;
-    // Opening keeps the old, wider text surface until it has slid behind the
-    // sidebar. Closing adopts that wider surface immediately. In both cases
-    // the right edge stays covered and text never reflows on animation frames.
-    if (changing)
-      el.style.flex = open && canAnimate ? `0 0 ${previous.width}px` : "";
+    // Start from the current visual geometry when reversing an unfinished slide.
+    let fromLeft = previous?.left ?? 0;
+    let fromWidth = previous?.width ?? 0;
+    if (changing && animation.current) {
+      const transform = getComputedStyle(el).transform;
+      fromLeft +=
+        transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m41;
+      fromWidth = el.offsetWidth;
+    }
+    if (changing) {
+      animation.current?.cancel();
+      animation.current = undefined;
+      el.style.removeProperty("flex");
+    }
     const next = {
       open,
       left: el.offsetLeft,
@@ -41,21 +51,12 @@ export function SidebarMain({
       parentWidth: el.parentElement!.clientWidth,
     };
     layout.current = next;
-    if (!previous || previous.open === open) return;
+    if (!changing) return;
 
-    // Include the current visual offset when reversing an unfinished slide.
-    const transform = animation.current
-      ? getComputedStyle(el).transform
-      : "none";
-    const translated =
-      transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m41;
-    animation.current?.cancel();
-    animation.current = undefined;
-    const offset = previous.left - next.left + translated;
-    if (!offset || !canAnimate) {
-      el.style.removeProperty("flex");
-      return;
-    }
+    const canAnimate =
+      typeof el.animate === "function" && !reducedMotionQuery().matches;
+    const offset = fromLeft - next.left;
+    if (!canAnimate || (!offset && fromWidth === next.width)) return;
 
     // CSS shortens an interrupted transition when it reverses. Follow the
     // sidebar's actual duration so the two touching edges cannot drift apart.
@@ -73,10 +74,12 @@ export function SidebarMain({
           (animation as CSSTransition).transitionProperty === "transform",
       );
     const timing = slide?.effect?.getTiming();
+    // Flex sizing would override the animated width until the slide ends.
+    el.style.flex = "none";
     const motion = el.animate(
       [
-        { transform: `translateX(${offset}px)` },
-        { transform: "translateX(0)" },
+        { transform: `translateX(${offset}px)`, width: `${fromWidth}px` },
+        { transform: "translateX(0)", width: `${next.width}px` },
       ],
       {
         duration:
@@ -106,6 +109,14 @@ export function SidebarMain({
       const left = el.offsetLeft;
       const width = el.offsetWidth;
       const parentWidth = el.parentElement!.clientWidth;
+      // An active slide resizes this surface itself; only outside layout
+      // changes (window or sidebar resizing) should interrupt it.
+      if (
+        animation.current &&
+        previous.left === left &&
+        previous.parentWidth === parentWidth
+      )
+        return;
       if (
         previous.left === left &&
         previous.width === width &&

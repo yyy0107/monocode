@@ -5,8 +5,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
+import { AnimatedCollapse, useCollapseMotion } from "../../../shared/ui/AnimatedCollapse";
+import { SurfaceVisibilityContext, useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
+import "./SkillsPage.css";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   Copy,
@@ -68,23 +72,31 @@ export function SkillsPage({
   const [previewSkill, setPreviewSkill] = useState<DiscoveredSkill | null>(
     null,
   );
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [previewText, setPreviewText] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useMarkdownMode(
     `skill:${previewSkill?.path ?? ""}`,
   );
-  const previewOpen = previewSkill !== null;
+  const visible = useSurfaceVisibility();
+  const previewVisible = visible && previewOpen;
+  const { foldState, finish } = useCollapseMotion(previewVisible);
 
   const onPreview = (
     skill: DiscoveredSkill,
     trigger: "name" | "icon",
   ): void => {
     previewOpener.current = `${trigger}:${skill.path}`;
+    if (previewOpen && previewSkill?.path === skill.path) {
+      setPreviewOpen(false);
+      return;
+    }
     if (previewSkill?.path !== skill.path) {
       setPreviewText(null);
       setPreviewError(null);
     }
     setPreviewSkill(skill);
+    setPreviewOpen(true);
   };
 
   const registerPreviewButton =
@@ -95,13 +107,13 @@ export function SkillsPage({
     };
 
   useEffect(() => {
-    if (!previewOpen) return;
+    if (!previewVisible) return;
     closePreview.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       event.preventDefault();
       event.stopPropagation();
-      setPreviewSkill(null);
+      setPreviewOpen(false);
     };
     // Handle body focus after controls, before Settings' window listener.
     document.addEventListener("keydown", onKey);
@@ -112,13 +124,13 @@ export function SkillsPage({
       const target = opener ?? filterInput.current;
       if (target?.isConnected) target.focus();
     };
-  }, [previewOpen]);
+  }, [previewVisible]);
 
   useEffect(() => {
+    if (!previewOpen || !previewSkill) return;
     let cancelled = false;
     setPreviewText(null);
     setPreviewError(null);
-    if (!previewSkill) return;
     void readTextFile(previewSkill.path)
       .then((text) => {
         if (!cancelled) setPreviewText(text);
@@ -133,7 +145,7 @@ export function SkillsPage({
     return () => {
       cancelled = true;
     };
-  }, [previewSkill]);
+  }, [previewSkill, previewOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,7 +232,17 @@ export function SkillsPage({
 
   return (
     <div className="@container/skills flex min-h-0 min-w-0 flex-1">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col @3xl/skills:flex-row">
+      <div
+        className="skills-page-layout animated-collapse-size grid min-h-0 min-w-0 flex-1 overflow-hidden"
+        style={{ "--skills-preview-track": previewVisible ? "1fr" : "0fr" } as CSSProperties}
+        data-fold-state={foldState}
+        onTransitionEnd={(event) => {
+          if (
+            event.target === event.currentTarget &&
+            (event.propertyName === "grid-template-columns" || event.propertyName === "grid-template-rows")
+          ) finish();
+        }}
+      >
         <div
           ref={lockOverscroll}
           className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
@@ -284,7 +306,7 @@ export function SkillsPage({
               </div>
             </div>
 
-            {adding ? (
+            <AnimatedCollapse expanded={adding}>
               <div className="mb-4 overflow-hidden rounded-lg border border-content/10 bg-content/[0.03]">
                 <CreateSkillForm
                   key={cwd}
@@ -301,7 +323,7 @@ export function SkillsPage({
                   onCreate={onCreate}
                 />
               </div>
-            ) : null}
+            </AnimatedCollapse>
 
             {actionError ? (
               <p role="alert" className="pb-3 text-[12px] text-red-400">
@@ -333,7 +355,7 @@ export function SkillsPage({
                     return (
                       <div
                         key={skill.path}
-                        className={`border-b border-content/5 px-3 py-2 last:border-b-0 ${previewSkill?.path === skill.path ? "bg-content/5" : ""} ${
+                        className={`border-b border-content/5 px-3 py-2 last:border-b-0 ${previewOpen && previewSkill?.path === skill.path ? "bg-content/5" : ""} ${
                           disabled ? "opacity-50" : ""
                         }`}
                       >
@@ -346,7 +368,7 @@ export function SkillsPage({
                             })}
                             ref={registerPreviewButton(`name:${skill.path}`)}
                             aria-controls={previewOpen ? previewId : undefined}
-                            aria-expanded={previewSkill?.path === skill.path}
+                            aria-expanded={previewOpen && previewSkill?.path === skill.path}
                             onClick={() => onPreview(skill, "name")}
                           >
                             {skill.name}
@@ -400,7 +422,7 @@ export function SkillsPage({
                             title={uiT("Preview skill")}
                             ref={registerPreviewButton(`icon:${skill.path}`)}
                             aria-controls={previewOpen ? previewId : undefined}
-                            aria-expanded={previewSkill?.path === skill.path}
+                            aria-expanded={previewOpen && previewSkill?.path === skill.path}
                             onClick={() => onPreview(skill, "icon")}
                             className="grid size-5 shrink-0 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                           >
@@ -451,12 +473,15 @@ export function SkillsPage({
             </p>
           </div>
         </div>
-        {previewSkill ? (
+        {previewSkill && (previewVisible || foldState !== "closed") ? (
           <aside
             id={previewId}
             aria-label={uiT("Skill preview")}
-            className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-stroke @3xl/skills:max-w-[720px] @3xl/skills:border-t-0 @3xl/skills:border-l"
+            aria-hidden={!previewVisible || undefined}
+            inert={!previewVisible}
+            className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden border-t border-stroke @3xl/skills:max-w-[720px] @3xl/skills:border-t-0 @3xl/skills:border-l"
           >
+            <SurfaceVisibilityContext.Provider value={previewVisible}>
             <header className="flex shrink-0 items-start gap-2 px-4 pt-4 pb-2">
               <h2 className="min-w-0 flex-1 break-words text-[16px] font-semibold text-content">
                 {previewSkill.name}
@@ -466,7 +491,7 @@ export function SkillsPage({
                 type="button"
                 aria-label={uiT("Close skill preview")}
                 title={uiT("Close preview (Escape)")}
-                onClick={() => setPreviewSkill(null)}
+                onClick={() => setPreviewOpen(false)}
                 className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 <X className="size-3.5" />
@@ -507,6 +532,7 @@ export function SkillsPage({
                 <MarkdownSource text={previewText} />
               )}
             </div>
+            </SurfaceVisibilityContext.Provider>
           </aside>
         ) : null}
       </div>

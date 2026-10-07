@@ -31,6 +31,7 @@ type Props = (
   | { x: number; y: number; anchor?: never }
   | { anchor: HTMLElement; x?: never; y?: never }
 ) & {
+  open?: boolean;
   ownerId?: string;
   onBack?: () => void;
   items: ExplorerMenuItem[];
@@ -63,6 +64,7 @@ function itemIndexAt(
 }
 
 export function ExplorerMenu({
+  open,
   x,
   y,
   anchor,
@@ -282,6 +284,7 @@ export function ExplorerMenu({
   return (
     <>
       <Popover
+        open={open}
         ref={menuRef}
         anchor={anchor ?? { x: x ?? 0, y: y ?? 0 }}
         side={side ?? (anchor ? "right" : undefined)}
@@ -332,7 +335,7 @@ export function ExplorerMenu({
           return renderItem(item, index);
         })}
       </Popover>
-      {submenu && submenuItems && submenuItem?.kind === "item" ? (
+      {open !== false && submenu && submenuItems && submenuItem?.kind === "item" ? (
         <Popover
           ref={submenuRef}
           id={`${menuId}-submenu`}

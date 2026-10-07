@@ -1,6 +1,7 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { Internet, Loader, Plus, Trash2 } from "../../../shared/ui/icons";
 import {
   connectMachine,
@@ -25,6 +26,9 @@ export function ConnectionsSettings() {
   const { t: uiT } = useTranslation();
   const { machines, loaded } = useRemoteMachines();
   const [adding, setAdding] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const disclosureId = useId();
+  const addTrigger = useRef<HTMLButtonElement>(null);
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
   const [port, setPort] = useState("");
@@ -251,19 +255,21 @@ export function ConnectionsSettings() {
             )}
           </p>
         </div>
-        {!adding && (
-          <button
-            className={`${button} flex shrink-0 items-center gap-2`}
-            disabled={busy}
-            onClick={() => {
-              setAdding(true);
-              setError("");
-              setNotice("");
-            }}
-          >
-            <Plus className="size-4" /> {uiT("Add machine")}
-          </button>
-        )}
+        <button
+          ref={addTrigger}
+          type="button"
+          className={`${button} flex shrink-0 items-center gap-2`}
+          disabled={busy}
+          aria-expanded={adding}
+          aria-controls={`${disclosureId}-add`}
+          onClick={() => {
+            setAdding((expanded) => !expanded);
+            setError("");
+            setNotice("");
+          }}
+        >
+          <Plus className="size-4" /> {uiT("Add machine")}
+        </button>
       </div>
       {machines.length > 0 ? (
         <div className="divide-y divide-stroke overflow-hidden rounded-xl border border-stroke">
@@ -315,22 +321,26 @@ export function ConnectionsSettings() {
                   </div>
                 )}
                 <button
+                  id={`${disclosureId}-remove-trigger-${machine.id}`}
                   disabled={busy || revoking}
                   className="rounded p-2 text-content/40 hover:bg-selection hover:text-content disabled:opacity-40"
                   aria-label={uiT("Remove {value0}", {
                     value0: String(machine.name),
                   })}
                   title={uiT("Remove connection…")}
+                  aria-expanded={removing === machine.id}
+                  aria-controls={`${disclosureId}-remove-${machine.id}`}
                   onClick={() => {
                     setError("");
-                    setRemoving(machine.id);
+                    setRemoving((current) => current === machine.id ? undefined : machine.id);
                   }}
                 >
                   <Trash2 className="size-4" />
                 </button>
               </div>
-              {removing === machine.id && (
+              <AnimatedCollapse expanded={removing === machine.id}>
                 <div
+                  id={`${disclosureId}-remove-${machine.id}`}
                   role="group"
                   aria-label={uiT("Confirm removing {value0}", {
                     value0: String(machine.name),
@@ -383,13 +393,16 @@ export function ConnectionsSettings() {
                     <button
                       className="px-3 py-2 text-[13px] text-content/50"
                       disabled={revoking}
-                      onClick={() => setRemoving(undefined)}
+                      onClick={() => {
+                        setRemoving(undefined);
+                        document.getElementById(`${disclosureId}-remove-trigger-${machine.id}`)?.focus();
+                      }}
                     >
                       {uiT("Cancel")}
                     </button>
                   </div>
                 </div>
-              )}
+              </AnimatedCollapse>
             </div>
           ))}
         </div>
@@ -400,8 +413,9 @@ export function ConnectionsSettings() {
           )}
         </div>
       ) : null}
-      {adding && (
+      <AnimatedCollapse expanded={adding}>
         <form
+          id={`${disclosureId}-add`}
           className="flex flex-col gap-4 rounded-xl border border-stroke p-5"
           onSubmit={(event) => {
             event.preventDefault();
@@ -445,9 +459,18 @@ export function ConnectionsSettings() {
               spellCheck={false}
             />
           </label>
-          <details className="text-[12px] text-content/50">
-            <summary className="cursor-pointer">{uiT("Advanced")}</summary>
-            <label className="mt-3 flex max-w-40 flex-col gap-1.5">
+          <div className="text-[12px] text-content/50">
+            <button
+              type="button"
+              aria-expanded={advancedOpen}
+              aria-controls={`${disclosureId}-advanced`}
+              onClick={() => setAdvancedOpen((expanded) => !expanded)}
+              className="hover:text-content focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              {uiT("Advanced")}
+            </button>
+            <AnimatedCollapse expanded={advancedOpen}>
+            <label id={`${disclosureId}-advanced`} className="mt-3 flex max-w-40 flex-col gap-1.5">
               {uiT("SSH port")}
               <input
                 disabled={busy}
@@ -460,7 +483,8 @@ export function ConnectionsSettings() {
                 placeholder={uiT("From SSH config")}
               />
             </label>
-          </details>
+            </AnimatedCollapse>
+          </div>
           <p className="text-[12px] leading-relaxed text-content/45">
             {uiT(
               "MonoCode installs and starts its background host, then connects securely. Your SSH keys and config are used automatically. Enable SSH on the host and sign in to Codex or Claude Code there. On Windows and Mac, keep the host’s desktop account signed in and the machine awake. Locking the desktop is fine.",
@@ -482,7 +506,10 @@ export function ConnectionsSettings() {
               type="button"
               disabled={busy}
               className="px-3 py-2 text-[13px] text-content/50"
-              onClick={() => setAdding(false)}
+              onClick={() => {
+                setAdding(false);
+                addTrigger.current?.focus();
+              }}
             >
               {uiT("Cancel")}
             </button>
@@ -491,7 +518,7 @@ export function ConnectionsSettings() {
             </button>
           </div>
         </form>
-      )}
+      </AnimatedCollapse>
       {busy && jobId && (
         <div
           className="flex flex-col gap-3 rounded-xl border border-stroke p-5"

@@ -324,6 +324,16 @@ it.each(["manual", "expiry"])(
 );
 
 it("dismisses the mute menu and custom date picker without changing preferences", async () => {
+  const finishClosing = (surface: Element) => {
+    const frame = surface.closest<HTMLElement>(".popover-motion")!;
+    expect(frame.getAttribute("data-fold-state")).toBe("closing");
+    expect(frame.inert).toBe(true);
+    act(() => {
+      const event = new Event("transitionend", { bubbles: true });
+      Object.defineProperty(event, "propertyName", { value: "opacity" });
+      frame.dispatchEvent(event);
+    });
+  };
   await act(async () =>
     root.render(createElement(ProjectNotificationSettings, { cwd: "" })),
   );
@@ -335,11 +345,13 @@ it("dismisses the mute menu and custom date picker without changing preferences"
   )!;
   act(() => trigger.click());
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  const menu = document.querySelector('[role="menu"]')!;
   act(() =>
     window.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
     ),
   );
+  finishClosing(menu);
   expect(document.querySelector('[role="menu"]')).toBeNull();
   expect(document.activeElement).toBe(trigger);
 
@@ -356,6 +368,7 @@ it("dismisses the mute menu and custom date picker without changing preferences"
     (button) => button.textContent === "Cancel",
   )!;
   act(() => cancel.click());
+  finishClosing(dialog);
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
   expect(document.activeElement).toBe(trigger);

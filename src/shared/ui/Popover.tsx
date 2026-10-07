@@ -1,5 +1,6 @@
 import { NativePopupHost } from "./NativePopupHost";
-import { useSurfaceVisibility } from "./SurfaceVisibility";
+import { SurfaceVisibilityContext, useSurfaceVisibility } from "./SurfaceVisibility";
+import { useCollapseMotion } from "./AnimatedCollapse";
 import {
   useCallback,
   useContext,
@@ -36,6 +37,8 @@ export type PopoverAnchor =
 export type PopoverDismissReason = "outside" | "escape";
 
 type Props = Omit<ComponentPropsWithoutRef<"div">, "style"> & {
+  /** When supplied, retain the surface until its closing animation finishes. */
+  open?: boolean;
   /** Hover surfaces can include the glass frame in their pointer boundary. */
   frameProps?: Pick<
     ComponentPropsWithoutRef<"div">,
@@ -63,6 +66,10 @@ type Props = Omit<ComponentPropsWithoutRef<"div">, "style"> & {
   /** A pointer landing inside anything matching this selector is not outside. */
   ignore?: string;
   ref?: Ref<HTMLDivElement>;
+};
+
+type SurfaceProps = Omit<Props, "open"> & {
+  motion?: Pick<ReturnType<typeof useCollapseMotion>, "foldState" | "finish">;
 };
 
 const FRAME =
@@ -143,7 +150,37 @@ function samePosition(a: PopoverPosition | null, b: PopoverPosition): boolean {
  * no local stacking context can paint over it, placed against its anchor with
  * viewport flipping, and animated in from the anchored edge.
  */
-export function Popover(props: Props) {
+export function Popover({ open, ...props }: Props) {
+  return open === undefined ? (
+    <PopoverSurface {...props} />
+  ) : (
+    <AnimatedPopover {...props} open={open} />
+  );
+}
+
+function AnimatedPopover({ open, children, ...props }: Props & { open: boolean }) {
+  const visible = useSurfaceVisibility();
+  const motion = useCollapseMotion(open && visible, 170);
+  const retained = useRef(children);
+  if (open) retained.current = children;
+  if (!visible || (!open && motion.foldState === "closed")) return null;
+  return (
+    <PopoverSurface
+      {...props}
+      motion={motion}
+      inert={!open || props.inert}
+      aria-hidden={!open || props["aria-hidden"]}
+      autoFocus={open && props.autoFocus}
+      onDismiss={open ? props.onDismiss : undefined}
+    >
+      <SurfaceVisibilityContext.Provider value={visible && open}>
+        {open ? children : retained.current}
+      </SurfaceVisibilityContext.Provider>
+    </PopoverSurface>
+  );
+}
+
+function PopoverSurface(props: SurfaceProps) {
   const host = useContext(NativePopupHost);
   return host ? (
     <NativePopover {...props} host={host} />
@@ -164,8 +201,10 @@ function NativePopover({
   style,
   autoFocus,
   dismissOnEscape = true,
+  motion,
+  onTransitionEnd,
   ...props
-}: Props & { host: HTMLElement }) {
+}: SurfaceProps & { host: HTMLElement }) {
   const visible = useSurfaceVisibility();
   const surface = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -215,6 +254,7 @@ function NativePopover({
     <div
       {...rest}
       {...frameProps}
+      {...(motion ? { "data-fold-state": motion.foldState } : {})}
       ref={(el) => {
         surface.current = el;
         if (typeof frameProps?.ref === "function") frameProps.ref(el);
@@ -223,7 +263,11 @@ function NativePopover({
         else if (ref) ref.current = el;
       }}
       style={{ maxHeight: maxHeight ?? 400, ...style }}
-      className={`relative w-full outline-none ${className ?? ""}`}
+      className={`${motion ? "popover-motion " : ""}relative w-full outline-none ${className ?? ""}`}
+      onTransitionEnd={(event) => {
+        onTransitionEnd?.(event);
+        if (event.target === event.currentTarget && event.propertyName === "opacity") motion?.finish();
+      }}
     >
       {children}
     </div>,
@@ -252,8 +296,9 @@ function WebPopover({
   ignore,
   ref,
   children,
+  motion,
   ...rest
-}: Props) {
+}: SurfaceProps) {
   const visible = useSurfaceVisibility();
   const frame = useRef<HTMLDivElement | null>(null);
   const surface = useRef<HTMLDivElement | null>(null);
@@ -371,8 +416,13 @@ function WebPopover({
         else if (frameProps?.ref) frameProps.ref.current = el;
       }}
       data-popover-side={position?.side ?? side}
+      data-fold-state={motion?.foldState}
+      inert={motion && (motion.foldState === "closing" || motion.foldState === "closed")}
       style={{ ...placed, zIndex: dialogLayer(anchor, layer) }}
-      className={bare ? undefined : FRAME}
+      className={`${motion ? "popover-motion " : ""}${bare ? "" : FRAME}` || undefined}
+      onTransitionEnd={(event) => {
+        if (event.target === event.currentTarget && event.propertyName === "opacity") motion?.finish();
+      }}
     >
       {bare ? null : <GlassBackdrop />}
       <div

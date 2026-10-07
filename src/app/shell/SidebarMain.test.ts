@@ -94,38 +94,50 @@ function render(open: boolean) {
   );
 }
 
-it("animates only position and holds the wider surface until opening finishes", () => {
+it("slides and resizes together so content never jumps at an endpoint", () => {
   render(true);
   expect(animate).not.toHaveBeenCalled();
   render(false);
+  const surface = container.querySelector<HTMLElement>("[data-sidebar-main]")!;
   expect(animate.mock.calls[0]?.[0]).toEqual([
-    { transform: "translateX(232px)" },
-    { transform: "translateX(0)" },
+    { transform: "translateX(232px)", width: "720px" },
+    { transform: "translateX(0)", width: "952px" },
   ]);
-  expect(width).toBe(952);
+  expect(surface.style.flexGrow).toBe("0");
   motions[0].onfinish?.();
   expect(motions[0].cancel).toHaveBeenCalledOnce();
+  expect(surface.style.flex).toBe("");
   render(true);
   expect(animate.mock.calls[1]?.[0]).toEqual([
-    { transform: "translateX(-232px)" },
-    { transform: "translateX(0)" },
+    { transform: "translateX(-232px)", width: "952px" },
+    { transform: "translateX(0)", width: "720px" },
   ]);
-  const surface = container.querySelector<HTMLElement>("[data-sidebar-main]")!;
-  expect(surface.style.flexBasis).toBe("952px");
   motions[1].onfinish?.();
   expect(surface.style.flex).toBe("");
 });
 
-it("reverses from the current visual position without a jump", () => {
+it("reverses from the current visual geometry without a jump", () => {
   render(true);
   render(false);
   const surface = container.querySelector<HTMLElement>("[data-sidebar-main]")!;
   surface.style.transform = "matrix(1, 0, 0, 1, 100, 0)";
-  render(true);
+  // The running animation reports its interpolated width before reversal.
+  const widthGetter = vi
+    .spyOn(HTMLElement.prototype, "offsetWidth", "get")
+    .mockImplementationOnce(() => 820)
+    .mockImplementation(() => width);
+  left = 280;
+  width = 720;
+  act(() =>
+    root.render(
+      createElement(SidebarMain, { open: true, children: "Conversation" }),
+    ),
+  );
+  widthGetter.mockRestore();
   expect(motions[0].cancel).toHaveBeenCalledOnce();
   expect(animate.mock.calls[1]?.[0]).toEqual([
-    { transform: "translateX(-132px)" },
-    { transform: "translateX(0)" },
+    { transform: "translateX(-132px)", width: "820px" },
+    { transform: "translateX(0)", width: "720px" },
   ]);
 });
 
@@ -191,12 +203,14 @@ it("tracks direct resizing and cancels an active slide when layout changes", () 
   resize();
   render(false);
   expect(animate.mock.calls[0]?.[0]).toEqual([
-    { transform: "translateX(352px)" },
-    { transform: "translateX(0)" },
+    { transform: "translateX(352px)", width: "600px" },
+    { transform: "translateX(0)", width: "952px" },
   ]);
+  // The slide's own width changes must not interrupt it.
+  width = 800;
   resize();
   expect(motions[0].cancel).not.toHaveBeenCalled();
-  width = 800;
+  left = 100;
   resize();
   expect(motions[0].cancel).toHaveBeenCalledOnce();
 });

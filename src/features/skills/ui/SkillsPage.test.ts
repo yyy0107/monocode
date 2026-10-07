@@ -67,6 +67,20 @@ async function click(label: string) {
   return target;
 }
 
+function finishPreviewClose() {
+  const preview = container.querySelector<HTMLElement>('[aria-label="Skill preview"]')!;
+  expect(preview.getAttribute("aria-hidden")).toBe("true");
+  expect(preview.inert).toBe(true);
+  const layout = preview.closest(".skills-page-layout")!;
+  expect(layout.getAttribute("data-fold-state")).toBe("closing");
+  act(() => {
+    const event = new Event("transitionend", { bubbles: true });
+    Object.defineProperty(event, "propertyName", { value: "grid-template-columns" });
+    layout.dispatchEvent(event);
+  });
+  expect(container.querySelector('[aria-label="Skill preview"]')).toBeNull();
+}
+
 async function render() {
   await act(async () =>
     root.render(createElement(SkillsPage, { cwd: "D:/repo" })),
@@ -247,6 +261,10 @@ describe("Settings skill preview", () => {
           ),
         );
       escape();
+      const closingForm = container.querySelector("form")!.closest<HTMLElement>(".zen-fold-item")!;
+      expect(closingForm.inert).toBe(true);
+      expect(closingForm.getAttribute("aria-hidden")).toBe("true");
+      act(() => closingForm.dispatchEvent(new Event("animationend", { bubbles: true })));
       expect(container.querySelector("form")).toBeNull();
       expect(container.querySelector('[aria-label="Skill preview"]')).toBe(
         previewPanel,
@@ -255,9 +273,7 @@ describe("Settings skill preview", () => {
       expect(closeSettings).not.toHaveBeenCalled();
       if (preview) {
         escape();
-        expect(
-          container.querySelector('[aria-label="Skill preview"]'),
-        ).toBeNull();
+        finishPreviewClose();
         expect(document.activeElement === button("Project guide")).toBe(true);
         expect(closeSettings).not.toHaveBeenCalled();
       }
@@ -345,7 +361,7 @@ describe("Settings skill preview", () => {
           }),
         ),
       );
-      expect(document.querySelector('[aria-label="Skill preview"]')).toBeNull();
+      finishPreviewClose();
       expect(closeSettings).not.toHaveBeenCalled();
       expect(container.querySelector('[aria-label="Settings"]')).not.toBeNull();
       act(() =>
@@ -414,7 +430,7 @@ describe("Settings skill preview", () => {
             }),
           ),
         );
-      expect(document.querySelector('[aria-label="Skill preview"]')).toBeNull();
+      finishPreviewClose();
       expect(document.activeElement).toBe(opener);
       expect(filter.value).toBe("project");
       expect(container.querySelectorAll('[role="switch"]')).toHaveLength(1);

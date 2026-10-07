@@ -92,10 +92,12 @@ export function NotificationMuteControl({ projectIds, onChanged }: Props) {
           {error}
         </p>
       ) : null}
-      {open === "menu" && trigger.current ? (
+      {trigger.current ? (
         <ExplorerMenu
-          x={trigger.current.getBoundingClientRect().right - 244}
-          y={trigger.current.getBoundingClientRect().bottom + 4}
+          open={open === "menu"}
+          anchor={trigger.current}
+          side="bottom"
+          align="end"
           ariaLabel={uiT("Mute notifications")}
           width={244}
           header={
@@ -117,8 +119,8 @@ export function NotificationMuteControl({ projectIds, onChanged }: Props) {
           }}
         />
       ) : null}
-      {open === "custom" ? (
-        <Popover
+      <Popover
+          open={open === "custom"}
           anchor={trigger}
           align="end"
           width={280}
@@ -135,8 +137,7 @@ export function NotificationMuteControl({ projectIds, onChanged }: Props) {
               onChanged?.();
             }}
           />
-        </Popover>
-      ) : null}
+      </Popover>
     </div>
   );
 }

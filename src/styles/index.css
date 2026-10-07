@@ -4137,9 +4137,43 @@ html.has-native-glass .popover-backdrop {
   --popover-shift: 8px;
 }
 
+.popover-motion {
+  opacity: 1;
+  transition: opacity 170ms var(--motion-ease-out);
+}
+
+.popover-motion > .popover-open {
+  animation: none;
+  transition: transform 170ms var(--motion-ease-out);
+}
+
+.popover-motion:is([data-fold-state="closing"], [data-fold-state="closed"]) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.popover-motion:is([data-fold-state="closing"], [data-fold-state="closed"]) > .popover-open {
+  transform: translate(var(--popover-shift, 0), var(--popover-lift, 0)) scale(0.98);
+}
+
+@starting-style {
+  .popover-motion {
+    opacity: 0;
+  }
+
+  .popover-motion > .popover-open {
+    transform: translate(var(--popover-shift, 0), var(--popover-lift, 0)) scale(0.98);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .popover-open {
     animation: none;
+  }
+
+  .popover-motion,
+  .popover-motion > .popover-open {
+    transition: none;
   }
 }
 

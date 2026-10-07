@@ -98,6 +98,10 @@ it("starts SSH setup from Settings and makes the machine available after native 
   await poll();
   expect(container.textContent).toContain("Home Mac is connected");
   expect(container.textContent).toContain("SSH · me@home");
+  const closingForm = container.querySelector("form")!.closest<HTMLElement>(".zen-fold-item")!;
+  expect(closingForm.inert).toBe(true);
+  expect(closingForm.getAttribute("aria-hidden")).toBe("true");
+  act(() => closingForm.dispatchEvent(new Event("animationend", { bubbles: true })));
   expect(
     container.querySelector(
       'input[placeholder="user@my-mac-mini or an SSH alias"]',
