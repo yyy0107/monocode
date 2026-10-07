@@ -129,6 +129,37 @@ it("reverses from the current visual position without a jump", () => {
   ]);
 });
 
+it("follows the sidebar's shortened transition when reversing mid-slide", () => {
+  render(true);
+  render(false);
+  container.querySelector<HTMLElement>("[data-sidebar-main]")!.style.transform =
+    "matrix(1, 0, 0, 1, 100, 0)";
+  const sidebar = document.createElement("div");
+  sidebar.dataset.sidebarTransition = "";
+  const clip = document.createElement("div");
+  clip.className = "sidebar-transition-clip";
+  clip.getAnimations = () =>
+    [
+      {
+        transitionProperty: "transform",
+        effect: {
+          getTiming: () => ({
+            duration: 160,
+            easing: "cubic-bezier(0.2, 0.65, 0.3, 1)",
+          }),
+        },
+      },
+    ] as unknown as Animation[];
+  sidebar.append(clip);
+  container.prepend(sidebar);
+
+  render(true);
+  expect(animate.mock.calls[1]?.[1]).toEqual({
+    duration: 160,
+    easing: "cubic-bezier(0.2, 0.65, 0.3, 1)",
+  });
+});
+
 it("tracks direct resizing and cancels an active slide when layout changes", () => {
   render(true);
   left = 400;

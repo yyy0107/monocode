@@ -3653,7 +3653,11 @@ html.theme-light .drag-ghost-card {
   pointer-events: none;
 }
 
-.sidebar-transition[data-expanded="false"] .sidebar-transition-clip,
+.sidebar-transition[data-expanded="false"] .sidebar-transition-clip {
+  /* Its right edge follows the workspace to the replacement rail's edge. */
+  transform: translateX(calc(var(--sidebar-rail-width) - 100%));
+}
+
 .sidebar-rail[data-expanded="false"] .sidebar-rail-content {
   transform: translateX(-100%);
 }

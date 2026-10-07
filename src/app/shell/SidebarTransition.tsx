@@ -22,9 +22,11 @@ type Props = {
 // The sidebar and its replacement rail must move with the same timing.
 export const SIDEBAR_TRANSITION_MS = 280;
 export const SIDEBAR_RAIL_WIDTH = 48;
+export const SIDEBAR_TRANSITION_EASING = "cubic-bezier(0.2, 0.65, 0.3, 1)";
 export const SIDEBAR_MOTION_STYLE = {
   "--collapse-duration": `${SIDEBAR_TRANSITION_MS}ms`,
-  "--collapse-easing": "cubic-bezier(0.2, 0.65, 0.3, 1)",
+  "--collapse-easing": SIDEBAR_TRANSITION_EASING,
+  "--sidebar-rail-width": `${SIDEBAR_RAIL_WIDTH}px`,
 } as CSSProperties;
 
 // Deliver the first closed render so descendants stop polling, then leave the

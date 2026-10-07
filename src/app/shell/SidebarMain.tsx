@@ -1,5 +1,8 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { SIDEBAR_TRANSITION_MS } from "./SidebarTransition";
+import {
+  SIDEBAR_TRANSITION_EASING,
+  SIDEBAR_TRANSITION_MS,
+} from "./SidebarTransition";
 
 /** Keep text width fixed during the slide and resize it only at the endpoints. */
 export function SidebarMain({
@@ -53,14 +56,29 @@ export function SidebarMain({
       return;
     }
 
+    // CSS shortens an interrupted transition when it reverses. Follow the
+    // sidebar's actual timing so the two touching edges cannot drift apart.
+    const sidebar = el.parentElement!.querySelector(
+      ":scope > [data-sidebar-transition] .sidebar-transition-clip",
+    );
+    const slide = sidebar
+      ?.getAnimations?.()
+      .find(
+        (animation) =>
+          (animation as CSSTransition).transitionProperty === "transform",
+      );
+    const timing = slide?.effect?.getTiming();
     const motion = el.animate(
       [
         { transform: `translateX(${offset}px)` },
         { transform: "translateX(0)" },
       ],
       {
-        duration: SIDEBAR_TRANSITION_MS,
-        easing: "cubic-bezier(0.2, 0.65, 0.3, 1)",
+        duration:
+          typeof timing?.duration === "number"
+            ? timing.duration
+            : SIDEBAR_TRANSITION_MS,
+        easing: timing?.easing ?? SIDEBAR_TRANSITION_EASING,
       },
     );
     animation.current = motion;
