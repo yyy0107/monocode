@@ -66,6 +66,23 @@ html.has-user-accent .mobile-app {
 .mobile-app select {
   font: inherit;
 }
+/* Image previews portal to body, outside the shell's mobile-safe variables. */
+.image-lightbox {
+  padding-top: calc(24px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
+  padding-right: calc(24px + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)));
+  padding-bottom: calc(24px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  padding-left: calc(24px + var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
+}
+.image-lightbox-close {
+  top: calc(16px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
+  right: calc(16px + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)));
+  width: 44px;
+  height: 44px;
+}
+.image-lightbox-close > svg {
+  width: 20px;
+  height: 20px;
+}
 /* One font step for sheets, dialogs and shared popovers, including body portals.
    Fixed sizes opt in below; inherited text grows once at the surface root. */
 :is(.mobile-sheet, .mobile-modal, .mobile-notices, .fixed[role="alert"],

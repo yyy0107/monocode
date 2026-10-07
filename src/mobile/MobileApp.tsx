@@ -132,6 +132,7 @@ import { MobilePageOverlay, MobilePageTransition, useMobileHeaderMotion, type Mo
 import { MobileOverlayHostContext } from "./MobileOverlayHost";
 import { MobileSheetPresence } from "./MobileSheetPresence";
 import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
+import { dismissImageLightbox } from "../shared/ui/ImageLightbox";
 
 const client = new MobileClient(mobileStorage);
 
@@ -1179,6 +1180,7 @@ export function MobileApp() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     const listener = App.addListener("backButton", () => {
+      if (dismissImageLightbox()) return;
       if (assistantOpen) {
         if (assistantPage.current) assistantPage.current.back();
         else setAssistantOpen(false);

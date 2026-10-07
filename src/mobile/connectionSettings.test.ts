@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileApp } from "./MobileApp";
 import { Capacitor } from "@capacitor/core";
+import { App } from "@capacitor/app";
+import { AttachmentChip } from "../features/sessions/ui/AttachmentChip";
 import { setUiLanguage, UI_LANGUAGE_KEY } from "../shared/i18n/language";
 import { ensureRandomUUID } from "./browserCrypto";
 import { LIQUID_GLASS_SELECTOR } from "./liquidGlass";
@@ -126,6 +128,37 @@ async function submit() {
 }
 
 describe("mobile connection settings", () => {
+  it.each(["native", "close button", "backdrop"])("preserves the current page when an image closes via %s, then lets Back navigate", async (closeMode) => {
+    vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+    await act(async () => {
+      root.render(createElement(Fragment, null,
+        createElement(MobileApp),
+        createElement(AttachmentChip, { attachment: {
+          id: "preview", kind: "image", name: "photo.png",
+          mimeType: "image/png", size: 42, previewUrl: "blob:photo",
+        } }),
+      ));
+    });
+    act(() => button("Glass").click());
+    act(() => button("Open photo.png full screen").click());
+    const preview = document.querySelector<HTMLElement>(".image-lightbox")!;
+    expect(preview).not.toBeNull();
+
+    act(() => {
+      if (closeMode === "native") nativeBack.listener!();
+      else if (closeMode === "close button")
+        preview.querySelector<HTMLButtonElement>(".image-lightbox-close")!.click();
+      else preview.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.querySelector(".image-lightbox")).toBeNull();
+    expect(active("header strong")?.textContent).toBe("Glass");
+    expect(App.exitApp).not.toHaveBeenCalled();
+
+    act(() => nativeBack.listener!());
+    expect(active("header strong")?.textContent).toBe("MonoCode");
+    expect(App.exitApp).not.toHaveBeenCalled();
+  });
+
   it.each(["header", "native"])("opens Glass from the root and returns with %s back, retaining glass settings", async (backMode) => {
     if (backMode === "native")
       vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);

@@ -3,6 +3,18 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { LAYER } from "../lib/layers";
 import { X } from "./icons";
+import { useSurfaceVisibility } from "./SurfaceVisibility";
+import { useImageZoom } from "../hooks/useImageZoom";
+
+const dismissHandlers: (() => void)[] = [];
+
+/** Native Back dismisses the foremost image before navigating its owner. */
+export function dismissImageLightbox(): boolean {
+  const dismiss = dismissHandlers.at(-1);
+  if (!dismiss) return false;
+  dismiss();
+  return true;
+}
 
 type Props = {
   src: string;
@@ -12,54 +24,74 @@ type Props = {
 
 export function ImageLightbox({ src, alt, onClose }: Props) {
   const { t: uiT } = useTranslation();
+  const visible = useSurfaceVisibility();
+  const zoom = useImageZoom(src, visible);
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
   useEffect(() => {
+    if (!visible) return;
     const previouslyFocused = document.activeElement;
     closeRef.current?.focus();
+    const dismiss = () => onCloseRef.current();
+    dismissHandlers.push(dismiss);
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || dismissHandlers.at(-1) !== dismiss) return;
       event.preventDefault();
       event.stopPropagation();
-      onCloseRef.current();
+      dismiss();
     };
 
     window.addEventListener("keydown", onKeyDown, true);
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
-      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
+      dismissHandlers.splice(dismissHandlers.indexOf(dismiss), 1);
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected &&
+          !previouslyFocused.closest('[inert], [aria-hidden="true"]'))
+        previouslyFocused.focus({ preventScroll: true });
     };
-  }, []);
+  }, [visible]);
+
+  if (!visible) return null;
 
   return createPortal(
     <div
       role="dialog"
       aria-modal="true"
       aria-label={uiT("Image preview: {value0}", { value0: String(alt) })}
-      className="fixed inset-0 flex items-center justify-center bg-black/85 p-6 backdrop-blur-sm"
+      className="image-lightbox fixed inset-0 flex touch-none items-center justify-center overflow-hidden bg-black/85 p-6 backdrop-blur-sm"
       style={{ zIndex: LAYER.dialog }}
-      onMouseDown={(event) => {
+      onPointerDown={zoom.onPointerDown}
+      onPointerMove={zoom.onPointerMove}
+      onPointerUp={zoom.onPointerUp}
+      onPointerCancel={zoom.onPointerCancel}
+      onLostPointerCapture={zoom.onLostPointerCapture}
+      onDoubleClick={zoom.onDoubleClick}
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
         event.stopPropagation();
-        if (event.target === event.currentTarget) onClose();
+        if (!zoom.shouldIgnoreBackdropClick() &&
+            (event.target === event.currentTarget || event.target === zoom.stageRef.current)) onClose();
       }}
-      onClick={(event) => event.stopPropagation()}
     >
-      <img
-        src={src}
-        alt={alt}
-        draggable={false}
-        className="max-h-full max-w-full select-none object-contain shadow-2xl"
-      />
+      <div ref={zoom.stageRef} className="image-lightbox-stage flex h-full w-full min-w-0 min-h-0 items-center justify-center overflow-hidden">
+        <img
+          ref={zoom.imageRef}
+          src={src}
+          alt={alt}
+          draggable={false}
+          className="max-h-full max-w-full select-none object-contain shadow-2xl"
+        />
+      </div>
       <button
         ref={closeRef}
         type="button"
         aria-label={uiT("Close image preview")}
         title={uiT("Close")}
         onClick={onClose}
-        className="absolute right-4 top-4 grid size-9 place-items-center rounded-full border border-white/15 bg-black/45 text-white/80 shadow-lg backdrop-blur-md hover:bg-black/65 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+        className="image-lightbox-close absolute right-4 top-4 z-10 grid size-9 place-items-center rounded-full border border-white/15 bg-black/45 text-white/80 shadow-lg backdrop-blur-md hover:bg-black/65 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
       >
         <X className="size-4" strokeWidth={2} />
       </button>
