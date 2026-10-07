@@ -332,7 +332,9 @@ export function ConnectionsSettings() {
                   aria-controls={`${disclosureId}-remove-${machine.id}`}
                   onClick={() => {
                     setError("");
-                    setRemoving((current) => current === machine.id ? undefined : machine.id);
+                    setRemoving((current) =>
+                      current === machine.id ? undefined : machine.id,
+                    );
                   }}
                 >
                   <Trash2 className="size-4" />
@@ -395,7 +397,9 @@ export function ConnectionsSettings() {
                       disabled={revoking}
                       onClick={() => {
                         setRemoving(undefined);
-                        document.getElementById(`${disclosureId}-remove-trigger-${machine.id}`)?.focus();
+                        document
+                          .getElementById(`${disclosureId}-remove-trigger-${machine.id}`)
+                          ?.focus();
                       }}
                     >
                       {uiT("Cancel")}
@@ -470,19 +474,22 @@ export function ConnectionsSettings() {
               {uiT("Advanced")}
             </button>
             <AnimatedCollapse expanded={advancedOpen}>
-            <label id={`${disclosureId}-advanced`} className="mt-3 flex max-w-40 flex-col gap-1.5">
-              {uiT("SSH port")}
-              <input
-                disabled={busy}
-                type="number"
-                min={1}
-                max={65535}
-                className={input}
-                value={port}
-                onChange={(event) => setPort(event.target.value)}
-                placeholder={uiT("From SSH config")}
-              />
-            </label>
+              <label
+                id={`${disclosureId}-advanced`}
+                className="mt-3 flex max-w-40 flex-col gap-1.5"
+              >
+                {uiT("SSH port")}
+                <input
+                  disabled={busy}
+                  type="number"
+                  min={1}
+                  max={65535}
+                  className={input}
+                  value={port}
+                  onChange={(event) => setPort(event.target.value)}
+                  placeholder={uiT("From SSH config")}
+                />
+              </label>
             </AnimatedCollapse>
           </div>
           <p className="text-[12px] leading-relaxed text-content/45">

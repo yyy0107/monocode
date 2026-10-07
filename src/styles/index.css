@@ -4154,7 +4154,8 @@ html.has-native-glass .popover-backdrop {
   pointer-events: none;
 }
 
-.popover-motion:is([data-fold-state="closing"], [data-fold-state="closed"]) > .popover-open {
+.popover-motion:is([data-fold-state="closing"], [data-fold-state="closed"])
+  > .popover-open {
   transform: translate(var(--popover-shift, 0), var(--popover-lift, 0)) scale(0.98);
 }
 

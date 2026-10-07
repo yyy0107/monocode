@@ -119,6 +119,54 @@ afterEach(() => {
 });
 
 describe("Settings skill preview", () => {
+  it.each(["Project guide", "Preview skill Project guide"])(
+    "toggles %s, reverses closing and releases the panel after its animation",
+    async (label) => {
+      vi.useFakeTimers();
+      try {
+        await render();
+        const opener = await click(label);
+        const panel = container.querySelector<HTMLElement>(
+          '[aria-label="Skill preview"]',
+        )!;
+        await click(label);
+        expect(opener.getAttribute("aria-expanded")).toBe("false");
+        expect(panel.inert).toBe(true);
+        expect(panel.textContent).toContain("Last paragraph");
+        expect(document.activeElement).toBe(opener);
+        await act(async () => vi.advanceTimersByTime(70));
+        await click(label);
+        expect(container.querySelector('[aria-label="Skill preview"]')).toBe(
+          panel,
+        );
+        expect(panel.inert).toBe(false);
+        expect(opener.getAttribute("aria-expanded")).toBe("true");
+        await act(async () => vi.advanceTimersByTime(360));
+        expect(container.querySelector('[aria-label="Skill preview"]')).toBe(
+          panel,
+        );
+        await click(label);
+        finishPreviewClose();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("closes the preview immediately when reduced motion is requested", async () => {
+    vi.spyOn(window, "matchMedia").mockReturnValue({
+      matches: true,
+    } as MediaQueryList);
+    try {
+      await render();
+      await click("Project guide");
+      await click("Project guide");
+      expect(container.querySelector('[aria-label="Skill preview"]')).toBeNull();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it.each(["document", "error"])(
     "never shows the previous %s under a newly selected skill while its read is pending",
     async (previousState) => {

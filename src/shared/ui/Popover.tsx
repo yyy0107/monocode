@@ -1,5 +1,8 @@
 import { NativePopupHost } from "./NativePopupHost";
-import { SurfaceVisibilityContext, useSurfaceVisibility } from "./SurfaceVisibility";
+import {
+  SurfaceVisibilityContext,
+  useSurfaceVisibility,
+} from "./SurfaceVisibility";
 import { useCollapseMotion } from "./AnimatedCollapse";
 import {
   useCallback,
@@ -266,7 +269,11 @@ function NativePopover({
       className={`${motion ? "popover-motion " : ""}relative w-full outline-none ${className ?? ""}`}
       onTransitionEnd={(event) => {
         onTransitionEnd?.(event);
-        if (event.target === event.currentTarget && event.propertyName === "opacity") motion?.finish();
+        if (
+          event.target === event.currentTarget &&
+          event.propertyName === "opacity"
+        )
+          motion?.finish();
       }}
     >
       {children}
@@ -417,11 +424,18 @@ function WebPopover({
       }}
       data-popover-side={position?.side ?? side}
       data-fold-state={motion?.foldState}
-      inert={motion && (motion.foldState === "closing" || motion.foldState === "closed")}
+      inert={
+        motion &&
+        (motion.foldState === "closing" || motion.foldState === "closed")
+      }
       style={{ ...placed, zIndex: dialogLayer(anchor, layer) }}
       className={`${motion ? "popover-motion " : ""}${bare ? "" : FRAME}` || undefined}
       onTransitionEnd={(event) => {
-        if (event.target === event.currentTarget && event.propertyName === "opacity") motion?.finish();
+        if (
+          event.target === event.currentTarget &&
+          event.propertyName === "opacity"
+        )
+          motion?.finish();
       }}
     >
       {bare ? null : <GlassBackdrop />}

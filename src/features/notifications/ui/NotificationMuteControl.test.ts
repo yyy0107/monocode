@@ -39,6 +39,57 @@ function click(label: string) {
 }
 
 describe("NotificationMuteControl", () => {
+  it.each(["single", "batch", "muted"])(
+    "closes and reopens the %s menu from the original trigger with pointer events",
+    async (mode) => {
+      vi.useFakeTimers();
+      try {
+        if (mode === "muted")
+          updateNotificationPreferences(["private"], {
+            disabled: ["issues"],
+            mutedUntil: null,
+          });
+        const original = loadNotificationPreferences();
+        await act(async () =>
+          root.render(
+            createElement(NotificationMuteControl, {
+              projectIds:
+                mode === "batch" ? ["private", "personal"] : ["private"],
+            }),
+          ),
+        );
+        const trigger = container.querySelector<HTMLButtonElement>(
+          "button[aria-haspopup]",
+        )!;
+        const press = async () => {
+          await act(async () =>
+            trigger
+              .querySelector("svg")!
+              .dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })),
+          );
+          await act(async () => trigger.click());
+        };
+        await press();
+        const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+        await press();
+        expect(trigger.getAttribute("aria-expanded")).toBe("false");
+        expect(menu.inert).toBe(true);
+        expect(menu.getAttribute("aria-hidden")).toBe("true");
+        await press();
+        expect(document.querySelector('[role="menu"]')).toBe(menu);
+        expect(menu.inert).toBe(false);
+        expect(trigger.getAttribute("aria-expanded")).toBe("true");
+        await act(async () => vi.advanceTimersByTimeAsync(180));
+        await press();
+        await act(async () => vi.advanceTimersByTimeAsync(180));
+        expect(document.querySelector('[role="menu"]')).toBeNull();
+        expect(loadNotificationPreferences()).toEqual(original);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("mutes selected projects for eight hours without replacing category choices", () => {
     updateNotificationPreferences(["private"], { disabled: ["issues"] });
     act(() =>

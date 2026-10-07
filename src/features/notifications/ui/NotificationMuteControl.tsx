@@ -120,23 +120,23 @@ export function NotificationMuteControl({ projectIds, onChanged }: Props) {
         />
       ) : null}
       <Popover
-          open={open === "custom"}
-          anchor={trigger}
-          align="end"
-          width={280}
-          role="dialog"
-          aria-label={uiT("Mute project notifications")}
-          onDismiss={(reason) => close(reason === "escape")}
-          className="overflow-y-auto p-3"
-        >
-          <NotificationMuteDatePicker
-            projectIds={projectIds}
-            onCancel={() => close()}
-            onChanged={() => {
-              close();
-              onChanged?.();
-            }}
-          />
+        open={open === "custom"}
+        anchor={trigger}
+        align="end"
+        width={280}
+        role="dialog"
+        aria-label={uiT("Mute project notifications")}
+        onDismiss={(reason) => close(reason === "escape")}
+        className="overflow-y-auto p-3"
+      >
+        <NotificationMuteDatePicker
+          projectIds={projectIds}
+          onCancel={() => close()}
+          onChanged={() => {
+            close();
+            onChanged?.();
+          }}
+        />
       </Popover>
     </div>
   );

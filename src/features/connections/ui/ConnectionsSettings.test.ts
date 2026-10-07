@@ -268,6 +268,73 @@ it("keeps the connection when the host cannot revoke its credential", async () =
   expect(button("Remove from this desktop only")).toBeTruthy();
 });
 
+it("keeps the Add machine trigger available and preserves its SSH draft through folding", async () => {
+  await render();
+  const trigger = button("Add machine");
+  await act(async () => trigger.click());
+  await fill(
+    'input[placeholder="user@my-mac-mini or an SSH alias"]',
+    "me@draft",
+  );
+  await act(async () => button("Advanced").click());
+  await fill('input[placeholder="From SSH config"]', "2222");
+  await act(async () => trigger.click());
+  expect(button("Add machine")).toBe(trigger);
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  const fold = container
+    .querySelector("form")!
+    .closest<HTMLElement>(".zen-fold-item")!;
+  expect(fold.inert).toBe(true);
+  await act(async () => vi.advanceTimersByTimeAsync(360));
+  expect(
+    container.querySelector(
+      'input[placeholder="user@my-mac-mini or an SSH alias"]',
+    ),
+  ).toBeNull();
+  await act(async () => trigger.click());
+  expect(
+    container.querySelector<HTMLInputElement>(
+      'input[placeholder="user@my-mac-mini or an SSH alias"]',
+    )!.value,
+  ).toBe("me@draft");
+  expect(
+    container.querySelector<HTMLInputElement>(
+      'input[placeholder="From SSH config"]',
+    )!.value,
+  ).toBe("2222");
+  await act(async () => button("Cancel").click());
+  expect(document.activeElement).toBe(trigger);
+});
+
+it("toggles removal confirmation from the same button without disconnecting", async () => {
+  await openRemove();
+  const trigger = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Remove Home Mac"]',
+  )!;
+  const confirmation = container.querySelector<HTMLElement>(
+    '[aria-label="Confirm removing Home Mac"]',
+  )!;
+  await act(async () => trigger.click());
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(confirmation.closest<HTMLElement>(".zen-fold-item")!.inert).toBe(true);
+  await act(async () => trigger.click());
+  expect(
+    container.querySelector('[aria-label="Confirm removing Home Mac"]'),
+  ).toBe(confirmation);
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => button("Cancel").click());
+  expect(document.activeElement).toBe(trigger);
+  await act(async () => vi.advanceTimersByTimeAsync(360));
+  expect(
+    container.querySelector('[aria-label="Confirm removing Home Mac"]'),
+  ).toBeNull();
+  expect(invoke).not.toHaveBeenCalledWith(
+    "remote_disconnect",
+    expect.anything(),
+  );
+  expect(requested("devices.revokeSelf")).toBe(false);
+});
+
 it("does not spellcheck or autocorrect the machine name", async () => {
   await render();
   await act(async () => button("Add machine").click());

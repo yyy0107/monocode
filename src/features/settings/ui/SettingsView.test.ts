@@ -1443,6 +1443,125 @@ it("saves a shared account only after publication, prevents removing it and supp
   expect(calls.indexOf("provider_accounts_publish")).toBeLessThan(calls.indexOf("provider_account_set_default"));
 });
 
+it.each([
+  { provider: "claude", action: "add" },
+  { provider: "codex", action: "add" },
+  { provider: "claude", action: "edit" },
+  { provider: "codex", action: "edit" },
+  { provider: "codex", action: "import" },
+] as const)(
+  "toggles the $provider $action editor without discarding its draft",
+  async ({ provider, action }) => {
+    await render("providers");
+    const trigger =
+      action === "add"
+        ? [
+            ...container.querySelectorAll<HTMLButtonElement>(
+              'button[type="button"]',
+            ),
+          ].filter((button) => button.textContent === "Add account")[
+            provider === "claude" ? 0 : 1
+          ]
+        : action === "edit"
+          ? container.querySelectorAll<HTMLButtonElement>(
+              '[aria-label="Rename Default account"]',
+            )[provider === "claude" ? 0 : 1]
+          : [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+              (button) => button.textContent === "Import current Codex login",
+            )!;
+    const selector = `[aria-label="${action === "edit" ? "Rename" : "New"} ${HARNESS_TITLE[provider]} account"]`;
+    const press = async () => {
+      await act(async () =>
+        trigger.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true }),
+        ),
+      );
+      await act(async () => trigger.click());
+    };
+    await press();
+    const input = container.querySelector<HTMLInputElement>(selector)!;
+    const original = input.value;
+    const home = container.querySelector<HTMLInputElement>(
+      `[aria-label="${HARNESS_TITLE[provider]} Data Home"]`,
+    );
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(input, "Unsaved name");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      if (home) {
+        setter.call(home, "/unsaved/home");
+        home.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+    await press();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    const fold = input.closest<HTMLElement>(".zen-fold-item")!;
+    expect(fold.inert).toBe(true);
+    expect(fold.getAttribute("aria-hidden")).toBe("true");
+    // Reversing before the animation ends keeps the same input and its value.
+    await press();
+    expect(container.querySelector(selector)).toBe(input);
+    expect(input.value).toBe("Unsaved name");
+    await press();
+    await act(async () =>
+      fold.dispatchEvent(new Event("animationend", { bubbles: true })),
+    );
+    expect(container.querySelector(selector)).toBeNull();
+    await press();
+    const reopened = container.querySelector<HTMLInputElement>(selector)!;
+    expect(reopened.value).toBe("Unsaved name");
+    if (home)
+      expect(
+        container.querySelector<HTMLInputElement>(
+          `[aria-label="${HARNESS_TITLE[provider]} Data Home"]`,
+        )!.value,
+      ).toBe("/unsaved/home");
+    await act(async () =>
+      [
+        ...reopened
+          .closest("form")!
+          .querySelectorAll<HTMLButtonElement>("button"),
+      ]
+        .find((button) => button.textContent === "Cancel")!
+        .click(),
+    );
+    await act(async () =>
+      reopened
+        .closest(".zen-fold-item")!
+        .dispatchEvent(new Event("animationend", { bubbles: true })),
+    );
+    await press();
+    expect(container.querySelector<HTMLInputElement>(selector)!.value).toBe(
+      original,
+    );
+  },
+);
+
+it("switches between adding and importing a Codex account without closing the new editor", async () => {
+  await render("providers");
+  const add = [
+    ...container.querySelectorAll<HTMLButtonElement>('button[type="button"]'),
+  ].filter((button) => button.textContent === "Add account")[1];
+  const importing = [
+    ...container.querySelectorAll<HTMLButtonElement>("button"),
+  ].find((button) => button.textContent === "Import current Codex login")!;
+  await act(async () => add.click());
+  expect(add.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => importing.click());
+  expect(importing.getAttribute("aria-expanded")).toBe("true");
+  expect(add.getAttribute("aria-expanded")).toBe("false");
+  expect(container.querySelector('[aria-label="Codex Data Home"]')).toBeNull();
+  await act(async () => add.click());
+  expect(add.getAttribute("aria-expanded")).toBe("true");
+  expect(importing.getAttribute("aria-expanded")).toBe("false");
+  expect(
+    container.querySelector('[aria-label="Codex Data Home"]'),
+  ).not.toBeNull();
+});
+
 it("imports the current Codex login into a named profile and animates the editor closed", async () => {
   const copied = vi.fn();
   vi.mocked(invoke).mockImplementation(async command => {

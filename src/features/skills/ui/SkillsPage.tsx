@@ -8,8 +8,14 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { AnimatedCollapse, useCollapseMotion } from "../../../shared/ui/AnimatedCollapse";
-import { SurfaceVisibilityContext, useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
+import {
+  AnimatedCollapse,
+  useCollapseMotion,
+} from "../../../shared/ui/AnimatedCollapse";
+import {
+  SurfaceVisibilityContext,
+  useSurfaceVisibility,
+} from "../../../shared/ui/SurfaceVisibility";
 import "./SkillsPage.css";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
@@ -234,13 +240,17 @@ export function SkillsPage({
     <div className="@container/skills flex min-h-0 min-w-0 flex-1">
       <div
         className="skills-page-layout animated-collapse-size grid min-h-0 min-w-0 flex-1 overflow-hidden"
-        style={{ "--skills-preview-track": previewVisible ? "1fr" : "0fr" } as CSSProperties}
+        style={
+          { "--skills-preview-track": previewVisible ? "1fr" : "0fr" } as CSSProperties
+        }
         data-fold-state={foldState}
         onTransitionEnd={(event) => {
           if (
             event.target === event.currentTarget &&
-            (event.propertyName === "grid-template-columns" || event.propertyName === "grid-template-rows")
-          ) finish();
+            (event.propertyName === "grid-template-columns" ||
+              event.propertyName === "grid-template-rows")
+          )
+            finish();
         }}
       >
         <div
@@ -482,56 +492,56 @@ export function SkillsPage({
             className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden border-t border-stroke @3xl/skills:max-w-[720px] @3xl/skills:border-t-0 @3xl/skills:border-l"
           >
             <SurfaceVisibilityContext.Provider value={previewVisible}>
-            <header className="flex shrink-0 items-start gap-2 px-4 pt-4 pb-2">
-              <h2 className="min-w-0 flex-1 break-words text-[16px] font-semibold text-content">
-                {previewSkill.name}
-              </h2>
-              <button
-                ref={closePreview}
-                type="button"
-                aria-label={uiT("Close skill preview")}
-                title={uiT("Close preview (Escape)")}
-                onClick={() => setPreviewOpen(false)}
-                className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              >
-                <X className="size-3.5" />
-              </button>
-            </header>
-            <div className="shrink-0 space-y-3 border-b border-stroke px-4 pt-1 pb-3">
-              <p className="select-text break-all text-[11px] text-content/50">
-                {previewSkill.path}
-              </p>
-              <div className="flex justify-end">
-                <MarkdownModeToggle
-                  mode={previewMode}
-                  onChange={setPreviewMode}
-                />
+              <header className="flex shrink-0 items-start gap-2 px-4 pt-4 pb-2">
+                <h2 className="min-w-0 flex-1 break-words text-[16px] font-semibold text-content">
+                  {previewSkill.name}
+                </h2>
+                <button
+                  ref={closePreview}
+                  type="button"
+                  aria-label={uiT("Close skill preview")}
+                  title={uiT("Close preview (Escape)")}
+                  onClick={() => setPreviewOpen(false)}
+                  className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </header>
+              <div className="shrink-0 space-y-3 border-b border-stroke px-4 pt-1 pb-3">
+                <p className="select-text break-all text-[11px] text-content/50">
+                  {previewSkill.path}
+                </p>
+                <div className="flex justify-end">
+                  <MarkdownModeToggle
+                    mode={previewMode}
+                    onChange={setPreviewMode}
+                  />
+                </div>
               </div>
-            </div>
-            <div
-              key={previewSkill.path}
-              className="min-h-0 min-w-0 flex-1 select-text"
-            >
-              {previewError ? (
-                <p
-                  role="alert"
-                  className="break-words px-4 py-5 text-[12px] text-red-400"
-                >
-                  {previewError}
-                </p>
-              ) : previewText === null ? (
-                <p
-                  role="status"
-                  className="px-4 py-5 text-[12px] text-content/50"
-                >
-                  {uiT("Loading skill…")}
-                </p>
-              ) : previewMode === "preview" ? (
-                <SkillDocumentPreview text={previewText} />
-              ) : (
-                <MarkdownSource text={previewText} />
-              )}
-            </div>
+              <div
+                key={previewSkill.path}
+                className="min-h-0 min-w-0 flex-1 select-text"
+              >
+                {previewError ? (
+                  <p
+                    role="alert"
+                    className="break-words px-4 py-5 text-[12px] text-red-400"
+                  >
+                    {previewError}
+                  </p>
+                ) : previewText === null ? (
+                  <p
+                    role="status"
+                    className="px-4 py-5 text-[12px] text-content/50"
+                  >
+                    {uiT("Loading skill…")}
+                  </p>
+                ) : previewMode === "preview" ? (
+                  <SkillDocumentPreview text={previewText} />
+                ) : (
+                  <MarkdownSource text={previewText} />
+                )}
+              </div>
             </SurfaceVisibilityContext.Provider>
           </aside>
         ) : null}
