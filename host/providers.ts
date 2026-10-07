@@ -21,18 +21,8 @@ import type { RemoteProvider } from "../src/features/connections/model/protocol"
 import type { NativeCommandProvider } from "../src/integrations/harness/core/nativeCommands";
 import { discoverPiCommands } from "../src/integrations/harness/providers/pi/piSkills";
 import { ompCommandProvider } from "../src/integrations/harness/providers/pi/piFamily";
-import type { GeneratedSessionTitle } from "../src/features/sessions/model/sessionTitle";
-import { generateCodexSessionTitle } from "../src/integrations/harness/providers/codex/codexTitle";
-import { generateClaudeSessionTitle } from "../src/integrations/harness/providers/claude/claudeTitle";
 import { generateCodexBranchName } from "../src/integrations/harness/providers/codex/codexGit";
 import { generateClaudeBranchName } from "../src/integrations/harness/providers/claude/claudeGit";
-import { generateCursorSessionTitle } from "../src/integrations/harness/providers/cursor/cursorTitle";
-import { generateGrokSessionTitle } from "../src/integrations/harness/providers/grok/grokTitle";
-import { generateOpenCodeSessionTitle } from "../src/integrations/harness/providers/opencode/opencodeTitle";
-import {
-  generatePiSessionTitle,
-  generateOmpSessionTitle,
-} from "../src/integrations/harness/providers/pi/piTitle";
 import {
   PI_FLAVOR,
   OMP_FLAVOR,
@@ -56,12 +46,6 @@ export interface HostProvider {
   ): void;
   approve(id: string, request: number, decision: ApprovalDecision): void;
   answer(id: string, request: number, reply: UserQuestionReply): void;
-  generateTitle?(input: {
-    sessionId: string;
-    cwd: string;
-    message: string;
-    providerAccountId?: string;
-  }): Promise<GeneratedSessionTitle | null>;
   generateBranchName?(cwd: string, message: string): Promise<string | null>;
 }
 
@@ -76,7 +60,6 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     bind: codex.bindCodexSession,
     approve: codex.respondCodexApproval,
     answer: codex.respondCodexQuestion,
-    generateTitle: generateCodexSessionTitle,
     generateBranchName: generateCodexBranchName,
   },
   claude: {
@@ -89,7 +72,6 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     bind: claude.bindClaudeSession,
     approve: claude.respondClaudeApproval,
     answer: claude.respondClaudeQuestion,
-    generateTitle: generateClaudeSessionTitle,
     generateBranchName: generateClaudeBranchName,
   },
   cursor: {
@@ -101,7 +83,6 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     bind: cursor.bindCursorSession,
     approve: cursor.respondCursorApproval,
     answer: cursor.respondCursorQuestion,
-    generateTitle: generateCursorSessionTitle,
   },
   grok: {
     readSessionTitle: grok.readGrokSessionTitle,
@@ -112,7 +93,6 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     bind: grok.bindGrokSession,
     approve: grok.respondGrokApproval,
     answer: grok.respondGrokQuestion,
-    generateTitle: generateGrokSessionTitle,
   },
   opencode: {
     readSessionTitle: opencode.readOpenCodeSessionTitle,
@@ -124,7 +104,6 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     bind: opencode.bindOpenCodeSession,
     approve: opencode.respondOpenCodeApproval,
     answer: opencode.respondOpenCodeQuestion,
-    generateTitle: generateOpenCodeSessionTitle,
   },
   pi: {
     commands: { rawSlashCommands: true, discover: ({ cwd }) => discoverPiCommands(cwd) },
@@ -138,7 +117,6 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     approve: pi.respondPiApproval,
     answer: (id, request, reply) =>
       respondPiQuestion(PI_FLAVOR, id, request, reply),
-    generateTitle: generatePiSessionTitle,
   },
   omp: {
     commands: ompCommandProvider,
@@ -152,7 +130,6 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     approve: omp.respondOmpApproval,
     answer: (id, request, reply) =>
       respondPiQuestion(OMP_FLAVOR, id, request, reply),
-    generateTitle: generateOmpSessionTitle,
   },
   fx: {
     readSessionTitle: fx.readFxSessionTitle,

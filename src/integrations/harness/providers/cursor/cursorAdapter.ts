@@ -15,7 +15,6 @@ import {
   generateCursorCommitMessage,
   generateCursorPrContent,
 } from "./cursorGit";
-import { generateCursorSessionTitle } from "./cursorTitle";
 import {
   runCursorTextPrompt,
   stopCursorTextPrompt,
@@ -36,7 +35,6 @@ export const cursorAdapter: HarnessAdapter = {
   forgetSession: forgetCursorSession,
   bindSession: bindCursorSession,
   refreshCatalog: refreshCursorCatalog,
-  generateTitle: generateCursorSessionTitle,
   generateCommitMessage: generateCursorCommitMessage,
   generatePrContent: generateCursorPrContent,
   generateBranchName: generateCursorBranchName,

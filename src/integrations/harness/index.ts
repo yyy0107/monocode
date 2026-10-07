@@ -106,15 +106,6 @@ export {
   respondAntigravityApproval,
   bindAntigravitySession,
 } from "./providers/antigravity/antigravity";
-export { generateCursorSessionTitle } from "./providers/cursor/cursorTitle";
-export { generateCodexSessionTitle } from "./providers/codex/codexTitle";
-export { generateOpenCodeSessionTitle } from "./providers/opencode/opencodeTitle";
-export { generateClaudeSessionTitle } from "./providers/claude/claudeTitle";
-export {
-  generatePiSessionTitle,
-  generateOmpSessionTitle,
-} from "./providers/pi/piTitle";
-export { generateGrokSessionTitle } from "./providers/grok/grokTitle";
 export {
   generateCursorCommitMessage,
   generateCursorPrContent,
@@ -184,7 +175,6 @@ export {
   forgetHarnessSession,
   bindHarnessSession,
   refreshHarnessCatalogs,
-  generateHarnessTitle,
   generateHarnessCommitMessage,
   generateHarnessPrContent,
   generateHarnessBranchName,

@@ -18,7 +18,6 @@ import {
   generateCodexPrContent,
 } from "./codexGit";
 import { refreshCodexCatalog } from "./codexCatalog";
-import { generateCodexSessionTitle } from "./codexTitle";
 import {
   runCodexTextPrompt,
   stopCodexTextPrompt,
@@ -46,7 +45,6 @@ export const codexAdapter: HarnessAdapter = {
   forgetSession: forgetCodexSession,
   bindSession: bindCodexSession,
   refreshCatalog: refreshCodexCatalog,
-  generateTitle: generateCodexSessionTitle,
   generateCommitMessage: generateCodexCommitMessage,
   generatePrContent: generateCodexPrContent,
   generateBranchName: generateCodexBranchName,

@@ -365,6 +365,10 @@ fn supported_remote_method(method: &str) -> bool {
             | "projects.browse"
             | "projects.open"
             | "models.list"
+            | "titleModel.status"
+            | "titleModel.save"
+            | "titleModel.test"
+            | "titleModel.generate"
             | "sessions.list"
             | "sessions.get"
             | "sessions.update"
@@ -703,6 +707,10 @@ mod tests {
             "attachments.upload",
             "attachments.read",
             "workflows.request",
+            "titleModel.status",
+            "titleModel.save",
+            "titleModel.test",
+            "titleModel.generate",
         ] {
             assert!(supported_remote_method(method), "{method}");
         }

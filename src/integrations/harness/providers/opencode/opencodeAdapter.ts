@@ -17,7 +17,6 @@ import {
   generateOpenCodeCommitMessage,
   generateOpenCodePrContent,
 } from "./opencodeGit";
-import { generateOpenCodeSessionTitle } from "./opencodeTitle";
 import {
   runOpenCodeTextPrompt,
   stopOpenCodeTextPrompt,
@@ -40,7 +39,6 @@ export const openCodeAdapter: HarnessAdapter = {
   forgetSession: forgetOpenCodeSession,
   bindSession: bindOpenCodeSession,
   refreshCatalog: refreshOpenCodeCatalog,
-  generateTitle: generateOpenCodeSessionTitle,
   generateCommitMessage: generateOpenCodeCommitMessage,
   generatePrContent: generateOpenCodePrContent,
   generateBranchName: generateOpenCodeBranchName,

@@ -15,7 +15,7 @@ const TEXT_HARNESSES: HarnessId[] = [
   "opencode",
 ];
 
-/** Pick the harness used for titles, commit messages, and PR text. */
+/** Pick the harness used for commit messages and PR text. */
 export function pickTextHarness(preferred?: HarnessId): HarnessId {
   const ordered =
     preferred && TEXT_HARNESSES.includes(preferred)

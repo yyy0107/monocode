@@ -6,7 +6,6 @@ import type {
   TurnIntent,
 } from "../../../features/sessions/model/session";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { GeneratedSessionTitle } from "../../../features/sessions/model/sessionTitle";
 import type { PrContent } from "../../../features/source-control/model/gitText";
 import { hasLiveCatalog } from "../../../features/sessions/model/models";
 import type { UserQuestionReply } from "../../../features/sessions/model/userQuestion";
@@ -22,14 +21,7 @@ import type {
   SteerTurnInput,
 } from "./types";
 
-export type TitleInput = {
-  sessionId: string;
-  cwd: string;
-  message: string;
-  providerAccountId?: string;
-};
-
-/** One-shot, isolated text generation shared by titles and side questions. */
+/** One-shot text generation for side questions and other provider helpers. */
 export type TextPromptInput = {
   cwd: string;
   providerAccountId?: string;
@@ -91,8 +83,6 @@ export type HarnessAdapter = {
   restoreTaskLists?(threadId: string, lists: TaskListMeta[]): void;
   /** Refresh the model catalog overlay when supported. */
   refreshCatalog?(): Promise<void>;
-  /** Optional LLM tab title for the first turn. */
-  generateTitle?(input: TitleInput): Promise<GeneratedSessionTitle | null>;
   /** Optional LLM commit message from staged changes. */
   generateCommitMessage?(cwd: string, signal?: AbortSignal): Promise<string>;
   /** Optional LLM pull request title/body from branch diff context. */
@@ -422,20 +412,6 @@ export async function refreshHarnessCatalogs(
         });
       }),
   );
-}
-
-export async function generateHarnessTitle(
-  harness: HarnessId,
-  input: TitleInput,
-): Promise<GeneratedSessionTitle | null> {
-  let adapter = getHarness(harness);
-  if (!adapter?.generateTitle) {
-    const { pickTextHarness } = await import("./textHarness");
-    adapter = getHarness(pickTextHarness(harness));
-    input = { ...input, providerAccountId: undefined };
-  }
-  if (!adapter?.generateTitle) return null;
-  return adapter.generateTitle(input);
 }
 
 export async function readHarnessSessionTitle(session: import("../../../features/sessions/model/session").Session): Promise<string | null> {

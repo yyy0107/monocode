@@ -183,6 +183,12 @@ export type SettingsEntry = {
 
 export const SETTINGS_INDEX: SettingsEntry[] = [
   {
+    id: "title-model",
+    section: "chat",
+    label: "Session titles",
+    keywords: "title summary model API endpoint key 标题 摘要 模型 接口 密钥",
+  },
+  {
     id: "ui-language",
     section: "general",
     label: "Interface language",

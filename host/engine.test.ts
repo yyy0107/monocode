@@ -118,9 +118,20 @@ describe("headless session ownership", () => {
     submission.mockRestore();
   });
 
+  it.each(["pi", "omp"] as const)("uses the independent title API immediately for %s", async (harness) => {
+    const { engine, store, provider, turns, id } = setup(harness);
+    const generate = vi.spyOn(engine.titleModel, "generate").mockResolvedValue({ title: "API title", workItem: null });
+    engine.command({ type: "send", commandId: "api-title", sessionId: id, text: "First request" });
+    await vi.waitFor(() => expect(store.session(id).session.title).toBe(`${harness} · API title`));
+    expect(generate).toHaveBeenCalledExactlyOnceWith("First request");
+    expect(provider.send).toHaveBeenCalledTimes(1);
+    turns[0].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+  });
+
   it("refreshes event-automation titles once and protects subsequent manual names", async () => {
-    const { engine, store, provider, turns, id } = setup();
-    provider.generateTitle = vi.fn(async () => ({ title: "New automation goal", workItem: null }));
+    const { engine, store, turns, id } = setup();
+    const generateTitle = vi.spyOn(engine.titleModel, "generate").mockImplementation(async () => ({ title: "New automation goal", workItem: null }));
     engine.command({ type: "send", commandId: "initial-title", sessionId: id, text: "First goal" });
     await vi.waitFor(() => expect(turns).toHaveLength(1));
     turns[0].input.onEvent({ type: "session.providerBound", providerSessionId: "native" });
@@ -139,13 +150,13 @@ describe("headless session ownership", () => {
     await vi.waitFor(() => expect(turns).toHaveLength(3));
     turns[2].finish();
     await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
-    expect(provider.generateTitle).toHaveBeenCalledTimes(1);
+    expect(generateTitle).toHaveBeenCalledTimes(1);
     expect(store.session(id).session.title).toBe("My title");
   });
   it("persists late native title metadata after settlement without changing transcript stamps", async () => {
     const { engine, store, provider, turns, id } = setup();
     provider.readSessionTitle = vi.fn(async () => null);
-    provider.generateTitle = vi.fn(async () => ({ title: "Extra request", workItem: null }));
+    const generateTitle = vi.spyOn(engine.titleModel, "generate").mockImplementation(async () => ({ title: "Extra request", workItem: null }));
     engine.command({ type: "send", commandId: "native-title", sessionId: id, text: "Title this conversation" });
     await vi.waitFor(() => expect(turns).toHaveLength(1));
     turns[0].input.onEvent({ type: "session.providerBound", providerSessionId: "native" });
@@ -160,7 +171,7 @@ describe("headless session ownership", () => {
     expect(store.session(id).updatedAt).toBe(before.updatedAt);
     expect(store.session(id).status).toBe("idle");
     expect(store.summaries(before.projectId)[0].titleState?.source).toBe("native");
-    expect(provider.generateTitle).not.toHaveBeenCalled();
+    expect(generateTitle).not.toHaveBeenCalled();
     provider.readSessionTitle = vi.fn(async () => "Updated native title");
     turns[0].input.onEvent({ type: "session.titleRefreshRequested", providerSessionId: "native" });
     await vi.waitFor(() => expect(store.session(id).session.title).toBe("codex · Updated native title"));
@@ -460,12 +471,12 @@ describe("headless session ownership", () => {
 
   it("keeps a manually renamed title when first-turn generation finishes later", async () => {
     vi.useFakeTimers();
-    const { engine, store, provider, turns, id } = setup();
+    const { engine, store, turns, id } = setup();
     let finishTitle: (title: {
       title: string;
       workItem: null;
     }) => void = () => {};
-    provider.generateTitle = vi.fn(
+    const generateTitle = vi.spyOn(engine.titleModel, "generate").mockImplementation(
       () =>
         new Promise((resolve) => {
           finishTitle = resolve;
@@ -481,11 +492,11 @@ describe("headless session ownership", () => {
     turns[0].finish();
     await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
     await vi.advanceTimersByTimeAsync(15_000);
-    expect(provider.generateTitle).toHaveBeenCalledTimes(1);
+    expect(generateTitle).toHaveBeenCalledTimes(1);
     engine.updateSession(id, { title: "codex · My own title" });
     finishTitle({ title: "Generated title", workItem: null });
     await vi.waitFor(() =>
-      expect(provider.generateTitle).toHaveBeenCalledTimes(1),
+      expect(generateTitle).toHaveBeenCalledTimes(1),
     );
     expect(store.session(id).session.title).toBe("codex · My own title");
   });

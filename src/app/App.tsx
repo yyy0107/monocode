@@ -23,6 +23,7 @@ import { useUpdateStatus } from "./shell/useUpdateStatus";
 import { createProjectHistoryLoader } from "./model/projectHistoryLoader";
 import { contentTabTarget } from "./model/appViewNavigation";
 import { SessionTitleCoordinator } from "../integrations/harness/core/titleCoordinator";
+import { generateConfiguredSessionTitle } from "../features/sessions/model/titleModelClient";
 import { readHarnessSessionTitle } from "../integrations/harness/core/registry";
 import { manualSessionTitle } from "../features/sessions/model/titlePolicy";
 import {
@@ -291,7 +292,6 @@ import {
   compactHarnessContext,
   rewindHarnessLastTurn,
   forgetHarnessSession,
-  generateHarnessTitle,
   generateHarnessBranchName,
   isLiveHarness,
   latestTurnNeedsHarnessLogin,
@@ -1265,12 +1265,7 @@ function Workspace({
       },
       read: readHarnessSessionTitle,
       generate: (session, message) =>
-        generateHarnessTitle(session.harness, {
-          sessionId: session.id,
-          cwd: sessionWorkCwd(session),
-          message,
-          providerAccountId: session.providerAccountId,
-        }),
+        generateConfiguredSessionTitle(session.cwd, message),
     });
   useEffect(() => () => titleCoordinator.current?.close(), []);
   const titleBindings = useRef(new Map<string, string>());

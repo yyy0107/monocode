@@ -51,10 +51,10 @@ it.each([false, true])("applies generated worktree names only to retained sessio
       bind: () => {},
       approve: () => {},
       answer: () => {},
-      generateTitle: title,
       generateBranchName: branch,
     },
   });
+  vi.spyOn(engine.titleModel, "generate").mockImplementation(title);
   const project = store.addProject(cwd, "Test");
   const root = (await hostWorktrees(cwd)).defaultRoot;
   cleanups.push(async () => {

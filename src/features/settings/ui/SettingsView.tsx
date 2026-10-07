@@ -47,6 +47,7 @@ import { Popover } from "../../../shared/ui/Popover";
 import { SecondaryButton } from "../../../shared/ui/SecondaryButton";
 import { NativeSessionsPanel } from "./NativeSessionsPanel";
 import { JiraSettings } from "./JiraSettings";
+import { TitleModelSettings } from "./TitleModelSettings";
 import { GradientBlurBackground } from "./GradientBlurBackground";
 import { McpSettings } from "./McpSettings";
 import { InboxProviderMark } from "../../inbox/ui/InboxProviderMark";
@@ -1024,6 +1025,7 @@ function LanguageSetting() {
 
 function ChatPage() {
   const { t: uiT } = useTranslation();
+  const revealed = useContext(RevealedSetting);
   const [transcriptLayout, setTranscriptLayout] =
     useState<TranscriptLayout>(loadTranscriptLayout);
   const [transcriptAnchor, setTranscriptAnchor] =
@@ -1091,6 +1093,9 @@ function ChatPage() {
 
   return (
     <>
+      <Group id="title-model" title={uiT("Session titles")} description={uiT("Choose a separate API for automatic title generation.")}>
+        <TitleModelSettings revealed={revealed === "title-model"} />
+      </Group>
       <Group
         title={uiT("Transcript")}
         description={uiT("How a conversation reads as it grows.")}

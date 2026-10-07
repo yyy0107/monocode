@@ -232,7 +232,7 @@ describe("harness registry", () => {
     expect(adapter.canSteer).toBe(false);
     expect(adapter.bindSession).toBeTypeOf("function");
     expect(adapter.refreshCatalog).toBeTypeOf("function");
-    expect(adapter.generateTitle).toBeUndefined();
+    expect(adapter).not.toHaveProperty("generateTitle");
     expect(adapter.generateCommitMessage).toBeUndefined();
   });
 

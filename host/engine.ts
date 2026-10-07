@@ -8,8 +8,8 @@ import type { ControlOutcome, ControlReceiptContext, OrchestrationRun, Orchestra
 import { assertCheckoutAvailable, claimCheckoutResource, checkoutPath, checkoutPathsOverlap } from "./checkout-guards";
 import type { LegacyRetirementManifest } from "./legacy-orchestration";
 import { SessionTitleCoordinator } from "../src/integrations/harness/core/titleCoordinator";
+import { TitleModelApi } from "./title-model";
 import { titleStateFor } from "../src/features/sessions/model/titlePolicy";
-import { resolveProvider } from "./process";
 import { ACCOUNT_PROVIDERS, desktopProviderAccounts, resolveDefaultAccount } from "./provider-accounts";
 import { realpath, stat } from "node:fs/promises";
 import { readFileSync, unlinkSync } from "node:fs";
@@ -344,6 +344,7 @@ export class HostEngine {
   private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private closing = false;
   private readonly titles: SessionTitleCoordinator;
+  readonly titleModel: TitleModelApi;
   private parked = new Map<string, { harness: string; timer: ReturnType<typeof setTimeout> }>();
   /** Drain idle or replaced adapters before starting another turn. */
   private providerStops = new Map<string, Set<RemoteProvider>>();
@@ -381,6 +382,7 @@ export class HostEngine {
         this.boundSessions.delete(id);
       },
     }, options.native);
+    this.titleModel = new TitleModelApi(dirname(store.attachmentDir));
     this.titles = new SessionTitleCoordinator({
       get: (id) => { try { return this.store.session(id).session; } catch { return undefined; } },
       update: (id, change) => {
@@ -394,18 +396,7 @@ export class HostEngine {
         const live = this.live.get(id); if (live) live.value = saved;
       },
       read: (session) => session.providerSessionId ? this.provider(session.harness).readSessionTitle?.({ sessionId: session.id, providerSessionId: session.providerSessionId, cwd: session.cwd, providerAccountId: session.providerAccountId }) ?? Promise.resolve(null) : Promise.resolve(null),
-      generate: async (session, message) => {
-        const input = { sessionId: session.id, cwd: session.cwd, message, providerAccountId: session.providerAccountId };
-        const current = this.provider(session.harness);
-        if (current.generateTitle) return current.generateTitle(input);
-        for (const id of ["claude", "cursor", "codex", "grok", "opencode"] as const) {
-          const candidate = this.providers[id];
-          if (!candidate?.generateTitle) continue;
-          try { await resolveProvider(id); } catch { continue; }
-          return candidate.generateTitle({ ...input, providerAccountId: undefined });
-        }
-        return null;
-      },
+      generate: (_session, message) => this.titleModel.generate(message),
     });
     // Provider dispatch is not transactional with SQLite. Never replay a send
     // automatically after a crash; its external effects may already exist.

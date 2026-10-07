@@ -16,7 +16,6 @@ import {
   generateGrokCommitMessage,
   generateGrokPrContent,
 } from "./grokGit";
-import { generateGrokSessionTitle } from "./grokTitle";
 import {
   runGrokTextPrompt,
   stopGrokTextPrompt,
@@ -39,7 +38,6 @@ export const grokAdapter: HarnessAdapter = {
   forgetSession: forgetGrokSession,
   bindSession: bindGrokSession,
   refreshCatalog: refreshGrokCatalog,
-  generateTitle: generateGrokSessionTitle,
   generateCommitMessage: generateGrokCommitMessage,
   generatePrContent: generateGrokPrContent,
   generateBranchName: generateGrokBranchName,

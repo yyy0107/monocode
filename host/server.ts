@@ -364,6 +364,20 @@ export function createHostServer(
           case "providerAccounts.list":
             result = engine.providerAccounts();
             break;
+          case "titleModel.status":
+            result = engine.titleModel.status();
+            break;
+          case "titleModel.save":
+            result = engine.titleModel.save(params);
+            break;
+          case "titleModel.test":
+            result = await engine.titleModel.generate("Explain how session titles work");
+            break;
+          case "titleModel.generate":
+            if (typeof params.message !== "string" || params.message.length > 100_000)
+              throw new Error("Invalid title message");
+            result = await engine.titleModel.generate(params.message);
+            break;
           case "skills.list":
             result = await engine.listSkills(params.projectId, params.harness, params.sessionId, params.refresh === true);
             break;

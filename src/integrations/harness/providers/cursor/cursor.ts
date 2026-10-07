@@ -25,7 +25,6 @@ import {
   cursorSubagentEvents,
   kindFromCursorToolName,
 } from "./cursorSubagents";
-import { stopCursorTitleGeneration } from "./cursorTitle";
 import type {
   ApprovalDecision,
   HarnessEvent,
@@ -233,7 +232,6 @@ export async function stopCursorSession(sessionId: string): Promise<void> {
 export async function forgetCursorSession(sessionId: string): Promise<void> {
   resumeByThread.delete(sessionId);
   await stopCursorSession(sessionId);
-  await stopCursorTitleGeneration(sessionId);
 }
 
 /** Seed ACP resume state for a restored MonoCode session. */

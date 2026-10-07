@@ -124,6 +124,24 @@ async function setup(providers: RemoteProvider[] = ["codex"], discoverProviders?
   };
 }
 
+it("configures the title API through authenticated RPC without exposing credentials", async () => {
+  const s = await setup();
+  const saved = await s.call("titleModel.save", {
+    enabled: true, endpoint: "https://example.com/v1/chat/completions", model: "test-model", apiKey: "private-test-key",
+  });
+  expect(saved.status).toBe(200);
+  expect(saved.value.result).toMatchObject({ enabled: true, hasApiKey: true });
+  expect(JSON.stringify(saved.value)).not.toContain("private-test-key");
+  expect((await s.call("titleModel.status")).value.result).toEqual(saved.value.result);
+  const generate = vi.spyOn(s.engine.titleModel, "generate").mockResolvedValue({ title: "API title", workItem: null });
+  expect((await s.call("titleModel.generate", { message: "Name this" })).value.result.title).toBe("API title");
+  expect(generate).toHaveBeenCalledWith("Name this");
+  expect((await s.call("titleModel.test")).value.result.title).toBe("API title");
+  expect((await s.call("titleModel.generate", { message: 42 })).value.error).toContain("Invalid title message");
+  expect(s.send).not.toHaveBeenCalled();
+  expect((await s.call("titleModel.status", {}, "bad-token")).status).toBe(401);
+});
+
 describe("remote host API", () => {
   it("authenticates IM management and never returns a configured bot secret", async () => {
     const s = await setup();

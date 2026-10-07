@@ -13,7 +13,6 @@ import {
   stopPiSession,
 } from "./pi";
 import { refreshPiCatalog } from "./piCatalog";
-import { generatePiSessionTitle } from "./piTitle";
 import { runPiTextPrompt, stopPiTextPrompt, warmupPiText } from "./piText";
 import { registerHarness, type HarnessAdapter } from "../../core/registry";
 import { discoverPiCommands } from "./piSkills";
@@ -34,7 +33,6 @@ export const piAdapter: HarnessAdapter = {
   forgetSession: forgetPiSession,
   bindSession: bindPiSession,
   refreshCatalog: refreshPiCatalog,
-  generateTitle: generatePiSessionTitle,
   warmupText: warmupPiText,
   runTextPrompt: runPiTextPrompt,
   stopTextPrompt: stopPiTextPrompt,
