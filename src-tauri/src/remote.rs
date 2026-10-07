@@ -388,6 +388,7 @@ fn supported_remote_method(method: &str) -> bool {
             | "devices.list"
             | "devices.issue"
             | "devices.revoke"
+            | "devices.pairingHosts"
             | "git.diff"
             | "git.branches"
             | "git.switch"

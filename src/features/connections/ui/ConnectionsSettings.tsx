@@ -2,7 +2,8 @@ import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useId, useRef, useState } from "react";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
-import { Internet, Loader, Plus, Trash2 } from "../../../shared/ui/icons";
+import { Internet, Loader } from "../../../shared/ui/icons";
+import { ConnectionStatusIcon, type ConnectionState } from "./ConnectionStatusDot";
 import {
   connectMachine,
   disconnectMachine,
@@ -18,9 +19,14 @@ import {
 } from "../model/protocol";
 
 const input =
-  "w-full rounded-lg border border-content/15 bg-content/3 px-3 py-2 text-[13px] outline-none focus:border-content/35";
-const button =
-  "rounded-lg bg-selection px-3 py-2 text-[13px] font-medium hover:bg-selection-hover disabled:opacity-40";
+  "w-full rounded-lg border border-border bg-transparent px-3 py-2 text-ui-base outline-none focus:border-content/35";
+const pill =
+  "h-7 shrink-0 rounded-full px-3 text-ui-base font-medium transition-colors disabled:opacity-40";
+const button = `${pill} bg-selection text-foreground hover:bg-selection-hover`;
+const primaryButton = `${pill} bg-foreground text-background hover:opacity-85`;
+const quietButton = `${pill} text-foreground-subtle hover:bg-surface-hover hover:text-foreground`;
+
+type MachineStatus = { state: ConnectionState; note: string };
 
 export function ConnectionsSettings() {
   const { t: uiT } = useTranslation();
@@ -39,7 +45,7 @@ export function ConnectionsSettings() {
   const [notice, setNotice] = useState("");
   const [answer, setAnswer] = useState("");
   const [answering, setAnswering] = useState(false);
-  const [status, setStatus] = useState<Record<string, string>>({});
+  const [status, setStatus] = useState<Record<string, MachineStatus>>({});
   const [needsUpdate, setNeedsUpdate] = useState<Record<string, boolean>>({});
   const [updatingMachine, setUpdatingMachine] = useState<string>();
   const [removing, setRemoving] = useState<string>();
@@ -89,7 +95,7 @@ export function ConnectionsSettings() {
             setUpdatingMachine(undefined);
             setStatus((current) => ({
               ...current,
-              [next.machine!.id]: "Connected",
+              [next.machine!.id]: { state: "online", note: "Connected" },
             }));
             refreshRemoteMachines();
           }
@@ -129,7 +135,7 @@ export function ConnectionsSettings() {
       if (!busy)
         await Promise.all(
           machines.map(async (machine) => {
-            let label = "Connected";
+            let label: MachineStatus = { state: "online", note: "Connected" };
             try {
               const host = await remoteRequest<HostDescriptor>(
                 machine.id,
@@ -139,20 +145,19 @@ export function ConnectionsSettings() {
               if (host.environmentId !== machine.environmentId)
                 throw new Error("Host identity changed");
               if (!host.providers.length)
-                label = "Connected · install a supported provider on the host";
+                label = { state: "online", note: "Connected · install a supported provider on the host" };
               const update =
                 !host.capabilities?.includes("workspace.run") ||
                 !host.capabilities?.includes("git.worktreeCreate");
               if (update)
-                label =
-                  "Connected · host update needed for Explorer and Changes";
+                label = { state: "online", note: "Connected · host update needed for Explorer and Changes" };
               if (!disposed)
                 setNeedsUpdate((current) => ({
                   ...current,
                   [machine.id]: update,
                 }));
             } catch {
-              label = "Offline · reconnect to check access";
+              label = { state: "error", note: "Offline · reconnect to check access" };
             }
             if (!disposed)
               setStatus((current) => ({ ...current, [machine.id]: label }));
@@ -244,21 +249,15 @@ export function ConnectionsSettings() {
   };
   return (
     <div data-setting-id="remote-machines" className="flex flex-col gap-5">
-      <div className="flex items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h2 className="text-[13px] font-semibold text-content">
-            {uiT("Your machines")}
-          </h2>
-          <p className="mt-1 text-[12px] leading-relaxed text-content/45">
-            {uiT(
-              "Run agents on another computer and return to them from your laptop. The host keeps working when you close MonoCode here.",
-            )}
-          </p>
-        </div>
+      <section className="flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <h2 className="min-w-0 flex-1 text-ui-lg font-semibold text-foreground">
+          {uiT("Your machines")}
+        </h2>
         <button
           ref={addTrigger}
           type="button"
-          className={`${button} flex shrink-0 items-center gap-2`}
+          className={primaryButton}
           disabled={busy}
           aria-expanded={adding}
           aria-controls={`${disclosureId}-add`}
@@ -268,29 +267,54 @@ export function ConnectionsSettings() {
             setNotice("");
           }}
         >
-          <Plus className="size-4" /> {uiT("Add machine")}
+          {uiT("Add machine")}
         </button>
       </div>
-      {machines.length > 0 ? (
-        <div className="divide-y divide-stroke overflow-hidden rounded-xl border border-stroke">
-          {machines.map((machine) => (
+      <p className="-mt-1 text-ui-caption leading-5 text-foreground-subtle">
+        {uiT(
+          "Run agents on another computer and return to them from your laptop. The host keeps working when you close MonoCode here.",
+        )}
+      </p>
+      <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+        {!loaded ? (
+          <div className="flex items-center gap-2 px-4 py-4 text-ui-base text-foreground-subtle">
+            <Loader className="size-4 animate-spin" />
+            {uiT("Checking connection…")}
+          </div>
+        ) : machines.length === 0 ? (
+          <p className="px-4 py-4 text-ui-base text-foreground-subtle">
+            {uiT(
+              "Add your always-on Windows, Mac, or Linux machine to get started.",
+            )}
+          </p>
+        ) : (
+          machines.map((machine) => {
+            const current = status[machine.id];
+            const state = current?.state ?? "checking";
+            return (
             <div key={machine.id}>
-              <div className="flex items-center gap-3 px-4 py-4">
-                <Internet className="size-5 shrink-0 text-content/45" />
+              <div className="flex items-center gap-3 px-4 py-3">
+                <ConnectionStatusIcon
+                  state={state}
+                  label={uiT(current?.note ?? "Checking connection…")}
+                >
+                  <Internet className="size-5" />
+                </ConnectionStatusIcon>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium">
+                  <div className="truncate text-ui-base font-medium text-foreground">
                     {machine.name}
                   </div>
-                  <div className="mt-1 truncate text-[12px] text-content/45">
+                  <div className="mt-0.5 truncate text-ui-caption text-foreground-subtle">
                     {machine.ssh
                       ? `SSH · ${machine.ssh.target}${machine.ssh.port ? ` · port ${machine.ssh.port}` : ""}`
                       : machine.endpoint}
-                  </div>
-                  <div className="mt-1 text-[12px] text-content/50">
-                    {status[machine.id] ?? uiT("Checking connection…")}
+                    {" · "}
+                    <span className={state === "error" ? "text-red-400" : undefined}>
+                      {uiT(current?.note ?? "Checking connection…")}
+                    </span>
                   </div>
                   {machine.ssh && needsUpdate[machine.id] ? (
-                    <div className="mt-1 text-[11px] text-content/45">
+                    <div className="mt-0.5 text-ui-caption text-foreground-subtle">
                       {uiT(
                         "Updating restarts the host and interrupts active agent turns.",
                       )}
@@ -323,7 +347,7 @@ export function ConnectionsSettings() {
                 <button
                   id={`${disclosureId}-remove-trigger-${machine.id}`}
                   disabled={busy || revoking}
-                  className="rounded p-2 text-content/40 hover:bg-selection hover:text-content disabled:opacity-40"
+                  className={quietButton}
                   aria-label={uiT("Remove {value0}", {
                     value0: String(machine.name),
                   })}
@@ -337,7 +361,7 @@ export function ConnectionsSettings() {
                     );
                   }}
                 >
-                  <Trash2 className="size-4" />
+                  {uiT("Remove")}
                 </button>
               </div>
               <AnimatedCollapse expanded={removing === machine.id}>
@@ -347,9 +371,9 @@ export function ConnectionsSettings() {
                   aria-label={uiT("Confirm removing {value0}", {
                     value0: String(machine.name),
                   })}
-                  className="flex flex-col gap-3 border-t border-stroke bg-content/3 px-4 py-4 text-[12px] leading-relaxed text-content/60"
+                  className="flex flex-col gap-3 border-t border-border bg-content/3 px-4 py-4 text-ui-caption leading-5 text-foreground-subtle"
                 >
-                  <p className="text-[13px] font-medium text-content">
+                  <p className="text-ui-base font-medium text-foreground">
                     {uiT("Remove ")}
                     {machine.name} {uiT("from this desktop?")}
                   </p>
@@ -393,7 +417,7 @@ export function ConnectionsSettings() {
                       {uiT("Remove from this desktop only")}
                     </button>
                     <button
-                      className="px-3 py-2 text-[13px] text-content/50"
+                      className={quietButton}
                       disabled={revoking}
                       onClick={() => {
                         setRemoving(undefined);
@@ -408,33 +432,29 @@ export function ConnectionsSettings() {
                 </div>
               </AnimatedCollapse>
             </div>
-          ))}
-        </div>
-      ) : loaded && !adding ? (
-        <div className="rounded-xl border border-dashed border-content/15 px-5 py-8 text-center text-[13px] text-content/45">
-          {uiT(
-            "Add your always-on Windows, Mac, or Linux machine to get started.",
-          )}
-        </div>
-      ) : null}
+            );
+          })
+        )}
+      </div>
+      </section>
       <AnimatedCollapse expanded={adding}>
         <form
           id={`${disclosureId}-add`}
-          className="flex flex-col gap-4 rounded-xl border border-stroke p-5"
+          className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4"
           onSubmit={(event) => {
             event.preventDefault();
             void begin();
           }}
         >
           <div className="flex items-center justify-between">
-            <h3 className="text-[14px] font-medium">
+            <h3 className="text-ui-base font-semibold text-foreground">
               {uiT("Connect through SSH")}
             </h3>
-            <span className="rounded bg-selection px-2 py-1 text-[11px] text-content/60">
+            <span className="rounded-full bg-selection px-2 py-0.5 text-ui-caption text-foreground-subtle">
               SSH
             </span>
           </div>
-          <label className="flex flex-col gap-1.5 text-[12px] text-content/65">
+          <label className="flex flex-col gap-1.5 text-ui-caption text-foreground-subtle">
             {uiT("SSH address")}
             <input
               autoFocus
@@ -448,7 +468,7 @@ export function ConnectionsSettings() {
               spellCheck={false}
             />
           </label>
-          <label className="flex flex-col gap-1.5 text-[12px] text-content/65">
+          <label className="flex flex-col gap-1.5 text-ui-caption text-foreground-subtle">
             {uiT("Name ")}
             <span className="sr-only">{uiT("(optional)")}</span>
             <input
@@ -463,13 +483,13 @@ export function ConnectionsSettings() {
               spellCheck={false}
             />
           </label>
-          <div className="text-[12px] text-content/50">
+          <div className="text-ui-caption text-foreground-subtle">
             <button
               type="button"
               aria-expanded={advancedOpen}
               aria-controls={`${disclosureId}-advanced`}
               onClick={() => setAdvancedOpen((expanded) => !expanded)}
-              className="hover:text-content focus-visible:outline-2 focus-visible:outline-accent"
+              className="hover:text-foreground focus-visible:outline-2 focus-visible:outline-accent"
             >
               {uiT("Advanced")}
             </button>
@@ -492,12 +512,12 @@ export function ConnectionsSettings() {
               </label>
             </AnimatedCollapse>
           </div>
-          <p className="text-[12px] leading-relaxed text-content/45">
+          <p className="text-ui-caption leading-5 text-foreground-subtle">
             {uiT(
               "MonoCode installs and starts its background host, then connects securely. Your SSH keys and config are used automatically. Enable SSH on the host and sign in to Codex or Claude Code there. On Windows and Mac, keep the host’s desktop account signed in and the machine awake. Locking the desktop is fine.",
             )}
           </p>
-          <p className="text-[12px] leading-relaxed text-content/45">
+          <p className="text-ui-caption leading-5 text-foreground-subtle">
             {uiT(
               "On Linux, setup installs a systemd user service and turns on lingering for your account (",
             )}
@@ -512,7 +532,7 @@ export function ConnectionsSettings() {
             <button
               type="button"
               disabled={busy}
-              className="px-3 py-2 text-[13px] text-content/50"
+              className={quietButton}
               onClick={() => {
                 setAdding(false);
                 addTrigger.current?.focus();
@@ -520,7 +540,7 @@ export function ConnectionsSettings() {
             >
               {uiT("Cancel")}
             </button>
-            <button className={button} disabled={busy || !target.trim()}>
+            <button className={primaryButton} disabled={busy || !target.trim()}>
               {busy ? uiT("Connecting…") : uiT("Connect")}
             </button>
           </div>
@@ -528,11 +548,11 @@ export function ConnectionsSettings() {
       </AnimatedCollapse>
       {busy && jobId && (
         <div
-          className="flex flex-col gap-3 rounded-xl border border-stroke p-5"
+          className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4"
           role="status"
           ref={progress}
         >
-          <div className="flex items-center gap-2 text-[13px]">
+          <div className="flex items-center gap-2 text-ui-base text-foreground">
             <Loader className="size-4 animate-spin" />
             {job?.message ?? uiT("Starting connection…")}
           </div>
@@ -544,7 +564,7 @@ export function ConnectionsSettings() {
                 void respond(job.prompt!.confirm ? "yes" : answer);
               }}
             >
-              <p className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-content/70">
+              <p className="whitespace-pre-wrap break-words text-ui-caption leading-5 text-foreground-subtle">
                 {job.prompt.message}
               </p>
               {!job.prompt.confirm && (
@@ -581,7 +601,7 @@ export function ConnectionsSettings() {
           )}
           <button
             type="button"
-            className="self-start text-[12px] text-content/50 hover:text-content"
+            className={`${quietButton} self-start`}
             onClick={() => {
               if (jobId)
                 void invoke("remote_ssh_cancel", { jobId }).catch((reason) =>
@@ -596,17 +616,17 @@ export function ConnectionsSettings() {
       {error && (
         <p
           role="alert"
-          className="whitespace-pre-wrap break-words rounded-lg bg-red-500/5 p-3 text-[12px] leading-relaxed text-red-400"
+          className="whitespace-pre-wrap break-words text-ui-caption leading-5 text-red-400"
         >
           {error}
         </p>
       )}
       {notice && (
-        <p role="status" className="text-[13px] text-emerald-500">
+        <p role="status" className="text-ui-caption leading-5 text-emerald-500">
           {notice}
         </p>
       )}
-      <details className="text-[12px] text-content/45">
+      <details className="text-ui-caption text-foreground-subtle">
         <summary className="cursor-pointer">
           {uiT("Connect to an existing host by URL")}
         </summary>
@@ -626,24 +646,24 @@ export function ConnectionsSettings() {
               .finally(() => setBusy(false));
           }}
         >
-          <label>
+          <label className="flex flex-col gap-1.5">
             {uiT("Host URL")}
             <input
               required
               disabled={busy}
-              className={`${input} mt-1`}
+              className={input}
               value={url}
               onChange={(event) => setUrl(event.target.value)}
             />
           </label>
-          <label>
+          <label className="flex flex-col gap-1.5">
             {uiT("Device token")}
             <input
               required
               disabled={busy}
               type="password"
               autoComplete="off"
-              className={`${input} mt-1`}
+              className={input}
               value={token}
               onChange={(event) => setToken(event.target.value)}
             />

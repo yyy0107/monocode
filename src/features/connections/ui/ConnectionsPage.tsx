@@ -3,10 +3,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, Loader, RefreshCw, Smartphone } from "../../../shared/ui/icons";
 import { Modal } from "../../../shared/ui/Modal";
 import { remoteRequest } from "../model/connections";
-import { pairingHostUrl, pairingLink } from "../model/pairingLink";
+import { pairingLink } from "../model/pairingLink";
 import { PairingQrCode } from "./PairingQrCode";
+import { PairingHostField } from "./PairingHostField";
 import { sharedHostMachineId } from "../model/remoteProjects";
 import { ConnectionsSettings } from "./ConnectionsSettings";
+import { ConnectionStatusIcon, type ConnectionState } from "./ConnectionStatusDot";
 
 type ConnectionsTab = "control" | "ssh";
 
@@ -16,7 +18,10 @@ export type HostDevice = {
   admin: boolean;
   createdAt?: number;
   lastSeen?: number;
+  online?: boolean;
 };
+
+const DEVICE_REFRESH_MS = 10_000;
 
 const pill =
   "h-7 rounded-full px-3 text-ui-base font-medium transition-colors disabled:opacity-40";
@@ -97,10 +102,12 @@ function ControlThisComputer() {
     };
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (silent = false) => {
     if (!machineId) return;
-    setLoading(true);
-    setError("");
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const result = await remoteRequest<{ devices: HostDevice[] }>(
         machineId,
@@ -115,7 +122,12 @@ function ControlThisComputer() {
       if (alive.current) setLoading(false);
     }
   }, [machineId]);
-  useEffect(() => void refresh(), [refresh]);
+  useEffect(() => {
+    void refresh();
+    // Presence changes as phones open and close the app.
+    const timer = setInterval(() => void refresh(true), DEVICE_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [refresh]);
 
   const revoke = async (device: HostDevice) => {
     if (!machineId) return;
@@ -177,18 +189,25 @@ function ControlThisComputer() {
             {t("No devices yet. Add one to control this computer from your phone.")}
           </p>
         ) : (
-          devices.map((device) => (
+          devices.map((device) => {
+            const state: ConnectionState = error ? "error" : device.online ? "online" : "offline";
+            return (
             <div
               key={device.id}
               className="flex items-center gap-3 border-t border-border px-4 py-3 first:border-t-0"
             >
-              <Smartphone className="size-5 shrink-0 text-foreground-subtle" />
+              <ConnectionStatusIcon
+                state={state}
+                label={state === "error" ? t("Connection error") : state === "online" ? t("Online") : t("Offline")}
+              >
+                <Smartphone className="size-5" />
+              </ConnectionStatusIcon>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-ui-base font-medium text-foreground">
                   {device.name}
                 </div>
                 <div className="mt-0.5 truncate text-ui-caption text-foreground-subtle">
-                  {formatLastSeen(t, device.lastSeen)}
+                  {device.online && !error ? t("Online") : formatLastSeen(t, device.lastSeen)}
                 </div>
               </div>
               {confirming === device.id ? (
@@ -221,7 +240,8 @@ function ControlThisComputer() {
                 </button>
               )}
             </div>
-          ))
+            );
+          })
         )}
       </div>
       {error && devices ? (
@@ -240,8 +260,6 @@ function ControlThisComputer() {
   );
 }
 
-const PAIRING_HOST_URL_KEY = "monocode.pairingHostUrl";
-
 function AddDeviceDialog({
   machineId,
   onClose,
@@ -257,15 +275,8 @@ function AddDeviceDialog({
   const [error, setError] = useState("");
   const [token, setToken] = useState<string>();
   const [copied, setCopied] = useState(false);
-  const [hostUrl, setHostUrl] = useState(() => {
-    try {
-      return localStorage.getItem(PAIRING_HOST_URL_KEY) ?? "";
-    } catch {
-      return "";
-    }
-  });
-  const pairingHost = pairingHostUrl(hostUrl);
-  const link = token && pairingHost ? pairingLink(pairingHost, token) : undefined;
+  const [hostUrl, setHostUrl] = useState<string>();
+  const link = token && hostUrl ? pairingLink(hostUrl, token) : undefined;
   const input =
     "w-full rounded-lg border border-border bg-transparent px-3 py-2 text-ui-base outline-none focus:border-content/35";
   return (
@@ -282,30 +293,13 @@ function AddDeviceDialog({
           <p className="text-ui-base leading-6 text-foreground">
             {t("Scan this QR code in the MonoCode mobile app, or enter this computer's Host URL and the pairing code. The code is shown only once.")}
           </p>
-          <label className="flex flex-col gap-1.5 text-ui-caption text-foreground-subtle">
-            {t("Host URL")}
-            <input
-              className={input}
-              value={hostUrl}
-              onChange={(event) => {
-                setHostUrl(event.target.value);
-                try {
-                  localStorage.setItem(PAIRING_HOST_URL_KEY, event.target.value.trim());
-                } catch {
-                  // The QR code still works for this dialog without persistence.
-                }
-              }}
-              placeholder="http://192.168.1.10:3774"
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
+          <PairingHostField machineId={machineId} onChange={setHostUrl} />
           <div className="flex items-center gap-4 rounded-lg border border-border bg-content/3 p-3">
             {link ? (
               <PairingQrCode value={link} label={t("Pairing QR code")} />
             ) : (
               <div className="grid size-48 shrink-0 place-items-center rounded-lg border border-dashed border-border p-4 text-center text-ui-caption leading-5 text-foreground-subtle">
-                {t("Enter the Host URL your phone can reach to show a QR code.")}
+                {t("Choose a verified Host URL to show a QR code.")}
               </div>
             )}
             <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
@@ -324,7 +318,7 @@ function AddDeviceDialog({
             </div>
           </div>
           <p className="text-ui-caption leading-5 text-foreground-subtle">
-            {t("The Host listens on 127.0.0.1:3774. Expose it to your phone through a tunnel such as Tailscale Serve or a reverse proxy.")}
+            {t("Your phone must be on the same network or tailnet as this computer.")}
           </p>
           <div className="flex justify-end">
             <button

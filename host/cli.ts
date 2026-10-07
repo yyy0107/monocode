@@ -31,6 +31,7 @@ import { connectionInfo, installService, uninstallService } from "./service";
 import { version } from "../package.json";
 import { protectWindowsDirectory } from "./windows";
 import { prepareDesktopHost } from "./desktop";
+import { listenOnAdapters } from "./adapter-listeners";
 import { runControlCli } from "./control";
 import type { LegacyRetirementManifest } from "./legacy-orchestration";
 
@@ -53,6 +54,8 @@ const directory = resolve(
   option("data-dir", join(homedir(), ".monocode-host")),
 );
 const port = Number(option("port", "3774"));
+// Only the desktop's own Host is reachable from paired phones on the network.
+const listenAdapters = args.includes("--listen-adapters");
 const statePath = join(directory, "running.json");
 type Running = { pid: number; port: number; secret: string };
 const readRunning = (): Running | undefined => {
@@ -105,6 +108,7 @@ async function main() {
   devices               List paired devices
   revoke <device-id>    Revoke a device credential
 Options: --data-dir <directory> --port <port> (default 3774)
+         --listen-adapters  Also listen on this computer's network adapters
 Connect another computer using an SSH forward to the loopback port.`);
     return;
   }
@@ -184,6 +188,7 @@ Connect another computer using an SSH forward to the loopback port.`);
         directory,
         "--port",
         String(port),
+        ...(listenAdapters ? ["--listen-adapters"] : []),
       ],
       {
         detached: true,
@@ -278,6 +283,7 @@ Connect another computer using an SSH forward to the loopback port.`);
     const secret = randomBytes(32).toString("base64url");
     let stopping = false;
     let stop: () => Promise<void>;
+    let closeAdapters = () => {};
     // A separate local administrative credential cannot be used as a paired
     // client credential, and is never sent to the desktop.
     const server = createHostServer(engine, available, (request, response) => {
@@ -317,6 +323,7 @@ Connect another computer using an SSH forward to the loopback port.`);
     stop = async () => {
       if (stopping) return;
       stopping = true;
+      closeAdapters();
       server.close();
       server.closeAllConnections();
       await engine.close();
@@ -328,6 +335,7 @@ Connect another computer using an SSH forward to the loopback port.`);
       server.once("error", reject);
       server.listen(port, "127.0.0.1", resolve);
     });
+    if (listenAdapters) closeAdapters = listenOnAdapters(server, port);
     writeFileSync(
       statePath,
       JSON.stringify({ pid: process.pid, port, secret }),

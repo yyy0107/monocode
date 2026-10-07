@@ -110,7 +110,7 @@ export async function prepareDesktopHost(
   if (!(await alive())) {
     const started = spawnSync(
       process.execPath,
-      [entry, "start", "--data-dir", directory, "--port", String(port)],
+      [entry, "start", "--data-dir", directory, "--port", String(port), "--listen-adapters"],
       { encoding: "utf8", timeout: 25_000, windowsHide: true },
     );
     // A second desktop window may have started the same Host concurrently.

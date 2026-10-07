@@ -27,7 +27,12 @@ export type HostDevice = {
   admin: boolean;
   createdAt?: number;
   lastSeen?: number;
+  /** Made a request within the last {@link DEVICE_ONLINE_MS}. */
+  online?: boolean;
 };
+
+/** Paired apps poll every few seconds while open. */
+export const DEVICE_ONLINE_MS = 30_000;
 
 // Crockford-style alphabet without 0/O/1/I; 32 symbols keep each byte unbiased.
 const PAIRING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -408,9 +413,9 @@ export class HostStore {
       .get(this.hash(token));
   }
 
-  devices(): HostDevice[] {
+  devices(now = Date.now()): HostDevice[] {
     return this.db
-      .prepare("SELECT id, name, admin, created_at, last_seen FROM devices ORDER BY created_at, name")
+      .prepare("SELECT id, name, admin, created_at, last_seen, hash FROM devices ORDER BY created_at, name")
       .all()
       .map((row) => ({
         id: String(row.id),
@@ -418,13 +423,17 @@ export class HostStore {
         admin: Number(row.admin) === 1,
         createdAt: row.created_at == null ? undefined : Number(row.created_at),
         lastSeen: row.last_seen == null ? undefined : Number(row.last_seen),
+        online: now - (this.activeAt.get(String(row.hash)) ?? 0) < DEVICE_ONLINE_MS,
       }));
   }
 
   private seenAt = new Map<string, number>();
-  /** Records activity at most once a minute per credential. */
+  /** Latest request per credential hash, kept in memory for presence. */
+  private activeAt = new Map<string, number>();
+  /** Records presence on every request; persists activity at most once a minute. */
   touchDevice(token: string, now = Date.now()): void {
     const hash = this.hash(token);
+    this.activeAt.set(hash, now);
     if (now - (this.seenAt.get(hash) ?? 0) < 60_000) return;
     this.seenAt.set(hash, now);
     this.db.prepare("UPDATE devices SET last_seen=? WHERE hash=?").run(now, hash);

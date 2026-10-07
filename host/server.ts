@@ -23,6 +23,7 @@ import type { LinkedWorkItem } from "../src/features/sessions/model/session";
 import { parseGithubWorkItemUrl } from "../src/features/sessions/model/sessionWorkItem";
 import { SyncTransfers } from "./sync-transfer";
 import { browseHostDirectories } from "./browse";
+import { pairingHostCandidates } from "./pairing-hosts";
 import {
   createHostBranch,
   hostBranches,
@@ -125,6 +126,10 @@ async function providerBinary(provider: RemoteProvider): Promise<string> {
   } catch {
     return "missing";
   }
+}
+
+function isLoopback(address: string | undefined): boolean {
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
 }
 
 export function createHostServer(
@@ -230,6 +235,11 @@ export function createHostServer(
     { requestTimeout: 20_000, headersTimeout: 10_000, maxHeaderSize: 8192 },
     async (request, response) => {
       if (request.url === "/lifecycle" && lifecycle) {
+        // Administration stays on loopback even when adapters are exposed.
+        if (!isLoopback(request.socket.localAddress)) {
+          response.writeHead(403).end();
+          return;
+        }
         lifecycle(request, response);
         return;
       }
@@ -558,6 +568,18 @@ export function createHostServer(
             result = { revoked: engine.store.revokeToken(token) };
             engine.store.db.prepare("DELETE FROM checkout_resources WHERE id LIKE ? AND owner_pid=?")
               .run(`device:${createHash("sha256").update(token).digest("hex") }:%`, process.pid);
+            break;
+          case "devices.pairingHosts":
+            if (!engine.store.adminToken(token))
+              throw new Error("Only this computer's desktop can manage devices");
+            result = {
+              hosts: await pairingHostCandidates({
+                port: request.socket.localPort ?? 3774,
+                token,
+                protocolVersion: HOST_PROTOCOL_VERSION,
+                environmentId: engine.store.environmentId,
+              }),
+            };
             break;
           case "devices.list":
           case "devices.issue":

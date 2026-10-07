@@ -3288,7 +3288,6 @@
   "Add device": "添加设备",
   "Enter this token in the MonoCode mobile app with this computer's Host URL. It is shown only once.": "在 MonoCode 手机应用中填入此电脑的 Host 地址和此令牌。令牌仅显示一次。",
   "Create a credential that lets another device control this computer.": "创建一个凭据，让其他设备可以控制此电脑。",
-  "The Host listens on 127.0.0.1:3774. Expose it to your phone through a tunnel such as Tailscale Serve or a reverse proxy.": "Host 监听 127.0.0.1:3774。请通过 Tailscale Serve 等隧道或反向代理让手机访问。",
   "Device name": "设备名称",
   "e.g. My phone": "例如：我的手机",
   "Sign in again": "重新登录",
@@ -3311,5 +3310,18 @@
   "Scan a QR code or enter a pairing code.": "扫码或输入配对码连接。",
   "Scan this QR code in the MonoCode mobile app, or enter this computer's Host URL and the pairing code. The code is shown only once.": "在 MonoCode 手机应用中扫描此二维码，或填入此电脑的主机地址和配对码。配对码仅显示一次。",
   "Pairing QR code": "配对二维码",
-  "Enter the Host URL your phone can reach to show a QR code.": "填写手机可访问的主机地址后显示二维码。"
+  "Local network": "局域网",
+  "Choose a Host URL…": "选择主机地址…",
+  "Choose a verified Host URL to show a QR code.": "选择校验通过的主机地址后显示二维码。",
+  "Checking this computer's network addresses…": "正在校验本机网卡地址…",
+  "No network address found on this computer.": "未找到本机网卡地址。",
+  "The Host cannot be reached at this address. Another program may be using the port, or a firewall blocks it. Fix it, then check again.": "无法通过此地址连接 Host。可能端口被其他程序占用或被防火墙拦截，处理后请重新校验。",
+  "Your phone must be on the same network or tailnet as this computer.": "手机需要与此电脑处于同一局域网或 Tailscale 网络。",
+  "Unreachable": "不可达",
+  "Online": "在线",
+  "Offline": "离线",
+  "Connection error": "连接错误",
+  "Connected · install a supported provider on the host": "已连接 · 请在主机上安装受支持的提供方",
+  "Connected · host update needed for Explorer and Changes": "已连接 · 需更新 Host 才能使用资源管理器和更改",
+  "Offline · reconnect to check access": "离线 · 请重新连接以检查访问权限"
 }
