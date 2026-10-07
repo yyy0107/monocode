@@ -1,3 +1,9 @@
+import { MobileNotes, type MobileNotesHandle } from "./MobileNotes";
+import {
+  appendNoteReference,
+  noteSourceProject,
+  type Note,
+} from "../features/notes/notesText";
 import { useConnectionAppearance, saveConnectionAppearance, removeConnectionAppearance } from "./connectionAppearance";
 import { connectionErrorMessage } from "./connectionError";
 import { MobileAssistant, type MobileAssistantHandle } from "./MobileAssistant";
@@ -261,6 +267,9 @@ export function MobileApp() {
   // List scope survives navigation, so chat controls need their own entry source.
   const [sessionEntrySource, setSessionEntrySource] = useState<"project" | "other">("other");
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const notesPage = useRef<MobileNotesHandle>(null);
+  const pageOverlayOpen = assistantOpen || notesOpen;
   const [assistantIdentity, setAssistantIdentity] = useState<{ hostId: string; name?: string }>();
   const assistantPage = useRef<MobileAssistantHandle>(null);
   const assistantRpc = useCallback(async <T,>(method: string, params?: object) => {
@@ -290,6 +299,14 @@ export function MobileApp() {
   const [connectionRevision, setConnectionRevision] = useState(0);
   const [savedHosts, setSavedHosts] = useState<Connection[]>([]);
   const assistantHostId = connected ? client.connection?.environmentId : undefined;
+  const resolveNoteImage = useMemo(() => {
+    const hostId = client.connection?.environmentId;
+    return async (asset: string) => {
+      if (client.connection?.environmentId !== hostId) throw new Error(t("Host connection changed."));
+      const image = await client.noteImage(asset);
+      return `data:${image.mime};base64,${image.data}`;
+    };
+  }, [client.connection?.environmentId, t]);
   useEffect(() => {
     if (!assistantHostId || !drawerOpen) return;
     // Opening the drawer refreshes names changed by another client. Assistant
@@ -363,7 +380,7 @@ export function MobileApp() {
     ? JSON.stringify([client.connection?.environmentId, client.connection?.endpoint,
         sessionId, nativeLink.provider, nativeSourceKey(nativeLink), nativeLink.accountId])
     : undefined;
-  const checkNativeAccess = connected && foreground && !assistantOpen && view === "chat";
+  const checkNativeAccess = connected && foreground && !pageOverlayOpen && view === "chat";
   const nativeAccess = checkNativeAccess && nativeAccessResult?.key === nativeAccessKey
     ? nativeAccessResult?.value : undefined;
   useEffect(() => {
@@ -499,7 +516,7 @@ export function MobileApp() {
   }, []);
 
   useEffect(() => {
-    if (!connected || !foreground || assistantOpen || (view === "settings" && !drawerOpen)) return;
+    if (!connected || !foreground || pageOverlayOpen || (view === "settings" && !drawerOpen)) return;
     let live = true;
     const turn = navigation.current;
     let timer: ReturnType<typeof setTimeout>;
@@ -567,7 +584,7 @@ export function MobileApp() {
   }, [
     connected,
     foreground,
-    assistantOpen,
+    pageOverlayOpen,
     view,
     drawerOpen,
     project,
@@ -594,7 +611,7 @@ export function MobileApp() {
   });
 
   useEffect(() => {
-    if (!connected || !foreground || assistantOpen || view !== "chat" || !snapshot) return;
+    if (!connected || !foreground || pageOverlayOpen || view !== "chat" || !snapshot) return;
     let live = true;
     void client.sessionPreviews(snapshot.session.id).then((result) => {
       if (live && result)
@@ -604,7 +621,7 @@ export function MobileApp() {
         );
     });
     return () => { live = false; };
-  }, [connected, foreground, assistantOpen, view, snapshot]);
+  }, [connected, foreground, pageOverlayOpen, view, snapshot]);
 
   useEffect(() => {
     const environmentId = client.connection?.environmentId;
@@ -794,7 +811,7 @@ export function MobileApp() {
   const activity = useMobileActivity(client, {
     connected,
     foreground,
-    visibleSession: view === "chat" && !assistantOpen && !drawerOpen && !loading && sessionConfirmed && snapshot && snapshot.session.id === sessionId
+    visibleSession: view === "chat" && !pageOverlayOpen && !drawerOpen && !loading && sessionConfirmed && snapshot && snapshot.session.id === sessionId
       ? { id: snapshot.session.id, projectId: snapshot.projectId, revision: snapshot.revision,
           lastCompletedRunId: snapshot.lastCompletedRunId, pendingInputKey: pendingSessionInputKey(snapshot.session, snapshot.runId) }
       : undefined,
@@ -1218,7 +1235,11 @@ export function MobileApp() {
     if (!Capacitor.isNativePlatform()) return;
     const listener = App.addListener("backButton", () => {
       if (dismissImageLightbox()) return;
-      if (assistantOpen) {
+      if (notesOpen) {
+        if (notesPage.current) notesPage.current.back();
+        else setNotesOpen(false);
+      }
+      else if (assistantOpen) {
         if (assistantPage.current) assistantPage.current.back();
         else setAssistantOpen(false);
       }
@@ -1247,6 +1268,7 @@ export function MobileApp() {
     };
   }, [
     assistantOpen,
+    notesOpen,
     view,
     connected,
     addingConnection,
@@ -1396,6 +1418,31 @@ export function MobileApp() {
     setSessionActionsOpen(false);
     setAssistantOpen(true);
   });
+  const onDrawerNotes = useStableCallback(() => {
+    setDrawerOpen(false);
+    setComposerPanel(null);
+    setSessionStatusOpen(false);
+    setSessionActionsOpen(false);
+    setNotesOpen(true);
+  });
+  const onNoteAddToChat = useStableCallback(async (note: Note) => {
+    const hostId = client.connection?.environmentId;
+    const current = () => hostId && client.connection?.environmentId === hostId;
+    if (view !== "chat" || !project) {
+      const owner = (note.sourceCwd && noteSourceProject(note.sourceCwd)
+        ? projects.find((item) => item.cwd === note.sourceCwd) ?? await client.openProject(note.sourceCwd)
+        : project ?? projects[0]);
+      if (!current()) throw new Error(t("Host connection changed."));
+      if (!owner) throw new Error(t("Choose a project before adding a note to chat."));
+      await openProject(owner);
+      if (!current()) throw new Error(t("Host connection changed."));
+      await openSession();
+      setProjects(await client.projects());
+    }
+    if (!current()) throw new Error(t("Host connection changed."));
+    setDraft(appendNoteReference(draft.get(), note.title, note.body));
+    setNotesOpen(false);
+  });
   const openAddProject = (trigger: HTMLButtonElement) => {
     projectTrigger.current = trigger;
     setError("");
@@ -1444,9 +1491,13 @@ export function MobileApp() {
         />
       )}
       </MobilePageOverlay>
-      <SurfaceVisibilityContext.Provider value={!assistantOpen}>
-      <div className="mobile-assistant-background" inert={assistantOpen} aria-hidden={assistantOpen || undefined}>
-      <header ref={header} className="mobile-header" data-floating={floatingHeader} data-project={view === "home" && !!homeProject} data-search={view === "home" && searchOpen} inert={drawerOpen || assistantOpen}>
+      <MobilePageOverlay key={`notes:${client.connection?.environmentId}`} open={notesOpen && !!client.connection}>
+        {client.connection && <MobileNotes ref={notesPage} client={client} hostKey={client.connection.environmentId}
+          projects={projects} cwd={project?.cwd} onClose={() => setNotesOpen(false)} onAddToChat={onNoteAddToChat} />}
+      </MobilePageOverlay>
+      <SurfaceVisibilityContext.Provider value={!pageOverlayOpen}>
+      <div className="mobile-assistant-background" inert={pageOverlayOpen} aria-hidden={pageOverlayOpen || undefined}>
+      <header ref={header} className="mobile-header" data-floating={floatingHeader} data-project={view === "home" && !!homeProject} data-search={view === "home" && searchOpen} inert={drawerOpen || pageOverlayOpen}>
         {view === "chat" && sessionEntrySource === "project" ? (
           <IconButton label="Back" onClick={() => openHome(projects.find((item) => item.id === project?.id))}>
             <ArrowLeft size={22} />
@@ -1633,7 +1684,7 @@ export function MobileApp() {
       </div>
 
       <MobilePageTransition key={`pages:${client.connection?.environmentId}`} route={route}
-        animate={navigationReady.current} visible={!assistantOpen}>
+        animate={navigationReady.current} visible={!pageOverlayOpen}>
       {view === "settings" ? (
         <MobileSettings
           page={settingsPage}
@@ -1727,7 +1778,7 @@ export function MobileApp() {
           projectsPage={!homeProject && allProjectsPage}
           hostName={connectionName}
           hostStatus={hostStatus}
-          foreground={foreground && !drawerOpen && !assistantOpen}
+          foreground={foreground && !drawerOpen && !pageOverlayOpen}
           inactive={drawerOpen || homeMenuOpen || addingConnection || sessionActionsOpen}
           query={searchOpen ? searchQuery : ""}
           now={now}
@@ -1769,13 +1820,14 @@ export function MobileApp() {
           onSwitchHost={switchHost}
         />
       ) : (
-        <main className="mobile-chat" inert={drawerOpen || assistantOpen}>
+        <main className="mobile-chat" inert={drawerOpen || pageOverlayOpen}>
           {snapshot ? (
             <MobileTranscript
               key={snapshot.session.id}
               snapshot={snapshot}
               animateFrom={animateFrom}
               readBinaryFile={readHostImage}
+              resolveNoteImage={client.hasCapability("notes.v1") ? resolveNoteImage : undefined}
               disabled={busy || !!pending || !sessionConfirmed}
               onCommand={onTranscriptCommand}
               questionOpen={questionOpen}
@@ -1918,8 +1970,9 @@ export function MobileApp() {
           key={`drawer:${client.connection?.environmentId}`}
           assistantName={assistantIdentity && assistantIdentity.hostId === assistantHostId ? assistantIdentity.name : undefined}
           onAssistant={onDrawerAssistant}
-          open={drawerOpen && view !== "settings" && !assistantOpen}
-          active={view !== "settings" && !assistantOpen}
+          onNotes={client.hasCapability("notes.v1") ? onDrawerNotes : undefined}
+          open={drawerOpen && view !== "settings" && !pageOverlayOpen}
+          active={view !== "settings" && !pageOverlayOpen}
           foreground={foreground}
           onOpenChange={onDrawerOpenChange}
           projects={projects}

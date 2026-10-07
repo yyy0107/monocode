@@ -47,6 +47,7 @@ import {
 import type { HostProvider } from "./providers";
 import { HostStore } from "./store";
 import { HostSkills } from "./skills";
+import { HostNotes } from "./notes";
 import { NativeSessionGuard, nativeAccessMessage, type NativeLease } from "./native-access";
 import { NativeSessionManager, nativeHolding, type NativeManagerOptions } from "./native/manager";
 import { migrateNativeLink, restoreImportedNativeActivity } from "./native/migrate";
@@ -353,6 +354,7 @@ export class HostEngine {
   readonly native = new NativeSessionGuard(() => dirname(this.store.attachmentDir));
   /** Host owner of native histories: sources, sync, watching and turn settlement. */
   readonly nativeSessions: NativeSessionManager;
+  readonly notes: HostNotes;
   private nativeLeases = new Map<string, NativeLease>();
   private editors = new Map<
     string,
@@ -365,6 +367,7 @@ export class HostEngine {
     private readonly skills = new HostSkills(),
     options: HostOrchestrationOptions & { native?: NativeManagerOptions; im?: HostImOptions } = {},
   ) {
+    this.notes = new HostNotes(dirname(store.attachmentDir), () => this.desktopDirectory());
     this.nativeSessions = new NativeSessionManager({
       store,
       guard: this.native,
@@ -2056,6 +2059,7 @@ export class HostEngine {
     await this.orchestration.close();
     this.titles.close();
     this.skills.close();
+    this.notes.close();
     await Promise.allSettled([...this.providerStops.keys()].map(id => this.cleanPreviousProviders(id)));
     await Promise.all([...this.parked.entries()].map(async ([id, entry]) => { clearTimeout(entry.timer); await this.provider(entry.harness).stop(id); }));
     this.parked.clear();

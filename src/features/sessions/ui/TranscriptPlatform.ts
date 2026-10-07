@@ -36,6 +36,8 @@ export const TranscriptPlatformContext = createContext<
     liveClockInFooter?: boolean;
     /** Save generated text, such as a plan, where the user chooses. */
     saveText?: (fileName: string, text: string) => Promise<void>;
+    /** Resolve shared note assets on clients that cannot access Tauri files. */
+    resolveNoteImage?: (asset: string) => Promise<string>;
   }
 >({
   ...desktopPlatform,

@@ -124,6 +124,23 @@ async function setup(providers: RemoteProvider[] = ["codex"], discoverProviders?
   };
 }
 
+it("advertises notes RPC and shares CRUD and image access only with authenticated devices", async () => {
+  const s = await setup();
+  expect((await s.call("environment.describe")).value.result.capabilities).toContain("notes.v1");
+  expect((await s.call("notes.list", {}, "bad-token")).status).toBe(401);
+  expect((await s.call("notes.upsert", { note: { id: "n1", title: "Plan", body: "Text", tags: ["#Ideas"] } })).value.result.tags).toEqual(["ideas"]);
+  expect((await s.call("notes.get", { id: "n1" })).value.result.title).toBe("Plan");
+  expect((await s.call("notes.list", {}, s.second.token)).value.result).toHaveLength(1);
+  const image = (await s.call("notes.saveImage", { noteId: "n1", name: "flow.png", data: "YQ==" })).value.result;
+  expect((await s.call("notes.image", { asset: image.markdownPath })).value.result).toEqual({ mime: "image/png", data: "YQ==" });
+  expect((await s.call("notes.image", { asset: "/note-assets/n1/../secret.png" })).status).toBe(400);
+  expect((await s.call("notes.delete", { id: "n1" })).status).toBe(200);
+  expect((await s.call("notes.get", { id: "n1" })).value.result).toBeNull();
+  expect((await s.call("notes.image", { asset: image.markdownPath })).status).toBe(400);
+  s.store.revokeToken(s.second.token);
+  expect((await s.call("notes.list", {}, s.second.token)).status).toBe(401);
+});
+
 it("configures the title API through authenticated RPC without exposing credentials", async () => {
   const s = await setup();
   const saved = await s.call("titleModel.save", {

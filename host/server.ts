@@ -87,7 +87,8 @@ const resolveBinary: Record<RemoteProvider, () => Promise<{ path: string }>> = {
 };
 // A 1 MiB text file can expand to 6 MiB when JSON escapes control characters.
 // Existing files.write sends both the original and replacement contents.
-const MAX_BODY = 16 * 1024 * 1024;
+// A 20 MiB note image needs about 27 MiB after base64 encoding.
+const MAX_BODY = 32 * 1024 * 1024;
 const discoverModels: Record<RemoteProvider, (cwd: string) => Promise<AgentModel[]>> = {
   codex: discoverCodexModels,
   claude: discoverClaudeModels,
@@ -321,6 +322,7 @@ export function createHostServer(
                 "models.list",
                 "providerAccounts.defaults",
                 "skills.list",
+                "notes.v1",
                 "approvals",
                 "questions",
                 "diff",
@@ -389,6 +391,24 @@ export function createHostServer(
             if (typeof params.message !== "string" || params.message.length > 100_000)
               throw new Error("Invalid title message");
             result = await engine.titleModel.generate(params.message);
+            break;
+          case "notes.list":
+            result = engine.notes.list();
+            break;
+          case "notes.get":
+            result = engine.notes.get(params.id);
+            break;
+          case "notes.upsert":
+            result = engine.notes.upsert(params.note);
+            break;
+          case "notes.delete":
+            result = engine.notes.delete(params.id);
+            break;
+          case "notes.image":
+            result = engine.notes.image(params.asset);
+            break;
+          case "notes.saveImage":
+            result = engine.notes.saveImage(params.noteId, params.name, params.data);
             break;
           case "skills.list":
             result = await engine.listSkills(params.projectId, params.harness, params.sessionId, params.refresh === true);

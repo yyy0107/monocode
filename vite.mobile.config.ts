@@ -30,7 +30,7 @@ function hostProxy(): Plugin {
           let size = 0;
           for await (const chunk of req) {
             size += chunk.length;
-            if (size > 1024 * 1024) throw new Error("Request is too large");
+            if (size > 32 * 1024 * 1024) throw new Error("Request is too large");
             data.push(Buffer.from(chunk));
           }
           const input = JSON.parse(Buffer.concat(data).toString());

@@ -1,3 +1,5 @@
+import type { Note, NoteUpsert } from "../features/notes/notesText";
+import type { NoteImageAsset } from "../features/notes/noteImagesText";
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import { sessionMessageActivityAt } from "../features/sessions/model/sessionActivity";
 import {
@@ -169,6 +171,10 @@ function sameCachedValue(left: unknown, right: unknown): boolean {
 
 export class MobileClient {
   connection?: Connection;
+  private capabilities: string[] = [];
+  hasCapability(capability: string): boolean {
+    return this.capabilities.includes(capability);
+  }
   private connectionStatus: HostConnectionStatus = { state: "disconnected" };
   private statusListeners = new Set<() => void>();
   private verificationEpoch = 0;
@@ -231,6 +237,7 @@ export class MobileClient {
   };
   private cacheEpoch = 0;
   private clearCaches() {
+    this.capabilities = [];
     this.cancelSummaryWrite();
     this.cacheEpoch += 1;
     this.snapshots.clear();
@@ -384,6 +391,7 @@ export class MobileClient {
       this.connection = connection;
       this.setConnectionStatus({ state: "connected" });
       this.clearCaches();
+      this.capabilities = Array.isArray(descriptor.capabilities) ? descriptor.capabilities : [];
     } catch (error) {
       if (!this.connection) this.connectionFailed(error);
       throw error;
@@ -419,6 +427,7 @@ export class MobileClient {
           return;
         this.connection = updated;
       }
+      this.capabilities = Array.isArray(host.capabilities) ? host.capabilities : [];
       this.setConnectionStatus({ state: "connected" });
     } catch (error) {
       if (this.connection === connection && epoch === this.verificationEpoch)
@@ -502,6 +511,15 @@ export class MobileClient {
       return Promise.reject(new Error("Connect to a Host first."));
     return this.requestWith<T>(this.connection, method, params);
   }
+  listNotes() { return this.rpc<Note[]>("notes.list"); }
+  getNote(id: string) { return this.rpc<Note | null>("notes.get", { id }); }
+  upsertNote(note: NoteUpsert) { return this.rpc<Note>("notes.upsert", { note }); }
+  deleteNote(id: string) { return this.rpc<void>("notes.delete", { id }); }
+  noteImage(asset: string) { return this.rpc<{ mime: string; data: string }>("notes.image", { asset }); }
+  saveNoteImage(noteId: string, name: string, data: string) {
+    return this.rpc<NoteImageAsset>("notes.saveImage", { noteId, name, data });
+  }
+
   projects(): Promise<HostProject[]> {
     if (this.projectLoad) return this.projectLoad;
     const pending = this.loadProjects().finally(() => {

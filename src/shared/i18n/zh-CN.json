@@ -3328,5 +3328,20 @@
   "Connection error": "连接错误",
   "Connected · install a supported provider on the host": "已连接 · 请在主机上安装受支持的提供方",
   "Connected · host update needed for Explorer and Changes": "已连接 · 需更新 Host 才能使用资源管理器和更改",
-  "Offline · reconnect to check access": "离线 · 请重新连接以检查访问权限"
+  "Offline · reconnect to check access": "离线 · 请重新连接以检查访问权限",
+  "Refresh notes": "刷新笔记",
+  "Loading notes…": "正在加载笔记…",
+  "No notes yet. Create one here.": "暂无笔记，可以在这里新建。",
+  "Note was not found.": "未找到笔记。",
+  "Choose a project before adding a note to chat.": "请先选择项目，再将笔记加入对话。",
+  "Add tags (comma separated)": "添加标签（用逗号分隔）",
+  "Insert images": "插入图片",
+  "Delete note": "删除笔记",
+  "Delete this note and its images? This can’t be undone.": "删除这条笔记及其图片？此操作无法撤销。",
+  "Note source": "笔记源文本",
+  "Write your note in Markdown…": "使用 Markdown 编写笔记…",
+  "Image is too large (maximum 20 MB).": "图片过大（最大 20 MB）。",
+  "Image must be a PNG, JPG, GIF, WebP, or SVG file.": "图片必须是 PNG、JPG、GIF、WebP 或 SVG 文件。",
+  "Remove tag {tag}": "移除标签 {tag}",
+  "Add tags": "添加标签"
 }

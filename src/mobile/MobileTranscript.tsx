@@ -54,6 +54,7 @@ export const MobileTranscript = memo(function MobileTranscript({
   disabled,
   onCommand,
   readBinaryFile,
+  resolveNoteImage,
   animateFrom,
   active = true,
   questionOpen = true,
@@ -64,6 +65,7 @@ export const MobileTranscript = memo(function MobileTranscript({
   disabled: boolean;
   onCommand: (command: HostCommand) => void | Promise<boolean>;
   readBinaryFile?: (path: string) => Promise<Uint8Array>;
+  resolveNoteImage?: (asset: string) => Promise<string>;
   animateFrom?: string;
   active?: boolean;
   /** Whether the pending question's answer panel is expanded. */
@@ -105,6 +107,7 @@ export const MobileTranscript = memo(function MobileTranscript({
       ...(readBinaryFile
         ? createMobileTranscriptPlatform(readBinaryFile)
         : mobileTranscriptPlatform),
+      resolveNoteImage,
       openTool: (block: Block) => setDetail((current) => ({
         ...current, active: "tool", tool: { kind: "tool", block },
       })),
@@ -123,7 +126,7 @@ export const MobileTranscript = memo(function MobileTranscript({
       })),
       liveClockInFooter: true,
     }),
-    [readBinaryFile, revealPendingQuestion],
+    [readBinaryFile, resolveNoteImage, revealPendingQuestion],
   );
   // Phones have no editor pane, so file links open a read-only sheet.
   const openFile = useCallback(

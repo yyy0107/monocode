@@ -564,3 +564,13 @@ describe("mobile sidebar recents", () => {
     expect(onAddProject).toHaveBeenCalledOnce();
   });
 });
+
+it("shows the Notes entry only when supplied by a capable Host", () => {
+  render();
+  const notes = () => [...node.querySelectorAll<HTMLButtonElement>(".mobile-drawer-item")].find((button) => button.textContent === "Notes");
+  expect(notes()).toBeUndefined();
+  const onNotes = vi.fn();
+  render(true, { onNotes });
+  act(() => notes()!.click());
+  expect(onNotes).toHaveBeenCalledOnce();
+});

@@ -53,7 +53,7 @@ import {
   INBOX_MEDIA_PREFIXES,
   isInboxMediaUrl,
 } from "../../inbox/model/inboxMedia";
-import { isNoteImagePath } from "../../notes";
+import { isNoteImagePath } from "../../notes/noteImagesText";
 import { IS_MAC, IS_WIN } from "../../../platform/tauri/platform";
 import { InboxMedia } from "../../inbox/ui/InboxMedia";
 import { rehypeHardBreaks } from "./hardBreaks";
@@ -474,22 +474,33 @@ function NoteAssetImage({
   alt,
   ...props
 }: Omit<MarkdownImageProps, "src" | "node"> & { asset: string }) {
-  const [src, setSrc] = useState(() => noteImageSrcCache.get(asset));
+  const { resolveNoteImage } = useContext(TranscriptPlatformContext);
+  const [resolved, setResolved] = useState<{
+    asset: string;
+    resolver: typeof resolveNoteImage;
+    src: string;
+  }>();
+  const src =
+    resolved?.asset === asset && resolved.resolver === resolveNoteImage
+      ? resolved.src
+      : resolveNoteImage ? undefined : noteImageSrcCache.get(asset);
 
   useEffect(() => {
     if (src) return;
     let cancelled = false;
-    void invoke<string>("notes_image_path", { asset })
-      .then((path) => {
-        const next = convertFileSrc(path);
-        noteImageSrcCache.set(asset, next);
-        if (!cancelled) setSrc(next);
+    const loading = resolveNoteImage
+      ? resolveNoteImage(asset)
+      : invoke<string>("notes_image_path", { asset }).then(convertFileSrc);
+    void loading
+      .then((next) => {
+        if (!resolveNoteImage) noteImageSrcCache.set(asset, next);
+        if (!cancelled) setResolved({ asset, resolver: resolveNoteImage, src: next });
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [asset, src]);
+  }, [asset, src, resolveNoteImage]);
 
   return (
     <img
@@ -509,14 +520,14 @@ function MarkdownImage({
   node: _node,
   ...props
 }: MarkdownImageProps) {
-  const { localFiles } = useContext(TranscriptPlatformContext);
+  const { localFiles, resolveNoteImage } = useContext(TranscriptPlatformContext);
   const allowRemoteMedia = useContext(RemoteMediaContext);
   const url = typeof src === "string" ? src.trim() : "";
   if (url.startsWith("data:image/")) {
     return <img {...props} src={url} alt={alt ?? ""} />;
   }
   if (isNoteImagePath(url)) {
-    if (!localFiles) return null;
+    if (!localFiles && !resolveNoteImage) return null;
     return <NoteAssetImage {...props} asset={url} alt={alt} />;
   }
   if (!allowRemoteMedia || !url || !isInboxMediaUrl(url)) return null;

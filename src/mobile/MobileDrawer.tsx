@@ -12,6 +12,7 @@ import {
 } from "react";
 import {
   Bot,
+  File,
   Folder,
   FolderPlus,
   Home,
@@ -89,6 +90,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   onNewSession,
   onSettings,
   onAssistant,
+  onNotes,
   assistantName,
 }: {
   open: boolean;
@@ -122,6 +124,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   onNewSession: (project: HostProject) => void;
   onSettings: () => void;
   onAssistant?: () => void;
+  onNotes?: () => void;
   assistantName?: string;
 }) {
   const { language, t } = useTranslation();
@@ -570,6 +573,9 @@ export const MobileDrawer = memo(function MobileDrawer({
               <span>{assistantName || t("Assistant")}</span>
             </button>
           )}
+          {onNotes && <button type="button" className="mobile-drawer-item" onClick={onNotes}>
+            <File size={22} /><span>{t("Notes")}</span>
+          </button>}
           <button type="button" className="mobile-drawer-item" onClick={onHome}>
             <Home size={22} />
             <span>{t("Sessions")}</span>

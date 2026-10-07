@@ -17,6 +17,7 @@ export interface KeyboardMotion {
 export const KEYBOARD_EVENT = "monocode:keyboard";
 const FALLBACK_EASING = "cubic-bezier(0.2, 0, 0, 1)";
 const MOTION_SURFACES = [
+  ".mobile-notes",
   ".mobile-composer-dock",
   ".mobile-assistant-compose-dock",
   ".mobile-desktop-transcript",
