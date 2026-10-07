@@ -126,8 +126,10 @@ import {
 import {
   applyAccentColor,
   loadAccentColor,
+  loadTranscriptAnchor,
   loadTranscriptLayout,
   saveAccentColor,
+  saveTranscriptAnchor,
   saveTranscriptLayout,
 } from "../features/settings/model/appearance";
 import {
@@ -347,6 +349,7 @@ export function MobileApp() {
   const [planMode, setPlanMode] = useState(false);
   const [followUpBehavior, setFollowUpBehavior] = useState(loadFollowUpBehavior);
   const [transcriptLayout, setTranscriptLayout] = useState(loadTranscriptLayout);
+  const [transcriptAnchor, setTranscriptAnchor] = useState(loadTranscriptAnchor);
   const [accentColor, setAccentColor] = useState(loadAccentColor);
   const [soundsEnabled, setSoundsEnabled] = useState(loadSoundsEnabled);
   const acceptedQueueAttachments = useRef<Attachment[]>([]);
@@ -1866,6 +1869,11 @@ export function MobileApp() {
           onTranscriptLayoutChange={(layout) => {
             saveTranscriptLayout(layout);
             setTranscriptLayout(layout);
+          }}
+          transcriptAnchor={transcriptAnchor}
+          onTranscriptAnchorChange={(anchor) => {
+            saveTranscriptAnchor(anchor);
+            setTranscriptAnchor(anchor);
           }}
           accentColor={accentColor}
           onAccentColorChange={(color) => {

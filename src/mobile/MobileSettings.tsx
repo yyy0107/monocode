@@ -192,6 +192,8 @@ export function MobileSettings({
   onFollowUpBehaviorChange,
   transcriptLayout,
   onTranscriptLayoutChange,
+  transcriptAnchor,
+  onTranscriptAnchorChange,
   accentColor,
   onAccentColorChange,
   soundsEnabled,
@@ -230,6 +232,8 @@ export function MobileSettings({
   onFollowUpBehaviorChange: (behavior: FollowUpBehavior) => void;
   transcriptLayout: TranscriptLayout;
   onTranscriptLayoutChange: (layout: TranscriptLayout) => void;
+  transcriptAnchor: boolean;
+  onTranscriptAnchorChange: (anchor: boolean) => void;
   accentColor: string | null;
   onAccentColorChange: (color: string | null) => void;
   soundsEnabled: boolean;
@@ -529,6 +533,29 @@ export function MobileSettings({
                 { value: "chat", label: t("Chat") },
               ]}
             />
+          </div>
+          <div className="mobile-settings-row mobile-settings-notifications">
+            <SettingsIcon name="layout" />
+            <label className="mobile-settings-label">
+              <span>{t("Anchor prompts to top")}</span>
+              <small id="mobile-transcript-anchor-description">
+                {t(
+                  "When you send, the new prompt sits at the top of the transcript and the reply grows into the space below. Turn this off to keep the classic layout, with the latest message resting on the composer.",
+                )}
+              </small>
+              <input
+                id="mobile-transcript-anchor"
+                type="checkbox"
+                role="switch"
+                className="mobile-switch"
+                aria-label={t("Anchor prompts to top")}
+                aria-describedby="mobile-transcript-anchor-description"
+                checked={transcriptAnchor}
+                onChange={(event) =>
+                  onTranscriptAnchorChange(event.currentTarget.checked)
+                }
+              />
+            </label>
           </div>
         </Group>
       </main>

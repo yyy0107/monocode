@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileApp } from "./MobileApp";
 import { setUiLanguage } from "../shared/i18n/language";
+import { loadTranscriptAnchor } from "../features/settings/model/appearance";
 import {
   loadFollowUpBehavior,
   saveFollowUpBehavior,
@@ -41,6 +42,7 @@ const host = vi.hoisted(() => ({
     environmentId: "follow-up-settings",
   },
   getConnectionStatus: () => healthyStatus,
+  hasCapability: () => false,
   subscribeConnectionStatus: () => () => {},
   restore: vi.fn(async () => true),
   verify: vi.fn(async () => {}),
@@ -145,6 +147,30 @@ async function input(value: string) {
 }
 
 describe("mobile composer settings", () => {
+  it("can disable prompt anchoring, remembers it after remount and translates the switch", async () => {
+    await render();
+    await openSettings();
+    const toggle = () =>
+      node.querySelector<HTMLInputElement>("#mobile-transcript-anchor")!;
+    expect(toggle().checked).toBe(true);
+    await act(async () => toggle().click());
+    expect(toggle().checked).toBe(false);
+    expect(loadTranscriptAnchor()).toBe(false);
+
+    act(() => root.unmount());
+    root = createRoot(node);
+    await render();
+    await openSettings();
+    expect(toggle().checked).toBe(false);
+    await act(async () => setUiLanguage("zh-CN"));
+    expect(toggle().getAttribute("aria-label")).toBe("将提示词固定到顶部");
+    expect(node.querySelector("#mobile-transcript-anchor-description")?.textContent)
+      .toContain("让最新消息显示在输入框上方");
+    await act(async () => toggle().click());
+    expect(toggle().checked).toBe(true);
+    expect(loadTranscriptAnchor()).toBe(true);
+  });
+
   it("remembers the selected preference, translates the group and options, and preserves selection after remount", async () => {
     await render();
     await openSettings();

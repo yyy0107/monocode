@@ -8,6 +8,7 @@ import type {
   HostSession,
 } from "../features/connections/model/protocol";
 import type { Block } from "../features/sessions/model/session";
+import { saveTranscriptAnchor } from "../features/settings/model/appearance";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let root: Root | undefined;
@@ -63,6 +64,34 @@ function render(
   update({});
   return { node, commands, snapshot, update };
 }
+
+describe("mobile prompt anchoring", () => {
+  afterEach(() => localStorage.removeItem("monocode.transcriptAnchor"));
+
+  it.each([false, true])("loads the saved %s preference and applies changes to current and new prompts", (enabled) => {
+    saveTranscriptAnchor(enabled);
+    const blocks: Block[] = [{ id: "user", role: "user", text: "Work" }];
+    const { node, snapshot, update } = render({ blocks });
+    const turn = node.querySelector<HTMLElement>(".transcript-turn")!;
+    expect(turn.classList.contains("transcript-turn-anchor")).toBe(enabled);
+
+    act(() => saveTranscriptAnchor(!enabled));
+    expect(node.querySelector(".transcript-turn")).toBe(turn);
+    expect(turn.classList.contains("transcript-turn-anchor")).toBe(!enabled);
+
+    update({ animateFrom: "next", snapshot: {
+      ...snapshot,
+      session: { ...snapshot.session, blocks: [
+        ...blocks,
+        { id: "reply", role: "assistant", text: "Done" },
+        { id: "next", role: "user", text: "Continue" },
+      ] },
+    } });
+    expect(node.querySelector(".transcript-turn-live")!
+      .classList.contains("transcript-turn-anchor")).toBe(!enabled);
+    if (enabled) expect(node.querySelector("[data-prompt-rise]")).toBeNull();
+  });
+});
 
 describe("mobile approval interaction", () => {
   it("renders approvals attached to real Host tool blocks and sends the active run identity", () => {
