@@ -1,5 +1,7 @@
+import { useId, useState } from "react";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
-import { CircleDashed, X } from "../../../shared/ui/icons";
+import { ChevronDown, CircleDashed, X } from "../../../shared/ui/icons";
+import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { MAX_PREVIEW_LINES } from "../../../integrations/harness/core/preview";
 import { formatInteger } from "../../../shared/lib/numbers";
 import { displayPath, resolveWorkspacePath } from "../../../shared/lib/paths";
@@ -64,7 +66,7 @@ type Props = {
   status: Status;
   cwd?: string;
   onOpenFile?: (path: string) => void;
-  variant?: "card" | "popover";
+  variant?: "card" | "popover" | "list";
 };
 
 export function FilePreview({
@@ -75,6 +77,8 @@ export function FilePreview({
   variant = "card",
 }: Props) {
   const { t: uiT } = useTranslation();
+  const [expanded, setExpanded] = useState(true);
+  const contentId = useId();
   const path = preview.path;
   const filePath = path ? (resolveWorkspacePath(path, cwd) ?? path) : undefined;
   const fileName = preview.fileName || fileNameOf(path);
@@ -83,7 +87,7 @@ export function FilePreview({
       (line) =>
         line.kind === "add" || line.kind === "del" || line.kind === "context",
     )
-    .slice(0, MAX_PREVIEW_LINES);
+    .slice(0, variant === "list" ? undefined : MAX_PREVIEW_LINES);
   const showDiff =
     preview.contentOnly ||
     lines.some((line) => line.kind === "add" || line.kind === "del");
@@ -92,6 +96,67 @@ export function FilePreview({
   const label = path
     ? displayPath(path, cwd)
     : fileName || preview.title || "File";
+
+  if (variant === "list") {
+    return (
+      <section className="file-preview-list min-w-0 border-y border-content/10">
+        <button
+          type="button"
+          className="flex min-h-11 w-full items-center gap-3 bg-content/3 px-4 py-2 text-left"
+          aria-expanded={expanded}
+          aria-controls={contentId}
+          title={path}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <ChevronDown
+            aria-hidden="true"
+            className={`size-4 shrink-0 text-content/45 transition-transform duration-300 motion-reduce:transition-none ${expanded ? "" : "-rotate-90"}`}
+          />
+          <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-content/90">
+            {label}
+          </span>
+          <span className="flex shrink-0 gap-2 text-[12px] tabular-nums">
+            <span className="text-emerald-600 dark:text-emerald-400">
+              +{formatInteger(added)}
+            </span>
+            <span className="text-red-600 dark:text-red-400">
+              -{formatInteger(deleted)}
+            </span>
+          </span>
+          <StatusIcon status={status} />
+        </button>
+        <AnimatedCollapse
+          expanded={expanded}
+          motion="height"
+          animateContentResize
+        >
+          <div
+            id={contentId}
+            className="select-text overflow-x-auto border-t border-content/10 py-2"
+            tabIndex={0}
+            aria-label={uiT("Preview lines")}
+          >
+            {preview.contentOnly && !lines.length ? (
+              <p className="px-4 py-2 font-mono text-xs text-content/50">
+                {uiT("Empty file")}
+              </p>
+            ) : null}
+            <div className="w-max min-w-full">
+              {lines.map((line, index) => (
+                <PreviewLine
+                  key={`${line.number ?? index}-${line.kind}-${index}`}
+                  line={line}
+                  showGutter={false}
+                  scrollable
+                  list
+                />
+              ))}
+            </div>
+          </div>
+        </AnimatedCollapse>
+      </section>
+    );
+  }
 
   return (
     <div
@@ -172,10 +237,12 @@ function PreviewLine({
   line,
   showGutter,
   scrollable = false,
+  list = false,
 }: {
   line: ToolPreviewLine;
   showGutter: boolean;
   scrollable?: boolean;
+  list?: boolean;
 }) {
   const bg =
     line.kind === "add"
@@ -202,7 +269,13 @@ function PreviewLine({
       className={`relative flex items-baseline ${scrollable ? "w-max min-w-full" : ""} ${bg}`}
     >
       <span className={`absolute inset-y-0 left-0 w-0.5 ${bar}`} />
-      <span className="w-7 shrink-0 pr-1 text-right font-mono text-[10px] text-content/35">
+      <span
+        className={
+          list
+            ? "w-10 shrink-0 border-r border-content/8 pr-2 text-right font-mono text-[12px] text-content/45"
+            : "w-7 shrink-0 pr-1 text-right font-mono text-[10px] text-content/35"
+        }
+      >
         {line.number ?? " "}
       </span>
       {showGutter ? (
@@ -213,9 +286,11 @@ function PreviewLine({
         </span>
       ) : null}
       <span
-        className={`min-w-0 flex-1 pr-2 font-mono text-[11px] leading-4.5 ${scrollable ? "whitespace-pre" : "truncate"}`}
+        className={`min-w-0 flex-1 pr-2 font-mono ${list ? "pl-3 text-[13px] leading-6 text-content/90" : "text-[11px] leading-4.5"} ${scrollable ? "whitespace-pre" : "truncate"}`}
       >
-        {highlight(line.text, line.kind === "context")}
+        {list
+          ? line.text || " "
+          : highlight(line.text, line.kind === "context")}
       </span>
     </div>
   );
@@ -226,11 +301,7 @@ function StatusIcon({ status }: { status: Status }) {
     return <X className="size-3.5 shrink-0 text-red-400" strokeWidth={2} />;
   }
   if (status === "pending") {
-    return (
-      <CircleDashed
-        className="size-3.5 shrink-0 text-content/40"
-      />
-    );
+    return <CircleDashed className="size-3.5 shrink-0 text-content/40" />;
   }
   return null;
 }

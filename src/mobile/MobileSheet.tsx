@@ -12,7 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import { MobileOverlayHostContext, MobileOverlayLevelContext } from "./MobileOverlayHost";
 import { SurfaceVisibilityContext, useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
-import { keyboardMotionRemaining, onKeyboardMotion } from "./keyboardMotion";
+import { keyboardMotionRemaining, keyboardViewportHeight, onKeyboardMotion } from "./keyboardMotion";
 import { ArrowLeft, X } from "../shared/ui/icons";
 import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { useTranslation } from "../shared/i18n/useTranslation";
@@ -52,6 +52,27 @@ export const SHEET_WIDTH = {
 
 export type MobileSheetPoint = { x: number; y: number };
 
+export function MobileSheetHeader({ title, subtitle, onBack, onClose }: {
+  title: string;
+  subtitle?: string;
+  onBack?: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <header className="mobile-sheet-header">
+      <button type="button" className="mobile-sheet-header-button"
+        aria-label={t(onBack ? "Back" : "Close")} onClick={onBack ?? onClose}>
+        {onBack ? <ArrowLeft size={24} /> : <X size={24} />}
+      </button>
+      <div className="mobile-sheet-header-title">
+        <strong>{title}</strong>
+        {subtitle ? <small>{subtitle}</small> : null}
+      </div>
+    </header>
+  );
+}
+
 export function MobileSheet({
   open = true,
   title,
@@ -68,6 +89,7 @@ export function MobileSheet({
   overlapAnchor = false,
   constrainWidthToAnchor = false,
   detents = false,
+  surface = "glass",
   header,
   children,
 }: {
@@ -93,6 +115,8 @@ export function MobileSheet({
   constrainWidthToAnchor?: boolean;
   /** Bottom sheets only: open at half height and pull up to full screen. */
   detents?: boolean;
+  /** Opaque forms avoid filtering the entire viewport while scrolling. */
+  surface?: "glass" | "solid";
   /** A centred title row with a close button, or Back when `onBack` is set. */
   header?: { title: string; subtitle?: string };
   children: ReactNode;
@@ -145,12 +169,17 @@ export function MobileSheet({
             height: 0,
           }
         : trigger!.getBoundingClientRect();
-      const size = element.getBoundingClientRect();
+      // Layout dimensions stay stable while the menu scales into view.
+      const bounds = element.getBoundingClientRect();
+      const size = {
+        width: element.offsetWidth || bounds.width,
+        height: element.offsetHeight || bounds.height,
+      };
       // Place inside the safe region, then translate back to the viewport.
       const viewportWidth =
         (viewport?.width ?? window.innerWidth) - insets.left - insets.right;
       const height =
-        (viewport?.height ?? window.innerHeight) - insets.top - insets.bottom;
+        keyboardViewportHeight() - insets.top - insets.bottom;
       const offsetLeft = (viewport?.offsetLeft ?? 0) + insets.left;
       const offsetTop = (viewport?.offsetTop ?? 0) + insets.top;
       const clampY = (value: number) =>
@@ -194,13 +223,16 @@ export function MobileSheet({
             : next.bottom + window.innerHeight - offsetTop - height,
         width: next.width,
         maxHeight: next.maxHeight,
+        transformOrigin: `${align === "end" ? "right" : align === "center" ? "center" : "left"} ${next.side === "top" ? "bottom" : "top"}`,
       };
+      element.dataset.anchorSide = next.side;
       setPosition((previous) =>
         previous?.left === style.left &&
         previous?.top === style.top &&
         previous?.bottom === style.bottom &&
-        previous?.width === style.width &&
-        previous?.maxHeight === style.maxHeight
+          previous?.width === style.width &&
+          previous?.maxHeight === style.maxHeight &&
+          previous?.transformOrigin === style.transformOrigin
           ? previous
           : style,
       );
@@ -278,6 +310,48 @@ export function MobileSheet({
     overlapAnchor,
     constrainWidthToAnchor,
   ]);
+  useLayoutEffect(() => {
+    const element = dialog.current;
+    if (!element || placement !== "anchor") return;
+    if (!element.animate || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      element.style.removeProperty("transform");
+      element.style.removeProperty("opacity");
+      return;
+    }
+    const hidden = `translateY(${element.dataset.anchorSide === "top" ? 6 : -6}px) scale(0.97)`;
+    const computed = getComputedStyle(element);
+    element.dataset.anchorMotion = "true";
+    const animation = element.animate([
+      {
+        transform: element.style.transform || (active ? hidden : computed.transform),
+        opacity: element.style.opacity || (active ? "0" : computed.opacity || "1"),
+      },
+      { transform: active ? "translateY(0px) scale(1)" : hidden, opacity: active ? 1 : 0 },
+    ], {
+      duration: active ? SHEET_MOTION_MS : SHEET_CLOSE_MS,
+      easing: active ? "cubic-bezier(0.22, 1, 0.36, 1)" : "ease-in",
+      fill: "both",
+    });
+    void animation.finished.catch(() => {});
+    animation.onfinish = () => {
+      if (active) {
+        element.style.removeProperty("transform");
+        element.style.removeProperty("opacity");
+        animation.cancel();
+      }
+      finish();
+    };
+    return () => {
+      // Reverse from the visible frame, including repeated taps during closing.
+      if (animation.playState === "running") {
+        const visible = getComputedStyle(element);
+        element.style.transform = visible.transform;
+        element.style.opacity = visible.opacity;
+      }
+      animation.onfinish = null;
+      animation.cancel();
+    };
+  }, [active, placement, finish]);
   useEffect(() => {
     if (!active) return;
     const input = preserveFocus?.current;
@@ -308,7 +382,7 @@ export function MobileSheet({
         ...(dialog.current?.querySelectorAll<HTMLElement>(
           'button:not(:disabled), input:not(:disabled), [tabindex="0"]',
         ) ?? []),
-      ];
+      ].filter((element) => !element.closest('[inert], [aria-hidden="true"]'));
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (!first) {
@@ -366,6 +440,7 @@ export function MobileSheet({
         ref={dialog}
         className="mobile-sheet"
         data-detents={detents || undefined}
+        data-surface={surface}
         style={
           placement === "anchor"
             ? (position ?? { visibility: "hidden" })
@@ -384,20 +459,7 @@ export function MobileSheet({
           <div className="mobile-sheet-grip" aria-hidden="true" />
         )}
         {header && (
-          <header className="mobile-sheet-header">
-            <button
-              type="button"
-              className="mobile-sheet-header-button"
-              aria-label={t(onBack ? "Back" : "Close")}
-              onClick={onBack ?? onClose}
-            >
-              {onBack ? <ArrowLeft size={24} /> : <X size={24} />}
-            </button>
-            <div className="mobile-sheet-header-title">
-              <strong>{header.title}</strong>
-              {header.subtitle ? <small>{header.subtitle}</small> : null}
-            </div>
-          </header>
+          <MobileSheetHeader {...header} onBack={onBack} onClose={onClose} />
         )}
         <div className="mobile-sheet-content">
           {placement === "dialog" && (

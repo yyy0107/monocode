@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
-import { ChevronDown, MessageSquare } from "../../../shared/ui/icons";
+import { ChevronDown, ChevronRight, MessageSquare } from "../../../shared/ui/icons";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import type { QuestionAnswer, UserQuestionRecord } from "../model/userQuestion";
 import { questionRecordAnswers } from "../model/questionHistory";
-import { QuestionForm } from "./QuestionForm";
+import { QuestionHistoryForm } from "./QuestionHistoryForm";
+import { TranscriptPlatformContext } from "./TranscriptPlatform";
 
 export function QuestionHistoryCard({
   blockId,
@@ -20,15 +21,15 @@ export function QuestionHistoryCard({
   ) => boolean | void | Promise<boolean | void>;
 }) {
   const { t } = useTranslation();
+  const { openQuestion } = useContext(TranscriptPlatformContext);
   const [open, setOpen] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string>();
   const canAnswer =
     question.allowLateReply &&
     !pending &&
     !question.reply &&
     question.decision !== "answered" &&
     !!onAnswer;
+  const sheet = canAnswer && !!openQuestion;
   const status =
     question.reply || question.decision === "answered"
       ? t("Answered")
@@ -43,8 +44,9 @@ export function QuestionHistoryCard({
       <button
         type="button"
         className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-[12px] hover:bg-content/5"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        aria-expanded={sheet ? undefined : open}
+        aria-haspopup={sheet ? "dialog" : undefined}
+        onClick={() => sheet ? openQuestion?.(blockId) : setOpen((value) => !value)}
       >
         <MessageSquare className="size-3.5 shrink-0 text-content/50" />
         <span className="min-w-0 flex-1 break-words">
@@ -53,39 +55,18 @@ export function QuestionHistoryCard({
         <span className="shrink-0 text-[11px] text-content/50">
           {canAnswer ? t("Answer question") : status}
         </span>
-        <ChevronDown
+        {sheet ? <ChevronRight className="size-3.5 shrink-0" /> : <ChevronDown
           className={`size-3.5 shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
-        />
+        />}
       </button>
-      <AnimatedCollapse expanded={open}>
-        {canAnswer ? (
-          <fieldset
-            disabled={sending}
-            className="mobile-shared-question m-0 min-w-0 border-0 p-0"
-          >
-            <QuestionForm
-              prompt={{ ...question, autoResolveAt: undefined }}
-              onReply={async (_, reply) => {
-                if (reply.kind === "skipped") {
-                  setOpen(false);
-                  return;
-                }
-                if (sending) return;
-                setSending(true);
-                setError(undefined);
-                try {
-                  const accepted = await onAnswer?.({ blockId, reply });
-                  if (accepted !== false) setOpen(false);
-                } catch (reason) {
-                  setError(
-                    t(reason instanceof Error ? reason.message : String(reason)),
-                  );
-                } finally {
-                  setSending(false);
-                }
-              }}
-            />
-          </fieldset>
+      <AnimatedCollapse expanded={open && !sheet}>
+        {canAnswer && !sheet ? (
+          <QuestionHistoryForm
+            blockId={blockId}
+            question={question}
+            onAnswer={onAnswer!}
+            onClose={() => setOpen(false)}
+          />
         ) : (
           <div className="space-y-3 px-3 pb-3 text-[12px]">
             {question.questions.map((item) => {
@@ -109,11 +90,6 @@ export function QuestionHistoryCard({
             })}
           </div>
         )}
-        {error ? (
-          <p role="alert" className="px-3 pb-3 text-[12px] text-red-400">
-            {error}
-          </p>
-        ) : null}
       </AnimatedCollapse>
     </div>
   );

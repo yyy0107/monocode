@@ -12,7 +12,7 @@ import type { Block } from "../features/sessions/model/session";
 import { resolveWorkspacePath } from "../shared/lib/paths";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { Check, Copy, File as FileIcon } from "../shared/ui/icons";
-import { MobileSheet } from "./MobileSheet";
+import { MobileSheet, MobileSheetHeader } from "./MobileSheet";
 
 type ReadOutput = { count: number; start?: number; end?: number };
 
@@ -88,6 +88,7 @@ export function MobileToolSheet({
   onOpenFile,
   onBack,
   onClose,
+  embedded = false,
 }: {
   open?: boolean;
   onExited?: () => void;
@@ -97,6 +98,8 @@ export function MobileToolSheet({
   /** Returns to the step list this call was opened from. */
   onBack?: () => void;
   onClose: () => void;
+  /** Render as a page inside the activity sheet's navigation stack. */
+  embedded?: boolean;
 }) {
   const { t } = useTranslation();
   const { copyText } = useContext(TranscriptPlatformContext);
@@ -165,21 +168,20 @@ export function MobileToolSheet({
   // is the first section, so a long command never crowds the title row.
   const verb = toolCategory(block) === "edit" ? editVerb(label) : (label.split(/\s/, 1)[0] ?? "");
   const name = verb ? verb[0].toUpperCase() + verb.slice(1) : t("Tool details");
-  return (
-    <MobileSheet open={open} onExited={onExited} title="Tool details" onBack={onBack} onClose={onClose}
-      detents header={{ title: name, subtitle: t(STATE_LABEL[state]) }}>
+  const content = (
       <div className="mobile-tool-sheet" data-state={state}>
         {/* A command the call did not echo back as input is shown under the title. */}
         {toolCategory(block) === "run" && !input
           ? section("call", "Command", label)
           : null}
         {preview ? (
-          <div className="mobile-detail-section">
+          <div className="mobile-detail-section mobile-tool-diff">
             <FilePreview
+              key={path ?? block.id}
               preview={preview}
               status={state}
               cwd={cwd}
-              onOpenFile={onOpenFile}
+              variant="list"
             />
           </div>
         ) : null}
@@ -202,6 +204,18 @@ export function MobileToolSheet({
           </button>
         ) : null}
       </div>
+  );
+  const header = { title: name, subtitle: t(STATE_LABEL[state]) };
+  if (embedded) return (
+    <>
+      <MobileSheetHeader {...header} onBack={onBack} onClose={onClose} />
+      <div className="mobile-sheet-page-scroll" data-mobile-page-scroll>{content}</div>
+    </>
+  );
+  return (
+    <MobileSheet open={open} onExited={onExited} title="Tool details" onBack={onBack} onClose={onClose}
+      detents header={header}>
+      {content}
     </MobileSheet>
   );
 }

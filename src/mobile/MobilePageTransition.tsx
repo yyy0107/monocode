@@ -7,7 +7,7 @@ import {
   type RefObject,
 } from "react";
 import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
-import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
+import { SurfaceVisibilityContext, useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import { MobilePageStateContext, type MobilePageState } from "./mobilePageState";
 import { MobileOverlayLevelContext } from "./MobileOverlayHost";
 import "./pageMotion.css";
@@ -36,6 +36,7 @@ function usePageMotion(
   enter: boolean,
   direction: Direction,
   finish: () => void,
+  slide = false,
 ) {
   useLayoutEffect(() => {
     const node = element.current;
@@ -43,10 +44,10 @@ function usePageMotion(
     const computed = getComputedStyle(node);
     const animation = node.animate([
       {
-        opacity: node.style.opacity || (active ? "0" : computed.opacity || "1"),
-        transform: node.style.transform || (active ? `translateX(${direction * 10}px)` : computed.transform),
+        opacity: slide ? 1 : node.style.opacity || (active ? "0" : computed.opacity || "1"),
+        transform: node.style.transform || (active ? `translateX(${direction * (slide ? 100 : 10)}${slide ? "%" : "px"})` : computed.transform),
       },
-      { opacity: active ? 1 : 0, transform: active ? "translateX(0px)" : `translateX(${-direction * 10}px)` },
+      { opacity: slide || active ? 1 : 0, transform: active ? "translateX(0px)" : `translateX(${-direction * (slide ? 100 : 10)}${slide ? "%" : "px"})` },
     ], { duration: MOBILE_PAGE_MOTION_MS, easing: EASING, fill: "both" });
     // A reversal intentionally cancels the old animation's finished promise.
     void animation.finished.catch(() => {});
@@ -68,10 +69,10 @@ function usePageMotion(
       animation.onfinish = null;
       animation.cancel();
     };
-  }, [active, enter, direction, element, finish]);
+  }, [active, enter, direction, element, finish, slide]);
 }
 
-function PageLayer({ active, visible, enter, direction, page, children, onExited }: {
+function PageLayer({ active, visible, enter, direction, page, children, onExited, slide }: {
   active: boolean;
   visible: boolean;
   enter: boolean;
@@ -79,12 +80,13 @@ function PageLayer({ active, visible, enter, direction, page, children, onExited
   page: MobilePageState;
   children: ReactNode;
   onExited: () => void;
+  slide: boolean;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const { foldState, finish } = useCollapseMotion(active, MOBILE_PAGE_MOTION_MS);
   const exit = useRef(onExited);
   exit.current = onExited;
-  usePageMotion(element, active, enter, direction, finish);
+  usePageMotion(element, active, enter, direction, finish, slide);
   useLayoutEffect(() => {
     if (!active && foldState === "closed") exit.current();
   }, [active, foldState]);
@@ -92,7 +94,7 @@ function PageLayer({ active, visible, enter, direction, page, children, onExited
     if (!active) return;
     const node = element.current;
     if (!node) return;
-    const selectors = [".mobile-home-scroll", ".mobile-settings"];
+    const selectors = [".mobile-home-scroll", ".mobile-settings", "[data-mobile-page-scroll]"];
     for (const selector of selectors) {
       const scroll = node.querySelector<HTMLElement>(selector);
       if (scroll) scroll.scrollTop = page.scroll.get(selector) ?? 0;
@@ -106,13 +108,20 @@ function PageLayer({ active, visible, enter, direction, page, children, onExited
     node.addEventListener("scroll", save, true);
     return () => { save(); node.removeEventListener("scroll", save, true); };
   }, [active, page]);
+  useLayoutEffect(() => {
+    if (slide && active && visible)
+      element.current?.querySelector<HTMLElement>(".mobile-sheet-header-button")?.focus({ preventScroll: true });
+  }, [slide, active, visible]);
   return (
     <div
       ref={element}
       className="mobile-page-layer"
       data-page-active={active}
       data-page-motion={!active ? "exit" : enter ? "enter" : undefined}
-      style={{ "--mobile-page-offset": `${direction * 10}px` } as CSSProperties}
+      style={{
+        "--mobile-page-offset": `${direction * (slide ? 100 : 10)}${slide ? "%" : "px"}`,
+        "--mobile-page-start-opacity": slide ? 1 : 0,
+      } as CSSProperties}
       inert={!active || !visible}
       aria-hidden={!active || !visible || undefined}
       onAnimationEnd={(event) => { if (event.target === event.currentTarget) finish(); }}
@@ -130,12 +139,15 @@ interface Entry { route: MobileRoute; id: number; page: MobilePageState; }
 const pageState = (): MobilePageState => ({ scroll: new Map(), values: new Map() });
 
 /** Only the active page and its departing neighbor occupy DOM. */
-export function MobilePageTransition({ route, visible = true, animate = true, children }: {
+export function MobilePageTransition({ route, visible = true, animate = true, slide = false, children }: {
   route: MobileRoute;
   visible?: boolean;
   animate?: boolean;
+  /** Full-width navigation inside a persistent sheet, without fading pages. */
+  slide?: boolean;
   children: ReactNode;
 }) {
+  const parentVisible = useSurfaceVisibility();
   const pages = useRef(new Map<string, MobilePageState>());
   const [state, setState] = useState<{
     current: Entry; previous?: Entry & { children: ReactNode }; serial: number; direction: Direction; enter: boolean;
@@ -169,7 +181,8 @@ export function MobilePageTransition({ route, visible = true, animate = true, ch
   return (
     <div className="mobile-page-stack">
       {layers.map((entry) => (
-        <PageLayer key={entry.id} active={entry.active} visible={visible}
+        <PageLayer key={entry.id} active={entry.active} visible={visible && parentVisible}
+          slide={slide}
           enter={state.enter} direction={state.direction} page={entry.page}
           onExited={() => setState((current) => current.previous?.id === entry.id
             ? { ...current, previous: undefined } : current)}>

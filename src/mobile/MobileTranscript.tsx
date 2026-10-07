@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AgentTranscript } from "../features/sessions/ui/AgentTranscript";
 import { QuestionForm } from "../features/sessions/ui/QuestionForm";
+import { QuestionHistoryForm } from "../features/sessions/ui/QuestionHistoryForm";
 import { questionFollowUp } from "../features/sessions/model/questionHistory";
 import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
 import { ArrowDownCircle } from "../shared/ui/icons";
@@ -21,19 +22,23 @@ import {
 import { MobileToolSheet } from "./MobileToolSheet";
 import { MobileActivitySheet } from "./MobileActivitySheet";
 import { MobileFileSheet } from "./MobileFileSheet";
+import { MobileSheet } from "./MobileSheet";
+import { useTranslation } from "../shared/i18n/useTranslation";
 import { useTranscriptLayout } from "../features/sessions/hooks/useTranscriptLayout";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import { useStableCallback } from "./useStableCallback";
 
 type Detail =
+  | { kind: "question"; blockId: string }
   | { kind: "activity"; steps: Block[] }
   | { kind: "tool"; block: Block; fromActivity?: Block[] }
-  | { kind: "file"; path: string; line?: number; from?: Block };
+  | { kind: "file"; path: string; line?: number; from?: Block; fromActivity?: Block[] };
 type Details = {
   active?: Detail["kind"];
   activity?: Extract<Detail, { kind: "activity" }>;
   tool?: Extract<Detail, { kind: "tool" }>;
   file?: Extract<Detail, { kind: "file" }>;
+  question?: Extract<Detail, { kind: "question" }>;
 };
 
 /** Host snapshots feed the same message renderer used by desktop sessions.
@@ -54,6 +59,7 @@ export const MobileTranscript = memo(function MobileTranscript({
   animateFrom?: string;
   active?: boolean;
 }) {
+  const { t } = useTranslation();
   const parentVisible = useSurfaceVisibility();
   const visible = active && parentVisible;
   const [detail, setDetail] = useState<Details>({});
@@ -78,7 +84,10 @@ export const MobileTranscript = memo(function MobileTranscript({
         ...current, active: "tool", tool: { kind: "tool", block },
       })),
       openActivity: (steps: Block[]) => setDetail((current) => ({
-        ...current, active: "activity", activity: { kind: "activity", steps },
+        ...current, active: "activity", activity: { kind: "activity", steps }, tool: undefined,
+      })),
+      openQuestion: (blockId: string) => setDetail((current) => ({
+        ...current, active: "question", question: { kind: "question", blockId },
       })),
       liveClockInFooter: true,
     }),
@@ -93,6 +102,7 @@ export const MobileTranscript = memo(function MobileTranscript({
         file: {
           kind: "file", path, line: navigation?.line,
           from: current.active === "tool" ? current.tool?.block : undefined,
+          fromActivity: current.active === "tool" ? current.tool?.fromActivity : undefined,
         },
       })),
     [],
@@ -105,6 +115,12 @@ export const MobileTranscript = memo(function MobileTranscript({
   );
   const { session, runId } = snapshot;
   const sessionId = session.id;
+  const questionBlockId = detail.question?.blockId;
+  const savedQuestion = detail.question
+    ? session.blocks.find((block) => block.id === detail.question!.blockId)?.question
+    : undefined;
+  const canAnswerSavedQuestion = !!savedQuestion?.allowLateReply && !savedQuestion.reply &&
+    savedQuestion.decision !== "answered" && session.pendingQuestion?.historyId !== detail.question?.blockId;
   const workflowParent = useMemo(() => session.blocks.some((block) => block.workflowRun)
     ? { id: session.id, harness: session.harness, model: session.model, modelSettings: session.modelSettings,
       workflowRuns: session.workflowRuns, cwd: session.cwd } : undefined,
@@ -114,7 +130,9 @@ export const MobileTranscript = memo(function MobileTranscript({
       text: questionFollowUp(session, answer), followUpBehavior: "steer", questionAnswer: answer }));
   const closeDetail = useCallback(() => setDetail((current) => ({ ...current, active: undefined })), []);
   const releaseActivity = useCallback(() => setDetail((current) =>
-    current.active === "activity" ? current : { ...current, activity: undefined }), []);
+    current.active === "activity" || (current.active === "tool" && current.tool?.fromActivity)
+      ? current : { ...current, activity: undefined,
+        tool: current.tool?.fromActivity ? undefined : current.tool }), []);
   const openStep = useCallback((block: Block) => setDetail((current) => ({
     ...current, active: "tool", tool: { kind: "tool", block, fromActivity: current.activity?.steps },
   })), []);
@@ -122,6 +140,14 @@ export const MobileTranscript = memo(function MobileTranscript({
     current.active === "tool" ? current : { ...current, tool: undefined }), []);
   const releaseFile = useCallback(() => setDetail((current) =>
     current.active === "file" ? current : { ...current, file: undefined }), []);
+  const releaseQuestion = useCallback(() => setDetail((current) =>
+    current.active === "question" && canAnswerSavedQuestion ? current : {
+      ...current, question: undefined,
+      active: current.active === "question" ? undefined : current.active,
+    }), [canAnswerSavedQuestion]);
+  const closeQuestion = useCallback(() => setDetail((current) =>
+    current.active === "question" && current.question?.blockId === questionBlockId
+      ? { ...current, active: undefined } : current), [questionBlockId]);
   // Memoized transcript blocks compare this callback; a fresh one on every
   // poll would re-render each block while a reply streams.
   const onApproval = useMemo(
@@ -221,9 +247,28 @@ export const MobileTranscript = memo(function MobileTranscript({
       {sheetHost &&
         createPortal(
           <>
+            {detail.question && savedQuestion && (
+              <MobileSheet
+                open={visible && detail.active === "question" && canAnswerSavedQuestion}
+                onExited={releaseQuestion}
+                title="Answer question"
+                header={{ title: t("Answer question") }}
+                onClose={closeQuestion}
+              >
+                <QuestionHistoryForm
+                  key={detail.question.blockId}
+                  blockId={detail.question.blockId}
+                  question={savedQuestion}
+                  disabled={disabled || !canAnswerSavedQuestion}
+                  onAnswer={onQuestionFollowUp}
+                  onClose={closeQuestion}
+                />
+              </MobileSheet>
+            )}
             {detail.activity && (
               <MobileActivitySheet
-                open={visible && detail.active === "activity"}
+                open={visible && (detail.active === "activity" ||
+                  (detail.active === "tool" && !!detail.tool?.fromActivity))}
                 onExited={releaseActivity}
                 // Follow live blocks so a running group fills in while open.
                 steps={detail.activity.steps.map((step) =>
@@ -235,10 +280,15 @@ export const MobileTranscript = memo(function MobileTranscript({
                     return isToolBlock(current) && toolCallState(current) === "pending";
                   })}
                 onStep={openStep}
+                selectedStep={detail.tool?.fromActivity
+                  ? session.blocks.find((block) => block.id === detail.tool!.block.id) ?? detail.tool.block
+                  : undefined}
+                onBack={() => setDetail((current) => ({ ...current, active: "activity", tool: undefined }))}
+                onOpenFile={readBinaryFile ? openFile : undefined}
                 onClose={closeDetail}
               />
             )}
-            {detail.tool && (
+            {detail.tool && !detail.tool.fromActivity && (
               <MobileToolSheet
                 open={visible && detail.active === "tool"}
                 onExited={releaseTool}
@@ -250,12 +300,6 @@ export const MobileTranscript = memo(function MobileTranscript({
                 }
                 cwd={session.cwd}
                 onOpenFile={readBinaryFile ? openFile : undefined}
-                onBack={
-                  detail.tool.fromActivity
-                    ? () => setDetail((current) => ({ ...current, active: "activity",
-                      activity: { kind: "activity", steps: detail.tool!.fromActivity! } }))
-                    : undefined
-                }
                 onClose={closeDetail}
               />
             )}
@@ -271,7 +315,9 @@ export const MobileTranscript = memo(function MobileTranscript({
                 onBack={
                   detail.file.from
                     ? () => setDetail((current) => ({ ...current, active: "tool",
-                      tool: { kind: "tool", block: detail.file!.from! } }))
+                      tool: { kind: "tool", block: detail.file!.from!, fromActivity: detail.file!.fromActivity },
+                      activity: detail.file!.fromActivity
+                        ? { kind: "activity", steps: detail.file!.fromActivity } : current.activity }))
                     : undefined
                 }
                 onClose={closeDetail}

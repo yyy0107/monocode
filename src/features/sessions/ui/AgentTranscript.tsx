@@ -2547,19 +2547,22 @@ function ActivityPhaseGroup({
         {/*
          * The two icons share one 14px box, so the swap is instant: fading
          * between them leaves both half-drawn on top of each other.
+         * Sheet triggers keep their icon; their chevron lives at the row's end.
          */}
         <span className="relative flex size-3.5 shrink-0 items-center justify-center">
           {monoCodePhase ? (
             <MonoCodeMark
-              className={`size-3.5 ${open ? "opacity-0" : "group-hover:opacity-0 group-focus-within:opacity-0"}`}
+              className={`size-3.5 ${sheet ? "" : open ? "opacity-0" : "group-hover:opacity-0 group-focus-within:opacity-0"}`}
             />
           ) : (
             <ActivityPhaseIcon
               kind={phase.kind}
               className={
-                open
-                  ? "opacity-0"
-                  : "group-hover:opacity-0 group-focus-within:opacity-0"
+                sheet
+                  ? ""
+                  : open
+                    ? "opacity-0"
+                    : "group-hover:opacity-0 group-focus-within:opacity-0"
               }
             />
           )}

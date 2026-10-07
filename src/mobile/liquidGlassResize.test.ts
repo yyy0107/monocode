@@ -185,6 +185,28 @@ it("updates lenses when header capsule eligibility changes", async () => {
   expect(document.querySelectorAll("filter")).toHaveLength(1);
 });
 
+it("skips solid settings sheets and releases a lens when a sheet becomes solid", async () => {
+  const { encode } = fixture("plain");
+  const sheet = document.createElement("section");
+  sheet.className = "mobile-sheet";
+  sheet.dataset.surface = "solid";
+  vi.spyOn(sheet, "offsetWidth", "get").mockReturnValue(390);
+  vi.spyOn(sheet, "offsetHeight", "get").mockReturnValue(760);
+  document.body.append(sheet);
+  await vi.advanceTimersByTimeAsync(32);
+  expect(document.querySelectorAll("filter")).toHaveLength(0);
+  expect(encode).not.toHaveBeenCalled();
+
+  sheet.dataset.surface = "glass";
+  await vi.advanceTimersByTimeAsync(32);
+  expect(document.querySelectorAll("filter")).toHaveLength(1);
+  expect(sheet.style.getPropertyValue("--mobile-glass-refraction")).toContain("url(");
+  sheet.dataset.surface = "solid";
+  await vi.advanceTimersByTimeAsync(32);
+  expect(document.querySelectorAll("filter")).toHaveLength(0);
+  expect(sheet.style.getPropertyValue("--mobile-glass-refraction")).toBe("");
+});
+
 
 it("restores the original lens box on rapid resize reversal without encoding again", () => {
   const { height, encode, resize } = fixture();

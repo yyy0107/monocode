@@ -17,8 +17,8 @@ export type SheetDetent = "half" | "full";
 
 /**
  * Where a two-stop sheet settles when released with its top `top` px below the
- * full-height position: a fling picks the next stop in its direction, a slow
- * release the nearest one, and a pull well below the half stop closes it.
+ * full-height position: an upward fling expands, a downward fling dismisses,
+ * and a slow release picks the nearest stop or closes below the half stop.
  */
 export function settleDetent(
   top: number,
@@ -27,7 +27,7 @@ export function settleDetent(
   halfHeight: number,
 ): SheetDetent | "dismiss" {
   if (velocity < -DISMISS_VELOCITY) return "full";
-  if (velocity > DISMISS_VELOCITY) return top < halfTop ? "half" : "dismiss";
+  if (velocity > DISMISS_VELOCITY) return "dismiss";
   if (top > halfTop + halfHeight * DISMISS_SHARE) return "dismiss";
   return top < halfTop / 2 ? "full" : "half";
 }

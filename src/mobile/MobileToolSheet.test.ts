@@ -332,6 +332,49 @@ describe("MobileToolSheet", () => {
     );
     expect(node.textContent).toContain("1 passed");
   });
+
+  it("keeps diff content mounted and inert while closing, including rapid reversal", () => {
+    vi.useFakeTimers();
+    try {
+      act(() =>
+        root.render(
+          createElement(MobileToolSheet, {
+            block: edit,
+            onClose: () => {},
+          }),
+        ),
+      );
+      const toggle = node.querySelector<HTMLButtonElement>(
+        ".file-preview-list > button",
+      )!;
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      act(() => toggle.click());
+      const closing = node.querySelector(
+        '.file-preview-list [data-fold-state="closing"]',
+      )!;
+      expect(closing.hasAttribute("inert")).toBe(true);
+      expect(closing.textContent).toContain("after");
+      act(() => toggle.click());
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      expect(closing.hasAttribute("inert")).toBe(false);
+      act(() => vi.advanceTimersByTime(400));
+      expect(
+        node.querySelector('.file-preview-list [data-fold-state="open"]'),
+      ).not.toBeNull();
+      act(() => toggle.click());
+      act(() => vi.advanceTimersByTime(400));
+      expect(
+        node.querySelector(".file-preview-list .zen-fold-item"),
+      ).toBeNull();
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      act(() => toggle.click());
+      expect(node.querySelector(".file-preview-list")?.textContent).toContain(
+        "after",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("mobile file preview helpers", () => {

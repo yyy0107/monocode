@@ -100,10 +100,10 @@ describe("mobile popover position", () => {
   });
   it("follows a moving composer anchor without resize or scroll events and stops when closed", () => {
     disposeKeyboard = installKeyboardMotion();
-    const keyboard = () => act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
-      detail: { height: 300, viewport: 800, duration: 200, easing: "linear" },
+    const keyboard = (height: number) => act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+      detail: { height, viewport: 800, duration: 200, easing: "linear" },
     })));
-    keyboard(); // Also covers mounting midway through an already active motion.
+    keyboard(300); // Also covers mounting midway through an already active motion.
     const bounds = vi.spyOn(trigger, "getBoundingClientRect");
     const move = (bottom: number) => bounds.mockReturnValue(
       new DOMRect(40, window.innerHeight - bottom, 44, 44),
@@ -112,6 +112,7 @@ describe("mobile popover position", () => {
     const sheet = render();
     expect(sheet.style.bottom).toBe("308px");
     // Keyboard dismissal moves the dock while the button keeps its size.
+    keyboard(0);
     for (const bottom of [240, 140, 60]) {
       move(bottom);
       frame();
@@ -215,6 +216,52 @@ describe("mobile popover position", () => {
     ).toBe("open");
     render(undefined, false);
     expect(node.querySelector(".mobile-sheet")).toBeNull();
+  });
+
+  it("animates from the resolved anchor side and reverses from the visible frame", () => {
+    vi.useFakeTimers();
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(new DOMRect(40, 700, 260, 44));
+    const animations: { cancel: ReturnType<typeof vi.fn>; onfinish: (() => void) | null; playState: string; finished: Promise<void> }[] = [];
+    const animate = vi.spyOn(Element.prototype, "animate").mockImplementation(() => {
+      const animation = { cancel: vi.fn(), onfinish: null, playState: "running", finished: Promise.resolve() };
+      animations.push(animation);
+      return animation as unknown as Animation;
+    });
+    render(undefined, false);
+    const sheet = render(undefined, true);
+    expect(sheet.dataset.anchorSide).toBe("top");
+    expect(sheet.style.transformOrigin).toBe("right bottom");
+    expect((animate.mock.calls[0][0] as Keyframe[])[0].transform).toBe("translateY(6px) scale(0.97)");
+    const computedStyle = getComputedStyle;
+    const visible = { transform: "matrix(0.985, 0, 0, 0.985, 0, 3)", opacity: "0.5" };
+    vi.stubGlobal("getComputedStyle", (element: Element) => element === sheet ? visible : computedStyle(element));
+    render(undefined, false);
+    expect((animate.mock.calls[1][0] as Keyframe[])[0]).toEqual(visible);
+    expect(animations[0].cancel).toHaveBeenCalled();
+    expect(sheet.closest(".mobile-sheet-backdrop")?.hasAttribute("inert")).toBe(true);
+    visible.transform = "matrix(0.98, 0, 0, 0.98, 0, 4)";
+    visible.opacity = "0.3";
+    render(undefined, true);
+    expect((animate.mock.calls[2][0] as Keyframe[])[0]).toEqual(visible);
+    expect(node.querySelector(".mobile-sheet")).toBe(sheet);
+    animations[2].playState = "finished";
+    act(() => animations[2].onfinish?.());
+    expect(sheet.style.transform).toBe("");
+    expect(sheet.style.opacity).toBe("");
+    expect(sheet.closest<HTMLElement>(".mobile-sheet-backdrop")?.dataset.foldState).toBe("open");
+  });
+
+  it("keeps placement fixed while its visual bounds scale during opening", () => {
+    const sheet = render({ x: 72, y: 180 });
+    const before = { left: sheet.style.left, top: sheet.style.top, maxHeight: sheet.style.maxHeight };
+    Object.defineProperties(sheet, {
+      offsetWidth: { value: 220 },
+      offsetHeight: { value: 260 },
+    });
+    vi.spyOn(sheet, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 213, 252));
+    act(() => window.dispatchEvent(new Event("resize")));
+    frame();
+    expect({ left: sheet.style.left, top: sheet.style.top, maxHeight: sheet.style.maxHeight }).toEqual(before);
   });
 });
 

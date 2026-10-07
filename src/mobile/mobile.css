@@ -1706,6 +1706,15 @@ html.has-user-accent .mobile-send:not(:disabled) {
   --mobile-glass-shadow: 0 -8px 48px #0003;
   outline: none;
 }
+.mobile-sheet[data-surface="solid"] {
+  background: var(--color-background-base);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--mobile-glass-shadow);
+}
+.mobile-sheet[data-surface="solid"]::before {
+  display: none;
+}
 /* Bottom sheets rise in and can be pulled down by the grip (or by content
    that is scrolled to its top); see sheetDrag.ts. */
 .mobile-sheet-backdrop[data-placement="bottom"] {
@@ -1793,15 +1802,21 @@ html.has-user-accent .mobile-send:not(:disabled) {
   pointer-events: none;
   animation: mobile-sheet-fade 120ms ease reverse both;
 }
-.mobile-sheet-backdrop[data-placement="anchor"][data-fold-state="opening"] .mobile-sheet {
+.mobile-sheet-backdrop[data-placement="anchor"]:has(> [data-anchor-motion]) {
+  animation: none;
+}
+.mobile-sheet-backdrop[data-placement="anchor"][data-fold-state="opening"] .mobile-sheet:not([data-anchor-motion]) {
   animation: mobile-sheet-drop 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-.mobile-sheet-backdrop[data-placement="anchor"][data-fold-state="closing"] .mobile-sheet {
+.mobile-sheet-backdrop[data-placement="anchor"][data-fold-state="closing"] .mobile-sheet:not([data-anchor-motion]) {
   animation: mobile-sheet-drop 120ms ease reverse both;
 }
 @keyframes mobile-sheet-drop {
-  from { transform: translateY(-8px); }
-  to { transform: translateY(0); }
+  from { transform: translateY(var(--mobile-sheet-enter-y, -6px)) scale(0.97); }
+  to { transform: translateY(0) scale(1); }
+}
+.mobile-sheet[data-anchor-side="top"] {
+  --mobile-sheet-enter-y: 6px;
 }
 /* Shared floating menus and dialogs match the 200ms mobile sheet motion. */
 .popover-open {
@@ -2407,6 +2422,15 @@ html.theme-light .mobile-logo {
 .mobile-desktop-transcript .markdown-code-shell {
   max-width: 100%;
 }
+/* Touching live tool rows scrolls the conversation, not a nested desktop
+   window. Keep the disclosure wrapper responsible for its closing clip. */
+.mobile-desktop-transcript .zen-phase-body .zen-phase-live {
+  max-height: none;
+}
+.mobile-desktop-transcript .zen-phase-body[data-open="true"] .zen-phase-live {
+  overflow: visible;
+  overscroll-behavior: auto;
+}
 .mobile-desktop-transcript .agent-markdown table {
   display: block;
   overflow-x: auto;
@@ -2735,14 +2759,30 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   white-space: pre;
   counter-reset: line;
 }
+.mobile-file-plain > span {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+}
 .mobile-file-plain > span::before {
   counter-increment: line;
   content: counter(line);
   display: inline-block;
   width: 3ch;
-  margin-right: 12px;
+  box-sizing: content-box;
+  padding-right: 6px;
   text-align: right;
   color: color-mix(in srgb, var(--color-content) 30%, transparent);
+  user-select: none;
+}
+/* An opaque gutter stays readable as source scrolls beneath it. */
+.mobile-file-plain > span::before,
+.mobile-file-markdown [data-streamdown="code-block-body"] code > span::before {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--color-card);
+  vertical-align: top;
 }
 .mobile-file-plain > span[data-current="true"] {
   background: color-mix(in srgb, var(--color-accent) 22%, transparent);
@@ -2754,6 +2794,19 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 }
 .mobile-file-markdown .markdown-code-shell {
   margin-block: 0;
+}
+.mobile-file-markdown [data-streamdown="code-block-body"] {
+  padding-right: 4px;
+}
+.mobile-file-markdown [data-streamdown="code-block-body"] code > span {
+  /* Resolve the row height before the gutter's smaller font inherits it. */
+  line-height: 1lh;
+}
+.mobile-file-markdown [data-streamdown="code-block-body"] code > span::before {
+  box-sizing: content-box;
+  margin-right: 0;
+  padding-right: 6px;
+  line-height: inherit;
 }
 /* Markdown inside a detail sheet has fixed sizes in the shared stylesheet. */
 :is(.mobile-sheet, .mobile-modal, [role="dialog"], [data-popover-side])
@@ -2823,6 +2876,19 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 .mobile-shared-question [data-question-form] {
   flex: 1 1 auto;
   padding: 0;
+}
+/* The bottom sheet supplies the surface for a resumed question. */
+.mobile-sheet .mobile-shared-question {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+.mobile-sheet .mobile-shared-question::before {
+  display: none;
 }
 .mobile-shared-question [data-question-card] {
   flex: 1 1 auto;
@@ -3998,6 +4064,13 @@ button.mobile-settings-row:active {
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
+.mobile-sheet:has(> .mobile-sheet-content > .mobile-tool-sheet),
+.mobile-sheet-pages .mobile-page-layer:has(.mobile-tool-sheet) {
+  --mobile-popup-font-step: 0px;
+}
+.mobile-sheet:has(.mobile-activity-sheet, .mobile-tool-sheet) .mobile-sheet-header-title strong {
+  font-size: calc(16px + var(--mobile-popup-font-step, 0px));
+}
 .mobile-sheet-header-title small {
   max-width: 100%;
   overflow: hidden;
@@ -4012,18 +4085,72 @@ button.mobile-settings-row:active {
   gap: 18px;
   padding: 0 12px 12px;
 }
+.mobile-sheet-content:has(> .mobile-tool-sheet, > .mobile-file-sheet) {
+  padding-inline: 0;
+}
+.mobile-sheet[data-detents] .mobile-file-sheet {
+  padding-inline: 4px;
+}
+.mobile-tool-sheet > .mobile-tool-diff {
+  margin-inline: -12px;
+}
+.mobile-tool-diff .file-preview-list {
+  border-inline: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.mobile-tool-diff .file-preview-list > button:active {
+  background: var(--color-selection);
+}
 .mobile-sheet[data-detents] .mobile-detail-section h3 {
   font-size: calc(15px + var(--mobile-popup-font-step, 0px));
   font-weight: 500;
 }
 .mobile-sheet[data-detents] .mobile-detail-pre {
   max-height: none;
+  /* The reading sheet owns scrolling; an unbounded inner scroller would
+     swallow swipes over long command output without moving either surface. */
+  overflow: visible;
+  overscroll-behavior: auto;
   margin-top: 6px;
   padding: 16px 18px;
   border: 0;
   border-radius: 14px;
   background: var(--mobile-fill);
   font-size: calc(14px + var(--mobile-popup-font-step, 0px));
+}
+.mobile-sheet[data-detents] .mobile-file-sheet .mobile-file-plain {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-inline: 0;
+  background: var(--color-card);
+}
+
+/* Activity and tool details navigate within one sheet, preserving its detent. */
+.mobile-sheet-content:has(> .mobile-sheet-pages) {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+}
+.mobile-sheet-pages {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.mobile-sheet-pages .mobile-page-layer {
+  background: transparent;
+}
+.mobile-sheet-page-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mobile-sheet[data-detent="half"] .mobile-sheet-page-scroll {
+  overflow: hidden;
 }
 
 /* A live group's steps hang off the rail on the page itself, without the
@@ -4034,4 +4161,16 @@ button.mobile-settings-row:active {
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+/* Touch rows are taller than desktop rows and file paths can wrap. Anchor
+   their branches to the icon's center; inline disclosures keep their own rail. */
+.mobile-desktop-transcript .zen-phase-step:has(> [data-tool-open-row])::after {
+  top: calc(50% - 8px);
+}
+.mobile-desktop-transcript .zen-phase-step:has(> [data-tool-open-row]):is(
+    :last-child,
+    :has(+ .zen-phase-step[data-waiting])
+  )::before {
+  height: calc(50% - 7px);
 }

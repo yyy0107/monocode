@@ -23,6 +23,8 @@ export const TranscriptPlatformContext = createContext<
     openTool?: (block: Block) => void;
     /** Clients without a side panel list a group's steps in a sheet instead of unfolding it inline. */
     openActivity?: (steps: Block[]) => void;
+    /** Open a saved question in the client's answer surface. */
+    openQuestion?: (blockId: string) => void;
     /** The client shows the live turn clock elsewhere, so fold lines name only the phase. */
     liveClockInFooter?: boolean;
   }

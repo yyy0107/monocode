@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createElement, act } from "react";
+import { createElement, act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MobileTranscript } from "./MobileTranscript";
 import type {
@@ -22,6 +22,7 @@ function render(
 ) {
   const commands: HostCommand[] = [];
   const node = document.createElement("div");
+  node.className = "mobile-app";
   document.body.append(node);
   const snapshot: HostSession = {
     projectId: "project",
@@ -49,17 +50,18 @@ function render(
       ],
     },
   };
-  act(() => {
-    root = createRoot(node);
-    root.render(
-      createElement(MobileTranscript, {
-        snapshot,
-        disabled: options.disabled ?? false,
-        onCommand: options.onCommand ?? ((command) => { commands.push(command); }),
-      }),
-    );
-  });
-  return { node, commands };
+  let props: ComponentProps<typeof MobileTranscript> = {
+    snapshot,
+    disabled: options.disabled ?? false,
+    onCommand: options.onCommand ?? ((command) => { commands.push(command); }),
+  };
+  root = createRoot(node);
+  const update = (next: Partial<typeof props>) => {
+    props = { ...props, ...next };
+    act(() => root!.render(createElement(MobileTranscript, props)));
+  };
+  update({});
+  return { node, commands, snapshot, update };
 }
 
 describe("mobile approval interaction", () => {
@@ -225,6 +227,9 @@ describe("mobile character streaming", () => {
 });
 
 describe("mobile question history", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  const dialog = () => document.querySelector<HTMLElement>('.mobile-sheet-backdrop:not([inert]) [role="dialog"]')!;
   const question: Block = {
     id: "saved-question", role: "system", text: "Which source?",
     question: { requestId: 3, historyId: "saved-question", allowLateReply: true, decision: "skipped",
@@ -239,16 +244,23 @@ describe("mobile question history", () => {
     const history = node.querySelector('[data-question-history="saved-question"]')!;
     expect(history).not.toBeNull();
     expect(history.textContent).toContain("Answer question");
-    act(() => history.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
-    const option = [...history.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Local")!;
+    act(() => history.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!.click());
+    expect(history.querySelector("[data-question-form]")).toBeNull();
+    expect(dialog().closest(".mobile-app")).toBe(node);
+    expect(dialog().closest(".mobile-desktop-transcript")).toBeNull();
+    const option = [...dialog().querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Local")!;
     act(() => option.click());
-    await act(async () => history.querySelector<HTMLButtonElement>('[data-question-submit]')!.click());
+    await act(async () => dialog().querySelector<HTMLButtonElement>('[data-question-submit]')!.click());
     expect(commands).toEqual([expect.objectContaining({
       type: "send", sessionId: "session", text: "Which source?\nLocal", followUpBehavior: "steer",
       questionAnswer: { blockId: "saved-question", reply: { kind: "answered", answers: { q: ["local"] } } },
     })]);
     expect(commands[0]).not.toHaveProperty("runId");
     expect(commands[0]).not.toHaveProperty("requestId");
+    expect(dialog()).toBeNull();
+    expect(node.querySelector('.mobile-sheet-backdrop[data-fold-state="closing"][inert]')).not.toBeNull();
+    act(() => vi.advanceTimersByTime(300));
+    expect(node.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it("shows saved answers after reopening and keeps blocking questions read-only", () => {
@@ -271,16 +283,60 @@ describe("mobile question history", () => {
     const onCommand = vi.fn(async (_command: HostCommand) => false);
     const { node } = render({ blocks: [question], onCommand });
     const history = node.querySelector('[data-question-history="saved-question"]')!;
-    act(() => history.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
-    act(() => [...history.querySelectorAll<HTMLButtonElement>("button")]
+    act(() => history.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!.click());
+    act(() => [...dialog().querySelectorAll<HTMLButtonElement>("button")]
       .find(button => button.textContent === "Local")!.click());
-    const submit = history.querySelector<HTMLButtonElement>('[data-question-submit]')!;
+    const submit = dialog().querySelector<HTMLButtonElement>('[data-question-submit]')!;
     await act(async () => submit.click());
-    expect(history.querySelector('button[aria-expanded]')?.getAttribute("aria-expanded")).toBe("true");
+    expect(dialog()).not.toBeNull();
     expect(submit.disabled).toBe(false);
     await act(async () => submit.click());
     expect(onCommand).toHaveBeenCalledTimes(2);
     expect(onCommand.mock.calls[1][0]).toMatchObject({ type: "send", text: "Which source?\nLocal",
       questionAnswer: { blockId: "saved-question", reply: { kind: "answered", answers: { q: ["local"] } } } });
+  });
+
+  it("retains answers during a closing reversal and skips without sending a reply", () => {
+    const { node, commands } = render({ blocks: [question] });
+    const trigger = node.querySelector<HTMLButtonElement>('[data-question-history] > button')!;
+    act(() => trigger.click());
+    const sheet = dialog();
+    const option = sheet.querySelector<HTMLButtonElement>('[data-question-option]')!;
+    act(() => option.click());
+    act(() => sheet.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click());
+    expect(sheet.closest("[inert]")).not.toBeNull();
+    act(() => trigger.click());
+    expect(dialog()).toBe(sheet);
+    expect(option.getAttribute("aria-pressed")).toBe("true");
+    act(() => sheet.querySelector<HTMLButtonElement>('[data-question-secondary]')!.click());
+    act(() => vi.advanceTimersByTime(300));
+    expect(node.querySelector('[role="dialog"]')).toBeNull();
+    expect(commands).toEqual([]);
+  });
+
+  it("disables answers while disconnected and removes the sheet when the transcript is hidden", () => {
+    const { node, commands, update } = render({ blocks: [question], disabled: true });
+    act(() => node.querySelector<HTMLButtonElement>('[data-question-history] > button')!.click());
+    expect(dialog().querySelector<HTMLFieldSetElement>("fieldset")!.disabled).toBe(true);
+    update({ disabled: false });
+    expect(dialog().querySelector<HTMLFieldSetElement>("fieldset")!.disabled).toBe(false);
+    update({ active: false });
+    expect(node.querySelector('[role="dialog"]')).toBeNull();
+    update({ active: true });
+    expect(dialog()).toBeNull();
+    expect(commands).toEqual([]);
+  });
+
+  it("closes if another client answers the saved question", () => {
+    const { node, snapshot, update } = render({ blocks: [question] });
+    act(() => node.querySelector<HTMLButtonElement>('[data-question-history] > button')!.click());
+    const answered: Block = { ...question, question: { ...question.question!, decision: "answered",
+      reply: { kind: "answered", answers: { q: ["remote"] } } } };
+    update({ snapshot: { ...snapshot, session: { ...snapshot.session, blocks: [answered] } } });
+    expect(dialog()).toBeNull();
+    act(() => vi.advanceTimersByTime(300));
+    expect(node.querySelector('[role="dialog"]')).toBeNull();
+    act(() => node.querySelector<HTMLButtonElement>('[data-question-history] > button')!.click());
+    expect(node.querySelector('[data-question-history]')!.textContent).toContain("Remote");
   });
 });

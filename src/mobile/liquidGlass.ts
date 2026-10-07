@@ -16,7 +16,7 @@ export const LIQUID_GLASS_SELECTOR = [
   ".mobile-queue-pill",
   ".mobile-glass-preview-chip",
   ".mobile-drawer",
-  ".mobile-sheet",
+  '.mobile-sheet:not([data-surface="solid"])',
   ".mobile-shared-question",
   ".popover-backdrop",
 ].join(", ");
@@ -325,7 +325,7 @@ export function installLiquidGlass(root: HTMLElement): () => void {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ["data-floating", "data-capsule", "class"],
+    attributeFilter: ["data-floating", "data-capsule", "data-surface", "class"],
   });
   root.querySelectorAll(LIQUID_GLASS_SELECTOR).forEach(consider);
   flush();

@@ -15,10 +15,10 @@ describe("shouldDismiss", () => {
 });
 
 describe("settleDetent", () => {
-  it("flings to the next stop and otherwise settles at the nearest one", () => {
+  it("dismisses on a downward fling and otherwise settles at the nearest stop", () => {
     // Full stop at 0, half stop at 300, half height 500.
     expect(settleDetent(250, -0.9, 300, 500)).toBe("full");
-    expect(settleDetent(100, 0.9, 300, 500)).toBe("half");
+    expect(settleDetent(100, 0.9, 300, 500)).toBe("dismiss");
     expect(settleDetent(320, 0.9, 300, 500)).toBe("dismiss");
     expect(settleDetent(120, 0, 300, 500)).toBe("full");
     expect(settleDetent(200, 0, 300, 500)).toBe("half");
@@ -174,9 +174,11 @@ describe("MobileSheet drag", () => {
       Object.defineProperty(sheet, "offsetHeight", { value: 800 });
       const touch = (type: string, clientY: number) => {
         const target = sheet.querySelector(".body")!;
-        act(() => { target.dispatchEvent(new TouchEvent(type, {
+        const event = new TouchEvent(type, {
           bubbles: true, cancelable: true, touches: type === "touchend" ? [] : [{ clientY } as Touch],
-        })); });
+        });
+        act(() => { target.dispatchEvent(event); });
+        return event;
       };
       const pull = (from: number, to: number) => {
         touch("touchstart", from);
@@ -186,7 +188,7 @@ describe("MobileSheet drag", () => {
         touch("touchmove", to);
         touch("touchend", to);
       };
-      return { sheet, onClose, pull };
+      return { sheet, onClose, pull, touch };
     }
 
     it("opens at half height, expands from the body, and steps back down before closing", () => {
@@ -210,6 +212,42 @@ describe("MobileSheet drag", () => {
       const { sheet, onClose } = open();
       act(() => sheet.querySelector<HTMLButtonElement>('.mobile-sheet-header [aria-label="Close"]')!.click());
       expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it("dismisses a full sheet on a quick downward swipe without stopping at half height", () => {
+      const { sheet, onClose, pull, touch } = open();
+      pull(600, 400);
+      expect(sheet.dataset.detent).toBe("full");
+      act(() => vi.advanceTimersByTime(250));
+      touch("touchstart", 300);
+      act(() => vi.advanceTimersByTime(16));
+      touch("touchmove", 340);
+      act(() => vi.advanceTimersByTime(16));
+      touch("touchmove", 380);
+      touch("touchend", 380);
+      expect(sheet.closest(".mobile-sheet-backdrop")?.hasAttribute("inert")).toBe(true);
+      expect(sheet.style.transform).toBe("translateY(824px)");
+      act(() => vi.advanceTimersByTime(130));
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(node.querySelector(".mobile-sheet")).toBeNull();
+    });
+
+    it("leaves upward swipes and already-scrolled content to native scrolling", () => {
+      const { sheet, onClose, pull, touch } = open();
+      pull(600, 400);
+      act(() => vi.advanceTimersByTime(250));
+      touch("touchstart", 600);
+      expect(touch("touchmove", 450).defaultPrevented).toBe(false);
+      touch("touchend", 450);
+      sheet.querySelector<HTMLElement>(".body")!.scrollTop = 100;
+      touch("touchstart", 300);
+      act(() => vi.advanceTimersByTime(16));
+      expect(touch("touchmove", 450).defaultPrevented).toBe(false);
+      touch("touchend", 450);
+      act(() => vi.advanceTimersByTime(130));
+      expect(sheet.dataset.detent).toBe("full");
+      expect(sheet.style.transform).toBe("translateY(0px)");
+      expect(onClose).not.toHaveBeenCalled();
     });
   });
 });
