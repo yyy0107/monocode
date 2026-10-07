@@ -2093,6 +2093,7 @@ export function Composer({
           <div
             ref={boxRef}
             data-composer-box
+            data-prompt-launch-surface
             data-composer-editing={resendEdited ? "" : undefined}
             data-composer-file-drag={fileDrag || undefined}
             className={`composer-input-shell relative z-10 border bg-content/3 backdrop-blur-sm ${

@@ -2748,6 +2748,12 @@ html.theme-light .mobile-logo {
   padding-top: calc(var(--mobile-header-height) + var(--mobile-safe-top));
   scroll-padding-top: calc(var(--mobile-header-height) + var(--mobile-safe-top));
 }
+/* Keep the input-sized launch visible over the floating composer. Let touches
+   pass through to the composer until the bubble has left its surface. */
+.mobile-desktop-transcript:has([data-prompt-rise="rising"]) {
+  z-index: 12;
+  pointer-events: none;
+}
 .mobile-desktop-transcript .markdown-code-shell {
   max-width: 100%;
 }

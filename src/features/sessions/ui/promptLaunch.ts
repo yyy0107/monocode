@@ -1,4 +1,4 @@
-/** Where a composer's text sat when it was sent, in viewport pixels. */
+/** Where the composer's input surface sat when sent, in viewport pixels. */
 export type PromptLaunchOrigin = {
   left: number;
   bottom: number;
@@ -12,9 +12,10 @@ const LAUNCH_TTL_MS = 15_000;
 
 let launch: { origin: PromptLaunchOrigin; at: number } | undefined;
 
-/** Where the given composer text sits now, if it is on screen. */
+/** Capture the input surface, falling back to the text field when unmarked. */
 export function readPromptLaunch(element: Element | null): PromptLaunchOrigin | undefined {
-  const rect = element?.getBoundingClientRect();
+  const surface = element?.closest("[data-prompt-launch-surface]") ?? element;
+  const rect = surface?.getBoundingClientRect();
   if (!rect?.width || !rect.height) return undefined;
   return { left: rect.left, bottom: rect.bottom, width: rect.width, height: rect.height };
 }
@@ -36,7 +37,9 @@ export function takePromptLaunch(): PromptLaunchOrigin | undefined {
 
 // Sampled once per ~16ms; linear steps between samples trace the springs.
 const LAUNCH_FRAME_MS = 16;
-const LAUNCH_MAX_MS = 1000;
+const LAUNCH_MAX_MS = 1200;
+// Let the reader see the input-sized bubble lift before it starts to contract.
+const LAUNCH_LIFT_MS = 160;
 // Travel: a quick, nearly critically damped spring with a hint of overshoot.
 const LAUNCH_TRAVEL_FREQUENCY = 14;
 const LAUNCH_TRAVEL_DAMPING = 0.8;
@@ -51,7 +54,9 @@ const LAUNCH_WIDTH_FREQUENCY = 10;
 export type LaunchFrame = { offset: number; travel: number; jelly: number; width: number };
 
 /** Steps the travel, jelly and width springs until everything settles. */
-function launchFrames(intensity: number): { frames: LaunchFrame[]; landedMs: number } {
+function launchFrames(distance: number, fromComposer: boolean): { frames: LaunchFrame[]; landedMs: number } {
+  const intensity = Math.min(1, distance / 400);
+  const lift = Math.min(24 / distance, 0.08);
   const step = 1 / 240;
   const travelK = LAUNCH_TRAVEL_FREQUENCY ** 2;
   const travelC = 2 * LAUNCH_TRAVEL_DAMPING * LAUNCH_TRAVEL_FREQUENCY;
@@ -71,12 +76,13 @@ function launchFrames(intensity: number): { frames: LaunchFrame[]; landedMs: num
       if (settled && samples.length > 2) break;
     }
     if (landedMs === undefined && travel > 0.97) landedMs = ms;
-    travelV += (travelK * (1 - travel) - travelC * travelV) * step;
+    const lifting = fromComposer && ms < LAUNCH_LIFT_MS;
+    travelV += (travelK * ((lifting ? lift : 1) - travel) - travelC * travelV) * step;
     travel += travelV * step;
     const stretch = LAUNCH_JELLY_STRETCH * intensity * travelV;
     jellyV += (LAUNCH_JELLY_STIFFNESS * (stretch - jelly) - jellyC * jellyV) * step;
     jelly = Math.max(-LAUNCH_JELLY_LIMIT, Math.min(LAUNCH_JELLY_LIMIT, jelly + jellyV * step));
-    widthV += (widthK * (1 - width) - widthC * widthV) * step;
+    widthV += (widthK * ((lifting ? 0 : 1) - width) - widthC * widthV) * step;
     width += widthV * step;
   }
   samples[samples.length - 1] = { travel: 1, jelly: 0, width: 1 };
@@ -102,8 +108,8 @@ export type PromptFlight = {
 
 /**
  * Flies a sent prompt's bubble out of the composer text it was typed in: it
- * starts as wide as the composer, narrows to its own width on the way up, and
- * lands with a jelly wobble. Without an origin it rises from `fromBottom`.
+ * briefly lifts at the composer's size, contracts on the way up, and lands
+ * with a jelly wobble. Without an origin it rises from `fromBottom`.
  */
 export function flyPromptBubble(
   bubble: HTMLElement,
@@ -116,23 +122,23 @@ export function flyPromptBubble(
   const startBottom = launch ? Math.min(launch.bottom, view.bottom) : fromBottom;
   const dy = startBottom - target.bottom;
   if (!(dy > 1)) return undefined;
-  const style = getComputedStyle(bubble);
-  const padLeft = parseFloat(style.paddingLeft) || 0;
-  const inset = padLeft + (parseFloat(style.paddingRight) || 0);
   // The bubble keeps its right edge, so it widens leftward toward the
   // composer text without leaving the screen.
   const startWidth = launch
-    ? Math.max(target.width, Math.min(launch.width + inset, target.right - view.left - 4))
+    ? Math.max(target.width, Math.min(launch.width, target.right - view.left - 4))
     : target.width;
+  // Never clip a tall message just to match a shorter input surface.
+  const startHeight = launch ? Math.max(target.height, launch.height) : target.height;
   const startLeft = target.right - startWidth;
   const dx = launch
-    ? Math.max(view.left - startLeft, Math.min(0, launch.left - padLeft - startLeft))
+    ? Math.max(view.left - startLeft, Math.min(0, launch.left - startLeft))
     : 0;
   // Pin the content to its final width so text never rewraps mid-flight.
   const content = [...bubble.children].filter(
     (child): child is HTMLElement => child instanceof HTMLElement,
   );
   const reshape = startWidth - target.width > 1;
+  const resizeHeight = startHeight - target.height > 1;
   if (reshape) {
     for (const child of content) {
       child.style.width = `${child.getBoundingClientRect().width}px`;
@@ -150,7 +156,7 @@ export function flyPromptBubble(
     }
     bubble.style.removeProperty("max-width");
   };
-  const { frames, landedMs } = launchFrames(Math.min(1, dy / 400));
+  const { frames, landedMs } = launchFrames(dy, !!launch);
   const duration = frames.length > 1 ? (frames.length - 1) * LAUNCH_FRAME_MS : LAUNCH_FRAME_MS;
   const flight = bubble.animate(
     frames.map(({ offset, travel, jelly, width }) => {
@@ -158,21 +164,23 @@ export function flyPromptBubble(
       // Stretch along the flight, squash on landing; roughly keep the volume.
       const scaleY = 1 + jelly;
       const scaleX = 1 - jelly * 0.7;
+      const height = startHeight + (target.height - startHeight) * width;
       return {
         offset,
         transformOrigin: "100% 100%",
-        transform: `translate(${(dx * rest).toFixed(2)}px, ${(dy * rest).toFixed(2)}px) ` +
+        transform: `translate(${(dx * rest).toFixed(2)}px, ${(dy * rest - (height - target.height)).toFixed(2)}px) ` +
           `scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})`,
         ...(reshape
           ? { width: `${(startWidth + (target.width - startWidth) * width).toFixed(2)}px` }
           : {}),
+        ...(resizeHeight ? { height: `${height.toFixed(2)}px` } : {}),
       };
     }),
     { duration, easing: "linear" },
   );
   flight.onfinish = release;
-  // Text the reader just watched leave the composer is visible from the start.
-  const fade = bubble.animate([{ opacity: launch ? 0.4 : 0 }, { opacity: 1 }], {
+  // Keep the input-sized silhouette legible throughout the initial lift.
+  const fade = bubble.animate([{ opacity: launch ? 1 : 0 }, { opacity: 1 }], {
     duration: launch ? 140 : 200,
     easing: "ease-out",
   });

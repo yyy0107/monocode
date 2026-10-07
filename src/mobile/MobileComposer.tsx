@@ -366,7 +366,7 @@ export function MobileComposer(props: Props) {
               )}
             </button>
           </div>
-          <div className="mobile-composer-input">
+          <div className="mobile-composer-input" data-prompt-launch-surface>
             <div className="mobile-composer-attachment-region">
               <AnimatedCollapse expanded={props.attachments.length > 0}>
                 <MobileComposerAttachments
