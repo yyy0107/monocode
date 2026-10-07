@@ -35,96 +35,38 @@ export function takePromptLaunch(): PromptLaunchOrigin | undefined {
     : undefined;
 }
 
-// Sampled once per ~16ms; linear steps between samples trace the springs.
-const LAUNCH_FRAME_MS = 16;
-const LAUNCH_MAX_MS = 1200;
-// Let the reader see the input-sized bubble lift before it starts to contract.
-const LAUNCH_LIFT_MS = 160;
-// Travel: a quick, nearly critically damped spring with a hint of overshoot.
-const LAUNCH_TRAVEL_FREQUENCY = 14;
-const LAUNCH_TRAVEL_DAMPING = 0.8;
-// Jelly: a loose spring that stretches with travel speed and wobbles on landing.
-const LAUNCH_JELLY_STIFFNESS = 1400;
-const LAUNCH_JELLY_DAMPING = 0.22;
-const LAUNCH_JELLY_STRETCH = 0.018;
-const LAUNCH_JELLY_LIMIT = 0.12;
-// Width: narrows from the composer to the bubble a little behind the travel.
-const LAUNCH_WIDTH_FREQUENCY = 10;
-
-export type LaunchFrame = { offset: number; travel: number; jelly: number; width: number };
-
-/** Steps the travel, jelly and width springs until everything settles. */
-function launchFrames(distance: number, fromComposer: boolean): { frames: LaunchFrame[]; landedMs: number } {
-  const intensity = Math.min(1, distance / 400);
-  const lift = Math.min(24 / distance, 0.08);
-  const step = 1 / 240;
-  const travelK = LAUNCH_TRAVEL_FREQUENCY ** 2;
-  const travelC = 2 * LAUNCH_TRAVEL_DAMPING * LAUNCH_TRAVEL_FREQUENCY;
-  const jellyC = 2 * LAUNCH_JELLY_DAMPING * Math.sqrt(LAUNCH_JELLY_STIFFNESS);
-  const widthK = LAUNCH_WIDTH_FREQUENCY ** 2;
-  const widthC = 2 * LAUNCH_WIDTH_FREQUENCY;
-  let travel = 0, travelV = 0, jelly = 0, jellyV = 0, width = 0, widthV = 0;
-  let landedMs: number | undefined;
-  const samples: Omit<LaunchFrame, "offset">[] = [];
-  let ms = 0;
-  for (let tick = 0; ms <= LAUNCH_MAX_MS; tick++) {
-    ms = tick * step * 1000;
-    if (tick % Math.round(LAUNCH_FRAME_MS / (step * 1000)) === 0) {
-      samples.push({ travel, jelly, width: Math.min(width, 1) });
-      const settled = Math.abs(1 - travel) < 0.002 && Math.abs(travelV) < 0.05 &&
-        Math.abs(jelly) < 0.003 && Math.abs(jellyV) < 0.05 && width > 0.995;
-      if (settled && samples.length > 2) break;
-    }
-    if (landedMs === undefined && travel > 0.97) landedMs = ms;
-    const lifting = fromComposer && ms < LAUNCH_LIFT_MS;
-    travelV += (travelK * ((lifting ? lift : 1) - travel) - travelC * travelV) * step;
-    travel += travelV * step;
-    const stretch = LAUNCH_JELLY_STRETCH * intensity * travelV;
-    jellyV += (LAUNCH_JELLY_STIFFNESS * (stretch - jelly) - jellyC * jellyV) * step;
-    jelly = Math.max(-LAUNCH_JELLY_LIMIT, Math.min(LAUNCH_JELLY_LIMIT, jelly + jellyV * step));
-    widthV += (widthK * ((lifting ? 0 : 1) - width) - widthC * widthV) * step;
-    width += widthV * step;
-  }
-  samples[samples.length - 1] = { travel: 1, jelly: 0, width: 1 };
-  return {
-    frames: samples.map((sample, index) => ({
-      ...sample,
-      offset: index / (samples.length - 1),
-    })),
-    landedMs: landedMs ?? samples.length * LAUNCH_FRAME_MS,
-  };
-}
+const LAUNCH_MS = 620;
+const FALLBACK_MS = 420;
+const TRAVEL_EASING = "cubic-bezier(.32,0,.2,1)";
+const WIDTH_EASING = "cubic-bezier(.5,0,.25,1)";
 
 export type PromptFlight = {
-  /** The bubble's flight first, then its fade. */
+  /** The bubble's translation first; companion animations share its clock. */
   animations: Animation[];
-  frames: LaunchFrame[];
   duration: number;
-  /** When the bubble reaches its spot, before the landing wobble settles. */
-  landedMs: number;
-  /** Drops the temporary sizing; safe to call more than once. */
+  easing: string;
+  /** Resolves after landing or interruption has restored the real bubble. */
+  finished: Promise<void>;
+  /** Cancels motion and restores temporary styles; safe to call repeatedly. */
   release: () => void;
 };
 
 /**
- * Flies a sent prompt's bubble out of the composer text it was typed in: it
- * briefly lifts at the composer's width with its final content height, narrows
- * on the way up, and lands with a jelly wobble. Without an origin it rises
- * from `fromBottom`.
+ * Keep the real message at its landed size. Only an empty, out-of-flow surface
+ * narrows; the text translates without scaling or rewrapping. Both motions
+ * start together, with a slower contraction making the input width legible.
  */
 export function flyPromptBubble(
   bubble: HTMLElement,
   view: DOMRect,
   launch: PromptLaunchOrigin | undefined,
   fromBottom: number,
+  viewport?: HTMLElement,
 ): PromptFlight | undefined {
   const target = bubble.getBoundingClientRect();
-  // The composer may have shrunk since the send; never start below the view.
   const startBottom = launch ? Math.min(launch.bottom, view.bottom) : fromBottom;
   const dy = startBottom - target.bottom;
-  if (!(dy > 1)) return undefined;
-  // The bubble keeps its right edge, so it widens leftward toward the
-  // composer text without leaving the screen.
+  if (!(dy > 1) || !target.width || !target.height) return undefined;
   const startWidth = launch
     ? Math.max(target.width, Math.min(launch.width, target.right - view.left - 4))
     : target.width;
@@ -132,55 +74,113 @@ export function flyPromptBubble(
   const dx = launch
     ? Math.max(view.left - startLeft, Math.min(0, launch.left - startLeft))
     : 0;
-  // Pin the content to its final width so text never rewraps mid-flight.
-  const content = [...bubble.children].filter(
-    (child): child is HTMLElement => child instanceof HTMLElement,
-  );
   const reshape = startWidth - target.width > 1;
-  if (reshape) {
-    for (const child of content) {
-      child.style.width = `${child.getBoundingClientRect().width}px`;
-      if (getComputedStyle(child).display === "inline") child.style.display = "inline-block";
-    }
-    bubble.style.maxWidth = "none";
+  // Finish every geometry/style read before starting any animation or write.
+  const style = getComputedStyle(bubble);
+  const content = reshape ? [...bubble.children].filter(
+    (child): child is HTMLElement => {
+      if (!(child instanceof HTMLElement)) return false;
+      const position = getComputedStyle(child).position;
+      return position !== "absolute" && position !== "fixed";
+    },
+  ) : [];
+  const surface = reshape ? document.createElement("span") : undefined;
+  if (surface) {
+    surface.className = "prompt-flight-surface";
+    surface.setAttribute("aria-hidden", "true");
+    Object.assign(surface.style, {
+      position: "absolute",
+      top: `${-(parseFloat(style.borderTopWidth) || 0)}px`,
+      right: `${-(parseFloat(style.borderRightWidth) || 0)}px`,
+      width: `${target.width}px`,
+      height: `${target.height}px`,
+      boxSizing: "border-box",
+      background: style.background,
+      borderTop: style.borderTop,
+      borderRight: style.borderRight,
+      borderBottom: style.borderBottom,
+      borderLeft: style.borderLeft,
+      borderRadius: style.borderRadius,
+      boxShadow: style.boxShadow,
+      // The empty surface's width must not resize the message or transcript.
+      contain: "layout style",
+      pointerEvents: "none",
+      zIndex: "-1",
+    });
   }
-  let released = false;
-  const release = () => {
-    if (released || !reshape) return;
-    released = true;
-    for (const child of content) {
-      child.style.removeProperty("width");
-      child.style.removeProperty("display");
-    }
-    bubble.style.removeProperty("max-width");
+  const saved = ["position", "isolation"].map(property => ({
+    property,
+    value: bubble.style.getPropertyValue(property),
+    priority: bubble.style.getPropertyPriority(property),
+  }));
+  if (surface) {
+    if (style.position === "static" || !style.position) bubble.style.position = "relative";
+    bubble.style.isolation = "isolate";
+    bubble.append(surface);
+  }
+  const duration = launch ? LAUNCH_MS : FALLBACK_MS;
+  const startTime = document.timeline?.currentTime;
+  const animations: Animation[] = [];
+  const animate = (element: HTMLElement, frames: Keyframe[], easing: string, ms = duration) => {
+    const animation = element.animate(frames, { duration: ms, easing });
+    if (typeof startTime === "number") animation.startTime = startTime;
+    animations.push(animation);
+    return animation;
   };
-  const { frames, landedMs } = launchFrames(dy, !!launch);
-  const duration = frames.length > 1 ? (frames.length - 1) * LAUNCH_FRAME_MS : LAUNCH_FRAME_MS;
-  const flight = bubble.animate(
-    frames.map(({ offset, travel, jelly, width }) => {
-      const rest = 1 - travel;
-      // Stretch along the flight, squash on landing; roughly keep the volume.
-      const scaleY = 1 + jelly;
-      const scaleX = 1 - jelly * 0.7;
-      return {
-        offset,
-        transformOrigin: "100% 100%",
-        transform: `translate(${(dx * rest).toFixed(2)}px, ${(dy * rest).toFixed(2)}px) ` +
-          `scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})`,
-        // The input surface includes controls and padding the message doesn't.
-        height: `${target.height.toFixed(2)}px`,
-        ...(reshape
-          ? { width: `${(startWidth + (target.width - startWidth) * width).toFixed(2)}px` }
-          : {}),
-      };
-    }),
-    { duration, easing: "linear" },
-  );
-  flight.onfinish = release;
-  // Keep the input-sized silhouette legible throughout the initial lift.
-  const fade = bubble.animate([{ opacity: launch ? 1 : 0 }, { opacity: 1 }], {
-    duration: launch ? 140 : 200,
-    easing: "ease-out",
-  });
-  return { animations: [flight, fade], frames, duration, landedMs, release };
+  // Suppress the original paint through WAAPI, so restoring it cannot trigger
+  // the bubble's CSS background-color transition and flash on landing.
+  const paint = surface ? { background: "none", borderColor: "transparent", boxShadow: "none" } : {};
+  const flight = animate(bubble, [
+    { transform: `translate(${dx.toFixed(2)}px, ${dy.toFixed(2)}px)`, ...paint },
+    { transform: "translate(0.00px, 0.00px)", ...paint },
+  ], TRAVEL_EASING);
+  if (surface) {
+    animate(surface, [{ width: `${startWidth}px` }, { width: `${target.width}px` }], WIDTH_EASING);
+    for (const child of content) {
+      // Separate translate preserves any transform owned by the content itself.
+      animate(child, [{ translate: `${target.width - startWidth}px 0px` }, { translate: "0px 0px" }], WIDTH_EASING);
+    }
+  }
+  if (!launch) animate(bubble, [{ opacity: 0 }, { opacity: 1 }], "ease-out", 140);
+
+  let released = false;
+  let observer: ResizeObserver | undefined;
+  let resolveFinished!: () => void;
+  const finished = new Promise<void>(resolve => { resolveFinished = resolve; });
+  const visualViewport = window.visualViewport;
+  const release = () => {
+    if (released) return;
+    released = true;
+    observer?.disconnect();
+    window.removeEventListener("resize", release);
+    visualViewport?.removeEventListener("resize", release);
+    visualViewport?.removeEventListener("scroll", release);
+    for (const animation of animations) animation.cancel();
+    surface?.remove();
+    if (surface) {
+      for (const { property, value, priority } of saved) {
+        if (value) bubble.style.setProperty(property, value, priority);
+        else bubble.style.removeProperty(property);
+      }
+    }
+    resolveFinished();
+  };
+  void flight.finished.then(release, release);
+  window.addEventListener("resize", release, { passive: true });
+  visualViewport?.addEventListener("resize", release, { passive: true });
+  visualViewport?.addEventListener("scroll", release, { passive: true });
+  if (typeof ResizeObserver !== "undefined") {
+    observer = new ResizeObserver(() => {
+      const rect = bubble.getBoundingClientRect();
+      const bounds = viewport?.getBoundingClientRect();
+      if (
+        Math.abs(rect.width - target.width) > 0.5 ||
+        Math.abs(rect.height - target.height) > 0.5 ||
+        (bounds && (Math.abs(bounds.width - view.width) > 0.5 || Math.abs(bounds.height - view.height) > 0.5))
+      ) release();
+    });
+    observer.observe(bubble);
+    if (viewport) observer.observe(viewport);
+  }
+  return { animations, duration, easing: TRAVEL_EASING, finished, release };
 }

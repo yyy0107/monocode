@@ -623,6 +623,7 @@ function AgentTranscriptComponent({
     visible,
   };
   const introducedPromptMount = useRef(false);
+  const stopPromptRise = useRef<(() => void) | undefined>(undefined);
   useLayoutEffect(() => {
     const mounting = !introducedPromptMount.current;
     introducedPromptMount.current = true;
@@ -636,10 +637,19 @@ function AgentTranscriptComponent({
       return;
     const prior = priorTurn.current;
     priorTurn.current = undefined;
-    return riseIntoAnchor(scroller.current, lastUserId, promptMotion, prior);
+    const stop = riseIntoAnchor(scroller.current, lastUserId, prior);
+    stopPromptRise.current = stop;
+    return () => {
+      stop?.();
+      if (stopPromptRise.current === stop) stopPromptRise.current = undefined;
+    };
     // Only a new prompt starts the motion; later renders must not replay it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastUserId]);
+
+  useLayoutEffect(() => {
+    if (!visible) stopPromptRise.current?.();
+  }, [visible]);
 
   useLayoutEffect(() => {
     const opened = visible && !wasVisible.current;
@@ -3931,7 +3941,7 @@ function userTurnCount(blocks: Block[], managed = false): number {
 }
 
 // Keep in sync with the prompt-turn-reveal animation in index.css.
-const PROMPT_REVEAL_MS = 320;
+const PROMPT_REVEAL_MS = 180;
 
 type PriorTurn = { element: HTMLElement; top: number };
 
@@ -3945,7 +3955,6 @@ function measureLastTurn(scroller: HTMLElement | null): PriorTurn | undefined {
 function riseIntoAnchor(
   scroller: HTMLElement | null,
   blockId: string,
-  motion?: "mobile",
   prior?: PriorTurn,
 ) {
   const launch = takePromptLaunch();
@@ -3955,17 +3964,16 @@ function riseIntoAnchor(
   if (!scroller || !row || typeof row.animate !== "function") return;
   if (reducedMotionQuery().matches) return;
   const turn = row.closest<HTMLElement>(".transcript-turn");
-  const revealDuration = motion === "mobile" ? 200 : PROMPT_REVEAL_MS;
-  let animations: Animation[] = [];
+  let stopped = false;
   let frame = 0;
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
-  let landTimer: ReturnType<typeof setTimeout> | undefined;
   let releaseFlight: (() => void) | undefined;
   const reveal = () => {
+    if (stopped) return;
     turn?.setAttribute("data-prompt-rise", "revealing");
     revealTimer = setTimeout(
       () => turn?.removeAttribute("data-prompt-rise"),
-      revealDuration,
+      PROMPT_REVEAL_MS,
     );
   };
   const start = () => {
@@ -3975,10 +3983,9 @@ function riseIntoAnchor(
       turn?.removeAttribute("data-prompt-rise");
       return;
     }
-    animations = flight.animations;
     releaseFlight = flight.release;
-    // The rest of the turn follows once the bubble lands, not after its wobble.
-    landTimer = setTimeout(reveal, flight.landedMs);
+    // Keep the foreground layer until the actual flight has finished.
+    void flight.finished.then(reveal);
   };
   // Let the sibling dock publish its cleared draft height before measuring.
   // A missing or expired composer origin still launches from the bottom.
@@ -3986,11 +3993,10 @@ function riseIntoAnchor(
   turn?.setAttribute("data-prompt-rise", "rising");
   frame = requestAnimationFrame(start);
   return () => {
+    stopped = true;
     cancelAnimationFrame(frame);
-    for (const animation of animations) animation.cancel();
     releaseFlight?.();
     clearTimeout(revealTimer);
-    clearTimeout(landTimer);
     row.style.removeProperty("visibility");
     turn?.removeAttribute("data-prompt-rise");
   };
@@ -3998,7 +4004,7 @@ function riseIntoAnchor(
 
 /**
  * Flies a sent prompt's bubble out of the composer text it was typed in.
- * Earlier turns ride the same spring upward, so the send reads as one motion.
+ * Earlier turns share its translation curve, so the send reads as one motion.
  * The first animation is the bubble's flight.
  */
 function launchIntoAnchor(
@@ -4011,10 +4017,8 @@ function launchIntoAnchor(
   const bubble = row.querySelector<HTMLElement>(".user-message-bubble") ?? row;
   const view = scroller.getBoundingClientRect();
   const dock = parseFloat(getComputedStyle(scroller).paddingBottom) || 0;
-  const flight = flyPromptBubble(bubble, view, launch, view.bottom - dock - 8);
-  if (!flight) return undefined;
-  const { frames, duration } = flight;
-  // The send scrolls the previous turns up in one jump; glide them instead.
+  // Measure previous turns before the flight writes styles or starts moving.
+  const earlier: HTMLElement[] = [];
   const shift = prior?.element.isConnected
     ? prior.top - prior.element.getBoundingClientRect().top
     : 0;
@@ -4024,10 +4028,6 @@ function launchIntoAnchor(
     prior.top < view.bottom &&
     prior.element !== turn
   ) {
-    const glide = frames.map(({ offset, travel }) => ({
-      offset,
-      transform: `translateY(${(shift * (1 - travel)).toFixed(2)}px)`,
-    }));
     for (
       let element: Element | null = prior.element, count = 0;
       element instanceof HTMLElement &&
@@ -4037,8 +4037,19 @@ function launchIntoAnchor(
     ) {
       // Turns that stay above the viewport for the whole glide need no motion.
       if (element.getBoundingClientRect().bottom + shift < view.top) break;
-      flight.animations.push(element.animate(glide, { duration, easing: "linear" }));
+      earlier.push(element);
     }
+  }
+  const flight = flyPromptBubble(bubble, view, launch, view.bottom - dock - 8, scroller);
+  if (!flight) return undefined;
+  for (const element of earlier) {
+    const animation = element.animate([
+      { transform: `translateY(${shift.toFixed(2)}px)` },
+      { transform: "translateY(0px)" },
+    ], { duration: flight.duration, easing: flight.easing });
+    const startTime = flight.animations[0].startTime;
+    if (startTime !== null) animation.startTime = startTime;
+    flight.animations.push(animation);
   }
   return flight;
 }

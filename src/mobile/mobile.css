@@ -2788,10 +2788,6 @@ html.theme-light .mobile-logo {
 .mobile-desktop-transcript[data-layout="full"] .user-message-row {
   padding-left: 12px;
 }
-.mobile-desktop-transcript .transcript-turn[data-prompt-rise="revealing"]
-  > :not(:has([data-prompt-anchor])) {
-  animation-duration: 200ms;
-}
 .mobile-desktop-transcript .user-message-bubble {
   max-width: 100%;
   min-height: 38px;

@@ -1527,13 +1527,13 @@ html.has-user-accent .user-message-bubble[data-draft="true"] {
 
 .transcript-turn[data-prompt-rise="revealing"]
   > :not(:has([data-prompt-anchor])) {
-  animation: prompt-turn-reveal 320ms var(--motion-ease-out) both;
+  animation: prompt-turn-reveal 180ms var(--motion-ease-out) both;
 }
 
 @keyframes prompt-turn-reveal {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;

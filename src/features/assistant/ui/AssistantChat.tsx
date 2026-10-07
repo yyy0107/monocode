@@ -462,12 +462,9 @@ export function AssistantChat({
     const bubble = rows[rows.length - 1]?.querySelector<HTMLElement>(".assistant-message-user");
     if (!bubble || typeof bubble.animate !== "function") return;
     const view = element.getBoundingClientRect();
-    const flight = flyPromptBubble(bubble, view, pending.origin, view.bottom);
+    const flight = flyPromptBubble(bubble, view, pending.origin, view.bottom, element);
     if (!flight) return;
-    return () => {
-      for (const animation of flight.animations) animation.cancel();
-      flight.release();
-    };
+    return flight.release;
   }, [latestUserId, visible]);
   useEffect(() => {
     const element = log.current;
