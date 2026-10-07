@@ -49,6 +49,7 @@ import {
 import {
   DEFAULT_RUNTIME_MODE,
   sessionDisplayTitle,
+  sessionWorkCwd,
   type Attachment,
   type QueuedMessage,
 } from "../features/sessions/model/session";
@@ -60,6 +61,7 @@ import type {
   HostCommand,
 } from "../features/connections/model/protocol";
 import { MobileTranscript } from "./MobileTranscript";
+import { createMobileGitSource } from "./mobileGit";
 import { useMobileAppUpdates } from "./MobileAppUpdates";
 import {
   configurationForSession,
@@ -400,6 +402,11 @@ export function MobileApp() {
     planMode: boolean; accepted: Attachment[]; parked: typeof parkedDrafts.current;
   }>());
   const nativeLink = snapshot?.session.nativeSession;
+  const gitCwd = snapshot ? sessionWorkCwd(snapshot.session) : undefined;
+  const gitSupported = client.hasCapability("git.index") && client.hasCapability("git.fileDiff");
+  const gitSource = useMemo(() => hostScopeReady && snapshot?.session.id === sessionId && snapshot && gitCwd && gitSupported
+    ? createMobileGitSource(client, snapshot.projectId, gitCwd) : undefined,
+  [client.connection, hostScopeReady, sessionId, snapshot?.session.id, snapshot?.projectId, gitCwd, gitSupported]);
   const nativeAccessKey = nativeLink && snapshot.session.id === sessionId
     ? JSON.stringify([client.connection?.environmentId, client.connection?.endpoint,
         sessionId, nativeLink.provider, nativeSourceKey(nativeLink), nativeLink.accountId])
@@ -452,6 +459,11 @@ export function MobileApp() {
   const loadTiming = useRef<{ turn: number; id: string; start: number; cached: boolean }>(undefined);
   const queueView = useRef({ view, sessionId });
   const queueOverlayClose = useRef<(() => void) | undefined>(undefined);
+  const transcriptOverlayClose = useRef<(() => void) | undefined>(undefined);
+  const onTranscriptOverlayChange = useCallback((close?: () => void) => {
+    transcriptOverlayClose.current = close;
+    if (close) setComposerPanel(null);
+  }, []);
   const onQueueOverlayChange = useCallback((close?: () => void) => {
     queueOverlayClose.current = close;
     if (close) setComposerPanel(null);
@@ -1387,6 +1399,7 @@ export function MobileApp() {
       else if (addingProject) {
         if (!busy) setAddingProject(false);
       } else if (drawerOpen) setDrawerOpen(false);
+      else if (transcriptOverlayClose.current) transcriptOverlayClose.current();
       else if (homeMenuOpen) setHomeMenuOpen(false);
       else if (view === "home" && searchOpen) setSearchOpen(false);
       else if (view === "settings" && settingsPage !== "root")
@@ -1966,6 +1979,10 @@ export function MobileApp() {
             <MobileTranscript
               key={snapshot.session.id}
               snapshot={snapshot}
+              active={!drawerOpen && !pageOverlayOpen && !hostPickerOpen}
+              onOverlayChange={onTranscriptOverlayChange}
+              gitSource={gitSource}
+              gitEnabled={foreground && connected && hostStatus.state === "connected" && sessionConfirmed && !loading}
               animateFrom={animateFrom}
               readBinaryFile={readHostImage}
               resolveNoteImage={client.hasCapability("notes.v1") ? resolveNoteImage : undefined}

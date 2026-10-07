@@ -14,6 +14,7 @@ export const LIQUID_GLASS_SELECTOR = [
   ".mobile-composer-card > .mobile-composer-input",
   ".mobile-jump",
   ".mobile-queue-pill",
+  ".mobile-progress-capsule",
   ".mobile-glass-preview-chip",
   ".mobile-drawer",
   '.mobile-sheet:not([data-surface="solid"])',

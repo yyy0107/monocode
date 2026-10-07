@@ -1,0 +1,152 @@
+/* Stay below the header, outside the transcript's keyboard-follow transform. */
+.mobile-session-progress {
+  position: absolute;
+  top: calc(var(--mobile-header-height) + var(--mobile-safe-top));
+  inset-inline: calc(16px + var(--mobile-safe-left))
+    calc(16px + var(--mobile-safe-right));
+  z-index: 11;
+  pointer-events: none;
+}
+.mobile-progress-capsule {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 24px;
+  color: var(--color-content);
+  font-size: 13px;
+  text-align: start;
+  pointer-events: auto;
+}
+.mobile-progress-icon,
+.mobile-progress-capsule > svg {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+}
+.mobile-progress-icon {
+  display: grid;
+  place-items: center;
+}
+.mobile-progress-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-progress-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+.mobile-desktop-transcript[data-progress="true"] > .agent-transcript {
+  padding-top: calc(
+    var(--mobile-header-height) + var(--mobile-safe-top) + 52px
+  );
+  scroll-padding-top: calc(
+    var(--mobile-header-height) + var(--mobile-safe-top) + 52px
+  );
+}
+.mobile-progress-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 8px 12px;
+}
+.mobile-progress-section {
+  min-width: 0;
+}
+.mobile-progress-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.mobile-progress-section h3 > span:first-child {
+  display: grid;
+}
+.mobile-progress-section h3 small {
+  margin-inline-start: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+.mobile-progress-tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mobile-progress-tasks li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 4px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.mobile-progress-tasks li > span:first-child {
+  margin-top: 3px;
+}
+.mobile-progress-tasks li > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mobile-progress-tasks
+  li:is([data-status="completed"], [data-status="cancelled"])
+  > span:last-child {
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+  text-decoration: line-through;
+}
+.mobile-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 4px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-content);
+  text-align: start;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.mobile-progress-row > span:not([aria-label]) {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mobile-progress-row > svg {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.mobile-progress-row small {
+  display: block;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+.mobile-progress-command {
+  font-family: var(--font-mono);
+}
+.mobile-progress-more {
+  min-height: 44px;
+  width: 100%;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+  text-align: start;
+  font-size: 13px;
+}
+.mobile-progress-more:active,
+button.mobile-progress-row:active {
+  background: var(--color-selection);
+}

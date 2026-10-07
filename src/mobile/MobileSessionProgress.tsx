@@ -1,0 +1,348 @@
+import { useId, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import {
+  focusedTaskWindow,
+  sessionStatusSummary,
+  type SessionStatusPanelModel,
+} from "../features/sessions/model/sessionStatusPanel";
+import { taskListProgressLabel } from "../features/sessions/model/taskList";
+import { TaskState } from "../features/sessions/ui/TaskListPreview";
+import { useTranslation } from "../shared/i18n/useTranslation";
+import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
+import {
+  Bot,
+  ChevronRight,
+  FileScript,
+  Gauge,
+  GitCompare,
+  ListEnd,
+  Terminal,
+} from "../shared/ui/icons";
+import { MobileSheet } from "./MobileSheet";
+import { MobileSheetPresence } from "./MobileSheetPresence";
+import { MobileDiffCounts } from "./MobileGitReviewSheet";
+import type { MobileGitIndexState } from "./useMobileGitIndex";
+import "./mobileSessionProgress.css";
+
+/** A compact transcript summary; its sheet uses the same data as desktop. */
+export function MobileSessionProgress({
+  model,
+  visible,
+  open,
+  sheetHost,
+  onOpen,
+  onClose,
+  onNavigate,
+  review,
+  onReview,
+}: {
+  model: SessionStatusPanelModel;
+  visible: boolean;
+  open: boolean;
+  sheetHost: HTMLElement | null;
+  onOpen: () => void;
+  onClose: () => void;
+  onNavigate: (kind: "plan" | "agent", blockId: string) => void;
+  review?: MobileGitIndexState;
+  onReview?: () => void;
+}) {
+  const { t } = useTranslation();
+  const summaryId = useId();
+  const shown =
+    visible && (model.hasContent || !!review?.error || (open && !!review));
+  // Keep the last summary readable until its closing animation finishes.
+  const retained = useRef(model);
+  if (model.hasContent) retained.current = model;
+  const summaryModel = shown ? model : retained.current;
+  return (
+    <>
+      <div className="mobile-session-progress">
+        <AnimatedCollapse expanded={shown} motion="height">
+          <button
+            type="button"
+            className="mobile-progress-capsule"
+            aria-label={t("Session progress")}
+            aria-describedby={summaryId}
+            aria-haspopup="dialog"
+            aria-expanded={open && shown}
+            onClick={onOpen}
+          >
+            <ProgressSummary model={summaryModel} id={summaryId} />
+            {summaryModel.git &&
+              sessionStatusSummary(summaryModel)?.kind !== "git" && (
+                <MobileDiffCounts
+                  additions={summaryModel.git.additions}
+                  deletions={summaryModel.git.deletions}
+                />
+              )}
+            {summaryModel.tasks && (
+              <span className="mobile-progress-count">
+                {taskListProgressLabel(summaryModel.tasks, t)}
+              </span>
+            )}
+            <ChevronRight size={16} aria-hidden="true" />
+          </button>
+        </AnimatedCollapse>
+      </div>
+      {sheetHost &&
+        createPortal(
+          <MobileSheetPresence open={shown && open}>
+            <MobileSheet
+              title="Session progress"
+              header={{ title: t("Session progress") }}
+              detents
+              onClose={onClose}
+            >
+              <ProgressSections
+                model={model}
+                onNavigate={onNavigate}
+                review={review}
+                onReview={onReview}
+              />
+            </MobileSheet>
+          </MobileSheetPresence>,
+          sheetHost,
+        )}
+    </>
+  );
+}
+
+function ProgressSummary({
+  model,
+  id,
+}: {
+  model: SessionStatusPanelModel;
+  id: string;
+}) {
+  const { t } = useTranslation();
+  const summary = sessionStatusSummary(model);
+  if (!summary)
+    return (
+      <>
+        <GitCompare size={16} aria-hidden="true" />
+        <span className="mobile-progress-summary" id={id}>
+          {t("Changes")}
+        </span>
+      </>
+    );
+  let icon: ReactNode;
+  let text: string;
+  switch (summary.kind) {
+    case "task":
+      icon = (
+        <TaskState
+          status={summary.status === "current" ? "in_progress" : "completed"}
+        />
+      );
+      text = summary.text;
+      break;
+    case "plan":
+      icon = <FileScript size={16} />;
+      text = summary.text;
+      break;
+    case "running": {
+      const Icon =
+        summary.agents && summary.background
+          ? Gauge
+          : summary.agents
+            ? Bot
+            : Terminal;
+      icon = <Icon size={16} />;
+      text = t("{count} running", { count: String(summary.count) });
+      break;
+    }
+    case "progress":
+      icon = <ListEnd size={16} />;
+      text = `${summary.completed}/${summary.total}`;
+      break;
+    case "git":
+      return (
+        <>
+          <GitCompare size={16} aria-hidden="true" />
+          <span className="mobile-progress-summary" id={id}>
+            <MobileDiffCounts
+              additions={summary.additions}
+              deletions={summary.deletions}
+            />
+          </span>
+        </>
+      );
+  }
+  return (
+    <>
+      <span className="mobile-progress-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="mobile-progress-summary" id={id}>
+        {text}
+      </span>
+    </>
+  );
+}
+
+function ProgressSections({
+  model,
+  onNavigate,
+  review,
+  onReview,
+}: {
+  model: SessionStatusPanelModel;
+  onNavigate: (kind: "plan" | "agent", blockId: string) => void;
+  review?: MobileGitIndexState;
+  onReview?: () => void;
+}) {
+  const { t } = useTranslation();
+  const [moreTasks, setMoreTasks] = useState(false);
+  const tasks = model.tasks;
+  const span = tasks ? focusedTaskWindow(tasks) : null;
+  const folded = tasks && span ? tasks.length - (span.end - span.start) : 0;
+  return (
+    <div className="mobile-progress-sections">
+      {review && onReview && (
+        <Section
+          icon={<GitCompare size={18} />}
+          title={t("Uncommitted changes")}
+        >
+          <button
+            type="button"
+            className="mobile-progress-row"
+            onClick={onReview}
+          >
+            <span>
+              <span className="mobile-progress-git-meta">
+                {review.index ? (
+                  <MobileDiffCounts
+                    additions={review.index.additions}
+                    deletions={review.index.deletions}
+                  />
+                ) : (
+                  t(review.loading ? "Loading changes…" : "Review changes")
+                )}
+              </span>
+              {review.error && <small>{t("Could not load changes.")}</small>}
+            </span>
+            <ChevronRight size={18} aria-hidden="true" />
+          </button>
+        </Section>
+      )}
+      {tasks && span && (
+        <Section
+          icon={<ListEnd size={18} />}
+          title={t("Tasks")}
+          meta={taskListProgressLabel(tasks, t)}
+        >
+          {folded > 0 ? (
+            <>
+              <AnimatedCollapse expanded={moreTasks} motion="height">
+                <TaskRows items={tasks.slice(0, span.start)} />
+              </AnimatedCollapse>
+              <TaskRows items={tasks.slice(span.start, span.end)} />
+              <AnimatedCollapse expanded={moreTasks} motion="height">
+                <TaskRows items={tasks.slice(span.end)} />
+              </AnimatedCollapse>
+              <button
+                type="button"
+                className="mobile-progress-more"
+                aria-expanded={moreTasks}
+                onClick={() => setMoreTasks((value) => !value)}
+              >
+                {moreTasks
+                  ? t("Show fewer")
+                  : t("+{count} more", { count: String(folded) })}
+              </button>
+            </>
+          ) : (
+            <TaskRows items={tasks} />
+          )}
+        </Section>
+      )}
+      {model.plans.length > 0 && (
+        <Section icon={<FileScript size={18} />} title={t("Plans")}>
+          {model.plans.map((plan) => (
+            <button
+              key={plan.blockId}
+              type="button"
+              className="mobile-progress-row"
+              onClick={() => onNavigate("plan", plan.blockId)}
+            >
+              <span>{plan.title}</span>
+              <ChevronRight size={18} aria-hidden="true" />
+            </button>
+          ))}
+        </Section>
+      )}
+      {model.subagents.length > 0 && (
+        <Section icon={<Bot size={18} />} title={t("Agents")}>
+          {model.subagents.map((agent) => (
+            <button
+              key={agent.blockId}
+              type="button"
+              className="mobile-progress-row"
+              onClick={() => onNavigate("agent", agent.blockId)}
+            >
+              <TaskState status="in_progress" />
+              <span>
+                {agent.name}
+                {agent.model && <small>{agent.model}</small>}
+              </span>
+              <ChevronRight size={18} aria-hidden="true" />
+            </button>
+          ))}
+        </Section>
+      )}
+      {model.background.length > 0 && (
+        <Section icon={<Terminal size={18} />} title={t("Background")}>
+          {model.background.map((description, index) => (
+            <div
+              key={`${index}:${description}`}
+              className="mobile-progress-row"
+            >
+              <TaskState status="in_progress" />
+              <span className="mobile-progress-command">{description}</span>
+            </div>
+          ))}
+        </Section>
+      )}
+    </div>
+  );
+}
+
+function TaskRows({
+  items,
+}: {
+  items: NonNullable<SessionStatusPanelModel["tasks"]>;
+}) {
+  return (
+    <ol className="mobile-progress-tasks">
+      {items.map((item, index) => (
+        <li key={item.id ?? `${index}:${item.text}`} data-status={item.status}>
+          <TaskState status={item.status} />
+          <span>{item.text}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function Section({
+  icon,
+  title,
+  meta,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  meta?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="mobile-progress-section">
+      <h3>
+        <span aria-hidden="true">{icon}</span>
+        <span>{title}</span>
+        {meta && <small>{meta}</small>}
+      </h3>
+      {children}
+    </section>
+  );
+}

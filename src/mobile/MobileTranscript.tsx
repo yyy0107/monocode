@@ -27,12 +27,20 @@ import { MobileToolSheet } from "./MobileToolSheet";
 import { MobileActivitySheet } from "./MobileActivitySheet";
 import { MobileFileSheet } from "./MobileFileSheet";
 import { MobileSheet } from "./MobileSheet";
+import { MobileSessionProgress } from "./MobileSessionProgress";
+import { MobileGitReviewSheet } from "./MobileGitReviewSheet";
+import type { MobileGitSource } from "./mobileGit";
+import { useMobileGitIndex } from "./useMobileGitIndex";
+import type { GitChangedFile } from "../platform/tauri/fs";
+import { buildSessionStatusPanelModel } from "../features/sessions/model/sessionStatusPanel";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { useTranscriptLayout } from "../features/sessions/hooks/useTranscriptLayout";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import { useStableCallback } from "./useStableCallback";
 
 type Detail =
+  | { kind: "progress" }
+  | { kind: "changes"; entry?: GitChangedFile }
   | { kind: "agent"; blockId: string; fromActivity?: Block[] }
   | { kind: "question"; blockId: string }
   | { kind: "plan"; blockId: string }
@@ -47,6 +55,7 @@ type Details = {
   file?: Extract<Detail, { kind: "file" }>;
   question?: Extract<Detail, { kind: "question" }>;
   plan?: Extract<Detail, { kind: "plan" }>;
+  changes?: Extract<Detail, { kind: "changes" }>;
 };
 
 /** Host snapshots feed the same message renderer used by desktop sessions.
@@ -60,6 +69,9 @@ export const MobileTranscript = memo(function MobileTranscript({
   resolveNoteImage,
   animateFrom,
   active = true,
+  onOverlayChange,
+  gitSource,
+  gitEnabled = true,
   questionOpen = true,
   onQuestionOpenChange,
   planDecision,
@@ -71,6 +83,10 @@ export const MobileTranscript = memo(function MobileTranscript({
   resolveNoteImage?: (asset: string) => Promise<string>;
   animateFrom?: string;
   active?: boolean;
+  /** Let the native Back button dismiss a transcript sheet before leaving chat. */
+  onOverlayChange?: (close?: () => void) => void;
+  gitSource?: MobileGitSource;
+  gitEnabled?: boolean;
   /** Whether the pending question's answer panel is expanded. */
   questionOpen?: boolean;
   /** Collapse the panel to read the conversation, or reopen it from its card. */
@@ -155,6 +171,24 @@ export const MobileTranscript = memo(function MobileTranscript({
     [],
   );
   const { session, runId } = snapshot;
+  const git = useMobileGitIndex(gitSource, visible && gitEnabled, snapshot.status === "running");
+  const statusGit = useMemo(() => git.index ? {
+    additions: git.index.additions, deletions: git.index.deletions,
+    branch: git.index.branch ?? undefined, files: git.index.files.length,
+  } : null, [git.index]);
+  const progress = useMemo(() => buildSessionStatusPanelModel({
+    blocks: session.blocks,
+    backgroundTasks: session.backgroundTasks,
+    busy: snapshot.status === "running",
+    git: statusGit,
+  }), [session.blocks, session.backgroundTasks, snapshot.status, statusGit]);
+  useEffect(() => {
+    setDetail((current) => current.active === "changes" ? { ...current, active: "progress", changes: undefined } : current);
+  }, [gitSource]);
+  useEffect(() => {
+    if (!progress.hasContent && !gitSource) setDetail((current) =>
+      current.active === "progress" ? { ...current, active: undefined } : current);
+  }, [progress.hasContent, gitSource]);
   const questionShown = !!session.pendingQuestion && questionOpen;
   const questionMotion = useCollapseMotion(questionShown);
   const planShown = !!planDecision?.open && visible;
@@ -184,6 +218,14 @@ export const MobileTranscript = memo(function MobileTranscript({
   const releasePlan = useCallback(() => setDetail((current) =>
     current.active === "plan" ? current : { ...current, plan: undefined }), []);
   const closeDetail = useCallback(() => setDetail((current) => ({ ...current, active: undefined })), []);
+  const backChanges = useCallback(() => setDetail((current) => current.changes?.entry
+    ? { ...current, changes: { kind: "changes" } }
+    : { ...current, active: "progress" }), []);
+  const releaseChanges = useCallback(() => setDetail((current) => current.active === "changes" ? current : { ...current, changes: undefined }), []);
+  useEffect(() => {
+    onOverlayChange?.(visible && detail.active ? detail.active === "changes" ? backChanges : closeDetail : undefined);
+    return () => onOverlayChange?.(undefined);
+  }, [visible, detail.active, backChanges, closeDetail, onOverlayChange]);
   const releaseActivity = useCallback(() => setDetail((current) =>
     current.active === "activity" || (current.active === "agent" && current.agent?.fromActivity) || (current.active === "tool" && current.tool?.fromActivity)
       ? current : { ...current, activity: undefined,
@@ -224,10 +266,23 @@ export const MobileTranscript = memo(function MobileTranscript({
   );
   return (
     <TranscriptPlatformContext.Provider value={platform}>
+      <MobileSessionProgress model={progress} visible={visible} open={detail.active === "progress"}
+        sheetHost={sheetHost}
+        review={gitSource ? git : undefined}
+        onReview={() => {
+          git.refresh();
+          setDetail((current) => ({ ...current, active: "changes", changes: { kind: "changes" } }));
+        }}
+        onOpen={() => setDetail((current) => ({ ...current, active: "progress" }))}
+        onClose={closeDetail}
+        onNavigate={(kind, blockId) => setDetail((current) => ({
+          ...current, active: kind, [kind]: { kind, blockId },
+        }))} />
       <div
         ref={findSheetHost}
         className="mobile-desktop-transcript"
         data-layout={layout}
+        data-progress={visible && (progress.hasContent || !!git.error || (detail.active === "progress" && !!gitSource))}
         role="log"
         aria-label="Conversation"
         aria-live={visible ? "polite" : "off"}
@@ -347,6 +402,12 @@ export const MobileTranscript = memo(function MobileTranscript({
       {sheetHost &&
         createPortal(
           <>
+            {detail.changes && gitSource && <MobileGitReviewSheet
+              open={visible && detail.active === "changes"} onExited={releaseChanges}
+              source={gitSource} state={git} enabled={gitEnabled}
+              entry={detail.changes.entry}
+              onSelect={(entry) => setDetail((current) => ({ ...current, changes: { kind: "changes", entry } }))}
+              onBack={backChanges} onClose={closeDetail} />}
             {detail.question && savedQuestion && (
               <MobileSheet
                 open={visible && detail.active === "question" && canAnswerSavedQuestion}

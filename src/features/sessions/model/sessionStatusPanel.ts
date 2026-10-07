@@ -12,6 +12,8 @@ export type SessionStatusGit = {
   additions: number;
   deletions: number;
   branch?: string;
+  /** Binary, mode-only and empty-file changes can have zero changed lines. */
+  files?: number;
 };
 
 export type SessionStatusPanelModel = {
@@ -68,7 +70,7 @@ export function buildSessionStatusPanelModel(input: {
   if (tasks && !input.busy && !tasks.some(isOpenTask)) tasks = null;
   const background = [...(input.backgroundTasks ?? [])];
   const git =
-    input.git && input.git.additions + input.git.deletions > 0
+    input.git && (input.git.additions + input.git.deletions > 0 || (input.git.files ?? 0) > 0)
       ? input.git
       : null;
   return {

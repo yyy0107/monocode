@@ -84,4 +84,11 @@ describe("session status panel", () => {
     expect(focusedTaskWindow(items)).toEqual({ start: 3, end: 6 });
     expect(focusedTaskWindow(items.slice(0, 6))).toEqual({ start: 0, end: 6 });
   });
+
+  it("keeps binary and mode-only file changes visible when no lines changed", () => {
+    const model = buildSessionStatusPanelModel({ blocks: [], busy: false,
+      git: { additions: 0, deletions: 0, files: 1 } });
+    expect(model.hasContent).toBe(true);
+    expect(sessionStatusSummary(model)).toMatchObject({ kind: "git" });
+  });
 });

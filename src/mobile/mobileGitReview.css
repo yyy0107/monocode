@@ -1,0 +1,101 @@
+.mobile-git-counts {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.mobile-git-counts [data-kind="add"] {
+  color: #34d399;
+}
+.mobile-git-counts [data-kind="del"] {
+  color: #fb7185;
+}
+html.theme-light .mobile-git-counts [data-kind="add"] {
+  color: #047857;
+}
+html.theme-light .mobile-git-counts [data-kind="del"] {
+  color: #be123c;
+}
+.mobile-git-review {
+  padding: 0 16px 16px;
+}
+.mobile-git-note {
+  padding: 8px 0;
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.mobile-git-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  font-size: 13px;
+}
+.mobile-git-toolbar > :first-child {
+  min-width: 0;
+  flex: 1;
+}
+.mobile-git-refresh {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-content);
+}
+.mobile-git-refresh:active,
+.mobile-git-file-row:active {
+  background: var(--color-selection);
+}
+.mobile-git-refresh:disabled,
+.mobile-git-file-row:disabled {
+  opacity: 0.4;
+}
+.mobile-git-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-content);
+  text-align: start;
+  font-size: 14px;
+}
+.mobile-git-file-path {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.mobile-git-file-row > svg {
+  flex-shrink: 0;
+}
+.mobile-git-error {
+  padding: 12px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.mobile-git-error p {
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+}
+.mobile-git-file > :not(.file-preview-list) {
+  margin-inline: 16px;
+}
+.mobile-git-file .file-preview-list [aria-label] {
+  touch-action: pan-x pan-y;
+}
+.mobile-progress-git-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
