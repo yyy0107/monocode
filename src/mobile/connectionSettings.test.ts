@@ -410,9 +410,9 @@ describe("mobile connection settings", () => {
     act(() => setUiLanguage("zh-CN"));
     await submit();
     expect(active('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
-    // A successful connection opens Home with the connected computer's projects.
+    // A successful connection opens Home on the connected computer.
     expect(active(".mobile-app")?.getAttribute("data-view")).toBe("home");
     expect(active("header strong")!.textContent).toBe("MonoCode");
-    expect(active(".mobile-home-project strong")!.textContent).toBe("Connections");
+    expect(active(".mobile-home-host")!.textContent).toContain("My computer");
   });
 });

@@ -1255,7 +1255,7 @@ export function MobileApp() {
           )) ||
         t("New conversation")
       : view === "home"
-        ? homeProject?.name || (allProjectsPage ? t("All projects") : "MonoCode")
+        ? homeProject?.name || (allProjectsPage ? t("Projects") : "MonoCode")
         : t(mobileSettingsTitle(settingsPage));
   // Memoized children (transcript, drawer) get handlers that keep their
   // identity, so typing in the composer does not re-render them.
@@ -1623,6 +1623,7 @@ export function MobileApp() {
           key={client.connection?.environmentId}
           projects={projects}
           project={homeProject}
+          projectsPage={!homeProject && allProjectsPage}
           hostName={connectionName}
           hostStatus={hostStatus}
           foreground={foreground}
@@ -1654,6 +1655,15 @@ export function MobileApp() {
             }
           }}
           onAddProject={openAddProject}
+          onHost={() => {
+            navigate("settings");
+            changeSettingsPage("connections");
+          }}
+          onAddConnection={(trigger) => {
+            connectionTrigger.current = trigger;
+            setError("");
+            setAddingConnection(true);
+          }}
         />
       ) : (
         <main className="mobile-chat" inert={drawerOpen || assistantOpen}>
@@ -1824,7 +1834,6 @@ export function MobileApp() {
           onAddProject={onDrawerAddProject}
           onHome={onDrawerHome}
           onAllProjects={onDrawerAllProjects}
-          onProject={onDrawerProject}
           onSession={onDrawerSession}
           sessionActionsId={sessionActionsOpen ? sessionActionsTarget : undefined}
           onSessionActions={onDrawerSessionActions}

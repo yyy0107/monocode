@@ -4,26 +4,32 @@ import type {
   HostSessionSummary,
 } from "../features/connections/model/protocol";
 import { sessionDisplayTitle } from "../features/sessions/model/session";
-import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { useMobilePageState } from "./mobilePageState";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
-import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 import {
+  Check,
   ChevronDown,
   Computer,
   Folder,
   FolderPlus,
   LoaderCircle,
   MessageSquarePlus,
+  Plus,
   Search,
 } from "../shared/ui/icons";
 import type { HostConnectionStatus } from "./client";
-import type { MobileSheetPoint } from "./MobileSheet";
+import { MobileSheet, type MobileSheetPoint } from "./MobileSheet";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { MobileListPreview } from "./MobileListPreview";
-import { formatMobileRelativeTime } from "./relativeTime";
-import { sortMobileProjects, sortMobileSessions } from "./sessionList";
+import { MobileSessionCard } from "./MobileSessionCard";
+import { sortMobileProjects } from "./sessionList";
+import {
+  filterMobileSessions,
+  MOBILE_SESSION_FILTER_LABELS,
+  MOBILE_SESSION_FILTERS,
+  type MobileSessionFilter,
+} from "./sessionFilter";
 
 interface History {
   sessions?: HostSessionSummary[];
@@ -34,6 +40,7 @@ interface History {
 export function MobileHome({
   projects,
   project,
+  projectsPage = false,
   hostName,
   hostStatus,
   foreground,
@@ -50,12 +57,16 @@ export function MobileHome({
   searchOpen = false,
   searchTrigger,
   onAddProject,
+  onHost,
+  onAddConnection,
   onSessionActions,
   sessionActionsId,
   refreshKey = 0,
 }: {
   projects: HostProject[];
   project?: HostProject;
+  /** The project index reached from the drawer, without conversations. */
+  projectsPage?: boolean;
   hostName: string;
   hostStatus: HostConnectionStatus;
   foreground: boolean;
@@ -72,11 +83,13 @@ export function MobileHome({
   searchOpen?: boolean;
   searchTrigger?: RefObject<HTMLButtonElement | null>;
   onAddProject: (trigger: HTMLButtonElement) => void;
+  onHost?: (trigger: HTMLButtonElement) => void;
+  onAddConnection?: (trigger: HTMLButtonElement) => void;
   onSessionActions?: (session: HostSessionSummary, trigger: HTMLButtonElement, point?: MobileSheetPoint) => void;
   sessionActionsId?: string;
   refreshKey?: number;
 }) {
-  const { language, t } = useTranslation();
+  const { t } = useTranslation();
   const visible = useSurfaceVisibility();
   const searchButton = useRef<HTMLButtonElement | null>(null);
   const setSearchButton = useCallback((element: HTMLButtonElement | null) => {
@@ -92,7 +105,12 @@ export function MobileHome({
       return sessions ? [[item.id, { sessions, failed: false }]] : [];
     })),
   );
-  const [pinnedOpen, setPinnedOpen] = useMobilePageState("pinned", true);
+  const [filter, setFilter] = useMobilePageState<MobileSessionFilter>("filter", "all");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterTrigger = useRef<HTMLButtonElement>(null);
+  const root = !project && !projectsPage;
+  // Only Home offers status filters; a project page always lists everything.
+  const activeFilter = root ? filter : "all";
   const [retry, setRetry] = useState(0);
   const hold = useRef<{ pointerId: number; x: number; y: number; timer: ReturnType<typeof setTimeout>; moved: boolean; opened: boolean } | undefined>(undefined);
   const suppressClick = useRef<string | undefined>(undefined);
@@ -154,11 +172,15 @@ export function MobileHome({
     projects,
     (id) => histories[id]?.sessions ?? [],
   ), [projects, histories]);
-  const ownerById = useMemo(() => new Map(owners.map((item) => [item.id, item])), [owners]);
   const needle = query.trim().toLocaleLowerCase();
-  const sessions = useMemo(() => sortMobileSessions(
+  const matchingProjects = useMemo(() => orderedProjects.filter((item) =>
+    !needle || `${item.name} ${item.cwd}`.toLocaleLowerCase().includes(needle),
+  ), [orderedProjects, needle]);
+  const ownerById = useMemo(() => new Map(owners.map((item) => [item.id, item])), [owners]);
+  const sessions = useMemo(() => filterMobileSessions(
     owners.flatMap((item) => histories[item.id]?.sessions ?? []),
-  ).filter((item) => ownerById.has(item.projectId)), [owners, ownerById, histories]);
+    activeFilter,
+  ).filter((item) => ownerById.has(item.projectId)), [owners, ownerById, histories, activeFilter]);
   const ordered = useMemo(() => sessions.filter(
       (item) =>
         !needle ||
@@ -166,19 +188,18 @@ export function MobileHome({
           .toLocaleLowerCase()
           .includes(needle),
     ), [sessions, needle, ownerById, t]);
-  const pins = useMemo(() => ordered.filter((item) => item.pinned), [ordered]);
-  const recent = useMemo(() => ordered.filter((item) => !item.pinned), [ordered]);
   const loading = owners.some((item) => !histories[item.id]);
   const projectsLoading = loading && !owners.some((item) => histories[item.id]?.sessions);
   const failed = owners.filter((item) => histories[item.id]?.failed);
   const row = (item: HostSessionSummary) => {
     const owner = ownerById.get(item.projectId)!;
     return (
-      <button
-        type="button"
-        className="mobile-home-session"
+      <MobileSessionCard
         key={item.id}
-        data-session-id={item.id}
+        session={item}
+        projectName={project ? undefined : owner.name}
+        now={now}
+        unread={unreadIds.has(item.id)}
         aria-haspopup={onSessionActions ? "dialog" : undefined}
         aria-expanded={sessionActionsId === item.id}
         onPointerDown={(event) => {
@@ -235,37 +256,7 @@ export function MobileHome({
           }
           onSession(item.id, owner);
         }}
-      >
-        <span className="mobile-home-session-text">
-          <strong>
-            <HarnessIcon harness={item.harness} className="size-3.5 shrink-0" />
-            <span>
-              {sessionDisplayTitle(item.title, item.harness) ||
-                t("Untitled conversation")}
-            </span>
-          </strong>
-        </span>
-        {item.status === "running" ? (
-          <span
-            className="mobile-home-session-loading"
-            role="img"
-            aria-label={t("Working")}
-          >
-            <LoaderCircle size={16} className="mobile-spin" aria-hidden="true" />
-          </span>
-        ) : (
-          <time dateTime={new Date(item.updatedAt).toISOString()}>
-            {formatMobileRelativeTime(item.updatedAt, now, language)}
-          </time>
-        )}
-        {unreadIds.has(item.id) && (
-          <span
-            className="mobile-unread-dot"
-            role="img"
-            aria-label={t("Unread reply")}
-          />
-        )}
-      </button>
+      />
     );
   };
 
@@ -277,35 +268,34 @@ export function MobileHome({
       aria-hidden={inactive || undefined}
     >
       <div className="mobile-home-scroll" key={project?.id ?? "all"}>
-        {!project && (
-          <div className="mobile-home-host">
-            <Computer size={16} />
-            <span>{hostName}</span>
-            <MobileHostStatus status={hostStatus} />
-          </div>
-        )}
-        {!project && !needle && (
-          <section className="mobile-home-projects" aria-label={t("Projects")}>
-            <h2>{t("Projects")}</h2>
-            {projectsLoading ? (
-              <div className="mobile-loading" role="status">
-                <LoaderCircle size={17} className="mobile-spin" />
-                {t("Loading conversations…")}
-              </div>
-            ) : <MobileListPreview stateKey="projects" items={orderedProjects} renderItem={(item) => (
+        {root && !needle && (
+          <section className="mobile-home-hosts" aria-label={t("Hosts")}>
+            <h2>{t("Hosts")}</h2>
+            <div className="mobile-home-host-row">
               <button
                 type="button"
-                className="mobile-home-project"
-                key={item.id}
-                title={item.cwd}
-                onClick={() => onProject(item)}
+                className="mobile-home-host"
+                onClick={(event) => onHost?.(event.currentTarget)}
               >
-                <Folder size={23} />
-                <span>
-                  <strong>{item.name}</strong>
-                </span>
+                <Computer size={18} />
+                <span>{hostName}</span>
+                <MobileHostStatus status={hostStatus} />
               </button>
-            )} />}
+              {onAddConnection && (
+                <button
+                  type="button"
+                  className="mobile-home-host-add"
+                  aria-label={t("Add connection")}
+                  onClick={(event) => onAddConnection(event.currentTarget)}
+                >
+                  <Plus size={20} />
+                </button>
+              )}
+            </div>
+          </section>
+        )}
+        {root && !needle && !projects.length && (
+          <section className="mobile-home-projects" aria-label={t("Projects")}>
             <button
               type="button"
               className="mobile-home-project mobile-home-add"
@@ -316,25 +306,60 @@ export function MobileHome({
             </button>
           </section>
         )}
-        {!!pins.length && (
-          <section className="mobile-home-pinned">
-            <button
-              type="button"
-              className="mobile-home-section-toggle"
-              aria-expanded={pinnedOpen}
-              onClick={() => setPinnedOpen((open) => !open)}
-            >
-              <h2>{t("Pinned")}</h2>
-              <ChevronDown size={18} />
-            </button>
-            <AnimatedCollapse expanded={pinnedOpen}>
-              <MobileListPreview key={needle} stateKey={needle ? undefined : "pins"} items={pins} renderItem={row} />
-            </AnimatedCollapse>
+        {projectsPage && (
+          <section className="mobile-home-projects" aria-label={t("Projects")}>
+            {projectsLoading ? (
+              <div className="mobile-loading" role="status">
+                <LoaderCircle size={17} className="mobile-spin" />
+                {t("Loading conversations…")}
+              </div>
+            ) : <MobileListPreview key={needle} stateKey={needle ? undefined : "projects"} initialLimit={50} items={matchingProjects} renderItem={(item) => (
+              <button
+                type="button"
+                className="mobile-home-project"
+                key={item.id}
+                title={item.cwd}
+                onClick={() => onProject(item)}
+              >
+                <Folder size={23} />
+                <span>
+                  <strong>{item.name}</strong>
+                  <small>{item.cwd}</small>
+                </span>
+              </button>
+            )} />}
+            {needle ? !matchingProjects.length && (
+              <p className="mobile-home-empty">{t("No matching projects")}</p>
+            ) : (
+              <button
+                type="button"
+                className="mobile-home-project mobile-home-add"
+                onClick={(event) => onAddProject(event.currentTarget)}
+              >
+                <FolderPlus size={21} />
+                <span>{t("Open project")}</span>
+              </button>
+            )}
           </section>
         )}
-        <section className="mobile-home-recent" aria-label={t("Recent")}>
-          {!project && <h2>{t("Recent")}</h2>}
-          <MobileListPreview key={needle} stateKey={needle ? undefined : "recent"} initialLimit={20} items={recent} renderItem={row} />
+        {!projectsPage && !!projects.length && <section className="mobile-home-recent" aria-label={t("Sessions")}>
+          {root && (
+            <div className="mobile-home-section-head">
+              <h2>{t("Sessions")}</h2>
+              <button
+                ref={filterTrigger}
+                type="button"
+                className="mobile-home-filter"
+                aria-haspopup="dialog"
+                aria-expanded={filterOpen}
+                onClick={() => setFilterOpen((open) => !open)}
+              >
+                <span>{t(MOBILE_SESSION_FILTER_LABELS[filter])}</span>
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+          <MobileListPreview key={`${needle}:${activeFilter}`} stateKey={needle ? undefined : `recent:${activeFilter}`} initialLimit={20} items={ordered} renderItem={row} />
           {loading && (
             <div className="mobile-loading" role="status">
               <LoaderCircle className="mobile-spin" size={18} />
@@ -343,7 +368,7 @@ export function MobileHome({
           )}
           {!ordered.length && !loading && !failed.length && (
             <p className="mobile-home-empty">
-              {needle
+              {needle || activeFilter !== "all"
                 ? t("No matching conversations")
                 : t("No conversations yet")}
             </p>
@@ -362,9 +387,39 @@ export function MobileHome({
               </button>
             </div>
           )}
-        </section>
+        </section>}
       </div>
-      {!!projects.length && (
+      {root && (
+        <MobileSheet
+          open={filterOpen && !inactive}
+          title="Filter conversations"
+          placement="anchor"
+          anchor={filterTrigger}
+          align="end"
+          side="bottom"
+          width={220}
+          onClose={() => setFilterOpen(false)}
+        >
+          {MOBILE_SESSION_FILTERS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className="mobile-sheet-row"
+              data-separated={option === "archived" || undefined}
+              role="menuitemradio"
+              aria-checked={filter === option}
+              onClick={() => {
+                setFilter(option);
+                setFilterOpen(false);
+              }}
+            >
+              <span className="flex-1">{t(MOBILE_SESSION_FILTER_LABELS[option])}</span>
+              {filter === option && <Check size={18} />}
+            </button>
+          ))}
+        </MobileSheet>
+      )}
+      {!!projects.length && !projectsPage && (
         <div className="mobile-home-dock">
           {project && (
             <button

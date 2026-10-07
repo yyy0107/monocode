@@ -11,7 +11,6 @@ import {
 } from "react";
 import {
   Bot,
-  ChevronDown,
   Folder,
   FolderPlus,
   Home,
@@ -20,10 +19,6 @@ import {
   Pin,
   Settings,
 } from "../shared/ui/icons";
-import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
-import { prettyParent, projectKey, projectName } from "../shared/lib/paths";
-import { ProjectMascot } from "../features/projects/ui/ProjectMascot";
-import { resolveTabGroupColor } from "../features/workspace/model/tabGroups";
 import type {
   HostProject,
   HostSessionSummary,
@@ -43,26 +38,6 @@ import {
   drawerIntent,
   settleDrawerOpen,
 } from "./drawerGesture";
-
-// Mobile has no desktop appearance overrides, so projects use the same seeded
-// mascot and colour desktop falls back to.
-function ProjectIcon({ cwd }: { cwd: string }) {
-  const seed = projectName(cwd);
-  return (
-    <span className="mobile-drawer-project-icon">
-      <ProjectMascot
-        project={seed}
-        color={resolveTabGroupColor(
-          projectKey(cwd),
-          undefined,
-          undefined,
-          seed,
-        )}
-        className="size-4"
-      />
-    </span>
-  );
-}
 
 interface ProjectHistory {
   sessions?: HostSessionSummary[];
@@ -103,7 +78,6 @@ export const MobileDrawer = memo(function MobileDrawer({
   onAddProject,
   onHome,
   onAllProjects,
-  onProject,
   loadSessions,
   cachedSessions,
   onSession,
@@ -132,7 +106,6 @@ export const MobileDrawer = memo(function MobileDrawer({
   onAddProject: () => void;
   onHome: () => void;
   onAllProjects: () => void;
-  onProject: (project: HostProject) => void;
   /** Reads another project's conversations; the current one arrives as `sessions`. */
   loadSessions: (projectId: string) => Promise<HostSessionSummary[]>;
   cachedSessions?: (projectId: string) => HostSessionSummary[] | undefined;
@@ -150,11 +123,6 @@ export const MobileDrawer = memo(function MobileDrawer({
 }) {
   const { language, t } = useTranslation();
   const open = requestedOpen && active;
-  // Current and running projects open automatically; manual collapses survive
-  // background refreshes while this drawer lives.
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(
-    () => new Set(project ? [project.id] : []),
-  );
   // A just-opened project can precede the next project list refresh.
   const treeProjects =
     project && !projects.some((item) => item.id === project.id)
@@ -167,7 +135,6 @@ export const MobileDrawer = memo(function MobileDrawer({
     const sessions = cachedSessions?.(item.id);
     return sessions ? [[item.id, { sessions, loading: false, failed: false }]] : [];
   })));
-  const collapsed = useRef(new Set<string>());
   // Home and chat can refresh the shared cache while the drawer stays closed.
   useLayoutEffect(() => {
     const ids: string[] = JSON.parse(projectIds);
@@ -283,14 +250,6 @@ export const MobileDrawer = memo(function MobileDrawer({
         trigger.focus({ preventScroll: true });
     };
   }, [open]);
-  useEffect(() => {
-    if (project) {
-      collapsed.current.delete(project.id);
-      setExpanded((current) =>
-        current.has(project.id) ? current : new Set(current).add(project.id),
-      );
-    }
-  }, [project?.id]);
   const readHistory = useCallback(
     async (projectId: string) => {
       const turn = (historyTurn.current[projectId] ?? 0) + 1;
@@ -320,7 +279,7 @@ export const MobileDrawer = memo(function MobileDrawer({
     },
     [loadSessions],
   );
-  // Collapsed projects need summaries too for activity order and running state.
+  // Every project feeds the flat Pinned and Recents lists.
   // The app already polls the current project's list.
   useEffect(() => {
     if (!open || !foreground) return;
@@ -339,41 +298,6 @@ export const MobileDrawer = memo(function MobileDrawer({
       clearTimeout(timer);
     };
   }, [open, foreground, projectIds, project?.id, readHistory]);
-  useEffect(() => {
-    if (!open || !foreground) return;
-    const ids: string[] = JSON.parse(projectIds);
-    setExpanded((current) => {
-      const running = ids.filter(
-        (id) =>
-          !current.has(id) &&
-          !collapsed.current.has(id) &&
-          (id === project?.id
-            ? sessions
-            : (histories[id]?.sessions ?? [])
-          ).some((item) => !item.archived && item.status === "running"),
-      );
-      return running.length ? new Set([...current, ...running]) : current;
-    });
-  }, [open, foreground, projectIds, project?.id, sessions, histories]);
-  const toggleProject = (item: HostProject) => {
-    const opening = !expanded.has(item.id);
-    if (opening) collapsed.current.delete(item.id);
-    else collapsed.current.add(item.id);
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (opening) next.add(item.id);
-      else next.delete(item.id);
-      return next;
-    });
-    if (
-      opening &&
-      item.id !== project?.id &&
-      !histories[item.id]?.loading &&
-      (!histories[item.id]?.sessions || histories[item.id]?.failed)
-    )
-      void readHistory(item.id);
-  };
-
   // One gesture pipeline: a pull on the conversation opens the drawer, a push
   // anywhere on screen closes it. The drawer follows the finger
   // and settles by distance or flick speed.
@@ -487,16 +411,6 @@ export const MobileDrawer = memo(function MobileDrawer({
   const tree = sortMobileProjects(treeProjects, (id) =>
     id === project?.id ? sessions : (histories[id]?.sessions ?? []),
   );
-  const minimumVisibleProjects = tree.reduce(
-    (count, item, index) =>
-      expanded.has(item.id) ? Math.max(count, index + 1) : count,
-    5,
-  );
-  const duplicateNames = new Set(
-    tree
-      .map((item) => item.name)
-      .filter((name, index, names) => names.indexOf(name) !== index),
-  );
   const projectHistory = (item: HostProject): ProjectHistory =>
     item.id === project?.id
       ? { sessions, loading: loading && !sessions.length, failed: false }
@@ -505,7 +419,18 @@ export const MobileDrawer = memo(function MobileDrawer({
     ? sessions.length > 0 || cachedSessions?.(item.id) !== undefined
     : histories[item.id]?.sessions !== undefined) &&
     tree.some((item) => projectHistory(item).loading);
-  const row = (item: HostSessionSummary, owner: HostProject) => {
+  const ownerById = new Map(tree.map((item) => [item.id, item]));
+  const allSessions = sortMobileSessions(
+    tree.flatMap((item) => projectHistory(item).sessions ?? []),
+  ).filter((item) => ownerById.has(item.projectId));
+  const pins = allSessions.filter((item) => item.pinned);
+  const recents = allSessions.filter((item) => !item.pinned);
+  const failedProjects = tree.filter((item) => {
+    const history = projectHistory(item);
+    return history.failed && !history.sessions;
+  });
+  const row = (item: HostSessionSummary) => {
+    const owner = ownerById.get(item.projectId)!;
     // Actions edit through the current project's summary list.
     const actionable = owner.id === project?.id;
     return (
@@ -581,6 +506,9 @@ export const MobileDrawer = memo(function MobileDrawer({
             ) : item.pinned ? (
               <Pin size={12} aria-label={t("Pin")} />
             ) : null}
+            {tree.length > 1 && (
+              <span className="mobile-drawer-session-project">{owner.name}</span>
+            )}
             <span>
               {formatMobileRelativeTime(item.updatedAt, now, language)}
             </span>
@@ -594,73 +522,6 @@ export const MobileDrawer = memo(function MobileDrawer({
           </small>
         </span>
       </button>
-    );
-  };
-  const group = (item: HostProject) => {
-    const open = expanded.has(item.id);
-    const history = projectHistory(item);
-    const ordered = sortMobileSessions(history.sessions ?? []);
-    return (
-      <section
-        className="mobile-drawer-group"
-        key={item.id}
-        data-current={item.id === project?.id || undefined}
-      >
-        <div className="mobile-drawer-group-head">
-          <button
-            type="button"
-            className="mobile-drawer-project-link"
-            title={item.cwd}
-            onClick={() => onProject(item)}
-          >
-            <ProjectIcon cwd={item.cwd} />
-            <span className="mobile-drawer-group-title">
-              <strong>{item.name}</strong>
-              {duplicateNames.has(item.name) && (
-                <small className="mobile-drawer-path">
-                  <bdi>{prettyParent(item.cwd)}</bdi>
-                </small>
-              )}
-            </span>
-          </button>
-          <button
-            type="button"
-            className="mobile-drawer-group-toggle"
-            aria-expanded={open}
-            aria-label={t("Conversations in {project}", {
-              project: item.name,
-            })}
-            onClick={() => toggleProject(item)}
-          >
-            <ChevronDown size={16} />
-          </button>
-        </div>
-        <AnimatedCollapse expanded={open}>
-          {history.loading && !history.sessions ? (
-            <div className="mobile-loading mobile-drawer-group-status">
-              <LoaderCircle className="mobile-spin" size={16} />
-              {t("Loading conversations…")}
-            </div>
-          ) : history.failed && !history.sessions ? (
-            <button
-              type="button"
-              className="mobile-drawer-empty mobile-drawer-group-status"
-              onClick={() => readHistory(item.id)}
-            >
-              {t("Couldn’t load sessions")} · {t("Retry")}
-            </button>
-          ) : ordered.length ? (
-            <div className="mobile-list mobile-session-list">
-              <MobileListPreview buttonClassName="mobile-drawer-more"
-                items={ordered} renderItem={(session) => row(session, item)} />
-            </div>
-          ) : (
-            <p className="mobile-drawer-empty mobile-drawer-group-status">
-              {t("No conversations yet")}
-            </p>
-          )}
-        </AnimatedCollapse>
-      </section>
     );
   };
   return (
@@ -697,7 +558,7 @@ export const MobileDrawer = memo(function MobileDrawer({
           )}
           <button type="button" className="mobile-drawer-item" onClick={onHome}>
             <Home size={18} />
-            <span>{t("Home")}</span>
+            <span>{t("Sessions")}</span>
           </button>
           <button
             type="button"
@@ -716,23 +577,8 @@ export const MobileDrawer = memo(function MobileDrawer({
             onClick={onAllProjects}
           >
             <Folder size={18} />
-            <span>{t("All projects")}</span>
+            <span>{t("Projects")}</span>
           </button>
-          {treeLoading ? (
-            <div className="mobile-loading mobile-drawer-group-status" role="status">
-              <LoaderCircle size={15} className="mobile-spin" />
-              {t("Loading conversations…")}
-            </div>
-          ) : tree.length ? (
-            <MobileListPreview
-              buttonClassName="mobile-drawer-more"
-              minimumVisibleCount={minimumVisibleProjects}
-              items={tree}
-              renderItem={group}
-            />
-          ) : (
-            <p className="mobile-drawer-empty">{t("Choose a project")}</p>
-          )}
           <button
             type="button"
             ref={projectTrigger}
@@ -742,6 +588,52 @@ export const MobileDrawer = memo(function MobileDrawer({
             <FolderPlus size={18} />
             <span>{t("Open project")}</span>
           </button>
+          {treeLoading ? (
+            <div className="mobile-loading mobile-drawer-group-status" role="status">
+              <LoaderCircle size={15} className="mobile-spin" />
+              {t("Loading conversations…")}
+            </div>
+          ) : !tree.length ? (
+            <p className="mobile-drawer-empty">{t("Choose a project")}</p>
+          ) : (
+            <>
+              {!!pins.length && (
+                <section className="mobile-drawer-group" aria-label={t("Pinned")}>
+                  <h2 className="mobile-drawer-heading">{t("Pinned")}</h2>
+                  <div className="mobile-list mobile-session-list">
+                    {pins.map(row)}
+                  </div>
+                </section>
+              )}
+              <section className="mobile-drawer-group" aria-label={t("Recents")}>
+                <h2 className="mobile-drawer-heading">{t("Recents")}</h2>
+                {recents.length ? (
+                  <div className="mobile-list mobile-session-list">
+                    <MobileListPreview
+                      buttonClassName="mobile-drawer-more"
+                      initialLimit={20}
+                      items={recents}
+                      renderItem={row}
+                    />
+                  </div>
+                ) : (
+                  <p className="mobile-drawer-empty mobile-drawer-group-status">
+                    {t("No conversations yet")}
+                  </p>
+                )}
+              </section>
+              {failedProjects.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="mobile-drawer-empty mobile-drawer-group-status"
+                  onClick={() => readHistory(item.id)}
+                >
+                  {t("Couldn’t load sessions")} · {item.name} · {t("Retry")}
+                </button>
+              ))}
+            </>
+          )}
         </div>
         <button
           type="button"

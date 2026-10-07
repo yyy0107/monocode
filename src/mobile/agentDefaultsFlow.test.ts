@@ -322,8 +322,11 @@ describe("mobile Agent defaults settings and new conversations", () => {
     async (entry) => {
       saveChosen();
       await render();
-      if (entry === "project")
+      if (entry === "project") {
+        await click("Menu");
+        await click("Projects", current(".mobile-drawer")!);
         await click("Project", current(".mobile-home-projects")!);
+      }
       if (entry === "drawer") await click("Menu");
       await click(
         "New conversation",

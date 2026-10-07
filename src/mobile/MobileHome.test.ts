@@ -89,18 +89,16 @@ describe("mobile home and project history", () => {
     const loadSessions = vi.fn(() => pending);
     const props = { cachedSessions, loadSessions };
     await render(props);
-    const paths = () => [...node.querySelectorAll('.mobile-home-project[title]')].map(row => row.getAttribute('title'));
-    expect(paths()).toEqual([projects[1].cwd, projects[0].cwd]);
-    expect(ids(".mobile-home-pinned")).toEqual(["pin"]);
-    expect(ids(".mobile-home-recent")).toEqual(["latest", "older"]);
+    expect(ids(".mobile-home-recent")).toEqual(["pin", "latest", "older"]);
     expect(node.querySelector('.mobile-loading[role="status"]')).toBeNull();
     await act(async () => reject(new Error("Offline")));
-    expect(paths()).toEqual([projects[1].cwd, projects[0].cwd]);
+    expect(ids(".mobile-home-recent")).toEqual(["pin", "latest", "older"]);
     expect(node.querySelector('[role="alert"]')).not.toBeNull();
     act(() => root.render(null));
-    await render({ ...props, loadSessions: () => new Promise(() => {}) });
+    await render({ ...props, projectsPage: true, loadSessions: () => new Promise(() => {}) });
+    const paths = () => [...node.querySelectorAll('.mobile-home-project[title]')].map(row => row.getAttribute('title'));
     expect(paths()).toEqual([projects[1].cwd, projects[0].cwd]);
-    expect(ids(".mobile-home-recent")).toEqual(["latest", "older"]);
+    expect(ids(".mobile-home")).toEqual([]);
   });
 
   it("fills newly arriving projects from cache without replacing newer live history", async () => {
@@ -118,7 +116,7 @@ describe("mobile home and project history", () => {
   it("holds uncached projects in loading state until their first histories arrive", async () => {
     let resolve!: (sessions: HostSessionSummary[]) => void;
     const pending = new Promise<HostSessionSummary[]>((done) => { resolve = done; });
-    await render({ loadSessions: () => pending });
+    await render({ projectsPage: true, loadSessions: () => pending });
     expect(node.querySelectorAll('.mobile-home-project[title]')).toHaveLength(0);
     expect(node.querySelector('.mobile-home-projects [role="status"]')).not.toBeNull();
     await act(async () => resolve([]));
@@ -126,7 +124,7 @@ describe("mobile home and project history", () => {
     expect(node.querySelector('.mobile-loading[role="status"]')).toBeNull();
   });
 
-  it("sorts projects by their newest visible conversation before paging and refreshes the order", async () => {
+  it("sorts projects by their newest visible conversation and refreshes the order", async () => {
     const owners = Array.from({ length: 7 }, (_, index) => ({
       id: `p${index}`, name: `Project ${index}`, cwd: `/p${index}`,
     }));
@@ -140,11 +138,10 @@ describe("mobile home and project history", () => {
       if (id === "p0") return [];
       return [session(id, id, Number(id.slice(1))), session(`archived-${id}`, id, 1000, { archived: true })];
     };
-    await render({ projects: owners, loadSessions });
+    await render({ projects: owners, projectsPage: true, loadSessions });
     const paths = () => [...node.querySelectorAll('.mobile-home-project[title]')].map(row => row.getAttribute('title'));
-    expect(paths()).toEqual(["/p6", "/p5", "/p4", "/p3", "/p2"]);
-    act(() => (node.querySelector('.mobile-home-projects .mobile-list-more') as HTMLButtonElement).click());
     expect(paths()).toEqual(["/p6", "/p5", "/p4", "/p3", "/p2", "/p1", "/p0"]);
+    expect(node.querySelector(".mobile-home-projects .mobile-list-more")).toBeNull();
     latest = 2;
     await act(async () => vi.advanceTimersByTimeAsync(3000));
     expect(paths()).toEqual(["/p5", "/p4", "/p3", "/p2", "/p6", "/p1", "/p0"]);
@@ -198,18 +195,13 @@ describe("mobile home and project history", () => {
     expect(onSession).not.toHaveBeenCalled();
   });
 
-  it("reveals only five more projects or conversations per click", async () => {
-    const manyProjects = Array.from({ length: 16 }, (_, i) => ({ id: `project-${i}`, name: `Project ${i}`, cwd: `/projects/${i}` }));
-    const loadSessions = async (id: string) => id === "project-0"
+  it("reveals only five more conversations per click", async () => {
+    const loadSessions = async (id: string) => id === "one"
       ? Array.from({ length: 46 }, (_, i) => session(`recent-${i}`, id, 100 - i))
       : [];
-    await render({ projects: manyProjects, loadSessions });
+    await render({ loadSessions });
     const more = (area: string) => node.querySelector<HTMLButtonElement>(`${area} .mobile-list-more`)!;
-    for (const count of [10, 15, 16]) {
-      act(() => more(".mobile-home-projects").click());
-      expect(node.querySelectorAll(".mobile-home-project:not(.mobile-home-add)")).toHaveLength(count);
-      expect(ids(".mobile-home-recent")).toHaveLength(20);
-    }
+    expect(ids(".mobile-home-recent")).toHaveLength(20);
     for (const count of [25, 30, 35, 40, 45, 46]) {
       act(() => more(".mobile-home-recent").click());
       expect(ids(".mobile-home-recent")).toHaveLength(count);
@@ -221,35 +213,51 @@ describe("mobile home and project history", () => {
     expect(more(".mobile-home-recent").textContent).toBe("Show more items");
   });
 
-  it("previews five projects, five pins and twenty recent conversations independently", async () => {
-    const manyProjects = Array.from({ length: 7 }, (_, i) => ({ id: `project-${i}`, name: `Project ${i}`, cwd: `/projects/${i}` }));
-    const loadSessions = async (id: string) => id === "project-0"
+  it("filters Home by conversation status and keeps archived rows separate", async () => {
+    const loadSessions = async (id: string) => id === "one"
       ? [
-          ...Array.from({ length: 7 }, (_, i) => session(`pin-${i}`, id, 100 - i, { pinned: true })),
-          ...Array.from({ length: 23 }, (_, i) => session(`recent-${i}`, id, 100 - i)),
+          session("running", id, 40, { status: "running" }),
+          session("asking", id, 30, { needsInput: true }),
+          session("done", id, 20, { lastCompletedRunId: "run" }),
+          session("stored", id, 50, { archived: true }),
         ]
       : [];
-    await render({ projects: manyProjects, loadSessions });
-    expect(node.querySelectorAll(".mobile-home-project:not(.mobile-home-add)")).toHaveLength(5);
-    expect(ids(".mobile-home-pinned")).toHaveLength(5);
-    expect(ids(".mobile-home-recent")).toHaveLength(20);
-    const more = (area: string) => node.querySelector<HTMLButtonElement>(`${area} .mobile-list-more`)!;
-    act(() => more(".mobile-home-projects").click());
-    expect(node.querySelectorAll(".mobile-home-project:not(.mobile-home-add)")).toHaveLength(7);
-    expect(ids(".mobile-home-recent")).toHaveLength(20);
-    act(() => more(".mobile-home-pinned").click());
-    expect(ids(".mobile-home-pinned")).toHaveLength(7);
-    expect(ids(".mobile-home-recent")).toHaveLength(20);
-    act(() => more(".mobile-home-recent").click());
-    expect(ids(".mobile-home-recent")).toHaveLength(23);
-    act(() => more(".mobile-home-recent").click());
-    expect(node.querySelector('.mobile-home-recent [data-fold-state="closing"]')?.hasAttribute("inert")).toBe(true);
-    act(() => more(".mobile-home-recent").click());
-    act(() => vi.advanceTimersByTime(350));
-    expect(ids(".mobile-home-recent")).toHaveLength(23);
-    act(() => more(".mobile-home-recent").click());
-    act(() => vi.advanceTimersByTime(350));
-    expect(ids(".mobile-home-recent")).toHaveLength(20);
+    await render({ loadSessions });
+    expect(ids(".mobile-home-recent")).toEqual(["running", "asking", "done"]);
+    const trigger = node.querySelector<HTMLButtonElement>(".mobile-home-filter")!;
+    const choose = (label: string) => {
+      act(() => trigger.click());
+      const option = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')]
+        .find((item) => item.textContent === label)!;
+      act(() => option.click());
+      act(() => vi.advanceTimersByTime(400));
+    };
+    choose("Working");
+    expect(trigger.textContent).toBe("Working");
+    expect(ids(".mobile-home-recent")).toEqual(["running"]);
+    choose("Needs input");
+    expect(ids(".mobile-home-recent")).toEqual(["asking"]);
+    choose("Completed");
+    expect(ids(".mobile-home-recent")).toEqual(["done"]);
+    choose("Archived");
+    expect(ids(".mobile-home-recent")).toEqual(["stored"]);
+    choose("All");
+    expect(ids(".mobile-home-recent")).toEqual(["running", "asking", "done"]);
+    await render({ project: projects[0], loadSessions });
+    expect(node.querySelector(".mobile-home-filter")).toBeNull();
+  });
+
+  it("shows the latest answer, project and running state on each card", async () => {
+    const loadSessions = async (id: string) => id === "one"
+      ? [session("busy", id, 40, { status: "running", preview: "Updated two files." })]
+      : [];
+    await render({ loadSessions });
+    const card = node.querySelector('[data-session-id="busy"]')!;
+    expect(card.getAttribute("data-state")).toBe("running");
+    expect(card.querySelector(".mobile-session-card-meta")?.textContent).toBe("Working·monocode");
+    expect(card.querySelector(".mobile-session-card-preview")?.textContent).toBe("Updated two files.");
+    await render({ project: projects[0], loadSessions });
+    expect(node.querySelector(".mobile-session-card-project")).toBeNull();
   });
 
   it("searches beyond the twenty-row recent preview and resets expansion for a new project", async () => {
@@ -264,18 +272,18 @@ describe("mobile home and project history", () => {
     expect(node.querySelector(".mobile-list-more")).toBeNull();
   });
 
-  it("combines project history by activity, separates pins, and opens the actual owning project", async () => {
+  it("combines project history by activity, pins first, and opens the actual owning project", async () => {
     const onSession = vi.fn();
     const onProject = vi.fn();
     await render({ onSession, onProject });
-    expect(ids(".mobile-home-pinned")).toEqual(["pin"]);
-    expect(ids(".mobile-home-recent")).toEqual(["new", "old"]);
+    expect(ids(".mobile-home-recent")).toEqual(["pin", "new", "old"]);
     expect(node.textContent).not.toContain("archive");
-    expect(node.querySelector(".mobile-home-project small")).toBeNull();
+    expect(node.querySelector(".mobile-home-projects")).toBeNull();
     act(() =>
       node.querySelector<HTMLButtonElement>('[data-session-id="new"]')!.click(),
     );
     expect(onSession).toHaveBeenCalledExactlyOnceWith("new", projects[1]);
+    await render({ onSession, onProject, projectsPage: true });
     act(() =>
       node
         .querySelector<HTMLButtonElement>(
@@ -304,7 +312,7 @@ describe("mobile home and project history", () => {
       return defaults.loadSessions(id);
     });
     await render({ loadSessions });
-    expect(ids(".mobile-home-recent")).toEqual(["old"]);
+    expect(ids(".mobile-home-recent")).toEqual(["pin", "old"]);
     expect(node.querySelector('[role="alert"]')?.textContent).toContain(
       "Couldn’t load sessions",
     );
@@ -313,7 +321,7 @@ describe("mobile home and project history", () => {
       node.querySelector<HTMLButtonElement>('[role="alert"] button')!.click(),
     );
     expect(node.querySelector('[role="alert"]')).toBeNull();
-    expect(ids(".mobile-home-recent")).toEqual(["new", "old"]);
+    expect(ids(".mobile-home-recent")).toEqual(["pin", "new", "old"]);
   });
 
   it("ignores a late result from the project left behind", async () => {
@@ -332,31 +340,6 @@ describe("mobile home and project history", () => {
     expect(node.textContent).not.toContain("stale");
   });
 
-  it("retains pinned content during animated closing and handles a rapid reversal", async () => {
-    await render();
-    const toggle = node.querySelector<HTMLButtonElement>(
-      ".mobile-home-section-toggle",
-    )!;
-    act(() => toggle.click());
-    expect(
-      node
-        .querySelector(".mobile-home-pinned .zen-fold-item")
-        ?.getAttribute("data-fold-state"),
-    ).toBe("closing");
-    expect(
-      node
-        .querySelector(".mobile-home-pinned .zen-fold-item")
-        ?.hasAttribute("inert"),
-    ).toBe(true);
-    expect(ids(".mobile-home-pinned")).toEqual(["pin"]);
-    act(() => toggle.click());
-    act(() => vi.advanceTimersByTime(350));
-    expect(ids(".mobile-home-pinned")).toEqual(["pin"]);
-    act(() => toggle.click());
-    act(() => vi.advanceTimersByTime(350));
-    expect(ids(".mobile-home-pinned")).toEqual([]);
-  });
-
   it("pauses history polling in the background and translates labels while preserving user names", async () => {
     const loadSessions = vi.fn(defaults.loadSessions);
     await render({ loadSessions });
@@ -364,8 +347,9 @@ describe("mobile home and project history", () => {
     await act(async () => vi.advanceTimersByTimeAsync(10_000));
     expect(loadSessions).toHaveBeenCalledTimes(2);
     act(() => setUiLanguage("zh-CN"));
-    expect(node.textContent).toContain("项目");
-    expect(node.textContent).toContain("已置顶");
+    expect(node.textContent).toContain("主机");
+    expect(node.textContent).toContain("会话");
+    expect(node.textContent).toContain("Computer");
     expect(node.textContent).toContain("monocode");
   });
 });

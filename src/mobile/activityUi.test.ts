@@ -163,6 +163,12 @@ async function swipeOpenDrawer() {
   await act(async () => vi.advanceTimersByTimeAsync(400));
 }
 // Start a blank chat from Home before exercising the conversation drawer.
+/** Projects live behind the drawer's Projects page. */
+async function goToProject(cwd: string) {
+  await act(async () => node.querySelector<HTMLButtonElement>('header [aria-label="Menu"]')!.click());
+  await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
+  await act(async () => activePage().querySelector<HTMLButtonElement>(`.mobile-home-project[title="${cwd}"]`)!.click());
+}
 async function clickProject() {
   await act(async () => {
     root.render(createElement(MobileApp));
@@ -224,7 +230,7 @@ describe("mobile header search", () => {
     expect(input().value).toBe("");
   });
 
-  it.each([".mobile-home-project[title]", ".mobile-home-new", '.mobile-home [data-session-id="one"]'])("consumes outside touch on %s without invoking its action", async (selector) => {
+  it.each([".mobile-home-filter", ".mobile-home-new", '.mobile-home [data-session-id="one"]'])("consumes outside touch on %s without invoking its action", async (selector) => {
     await act(async () => root.render(createElement(MobileApp)));
     await act(async () => searchButton().click());
     const target = node.querySelector<HTMLButtonElement>(selector)!;
@@ -240,7 +246,7 @@ describe("mobile header search", () => {
     });
     expect(mocked.session.mock.calls.length).toBe(callsBeforeDismiss);
     expect(node.querySelector(".mobile-app")!.getAttribute("data-view")).toBe("home");
-    expect(activePage().querySelector(".mobile-home-projects")).not.toBeNull();
+    expect(activePage().querySelector(".mobile-home-recent")).not.toBeNull();
     expect(node.querySelector(".mobile-header-search")!.getAttribute("data-fold-state")).toBe("closing");
     await act(async () => vi.advanceTimersByTimeAsync(350));
     expect(node.querySelector(".mobile-header-search")).toBeNull();
@@ -248,7 +254,7 @@ describe("mobile header search", () => {
 
   it("keeps project search scoped, supports rapid reversal and localizes keyboard dismissal", async () => {
     await act(async () => root.render(createElement(MobileApp)));
-    await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home-project[title="/project"]')!.click());
+    await goToProject("/project");
     expect(node.querySelector('header button[aria-label="Search conversations"]')).toBeNull();
     expect(node.querySelector("header .mobile-header-title")!.tagName).toBe("DIV");
     expect(node.querySelector(".mobile-project-header-name svg")).toBeNull();
@@ -280,7 +286,7 @@ describe("mobile header search", () => {
     expect(node.querySelector(".mobile-header-search")).toBeNull();
   });
 
-  it("searches All projects, consumes dismissal before opening a conversation and respects reduced motion", async () => {
+  it("searches Home, consumes dismissal before opening a conversation and respects reduced motion", async () => {
     const matchMedia = window.matchMedia.bind(window);
     const media = vi.spyOn(window, "matchMedia").mockImplementation((query) => {
       const result = matchMedia(query);
@@ -290,7 +296,8 @@ describe("mobile header search", () => {
     });
     try {
       await clickProject();
-      await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
+      await act(async () => [...node.querySelectorAll<HTMLButtonElement>(".mobile-drawer-top > button")]
+        .find((button) => button.textContent === "Sessions")!.click());
       await act(async () => searchButton().click());
       expect(node.querySelector(".mobile-header-search")!.getAttribute("data-fold-state")).toBe("open");
       await typeQuery("Other");
@@ -305,7 +312,8 @@ describe("mobile header search", () => {
       expect(node.querySelector(".mobile-app")!.getAttribute("data-view")).toBe("chat");
       expect(node.querySelector(".mobile-header-search")).toBeNull();
       await openMenu();
-      await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
+      await act(async () => [...node.querySelectorAll<HTMLButtonElement>(".mobile-drawer-top > button")]
+        .find((button) => button.textContent === "Sessions")!.click());
       expect(visibleIds()).toEqual(["one", "two"]);
       await act(async () => searchButton().click());
       expect(input().value).toBe("");
@@ -320,7 +328,7 @@ describe("mobile project conversation Back navigation", () => {
   const headerButton = (label: string) => node.querySelector<HTMLButtonElement>(`header button[aria-label="${label}"]`);
   const openProjectPage = async () => {
     await act(async () => root.render(createElement(MobileApp)));
-    await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home-project[title="/other"]')!.click());
+    await goToProject("/other");
   };
   const openRow = async () => {
     await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home [data-session-id="two"]')!.click());
@@ -391,6 +399,7 @@ describe("mobile project conversation Back navigation", () => {
     await openRow();
     await act(async () => headerButton("Back")!.click());
     await act(async () => headerButton("Back")!.click());
+    expect(node.querySelector("header strong")!.textContent).toBe("MonoCode");
     await openRow();
     expect(headerButton("Menu")).not.toBeNull();
     expect(headerButton("Back")).toBeNull();
@@ -560,27 +569,19 @@ describe("mobile unread indicators and notification navigation", () => {
   it("opens All projects from the drawer and returns there after visiting settings", async () => {
     await clickProject();
     await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
-    expect(node.querySelector("header strong")?.textContent).toBe("All projects");
+    expect(node.querySelector("header strong")?.textContent).toBe("Projects");
     expect(activePage().querySelectorAll(".mobile-home-project strong")).toHaveLength(2);
     expect(node.querySelector(".mobile-drawer-backdrop")?.getAttribute("data-open")).toBe("false");
     await openMenu();
     await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-settings")!.click());
     expect(node.querySelector(".mobile-app")?.getAttribute("data-view")).toBe("settings");
     await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Back"]')!.click());
-    expect(node.querySelector("header strong")?.textContent).toBe("All projects");
+    expect(node.querySelector("header strong")?.textContent).toBe("Projects");
     expect(node.querySelector(".mobile-app")?.getAttribute("data-view")).toBe("home");
   });
-  it("lists projects as a tree and opens another project's conversation", async () => {
+  it("lists every project's conversations in the drawer and opens another project's conversation", async () => {
     await clickProject();
-    const toggle = (name: string) =>
-      [
-        ...node.querySelectorAll<HTMLButtonElement>(".mobile-drawer-group-toggle"),
-      ].find((item) => item.getAttribute("aria-label") === `Conversations in ${name}`)!;
-    expect(toggle("Project").getAttribute("aria-expanded")).toBe("true");
-    expect(toggle("Other").getAttribute("aria-expanded")).toBe("false");
-    expect(node.querySelector('.mobile-drawer [data-session-id="two"]')).toBeNull();
-    await act(async () => toggle("Other").click());
-    expect(toggle("Project").getAttribute("aria-expanded")).toBe("true");
+    expect(node.querySelector('.mobile-drawer [data-session-id="two"]')).not.toBeNull();
     const drawer = () =>
       node.querySelector(".mobile-drawer-backdrop")!.getAttribute("data-open");
     expect(drawer()).toBe("true");
@@ -596,18 +597,14 @@ describe("mobile unread indicators and notification navigation", () => {
       JSON.parse(localStorage.getItem("monocode-mobile-last")!),
     ).toMatchObject({ projectId: "other-project", sessionId: "two" });
   });
-  it("opens a project page from its tree header and starts a conversation there", async () => {
+  it("opens a project page from Projects and starts a conversation there", async () => {
     await clickProject();
+    await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
     await act(async () =>
-      node
-        .querySelector<HTMLButtonElement>(
-          '.mobile-drawer-project-link[title="/other"]',
-        )!
-        .click(),
+      activePage().querySelector<HTMLButtonElement>('.mobile-home-project[title="/other"]')!.click(),
     );
     expect(node.querySelector("header strong")?.textContent).toBe("Other");
     expect(activePage().querySelector(".mobile-home-projects")).toBeNull();
-    expect(node.querySelector('.mobile-drawer-group-new')).toBeNull();
     await act(async () => activePage().querySelector<HTMLButtonElement>(".mobile-home-new")!.click());
     expect(
       node.querySelector(".mobile-drawer-backdrop")!.getAttribute("data-open"),
@@ -661,7 +658,7 @@ describe("mobile unread indicators and notification navigation", () => {
   });
   it("opens a notification from another project in its owning project", async () => {
     await act(async () => root.render(createElement(MobileApp)));
-    await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home-project[title="/project"]')!.click());
+    await goToProject("/project");
     await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home [data-session-id="one"]')!.click());
     expect(node.querySelector('header button[aria-label="Back"]')).not.toBeNull();
     await updateReply("two");

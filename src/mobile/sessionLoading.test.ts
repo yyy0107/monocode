@@ -148,6 +148,8 @@ async function open(id: string) {
 describe("mobile conversation loading UI", () => {
   const projectChat = async () => {
     await mount();
+    await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Menu"]')!.click());
+    await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
     await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home-project[title="/project"]')!.click());
     await open("one");
   };
@@ -165,14 +167,12 @@ describe("mobile conversation loading UI", () => {
     host.summaries.set("newer", [summary("newer", 100)]);
     host.sessions.mockReturnValue(new Promise(() => {}));
     await mount();
-    expect([...activePage().querySelectorAll('.mobile-home-project[title]')].map((row) => row.getAttribute("title")))
-      .toEqual(["/newer", "/project"]);
     expect([...activePage().querySelectorAll('.mobile-home-recent [data-session-id]')].map((row) => row.getAttribute("data-session-id")))
       .toEqual(["newer", "project"]);
     expect(activePage().querySelector('.mobile-home .mobile-loading')).toBeNull();
     await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Menu"]')!.click());
-    expect([...node.querySelectorAll('.mobile-drawer-project-link')].map((row) => row.getAttribute("title")))
-      .toEqual(["/newer", "/project"]);
+    expect([...node.querySelectorAll('.mobile-drawer [data-session-id]')].map((row) => row.getAttribute("data-session-id")))
+      .toEqual(["newer", "project"]);
   });
 
   it("returns during project conversation loading and ignores the late response", async () => {
@@ -218,7 +218,7 @@ describe("mobile conversation loading UI", () => {
     const assistant = () => node.querySelector(".mobile-drawer-top > button")!;
     const closeDrawer = async () => {
       await act(async () => [...node.querySelectorAll<HTMLButtonElement>(".mobile-drawer-top > button")]
-        .find((button) => button.textContent === "Home")!.click());
+        .find((button) => button.textContent === "Sessions")!.click());
     };
     await openDrawer();
     expect(assistant().textContent).toBe("Assistant");
@@ -269,7 +269,7 @@ describe("mobile conversation loading UI", () => {
     expect(node.querySelector('.mobile-app')?.getAttribute('data-view')).toBe('home');
     await act(async () => action("Pin").click());
     expect(host.updateSession).toHaveBeenCalledWith("other", "other-chat", { pinned: true });
-    expect(activePage().querySelector('.mobile-home-pinned [data-session-id="other-chat"]')).not.toBeNull();
+    expect(activePage().querySelector('[data-session-id="other-chat"] .mobile-session-card-pin')).not.toBeNull();
     expect(node.querySelector('.mobile-sheet-backdrop[data-fold-state="closing"]')?.hasAttribute('inert')).toBe(true);
     act(() => vi.advanceTimersByTime(150));
     expect(node.querySelector('[role="dialog"]')).toBeNull();

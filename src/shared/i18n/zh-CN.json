@@ -3149,5 +3149,8 @@
   "A stable Feishu delivery ID is required": "飞书投递缺少固定标识",
   "accepted": "已接受",
   "queued": "排队中",
-  "completed": "已完成"
+  "completed": "已完成",
+  "Hosts": "主机",
+  "Filter conversations": "筛选会话",
+  "Recents": "最近"
 }
