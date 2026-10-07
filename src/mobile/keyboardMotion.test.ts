@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   anchoredTurnHeight,
   installKeyboardMotion,
@@ -249,4 +249,140 @@ it.each(["inert", "aria-hidden"])("ignores a departing transcript marked %s when
     uninstall();
     pages.remove();
   }
+});
+
+describe("question card keyboard clearance", () => {
+  let shell: HTMLDivElement;
+  let dock: HTMLDivElement;
+  let card: HTMLFieldSetElement;
+  let stop: (() => void) | undefined;
+  let frames: Map<number, FrameRequestCallback>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(window, "matchMedia").mockReturnValue({ matches: false } as MediaQueryList);
+    frames = new Map();
+    let id = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.set(++id, callback);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (frameId: number) => frames.delete(frameId));
+    shell = document.createElement("div");
+    shell.className = "mobile-app";
+    shell.style.height = "777px";
+    dock = document.createElement("div");
+    dock.className = "mobile-shared-question-dock";
+    card = document.createElement("fieldset");
+    card.className = "mobile-shared-question";
+    dock.append(card);
+    shell.append(dock);
+    document.body.append(shell);
+    stop = installKeyboardMotion(shell);
+  });
+
+  afterEach(() => {
+    stop?.();
+    stop = undefined;
+    shell.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function keyboard(height: number, duration = 200) {
+    window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+      detail: { height, viewport: 800, duration, easing: "linear" },
+    }));
+  }
+
+  function frame() {
+    const pending = [...frames.values()];
+    frames.clear();
+    pending.forEach(callback => callback(performance.now()));
+  }
+
+  function settle(duration = 200) {
+    vi.advanceTimersByTime(duration);
+    frame();
+    frame();
+  }
+
+  function expectGeometry(layout: number, clearance: number) {
+    for (const surface of [dock, card]) {
+      expect(surface.style.getPropertyValue("--mobile-keyboard-layout")).toBe(`${layout}px`);
+      expect(surface.style.getPropertyValue("--mobile-keyboard-clearance")).toBe(`${clearance}px`);
+    }
+    expect(shell.style.height).toBe(`${800 - layout}px`);
+  }
+
+  it("holds card clearance through a rise and dismissal while committing shell layout at the existing times", () => {
+    keyboard(300);
+    expectGeometry(0, 300);
+    vi.advanceTimersByTime(200);
+    frame();
+    expectGeometry(0, 300);
+    frame();
+    expectGeometry(300, 300);
+    keyboard(0);
+    // The page grows before lowering its controls, but the card stays short.
+    expectGeometry(0, 300);
+    vi.advanceTimersByTime(200);
+    frame();
+    expectGeometry(0, 300);
+    frame();
+    expectGeometry(0, 0);
+    expect(frames.size).toBe(0);
+  });
+
+  it("keeps the earlier clearance through a reversal and cancels the old settling frame", () => {
+    keyboard(320);
+    settle();
+    keyboard(0);
+    vi.advanceTimersByTime(200);
+    frame();
+    expectGeometry(0, 320);
+    // Reverse after the first settling frame but before it can release space.
+    keyboard(240, 120);
+    frame();
+    expectGeometry(0, 320);
+    vi.advanceTimersByTime(119);
+    frame();
+    expectGeometry(0, 320);
+    settle(1);
+    expectGeometry(240, 240);
+    expect(frames.size).toBe(0);
+  });
+
+  it.each(["zero duration", "reduced motion"])("releases clearance immediately for %s and cancels pending motion", (mode) => {
+    keyboard(300);
+    settle();
+    keyboard(160);
+    expectGeometry(160, 300);
+    if (mode === "reduced motion")
+      vi.mocked(window.matchMedia).mockReturnValue({ matches: true } as MediaQueryList);
+    keyboard(0, mode === "zero duration" ? 0 : 200);
+    expectGeometry(0, 0);
+    settle();
+    expectGeometry(0, 0);
+    expect(frames.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("removes clearance and cancels queued settling work when uninstalled", () => {
+    keyboard(300);
+    vi.advanceTimersByTime(200);
+    frame();
+    expect(frames.size).toBe(1);
+    stop!();
+    stop = undefined;
+    expect(frames.size).toBe(0);
+    expect(dock.style.getPropertyValue("--mobile-keyboard-clearance")).toBe("");
+    expect(card.style.getPropertyValue("--mobile-keyboard-clearance")).toBe("");
+    expect(shell.style.height).toBe("777px");
+    keyboard(200);
+    settle();
+    expect(dock.style.getPropertyValue("--mobile-keyboard-clearance")).toBe("");
+    expect(shell.style.height).toBe("777px");
+  });
 });

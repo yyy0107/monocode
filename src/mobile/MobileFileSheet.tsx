@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AgentMarkdown } from "../features/sessions/ui/AgentMarkdown";
 import { sniffImageMime } from "../features/files/model/filePreview";
 import { displayPath } from "../shared/lib/paths";
@@ -148,10 +148,19 @@ export function MobileFileSheet({
     return () => cancelAnimationFrame(frame);
   }, [line, loaded]);
 
+  // Source reads edge to edge like a diff; rendered markdown stays a document.
+  const isDocument = (extension === "md" || extension === "markdown") &&
+    source !== undefined;
+  const view = loaded.kind === "text" && !isDocument ? "source" : undefined;
+  // Size the line-number gutter to the widest number, so short files stay tight.
+  const gutter = view && loaded.kind === "text"
+    ? { "--mobile-file-gutter": `${String(loaded.text.split("\n").length).length}ch` } as CSSProperties
+    : undefined;
+
   return (
     <MobileSheet open={open} onExited={onExited} title="File preview" onClose={onClose} onBack={onBack}
       detents header={{ title: name, subtitle: displayPath(path, cwd) }}>
-      <div className="mobile-file-sheet">
+      <div className="mobile-file-sheet" data-view={view} style={gutter}>
         {loaded.kind === "loading" ? (
           <p className="mobile-muted mobile-detail-note">{t("Loading…")}</p>
         ) : loaded.kind === "error" ? (

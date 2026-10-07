@@ -15,15 +15,16 @@ describe("shouldDismiss", () => {
 });
 
 describe("settleDetent", () => {
-  it("dismisses on a downward fling and otherwise settles at the nearest stop", () => {
+  it("steps down once on a downward fling and otherwise settles at the nearest stop", () => {
     // Full stop at 0, half stop at 300, half height 500.
-    expect(settleDetent(250, -0.9, 300, 500)).toBe("full");
-    expect(settleDetent(100, 0.9, 300, 500)).toBe("dismiss");
-    expect(settleDetent(320, 0.9, 300, 500)).toBe("dismiss");
-    expect(settleDetent(120, 0, 300, 500)).toBe("full");
-    expect(settleDetent(200, 0, 300, 500)).toBe("half");
-    expect(settleDetent(420, 0, 300, 500)).toBe("half");
-    expect(settleDetent(460, 0, 300, 500)).toBe("dismiss");
+    expect(settleDetent(250, -0.9, 300, 500, "half")).toBe("full");
+    expect(settleDetent(100, 0.9, 300, 500, "full")).toBe("half");
+    expect(settleDetent(460, 0.9, 300, 500, "full")).toBe("half");
+    expect(settleDetent(320, 0.9, 300, 500, "half")).toBe("dismiss");
+    expect(settleDetent(120, 0, 300, 500, "full")).toBe("full");
+    expect(settleDetent(200, 0, 300, 500, "full")).toBe("half");
+    expect(settleDetent(420, 0, 300, 500, "half")).toBe("half");
+    expect(settleDetent(460, 0, 300, 500, "half")).toBe("dismiss");
   });
 });
 
@@ -172,59 +173,82 @@ describe("MobileSheet drag", () => {
         createElement("p", { className: "body" }, "Body"))));
       const sheet = node.querySelector<HTMLElement>(".mobile-sheet")!;
       Object.defineProperty(sheet, "offsetHeight", { value: 800 });
-      const touch = (type: string, clientY: number) => {
-        const target = sheet.querySelector(".body")!;
+      const touch = (type: string, clientY: number, selector = ".mobile-sheet-header strong") => {
+        const target = sheet.querySelector(selector)!;
         const event = new TouchEvent(type, {
           bubbles: true, cancelable: true, touches: type === "touchend" ? [] : [{ clientY } as Touch],
         });
         act(() => { target.dispatchEvent(event); });
         return event;
       };
-      const pull = (from: number, to: number) => {
-        touch("touchstart", from);
+      const pull = (from: number, to: number, selector?: string) => {
+        touch("touchstart", from, selector);
         act(() => vi.advanceTimersByTime(500));
-        touch("touchmove", (from + to) / 2);
+        touch("touchmove", (from + to) / 2, selector);
         act(() => vi.advanceTimersByTime(500));
-        touch("touchmove", to);
-        touch("touchend", to);
+        touch("touchmove", to, selector);
+        touch("touchend", to, selector);
       };
       return { sheet, onClose, pull, touch };
     }
 
-    it("opens at half height, expands from the body, and steps back down before closing", () => {
-      const { sheet, onClose, pull } = open();
-      expect(sheet.dataset.detent).toBe("half");
-      expect(sheet.querySelector(".mobile-sheet-header strong")?.textContent).toBe("Bash");
-      pull(600, 400);
-      expect(sheet.dataset.detent).toBe("full");
-      expect(sheet.style.transform).toBe("translateY(0px)");
-      pull(300, 500);
-      expect(sheet.dataset.detent).toBe("half");
-      act(() => vi.advanceTimersByTime(250));
-      expect(sheet.style.transform).toBe("");
-      expect(onClose).not.toHaveBeenCalled();
-      pull(600, 800);
-      act(() => vi.advanceTimersByTime(200));
-      expect(onClose).toHaveBeenCalledOnce();
-    });
+    it.each([".mobile-sheet-grip", ".mobile-sheet-header strong"])(
+      "opens at half height, expands from %s, and steps back down before closing",
+      (selector) => {
+        const { sheet, onClose, pull } = open();
+        expect(sheet.dataset.detent).toBe("half");
+        expect(sheet.querySelector(".mobile-sheet-header strong")?.textContent).toBe("Bash");
+        pull(600, 400, selector);
+        expect(sheet.dataset.detent).toBe("full");
+        expect(sheet.style.transform).toBe("translateY(0px)");
+        pull(300, 500, selector);
+        expect(sheet.dataset.detent).toBe("half");
+        act(() => vi.advanceTimersByTime(250));
+        expect(sheet.style.transform).toBe("");
+        expect(onClose).not.toHaveBeenCalled();
+        pull(600, 800, selector);
+        act(() => vi.advanceTimersByTime(200));
+        expect(onClose).toHaveBeenCalledOnce();
+      },
+    );
 
     it("closes from the header button", () => {
-      const { sheet, onClose } = open();
+      const { sheet, onClose, touch } = open();
+      const button = '.mobile-sheet-header [aria-label="Close"]';
+      touch("touchstart", 600, button);
+      expect(touch("touchmove", 400, button).defaultPrevented).toBe(false);
+      touch("touchend", 400, button);
+      expect(sheet.dataset.detent).toBe("half");
       act(() => sheet.querySelector<HTMLButtonElement>('.mobile-sheet-header [aria-label="Close"]')!.click());
       expect(onClose).toHaveBeenCalledOnce();
     });
 
-    it("dismisses a full sheet on a quick downward swipe without stopping at half height", () => {
+    it.each([80, 500])("settles a full sheet at half after a quick %ipx downward swipe, then dismisses on the next swipe", (distance) => {
       const { sheet, onClose, pull, touch } = open();
       pull(600, 400);
       expect(sheet.dataset.detent).toBe("full");
       act(() => vi.advanceTimersByTime(250));
       touch("touchstart", 300);
       act(() => vi.advanceTimersByTime(16));
-      touch("touchmove", 340);
+      touch("touchmove", 300 + distance / 2);
       act(() => vi.advanceTimersByTime(16));
-      touch("touchmove", 380);
-      touch("touchend", 380);
+      touch("touchmove", 300 + distance);
+      touch("touchend", 300 + distance);
+      expect(sheet.dataset.detent).toBe("half");
+      expect(sheet.closest(".mobile-sheet-backdrop")?.hasAttribute("inert")).toBe(false);
+      expect(sheet.style.transform).toBe("translateY(300px)");
+      expect(sheet.style.transition).toContain("200ms");
+      act(() => vi.advanceTimersByTime(250));
+      expect(onClose).not.toHaveBeenCalled();
+      expect(node.querySelector(".mobile-sheet")).toBe(sheet);
+      expect(sheet.style.transform).toBe("");
+
+      touch("touchstart", 600);
+      act(() => vi.advanceTimersByTime(16));
+      touch("touchmove", 640);
+      act(() => vi.advanceTimersByTime(16));
+      touch("touchmove", 680);
+      touch("touchend", 680);
       expect(sheet.closest(".mobile-sheet-backdrop")?.hasAttribute("inert")).toBe(true);
       expect(sheet.style.transform).toBe("translateY(824px)");
       act(() => vi.advanceTimersByTime(130));
@@ -232,21 +256,23 @@ describe("MobileSheet drag", () => {
       expect(node.querySelector(".mobile-sheet")).toBeNull();
     });
 
-    it("leaves upward swipes and already-scrolled content to native scrolling", () => {
+    it.each(["half", "full"])("leaves all content swipes to native scrolling at the %s stop", (detent) => {
       const { sheet, onClose, pull, touch } = open();
-      pull(600, 400);
+      if (detent === "full") pull(600, 400);
       act(() => vi.advanceTimersByTime(250));
-      touch("touchstart", 600);
-      expect(touch("touchmove", 450).defaultPrevented).toBe(false);
-      touch("touchend", 450);
-      sheet.querySelector<HTMLElement>(".body")!.scrollTop = 100;
-      touch("touchstart", 300);
-      act(() => vi.advanceTimersByTime(16));
-      expect(touch("touchmove", 450).defaultPrevented).toBe(false);
-      touch("touchend", 450);
-      act(() => vi.advanceTimersByTime(130));
-      expect(sheet.dataset.detent).toBe("full");
-      expect(sheet.style.transform).toBe("translateY(0px)");
+      const rest = sheet.style.transform;
+      for (const scrollTop of [0, 100]) {
+        sheet.querySelector<HTMLElement>(".mobile-sheet-content")!.scrollTop = scrollTop;
+        for (const distance of [-150, 150]) {
+          touch("touchstart", 600, ".body");
+          act(() => vi.advanceTimersByTime(16));
+          expect(touch("touchmove", 600 + distance, ".body").defaultPrevented).toBe(false);
+          touch("touchend", 600 + distance, ".body");
+          act(() => vi.advanceTimersByTime(250));
+          expect(sheet.dataset.detent).toBe(detent);
+          expect(sheet.style.transform).toBe(rest);
+        }
+      }
       expect(onClose).not.toHaveBeenCalled();
     });
   });

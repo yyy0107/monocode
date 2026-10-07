@@ -12,13 +12,14 @@ import {
 import { createPortal } from "react-dom";
 import { MobileOverlayHostContext, MobileOverlayLevelContext } from "./MobileOverlayHost";
 import { SurfaceVisibilityContext, useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
-import { keyboardMotionRemaining, keyboardViewportHeight, onKeyboardMotion } from "./keyboardMotion";
+import { keyboardMotionRemaining, keyboardViewportHeight, onKeyboardMotion, type KeyboardMotion } from "./keyboardMotion";
 import { ArrowLeft, X } from "../shared/ui/icons";
 import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { placePopover, type PopoverAlign } from "../shared/lib/popover";
 import { SHEET_CLOSE_MS, SHEET_MOTION_MS, useSheetDrag } from "./sheetDrag";
 import { preserveInputFocus, usePreserveInputFocusOnTouch } from "./inputFocus";
+import { useMobileSheetFocus } from "./useMobileSheetFocus";
 
 // Reads the resolved system-bar insets so popovers stay clear of the status
 // bar, gesture area and display cutouts on edge-to-edge screens.
@@ -134,6 +135,7 @@ export function MobileSheet({
   );
   const backdrop = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLElement>(null);
+  useMobileSheetFocus(dialog, active);
   const wasOpen = useRef(open);
   useEffect(() => {
     if (open) wasOpen.current = true;
@@ -144,6 +146,7 @@ export function MobileSheet({
   }, [open, foldState, onExited]);
   usePreserveInputFocusOnTouch(backdrop, preserveFocus, false, active);
   const [position, setPosition] = useState<CSSProperties>();
+  const pendingKeyboardAnimation = useRef<(() => void) | undefined>(undefined);
   useSheetDrag(
     dialog,
     placement === "bottom" && open && visible,
@@ -158,8 +161,10 @@ export function MobileSheet({
     if (!element || (!trigger && !anchorPoint)) return;
     const viewport = window.visualViewport;
     let insets = safeInsets(element);
-    const place = () => {
-      const rect = anchorPoint
+    let keyboardAnimation: Animation | undefined;
+    const place = (keyboard?: Pick<KeyboardMotion, "duration" | "easing">) => {
+      let travel = keyboard;
+      let rect = anchorPoint
         ? {
             left: anchorPoint.x,
             right: anchorPoint.x,
@@ -171,6 +176,37 @@ export function MobileSheet({
         : trigger!.getBoundingClientRect();
       // Layout dimensions stay stable while the menu scales into view.
       const bounds = element.getBoundingClientRect();
+      if (keyboard && trigger && !anchorPoint) {
+        // Composer buttons move on a CSS transform. Read its endpoint once,
+        // so placement can travel with the dock without measuring each frame.
+        const dock = trigger.closest<HTMLElement>(".mobile-composer-dock, .mobile-assistant-compose-dock");
+        const transition = dock?.getAnimations?.().find(animation =>
+          (animation as CSSTransition).transitionProperty === "transform" &&
+          (animation.playState === "running" || animation.pending));
+        const keyframes = (transition?.effect as KeyframeEffect | null)?.getKeyframes();
+        const endpoint = keyframes?.at(-1)?.transform;
+        if (dock && transition && typeof endpoint === "string") {
+          // A reversed CSS transition can be shorter than the native keyboard
+          // event. Use the dock's remaining travel so their edges stay aligned.
+          const end = transition.effect?.getComputedTiming().endTime;
+          const time = typeof transition.currentTime === "number" ? transition.currentTime : 0;
+          if (typeof end === "number" && Number.isFinite(end)) {
+            travel = {
+              duration: Math.max(0, (end - time) / Math.abs(transition.playbackRate || 1)),
+              easing: keyframes?.[0]?.easing ?? keyboard.easing,
+            };
+          }
+          const current = new DOMMatrixReadOnly(getComputedStyle(dock).transform);
+          const target = new DOMMatrixReadOnly(endpoint);
+          const dx = target.m41 - current.m41;
+          const dy = target.m42 - current.m42;
+          rect = {
+            left: rect.left + dx, right: rect.right + dx,
+            top: rect.top + dy, bottom: rect.bottom + dy,
+            width: rect.width, height: rect.height,
+          };
+        }
+      }
       const size = {
         width: element.offsetWidth || bounds.width,
         height: element.offsetHeight || bounds.height,
@@ -226,8 +262,29 @@ export function MobileSheet({
         transformOrigin: `${align === "end" ? "right" : align === "center" ? "center" : "left"} ${next.side === "top" ? "bottom" : "top"}`,
       };
       element.dataset.anchorSide = next.side;
+      const animateTravel = !!travel?.duration && !!element.animate && element.style.position === "fixed";
+      const commitTravel = () => {
+        keyboardAnimation?.cancel();
+        keyboardAnimation = undefined;
+        element.style.removeProperty("translate");
+        if (!animateTravel || !travel) return;
+        const targetTop = typeof style.top === "number" ? style.top :
+          window.innerHeight - Number(style.bottom) - Math.min(size.height, next.maxHeight);
+        // Position must be committed before adding this compensating offset;
+        // otherwise the first frame adds it to the old position and jumps.
+        keyboardAnimation = element.animate([
+          { translate: `${bounds.left - Number(style.left)}px ${bounds.top - targetTop}px` },
+          { translate: "0px 0px" },
+        ], { duration: travel.duration, easing: travel.easing, fill: "both" });
+        void keyboardAnimation.finished.catch(() => {});
+      };
+      if (animateTravel) pendingKeyboardAnimation.current = commitTravel;
+      else {
+        pendingKeyboardAnimation.current = undefined;
+        commitTravel();
+      }
       setPosition((previous) =>
-        previous?.left === style.left &&
+        !animateTravel && previous?.left === style.left &&
         previous?.top === style.top &&
         previous?.bottom === style.bottom &&
           previous?.width === style.width &&
@@ -239,7 +296,9 @@ export function MobileSheet({
     };
     let frame: number | undefined;
     let refreshInsets = false;
-    let until = performance.now() + keyboardMotionRemaining();
+    let settlingKeyboard = false;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    let settleFrame: number | undefined;
     const animationRemaining = () => {
       let remaining = 0;
       // Only transforms/layout on the anchor or its ancestors move its box;
@@ -262,11 +321,36 @@ export function MobileSheet({
         refreshInsets = false;
       }
       place();
-      if (trigger && !anchorPoint &&
-          (performance.now() < until || animationRemaining() > 0))
+      if (trigger && !anchorPoint && animationRemaining() > 0)
         frame = requestAnimationFrame(tick);
     };
-    const schedule = () => { frame ??= requestAnimationFrame(tick); };
+    const schedule = () => {
+      if (!settlingKeyboard) frame ??= requestAnimationFrame(tick);
+    };
+    const cancelSettle = () => {
+      clearTimeout(settleTimer);
+      if (settleFrame !== undefined) cancelAnimationFrame(settleFrame);
+    };
+    const settleKeyboard = (duration: number) => {
+      cancelSettle();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      frame = undefined;
+      settlingKeyboard = true;
+      settleTimer = setTimeout(() => {
+        settleFrame = requestAnimationFrame(() => {
+          settleFrame = requestAnimationFrame(() => {
+            // keyboardMotion commits its shorter shell on the second frame.
+            // Correct against that layout on the following frame, once.
+            settleFrame = requestAnimationFrame(() => {
+              settleFrame = undefined;
+              settlingKeyboard = false;
+              refreshInsets = true;
+              tick();
+            });
+          });
+        });
+      }, duration);
+    };
     const resize = () => { refreshInsets = true; schedule(); };
     const scroll = (event: Event) => {
       if (!(event.target instanceof Node && element.contains(event.target))) schedule();
@@ -274,12 +358,15 @@ export function MobileSheet({
     const motion = (event: Event) => {
       if (trigger && event.target instanceof Element && event.target.contains(trigger)) schedule();
     };
-    const unsubscribe = onKeyboardMotion(({ duration }) => {
-      until = performance.now() + duration;
-      schedule();
+    const unsubscribe = onKeyboardMotion(motion => {
+      settleKeyboard(motion.duration);
+      insets = safeInsets(element);
+      place(motion);
     });
     place();
-    if (trigger && !anchorPoint && (keyboardMotionRemaining() > 0 || animationRemaining() > 0)) schedule();
+    const remaining = keyboardMotionRemaining();
+    if (remaining) settleKeyboard(remaining);
+    else if (trigger && !anchorPoint && animationRemaining() > 0) schedule();
     const observer = new ResizeObserver(schedule);
     observer.observe(element);
     if (trigger) observer.observe(trigger);
@@ -291,6 +378,14 @@ export function MobileSheet({
     for (const name of motionEvents) window.addEventListener(name, motion, true);
     return () => {
       if (frame !== undefined) cancelAnimationFrame(frame);
+      cancelSettle();
+      pendingKeyboardAnimation.current = undefined;
+      if (keyboardAnimation) {
+        // Closing preserves the currently visible position until its retained
+        // surface exits; reopening clears this offset during placement.
+        element.style.translate = getComputedStyle(element).translate;
+        keyboardAnimation.cancel();
+      }
       unsubscribe();
       observer.disconnect();
       window.removeEventListener("resize", resize);
@@ -310,6 +405,11 @@ export function MobileSheet({
     overlapAnchor,
     constrainWidthToAnchor,
   ]);
+  useLayoutEffect(() => {
+    const animate = pendingKeyboardAnimation.current;
+    pendingKeyboardAnimation.current = undefined;
+    animate?.();
+  }, [position]);
   useLayoutEffect(() => {
     const element = dialog.current;
     if (!element || placement !== "anchor") return;

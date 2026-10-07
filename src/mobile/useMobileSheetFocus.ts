@@ -1,0 +1,76 @@
+import { useEffect, type RefObject } from "react";
+import { keyboardHeight, keyboardMotionRemaining, onKeyboardMotion } from "./keyboardMotion";
+
+/** Reveal fields inside their sheet without letting the WebView pan the page. */
+export function useMobileSheetFocus(
+  sheet: RefObject<HTMLElement | null>,
+  active: boolean,
+) {
+  useEffect(() => {
+    const element = sheet.current;
+    if (!active || !element) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let frame: number | undefined;
+    const cancel = () => {
+      clearTimeout(timer);
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+    const focusedField = () => {
+      const field = document.activeElement;
+      if (!(field instanceof HTMLElement) ||
+          !field.matches("input, textarea, select, [contenteditable]") ||
+          field.closest(".mobile-sheet") !== element ||
+          field.closest('[inert], [aria-hidden="true"]')) return;
+      return field;
+    };
+    const reveal = () => {
+      const field = focusedField();
+      if (!field) return;
+      // Forms may own an inner scroller (settings and the project picker do).
+      // Stop at the sheet so revealing a field never scrolls the page below it.
+      for (let scroller = field.parentElement; scroller && scroller !== element; scroller = scroller.parentElement) {
+        if (!/^(auto|scroll)$/.test(getComputedStyle(scroller).overflowY) ||
+            scroller.scrollHeight <= scroller.clientHeight) continue;
+        const box = scroller.getBoundingClientRect();
+        const rect = field.getBoundingClientRect();
+        if (rect.top >= box.top + 12 && rect.bottom <= box.bottom - 12) return;
+        const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        scroller.scrollTo({
+          top: Math.max(0, Math.min(
+            scroller.scrollHeight - scroller.clientHeight,
+            scroller.scrollTop + rect.top - box.top - Math.max(12, (box.height - rect.height) / 2),
+          )),
+          behavior: reduced ? "auto" : "smooth",
+        });
+        return;
+      }
+    };
+    const schedule = (duration: number) => {
+      cancel();
+      // keyboardMotion commits the shorter layout two frames after the rise.
+      // Read geometry on the next frame, once, rather than during every frame.
+      timer = setTimeout(() => {
+        frame = requestAnimationFrame(() => {
+          frame = requestAnimationFrame(() => {
+            frame = requestAnimationFrame(reveal);
+          });
+        });
+      }, duration);
+    };
+    const focus = () => {
+      cancel();
+      if (focusedField()) schedule(keyboardMotionRemaining());
+    };
+    const stop = onKeyboardMotion(({ height, duration }) => {
+      cancel();
+      if (height && focusedField()) schedule(duration);
+    });
+    element.addEventListener("focusin", focus);
+    if (keyboardHeight()) focus();
+    return () => {
+      cancel();
+      stop();
+      element.removeEventListener("focusin", focus);
+    };
+  }, [sheet, active]);
+}

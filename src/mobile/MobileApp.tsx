@@ -3,12 +3,18 @@ import { MobileAssistant, type MobileAssistantHandle } from "./MobileAssistant";
 import { resolveAssistantTarget } from "../features/assistant/model/assistantNavigation";
 import { useHostQueue } from "../features/connections/ui/useHostQueue";
 import { consumePlanCommand } from "../features/sessions/model/plan";
+import {
+  IMPLEMENT_PLAN_PROMPT,
+  skipPlanDecision,
+  usePlanDecision,
+} from "../features/sessions/model/planDecision";
 import { isCompactCommand } from "../features/sessions/model/compact";
 import { MobileMessageQueue } from "./MobileMessageQueue";
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -65,7 +71,8 @@ import {
   type MobileFirstMessage,
   type MobileSessionPatch,
 } from "./client";
-import { MobileComposer, type MobileComposerPanel } from "./MobileComposer";
+import type { MobileComposerPanel } from "./MobileComposer";
+import { createMobileDraft, MobileDraftComposer } from "./MobileDraftComposer";
 import { MobileSessionActions } from "./MobileSessionActions";
 import { MobileSessionStatus } from "./MobileSessionStatus";
 import { MeterRing } from "../features/sessions/ui/ContextMeter";
@@ -312,7 +319,8 @@ export function MobileApp() {
     modelSettings: {},
     runtimeMode: "supervised",
   });
-  const [draft, setDraft] = useState("");
+  const [draft] = useState(createMobileDraft);
+  const setDraft = draft.set;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [readingAttachments, setReadingAttachments] = useState(false);
   const [planMode, setPlanMode] = useState(false);
@@ -914,9 +922,10 @@ export function MobileApp() {
         },
         restore: (restored) => {
           if (generation !== navigation.current) return;
-          if (draft.trim() || attachments.length) {
+          const text = draft.get();
+          if (text.trim() || attachments.length) {
             parkedDrafts.current.push({
-              text: draft, attachments, planMode,
+              text, attachments, planMode,
               accepted: acceptedQueueAttachments.current,
             });
           }
@@ -936,9 +945,10 @@ export function MobileApp() {
     }
   });
   const send = async () => {
+    const text = draft.get();
     if (
       !project ||
-      (!draft.trim() && !attachments.length) ||
+      (!text.trim() && !attachments.length) ||
       busy ||
       pending ||
       readingAttachments ||
@@ -947,7 +957,7 @@ export function MobileApp() {
       (snapshot?.status === "running" && !snapshot.supportsQueue)
     )
       return;
-    if (isCompactCommand(draft)) {
+    if (isCompactCommand(text)) {
       if (attachments.length) {
         setError(t("Remove attachments before compacting context."));
         return;
@@ -961,7 +971,7 @@ export function MobileApp() {
       if (receipt && navigation.current === generation) setDraft("");
       return;
     }
-    const parsed = consumePlanCommand(draft);
+    const parsed = consumePlanCommand(text);
     if (parsed.planning && !parsed.text.trim() && !attachments.length) {
       setPlanMode(true);
       setDraft("");
@@ -1266,11 +1276,57 @@ export function MobileApp() {
       : view === "home"
         ? homeProject?.name || (allProjectsPage ? t("Projects") : "MonoCode")
         : t(mobileSettingsTitle(settingsPage));
-  // Memoized children (transcript, drawer) get handlers that keep their
-  // identity, so typing in the composer does not re-render them.
+  // Memoized children keep their handlers across shell updates.
   const onTranscriptCommand = useStableCallback(async (command: HostCommand) =>
     !!(await dispatch(command)),
   );
+  // A pending question's panel can be folded away to read the conversation or
+  // to type into the composer; its card in the transcript brings it back.
+  const pendingQuestion = snapshot?.session.pendingQuestion;
+  const pendingQuestionKey = pendingQuestion
+    ? `${snapshot!.session.id}:${pendingQuestion.requestId}`
+    : undefined;
+  const [collapsedQuestion, setCollapsedQuestion] = useState<string>();
+  const questionOpen = !!pendingQuestionKey && collapsedQuestion !== pendingQuestionKey;
+  const onQuestionOpenChange = useStableCallback((open: boolean) => {
+    setCollapsedQuestion(open ? undefined : pendingQuestionKey);
+    const focused = document.activeElement;
+    if (open && focused instanceof HTMLElement && focused.closest(".mobile-composer-dock"))
+      focused.blur();
+  });
+  // A finished plan asks to be implemented from the composer's place. Typing
+  // in the composer folds the panel away; leaving it empty brings it back.
+  const planDecisionId = usePlanDecision(
+    snapshot?.session.blocks,
+    !!snapshot && snapshot.status !== "running" && !pendingQuestion && !nativeReadOnly,
+  );
+  const [collapsedPlan, setCollapsedPlan] = useState<string>();
+  const planDecisionOpen = !!planDecisionId && collapsedPlan !== planDecisionId;
+  useEffect(() => {
+    if (!collapsedPlan) return;
+    const reopen = (event: FocusEvent) => {
+      if (draft.get().trim()) return;
+      const next = event.relatedTarget;
+      if (next instanceof Element && next.closest(".mobile-composer-dock")) return;
+      setCollapsedPlan(undefined);
+    };
+    document.addEventListener("focusout", reopen);
+    return () => document.removeEventListener("focusout", reopen);
+  }, [collapsedPlan, draft]);
+  const sendPlanTurn = useStableCallback((text: string, intent?: "plan") => {
+    if (!snapshot || busy || pending || !sessionConfirmed) return false;
+    // Implementing leaves plan mode; a revision keeps planning.
+    setPlanMode(intent === "plan");
+    void dispatch({ type: "send", commandId: crypto.randomUUID(),
+      sessionId: snapshot.session.id, text, ...(intent ? { intent } : {}) });
+  });
+  const planDecision = useMemo(() => planDecisionId ? {
+    blockId: planDecisionId,
+    open: planDecisionOpen,
+    onImplement: () => sendPlanTurn(IMPLEMENT_PLAN_PROMPT),
+    onRevise: (feedback: string) => sendPlanTurn(feedback, "plan"),
+    onSkip: () => skipPlanDecision(planDecisionId),
+  } : undefined, [planDecisionId, planDecisionOpen, sendPlanTurn]);
   const onDrawerOpenChange = useStableCallback((open: boolean) => {
     if (open) setHomeMenuOpen(false);
     if (open) setComposerPanel(null);
@@ -1308,6 +1364,13 @@ export function MobileApp() {
     },
   );
   const onDrawerSettings = useStableCallback(() => navigate("settings"));
+  const onDrawerAssistant = useStableCallback(() => {
+    setDrawerOpen(false);
+    setComposerPanel(null);
+    setSessionStatusOpen(false);
+    setSessionActionsOpen(false);
+    setAssistantOpen(true);
+  });
   const openAddProject = (trigger: HTMLButtonElement) => {
     projectTrigger.current = trigger;
     setError("");
@@ -1639,7 +1702,7 @@ export function MobileApp() {
           projectsPage={!homeProject && allProjectsPage}
           hostName={connectionName}
           hostStatus={hostStatus}
-          foreground={foreground}
+          foreground={foreground && !drawerOpen && !assistantOpen}
           inactive={drawerOpen || homeMenuOpen || addingConnection || sessionActionsOpen}
           query={searchOpen ? searchQuery : ""}
           now={now}
@@ -1688,6 +1751,9 @@ export function MobileApp() {
               readBinaryFile={readHostImage}
               disabled={busy || !!pending || !sessionConfirmed}
               onCommand={onTranscriptCommand}
+              questionOpen={questionOpen}
+              onQuestionOpenChange={onQuestionOpenChange}
+              planDecision={planDecision}
             />
           ) : loading ? (
             <div className="mobile-loading">
@@ -1724,7 +1790,12 @@ export function MobileApp() {
           {nativeReadOnly ? <p className="mobile-native-readonly" role="status">
             {nativeSyncNotice(snapshot?.nativeStatus) ?? nativeAccessNotice(nativeAccess)}
           </p> : null}
-          {project && <MobileComposer
+          {project && <MobileDraftComposer
+            compact={questionOpen || planDecisionOpen}
+            onExpand={() => {
+              if (questionOpen) onQuestionOpenChange(false);
+              else if (planDecisionId) setCollapsedPlan(planDecisionId);
+            }}
             queue={
               <MobileMessageQueue
                 key={snapshot?.session.id}
@@ -1734,11 +1805,10 @@ export function MobileApp() {
                 disabled={nativeReadOnly || busy || !!pending || loading || !sessionConfirmed}
               />
             }
-            value={draft}
+            draft={draft}
             skillsContextKey={skillContextKey}
             loadSkills={loadSkillCatalog}
             canCompact={!!snapshot && snapshot.status === "idle" && !nativeReadOnly && ["codex", "claude", "grok", "opencode", "pi", "omp"].includes(snapshot.session.harness)}
-            onChange={setDraft}
             configuration={
               snapshot ? configurationForSession(snapshot) : configuration
             }
@@ -1765,7 +1835,6 @@ export function MobileApp() {
               !loading &&
               (!sessionId || sessionConfirmed) &&
               (!running || !!snapshot?.supportsQueue) &&
-              (!!draft.trim() || attachments.length > 0) &&
               (sessionId
                 ? !!snapshot
                 : !!catalog?.models[configuration.harness]?.some(
@@ -1821,13 +1890,7 @@ export function MobileApp() {
         <MobileDrawer
           key={`drawer:${client.connection?.environmentId}`}
           assistantName={assistantIdentity && assistantIdentity.hostId === assistantHostId ? assistantIdentity.name : undefined}
-          onAssistant={() => {
-            setDrawerOpen(false);
-            setComposerPanel(null);
-            setSessionStatusOpen(false);
-            setSessionActionsOpen(false);
-            setAssistantOpen(true);
-          }}
+          onAssistant={onDrawerAssistant}
           open={drawerOpen && view !== "settings" && !assistantOpen}
           active={view !== "settings" && !assistantOpen}
           foreground={foreground}

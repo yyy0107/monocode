@@ -1,11 +1,14 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AgentTranscript } from "../features/sessions/ui/AgentTranscript";
 import { QuestionForm } from "../features/sessions/ui/QuestionForm";
 import { QuestionHistoryForm } from "../features/sessions/ui/QuestionHistoryForm";
+import { AgentMarkdown } from "../features/sessions/ui/AgentMarkdown";
+import { PlanActions, PlanDecision } from "../features/sessions/ui/PlanPreview";
 import { questionFollowUp } from "../features/sessions/model/questionHistory";
 import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
 import { ArrowDownCircle } from "../shared/ui/icons";
+import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import type { Block } from "../features/sessions/model/session";
 import { isToolBlock, toolCallState } from "../features/sessions/model/transcriptActivity";
 import type { QuestionAnswer } from "../features/sessions/model/userQuestion";
@@ -30,6 +33,7 @@ import { useStableCallback } from "./useStableCallback";
 
 type Detail =
   | { kind: "question"; blockId: string }
+  | { kind: "plan"; blockId: string }
   | { kind: "activity"; steps: Block[] }
   | { kind: "tool"; block: Block; fromActivity?: Block[] }
   | { kind: "file"; path: string; line?: number; from?: Block; fromActivity?: Block[] };
@@ -39,6 +43,7 @@ type Details = {
   tool?: Extract<Detail, { kind: "tool" }>;
   file?: Extract<Detail, { kind: "file" }>;
   question?: Extract<Detail, { kind: "question" }>;
+  plan?: Extract<Detail, { kind: "plan" }>;
 };
 
 /** Host snapshots feed the same message renderer used by desktop sessions.
@@ -51,6 +56,9 @@ export const MobileTranscript = memo(function MobileTranscript({
   readBinaryFile,
   animateFrom,
   active = true,
+  questionOpen = true,
+  onQuestionOpenChange,
+  planDecision,
 }: {
   snapshot: HostSession;
   disabled: boolean;
@@ -58,6 +66,18 @@ export const MobileTranscript = memo(function MobileTranscript({
   readBinaryFile?: (path: string) => Promise<Uint8Array>;
   animateFrom?: string;
   active?: boolean;
+  /** Whether the pending question's answer panel is expanded. */
+  questionOpen?: boolean;
+  /** Collapse the panel to read the conversation, or reopen it from its card. */
+  onQuestionOpenChange?: (open: boolean) => void;
+  /** The finished plan awaiting implement, revise or skip, docked like a question. */
+  planDecision?: {
+    blockId: string;
+    open: boolean;
+    onImplement: () => boolean | void;
+    onRevise: (feedback: string) => boolean | void;
+    onSkip: () => void;
+  };
 }) {
   const { t } = useTranslation();
   const parentVisible = useSurfaceVisibility();
@@ -67,6 +87,11 @@ export const MobileTranscript = memo(function MobileTranscript({
     if (!visible) setDetail({});
   }, [visible]);
   const layout = useTranscriptLayout();
+  const revealPendingQuestion = useStableCallback((blockId: string) => {
+    if (!onQuestionOpenChange || blockId !== snapshot.session.pendingQuestion?.historyId) return false;
+    onQuestionOpenChange(true);
+    return true;
+  });
   // Sheets portal to the app root: as a sibling of the composer dock they
   // would pick up the dock spacing rules and stop short of the screen bottom.
   const [sheetHost, setSheetHost] = useState<HTMLElement | null>(null);
@@ -86,12 +111,19 @@ export const MobileTranscript = memo(function MobileTranscript({
       openActivity: (steps: Block[]) => setDetail((current) => ({
         ...current, active: "activity", activity: { kind: "activity", steps }, tool: undefined,
       })),
-      openQuestion: (blockId: string) => setDetail((current) => ({
-        ...current, active: "question", question: { kind: "question", blockId },
+      openQuestion: (blockId: string) => {
+        // The pending question's card reopens its panel rather than a sheet.
+        if (revealPendingQuestion(blockId)) return;
+        setDetail((current) => ({
+          ...current, active: "question", question: { kind: "question", blockId },
+        }));
+      },
+      openPlan: (blockId: string) => setDetail((current) => ({
+        ...current, active: "plan", plan: { kind: "plan", blockId },
       })),
       liveClockInFooter: true,
     }),
-    [readBinaryFile],
+    [readBinaryFile, revealPendingQuestion],
   );
   // Phones have no editor pane, so file links open a read-only sheet.
   const openFile = useCallback(
@@ -114,6 +146,15 @@ export const MobileTranscript = memo(function MobileTranscript({
     [],
   );
   const { session, runId } = snapshot;
+  const questionShown = !!session.pendingQuestion && questionOpen;
+  const questionMotion = useCollapseMotion(questionShown);
+  const planShown = !!planDecision?.open && visible;
+  const planMotion = useCollapseMotion(planShown);
+  // Keep a decision that was answered or skipped mounted while it folds away.
+  const lastPlanDecision = useRef(planDecision);
+  if (planDecision) lastPlanDecision.current = planDecision;
+  const dockedPlan = planDecision ??
+    (planMotion.foldState === "closed" ? undefined : lastPlanDecision.current);
   const sessionId = session.id;
   const questionBlockId = detail.question?.blockId;
   const savedQuestion = detail.question
@@ -128,6 +169,11 @@ export const MobileTranscript = memo(function MobileTranscript({
   const onQuestionFollowUp = useStableCallback((answer: QuestionAnswer) =>
     disabled || !visible ? false : onCommand({ type: "send", commandId: crypto.randomUUID(), sessionId,
       text: questionFollowUp(session, answer), followUpBehavior: "steer", questionAnswer: answer }));
+  const planBlock = detail.plan
+    ? session.blocks.find((block) => block.id === detail.plan!.blockId && block.role === "plan")
+    : undefined;
+  const releasePlan = useCallback(() => setDetail((current) =>
+    current.active === "plan" ? current : { ...current, plan: undefined }), []);
   const closeDetail = useCallback(() => setDetail((current) => ({ ...current, active: undefined })), []);
   const releaseActivity = useCallback(() => setDetail((current) =>
     current.active === "activity" || (current.active === "tool" && current.tool?.fromActivity)
@@ -197,6 +243,7 @@ export const MobileTranscript = memo(function MobileTranscript({
           onJumpToBottomChange={setShowJump}
           onJumpToBottomReady={onJumpReady}
           onApproval={onApproval}
+          decidingPlanId={planDecision?.blockId}
         />
         {showJump && (
           <button
@@ -223,26 +270,68 @@ export const MobileTranscript = memo(function MobileTranscript({
         )}
       </div>
       {session.pendingQuestion && (
-        <fieldset
-          className="mobile-shared-question"
-          disabled={!visible || disabled || !runId}
+        <div
+          className="mobile-shared-question-dock animated-collapse-size"
+          data-open={questionShown}
+          data-fold-state={questionMotion.foldState}
+          style={{ gridTemplateRows: questionShown ? "1fr" : "0fr" }}
+          aria-hidden={!questionShown || undefined}
+          inert={!questionShown || undefined}
+          onTransitionEnd={(event) => {
+            if (event.target === event.currentTarget && event.propertyName === "grid-template-rows")
+              questionMotion.finish();
+          }}
         >
-          <QuestionForm
-            key={`${runId}:${session.pendingQuestion.requestId}`}
-            prompt={session.pendingQuestion}
-            onReply={(requestId, reply) => {
-              if (!disabled && runId)
-                onCommand({
-                  type: "answer",
-                  commandId: crypto.randomUUID(),
-                  sessionId: session.id,
-                  runId,
-                  requestId,
-                  reply,
-                });
-            }}
-          />
-        </fieldset>
+          {/* Collapsing keeps the form mounted, so partial answers survive. */}
+          <div className="mobile-shared-question-clip">
+            <fieldset
+              className="mobile-shared-question"
+              disabled={!visible || disabled || !runId}
+            >
+              <QuestionForm
+                key={`${runId}:${session.pendingQuestion.requestId}`}
+                prompt={session.pendingQuestion}
+                onCollapse={onQuestionOpenChange ? () => onQuestionOpenChange(false) : undefined}
+                onReply={(requestId, reply) => {
+                  if (!disabled && runId)
+                    onCommand({
+                      type: "answer",
+                      commandId: crypto.randomUUID(),
+                      sessionId: session.id,
+                      runId,
+                      requestId,
+                      reply,
+                    });
+                }}
+              />
+            </fieldset>
+          </div>
+        </div>
+      )}
+      {dockedPlan && !session.pendingQuestion && (
+        <div
+          className="mobile-shared-question-dock animated-collapse-size"
+          data-open={planShown}
+          data-fold-state={planMotion.foldState}
+          style={{ gridTemplateRows: planShown ? "1fr" : "0fr" }}
+          aria-hidden={!planShown || undefined}
+          inert={!planShown || undefined}
+          onTransitionEnd={(event) => {
+            if (event.target === event.currentTarget && event.propertyName === "grid-template-rows")
+              planMotion.finish();
+          }}
+        >
+          <div className="mobile-shared-question-clip">
+            <fieldset className="mobile-shared-question" disabled={!planShown || disabled}>
+              <PlanDecision
+                key={dockedPlan.blockId}
+                onImplement={dockedPlan.onImplement}
+                onRevise={dockedPlan.onRevise}
+                onSkip={dockedPlan.onSkip}
+              />
+            </fieldset>
+          </div>
+        </div>
       )}
       {sheetHost &&
         createPortal(
@@ -263,6 +352,23 @@ export const MobileTranscript = memo(function MobileTranscript({
                   onAnswer={onQuestionFollowUp}
                   onClose={closeQuestion}
                 />
+              </MobileSheet>
+            )}
+            {detail.plan && planBlock && (
+              <MobileSheet
+                open={visible && detail.active === "plan"}
+                onExited={releasePlan}
+                title="Plan"
+                header={{ title: t("Plan") }}
+                onClose={closeDetail}
+              >
+                <div className="mobile-plan-sheet">
+                  <div className="mobile-plan-sheet-actions">
+                    <PlanActions text={planBlock.text} />
+                  </div>
+                  <AgentMarkdown text={planBlock.text} streaming={planBlock.streaming}
+                    cwd={session.cwd} onOpenFile={readBinaryFile ? openFile : undefined} />
+                </div>
               </MobileSheet>
             )}
             {detail.activity && (

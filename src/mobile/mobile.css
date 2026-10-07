@@ -1325,6 +1325,13 @@ html[data-mobile-glass="solid"] :is(
   inherits: false;
   initial-value: 0px;
 }
+/* Hold the larger obstruction until motion settles so tall cards cannot grow
+   underneath the header while the keyboard is still leaving. */
+@property --mobile-keyboard-clearance {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 @property --mobile-keyboard-duration {
   syntax: "<time>";
   inherits: false;
@@ -1360,6 +1367,7 @@ html[data-mobile-glass="solid"] :is(
 .mobile-assistant-compose-dock,
 .assistant-chat[data-layout="mobile"] .assistant-messages,
 .mobile-shared-question,
+.mobile-shared-question-dock,
 .mobile-desktop-transcript,
 .mobile-sheet-backdrop,
 .mobile-modal-backdrop {
@@ -1368,7 +1376,8 @@ html[data-mobile-glass="solid"] :is(
 }
 .mobile-desktop-transcript,
 .assistant-chat[data-layout="mobile"] .assistant-messages,
-.mobile-shared-question {
+.mobile-shared-question,
+.mobile-shared-question-dock {
   --mobile-keyboard-offset: max(0px, var(--mobile-keyboard) - var(--mobile-keyboard-layout));
 }
 /* The input card floats over the transcript; reserve its measured height so
@@ -1400,31 +1409,46 @@ html[data-mobile-glass="solid"] :is(
   -webkit-mask-image: linear-gradient(transparent, #000 45%);
   mask-image: linear-gradient(transparent, #000 45%);
 }
-.mobile-desktop-transcript:has(+ .mobile-composer-dock) > .agent-transcript {
+.mobile-desktop-transcript:is(
+    :has(+ .mobile-composer-dock),
+    :has(+ .mobile-shared-question-dock[data-fold-state="closed"] + .mobile-composer-dock)
+  ) > .agent-transcript {
   --mobile-keyboard-height: inherit;
   padding-bottom: calc(var(--mobile-dock-height, 0px) - min(max(0px, var(--mobile-safe-bottom) - 8px), var(--mobile-keyboard-height)));
   scroll-padding-bottom: calc(var(--mobile-dock-height, 0px) - min(max(0px, var(--mobile-safe-bottom) - 8px), var(--mobile-keyboard-height)));
 }
-.mobile-desktop-transcript:has(+ .mobile-composer-dock) > .mobile-jump {
+.mobile-desktop-transcript:is(
+    :has(+ .mobile-composer-dock),
+    :has(+ .mobile-shared-question-dock[data-fold-state="closed"] + .mobile-composer-dock)
+  ) > .mobile-jump {
   --mobile-keyboard-height: inherit;
   bottom: calc(var(--mobile-dock-height, 0px) + 12px - min(max(0px, var(--mobile-safe-bottom) - 8px), var(--mobile-keyboard-height)));
 }
-.mobile-chat > :not(.mobile-desktop-transcript):has(+ .mobile-composer-dock) {
+.mobile-chat > :not(.mobile-desktop-transcript, .mobile-shared-question-dock):has(+ .mobile-composer-dock) {
   margin-bottom: var(--mobile-dock-height, 0px);
+}
+.mobile-chat > .mobile-shared-question-dock {
+  --mobile-question-gap: var(--mobile-dock-height, 0px);
+  --mobile-question-max-height: max(0px, calc(
+    var(--mobile-viewport-full, 100dvh) - var(--mobile-keyboard-clearance) -
+    var(--mobile-question-gap) - var(--mobile-header-height) - var(--mobile-safe-top) - 16px
+  ));
+  margin-bottom: var(--mobile-question-gap);
+  transform: translateY(calc(var(--mobile-keyboard-layout) - var(--mobile-keyboard)));
+}
+/* A folded question panel gives the floating composer back to the transcript. */
+.mobile-chat > .mobile-shared-question-dock[data-fold-state="closed"] {
+  margin-bottom: 0;
 }
 /* Answering a question lifts the question card, while the unused composer
    stays at the full viewport bottom behind the keyboard. Keep this layout
    between question fields and buttons, until the composer itself is focused. */
-.mobile-chat:has(> .mobile-shared-question) > .mobile-composer-dock:not(:focus-within) {
+.mobile-chat:has(> .mobile-shared-question-dock:not([data-fold-state="closed"])) > .mobile-composer-dock:not(:focus-within) {
   transform: translateY(calc(8px - var(--mobile-dock-inset)));
 }
-.mobile-chat:not(:has(> .mobile-composer-dock :focus)) > .mobile-shared-question {
-  margin-bottom: max(
-    8px,
-    calc(var(--mobile-dock-height, 0px) - var(--mobile-keyboard-layout)),
-    calc(var(--mobile-keyboard-offset) + 8px)
-  );
-  transition: --mobile-keyboard var(--mobile-keyboard-duration, 0ms) var(--mobile-keyboard-easing, linear);
+.mobile-chat:not(:has(> .mobile-composer-dock :focus)) > .mobile-shared-question-dock:not([data-fold-state="closed"]) {
+  --mobile-question-gap: max(8px, calc(var(--mobile-dock-height, 0px) - var(--mobile-keyboard-layout)));
+  transform: translateY(min(0px, calc(var(--mobile-question-gap) - var(--mobile-keyboard-offset) - 8px)));
 }
 .mobile-composer {
   position: relative;
@@ -1621,6 +1645,82 @@ html.has-user-accent .mobile-send:not(:disabled) {
 .mobile-composer-attachment-region {
   min-width: 0;
 }
+/* While a question holds the bottom the composer folds to a single line: the
+   model row slides under the input and the toolbar collapses, leaving the
+   text field and its send/stop button. Focusing it restores the full card. */
+.mobile-composer-context {
+  transition: opacity 240ms ease;
+}
+.mobile-composer-card[data-compact] > .mobile-composer-context {
+  opacity: 0;
+  pointer-events: none;
+}
+.mobile-composer-input {
+  transition:
+    margin-top 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mobile-composer-card[data-compact] > .mobile-composer-input {
+  margin-top: 0;
+  padding: 6px 6px 6px var(--mobile-composer-input-inset);
+}
+.mobile-composer-line {
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+}
+.mobile-composer-line > textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mobile-composer-card[data-compact] .mobile-composer-line {
+  align-items: center;
+}
+.mobile-composer-card[data-compact] textarea {
+  max-height: 36px;
+  overflow: hidden;
+}
+.mobile-composer-toolbar-collapse {
+  margin-inline: -6px;
+}
+.mobile-composer-toolbar-collapse > div > .mobile-composer-toolbar {
+  margin-inline: 0;
+}
+.mobile-composer-inline {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  width: calc(var(--mobile-composer-control) + 8px);
+  overflow: hidden;
+}
+.mobile-composer-inline[data-fold-state="opening"] {
+  animation: mobile-composer-inline-in 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.mobile-composer-inline[data-fold-state="closing"] {
+  pointer-events: none;
+  animation: mobile-composer-inline-out 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes mobile-composer-inline-in {
+  from {
+    width: 0;
+    opacity: 0;
+  }
+}
+@keyframes mobile-composer-inline-out {
+  to {
+    width: 0;
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-composer-context,
+  .mobile-composer-input {
+    transition: none;
+  }
+  .mobile-composer-inline {
+    animation: none !important;
+  }
+}
 @media (max-width: 359px) {
   .mobile-composer-context {
     gap: 6px;
@@ -1701,7 +1801,8 @@ html.has-user-accent .mobile-send:not(:disabled) {
 }
 .mobile-sheet-backdrop,
 .mobile-modal-backdrop,
-.mobile-shared-question {
+.mobile-shared-question,
+.mobile-shared-question-dock {
   --mobile-safe-bottom: max(0px,
     var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) - var(--mobile-keyboard-height));
 }
@@ -1710,7 +1811,7 @@ html.has-user-accent .mobile-send:not(:disabled) {
   border-width: calc(1px + var(--mobile-popup-line-step));
   width: 100%;
   max-width: 520px;
-  max-height: min(75dvh, 650px);
+  max-height: min(75dvh, 650px, calc(100% - var(--mobile-safe-top) - 16px));
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1729,10 +1830,17 @@ html.has-user-accent .mobile-send:not(:disabled) {
 .mobile-sheet[data-surface="solid"]::before {
   display: none;
 }
-/* Bottom sheets rise in and can be pulled down by the grip (or by content
-   that is scrolled to its top); see sheetDrag.ts. */
+/* Bottom sheets rise in and can be pulled by the grip or title header;
+   their content keeps native scrolling in both directions. See sheetDrag.ts. */
 .mobile-sheet-backdrop[data-placement="bottom"] {
   animation: mobile-sheet-fade 200ms ease-out;
+}
+/* Forms reserve space after the keyboard rises and restore it immediately on
+   dismissal. Moving the backdrop bottom every frame exposes the page below it
+   and repeatedly lays out the form. Input-free menus keep their existing motion. */
+.mobile-sheet-backdrop[data-placement="bottom"]:has(> .mobile-sheet :is(input, textarea, select, [contenteditable])) {
+  bottom: var(--mobile-keyboard-layout);
+  transition: none;
 }
 .mobile-sheet-backdrop[data-placement="bottom"] .mobile-sheet {
   animation: mobile-sheet-rise 200ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -1776,6 +1884,8 @@ html.has-user-accent .mobile-send:not(:disabled) {
 .mobile-sheet-backdrop[data-placement="anchor"] {
   display: block;
   background: transparent;
+  bottom: var(--mobile-keyboard-layout);
+  transition: none;
 }
 .mobile-sheet-backdrop[data-placement="anchor"] .mobile-sheet {
   max-width: 420px;
@@ -2540,8 +2650,24 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 .mobile-desktop-transcript .user-message-bubble > button {
   min-height: 0;
 }
+/* Many sent images stay on one line and scroll horizontally instead of wrapping.
+   Start alignment keeps the first image reachable when the row overflows; the
+   fit-content row is still right-aligned by its parent. */
 .mobile-desktop-transcript .user-message-media {
   max-width: 100%;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.mobile-desktop-transcript .user-message-media::-webkit-scrollbar {
+  display: none;
+}
+.mobile-desktop-transcript .user-message-media > * {
+  flex: 0 0 auto;
 }
 .mobile-desktop-transcript .user-message-actions {
   padding: 3px 4px 0;
@@ -2630,6 +2756,16 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 }
 .mobile-detail-section {
   min-width: 0;
+}
+/* A whole plan reads like a document, with its actions above the text. */
+.mobile-plan-sheet {
+  min-width: 0;
+  padding: 0 16px 16px;
+}
+.mobile-plan-sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
 }
 /* A group's steps hang off one rail, each opening its own details. */
 .mobile-activity-steps {
@@ -2875,6 +3011,39 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 /* The pending question floats above the composer as a glass panel with the
    same rows and actions as sheets: its header and actions stay put while only
    the prompt and options scroll. */
+/* Collapsing the panel folds its grid track to zero; the form stays mounted so
+   partial answers survive, and its card in the transcript reopens it. */
+.mobile-shared-question-dock {
+  display: grid;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.mobile-shared-question-dock.animated-collapse-size {
+  /* Only the transform consumes the animated keyboard height. Layout uses
+     committed space, so settling and switching focus do not animate twice.
+     Preserve the shared grid transitions throughout opening and closing. */
+  transition:
+    grid-template-rows var(--collapse-duration) var(--collapse-easing),
+    grid-template-columns var(--collapse-duration) var(--collapse-easing),
+    --mobile-keyboard var(--mobile-keyboard-duration, 0ms) var(--mobile-keyboard-easing, linear);
+}
+.mobile-shared-question-clip {
+  min-height: 0;
+  min-width: 0;
+  transition: opacity 240ms ease;
+}
+.mobile-shared-question-dock:not([data-fold-state="open"]) > .mobile-shared-question-clip {
+  overflow: hidden;
+}
+.mobile-shared-question-dock[data-open="false"] > .mobile-shared-question-clip {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-shared-question-dock.animated-collapse-size,
+  .mobile-shared-question-clip {
+    transition: none;
+  }
+}
 .mobile-shared-question {
   position: relative;
   flex-shrink: 0;
@@ -2886,6 +3055,9 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   padding: 0;
   border-radius: var(--mobile-card-radius);
   color: var(--color-content);
+}
+.mobile-chat > .mobile-shared-question-dock > .mobile-shared-question-clip > .mobile-shared-question {
+  max-height: min(calc(var(--mobile-viewport-full, 100dvh) * 0.55), var(--mobile-question-max-height));
 }
 .mobile-shared-question [data-question-form] {
   flex: 1 1 auto;
@@ -2931,6 +3103,20 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 .mobile-shared-question [data-question-navigation] {
   gap: 0;
 }
+.mobile-shared-question [data-question-collapse] {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--color-content) 60%, transparent);
+  touch-action: manipulation;
+}
+.mobile-shared-question [data-question-collapse] > svg {
+  width: 20px;
+  height: 20px;
+}
+.mobile-shared-question [data-question-collapse]:active {
+  background: var(--color-selection);
+}
 .mobile-shared-question [data-question-navigation] > button {
   width: 44px;
   height: 44px;
@@ -2958,6 +3144,7 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   background: var(--color-selection);
 }
 .mobile-shared-question [data-question-body] {
+  overflow-y: auto;
   margin-top: 6px;
   overscroll-behavior: contain;
 }
@@ -4005,11 +4192,23 @@ button.mobile-settings-row:active {
   opacity: 0.4;
 }
 
+/* Each new phase of the live status line eases in from below. */
+.transcript-live-footer .transcript-live-status {
+  animation: transcript-live-status-in 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+@keyframes transcript-live-status-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
 /* The live turn's mascot and clock hold still when motion is reduced. */
 @media (prefers-reduced-motion: reduce) {
   .transcript-live-footer .mascot-active,
   .transcript-live-footer .mascot-rest,
-  .transcript-live-footer .shimmer-text {
+  .transcript-live-footer .shimmer-text,
+  .transcript-live-footer .transcript-live-status {
     animation: none;
   }
   .transcript-live-footer .mascot-talk {
@@ -4048,12 +4247,21 @@ button.mobile-settings-row:active {
 /* Reading sheets rest at half height and pull up to fill the screen. The
    stylesheet owns the half stop; sheetDrag.ts writes the full or dragged one. */
 .mobile-sheet[data-detents] {
+  --mobile-sheet-content-offset: max(0px, calc(50dvh - var(--mobile-safe-top) - 12px));
   height: calc(100dvh - var(--mobile-safe-top) - 12px);
   max-height: none;
   transform: translateY(calc(100% - 50dvh));
 }
-.mobile-sheet[data-detents][data-detent="half"] .mobile-sheet-content {
-  overflow: hidden;
+.mobile-sheet[data-detents][data-detent="full"] {
+  --mobile-sheet-content-offset: 0px;
+}
+/* The panel is translated below the viewport at half height. Keep its scroll
+   area inside the visible portion so even the last list item stays reachable.
+   Inherit the drag's transition: none under the finger, animated on release. */
+.mobile-sheet[data-detents] > .mobile-sheet-content {
+  margin-bottom: var(--mobile-sheet-content-offset);
+  transition: inherit;
+  transition-property: margin-bottom;
 }
 .mobile-sheet-header {
   display: grid;
@@ -4061,6 +4269,9 @@ button.mobile-settings-row:active {
   grid-template-columns: 48px minmax(0, 1fr) 48px;
   align-items: center;
   padding: 2px 4px 12px;
+}
+.mobile-sheet-backdrop[data-placement="bottom"] .mobile-sheet-header {
+  touch-action: none;
 }
 .mobile-sheet-header-button {
   display: grid;
@@ -4150,6 +4361,40 @@ button.mobile-settings-row:active {
   padding-inline: 0;
   background: var(--color-card);
 }
+/* Source previews read edge to edge like the tool sheet's diff, not as a card. */
+.mobile-sheet[data-detents] .mobile-file-sheet[data-view="source"] {
+  padding: 0;
+}
+.mobile-sheet[data-detents] .mobile-file-sheet[data-view="source"] .mobile-file-plain {
+  margin-top: 0;
+  padding-block: 4px 12px;
+  border-radius: 0;
+  background: transparent;
+}
+.mobile-file-sheet[data-view="source"] .mobile-file-markdown .markdown-code-shell,
+.mobile-file-sheet[data-view="source"] [data-streamdown="code-block"] {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.mobile-file-sheet[data-view="source"] :is([data-streamdown="code-block-header"],
+  .markdown-code-copy, .markdown-code-path, .markdown-code-fallback-label) {
+  display: none;
+}
+.mobile-file-sheet[data-view="source"] [data-streamdown="code-block-body"] {
+  padding-block: 4px 12px;
+  border-top: 0;
+}
+.mobile-file-sheet[data-view="source"] :is(.mobile-file-plain > span,
+  [data-streamdown="code-block-body"] code > span)::before {
+  width: var(--mobile-file-gutter, 2ch);
+  margin-right: 8px;
+  padding-inline: 6px;
+  border-inline-end: 1px solid var(--color-stroke);
+  background: var(--color-background-base);
+}
 
 /* Activity and tool details navigate within one sheet, preserving its detent. */
 .mobile-sheet-content:has(> .mobile-sheet-pages) {
@@ -4173,9 +4418,6 @@ button.mobile-settings-row:active {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-.mobile-sheet[data-detent="half"] .mobile-sheet-page-scroll {
-  overflow: hidden;
 }
 
 /* A live group's steps hang off the rail on the page itself, without the

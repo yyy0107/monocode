@@ -146,6 +146,59 @@ async function open(id: string) {
 }
 
 describe("mobile conversation loading UI", () => {
+  it("lets the visible drawer own list polling while Home is covered and resumes Home immediately", async () => {
+    await mount();
+    host.sessions.mockClear();
+    await act(async () => node.querySelector<HTMLButtonElement>('header [aria-label="Menu"]')!.click());
+    expect(host.sessions).toHaveBeenCalledTimes(1);
+    host.sessions.mockClear();
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(host.sessions).toHaveBeenCalledTimes(1);
+    host.sessions.mockClear();
+    await act(async () => node.querySelector<HTMLDivElement>(".mobile-drawer-backdrop")!.click());
+    expect(host.sessions).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps keystrokes inside the composer and sends the latest draft without rendering the shell", async () => {
+    await mount();
+    await open("one");
+    const type = (value: string) => act(() => {
+      const field = composer();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, value);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const send = () => activePage().querySelector<HTMLButtonElement>("[data-send]")!;
+    host.activity.mockClear();
+    type("  ");
+    expect(send().disabled).toBe(true);
+    for (const value of ["n", "ni", "你", "你好", "你好，检查代码"]) type(value);
+    expect(composer().value).toBe("你好，检查代码");
+    expect(send().disabled).toBe(false);
+    expect(host.activity).not.toHaveBeenCalled();
+    await act(async () => send().click());
+    expect(host.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      type: "send", sessionId: "one", text: "你好，检查代码",
+    }), undefined);
+    expect(composer().value).toBe("");
+    expect(send().disabled).toBe(true);
+    type("Unsent draft");
+    await open("two");
+    expect(composer().value).toBe("");
+  });
+
+  it("retains the locally edited draft when sending fails", async () => {
+    await mount();
+    await open("one");
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(composer(), "Keep this draft");
+      composer().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    host.dispatch.mockRejectedValueOnce(new Error("Host offline"));
+    await act(async () => activePage().querySelector<HTMLButtonElement>("[data-send]")!.click());
+    expect(composer().value).toBe("Keep this draft");
+    expect(activePage().querySelector<HTMLButtonElement>("[data-send]")!.disabled).toBe(false);
+  });
+
   const projectChat = async () => {
     await mount();
     await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Menu"]')!.click());

@@ -221,3 +221,115 @@ it("restores the original lens box on rapid resize reversal without encoding aga
   expect(document.querySelector("feImage")?.getAttribute("height")).toBe("97");
   expect(encode).toHaveBeenCalledTimes(before);
 });
+
+function inputFixture(initiallyFocused = false) {
+  const result = fixture("mobile-composer mobile-composer-card");
+  const input = document.createElement("div");
+  input.className = "mobile-composer-input";
+  input.style.borderRadius = "30px";
+  const textarea = document.createElement("textarea");
+  input.append(textarea);
+  result.composer.append(input);
+  const width = vi.spyOn(input, "offsetWidth", "get").mockReturnValue(353);
+  const height = vi.spyOn(input, "offsetHeight", "get").mockReturnValue(133);
+  if (initiallyFocused) textarea.focus();
+  dispose!();
+  dispose = installLiquidGlass(document.body);
+  return { ...result, input, textarea, width, height, resize: result.callbacks.at(-1)! };
+}
+
+it("suspends the input lens and its resize work while focused, restoring the latest size on blur", () => {
+  const { input, textarea, width, height, encode, resize } = inputFixture();
+  expect(input.style.getPropertyValue("--mobile-glass-refraction")).toContain("url(");
+  const before = encode.mock.calls.length;
+  height.mockReturnValue(151);
+  resize();
+  vi.advanceTimersByTime(16);
+  textarea.focus();
+  expect(input.style.getPropertyValue("--mobile-glass-refraction")).toBe("");
+  width.mockClear();
+  height.mockClear();
+  for (const size of [169, 181]) {
+    height.mockReturnValue(size);
+    resize();
+    vi.advanceTimersByTime(120);
+  }
+  expect(encode).toHaveBeenCalledTimes(before);
+  expect(width).not.toHaveBeenCalled();
+  expect(height).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+  textarea.blur();
+  vi.advanceTimersByTime(16);
+  expect(document.querySelector("feImage")?.getAttribute("height")).toBe("181");
+  expect(encode).toHaveBeenCalledTimes(before + 1);
+  expect(input.style.getPropertyValue("--mobile-glass-refraction")).toContain("url(");
+});
+
+it("keeps an initially focused composer suspended across refraction setting changes", () => {
+  const { input, textarea, encode, width, height } = inputFixture(true);
+  expect(input.style.getPropertyValue("--mobile-glass-refraction")).toBe("");
+  expect(encode).not.toHaveBeenCalled();
+  expect(width).not.toHaveBeenCalled();
+  expect(height).not.toHaveBeenCalled();
+  // Solid, frosted and zero-intensity liquid all use refraction = 0.
+  setLiquidGlassRefraction(0);
+  textarea.blur();
+  vi.advanceTimersByTime(120);
+  expect(encode).not.toHaveBeenCalled();
+  expect(input.style.getPropertyValue("--mobile-glass-refraction")).toBe("");
+  textarea.focus();
+  setLiquidGlassRefraction(1);
+  expect(encode).not.toHaveBeenCalled();
+  expect(width).not.toHaveBeenCalled();
+  textarea.blur();
+  vi.advanceTimersByTime(16);
+  expect(input.style.getPropertyValue("--mobile-glass-refraction")).toContain("url(");
+});
+
+it("keeps focus transfers within the input card suspended and cleans up listeners on disposal", async () => {
+  const { input, textarea, height, encode } = inputFixture();
+  const second = document.createElement("textarea");
+  input.append(second);
+  textarea.focus();
+  const before = encode.mock.calls.length;
+  height.mockReturnValue(193);
+  second.focus();
+  await vi.advanceTimersByTimeAsync(120);
+  expect(encode).toHaveBeenCalledTimes(before);
+  expect(input.style.getPropertyValue("--mobile-glass-refraction")).toBe("");
+  second.remove();
+  await vi.advanceTimersByTimeAsync(32);
+  expect(input.style.getPropertyValue("--mobile-glass-refraction")).toContain("url(");
+  dispose!();
+  dispose = undefined;
+  const afterDispose = encode.mock.calls.length;
+  textarea.focus();
+  textarea.blur();
+  await vi.advanceTimersByTimeAsync(120);
+  expect(encode).toHaveBeenCalledTimes(afterDispose);
+  expect(document.querySelector("filter")).toBeNull();
+});
+
+it("never attaches a question lens inside a sheet and releases one moved into a sheet", async () => {
+  const { callbacks } = fixture("plain");
+  const sheet = document.createElement("section");
+  sheet.className = "mobile-sheet";
+  sheet.dataset.surface = "solid";
+  const container = document.createElement("div");
+  const question = document.createElement("div");
+  question.className = "mobile-shared-question";
+  container.append(question);
+  sheet.append(container);
+  document.body.append(sheet);
+  await vi.advanceTimersByTimeAsync(32);
+  expect(callbacks).toHaveLength(0);
+  expect(document.querySelector("filter")).toBeNull();
+  document.body.append(question);
+  await vi.advanceTimersByTimeAsync(32);
+  expect(callbacks).toHaveLength(1);
+  expect(document.querySelectorAll("filter")).toHaveLength(1);
+  container.append(question);
+  await vi.advanceTimersByTimeAsync(32);
+  expect(callbacks).toHaveLength(1);
+  expect(document.querySelector("filter")).toBeNull();
+});

@@ -9,7 +9,7 @@
 
 export const LIQUID_GLASS_SELECTOR = [
   '.mobile-header[data-floating="true"] > :not([data-capsule="false"])',
-  ".mobile-composer:not(.mobile-composer-card)",
+  ".mobile-composer:not(.mobile-composer-card, .mobile-assistant-compose)",
   ".mobile-composer-card > .mobile-composer-context",
   ".mobile-composer-card > .mobile-composer-input",
   ".mobile-jump",
@@ -23,8 +23,15 @@ export const LIQUID_GLASS_SELECTOR = [
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const REFRACTION_VARIABLE = "--mobile-glass-refraction";
+const COMPOSER_INPUT_SELECTOR = ".mobile-composer-card > .mobile-composer-input";
 const MAX_BEZEL = 24;
 const MAP_CACHE_LIMIT = 32;
+
+function isGlassSurface(element: Element): element is HTMLElement {
+  return element instanceof HTMLElement && element.matches(LIQUID_GLASS_SELECTOR) &&
+    // A question inside a sheet is opaque and disables backdrop-filter.
+    !(element.matches(".mobile-shared-question") && element.closest(".mobile-sheet"));
+}
 
 let refraction = 1;
 const refractionListeners = new Set<() => void>();
@@ -151,6 +158,7 @@ interface Surface {
   key: string;
   boxKey?: string;
   scale?: number;
+  focused?: boolean;
   settleTimer?: ReturnType<typeof setTimeout>;
 }
 
@@ -179,7 +187,16 @@ export function installLiquidGlass(root: HTMLElement): () => void {
   const pending = new Map<HTMLElement, boolean>();
   let frame: number | undefined;
   let disposed = false;
+  const suspend = (element: HTMLElement, surface: Surface) => {
+    clearTimeout(surface.settleTimer);
+    surface.settleTimer = undefined;
+    pending.delete(element);
+    element.style.removeProperty(REFRACTION_VARIABLE);
+  };
   const schedule = (element: HTMLElement, settled = false) => {
+    const surface = surfaces.get(element);
+    // Textarea autosizing must not measure or encode a lens while typing.
+    if (!surface || surface.focused || refraction <= 0) return;
     pending.set(element, settled);
     frame ??= requestAnimationFrame(flush);
   };
@@ -190,6 +207,10 @@ export function installLiquidGlass(root: HTMLElement): () => void {
     const measurements = [...pending].flatMap(([element, settled]) => {
       const surface = surfaces.get(element);
       if (!surface) return [];
+      if (refraction <= 0 || surface.focused) {
+        suspend(element, surface);
+        return [];
+      }
       const width = element.offsetWidth;
       const height = element.offsetHeight;
       const radius = parseFloat(getComputedStyle(element).borderTopRightRadius) || 0;
@@ -197,12 +218,6 @@ export function installLiquidGlass(root: HTMLElement): () => void {
     });
     pending.clear();
     for (const { element, surface, settled, width, height, radius } of measurements) {
-      if (refraction <= 0) {
-        clearTimeout(surface.settleTimer);
-        surface.settleTimer = undefined;
-        element.style.removeProperty(REFRACTION_VARIABLE);
-        continue;
-      }
       if (width < 4 || height < 4) continue;
       const key = `${width}x${height}x${radius}`;
       const bezel = bezelWidth(width, height);
@@ -277,6 +292,7 @@ export function installLiquidGlass(root: HTMLElement): () => void {
       image,
       displacement,
       key: "",
+      focused: element.matches(COMPOSER_INPUT_SELECTOR) && element.contains(document.activeElement),
       resize: new ResizeObserver(() => schedule(element)),
     };
     surface.resize.observe(element);
@@ -294,8 +310,7 @@ export function installLiquidGlass(root: HTMLElement): () => void {
   };
 
   const consider = (element: Element) => {
-    if (element instanceof HTMLElement && element.matches(LIQUID_GLASS_SELECTOR) &&
-        !surfaces.has(element)) attach(element);
+    if (isGlassSurface(element) && !surfaces.has(element)) attach(element);
   };
   const scan = (element: Element) => {
     if (element === svg || svg.contains(element)) return;
@@ -316,9 +331,15 @@ export function installLiquidGlass(root: HTMLElement): () => void {
         for (const child of record.target.children) consider(child);
       }
     }
-    for (const [element, surface] of surfaces)
-      if (!root.contains(element) || !element.matches(LIQUID_GLASS_SELECTOR))
+    for (const [element, surface] of surfaces) {
+      if (!root.contains(element) || !isGlassSurface(element))
         detach(element, surface);
+      else if (surface.focused && !element.contains(document.activeElement)) {
+        // Removing a focused textarea does not consistently fire focusout.
+        surface.focused = false;
+        schedule(element, true);
+      }
+    }
     if (pending.size) frame ??= requestAnimationFrame(flush);
   });
   mutations.observe(root, {
@@ -329,6 +350,26 @@ export function installLiquidGlass(root: HTMLElement): () => void {
   });
   root.querySelectorAll(LIQUID_GLASS_SELECTOR).forEach(consider);
   flush();
+  const onFocus = (event: FocusEvent) => {
+    const element = event.target instanceof Element
+      ? event.target.closest<HTMLElement>(COMPOSER_INPUT_SELECTOR)
+      : null;
+    const surface = element && surfaces.get(element);
+    if (!element || !surface) return;
+    surface.focused = event.type === "focusin" ||
+      (event.relatedTarget instanceof Node && element.contains(event.relatedTarget));
+    if (surface.focused) {
+      // Keep CSS blur, but remove the SVG pass immediately and cancel any
+      // resize work queued before focus. Other composer cards keep their lens.
+      suspend(element, surface);
+    } else {
+      // Autosizing may have changed the box while focused. Read its latest
+      // size and restore that map before showing refraction again.
+      schedule(element, true);
+    }
+  };
+  root.addEventListener("focusin", onFocus);
+  root.addEventListener("focusout", onFocus);
   const refresh = () => {
     for (const element of surfaces.keys()) pending.set(element, false);
     // Settings apply immediately; cancel a queued frame before this batch.
@@ -342,6 +383,8 @@ export function installLiquidGlass(root: HTMLElement): () => void {
     if (frame !== undefined) cancelAnimationFrame(frame);
     pending.clear();
     refractionListeners.delete(refresh);
+    root.removeEventListener("focusin", onFocus);
+    root.removeEventListener("focusout", onFocus);
     mutations.disconnect();
     for (const [element, surface] of surfaces) detach(element, surface);
     svg.remove();

@@ -263,6 +263,30 @@ describe("mobile question history", () => {
     expect(node.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it("folds the pending question panel and reopens it from its transcript card", () => {
+    const onQuestionOpenChange = vi.fn();
+    const prompt = { ...question.question!, decision: undefined, historyId: "saved-question" };
+    const { node, snapshot, update } = render({ runId: "run", blocks: [
+      { id: "user", role: "user", text: "Work" }, { ...question, question: prompt },
+    ] });
+    snapshot.session.pendingQuestion = prompt;
+    update({ snapshot: { ...snapshot }, onQuestionOpenChange });
+    const panel = node.querySelector<HTMLElement>(".mobile-shared-question-dock")!;
+    expect(panel.dataset.open).toBe("true");
+    act(() => node.querySelector<HTMLButtonElement>("[data-question-collapse]")!.click());
+    expect(onQuestionOpenChange).toHaveBeenLastCalledWith(false);
+    update({ questionOpen: false });
+    // Folded, not unmounted: an answer in progress survives.
+    expect(panel.dataset.open).toBe("false");
+    expect(panel.hasAttribute("inert")).toBe(true);
+    expect(panel.querySelector("[data-question-form], [data-question-card]")).not.toBeNull();
+    const card = node.querySelector<HTMLButtonElement>('[data-question-history="saved-question"] > button')!;
+    expect(card.textContent).toContain("Answer question");
+    act(() => card.click());
+    expect(onQuestionOpenChange).toHaveBeenLastCalledWith(true);
+    expect(node.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it("shows saved answers after reopening and keeps blocking questions read-only", () => {
     const answered: Block = { ...question, question: { ...question.question!, decision: "answered",
       reply: { kind: "answered", answers: { q: ["remote"] } } } };

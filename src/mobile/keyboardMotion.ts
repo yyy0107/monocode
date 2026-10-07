@@ -23,6 +23,7 @@ const MOTION_SURFACES = [
   ".mobile-sheet-backdrop",
   ".mobile-modal-backdrop",
   ".mobile-shared-question",
+  ".mobile-shared-question-dock",
   ".mobile-command-suggestions",
   ".mobile-assistant-settings-actions",
   ".mobile-home-dock",
@@ -34,6 +35,7 @@ const MOTION_PROPERTIES = [
   "--mobile-keyboard-follow",
   "--mobile-assistant-keyboard-follow",
   "--mobile-keyboard-layout",
+  "--mobile-keyboard-clearance",
 ] as const;
 
 let height = 0;
@@ -179,6 +181,7 @@ export function installKeyboardMotion(root = document.documentElement) {
   const surfaces = new Set<HTMLElement>();
   const shells = new Map<HTMLElement, string>();
   let layout = height;
+  let clearance = height;
   let settleTimer: ReturnType<typeof setTimeout> | undefined;
   let settleFrame: number | undefined;
   let styles: Record<(typeof MOTION_PROPERTIES)[number], string> = {
@@ -188,6 +191,7 @@ export function installKeyboardMotion(root = document.documentElement) {
     "--mobile-keyboard-follow": "0",
     "--mobile-assistant-keyboard-follow": "0",
     "--mobile-keyboard-layout": `${layout}px`,
+    "--mobile-keyboard-clearance": `${clearance}px`,
   };
   const sizeShell = (element: HTMLElement) => {
     if (tracked) element.style.height = `${Math.max(0, fullViewport - layout)}px`;
@@ -246,6 +250,11 @@ export function installKeyboardMotion(root = document.documentElement) {
     for (const shell of shells.keys()) sizeShell(shell);
     for (const element of surfaces) sync(element, true);
   };
+  const settle = () => {
+    clearance = height;
+    styles["--mobile-keyboard-clearance"] = `${clearance}px`;
+    commitLayout();
+  };
   const receive = (event: Event) => {
     const detail = (event as CustomEvent).detail ?? {};
     const next = Number(detail.height);
@@ -263,6 +272,10 @@ export function installKeyboardMotion(root = document.documentElement) {
     ).matches;
     const effectiveDuration = reduced ? 0 : duration;
     motionEndsAt = performance.now() + effectiveDuration;
+    // Keep tall answer cards clear of both ends of a motion. In particular,
+    // dismissal grows the shell immediately, but must not grow a card while
+    // its surface is still lifted above the departing keyboard.
+    clearance = effectiveDuration ? Math.max(clearance, layout, height) : height;
     // Measure the actual layout, which can still be at an earlier height if
     // a gesture reverses before the preceding rise has finished.
     const delta = height - layout;
@@ -277,16 +290,17 @@ export function installKeyboardMotion(root = document.documentElement) {
       "--mobile-keyboard-follow": String(follow),
       "--mobile-assistant-keyboard-follow": String(assistantFollow),
       "--mobile-keyboard-layout": `${layout}px`,
+      "--mobile-keyboard-clearance": `${clearance}px`,
     };
     cancelSettle();
     // Grow the local layout before lowering controls. A rise reserves space
     // after its last animated frame, without ever resizing the WebView.
     if (height <= layout || !effectiveDuration) commitLayout();
-    else {
-      for (const shell of shells.keys()) sizeShell(shell);
+    else for (const shell of shells.keys()) sizeShell(shell);
+    if (effectiveDuration) {
       settleTimer = setTimeout(() => {
         settleFrame = requestAnimationFrame(() => {
-          settleFrame = requestAnimationFrame(commitLayout);
+          settleFrame = requestAnimationFrame(settle);
         });
       }, effectiveDuration);
     }

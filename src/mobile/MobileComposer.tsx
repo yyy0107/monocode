@@ -14,7 +14,7 @@ import {
   X,
 } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
-import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
+import { AnimatedCollapse, useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { AttachmentChip } from "../features/sessions/ui/AttachmentChip";
 import { RuntimeModeIcon } from "../features/sessions/ui/RuntimeModeIcon";
@@ -82,6 +82,10 @@ type Props = {
   skillsContextKey?: string;
   loadSkills?: MobileSkillsLoader;
   canCompact?: boolean;
+  /** A pending question holds the bottom: shrink to one line until focused. */
+  compact?: boolean;
+  /** The compact line was focused; give the composer back its full height. */
+  onExpand?: () => void;
 };
 
 function MobileComposerAttachments({ attachments, disabled, onRemoveAttachment }: Pick<Props, "attachments" | "disabled" | "onRemoveAttachment">) {
@@ -252,6 +256,34 @@ export function MobileComposer(props: Props) {
       document.removeEventListener("pointercancel", cancel, true);
     };
   }, [props.panel]);
+  // The compact line carries its own send/stop button while the toolbar folds.
+  const inline = useCollapseMotion(!!props.compact);
+  const sendButton = (
+    props.running && !props.value.trim() && !props.attachments.length ? (
+      <button
+        type="button"
+        className="mobile-send"
+        disabled={!props.canStop}
+        aria-label={t("Stop")}
+        onClick={props.onStop}
+      >
+        <Square size={14} fill="currentColor" />
+      </button>
+    ) : (
+      <button
+        type="submit"
+        className="mobile-send"
+        disabled={!props.canSend}
+        aria-label={t("Send message")}
+      >
+        {props.working ? (
+          <LoaderCircle size={20} className="mobile-spin" />
+        ) : (
+          <ArrowUp size={20} />
+        )}
+      </button>
+    )
+  );
   const selectFiles = (input: HTMLInputElement) => {
     if (input.files?.length) props.onFiles(Array.from(input.files));
     input.value = "";
@@ -271,6 +303,7 @@ export function MobileComposer(props: Props) {
         <form
           ref={form}
           className="mobile-composer mobile-composer-card"
+          data-compact={props.compact || undefined}
           onPointerDownCapture={(event) => {
             if ((event.target as Element).closest("button"))
               preserveInputFocus(event, area.current);
@@ -289,7 +322,11 @@ export function MobileComposer(props: Props) {
             if (props.canSend) props.onSend();
           }}
         >
-          <div className="mobile-composer-context">
+          <div
+            className="mobile-composer-context"
+            inert={props.compact || undefined}
+            aria-hidden={props.compact || undefined}
+          >
             <button
               type="button"
               className="mobile-composer-model"
@@ -326,12 +363,18 @@ export function MobileComposer(props: Props) {
               />
             </AnimatedCollapse>
             </div>
+            <div className="mobile-composer-line">
             <textarea
               ref={area}
               aria-label={t("Message")}
               placeholder={t(
-                props.running ? "Agent is working…" : "Assign a task or type / for more",
+                props.compact
+                  ? "Add to the conversation…"
+                  : props.running ? "Agent is working…" : "Assign a task or type / for more",
               )}
+              onFocus={() => {
+                if (props.compact) props.onExpand?.();
+              }}
               rows={1}
               value={props.value}
               onChange={(event) => { dismissedSlash.current = null; props.onChange(event.target.value); syncSkillToken(event.currentTarget); }}
@@ -365,6 +408,21 @@ export function MobileComposer(props: Props) {
                 }
               }}
             />
+              {inline.foldState !== "closed" ? (
+                <span
+                  className="mobile-composer-inline"
+                  data-fold-state={inline.foldState}
+                  inert={!props.compact || undefined}
+                  aria-hidden={!props.compact || undefined}
+                  onAnimationEnd={(event) => {
+                    if (event.target === event.currentTarget) inline.finish();
+                  }}
+                >
+                  {sendButton}
+                </span>
+              ) : null}
+            </div>
+            <AnimatedCollapse expanded={!props.compact} className="mobile-composer-toolbar-collapse">
             <div className="mobile-composer-toolbar">
               <button
                 type="button"
@@ -433,31 +491,9 @@ export function MobileComposer(props: Props) {
                   </button>
                 ) : null}
               </div>
-              {props.running && !props.value.trim() && !props.attachments.length ? (
-                <button
-                  type="button"
-                  className="mobile-send"
-                  disabled={!props.canStop}
-                  aria-label={t("Stop")}
-                  onClick={props.onStop}
-                >
-                  <Square size={14} fill="currentColor" />
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  className="mobile-send"
-                  disabled={!props.canSend}
-                  aria-label={t("Send message")}
-                >
-                  {props.working ? (
-                    <LoaderCircle size={20} className="mobile-spin" />
-                  ) : (
-                    <ArrowUp size={20} />
-                  )}
-                </button>
-              )}
+              {sendButton}
             </div>
+            </AnimatedCollapse>
           </div>
           <input
             ref={photos}

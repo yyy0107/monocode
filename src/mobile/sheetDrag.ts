@@ -2,7 +2,7 @@ import { useEffect, useRef, type RefObject } from "react";
 
 /** Pull distance, as a share of the sheet height, that dismisses on release. */
 const DISMISS_SHARE = 0.28;
-/** Downward fling speed in px/ms that dismisses regardless of distance. */
+/** Fling speed in px/ms that steps down or dismisses regardless of distance. */
 const DISMISS_VELOCITY = 0.55;
 /** Movement before a press counts as a drag rather than a tap or scroll. */
 const SLOP_PX = 6;
@@ -17,17 +17,19 @@ export type SheetDetent = "half" | "full";
 
 /**
  * Where a two-stop sheet settles when released with its top `top` px below the
- * full-height position: an upward fling expands, a downward fling dismisses,
- * and a slow release picks the nearest stop or closes below the half stop.
+ * full-height position: an upward fling expands, a downward fling steps from
+ * full to half or dismisses from half, and a slow release picks the nearest
+ * stop or closes below the half stop.
  */
 export function settleDetent(
   top: number,
   velocity: number,
   halfTop: number,
   halfHeight: number,
+  from: SheetDetent,
 ): SheetDetent | "dismiss" {
   if (velocity < -DISMISS_VELOCITY) return "full";
-  if (velocity > DISMISS_VELOCITY) return "dismiss";
+  if (velocity > DISMISS_VELOCITY) return from === "full" ? "half" : "dismiss";
   if (top > halfTop + halfHeight * DISMISS_SHARE) return "dismiss";
   return top < halfTop / 2 ? "full" : "half";
 }
@@ -44,8 +46,8 @@ export function shouldDismiss(
 
 /**
  * Lets a bottom sheet follow the finger downward and either close or spring
- * back. Drags start on the grip anywhere, or on the content while it is
- * scrolled to the top, so reading a long sheet still scrolls normally.
+ * back. Touch drags start on the grip or header; the content always keeps
+ * its native scrolling gesture, including at the half stop and list edges.
  */
 export function useSheetDrag(
   sheet: RefObject<HTMLElement | null>,
@@ -66,6 +68,7 @@ export function useSheetDrag(
     element.style.transform = "";
     element.style.transition = "";
     element.style.animation = "";
+    element.style.removeProperty("--mobile-sheet-content-offset");
     if (backdrop) {
       backdrop.style.opacity = "";
       backdrop.style.transition = "";
@@ -90,6 +93,11 @@ export function useSheetDrag(
     const place = (top: number) => {
       element.style.transform =
         detents || top > 0 ? `translateY(${top}px)` : "";
+      if (detents)
+        element.style.setProperty(
+          "--mobile-sheet-content-offset",
+          `${Math.max(0, Math.min(top, halfTop()))}px`,
+        );
       // The backdrop only fades once the sheet sinks below its lowest stop.
       const below = top - (detents ? halfTop() : 0);
       if (backdrop)
@@ -101,18 +109,9 @@ export function useSheetDrag(
       if (closing || !(target instanceof Element)) return false;
       if (target.closest(".mobile-sheet") !== element) return false;
       if (target.closest(".mobile-sheet-grip")) return true;
-      if (target.closest("input, textarea, select, [contenteditable]"))
+      if (target.closest("button, a, input, textarea, select, [contenteditable]"))
         return false;
-      // At the half stop the whole sheet is a handle: an upward pull expands it.
-      if (detents && detent === "half") return true;
-      // Anything scrolled away from its top keeps the gesture for scrolling.
-      for (
-        let node: Element | null = target;
-        node && node !== element;
-        node = node.parentElement
-      )
-        if (node.scrollTop > 0) return false;
-      return true;
+      return !!target.closest(".mobile-sheet-header");
     };
     const begin = (y: number) => {
       startY = lastY = y;
@@ -151,7 +150,7 @@ export function useSheetDrag(
         "(prefers-reduced-motion: reduce)",
       ).matches;
       const settled = detents
-        ? settleDetent(base() + lastY - startY, velocity, halfTop(), halfHeight())
+        ? settleDetent(base() + lastY - startY, velocity, halfTop(), halfHeight(), detent)
         : undefined;
       const dismiss = settled
         ? settled === "dismiss"
@@ -184,7 +183,10 @@ export function useSheetDrag(
           // Hand the rest position back to the stylesheet once it lands.
           const settledAt = detent;
           closeTimer = window.setTimeout(() => {
-            if (detent === settledAt && !dragging) element.style.transform = "";
+            if (detent === settledAt && !dragging) {
+              element.style.transform = "";
+              element.style.removeProperty("--mobile-sheet-content-offset");
+            }
           }, reducedMotion ? 0 : SHEET_MOTION_MS);
         }
       } else {

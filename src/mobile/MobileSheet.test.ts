@@ -98,38 +98,59 @@ describe("mobile popover position", () => {
     expect(sheet.style.left).toBe("80px");
     expect(sheet.style.top).toBe("252px");
   });
-  it("follows a moving composer anchor without resize or scroll events and stops when closed", () => {
+  it("animates to a composer's transform endpoint with one measurement, then corrects after layout settles", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     disposeKeyboard = installKeyboardMotion();
-    const keyboard = (height: number) => act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
-      detail: { height, viewport: 800, duration: 200, easing: "linear" },
+    const keyboard = (height: number, duration: number) => act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+      detail: { height, viewport: window.innerHeight, duration, easing: "linear" },
     })));
-    keyboard(300); // Also covers mounting midway through an already active motion.
-    const bounds = vi.spyOn(trigger, "getBoundingClientRect");
-    const move = (bottom: number) => bounds.mockReturnValue(
-      new DOMRect(40, window.innerHeight - bottom, 44, 44),
-    );
-    move(300);
+    keyboard(300, 0);
+    const dock = document.createElement("div");
+    dock.className = "mobile-composer-dock";
+    node.appendChild(dock);
+    dock.appendChild(trigger);
+    const bounds = vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(new DOMRect(40, 400, 44, 44));
     const sheet = render();
-    expect(sheet.style.bottom).toBe("308px");
-    // Keyboard dismissal moves the dock while the button keeps its size.
-    keyboard(0);
-    for (const bottom of [240, 140, 60]) {
-      move(bottom);
+    vi.spyOn(sheet, "getBoundingClientRect").mockReturnValue(new DOMRect(16, 132, 220, 260));
+    const computedStyle = getComputedStyle;
+    vi.stubGlobal("getComputedStyle", (element: Element) => element === dock
+      ? { transform: "matrix(1, 0, 0, 1, 0, -300)" } : computedStyle(element));
+    const transition = {
+      transitionProperty: "transform", playState: "running", currentTime: 0, playbackRate: 1,
+      effect: { getKeyframes: () => [{ transform: "translateY(-300px)" }, { transform: "translateY(0px)" }],
+        getComputedTiming: () => ({ endTime: 200 }) },
+    };
+    dock.getAnimations = () => [transition] as unknown as Animation[];
+    const positionsAtAnimationStart: string[] = [];
+    const originalAnimate = sheet.animate.bind(sheet);
+    const animate = vi.spyOn(sheet, "animate").mockImplementation((keyframes, options) => {
+      positionsAtAnimationStart.push(sheet.style.bottom);
+      return originalAnimate(keyframes, options);
+    });
+    bounds.mockClear();
+    keyboard(0, 200);
+    expect(bounds).toHaveBeenCalledOnce();
+    expect(sheet.style.bottom).toBe(`${window.innerHeight - 700 + 8}px`);
+    expect(positionsAtAnimationStart).toEqual([sheet.style.bottom]);
+    expect(animate.mock.calls[0][0]).toEqual([
+      { translate: "0px -300px" }, { translate: "0px 0px" },
+    ]);
+    for (const top of [480, 580, 680]) {
+      bounds.mockReturnValue(new DOMRect(40, top, 44, 44));
+      act(() => window.dispatchEvent(new Event("resize")));
+      act(() => window.dispatchEvent(new Event("scroll")));
       frame();
-      expect(sheet.style.bottom).toBe(`${bottom + 8}px`);
     }
-    // Follow reversal and horizontal layout changes as well.
-    move(220);
+    expect(bounds).toHaveBeenCalledOnce();
+    transition.playState = "finished";
+    bounds.mockReturnValue(new DOMRect(40, 704, 44, 44));
+    act(() => vi.advanceTimersByTime(200));
     frame();
-    expect(sheet.style.bottom).toBe("228px");
-    bounds.mockReturnValue(new DOMRect(280, window.innerHeight - 220, 44, 44));
     frame();
-    expect(sheet.style.left).toBe("104px");
-    render(undefined, false);
-    expect(frames.size).toBe(0);
-    render();
-    expect(frames.size).toBe(1);
-    act(() => root.render(null));
+    expect(bounds).toHaveBeenCalledOnce();
+    frame();
+    expect(bounds).toHaveBeenCalledTimes(2);
+    expect(sheet.style.bottom).toBe(`${window.innerHeight - 704 + 8}px`);
     expect(frames.size).toBe(0);
   });
   it("leaves point-anchored menus fixed when their originating button moves", () => {
@@ -266,20 +287,152 @@ describe("mobile popover position", () => {
 });
 
 
-it("does not poll a stationary anchor and stops when native keyboard motion settles", () => {
+it("places keyboard motions only at their boundaries and cancels obsolete corrections on reversal", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  disposeKeyboard = installKeyboardMotion();
+  const bounds = vi.spyOn(trigger, "getBoundingClientRect");
+  render();
+  bounds.mockClear();
+  const keyboard = (height: number) => act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+    detail: { height, viewport: 800, duration: 120, easing: "linear" },
+  })));
+  keyboard(300);
+  expect(bounds).toHaveBeenCalledOnce();
+  act(() => vi.advanceTimersByTime(120));
+  frame();
+  keyboard(0); // Interrupt while the first motion's commit frames are pending.
+  expect(bounds).toHaveBeenCalledTimes(2);
+  frame();
+  frame();
+  frame();
+  expect(bounds).toHaveBeenCalledTimes(2);
+  act(() => vi.advanceTimersByTime(120));
+  frame();
+  frame();
+  expect(bounds).toHaveBeenCalledTimes(2);
+  frame();
+  expect(bounds).toHaveBeenCalledTimes(3);
+  expect(frames.size).toBe(0);
+});
+
+it("uses the shorter remaining CSS transition when a composer reverses", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  disposeKeyboard = installKeyboardMotion();
+  const dock = document.createElement("div");
+  dock.className = "mobile-composer-dock";
+  node.appendChild(dock);
+  dock.appendChild(trigger);
+  const sheet = render();
+  const computedStyle = getComputedStyle;
+  vi.stubGlobal("getComputedStyle", (element: Element) => element === dock
+    ? { transform: "matrix(1, 0, 0, 1, 0, -100)" } : computedStyle(element));
+  dock.getAnimations = () => [{
+    transitionProperty: "transform", playState: "running", currentTime: 10, playbackRate: 1,
+    effect: { getKeyframes: () => [{ transform: "translateY(-100px)", easing: "ease-out" }, { transform: "translateY(0px)" }],
+      getComputedTiming: () => ({ endTime: 80 }) },
+  }] as unknown as Animation[];
+  const animate = vi.spyOn(sheet, "animate");
+  act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+    detail: { height: 0, viewport: 800, duration: 240, easing: "linear" },
+  })));
+  expect(animate.mock.calls[0][1]).toEqual({ duration: 70, easing: "ease-out", fill: "both" });
+});
+
+it("reverses keyboard travel from the visible popup and cancels its animation when closed", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  disposeKeyboard = installKeyboardMotion();
+  const sheet = render();
+  vi.spyOn(sheet, "getBoundingClientRect").mockReturnValue(new DOMRect(80, 252, 220, 260));
+  const animations: { cancel: ReturnType<typeof vi.fn>; finished: Promise<void> }[] = [];
+  const animate = vi.spyOn(sheet, "animate").mockImplementation(() => {
+    const animation = { cancel: vi.fn(), finished: Promise.resolve() };
+    animations.push(animation);
+    return animation as unknown as Animation;
+  });
+  const keyboard = (height: number) => act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+    detail: { height, viewport: 800, duration: 200, easing: "linear" },
+  })));
+  keyboard(300);
+  vi.spyOn(sheet, "getBoundingClientRect").mockReturnValue(new DOMRect(80, 234, 220, 228));
+  keyboard(0);
+  expect(animations[0].cancel).toHaveBeenCalledOnce();
+  expect(animate.mock.calls[1][0]).toEqual([
+    { translate: "0px -18px" }, { translate: "0px 0px" },
+  ]);
+  render(undefined, false);
+  expect(animations[1].cancel).toHaveBeenCalledOnce();
+});
+
+it("uses settled placement without keyboard travel when reduced motion is requested", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
+  disposeKeyboard = installKeyboardMotion();
+  const sheet = render();
+  const animate = vi.spyOn(sheet, "animate");
+  act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+    detail: { height: 300, viewport: 800, duration: 200, easing: "linear" },
+  })));
+  expect(animate).not.toHaveBeenCalled();
+  expect(sheet.style.maxHeight).toBe("232px");
+  act(() => vi.advanceTimersByTime(0));
+  frame();
+  frame();
+  frame();
+  expect(frames.size).toBe(0);
+});
+
+it("waits for an in-flight keyboard motion when opened midway and cancels measurement on close", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   let now = 0;
   vi.spyOn(performance, "now").mockImplementation(() => now);
   disposeKeyboard = installKeyboardMotion();
-  render();
-  expect(frames.size).toBe(0);
   act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
     detail: { height: 300, viewport: 800, duration: 120, easing: "linear" },
   })));
+  now = 40;
+  act(() => vi.advanceTimersByTime(40));
+  const bounds = vi.spyOn(trigger, "getBoundingClientRect");
+  render();
+  expect(bounds).toHaveBeenCalledOnce();
   frame();
-  expect(frames.size).toBe(1);
-  now = 121;
+  expect(bounds).toHaveBeenCalledOnce();
+  act(() => vi.advanceTimersByTime(80));
   frame();
+  frame();
+  expect(bounds).toHaveBeenCalledOnce();
+  render(undefined, false);
+  frame();
+  expect(bounds).toHaveBeenCalledOnce();
   expect(frames.size).toBe(0);
+  render();
+  act(() => root.render(null));
+  bounds.mockClear();
+  act(() => vi.advanceTimersByTime(200));
+  frame();
+  frame();
+  frame();
+  expect(bounds).not.toHaveBeenCalled();
+});
+
+it("corrects a point anchor after keyboard layout commits without measuring its originating button", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  disposeKeyboard = installKeyboardMotion();
+  const bounds = vi.spyOn(trigger, "getBoundingClientRect");
+  const sheet = render({ x: 72, y: 700 });
+  const measure = vi.spyOn(sheet, "getBoundingClientRect");
+  act(() => window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, {
+    detail: { height: 300, viewport: 800, duration: 100, easing: "linear" },
+  })));
+  expect(measure).toHaveBeenCalledOnce();
+  frame();
+  expect(measure).toHaveBeenCalledOnce();
+  act(() => vi.advanceTimersByTime(100));
+  frame();
+  frame();
+  frame();
+  expect(measure).toHaveBeenCalledTimes(2);
+  expect(bounds).not.toHaveBeenCalled();
+  expect(sheet.style.bottom).toBe(`${window.innerHeight - 484}px`);
 });
 
 it("suspends hidden surfaces and never restores focus into an inert route", () => {

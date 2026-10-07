@@ -460,6 +460,31 @@ describe("mobile composer card", () => {
     expect(onStop).toHaveBeenCalledTimes(1);
   });
 
+  it("folds to one line for a pending question and expands when focused", () => {
+    vi.useFakeTimers();
+    try {
+      const onExpand = vi.fn();
+      const { node, rerender } = render({ running: true, canStop: true, value: "", canSend: false, compact: true, onExpand });
+      act(() => vi.advanceTimersByTime(400));
+      const form = node.querySelector("form")!;
+      expect(form.dataset.compact).toBe("true");
+      expect(node.querySelector(".mobile-composer-context")!.hasAttribute("inert")).toBe(true);
+      // Only the line's own Stop remains; the toolbar has folded away.
+      expect(node.querySelectorAll('[aria-label="Stop"]')).toHaveLength(1);
+      expect(node.querySelector('[aria-label="Add to message"]')).toBeNull();
+      expect(node.querySelector("textarea")!.placeholder).toBe("Add to the conversation…");
+      act(() => node.querySelector("textarea")!.focus());
+      expect(onExpand).toHaveBeenCalledTimes(1);
+      rerender({ compact: false });
+      act(() => vi.advanceTimersByTime(400));
+      expect(form.dataset.compact).toBeUndefined();
+      expect(node.querySelectorAll('[aria-label="Stop"]')).toHaveLength(1);
+      expect(node.querySelector('[aria-label="Add to message"]')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows model loading in the composer and keeps it synchronized with the menu", () => {
     const { node, button, click, rerender } = render({ catalogLoading: true });
     const trigger = button("Model and reasoning");
