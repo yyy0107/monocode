@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { HostStore } from "../store";
 import { HostEngine } from "../engine";
 import { executeAssistantAction } from "./control";
+import { MEMORY_MAX_LINES } from "./memory";
 import type { HostProvider } from "../providers";
 import type { SendTurnInput } from "../../src/integrations/harness/core/types";
 import { fullAssistantPolicy } from "../../src/features/assistant/model/assistant";
@@ -1240,6 +1241,37 @@ it("keeps memory across turns and shows it to the brain only when it changes", a
   expect(second).toContain("Prefers pnpm");
   expect(second).toContain("Topic notes: deploys");
   expect(await nextTurn("Thanks", 3)).not.toContain("Your memory (current version");
+});
+it("searches Chinese memory through controls across resident, topic and archived facts", async () => {
+  const { engine } = await setup();
+  const store = engine.assistant.store;
+  const act = (requestId: string, action: string, input: Record<string, unknown>) =>
+    executeAssistantAction(engine.assistant, requestId, action, input, () => true);
+  const historical = "- ~~2020-01-01 · 发布流程使用 Travis~~ · superseded 2021-01-01";
+  store.writeMemoryDoc("memory", [
+    historical,
+    ...Array.from({ length: MEMORY_MAX_LINES - 1 }, (_, i) => `- 2025-01-01 · ordinary note ${i}`),
+  ].join("\n"));
+  await act("resident", "memory.add", { fact: "发布流程使用 GitHub Actions" });
+  await act("topic", "memory.add", { topic: "notifications", fact: "飞书消息推送到局域网" });
+  expect(store.memoryDoc("memory").text).not.toContain("Travis");
+  expect(store.memoryDoc("archive").text).toContain(historical);
+  const results = await act("search", "memory.search", { query: "发布流程" });
+  expect(results).toHaveLength(2);
+  expect(results).toEqual(expect.arrayContaining([
+    expect.objectContaining({ file: "memory", line: expect.stringContaining("GitHub Actions") }),
+    expect.objectContaining({ file: "archive", line: expect.stringContaining(`${historical} · moved `), date: "2020-01-01" }),
+  ]));
+  expect(await act("search-topic", "memory.search", { query: "飞书消息推送给谁" })).toEqual([
+    expect.objectContaining({ file: "topic:notifications", line: expect.stringContaining("局域网") }),
+  ]);
+  expect(await act("search-since", "memory.search", { query: "发布", since: "2025-01-01" })).toEqual([
+    expect.objectContaining({ file: "memory" }),
+  ]);
+  expect(await act("search-date", "memory.search", { since: "2025-01-01", limit: 1 })).toHaveLength(1);
+  expect(await act("search-default", "memory.search", { query: "ordinary" })).toHaveLength(20);
+  expect(await act("search-max", "memory.search", { query: "ordinary", limit: 50 })).toHaveLength(50);
+  await expect(act("search-invalid", "memory.search", { query: "发布", limit: 51 })).rejects.toThrow("limit");
 });
 it("lets the user read, add, edit and forget memory without overwriting newer writes", async () => {
   const { engine } = await setup();

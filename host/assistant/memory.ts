@@ -6,6 +6,8 @@
  * from upstream Mono's `monoMemory`; the documents live in the Host store.
  */
 
+import { bm25Scores, tokenizeMemorySearch } from "./memorySearch";
+
 /** Only this much of the resident memory loads into a turn, whichever cuts first. */
 export const MEMORY_MAX_LINES = 200;
 export const MEMORY_MAX_BYTES = 24 * 1024;
@@ -211,25 +213,6 @@ export function topicName(value: string): string {
 
 export type MemoryHit = { file: string; line: string; date?: string };
 
-/** Words too common to say anything about which note a question is after. */
-const STOPWORDS = new Set(
-  "the and for are was were with that this what when where which who how why did does have has had you your our not but can will from into about there their them then than just any all its it's".split(
-    " ",
-  ),
-);
-
-function queryWords(query: string): string[] {
-  return [
-    ...new Set(
-      query
-        .toLowerCase()
-        .split(/[^\p{L}\p{N}_.-]+/u)
-        .map((word) => word.replace(/^[.-]+|[.-]+$/g, ""))
-        .filter((word) => word.length >= 3 && !STOPWORDS.has(word)),
-    ),
-  ];
-}
-
 /** `2026-10-01`, or a span back from `today`: `7d`, `24h`, `2w`. */
 export function sinceDate(
   value: string,
@@ -250,32 +233,45 @@ export function sinceDate(
 }
 
 /**
- * Lines across the agent's memory that share words with `query`, best first.
- * A long query needs two of its words on a line, so common words alone do
- * not drag in half the file. Newer entries win ties.
+ * BM25 over individual facts across all memory documents. Metadata is kept
+ * in results but not scored; historical facts remain searchable. Newer
+ * entries win ties, then the original document/line order is preserved.
  */
 export function searchMemory(
   files: { file: string; text: string }[],
   query: string,
   options: { since?: string; limit?: number } = {},
 ): MemoryHit[] {
-  const words = queryWords(query);
+  const words = tokenizeMemorySearch(query);
   if (!words.length && !options.since)
-    throw new Error("query needs at least one word of three letters or more");
-  const needed = words.length >= 4 ? 2 : words.length ? 1 : 0;
-  const hits: (MemoryHit & { score: number })[] = [];
+    throw new Error("query needs at least one searchable word");
+  const candidates: { hit: MemoryHit; text: string }[] = [];
   for (const { file, text } of files) {
     for (const line of text.split("\n")) {
-      if (!line.trim() || line.startsWith("# ")) continue;
-      const date = line.match(DATED)?.[1];
+      const trimmed = line.trim();
+      if (!trimmed || /^#{1,6}(?:\s|$)/.test(trimmed)) continue;
+      const date = trimmed.match(DATED)?.[1];
       if (options.since && (!date || date < options.since)) continue;
-      const lower = line.toLowerCase();
-      const score = words.filter((word) => lower.includes(word)).length;
-      if (score < needed) continue;
-      hits.push({ file, line, ...(date ? { date } : {}), score });
+      const fact = trimmed
+        .replace(DATED, "")
+        .replace(/^[-*]\s+/, "")
+        .replace(/~~/g, "")
+        .replace(/(?: · (?:until|superseded|moved) \d{4}-\d{2}-\d{2})+$/, "")
+        .trim();
+      if (fact)
+        candidates.push({
+          hit: { file, line, ...(date ? { date } : {}) },
+          text: fact,
+        });
     }
   }
-  return hits
+  const scores = bm25Scores(
+    words,
+    candidates.map((candidate) => candidate.text),
+  );
+  return candidates
+    .map(({ hit }, index) => ({ ...hit, score: scores[index] }))
+    .filter((hit) => !words.length || hit.score > 0)
     .sort(
       (a, b) => b.score - a.score || (b.date ?? "").localeCompare(a.date ?? ""),
     )

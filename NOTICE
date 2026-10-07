@@ -20,3 +20,8 @@ sessions, sidebar, themes and localization.
 UI icons use Lucide, licensed under ISC, with Feather-derived icons under MIT.
 Copyright 2026 Lucide Icons and Contributors; Copyright 2013-present Cole Bemis.
 See licenses/Lucide-LICENSE.txt for the complete notices.
+
+Assistant memory search adapts Pi's BM25 ranker and English stemming
+(https://github.com/earendil-works/pi), licensed under MIT.
+Copyright (c) 2025 Mario Zechner. The complete license is retained in
+host/assistant/memorySearch.ts and the bundled Host.

@@ -17,6 +17,7 @@ import {
   supersedeMemoryEntry,
   topicName,
 } from "./memory";
+import { tokenizeMemorySearch } from "./memorySearch";
 
 it("writes one dated line per fact, with an optional end date", () => {
   expect(memoryEntry("  releases run\nfrom a v* tag ", "2026-10-04")).toBe(
@@ -112,7 +113,7 @@ it("accepts plain topic names only", () => {
     expect(() => topicName(bad)).toThrow("topic");
 });
 
-it("finds entries by their words across files, newest first among equals", () => {
+it("finds entries by their words across files", () => {
   const files = [
     {
       file: "MEMORY.md",
@@ -128,18 +129,133 @@ it("finds entries by their words across files, newest first among equals", () =>
     },
   ];
   expect(
-    searchMemory(files, "Who handles the release?").map((hit) => hit.line),
+    searchMemory(files, "Who handles the release?").map((hit) => hit.line).sort(),
   ).toEqual([
     "- 2026-10-03 · Ana owns the release notes",
     "- 2026-10-02 · the release checklist lives in docs",
     "- 2026-09-01 · releases run from a v* tag",
     "- 2026-01-01 · releases ran from Jenkins · moved 2026-09-01",
-  ]);
+  ].sort());
   expect(searchMemory(files, "release", { since: "2026-10-01" })).toHaveLength(
     2,
   );
   expect(searchMemory(files, "deploy pipeline")).toEqual([]);
   expect(() => searchMemory(files, "is it")).toThrow("query");
+});
+
+it.each([
+  ["发布", "topic:deploy"],
+  ["发布流程", "topic:deploy"],
+  ["项目的发布流程是什么", "topic:deploy"],
+  ["飞书", "topic:notifications"],
+  ["局域网", "topic:notifications"],
+  ["飞书消息推送给谁", "topic:notifications"],
+  ["SQLite 保存", "memory"],
+  ["ＳＱＬｉｔｅ", "memory"],
+  ["CI", "topic:code"],
+  ["piFamily.ts", "topic:code"],
+  ["family", "topic:code"],
+  ["list issues", "topic:code"],
+  ["search issues", "topic:code"],
+  ["/projects/monocode", "topic:code"],
+])("searches Chinese and technical memory with %s", (query, file) => {
+  const files = [
+    { file: "topic:deploy", text: "- 2026-10-01 · 发布流程使用 GitHub Actions" },
+    { file: "topic:notifications", text: "- 2026-10-01 · 飞书消息推送到局域网" },
+    { file: "memory", text: "- 2026-10-01 · SQLite 保存会话数据" },
+    {
+      file: "topic:code",
+      text: "- 2026-10-01 · CI 通过 piFamily.ts 调用 listIssues 和 search_issues；项目位于 /projects/monocode。",
+    },
+  ];
+  expect(searchMemory(files, query)[0]?.file).toBe(file);
+});
+
+it("does not join Chinese across stop words or punctuation", () => {
+  const files = [{ file: "memory", text: "飞的书 飞，书 飞 书 局。域。网" }];
+  expect(searchMemory(files, "飞书")).toEqual([]);
+  expect(searchMemory(files, "局域网")).toEqual([]);
+  for (const query of ["", "！？", "是什么呢", "the and it"])
+    expect(() => searchMemory(files, query)).toThrow("searchable word");
+});
+
+it("counts repeated words without double counting word and bigram tokens", () => {
+  const tokens = tokenizeMemorySearch("发布 发布 issues issues");
+  expect(tokens.filter((word) => word === "发布")).toHaveLength(2);
+  expect(tokens.filter((word) => word === "issue")).toHaveLength(2);
+});
+
+it("ranks rare terms above common matches and allows partial long queries", () => {
+  const rare = "- 2026-01-01 · sqlite stores the notebook data";
+  const files = [{
+    file: "archive",
+    text: [
+      ...Array.from({ length: 30 }, (_, i) => `- 2026-10-01 · memory display setting group ${i}`),
+      rare,
+    ].join("\n"),
+  }];
+  expect(searchMemory(files, "memory sqlite", { limit: 1 })).toEqual([
+    { file: "archive", line: rare, date: "2026-01-01" },
+  ]);
+  expect(searchMemory(files, "sqlite database storage engine", { limit: 1 })[0]?.line).toBe(rare);
+  expect(searchMemory(files, "memory memory sqlite")).toEqual(searchMemory(files, "memory sqlite"));
+  expect(searchMemory(files, "memory")).toHaveLength(20);
+});
+
+it("breaks score ties by date and then source order before applying the limit", () => {
+  const files = [
+    { file: "memory", text: "- 2026-09-01 · release checklist" },
+    { file: "topic:releases", text: "- 2026-10-01 · release checklist" },
+    { file: "archive", text: "- ~~2026-10-01 · release checklist~~ · superseded 2026-10-02 · moved 2026-10-03" },
+    { file: "topic:undated", text: "release checklist" },
+  ];
+  expect(searchMemory(files, "release").map((hit) => hit.file)).toEqual([
+    "topic:releases", "archive", "memory", "topic:undated",
+  ]);
+  expect(searchMemory(files, "release", { limit: 2 }).map((hit) => hit.file)).toEqual([
+    "topic:releases", "archive",
+  ]);
+});
+
+it("searches historical facts without scoring their dates or lifecycle markers", () => {
+  const history = "  - ~~1901-01-01 · 发布流程使用 Jenkins · until 1901-02-02~~ · superseded 1901-03-03 · moved 1901-04-04  ";
+  const expired = "- 1901-01-01 · 发布流程使用 Jenkins · until 1901-02-02 · moved 1901-04-04";
+  const files = [{ file: "archive", text: `${history}\n${expired}` }];
+  expect(searchMemory(files, "发布流程")).toEqual([
+    { file: "archive", line: history, date: "1901-01-01" },
+    { file: "archive", line: expired, date: "1901-01-01" },
+  ]);
+  expect(searchMemory(files, "1901 until moved superseded")).toEqual([]);
+  const fact = "- 2026-10-01 · Migration on 2031-11-15 keeps port 5432 until the moved flag clears";
+  for (const query of ["2031-11-15", "5432", "until", "moved"])
+    expect(searchMemory([{ file: "memory", text: fact }], query)[0]?.line).toBe(fact);
+});
+
+it("filters dates before ranking and supports dates without searchable words", () => {
+  const old = "- 2026-01-01 · sqlite";
+  const recent = "- 2026-10-01 · sqlite stores the notebook data";
+  const newest = "- 2026-10-02 · release checklist";
+  const files = [{ file: "memory", text: [old, recent, newest, "sqlite undated"].join("\n") }];
+  expect(searchMemory(files, "sqlite", { since: "2026-10-01" }).map((hit) => hit.line)).toEqual([recent]);
+  for (const query of ["", "是什么呢 the and"])
+    expect(searchMemory(files, query, { since: "2026-10-01" }).map((hit) => hit.line)).toEqual([newest, recent]);
+  expect(searchMemory(files, "", { since: "2026-10-01", limit: 1 })[0]?.line).toBe(newest);
+  expect(searchMemory(files, "sqlite", { since: "2027-01-01" })).toEqual([]);
+  expect(searchMemory([], "sqlite")).toEqual([]);
+});
+
+it("skips headings and searches resident lines beyond the injection budget", () => {
+  const fact = "用户偏好深色主题";
+  const text = [
+    "# 量子纠缠", "  ## 量子纠缠", "###### 量子纠缠", "",
+    ...Array.from({ length: MEMORY_MAX_LINES }, () => "普通记录"),
+    fact,
+  ].join("\n");
+  expect(memoryWithinBudget(text).text).not.toContain(fact);
+  expect(searchMemory([{ file: "memory", text }], "深色主题")).toEqual([
+    { file: "memory", line: fact },
+  ]);
+  expect(searchMemory([{ file: "memory", text }], "量子纠缠")).toEqual([]);
 });
 
 it("reads since as a date or a span back from today", () => {
