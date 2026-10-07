@@ -3631,6 +3631,12 @@ button.mobile-drawer-group-status {
   flex-direction: column;
   gap: 36px;
   padding-bottom: calc(36px + var(--mobile-safe-bottom));
+  scrollbar-width: none;
+}
+.mobile-app .mobile-settings::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 html.theme-light .mobile-settings {
   background: color-mix(in srgb, var(--color-content) 4%, var(--color-background-base));
