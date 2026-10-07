@@ -343,6 +343,7 @@ export function createHostServer(
                 "sessions.orchestration",
                 "assistant.v1",
                 "assistant.persona",
+                "im.feishu.v1",
                 "resources",
                 "workflows.v1",
               ],
@@ -522,6 +523,11 @@ export function createHostServer(
           case "assistant.respond":
           case "assistant.memory":
             result = await engine.assistant.rpc(input.method, params);
+            break;
+          case "im.get":
+          case "im.configure":
+          case "im.control":
+            result = await engine.im.rpc(input.method, params);
             break;
           case "attachments.upload":
             result = writeAttachmentChunk(engine.store, params);

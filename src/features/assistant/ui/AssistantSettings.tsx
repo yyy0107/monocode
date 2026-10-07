@@ -34,6 +34,7 @@ import {
 } from "../../sessions/model/session";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { AssistantMemoryEditor } from "./AssistantMemory";
+import { AssistantImSettings } from "./AssistantImSettings";
 import { AssistantHabits, type HabitControl } from "./AssistantHabits";
 import type { AssistantHabit } from "../model/assistantHabits";
 import type { AssistantRpc } from "../model/assistantClient";
@@ -318,6 +319,7 @@ export function AssistantSettings({
   reminders,
   memory,
   habits,
+  im,
   personaSupported = true,
   mobile = false,
   Select,
@@ -332,6 +334,8 @@ export function AssistantSettings({
   };
   /** Live memory editing; omitted on Hosts without assistant memory. */
   memory?: { rpc: AssistantRpc; revision: number; lines: number };
+  /** Host-owned live channel settings, outside the assistant configuration draft. */
+  im?: { rpc: AssistantRpc; supported: boolean; active: boolean; assistantEnabled: boolean };
   /** Older Hosts reject personality and time zone fields. */
   personaSupported?: boolean;
   /** Cancels a follow-up the assistant promised; omitted on older Hosts. */
@@ -1233,6 +1237,7 @@ export function AssistantSettings({
               )}
             </CollapsibleSection>
           )}
+          {im && <AssistantImSettings {...im} disabled={busy} />}
           <CollapsibleSection
             title={t("Advanced")}
             summary={t("Permissions and wakeups")}

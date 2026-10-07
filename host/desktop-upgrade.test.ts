@@ -14,7 +14,7 @@ import { expect, it } from "vitest";
 import { HostStore } from "./store";
 import { prepareDesktopHost } from "./desktop";
 
-async function legacyHost(busy: boolean, status: { sharedDesktop?: number; orchestrationHost?: number } = {}) {
+async function legacyHost(busy: boolean, status: { sharedDesktop?: number; orchestrationHost?: number; nativeSessionAccess?: number; nativeSessionManager?: number } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "monocode-legacy-upgrade-"));
   const desktop = join(directory, "desktop");
   mkdirSync(desktop);
@@ -96,6 +96,7 @@ async function legacyHost(busy: boolean, status: { sharedDesktop?: number; orche
 it.each([
   ["legacy", {}],
   ["shared Host without native continuation", { sharedDesktop: 2, orchestrationHost: 1 }],
+  ["shared Host without IM", { sharedDesktop: 2, orchestrationHost: 1, nativeSessionAccess: 1, nativeSessionManager: 1 }],
 ] as const)("updates an idle %s without losing phone credentials or conversations", async (_name, status) => {
   const old = await legacyHost(false, status);
   try {
@@ -129,7 +130,7 @@ it.each([
       headers: { Authorization: `Bearer ${old.phone.token}` },
       body: JSON.stringify({ version: 1, method: "environment.describe", params: {} }),
     });
-    expect((await described.json()).result.capabilities).toContain("sessions.nativeAccess");
+    expect((await described.json()).result.capabilities).toEqual(expect.arrayContaining(["sessions.nativeAccess", "im.feishu.v1"]));
   } finally {
     await old.cleanup();
   }
@@ -137,6 +138,7 @@ it.each([
 it.each([
   ["legacy", {}],
   ["shared Host without native continuation", { sharedDesktop: 2, orchestrationHost: 1 }],
+  ["shared Host without IM", { sharedDesktop: 2, orchestrationHost: 1, nativeSessionAccess: 1, nativeSessionManager: 1 }],
 ] as const)("leaves a busy %s running and reports a retryable upgrade condition", async (_name, status) => {
   const old = await legacyHost(true, status);
   try {

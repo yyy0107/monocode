@@ -1214,6 +1214,53 @@
   gap: 8px;
 }
 
+/* Assistant IM settings */
+.assistant-im,
+.assistant-im-connection,
+.assistant-im-outbox {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  font-size: var(--text-ui-caption);
+}
+.assistant-im-hint {
+  font-size: var(--text-ui-sm);
+  opacity: 0.7;
+  line-height: 1.55;
+}
+.assistant-im-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.assistant-im-connection,
+.assistant-im-outbox {
+  padding-top: 12px;
+  border-top: 1px solid var(--assistant-line);
+}
+.assistant-im-deliveries {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.assistant-im-deliveries > li {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.assistant-im-deliveries > li + li {
+  padding-top: 12px;
+  border-top: 1px solid var(--assistant-line);
+}
+.assistant-im p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Assistant memory */
 .assistant-memory {
   display: grid;

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { HostOrchestration, type HostOrchestrationOptions } from "./orchestration";
 import { HostAssistant } from "./assistant";
+import { HostImService, type HostImOptions } from "./im-service";
 import { HostWorkflows } from "./workflows/service";
 import type { WorkflowWorkerPort } from "./workflows/driver";
 import type { ControlOutcome, ControlReceiptContext, OrchestrationRun, OrchestrationTask, WorkerPreparation } from "../src/features/orchestration/model/orchestrationRuntime";
@@ -307,6 +308,7 @@ export function parseCommand(input: unknown): HostCommand {
 
 export class HostEngine {
   readonly assistant: HostAssistant;
+  readonly im: HostImService;
   readonly workflows: HostWorkflows;
   authorizeAssistantQueued?: (origin: import("../src/features/sessions/model/session").TurnOrigin, projectId: string) => boolean;
   readonly orchestration: HostOrchestration;
@@ -360,7 +362,7 @@ export class HostEngine {
     readonly store: HostStore,
     private readonly providers: Partial<Record<RemoteProvider, HostProvider>>,
     private readonly skills = new HostSkills(),
-    options: HostOrchestrationOptions & { native?: NativeManagerOptions } = {},
+    options: HostOrchestrationOptions & { native?: NativeManagerOptions; im?: HostImOptions } = {},
   ) {
     this.nativeSessions = new NativeSessionManager({
       store,
@@ -485,7 +487,8 @@ export class HostEngine {
       ...(options.node ? { node: options.node } : {}),
     });
     this.assistant = new HostAssistant(this, Object.keys(providers) as RemoteProvider[], this.orchestration.ready, options);
-    this.ready = this.assistant.ready;
+    this.im = new HostImService(store, this.assistant, options.im);
+    this.ready = this.im.ready;
     this.nativeSessions.start();
   }
 
@@ -2049,6 +2052,7 @@ export class HostEngine {
   async close(): Promise<void> {
     this.closing = true;
     this.nativeSessions.close();
+    await this.im.close();
     await this.workflows.close();
     await this.assistant.close();
     await this.orchestration.close();

@@ -11,11 +11,28 @@ export type ImIncomingMessage = {
   messageId: string;
   senderId: string;
   text: string;
+  attachments?: ImAttachmentDescriptor[];
+  createdAt?: number;
+};
+
+export type ImAttachmentDescriptor = {
+  /** Platform resource key, scoped to the originating message and channel. */
+  id: string;
+  name: string;
+  kind: "image" | "file";
+  mimeType?: string;
 };
 
 export type ImOutgoingMessage = {
   text: string;
   replyToMessageId?: string;
+  deliveryId?: string;
+  attachment?: {
+    kind: "image" | "file";
+    name: string;
+    mimeType: string;
+    bytes: Uint8Array;
+  };
 };
 
 export type ImMessageHandler = (message: ImIncomingMessage) => Promise<void>;
@@ -27,7 +44,7 @@ export interface ImChannel {
   start(onMessage: ImMessageHandler): Promise<void>;
   /** Must also release resources left by a partially failed start(). */
   stop(): Promise<void>;
-  send(threadId: string, message: ImOutgoingMessage): Promise<void>;
+  send(threadId: string, message: ImOutgoingMessage): Promise<void | { messageId: string }>;
 }
 
 export type ImRouteContext = {

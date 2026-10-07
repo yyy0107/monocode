@@ -53,6 +53,24 @@ it("receives input and its public message atomically, deduplicating retries", ()
   expect(assistant.pending()).toHaveLength(1);
   expect(() => assistant.receive("send-1", "changed", [])).toThrow(/different/);
 });
+it("keeps legacy receipt retries compatible while binding IM receipts to their trusted source", () => {
+  const { assistant, store } = setup();
+  assistant.initialize({ harness: "codex", model: "test" });
+  assistant.recordReceipt("legacy", signature({ text: "hello", attachments: [] }), { commandId: "legacy" });
+  expect(assistant.receive("legacy", "hello", [])).toEqual({ commandId: "legacy" });
+  const received = assistant.receive("im", "hello", [], { kind: "im", bindingId: "owner-one" });
+  expect(assistant.receive("im", "hello", [], { kind: "im", bindingId: "owner-one" })).toEqual(received);
+  expect(() => assistant.receive("im", "hello", [], { kind: "im", bindingId: "owner-two" })).toThrow(/different/);
+  expect(() => assistant.receive("im", "hello", [])).toThrow(/different/);
+  for (const kind of ["user", "event", "schedule"] as const) {
+    const old = { id: kind, kind, text: "old", state: "pending", rootCauseId: kind, createdAt: 1, attempts: 0 };
+    store.db.prepare("INSERT INTO assistant_wakeups VALUES (?, ?, ?)").run(kind, kind, JSON.stringify(old));
+    const source = { kind: kind === "user" ? "client" : "automatic" };
+    expect(assistant.wakeup(kind)?.source).toEqual(source);
+    expect(assistant.pending().find((wakeup) => wakeup.id === kind)?.source).toEqual(source);
+    expect(assistant.wakeups().find((wakeup) => wakeup.id === kind)?.source).toEqual(source);
+  }
+});
 it("persists user read receipts only when claimed and preserves send time across retry and recovery", () => {
   const { assistant, store } = setup();
   assistant.initialize({ harness: "codex", model: "test" });
@@ -131,6 +149,13 @@ it("recovers started work as interrupted and never retries unknown actions", () 
   expect(restored.pending()).toHaveLength(0);
   expect(restored.action("req")?.state).toBe("unknown");
   expect(restored.get()?.lifecycle).toBe("interrupted");
+  expect(restored.latestMessages()).toContainEqual(expect.objectContaining({
+    id: `restart-interrupted:${input.wakeupId}`,
+    kind: "status", code: "interrupted", wakeupId: input.wakeupId,
+  }));
+  const revision = restored.get()!.chatRevision;
+  restored.recover();
+  expect(restored.get()!.chatRevision).toBe(revision);
 });
 it("compacts partial snapshots while preserving cursors, order and interrupted output", () => {
   const { assistant, store } = setup();

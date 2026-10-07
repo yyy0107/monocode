@@ -40,9 +40,10 @@ export async function prepareDesktopHost(
         orchestrationHost?: number;
         nativeSessionAccess?: number;
         nativeSessionManager?: number;
+        imHost?: number;
       };
       return status.sharedDesktop === 2 && status.orchestrationHost === 1 && status.nativeSessionAccess === 1 &&
-        status.nativeSessionManager === 1
+        status.nativeSessionManager === 1 && status.imHost === 1
         ? "shared" : "legacy";
     } catch {
       return false;

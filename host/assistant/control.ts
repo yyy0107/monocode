@@ -4,6 +4,7 @@ import { isAbsolute, relative } from "node:path";
 import type { HostAssistant } from "./index";
 import { signature } from "./store";
 import { createHabit, deleteHabit, updateHabit } from "./habits";
+import { assertReplyAttachmentAccess, publishReplyAttachments } from "./attachments";
 import {
   addMemoryEntry,
   archiveMemoryEntries,
@@ -85,6 +86,7 @@ export const ASSISTANT_ACTIONS = [
   "habits.update",
   "habits.delete",
   "actions.get",
+  "reply.attachments",
 ] as const;
 export const MAX_PENDING_REMINDERS = 50;
 const MAX_REMINDER_DELAY = 10080;
@@ -148,6 +150,10 @@ function readableResult(
   assistant: HostAssistant,
   old: AssistantAction,
 ): unknown {
+  if (old.action === "reply.attachments") {
+    assertReplyAttachmentAccess(assistant, old.input);
+    return old.result;
+  }
   const policy = assistant.store.get()!.policy;
   const actionPermissionKey =
     old.action === "workspace.run" ||
@@ -546,6 +552,8 @@ export async function executeAssistantAction(
       result: readableResult(assistant, old),
       error: old.error,
     };
+  } else if (action === "reply.attachments") {
+    return publishReplyAttachments(assistant, requestId, input, authorized);
   } else if (action.startsWith("reminders.")) {
     if (!authorized()) throw new Error("Assistant control was revoked");
     return reminderAction(assistant, requestId, action, input);
@@ -673,6 +681,7 @@ export async function executeAssistantAction(
           id: `card:${record.id}`,
           kind: "session-card",
           actionId: record.id,
+          wakeupId: record.origin.wakeupId,
           ref: completed.targetRef,
           title: target.session.title,
           projectName: project.name,

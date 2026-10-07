@@ -64,6 +64,29 @@ it("uses capability fallback without polling an old Host", async () => {
   expect(node.textContent).toContain("Assistant is unavailable on this Host");
   expect(rpc.mock.calls).toHaveLength(1);
 });
+it.each([false, true])("gates shared Feishu settings on the Host capability (%s)", async (supported) => {
+  const rpc = vi.fn(async (method: string) => {
+    if (method === "environment.describe") return { capabilities: ["assistant.v1", ...(supported ? ["im.feishu.v1"] : [])] };
+    if (method === "assistant.get") return null;
+    if (method === "models.list") return { models: {}, errors: {} };
+    if (method === "projects.list") return [];
+    if (method === "im.get") return { configured: false, status: { state: "stopped" }, pending: 0, deliveries: [] };
+    throw new Error(`Unexpected method: ${method}`);
+  });
+  act(() => root.render(createElement(AssistantChat, {
+    hostKey: "host", hostName: "Host", rpc: rpc as any, onOpen: () => {},
+  })));
+  await flush();
+  act(() => disclosure("Feishu").click());
+  await flush();
+  if (supported) {
+    expect(rpc).toHaveBeenCalledWith("im.get", {});
+    expect(node.textContent).toContain("Enable the assistant before connecting Feishu.");
+  } else {
+    expect(rpc).not.toHaveBeenCalledWith("im.get", {});
+    expect(node.textContent).toContain("This Host does not support Feishu.");
+  }
+});
 it("renders only public replies and one updated card without transcript logs", async () => {
   const card: AssistantMessage = {
     kind: "session-card",

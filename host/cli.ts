@@ -307,7 +307,7 @@ Connect another computer using an SSH forward to the loopback port.`);
             response.writeHead(400).end();
             return;
           }
-          response.end(JSON.stringify({ sharedDesktop: 2, orchestrationHost: 1, nativeSessionAccess: 1, nativeSessionManager: 1, orchestrationActive: engine.orchestration.hasActiveWork() }));
+          response.end(JSON.stringify({ sharedDesktop: 2, orchestrationHost: 1, nativeSessionAccess: 1, nativeSessionManager: 1, imHost: 1, orchestrationActive: engine.orchestration.hasActiveWork() }));
           if (action === "stop") void stop();
         } catch {
           response.writeHead(400).end();

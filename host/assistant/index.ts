@@ -3,7 +3,14 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { HostEngine } from "../engine";
 import { HostControl } from "../control";
-import { AssistantStore, signature, type Wakeup } from "./store";
+import {
+  AssistantStore,
+  receiveSignature,
+  signature,
+  wakeupSource,
+  type Wakeup,
+  type WakeupSource,
+} from "./store";
 import { importantSources } from "./events";
 import { enqueueSchedules, retryDelay } from "./scheduler";
 import { checkPolicy, fields, id, object, validatePolicy } from "./policy";
@@ -15,12 +22,14 @@ import {
   type HostModelCatalog,
   type HostSession,
   type RemoteProvider,
+  type RemoteAttachment,
 } from "../../src/features/connections/model/protocol";
 import {
   ASSISTANT_PERSONA_PRESETS,
   type AssistantEventKind,
   type AssistantPatch,
   type AssistantMessage,
+  type AssistantReceipt,
 } from "../../src/features/assistant/model/assistant";
 import { parseRemoteAttachments, resolveAttachments } from "../attachments";
 import { rotationReason } from "./rotation";
@@ -55,6 +64,8 @@ export class HostAssistant {
   readonly ready: Promise<void>;
   private timer?: ReturnType<typeof setInterval>;
   private active?: Wakeup;
+  /** Retains attribution when finalizing a turn throws after clearing active. */
+  private tickingWakeupId?: string;
   /** The memory version shown to the brain in the running turn, if any. */
   private injectedMemory?: { generation: number; revision: number };
   private closing = false;
@@ -187,42 +198,63 @@ export class HostAssistant {
         topics: this.store.memoryTopics(),
       };
     }
-    const next = this.mutations.then(() => this.mutateRpc(method, raw));
+    return this.mutate(() => this.mutateRpc(method, raw));
+  }
+  private mutate<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.mutations.then(run);
     this.mutations = next.catch(() => undefined);
     return next;
+  }
+  /** Only the Host's authenticated IM binding may assign this trusted source. */
+  async receiveImMessage(input: {
+    commandId: string;
+    text: string;
+    attachments?: RemoteAttachment[];
+    bindingId: string;
+  }): Promise<AssistantReceipt> {
+    await this.ready;
+    fields(input, ["commandId", "text", "attachments", "bindingId"]);
+    const { bindingId, ...message } = input;
+    const source: WakeupSource = { kind: "im", bindingId: id(bindingId, "IM binding") };
+    return this.mutate(() => this.receiveMessage(message, source));
+  }
+  private async receiveMessage(
+    raw: Record<string, unknown>,
+    source: WakeupSource,
+  ): Promise<AssistantReceipt> {
+    fields(raw, ["commandId", "text", "attachments"]);
+    const text =
+      typeof raw.text === "string" &&
+      raw.text.length <= 1000000 &&
+      !raw.text.includes("\0")
+        ? raw.text
+        : undefined;
+    const attachments = parseRemoteAttachments(raw.attachments);
+    if (text === undefined || (!text.trim() && !attachments.length))
+      throw new Error("Write a message");
+    const previous = this.store.receipt(
+      id(raw.commandId),
+      receiveSignature(text, attachments, source),
+    );
+    if (previous) return previous as AssistantReceipt;
+    const config = this.store.get();
+    if (this.closing || !config?.enabled || !config.triggers.user)
+      throw new Error("Assistant messaging is disabled");
+    resolveAttachments(this.engine.store, attachments);
+    const receipt = this.store.receive(id(raw.commandId), text, attachments, source);
+    // Attachments keep the queued path; provider steering differs for files.
+    if (!attachments.length && receipt.wakeupId)
+      await this.steerInput(receipt.wakeupId, text);
+    void this.tick().catch((error) => this.fail(error));
+    return receipt;
   }
   private async mutateRpc(
     method: string,
     raw: Record<string, unknown>,
   ): Promise<unknown> {
     if (method === "assistant.configure") return this.configure(raw);
-    if (method === "assistant.send") {
-      fields(raw, ["commandId", "text", "attachments"]);
-      const text =
-        typeof raw.text === "string" &&
-        raw.text.length <= 1000000 &&
-        !raw.text.includes("\0")
-          ? raw.text
-          : undefined;
-      const attachments = parseRemoteAttachments(raw.attachments);
-      if (text === undefined || (!text.trim() && !attachments.length))
-        throw new Error("Write a message");
-      const previous = this.store.receipt(
-        id(raw.commandId),
-        signature({ text, attachments }),
-      );
-      if (previous) return previous;
-      const config = this.store.get();
-      if (!config?.enabled || !config.triggers.user)
-        throw new Error("Assistant messaging is disabled");
-      resolveAttachments(this.engine.store, attachments);
-      const receipt = this.store.receive(id(raw.commandId), text, attachments);
-      // Attachments keep the queued path; provider steering differs for files.
-      if (!attachments.length && receipt.wakeupId)
-        await this.steerInput(receipt.wakeupId, text);
-      void this.tick().catch((error) => this.fail(error));
-      return receipt;
-    }
+    if (method === "assistant.send")
+      return this.receiveMessage(raw, { kind: "client" });
     if (method === "assistant.respond") {
       fields(raw, [
         "commandId",
@@ -446,6 +478,7 @@ export class HostAssistant {
             this.store.enqueue(
               {
                 ...recovery,
+                source: wakeupSource(recovery),
                 id: next,
                 kind: "user",
                 state: "pending",
@@ -737,6 +770,7 @@ export class HostAssistant {
   async tick(): Promise<void> {
     if (this.closing || this.ticking) return;
     this.ticking = true;
+    this.tickingWakeupId = this.active?.id;
     const epoch = this.epoch;
     try {
       let config = this.store.get();
@@ -766,7 +800,11 @@ export class HostAssistant {
             (b) => b.role === "user" && !b.text.startsWith(STEER_PREFIX),
           ) + 1,
         );
-        let posted = false;
+        // An explicit attachment publication is meaningful even if the final
+        // model text is the quiet marker (there is nothing else to add).
+        let posted = this.store.latestMessages().some((message) =>
+          message.kind === "assistant" && message.wakeupId === wakeup.id &&
+          (!!message.text.trim() || !!message.attachments?.length));
         if (wakeup.kind !== "user") {
           const reply = turn.findLast(
             (b) => b.role === "assistant" && b.text.trim(),
@@ -779,6 +817,8 @@ export class HostAssistant {
                 id: replyMessageId(config!.brainGeneration, reply.id, index),
                 kind: "assistant",
                 text: part,
+                streaming: false,
+                wakeupId: wakeup.id,
               });
             });
         }
@@ -845,6 +885,7 @@ export class HostAssistant {
             kind: "status",
             code: "interrupted",
             text: error,
+            wakeupId: wakeup.id,
           });
           return;
         }
@@ -918,6 +959,7 @@ export class HostAssistant {
         });
       const wakeup = this.store.pending().find((w) => !this.steering.has(w.id));
       if (!wakeup) return;
+      this.tickingWakeupId = wakeup.id;
       let chain = this.store.chain(wakeup.rootCauseId);
       if (
         !chain.paused &&
@@ -935,6 +977,7 @@ export class HostAssistant {
             kind: "status",
             code: "cycle-limit",
             text: "Automatic follow-up limit reached. Send a message to continue this task.",
+            wakeupId: wakeup.id,
           });
         this.store.writeChain(wakeup.rootCauseId, { ...chain, paused: true });
         return;
@@ -1119,6 +1162,7 @@ export class HostAssistant {
           this.store.message({
             id: `input:${next.runId}:approval:${block.approval.requestId}`,
             kind: "input",
+            wakeupId: this.active?.id,
             text: block.text,
             brainGeneration: config.brainGeneration,
             runId: next.runId!,
@@ -1139,6 +1183,7 @@ export class HostAssistant {
         this.store.message({
           id: `input:${next.runId}:question:${question.requestId}`,
           kind: "input",
+          wakeupId: this.active?.id,
           text: question.title ?? "Assistant needs your input",
           brainGeneration: config.brainGeneration,
           runId: next.runId!,
@@ -1223,12 +1268,14 @@ export class HostAssistant {
   /** Delivers a user message into the running user turn, as a person would read it immediately. */
   private async steerInput(wakeupId: string, text: string): Promise<void> {
     const config = this.store.get(),
-      active = this.active;
+      active = this.active,
+      incoming = this.store.wakeup(wakeupId);
     if (
       !config?.brainSessionId ||
       active?.kind !== "user" ||
       config.lifecycle !== "running" ||
-      this.store.wakeup(wakeupId)?.state !== "pending"
+      incoming?.state !== "pending" ||
+      signature(wakeupSource(active)) !== signature(wakeupSource(incoming))
     )
       return;
     this.steering.add(wakeupId);
@@ -1280,6 +1327,7 @@ export class HostAssistant {
         this.store.message({ ...message, resolved: true });
   }
   private fail(error: unknown): void {
+    const wakeupId = this.active?.id ?? this.tickingWakeupId;
     this.active = undefined;
     const config = this.store.get();
     if (config?.brainSessionId) this.control.disable(config.brainSessionId);
@@ -1296,6 +1344,7 @@ export class HostAssistant {
           kind: "status",
           code: "failed",
           text: error instanceof Error ? error.message : "Assistant failed",
+          ...(wakeupId ? { wakeupId } : {}),
         });
       }
     } catch {

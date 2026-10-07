@@ -125,6 +125,25 @@ async function setup(providers: RemoteProvider[] = ["codex"], discoverProviders?
 }
 
 describe("remote host API", () => {
+  it("authenticates IM management and never returns a configured bot secret", async () => {
+    const s = await setup();
+    await s.engine.workflows.ready;
+    expect((await s.call("im.get", {}, "invalid-token")).status).toBe(401);
+    const described = await s.call("environment.describe");
+    expect(described.value.result.capabilities).toContain("im.feishu.v1");
+    const configured = await s.call("im.configure", {
+      appId: "cli_1234567890abcdef", appSecret: "private-test-secret", ownerOpenId: "ou_owner", language: "zh-CN",
+    });
+    expect(configured.status).toBe(200);
+    expect(configured.value.result.config).toMatchObject({ enabled: false, secretConfigured: true, ownerOpenId: "ou_owner" });
+    expect(JSON.stringify(configured.value)).not.toContain("private-test-secret");
+    expect(JSON.stringify((await s.call("im.get")).value)).not.toContain("private-test-secret");
+    expect((await s.call("im.configure", { appId: "cli_1234567890abcdef", ownerOpenId: "ou_owner", source: "im" })).status).toBe(400);
+    expect((await s.call("im.get", {}, s.first.token, { environmentId: "other-host" })).status).toBe(400);
+    s.store.revokeToken(s.second.token);
+    expect((await s.call("im.control", { action: "disable" }, s.second.token)).status).toBe(401);
+  });
+
   it("lists desktop provider accounts, passes a selected account to the turn and rejects removed accounts", async () => {
     const s = await setup();
     await s.engine.ready;

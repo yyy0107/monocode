@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -498,7 +498,9 @@ it("denies every declared action before effects when its permission is off", asy
         engine.assistant,
         `deny-${action}`,
         action,
-        { projectId: project.id, command },
+        action === "reply.attachments"
+          ? { sources: [{ kind: "project-file", projectId: project.id, relativePath: "report.txt" }] }
+          : { projectId: project.id, command },
         () => true,
       ),
     ).rejects.toThrow(/Permission/);
@@ -1071,6 +1073,59 @@ it("delivers a message sent during a running user turn into that turn when steer
   });
   expect(engine.assistant.store.pending()).toEqual([]);
 });
+it("keeps IM and client turns separate while merging only follow-ups from the same binding", async () => {
+  const { engine, provider, turns } = await setup({ steer: true });
+  const input = { commandId: "im-first", text: "From Feishu", bindingId: "owner-one" };
+  const [first, duplicate] = await Promise.all([
+    engine.assistant.receiveImMessage(input), engine.assistant.receiveImMessage(input),
+  ]);
+  expect(duplicate).toEqual(first);
+  expect(engine.assistant.store.wakeup(first.wakeupId!)?.source).toEqual({ kind: "im", bindingId: "owner-one" });
+  expect(provider.steer).not.toHaveBeenCalled();
+  expect(engine.assistant.store.wakeup(first.wakeupId!)?.state).toBe("pending");
+  await expect(engine.assistant.rpc("assistant.send", { commandId: "spoof", text: "Spoof", source: { kind: "im", bindingId: "owner-one" } })).rejects.toThrow(/Unknown input field/);
+  turns[0].finish();
+  await idleBrain(engine);
+  await engine.assistant.tick();
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  const followup = await engine.assistant.receiveImMessage({ ...input, commandId: "im-followup", text: "Also check this" });
+  expect(provider.steer).toHaveBeenCalledOnce();
+  expect(engine.assistant.store.wakeup(followup.wakeupId!)).toMatchObject({ state: "completed", mergedInto: first.wakeupId });
+  const otherBinding = await engine.assistant.receiveImMessage({ ...input, commandId: "im-other", bindingId: "owner-two" });
+  const client = await engine.assistant.rpc("assistant.send", { commandId: "client-followup", text: "From desktop" }) as { wakeupId: string };
+  expect(provider.steer).toHaveBeenCalledOnce();
+  expect(engine.assistant.store.wakeup(otherBinding.wakeupId!)?.state).toBe("pending");
+  expect(engine.assistant.store.wakeup(client.wakeupId)?.source).toEqual({ kind: "client" });
+  turns[1].input.onEvent({ type: "message.delta", text: "Feishu reply" });
+  turns[1].input.onEvent({ type: "message.completed" });
+  expect(engine.assistant.store.latestMessages()).toContainEqual(expect.objectContaining({ text: "Feishu reply", wakeupId: first.wakeupId, streaming: false }));
+});
+it("attributes automatic replies and input requests and preserves their source when resumed", async () => {
+  const { engine, turns } = await setup();
+  turns[0].finish();
+  await idleBrain(engine);
+  await engine.assistant.tick();
+  const journal = engine.assistant.store;
+  journal.enqueue({ id: "automatic", kind: "schedule", text: "Check the work", rootCauseId: "schedule:test",
+    state: "pending", createdAt: Date.now(), attempts: 0 }, "automatic");
+  await engine.assistant.tick();
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  turns[1].input.onEvent({ type: "approval.requested", requestId: 9, title: "Confirm?" });
+  expect(journal.latestMessages()).toContainEqual(expect.objectContaining({ kind: "input", wakeupId: "automatic", resolved: false }));
+  turns[1].input.onEvent({ type: "message.delta", text: "A meaningful update" });
+  turns[1].input.onEvent({ type: "message.completed" });
+  turns[1].finish();
+  await idleBrain(engine);
+  await engine.assistant.tick();
+  expect(journal.latestMessages()).toContainEqual(expect.objectContaining({ kind: "assistant", text: "A meaningful update", wakeupId: "automatic", streaming: false }));
+  const automatic = journal.wakeup("automatic")!;
+  journal.saveWakeup({ ...automatic, state: "interrupted" });
+  journal.update({ lifecycle: "interrupted" });
+  await engine.assistant.rpc("assistant.control", { commandId: "resume-auto", action: "resume" });
+  await vi.waitFor(() => expect(turns).toHaveLength(3));
+  const resumed = journal.wakeups().find((wakeup) => wakeup.id !== "automatic" && wakeup.rootCauseId === automatic.rootCauseId)!;
+  expect(resumed).toMatchObject({ kind: "user", source: { kind: "automatic" } });
+});
 it("shows the current action as activity and clears it when the turn ends", async () => {
   const { engine, turns } = await setup();
   await executeAssistantAction(
@@ -1228,7 +1283,7 @@ it("lets the user read, add, edit and forget memory without overwriting newer wr
   expect((await read()).facts).toEqual([]);
 });
 it("keeps habits from the assistant and the user and records each run's outcome", async () => {
-  const { engine, store, turns } = await setup();
+  const { engine, store, turns, project } = await setup();
   const assistant = engine.assistant;
   assistant.store.update({ triggers: { user: true, event: false, schedule: true } });
   const created = (await executeAssistantAction(
@@ -1280,6 +1335,22 @@ it("keeps habits from the assistant and the user and records each run's outcome"
     lastOutcome: "quiet",
     lastRunAt: expect.any(Number),
   });
+  await assistant.rpc("assistant.control", {
+    commandId: "run-with-file", action: "runHabit", habitId: created.habitId,
+  });
+  await vi.waitFor(() => expect(turns).toHaveLength(3));
+  writeFileSync(join(project.cwd, "report.txt"), "A report worth sharing");
+  const publication = await executeAssistantAction(assistant, "habit-report", "reply.attachments", {
+    sources: [{ kind: "project-file", projectId: project.id, relativePath: "report.txt" }],
+  }, () => true) as { messageId: string };
+  const message = assistant.store.latestMessages().find((entry) => entry.id === publication.messageId)!;
+  expect(assistant.store.wakeup(message.wakeupId!)?.source).toEqual({ kind: "automatic" });
+  turns[2].input.onEvent({ type: "message.delta", text: "<assistant_quiet/>" });
+  turns[2].input.onEvent({ type: "message.completed" });
+  turns[2].finish();
+  await idleBrain(engine);
+  await assistant.tick();
+  expect(assistant.store.get()!.habits![0].lastOutcome).toBe("posted");
   await assistant.rpc("assistant.control", {
     commandId: "delete",
     action: "deleteHabit",

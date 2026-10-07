@@ -158,6 +158,7 @@ export function AssistantChat({
   const [supported, setSupported] = useState<boolean>();
   // Personality, local time and promised follow-ups need a newer Host.
   const [personaSupported, setPersonaSupported] = useState(false);
+  const [imSupported, setImSupported] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsBase, setSettingsBase] = useState<AssistantView | null>(null);
   const [busy, setBusy] = useState(false);
@@ -237,6 +238,7 @@ export function AssistantChat({
         setPersonaSupported(
           descriptor.capabilities?.includes("assistant.persona") ?? false,
         );
+        setImSupported(descriptor.capabilities?.includes("im.feishu.v1") ?? false);
         if (!available) return;
         capable = true;
         await refresh();
@@ -614,6 +616,12 @@ export function AssistantChat({
                 mobile={mobile}
                 Select={ui.Select}
                 personaSupported={personaSupported}
+                im={{
+                  rpc,
+                  supported: imSupported,
+                  active: settingsCovering && visible,
+                  assistantEnabled: assistant?.enabled ?? false,
+                }}
                 reminders={assistant?.reminders}
                 memory={
                   assistant?.memory && { rpc, ...assistant.memory }

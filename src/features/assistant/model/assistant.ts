@@ -172,7 +172,13 @@ export type AssistantPatch = Partial<
     | "chainWindowMinutes"
   >
 >;
-type MessageBase = { id: string; revision: number; createdAt: number };
+type MessageBase = {
+  id: string;
+  revision: number;
+  createdAt: number;
+  /** The Host wakeup that produced this public message, when known. */
+  wakeupId?: string;
+};
 export type AssistantMessage = MessageBase &
   (
     | {
@@ -181,7 +187,6 @@ export type AssistantMessage = MessageBase &
         streaming?: boolean;
         /** Host began processing this user input; null means still pending. */
         readAt?: number | null;
-        wakeupId?: string;
         attachments?: RemoteAttachment[];
       }
     | {

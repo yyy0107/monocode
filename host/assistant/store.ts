@@ -52,7 +52,27 @@ export type Wakeup = {
   habitId?: string;
   /** A user input delivered into this running wakeup by steering. */
   mergedInto?: string;
+  /** Trusted input origin; preserved when an interrupted wakeup is resumed. */
+  source?: WakeupSource;
 };
+export type WakeupSource =
+  | { kind: "client" }
+  | { kind: "im"; bindingId: string }
+  | { kind: "automatic" };
+export function wakeupSource(wakeup: Pick<Wakeup, "kind" | "source">): WakeupSource {
+  return wakeup.source ?? { kind: wakeup.kind === "user" ? "client" : "automatic" };
+}
+function withSource(wakeup: Wakeup): Wakeup {
+  return { ...wakeup, source: wakeupSource(wakeup) };
+}
+/** Keep pre-IM client receipt signatures compatible with saved retries. */
+export function receiveSignature(
+  text: string,
+  attachments: RemoteAttachment[],
+  source: WakeupSource,
+): string {
+  return signature({ text, attachments, ...(source.kind === "client" ? {} : { source }) });
+}
 export type Source = {
   eventKey: string;
   sessionId: string;
@@ -319,9 +339,10 @@ export class AssistantStore {
     commandId: string,
     text: string,
     attachments: RemoteAttachment[],
+    source: WakeupSource = { kind: "client" },
   ): AssistantReceipt {
     return this.host.transaction(() => {
-      const sig = signature({ text, attachments }),
+      const sig = receiveSignature(text, attachments, source),
         existing = this.receipt(commandId, sig);
       if (existing) return existing as AssistantReceipt;
       const id = randomUUID(),
@@ -344,6 +365,7 @@ export class AssistantStore {
           createdAt: Date.now(),
           attempts: 0,
           attachments,
+          source,
         },
         `user:${commandId}`,
       );
@@ -361,19 +383,19 @@ export class AssistantStore {
   enqueue(value: Wakeup, dedupe: string): void {
     this.host.db
       .prepare("INSERT OR IGNORE INTO assistant_wakeups VALUES (?, ?, ?)")
-      .run(value.id, dedupe, JSON.stringify(value));
+      .run(value.id, dedupe, JSON.stringify(withSource(value)));
   }
   wakeups(): Wakeup[] {
     return this.host.db
       .prepare("SELECT payload FROM assistant_wakeups")
       .all()
-      .map((r) => JSON.parse(String(r.payload)));
+      .map((r) => withSource(JSON.parse(String(r.payload))));
   }
   wakeup(id: string): Wakeup | undefined {
     const row = this.host.db
       .prepare("SELECT payload FROM assistant_wakeups WHERE id=?")
       .get(id);
-    return row ? JSON.parse(String(row.payload)) : undefined;
+    return row ? withSource(JSON.parse(String(row.payload))) : undefined;
   }
   pending(): Wakeup[] {
     return this.host.db
@@ -381,12 +403,12 @@ export class AssistantStore {
         `SELECT payload FROM assistant_wakeups WHERE json_extract(payload,'$.state')='pending' OR (json_extract(payload,'$.state')='backoff' AND json_extract(payload,'$.retryAt')<=?) ORDER BY CASE json_extract(payload,'$.kind') WHEN 'user' THEN 0 WHEN 'event' THEN 1 ELSE 2 END, json_extract(payload,'$.createdAt') LIMIT 100`,
       )
       .all(Date.now())
-      .map((r) => JSON.parse(String(r.payload)));
+      .map((r) => withSource(JSON.parse(String(r.payload))));
   }
   saveWakeup(w: Wakeup): void {
     this.host.db
       .prepare("UPDATE assistant_wakeups SET payload=? WHERE id=?")
-      .run(JSON.stringify(w), w.id);
+      .run(JSON.stringify(withSource(w)), w.id);
   }
   claim(id: string): Wakeup {
     return this.host.transaction(() => this.claimPending(id));
@@ -491,6 +513,14 @@ export class AssistantStore {
         if (wakeup.state === "running") {
           this.saveWakeup({ ...wakeup, state: "interrupted" });
           interrupted = true;
+          if (this.get())
+            this.message({
+              id: `restart-interrupted:${wakeup.id}`,
+              kind: "status",
+              code: "interrupted",
+              text: "Host restarted during an assistant turn. Continue after inspecting its actions.",
+              wakeupId: wakeup.id,
+            });
         }
       for (const action of this.actions())
         if (action.state === "executing") {
@@ -547,6 +577,7 @@ export class AssistantStore {
                 id: `card:${action.id}`,
                 kind: "session-card",
                 actionId: action.id,
+                wakeupId: action.origin.wakeupId,
                 ref,
                 title: target.session.title,
                 projectName: this.host.project(target.projectId).name,
