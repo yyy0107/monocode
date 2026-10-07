@@ -43,6 +43,7 @@ import {
   DesktopAssistantMessageMenu,
 } from "./DesktopAssistantChrome";
 import { useAssistantReplyMenu } from "./useAssistantReplyMenu";
+import { useAssistantDraft } from "./useAssistantDraft";
 import { useAssistantMessageSwipe } from "./useAssistantMessageSwipe";
 import { AssistantMessages } from "./AssistantMessages";
 import { TranscriptPlatformContext } from "../../sessions/ui/TranscriptPlatform";
@@ -164,6 +165,7 @@ export function AssistantChat({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsBase, setSettingsBase] = useState<AssistantView | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
   // Initial connection failures replace the loading state with a retry.
   const [connectError, setConnectError] = useState<string>();
@@ -172,13 +174,7 @@ export function AssistantChat({
     "loading" | "ready" | "failed"
   >("loading");
   const [catalogError, setCatalogError] = useState<string>();
-  const [draft, setDraft] = useState(() => {
-    try {
-      return localStorage.getItem(`monocode.assistant-draft:${hostKey}`) ?? "";
-    } catch {
-      return "";
-    }
-  });
+  const [draft, setDraft] = useAssistantDraft(hostKey);
   const [retry, setRetry] = useState(() => client.pending());
   const [replyText, setReplyText] = useState<string | undefined>(() => {
     if (!chrome) return;
@@ -301,13 +297,6 @@ export function AssistantChat({
     [rpc],
   );
   useEffect(() => {
-    try {
-      localStorage.setItem(`monocode.assistant-draft:${hostKey}`, draft);
-    } catch {
-      /* Draft remains usable. */
-    }
-  }, [hostKey, draft]);
-  useEffect(() => {
     if (!chrome) return;
     try {
       const key = `monocode.assistant-reply:${hostKey}`;
@@ -369,6 +358,7 @@ export function AssistantChat({
   }, [sync]);
   const send = (text: string, files = attachments) =>
     operation(async () => {
+      setSending(true);
       try {
         followLog.current = true;
         await client.send(text, files);
@@ -377,6 +367,7 @@ export function AssistantChat({
         setReplyText(undefined);
         setAttachments([]);
       } finally {
+        setSending(false);
         setRetry(client.pending());
       }
     });
@@ -769,6 +760,7 @@ export function AssistantChat({
                   onDraftChange={setDraft}
                   attachments={attachments}
                   busy={busy}
+                  sending={sending}
                   inputDisabled={!assistant.enabled || !assistant.triggers.user}
                   attachDisabled={
                     busy ||

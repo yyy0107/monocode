@@ -726,6 +726,40 @@ it("sends on Enter but not on Shift+Enter in the desktop composer", async () => 
   await flush();
   expect(rpc.mock.calls.some(([m]) => m === "assistant.send")).toBe(true);
 });
+it("retains a failed send's draft and clears its saved text immediately after a successful retry", async () => {
+  const key = "monocode.assistant-draft:host";
+  localStorage.setItem(key, "Saved before typing");
+  const base = chatRpc(configuredView());
+  let fail = true;
+  const rpc = vi.fn(async (method: string, params?: object) => {
+    if (method === "assistant.send" && fail) throw new Error("Host disconnected");
+    return base(method, params);
+  });
+  act(() => root.render(createElement(AssistantChat, {
+    hostKey: "host", hostName: "Host", rpc: rpc as any, onOpen: () => {},
+  })));
+  await flush();
+  const field = node.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message assistant"]')!;
+  expect(field.value).toBe("Saved before typing");
+  act(() => setValue(field, "Retry this exact draft"));
+  const send = () => act(() => field.dispatchEvent(new KeyboardEvent("keydown", {
+    key: "Enter", bubbles: true, cancelable: true,
+  })));
+  send();
+  await flush();
+  expect(field.value).toBe("Retry this exact draft");
+  expect(localStorage.getItem(key)).toBe("Saved before typing");
+  act(() => vi.advanceTimersByTime(300));
+  expect(localStorage.getItem(key)).toBe("Retry this exact draft");
+  fail = false;
+  act(() => [...node.querySelectorAll<HTMLButtonElement>("button")]
+    .find(button => button.textContent === "Retry message")!.click());
+  await flush();
+  expect(field.value).toBe("");
+  expect(localStorage.getItem(key)).toBe("");
+  act(() => vi.advanceTimersByTime(300));
+  expect(localStorage.getItem(key)).toBe("");
+});
 it("enables saving only for changed, valid settings", () => {
   const onSave = vi.fn(async () => {});
   act(() =>

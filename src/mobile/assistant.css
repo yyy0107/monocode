@@ -491,6 +491,10 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   border-radius: 28px;
   background: var(--mobile-card);
   box-shadow: 0 6px 24px #00000006;
+  /* The card is opaque; a backdrop filter only made every keystroke repaint
+     through blur and refraction. */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .mobile-assistant-compose-row {
   display: flex;
@@ -531,6 +535,11 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
 .assistant-chat[data-layout="mobile"] .mobile-assistant-send:disabled {
   background: var(--mobile-fill);
   color: var(--color-content);
+}
+.assistant-chat[data-layout="mobile"] .mobile-assistant-send[aria-busy="true"] {
+  background: var(--mobile-accent);
+  color: var(--mobile-accent-foreground);
+  opacity: 1;
 }
 .mobile-assistant-file-input {
   position: absolute;

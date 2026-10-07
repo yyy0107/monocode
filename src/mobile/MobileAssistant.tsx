@@ -34,6 +34,7 @@ import {
   Copy,
   CornerDownRight,
   File,
+  LoaderCircle,
   MoreHorizontal,
   Pause,
   Play,
@@ -275,6 +276,7 @@ function MobileAssistantComposer({
   onRemoveAttachment,
   attachments,
   busy,
+  sending,
   inputDisabled,
   attachDisabled,
   sendDisabled,
@@ -348,7 +350,7 @@ function MobileAssistantComposer({
         className="mobile-composer mobile-assistant-compose"
         onSubmit={(e) => {
           e.preventDefault();
-          onSend();
+          if (!sendDisabled) onSend();
         }}
         onPointerDownCapture={(e) => preserveInputFocus(e, input.current)}
         onMouseDownCapture={(e) => preserveInputFocus(e, input.current)}
@@ -411,10 +413,15 @@ function MobileAssistantComposer({
           <button
             type="submit"
             className="mobile-assistant-send"
-            aria-label={t("Send")}
+            aria-label={t(sending ? "Sending..." : "Send")}
+            aria-busy={sending || undefined}
             disabled={sendDisabled}
           >
-            <ArrowUp size={21} />
+            {sending ? (
+              <LoaderCircle size={21} className="mobile-spin" aria-hidden="true" />
+            ) : (
+              <ArrowUp size={21} aria-hidden="true" />
+            )}
           </button>
         </div>
       </form>

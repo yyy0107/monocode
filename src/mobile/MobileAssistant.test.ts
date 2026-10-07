@@ -179,6 +179,78 @@ async function mountConversation() {
   };
 }
 
+it.each([false, true])("shows sending until the Host responds and clears it after success or failure (failure: %s)", async (failed) => {
+  const { rpc, field, failSend } = await mountConversation();
+  failSend(failed);
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => { finish = resolve; });
+  const invoke = rpc.getMockImplementation()!;
+  rpc.mockImplementation(async (method, params) => {
+    if (method === "assistant.send") await pending;
+    return invoke(method, params);
+  });
+  type(field, "Continue");
+  const send = button("Send");
+  act(() => send.click());
+  expect(send.getAttribute("aria-busy")).toBe("true");
+  expect(send.getAttribute("aria-label")).toBe("Sending...");
+  expect(send.querySelector(".mobile-spin")).not.toBeNull();
+  expect(send.disabled).toBe(true);
+  expect(field.value).toBe("Continue");
+  act(() => {
+    send.click();
+    send.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+  expect(rpc.mock.calls.filter(([method]) => method === "assistant.send")).toHaveLength(1);
+
+  finish();
+  await flush();
+  expect(send.getAttribute("aria-busy")).toBeNull();
+  expect(send.getAttribute("aria-label")).toBe("Send");
+  expect(send.querySelector(".mobile-spin")).toBeNull();
+  expect(field.value).toBe(failed ? "Continue" : "");
+  if (failed) {
+    const sent = rpc.mock.calls.find(([method]) => method === "assistant.send")![1];
+    failSend(false);
+    const retryPending = new Promise<void>((resolve) => { finish = resolve; });
+    rpc.mockImplementation(async (method, params) => {
+      if (method === "assistant.send") await retryPending;
+      return invoke(method, params);
+    });
+    act(() => button("Retry message").click());
+    expect(send.getAttribute("aria-busy")).toBe("true");
+    expect(send.querySelector(".mobile-spin")).not.toBeNull();
+    expect(button("Retry message").disabled).toBe(true);
+    finish();
+    await flush();
+    expect(rpc.mock.calls.filter(([method]) => method === "assistant.send").at(-1)![1]).toEqual(sent);
+    expect(send.getAttribute("aria-busy")).toBeNull();
+    expect(send.querySelector(".mobile-spin")).toBeNull();
+    expect(field.value).toBe("");
+  }
+});
+
+it("keeps the send arrow while an assistant control request is pending", async () => {
+  const { rpc, field } = await mountConversation();
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => { finish = resolve; });
+  const invoke = rpc.getMockImplementation()!;
+  rpc.mockImplementation(async (method, params) => {
+    if (method === "assistant.control") await pending;
+    return invoke(method, params);
+  });
+  type(field, "Continue");
+  act(() => button("Assistant options").click());
+  act(() => button("Pause").click());
+  const send = button("Send");
+  expect(send.disabled).toBe(true);
+  expect(send.getAttribute("aria-busy")).toBeNull();
+  expect(send.querySelector(".mobile-spin")).toBeNull();
+  finish();
+  await flush();
+  expect(send.disabled).toBe(false);
+});
+
 it("swipes a reply above the unchanged draft and sends the full quote with it", async () => {
   const { bubble, field, rpc, log } = await mountConversation();
   type(field, "Explain this");

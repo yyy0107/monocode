@@ -578,6 +578,7 @@
     .assistant-message-user,
     .assistant-message-assistant
   ) {
+  width: fit-content;
   max-width: 100%;
 }
 .assistant-message-row-user .assistant-message-meta {

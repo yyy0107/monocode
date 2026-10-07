@@ -44,6 +44,7 @@ export type AssistantComposerProps = {
   onRemoveAttachment: (id: string) => void;
   attachments: RemoteAttachment[];
   busy: boolean;
+  sending?: boolean;
   inputDisabled: boolean;
   attachDisabled: boolean;
   sendDisabled: boolean;
