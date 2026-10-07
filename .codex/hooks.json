@@ -1,0 +1,40 @@
+{
+  "description": "Publish a LAN Android APK after a turn changes mobile inputs.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/mobile/turn-publish.mjs\"",
+            "timeout": 30,
+            "statusMessage": "Recording mobile source state"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/mobile/turn-publish.mjs\"",
+            "timeout": 600,
+            "statusMessage": "Checking mobile changes and publishing the APK"
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/mobile/turn-publish.mjs\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

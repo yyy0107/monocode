@@ -1,5 +1,8 @@
 # Hidden directories at any depth
 .*/
+!/.codex/
+/.codex/*
+!/.codex/hooks.json
 
 .env
 .env.*

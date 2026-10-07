@@ -45,3 +45,22 @@ Keep verification proportional to the change and minimize unnecessary testing.
 
 Never mark tasks complete or claim compatibility for an unrun scenario.
 Publishing, pushing and merging into main are separate scoped operations.
+
+## Mobile LAN publication at the end of a turn
+
+The user authorizes automatic LAN APK publication when a completed conversation
+turn changes mobile-related source. `.codex/hooks.json` records the source state
+on `UserPromptSubmit` and compares it on `Stop`; changed inputs trigger the guarded
+`npm run mobile:publish` workflow. Interrupted turns do not publish. Run the
+relevant checks before finishing an editing turn, and preserve unrelated work.
+
+Do not also launch a manual build when the hook is active. If hooks are unavailable,
+compare mobile inputs at the start/end of the turn and use `npm run mobile:publish`
+once when they changed and relevant checks passed. No publication is needed for
+docs-only, tests-only or unrelated desktop/Host changes. Report only publication
+results actually observed; the Stop hook runs after the final response.
+
+Do not run `mobile:apk` or Android Studio builds concurrently with this workflow.
+It rejects overlapping hook invocations and skips publication if inputs change
+during the build. LAN publication is authorized; pushing and merging still require
+their own scope.

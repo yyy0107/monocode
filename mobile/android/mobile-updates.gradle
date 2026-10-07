@@ -41,7 +41,7 @@ android {
 
 android.applicationVariants.all { variant ->
     // Unsigned release artifacts cannot be installed as app updates.
-    if (variant.signingConfig != null) {
+    if (variant.signingConfig != null && System.getenv('MONOCODE_MOBILE_DEFER_PUBLISH') != '1') {
         variant.packageApplicationProvider.configure {
             doLast {
                 exec {
