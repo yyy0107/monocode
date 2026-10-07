@@ -503,7 +503,7 @@ export const MobileDrawer = memo(function MobileDrawer({
         <span className="mobile-row-text">
           <HarnessIcon
             harness={item.harness}
-            className="size-3.5 shrink-0 self-center"
+            className="mobile-drawer-session-icon"
           />
           <strong>
             {sessionDisplayTitle(item.title, item.harness) ||
@@ -515,17 +515,17 @@ export const MobileDrawer = memo(function MobileDrawer({
                 <TriangleAlert size={14} aria-hidden="true" />
                 {t("Needs input")}
               </span>
-            ) : item.status === "running" ? (
-              <LoaderCircle size={16} className="mobile-spin" aria-label={t("Working")} />
-            ) : item.pinned ? (
+            ) : item.pinned && item.status !== "running" ? (
               <Pin size={12} aria-label={t("Pin")} />
             ) : null}
             {tree.length > 1 && (
               <span className="mobile-drawer-session-project">{owner.name}</span>
             )}
-            {!item.needsInput && <span>
-              {formatMobileRelativeTime(item.updatedAt, now, language)}
-            </span>}
+            {!item.needsInput && (item.status === "running" ? (
+              <LoaderCircle size={16} className="mobile-spin" aria-label={t("Working")} />
+            ) : (
+              <span>{formatMobileRelativeTime(item.updatedAt, now, language)}</span>
+            ))}
             {unreadIds.has(item.id) ? (
               <span
                 className="mobile-unread-dot"
@@ -566,31 +566,20 @@ export const MobileDrawer = memo(function MobileDrawer({
               className="mobile-drawer-item"
               onClick={onAssistant}
             >
-              <Bot size={18} />
+              <Bot size={22} />
               <span>{assistantName || t("Assistant")}</span>
             </button>
           )}
           <button type="button" className="mobile-drawer-item" onClick={onHome}>
-            <Home size={18} />
+            <Home size={22} />
             <span>{t("Sessions")}</span>
           </button>
-          <button
-            type="button"
-            className="mobile-drawer-new"
-            disabled={!project}
-            onClick={() => project && onNewSession(project)}
-          >
-            <MessageSquarePlus size={18} />
-            <span>{t("New conversation")}</span>
-          </button>
-        </div>
-        <div ref={sessionsList} className="mobile-drawer-sessions">
           <button
             type="button"
             className="mobile-drawer-item mobile-drawer-all-projects"
             onClick={onAllProjects}
           >
-            <Folder size={18} />
+            <Folder size={22} />
             <span>{t("Projects")}</span>
           </button>
           <button
@@ -599,9 +588,20 @@ export const MobileDrawer = memo(function MobileDrawer({
             className="mobile-drawer-item mobile-drawer-open-project"
             onClick={onAddProject}
           >
-            <FolderPlus size={18} />
+            <FolderPlus size={22} />
             <span>{t("Open project")}</span>
           </button>
+          <button
+            type="button"
+            className="mobile-drawer-item mobile-drawer-new"
+            disabled={!project}
+            onClick={() => project && onNewSession(project)}
+          >
+            <MessageSquarePlus size={22} />
+            <span>{t("New conversation")}</span>
+          </button>
+        </div>
+        <div ref={sessionsList} className="mobile-drawer-sessions">
           {treeLoading ? (
             <div className="mobile-loading mobile-drawer-group-status" role="status">
               <LoaderCircle size={15} className="mobile-spin" />
@@ -651,10 +651,10 @@ export const MobileDrawer = memo(function MobileDrawer({
         </div>
         <button
           type="button"
-          className="mobile-drawer-settings"
+          className="mobile-drawer-item mobile-drawer-settings"
           onClick={onSettings}
         >
-          <Settings size={20} />
+          <Settings size={22} />
           <span>{t("Settings")}</span>
           <span className="mobile-drawer-host">
             <span>{hostName}</span>
