@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AgentMarkdown } from "../features/sessions/ui/AgentMarkdown";
-import { FileTypeIcon } from "../features/files/ui/FileTypeIcon";
 import { sniffImageMime } from "../features/files/model/filePreview";
 import { displayPath } from "../shared/lib/paths";
 import { useTranslation } from "../shared/i18n/useTranslation";
@@ -150,15 +149,9 @@ export function MobileFileSheet({
   }, [line, loaded]);
 
   return (
-    <MobileSheet open={open} onExited={onExited} title="File preview" onClose={onClose} onBack={onBack}>
+    <MobileSheet open={open} onExited={onExited} title="File preview" onClose={onClose} onBack={onBack}
+      detents header={{ title: name, subtitle: displayPath(path, cwd) }}>
       <div className="mobile-file-sheet">
-        <header className="mobile-detail-header">
-          <FileTypeIcon name={name} isDir={false} />
-          <div className="mobile-detail-title">
-            <strong>{name}</strong>
-            <small>{displayPath(path, cwd)}</small>
-          </div>
-        </header>
         {loaded.kind === "loading" ? (
           <p className="mobile-muted mobile-detail-note">{t("Loading…")}</p>
         ) : loaded.kind === "error" ? (

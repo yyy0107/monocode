@@ -3,7 +3,7 @@ import type { HostSessionSummary } from "../features/connections/model/protocol"
 import { sessionDisplayTitle } from "../features/sessions/model/session";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { useTranslation } from "../shared/i18n/useTranslation";
-import { LoaderCircle, Pin, TriangleAlert } from "../shared/ui/icons";
+import { Folder, LoaderCircle, Pin, TriangleAlert } from "../shared/ui/icons";
 import { formatMobileRelativeTime } from "./relativeTime";
 
 /** One conversation on a list page: who, what state, and the latest answer. */
@@ -70,7 +70,12 @@ export function MobileSessionCard({
             {state !== "idle" && projectName && (
               <span aria-hidden="true">·</span>
             )}
-            {projectName && <span className="mobile-session-card-project">{projectName}</span>}
+            {projectName && (
+              <span className="mobile-session-card-project">
+                {state === "idle" && <Folder size={15} aria-hidden="true" />}
+                <span>{projectName}</span>
+              </span>
+            )}
           </span>
         )}
       </span>

@@ -13,7 +13,7 @@ import { createPortal } from "react-dom";
 import { MobileOverlayHostContext, MobileOverlayLevelContext } from "./MobileOverlayHost";
 import { SurfaceVisibilityContext, useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import { keyboardMotionRemaining, onKeyboardMotion } from "./keyboardMotion";
-import { ArrowLeft } from "../shared/ui/icons";
+import { ArrowLeft, X } from "../shared/ui/icons";
 import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { placePopover, type PopoverAlign } from "../shared/lib/popover";
@@ -67,6 +67,8 @@ export function MobileSheet({
   side = "bottom",
   overlapAnchor = false,
   constrainWidthToAnchor = false,
+  detents = false,
+  header,
   children,
 }: {
   /** Keep the sheet mounted to animate both directions when controlling it. */
@@ -89,6 +91,10 @@ export function MobileSheet({
   overlapAnchor?: boolean;
   /** Keep a title menu inside its trigger's space between adjacent controls. */
   constrainWidthToAnchor?: boolean;
+  /** Bottom sheets only: open at half height and pull up to full screen. */
+  detents?: boolean;
+  /** A centred title row with a close button, or Back when `onBack` is set. */
+  header?: { title: string; subtitle?: string };
   children: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -114,7 +120,13 @@ export function MobileSheet({
   }, [open, foldState, onExited]);
   usePreserveInputFocusOnTouch(backdrop, preserveFocus, false, active);
   const [position, setPosition] = useState<CSSProperties>();
-  useSheetDrag(dialog, placement === "bottom" && open && visible, onClose, () => setDragClosing(true));
+  useSheetDrag(
+    dialog,
+    placement === "bottom" && open && visible,
+    onClose,
+    () => setDragClosing(true),
+    detents,
+  );
   useLayoutEffect(() => {
     if (!active || placement !== "anchor") return;
     const element = dialog.current;
@@ -353,6 +365,7 @@ export function MobileSheet({
       <section
         ref={dialog}
         className="mobile-sheet"
+        data-detents={detents || undefined}
         style={
           placement === "anchor"
             ? (position ?? { visibility: "hidden" })
@@ -370,11 +383,27 @@ export function MobileSheet({
         {placement === "bottom" && (
           <div className="mobile-sheet-grip" aria-hidden="true" />
         )}
+        {header && (
+          <header className="mobile-sheet-header">
+            <button
+              type="button"
+              className="mobile-sheet-header-button"
+              aria-label={t(onBack ? "Back" : "Close")}
+              onClick={onBack ?? onClose}
+            >
+              {onBack ? <ArrowLeft size={24} /> : <X size={24} />}
+            </button>
+            <div className="mobile-sheet-header-title">
+              <strong>{header.title}</strong>
+              {header.subtitle ? <small>{header.subtitle}</small> : null}
+            </div>
+          </header>
+        )}
         <div className="mobile-sheet-content">
           {placement === "dialog" && (
             <h2 className="mobile-sheet-title">{t(title)}</h2>
           )}
-          {onBack && (
+          {onBack && !header && (
             <button
               type="button"
               className="mobile-sheet-row mobile-sheet-back"

@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileSheet } from "./MobileSheet";
-import { shouldDismiss } from "./sheetDrag";
+import { settleDetent, shouldDismiss } from "./sheetDrag";
 
 describe("shouldDismiss", () => {
   it("closes on a long pull or a fast fling and springs back otherwise", () => {
@@ -11,6 +11,19 @@ describe("shouldDismiss", () => {
     expect(shouldDismiss(40, 0.9, 500)).toBe(true);
     expect(shouldDismiss(80, 0.2, 500)).toBe(false);
     expect(shouldDismiss(-30, 2, 500)).toBe(false);
+  });
+});
+
+describe("settleDetent", () => {
+  it("flings to the next stop and otherwise settles at the nearest one", () => {
+    // Full stop at 0, half stop at 300, half height 500.
+    expect(settleDetent(250, -0.9, 300, 500)).toBe("full");
+    expect(settleDetent(100, 0.9, 300, 500)).toBe("half");
+    expect(settleDetent(320, 0.9, 300, 500)).toBe("dismiss");
+    expect(settleDetent(120, 0, 300, 500)).toBe("full");
+    expect(settleDetent(200, 0, 300, 500)).toBe("half");
+    expect(settleDetent(420, 0, 300, 500)).toBe("half");
+    expect(settleDetent(460, 0, 300, 500)).toBe("dismiss");
   });
 });
 
@@ -149,4 +162,54 @@ describe("MobileSheet drag", () => {
       expect(closeSettings).not.toHaveBeenCalled();
     },
   );
+
+  describe("two-stop sheets", () => {
+    function open() {
+      vi.stubGlobal("innerHeight", 1000);
+      const onClose = vi.fn();
+      act(() => root.render(createElement(MobileSheet,
+        { title: "Tool details", onClose, detents: true, header: { title: "Bash", subtitle: "Completed" } },
+        createElement("p", { className: "body" }, "Body"))));
+      const sheet = node.querySelector<HTMLElement>(".mobile-sheet")!;
+      Object.defineProperty(sheet, "offsetHeight", { value: 800 });
+      const touch = (type: string, clientY: number) => {
+        const target = sheet.querySelector(".body")!;
+        act(() => { target.dispatchEvent(new TouchEvent(type, {
+          bubbles: true, cancelable: true, touches: type === "touchend" ? [] : [{ clientY } as Touch],
+        })); });
+      };
+      const pull = (from: number, to: number) => {
+        touch("touchstart", from);
+        act(() => vi.advanceTimersByTime(500));
+        touch("touchmove", (from + to) / 2);
+        act(() => vi.advanceTimersByTime(500));
+        touch("touchmove", to);
+        touch("touchend", to);
+      };
+      return { sheet, onClose, pull };
+    }
+
+    it("opens at half height, expands from the body, and steps back down before closing", () => {
+      const { sheet, onClose, pull } = open();
+      expect(sheet.dataset.detent).toBe("half");
+      expect(sheet.querySelector(".mobile-sheet-header strong")?.textContent).toBe("Bash");
+      pull(600, 400);
+      expect(sheet.dataset.detent).toBe("full");
+      expect(sheet.style.transform).toBe("translateY(0px)");
+      pull(300, 500);
+      expect(sheet.dataset.detent).toBe("half");
+      act(() => vi.advanceTimersByTime(250));
+      expect(sheet.style.transform).toBe("");
+      expect(onClose).not.toHaveBeenCalled();
+      pull(600, 800);
+      act(() => vi.advanceTimersByTime(200));
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it("closes from the header button", () => {
+      const { sheet, onClose } = open();
+      act(() => sheet.querySelector<HTMLButtonElement>('.mobile-sheet-header [aria-label="Close"]')!.click());
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
 });

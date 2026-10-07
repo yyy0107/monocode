@@ -62,13 +62,9 @@ export function MobileActivitySheet({
 }) {
   const { t } = useTranslation();
   return (
-    <MobileSheet open={open} onExited={onExited} title="Activity" onClose={onClose}>
+    <MobileSheet open={open} onExited={onExited} title="Activity" onClose={onClose}
+      detents header={{ title: workSummaryLine(steps, live) }}>
       <div className="mobile-activity-sheet">
-        <header className="mobile-detail-header">
-          <div className="mobile-detail-title">
-            <strong>{workSummaryLine(steps, live)}</strong>
-          </div>
-        </header>
         <ol className="mobile-activity-steps">
           {steps.map((block) => {
             if (!isToolBlock(block)) {

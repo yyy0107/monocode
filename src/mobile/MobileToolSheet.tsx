@@ -3,8 +3,10 @@ import { isReadTool } from "../integrations/harness/core/preview";
 import { FilePreview } from "../features/files/ui/FilePreview";
 import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPlatform";
 import {
+  editVerb,
   toolCallLabel,
   toolCallState,
+  toolCategory,
 } from "../features/sessions/model/transcriptActivity";
 import type { Block } from "../features/sessions/model/session";
 import { resolveWorkspacePath } from "../shared/lib/paths";
@@ -159,15 +161,18 @@ export function MobileToolSheet({
     </section>
   );
 
+  // The sheet is titled by the tool, like "Bash" or "Read"; the call itself
+  // is the first section, so a long command never crowds the title row.
+  const verb = toolCategory(block) === "edit" ? editVerb(label) : (label.split(/\s/, 1)[0] ?? "");
+  const name = verb ? verb[0].toUpperCase() + verb.slice(1) : t("Tool details");
   return (
-    <MobileSheet open={open} onExited={onExited} title="Tool details" onBack={onBack} onClose={onClose}>
-      <div className="mobile-tool-sheet">
-        <header className="mobile-detail-header">
-          <div className="mobile-detail-title">
-            <strong className="mobile-detail-mono">{label}</strong>
-            <small data-state={state}>{t(STATE_LABEL[state])}</small>
-          </div>
-        </header>
+    <MobileSheet open={open} onExited={onExited} title="Tool details" onBack={onBack} onClose={onClose}
+      detents header={{ title: name, subtitle: t(STATE_LABEL[state]) }}>
+      <div className="mobile-tool-sheet" data-state={state}>
+        {/* A command the call did not echo back as input is shown under the title. */}
+        {toolCategory(block) === "run" && !input
+          ? section("call", "Command", label)
+          : null}
         {preview ? (
           <div className="mobile-detail-section">
             <FilePreview

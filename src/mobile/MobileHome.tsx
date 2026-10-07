@@ -8,6 +8,7 @@ import { useTranslation } from "../shared/i18n/useTranslation";
 import { useMobilePageState } from "./mobilePageState";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import {
+  Archive,
   Check,
   ChevronDown,
   Computer,
@@ -17,6 +18,8 @@ import {
   MessageSquarePlus,
   Plus,
   Search,
+  SlidersHorizontal,
+  TriangleAlert,
 } from "../shared/ui/icons";
 import type { HostConnectionStatus } from "./client";
 import { MobileSheet, type MobileSheetPoint } from "./MobileSheet";
@@ -30,6 +33,14 @@ import {
   MOBILE_SESSION_FILTERS,
   type MobileSessionFilter,
 } from "./sessionFilter";
+
+const FILTER_ICONS: Record<MobileSessionFilter, typeof Check> = {
+  all: SlidersHorizontal,
+  working: LoaderCircle,
+  needsInput: TriangleAlert,
+  completed: Check,
+  archived: Archive,
+};
 
 interface History {
   sessions?: HostSessionSummary[];
@@ -270,17 +281,8 @@ export function MobileHome({
       <div className="mobile-home-scroll" key={project?.id ?? "all"}>
         {root && !needle && (
           <section className="mobile-home-hosts" aria-label={t("Hosts")}>
-            <h2>{t("Hosts")}</h2>
-            <div className="mobile-home-host-row">
-              <button
-                type="button"
-                className="mobile-home-host"
-                onClick={(event) => onHost?.(event.currentTarget)}
-              >
-                <Computer size={18} />
-                <span>{hostName}</span>
-                <MobileHostStatus status={hostStatus} />
-              </button>
+            <div className="mobile-home-section-head">
+              <h2>{t("Hosts")}</h2>
               {onAddConnection && (
                 <button
                   type="button"
@@ -288,10 +290,21 @@ export function MobileHome({
                   aria-label={t("Add connection")}
                   onClick={(event) => onAddConnection(event.currentTarget)}
                 >
-                  <Plus size={20} />
+                  <Plus size={24} />
                 </button>
               )}
             </div>
+            <button
+              type="button"
+              className="mobile-home-host"
+              onClick={(event) => onHost?.(event.currentTarget)}
+            >
+              <span className="mobile-home-host-icon">
+                <Computer size={22} />
+                <MobileHostStatus status={hostStatus} />
+              </span>
+              <span>{hostName}</span>
+            </button>
           </section>
         )}
         {root && !needle && !projects.length && (
@@ -355,7 +368,7 @@ export function MobileHome({
                 onClick={() => setFilterOpen((open) => !open)}
               >
                 <span>{t(MOBILE_SESSION_FILTER_LABELS[filter])}</span>
-                <ChevronDown size={14} aria-hidden="true" />
+                <ChevronDown size={18} aria-hidden="true" />
               </button>
             </div>
           )}
@@ -397,26 +410,30 @@ export function MobileHome({
           anchor={filterTrigger}
           align="end"
           side="bottom"
-          width={220}
+          width={232}
           onClose={() => setFilterOpen(false)}
         >
-          {MOBILE_SESSION_FILTERS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              className="mobile-sheet-row"
-              data-separated={option === "archived" || undefined}
-              role="menuitemradio"
-              aria-checked={filter === option}
-              onClick={() => {
-                setFilter(option);
-                setFilterOpen(false);
-              }}
-            >
-              <span className="flex-1">{t(MOBILE_SESSION_FILTER_LABELS[option])}</span>
-              {filter === option && <Check size={18} />}
-            </button>
-          ))}
+          {MOBILE_SESSION_FILTERS.map((option) => {
+            const Icon = FILTER_ICONS[option];
+            return (
+              <button
+                key={option}
+                type="button"
+                className="mobile-sheet-row"
+                data-separated={option === "archived" || undefined}
+                role="menuitemradio"
+                aria-checked={filter === option}
+                onClick={() => {
+                  setFilter(option);
+                  setFilterOpen(false);
+                }}
+              >
+                <Icon size={22} />
+                <span className="flex-1">{t(MOBILE_SESSION_FILTER_LABELS[option])}</span>
+                {filter === option && <Check size={22} />}
+              </button>
+            );
+          })}
         </MobileSheet>
       )}
       {!!projects.length && !projectsPage && (
@@ -440,7 +457,7 @@ export function MobileHome({
             aria-label={t("New conversation")}
             onClick={onNewSession}
           >
-            <MessageSquarePlus size={22} />
+            {project ? <MessageSquarePlus size={22} /> : <Plus size={22} />}
             <span>{t(project ? "Chat" : "New conversation")}</span>
           </button>
         </div>
