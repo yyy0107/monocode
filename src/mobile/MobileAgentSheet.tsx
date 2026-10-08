@@ -205,7 +205,6 @@ export function MobileAgentSheet({
       onExited={onExited}
       title="Subagent conversation"
       onClose={onClose}
-      onBack={back}
       detents
     >
       {content}
