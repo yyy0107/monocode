@@ -24,7 +24,7 @@ export const LIQUID_GLASS_SELECTOR = [
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const REFRACTION_VARIABLE = "--mobile-glass-refraction";
-const COMPOSER_INPUT_SELECTOR = ".mobile-composer-card > .mobile-composer-input";
+const COMPOSER_CARD_SELECTOR = ".mobile-composer-card > :is(.mobile-composer-context, .mobile-composer-input)";
 const MAX_BEZEL = 24;
 const MAP_CACHE_LIMIT = 32;
 
@@ -159,6 +159,7 @@ interface Surface {
   key: string;
   boxKey?: string;
   scale?: number;
+  focusScope?: HTMLElement;
   focused?: boolean;
   settleTimer?: ReturnType<typeof setTimeout>;
 }
@@ -288,12 +289,17 @@ export function installLiquidGlass(root: HTMLElement): () => void {
     displacement.setAttribute("yChannelSelector", "G");
     filter.append(image, displacement);
     defs.append(filter);
+    // The rear card spans the input too: both lenses resize on every line
+    // change, even though focus is inside only the front card.
+    const focusScope = element.matches(COMPOSER_CARD_SELECTOR)
+      ? element.parentElement ?? undefined : undefined;
     const surface: Surface = {
       filter,
       image,
       displacement,
       key: "",
-      focused: element.matches(COMPOSER_INPUT_SELECTOR) && element.contains(document.activeElement),
+      focusScope,
+      focused: focusScope?.contains(document.activeElement),
       resize: new ResizeObserver(() => schedule(element)),
     };
     surface.resize.observe(element);
@@ -335,7 +341,7 @@ export function installLiquidGlass(root: HTMLElement): () => void {
     for (const [element, surface] of surfaces) {
       if (!root.contains(element) || !isGlassSurface(element))
         detach(element, surface);
-      else if (surface.focused && !element.contains(document.activeElement)) {
+      else if (surface.focused && !surface.focusScope?.contains(document.activeElement)) {
         // Removing a focused textarea does not consistently fire focusout.
         surface.focused = false;
         schedule(element, true);
@@ -352,21 +358,23 @@ export function installLiquidGlass(root: HTMLElement): () => void {
   root.querySelectorAll(LIQUID_GLASS_SELECTOR).forEach(consider);
   flush();
   const onFocus = (event: FocusEvent) => {
-    const element = event.target instanceof Element
-      ? event.target.closest<HTMLElement>(COMPOSER_INPUT_SELECTOR)
+    const composer = event.target instanceof Element
+      ? event.target.closest<HTMLElement>(".mobile-composer-card")
       : null;
-    const surface = element && surfaces.get(element);
-    if (!element || !surface) return;
-    surface.focused = event.type === "focusin" ||
-      (event.relatedTarget instanceof Node && element.contains(event.relatedTarget));
-    if (surface.focused) {
-      // Keep CSS blur, but remove the SVG pass immediately and cancel any
-      // resize work queued before focus. Other composer cards keep their lens.
-      suspend(element, surface);
-    } else {
-      // Autosizing may have changed the box while focused. Read its latest
-      // size and restore that map before showing refraction again.
-      schedule(element, true);
+    if (!composer) return;
+    for (const [element, surface] of surfaces) {
+      if (surface.focusScope !== composer) continue;
+      surface.focused = event.type === "focusin" ||
+        (event.relatedTarget instanceof Node && composer.contains(event.relatedTarget));
+      if (surface.focused) {
+        // Keep CSS blur, but suspend both resizing SVG lenses while typing
+        // or moving focus between controls inside the composer.
+        suspend(element, surface);
+      } else {
+        // Autosizing may have changed the box while focused. Read its latest
+        // size and restore that map before showing refraction again.
+        schedule(element, true);
+      }
     }
   };
   root.addEventListener("focusin", onFocus);

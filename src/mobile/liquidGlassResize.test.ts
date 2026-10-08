@@ -238,6 +238,44 @@ function inputFixture(initiallyFocused = false) {
   return { ...result, input, textarea, width, height, resize: result.callbacks.at(-1)! };
 }
 
+it.each([false, true])("suspends both stacked lenses during typing and focus transfers (initial focus: %s)", async (initiallyFocused) => {
+  const { composer, input, textarea, width, height, encode, callbacks } = inputFixture(initiallyFocused);
+  const context = document.createElement("div");
+  context.className = "mobile-composer-context";
+  context.style.borderRadius = "30px";
+  const model = document.createElement("button");
+  context.append(model);
+  composer.prepend(context);
+  const contextWidth = vi.spyOn(context, "offsetWidth", "get").mockReturnValue(353);
+  const contextHeight = vi.spyOn(context, "offsetHeight", "get").mockReturnValue(173);
+  dispose!();
+  dispose = installLiquidGlass(document.body);
+  textarea.focus();
+  const before = encode.mock.calls.length;
+  for (const read of [width, height, contextWidth, contextHeight]) read.mockClear();
+  for (const size of [181, 205, 133]) {
+    height.mockReturnValue(size);
+    contextHeight.mockReturnValue(size + 40);
+    for (const resize of callbacks.slice(-2)) resize();
+    vi.advanceTimersByTime(120);
+  }
+  model.focus();
+  vi.advanceTimersByTime(120);
+  expect(encode).toHaveBeenCalledTimes(before);
+  for (const read of [width, height, contextWidth, contextHeight]) expect(read).not.toHaveBeenCalled();
+  for (const card of [input, context])
+    expect(card.style.getPropertyValue("--mobile-glass-refraction")).toBe("");
+  // Removal may omit focusout. The mutation observer must resume both cards.
+  model.remove();
+  await vi.advanceTimersByTimeAsync(32);
+  for (const card of [input, context]) {
+    const filter = card.style.getPropertyValue("--mobile-glass-refraction");
+    expect(filter).toContain("url(");
+    expect(document.querySelector(`${filter.slice(4, -1)} feImage`)?.getAttribute("height"))
+      .toBe(card === input ? "133" : "173");
+  }
+});
+
 it("suspends the input lens and its resize work while focused, restoring the latest size on blur", () => {
   const { input, textarea, width, height, encode, resize } = inputFixture();
   expect(input.style.getPropertyValue("--mobile-glass-refraction")).toContain("url(");
