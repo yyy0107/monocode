@@ -277,6 +277,7 @@ function MobileAssistantComposer({
   onCancelReply,
   onDraftChange,
   onSend,
+  onStop,
   onAttach,
   onPaste,
   onDrop,
@@ -295,6 +296,7 @@ function MobileAssistantComposer({
   const input = useRef<HTMLTextAreaElement>(null);
   const files = useRef<HTMLInputElement>(null);
   const form = useRef<HTMLFormElement>(null);
+  const stoppable = !!onStop && !sending && !draft.trim() && !attachments.length;
   const [renderedAttachments, setRenderedAttachments] = useState(attachments);
   const lastReply = useRef(replyText);
   useLayoutEffect(() => {
@@ -416,7 +418,17 @@ function MobileAssistantComposer({
             onPaste={onPaste}
             onChange={(e) => onDraftChange(e.target.value)}
           />
-          <button
+          {stoppable ? (
+            <button
+              type="button"
+              className="mobile-assistant-send"
+              aria-label={t("Stop")}
+              disabled={busy}
+              onClick={onStop}
+            >
+              <Square size={16} fill="currentColor" aria-hidden="true" />
+            </button>
+          ) : <button
             type="submit"
             className="mobile-assistant-send"
             aria-label={t(sending ? "Sending..." : "Send")}
@@ -428,7 +440,7 @@ function MobileAssistantComposer({
             ) : (
               <ArrowUp size={21} aria-hidden="true" />
             )}
-          </button>
+          </button>}
         </div>
       </form>
     </div>

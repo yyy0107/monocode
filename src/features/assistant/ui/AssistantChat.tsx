@@ -1002,6 +1002,18 @@ export function AssistantChat({
                     !!retry
                   }
                   retry={!!retry}
+                  onStop={
+                    assistant.lifecycle === "running"
+                      ? () =>
+                          void operation(() =>
+                            rpc("assistant.control", {
+                              commandId: crypto.randomUUID(),
+                              action: "cancelTurn",
+                              expectedGeneration: assistant.brainGeneration,
+                            }),
+                          )
+                      : undefined
+                  }
                   onRetry={() => {
                     if (retry) void send(retry.text, retry.attachments);
                   }}

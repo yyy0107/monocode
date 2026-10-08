@@ -59,6 +59,11 @@ import {
   splitReply,
 } from "./prompt";
 
+const STOP_COMMANDS = new Set(["停止", "停", "stop", "/stop"]);
+/** A message that is only a stop word ends the turn instead of starting one. */
+export function isStopCommand(text: string): boolean {
+  return STOP_COMMANDS.has(text.trim().toLowerCase());
+}
 export class HostAssistant {
   readonly store: AssistantStore;
   readonly control: HostControl;
@@ -248,6 +253,13 @@ export class HostAssistant {
     const config = this.store.get();
     if (this.closing || !config?.enabled || !config.triggers.user)
       throw new Error("Assistant messaging is disabled");
+    if (!attachments.length && isStopCommand(text) && this.hasWorkToStop()) {
+      const receipt = this.store.receive(id(raw.commandId), text, attachments, source, {
+        enqueue: false,
+      });
+      await this.cancelTurn();
+      return receipt;
+    }
     resolveAttachments(this.engine.store, attachments);
     const receipt = this.store.receive(id(raw.commandId), text, attachments, source);
     // Attachments keep the queued path; provider steering differs for files.
@@ -456,7 +468,14 @@ export class HostAssistant {
         )
       )
         throw new Error("Unsupported assistant control");
-      if (["pause", "disable", "cancelTurn"].includes(String(raw.action)))
+      if (raw.action === "cancelTurn") {
+        await this.cancelTurn();
+        const receipt = { commandId, revision: this.store.get()!.revision };
+        this.store.recordReceipt(commandId, sig, receipt);
+        void this.tick().catch((error) => this.fail(error));
+        return receipt;
+      }
+      if (["pause", "disable"].includes(String(raw.action)))
         await this.stopBrain();
       this.store.host.transaction(() => {
         const lifecycle =
@@ -1018,7 +1037,7 @@ export class HostAssistant {
         )
       )
         return;
-      this.active = this.store.claim(wakeup.id);
+      this.active = this.store.claim(wakeup.id, this.steering);
       this.store.writeChain(wakeup.rootCauseId, {
         ...chain,
         count: chain.count + (wakeup.kind === "user" ? 0 : 1),
@@ -1071,7 +1090,8 @@ export class HostAssistant {
         config,
         launcher,
         actions: ASSISTANT_ACTIONS,
-        wakeup,
+        // The claimed wakeup also carries queued messages merged into it.
+        wakeup: this.active,
         messages: this.store.latestMessages(),
         ledger,
         now: Date.now(),
@@ -1090,7 +1110,7 @@ export class HostAssistant {
         commandId: `assistant:wake:${wakeup.id}:${this.active.attempts}`,
         sessionId: brainId,
         text: prompt,
-        attachments: wakeup.attachments,
+        attachments: this.active.attachments,
       });
     } finally {
       this.ticking = false;
@@ -1315,6 +1335,36 @@ export class HostAssistant {
     } finally {
       this.steering.delete(wakeupId);
     }
+  }
+  private hasWorkToStop(): boolean {
+    return (
+      this.store.get()?.lifecycle === "running" ||
+      this.store.pending().some((w) => w.kind === "user")
+    );
+  }
+  /** Stops the current turn and drops queued input; the assistant stays available. */
+  private async cancelTurn(): Promise<void> {
+    const stopped = this.active;
+    await this.stopBrain();
+    this.store.host.transaction(() => {
+      // The user ended this turn on purpose, so a later resume must not replay it.
+      const current = stopped && this.store.wakeup(stopped.id);
+      if (current?.state === "interrupted")
+        this.store.saveWakeup({ ...current, state: "completed" });
+      this.store.discardPendingUserInput();
+      this.store.finishStreaming();
+      this.store.update({
+        lifecycle: "idle",
+        error: undefined,
+        nextRetryAt: undefined,
+      });
+      this.store.message({
+        id: randomUUID(),
+        kind: "status",
+        code: "stopped",
+        text: "Stopped",
+      });
+    });
   }
   private async stopBrain(): Promise<void> {
     this.epoch++;

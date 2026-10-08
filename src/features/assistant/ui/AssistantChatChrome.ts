@@ -43,6 +43,8 @@ export type AssistantComposerProps = {
   onCancelReply?: () => void;
   onDraftChange: (draft: string) => void;
   onSend: () => void;
+  /** Stops the running turn; offered in place of Send while the draft is empty. */
+  onStop?: () => void;
   onAttach: (files: File[]) => void;
   onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
   onDrop?: DragEventHandler<HTMLFormElement>;

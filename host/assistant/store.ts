@@ -360,13 +360,21 @@ export class AssistantStore {
     text: string,
     attachments: RemoteAttachment[],
     source: WakeupSource = { kind: "client" },
+    { enqueue = true }: { enqueue?: boolean } = {},
   ): AssistantReceipt {
     return this.host.transaction(() => {
       const sig = receiveSignature(text, attachments, source),
         existing = this.receipt(commandId, sig);
       if (existing) return existing as AssistantReceipt;
-      const id = randomUUID(),
-        wakeupId = randomUUID();
+      const id = randomUUID();
+      if (!enqueue) {
+        // A control input (such as a stop command) is read immediately and never starts a turn.
+        this.message({ id, kind: "user", text, attachments, readAt: Date.now() });
+        const result = { commandId, messageId: id, revision: this.get()!.chatRevision };
+        this.recordReceipt(commandId, sig, result);
+        return result;
+      }
+      const wakeupId = randomUUID();
       this.message({
         id,
         kind: "user",
@@ -430,25 +438,62 @@ export class AssistantStore {
       .prepare("UPDATE assistant_wakeups SET payload=? WHERE id=?")
       .run(JSON.stringify(withSource(w)), w.id);
   }
-  claim(id: string): Wakeup {
-    return this.host.transaction(() => this.claimPending(id));
+  private markRead(wakeupIds: string[]): void {
+    const ids = new Set(wakeupIds);
+    for (const message of this.latestMessages())
+      if (
+        message.kind === "user" &&
+        message.wakeupId &&
+        ids.has(message.wakeupId) &&
+        message.readAt == null
+      )
+        this.message({ ...message, readAt: Date.now() });
   }
-  private claimPending(id: string): Wakeup {
-    const wakeup = this.pending().find((w) => w.id === id);
+  /** A stop drops queued user input so it is neither answered nor resumed later. */
+  discardPendingUserInput(): void {
+    this.host.transaction(() => {
+      const queued = this.pending().filter((w) => w.kind === "user");
+      for (const w of queued) this.saveWakeup({ ...w, state: "completed" });
+      this.markRead(queued.map((w) => w.id));
+    });
+  }
+  claim(id: string, skip: ReadonlySet<string> = new Set()): Wakeup {
+    return this.host.transaction(() => this.claimPending(id, skip));
+  }
+  private claimPending(id: string, skip: ReadonlySet<string>): Wakeup {
+    const pending = this.pending();
+    const wakeup = pending.find((w) => w.id === id);
     if (!wakeup) throw new Error("Wakeup is not pending");
+    // Queued messages from the same sender are answered together in one turn.
+    const merged =
+      wakeup.kind === "user"
+        ? pending
+            .filter(
+              (w) =>
+                w.id !== id &&
+                w.kind === "user" &&
+                w.state === "pending" &&
+                !skip.has(w.id) &&
+                signature(wakeupSource(w)) === signature(wakeupSource(wakeup)),
+            )
+            .sort((a, b) => a.createdAt - b.createdAt)
+        : [];
+    const ordered = [wakeup, ...merged].sort((a, b) => a.createdAt - b.createdAt);
     const next: Wakeup = {
       ...wakeup,
       state: "running",
       attempts: wakeup.attempts + 1,
+      ...(merged.length
+        ? {
+            text: ordered.map((w) => w.text).filter(Boolean).join("\n"),
+            attachments: ordered.flatMap((w) => w.attachments ?? []),
+          }
+        : {}),
     };
     this.saveWakeup(next);
-    if (wakeup.kind === "user") {
-      const message = this.latestMessages().find(
-        (entry) => entry.kind === "user" && entry.wakeupId === id,
-      );
-      if (message?.kind === "user" && message.readAt == null)
-        this.message({ ...message, readAt: Date.now() });
-    }
+    for (const w of merged)
+      this.saveWakeup({ ...w, state: "completed", mergedInto: id });
+    if (wakeup.kind === "user") this.markRead([id, ...merged.map((w) => w.id)]);
     this.update({
       lifecycle: "running",
       nextRetryAt: undefined,

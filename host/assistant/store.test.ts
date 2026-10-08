@@ -75,7 +75,8 @@ it("persists user read receipts only when claimed and preserves send time across
   const { assistant, store } = setup();
   assistant.initialize({ harness: "codex", model: "test" });
   const first = assistant.receive("read-one", "First", []);
-  const second = assistant.receive("read-two", "Second", []);
+  // Another sender's message is not merged into the claimed turn.
+  const second = assistant.receive("read-two", "Second", [], { kind: "im", bindingId: "owner" });
   const unread = assistant
     .latestMessages()
     .find((m) => m.id === first.messageId)!;

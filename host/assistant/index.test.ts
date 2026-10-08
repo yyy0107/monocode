@@ -1390,3 +1390,33 @@ it("keeps habits from the assistant and the user and records each run's outcome"
   });
   expect(assistant.store.get()!.habits).toEqual([]);
 });
+it("answers queued messages from the same sender in one turn", async () => {
+  const { engine, turns } = await setup();
+  const first = (await engine.assistant.rpc("assistant.send", { commandId: "queued-one", text: "Hello" })) as { wakeupId: string };
+  const second = (await engine.assistant.rpc("assistant.send", { commandId: "queued-two", text: "Read both files" })) as { wakeupId: string };
+  turns[0].finish();
+  await idleBrain(engine);
+  await engine.assistant.tick();
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  expect(turns[1].input.text).toMatch(/Hello\nRead both files$/);
+  expect(engine.assistant.store.wakeup(second.wakeupId)).toMatchObject({ state: "completed", mergedInto: first.wakeupId });
+  expect(engine.assistant.store.latestMessages().filter((m) => m.kind === "user" && m.readAt == null)).toEqual([]);
+});
+it("treats a lone stop word as a stop that also drops queued messages", async () => {
+  const { engine, turns, provider } = await setup();
+  const queued = (await engine.assistant.rpc("assistant.send", { commandId: "queued", text: "Read both files" })) as { wakeupId: string };
+  const stop = (await engine.assistant.rpc("assistant.send", { commandId: "stop", text: " 停止 " })) as { messageId: string; wakeupId?: string };
+  expect(stop.wakeupId).toBeUndefined();
+  expect(provider.stop).toHaveBeenCalled();
+  expect(engine.assistant.store.wakeup(queued.wakeupId)?.state).toBe("completed");
+  expect(engine.assistant.store.get()?.lifecycle).toBe("idle");
+  const messages = engine.assistant.store.latestMessages();
+  expect(messages).toContainEqual(expect.objectContaining({ id: stop.messageId, text: " 停止 ", readAt: expect.any(Number) }));
+  expect(messages.at(-1)).toMatchObject({ kind: "status", text: "Stopped" });
+  await engine.assistant.tick();
+  expect(turns).toHaveLength(1);
+  // With nothing to stop, the same word is an ordinary message.
+  const later = (await engine.assistant.rpc("assistant.send", { commandId: "stop-idle", text: "stop" })) as { wakeupId?: string };
+  expect(later.wakeupId).toEqual(expect.any(String));
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+});

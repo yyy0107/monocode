@@ -219,6 +219,7 @@ function DesktopAssistantComposer({
   draft,
   onDraftChange,
   onSend,
+  onStop,
   onAttach,
   onPaste,
   onDrop,
@@ -235,6 +236,7 @@ function DesktopAssistantComposer({
   const { t } = useTranslation();
   const input = useRef<HTMLTextAreaElement>(null);
   const files = useRef<HTMLInputElement>(null);
+  const stoppable = !!onStop && !sending && !draft.trim() && !attachments.length;
   // Chips stay rendered while the tray collapses after the last removal.
   const [renderedAttachments, setRenderedAttachments] = useState(attachments);
   useLayoutEffect(() => {
@@ -330,7 +332,18 @@ function DesktopAssistantComposer({
           <small className="assistant-compose-hint">
             {t("Enter to send · Shift+Enter for a new line")}
           </small>
-          <button
+          {stoppable ? (
+            <button
+              type="button"
+              className="assistant-send"
+              aria-label={t("Stop")}
+              title={t("Stop")}
+              disabled={busy}
+              onClick={onStop}
+            >
+              <Square size={14} fill="currentColor" aria-hidden="true" />
+            </button>
+          ) : <button
             type="submit"
             className="assistant-send"
             aria-label={t(sending ? "Sending..." : "Send")}
@@ -343,7 +356,7 @@ function DesktopAssistantComposer({
             ) : (
               <ArrowUp size={18} aria-hidden="true" />
             )}
-          </button>
+          </button>}
         </div>
       </form>
     </div>
