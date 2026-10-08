@@ -30,6 +30,7 @@ import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 import {
   memo,
   createElement,
+  createContext,
   startTransition,
   useCallback,
   useContext,
@@ -193,7 +194,10 @@ const INITIAL_TURNS = 20;
 const FIRST_PAINT_TURNS = 3;
 const TURN_PAGE_SIZE = 20;
 
+const TranscriptClockOffset = createContext(0);
+
 type Props = {
+  clockOffsetMs?: number;
   blocks: Block[];
   busy?: boolean;
   cwd?: string;
@@ -1364,7 +1368,14 @@ function AgentTranscriptComponent({
 
 // Keep hidden panes' local state, and catch up with current props on activation.
 export const AgentTranscript = memo(
-  AgentTranscriptComponent,
+  function ClockedTranscript(props: Props) {
+    const inheritedOffset = useContext(TranscriptClockOffset);
+    return (
+      <TranscriptClockOffset.Provider value={props.clockOffsetMs ?? inheritedOffset}>
+        <AgentTranscriptComponent {...props} />
+      </TranscriptClockOffset.Provider>
+    );
+  },
   (previous, next) => previous.visible === false && next.visible === false,
 );
 
@@ -1529,13 +1540,14 @@ function LiveTurnFooter({
 
 /** Wall-clock time, ticking each second for the entire live turn. */
 function useNow(): number {
+  const offset = useContext(TranscriptClockOffset);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
-  return now;
+  return now + offset;
 }
 
 function backgroundLabel(tasks: string[]): string {
@@ -3704,6 +3716,9 @@ function useElapsedFrom(
   startedAt: number | undefined,
   paused: boolean,
 ): number | null {
+  const offset = useContext(TranscriptClockOffset);
+  // Pause bookkeeping and fallback clocks remain in the local time domain.
+  const localStartedAt = startedAt == null ? undefined : startedAt - offset;
   const fallback = useRef<number | null>(null);
   const pausedMs = useRef(0);
   const pauseStarted = useRef<number | null>(null);
@@ -3716,13 +3731,13 @@ function useElapsedFrom(
     pauseStarted.current = paused ? Date.now() : null;
   }
 
-  const origin = startedAt ?? (fallback.current ??= Date.now());
+  const origin = localStartedAt ?? (fallback.current ??= Date.now());
   const [elapsedMs, setElapsedMs] = useState(() =>
     Math.max(0, Date.now() - origin),
   );
 
   useEffect(() => {
-    const start = startedAt ?? (fallback.current ??= Date.now());
+    const start = localStartedAt ?? (fallback.current ??= Date.now());
     if (paused) {
       if (pauseStarted.current == null) pauseStarted.current = Date.now();
       return;
@@ -3736,7 +3751,7 @@ function useElapsedFrom(
     tick();
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
-  }, [startedAt, paused]);
+  }, [localStartedAt, paused]);
 
   return elapsedMs;
 }

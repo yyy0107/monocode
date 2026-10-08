@@ -112,6 +112,7 @@ import { remoteProjectFor, sessionUsesHost } from "../../connections/model/remot
 import type { HostSession } from "../../connections/model/protocol";
 
 export type SessionPaneProps = {
+  clockOffsetMs?: number;
   session: Session;
   workspaceSwitchingSessionId?: string;
   reviewUndoLocked?: boolean;
@@ -265,6 +266,7 @@ export const SessionPane = memo(function SessionPane(props: SessionPaneProps) {
 });
 
 const LocalSessionPane = memo(function LocalSessionPane({
+  clockOffsetMs,
   messageQueue,
   remoteSession = false,
   remoteFeatures,
@@ -924,6 +926,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
                 onMouseDown={focusPane}
               >
                 <AgentTranscript
+                  clockOffsetMs={clockOffsetMs}
                   blocks={session.blocks}
                   busy={!!session.busy}
                   visible={visible}

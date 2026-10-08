@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { readMobileDeviceInfo } from "./deviceInfo";
 import {
   MobileClient,
   normalizeHostUrl,
@@ -17,6 +18,7 @@ import {
   SESSION_CACHE_PROJECT_LIMIT, SESSION_CACHE_SESSION_LIMIT, SESSION_CACHE_SIZE_LIMIT,
 } from "./sessionCache";
 
+vi.mock("./deviceInfo", () => ({ readMobileDeviceInfo: vi.fn(async () => undefined) }));
 const http = vi.hoisted(() => ({ post: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => true },
@@ -88,7 +90,10 @@ const send: HostCommand = {
   text: "Implement this",
 };
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(readMobileDeviceInfo).mockResolvedValue(undefined);
+});
 describe("mobile session summary cache", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -970,4 +975,47 @@ it("reuses Host-accepted queued attachments when returning images and files to t
   ];
   expect(await client.uploadAttachments(files, files)).toEqual(files.map(({ id, name, mimeType, kind, size }) => ({ id, name, mimeType, kind, size })));
   await expect(client.uploadAttachments([{ ...files[1], size: 6 }], files)).rejects.toThrow("must be readable");
+});
+
+it.each([false, true])("samples the sync response clock before reading chunks (chunked=%s)", async (chunked) => {
+  const now = vi.spyOn(Date, "now").mockReturnValue(100_000);
+  try {
+    const serialized = JSON.stringify({ kind: "snapshot", value: snapshot() });
+    let unchanged = false;
+    const client = new MobileClient(memory(), transport((method) => {
+      if (method === "sessions.sync") {
+        now.mockReturnValue(100_200);
+        if (unchanged) return { kind: "unchanged", revision: 1, serverTime: 35_100 };
+        return chunked
+          ? { kind: "chunked", transfer: "t", length: serialized.length, serverTime: 35_100 }
+          : { kind: "snapshot", value: snapshot(), serverTime: 35_100 };
+      }
+      now.mockReturnValue(110_000);
+      return { data: serialized };
+    }));
+    await client.connect(endpoint, token);
+    const first = await client.session("session");
+    expect(first.clockOffsetMs).toBe(-65_000);
+    unchanged = true;
+    now.mockReturnValue(100_000);
+    expect(await client.session("session")).toBe(first);
+  } finally {
+    now.mockRestore();
+  }
+});
+
+it("reports phone hardware on connect and reconnect without changing the device name", async () => {
+  vi.mocked(readMobileDeviceInfo).mockResolvedValue({ model: "SM-S9280", manufacturer: "Samsung" });
+  const rpc = vi.fn(transport(() => []));
+  const client = new MobileClient(memory(), rpc);
+  await client.connect(endpoint, token);
+  await client.verify();
+  expect(readMobileDeviceInfo).toHaveBeenCalledOnce();
+  for (const [, credential, request] of rpc.mock.calls) {
+    expect(credential).toBe(token);
+    expect(request).toMatchObject({ method: "environment.describe", params: {
+      deviceInfo: { model: "SM-S9280", manufacturer: "Samsung" },
+    } });
+    expect((request as { params: object }).params).not.toHaveProperty("name");
+  }
 });

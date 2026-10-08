@@ -103,7 +103,10 @@ describe("mobile Host connection status", () => {
       detail: "Computer is offline",
     });
     const pending = deferred<unknown>();
-    request.mockImplementationOnce(() => pending.promise);
+    // Device metadata can be read before describe is sent, so concurrent RPCs
+    // may reach the transport first. Hold verification by method, not order.
+    request.mockImplementation((method) => method === "environment.describe"
+      ? pending.promise : Promise.resolve([]));
     const retry = client.reconnect();
     expect(client.getConnectionStatus().state).toBe("reconnecting");
     // A concurrent task response cannot hide an in-progress reconnect.

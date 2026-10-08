@@ -68,6 +68,12 @@ export const REMOTE_PROVIDERS = [
   "antigravity",
 ] as const;
 export type RemoteProvider = (typeof REMOTE_PROVIDERS)[number];
+/** Optional hardware metadata reported by a paired mobile client. */
+export type HostDeviceInfo = {
+  model: string;
+  manufacturer?: string;
+};
+
 export type HostDescriptor = {
   protocolVersion: number;
   environmentId: string;
@@ -120,6 +126,8 @@ export type HostWorktree = {
   missing: boolean;
 };
 export type HostSession = {
+  /** Client-only estimate: Host time minus local time; never changes stored timestamps. */
+  clockOffsetMs?: number;
   session: Session;
   projectId: string;
   revision: number;
@@ -198,7 +206,10 @@ export type RemoteAttachment = {
 
 /** `sessions.sync` sends only the blocks that changed after the client's
  * revision, so a long transcript is not re-downloaded on every poll. */
-export type SessionSync =
+export type SessionSync = {
+  /** Client-only clock sample taken when receiving this sync. */
+  clockOffsetMs?: number;
+} & (
   | { kind: "unchanged"; revision: number }
   | { kind: "snapshot"; value: HostSession }
   | {
@@ -209,7 +220,7 @@ export type SessionSync =
       };
       blockIds: string[];
       blocks: Block[];
-    };
+    });
 
 /** A sync too large for one response. Its serialized JSON is read in bounded
  * pieces with `sessions.syncChunk`, so every piece describes one revision. */
@@ -220,13 +231,34 @@ export type SessionSyncTransfer = {
   length: number;
 };
 export type SessionSyncChunk = { data: string };
-export type SessionSyncResponse = SessionSync | SessionSyncTransfer;
+export type SessionSyncResponse = (SessionSync | SessionSyncTransfer) & {
+  /** Host wall clock at response time, including unchanged and chunked syncs. */
+  serverTime?: number;
+};
+
+export function sessionClockOffset(
+  response: SessionSyncResponse,
+  sentAt: number,
+  receivedAt: number,
+): number | undefined {
+  return typeof response.serverTime === "number" && Number.isFinite(response.serverTime)
+    ? response.serverTime - (sentAt + receivedAt) / 2
+    : undefined;
+}
 
 /** Throws when the delta does not apply to `known`; request a snapshot then. */
 export function applySessionSync(
   known: HostSession | undefined,
   sync: SessionSync,
 ): HostSession {
+  const result = mergeSessionSync(known, sync);
+  const offset = sync.clockOffsetMs ?? known?.clockOffsetMs;
+  return offset == null || result.clockOffsetMs === offset
+    ? result
+    : { ...result, clockOffsetMs: offset };
+}
+
+function mergeSessionSync(known: HostSession | undefined, sync: SessionSync): HostSession {
   if (sync.kind === "snapshot") return sync.value;
   if (
     !known ||

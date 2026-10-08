@@ -2,7 +2,7 @@ import {
   isRemoteProjectPath,
   REMOTE_PROJECT_PREFIX,
 } from "../../projects/model/recents";
-import type { HostProject } from "./protocol";
+import type { HostProject, RemoteMachine } from "./protocol";
 import type { Session } from "../../sessions/model/session";
 
 /** Every conversation in a Host project runs there, including imported native ones. */
@@ -31,6 +31,8 @@ const localProjects = new Map<string, RemoteProject>();
 const openingProjects = new Map<string, Promise<RemoteProject>>();
 export const sharedHostEnvironment = () => localEnvironment;
 export const sharedHostMachineId = () => localMachineId;
+export const isSharedHostMachine = (machine: Pick<RemoteMachine, "id" | "environmentId">) =>
+  machine.id === localMachineId || machine.environmentId === localEnvironment;
 export const sharedProjects = () => [...localProjects.values()];
 const localKey = (cwd: string) => slashed(cwd).replace(/\/+$/, "") || "/";
 export function configureSharedHost(environmentId: string | undefined, projects: HostProject[], machineId?: string) {

@@ -33,10 +33,10 @@ afterEach(() => {
   applyReducedMotion("system");
 });
 
-function update(event?: HarnessEvent) {
+function update(event?: HarnessEvent, clockOffsetMs?: number) {
   if (event) session = applyHarnessEvent(session, event);
   act(() => root.render(createElement(AgentTranscript, {
-    blocks: session.blocks, busy: true, cwd: session.cwd,
+    blocks: session.blocks, busy: true, cwd: session.cwd, clockOffsetMs,
     pendingQuestion: !!session.pendingQuestion,
   })));
 }
@@ -150,4 +150,28 @@ it("keeps the current time readable during a digit carry and when motion is disa
   expect(timer.getAttribute("aria-label")).toBe("11s");
   expect(timer.textContent).toBe("11s");
   expect(timer.querySelector(".rolling-clock-glyph")).toBeNull();
+});
+
+it.each([-65_000, 65_000])("uses the Host clock for both live timers with %i ms skew", (offset) => {
+  // A fresh turn and first reply stamped on a Host with a different wall clock.
+  vi.setSystemTime(100_000 + offset);
+  session = appendUser(newSession("pi", "/project"), "Hello");
+  session = applyHarnessEvent(session, { type: "message.delta", text: "Hello!" });
+  vi.setSystemTime(100_000);
+  update(undefined, offset);
+  noClock();
+  tick(3);
+  clock("round", "3s");
+  expect(node.textContent).toContain("working… · 3s");
+  expect(node.textContent).not.toContain("1m");
+
+  // Reloading an already-running turn retains its real age rather than
+  // restarting at mount or counting the clock skew as work.
+  act(() => root.unmount());
+  root = createRoot(node);
+  tick(7);
+  update(undefined, offset);
+  clock("round", "10s");
+  expect(node.textContent).toContain("working… · 10s");
+  expect(session.blocks[0].startedAt).toBe(100_000 + offset);
 });

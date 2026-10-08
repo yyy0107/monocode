@@ -282,6 +282,52 @@ describe("mobile connection settings", () => {
     expect(host.disconnect).not.toHaveBeenCalled();
   });
 
+  it("reconnects a saved Host directly, disables repeat clicks, and keeps it after failure", async () => {
+    await openConnections();
+    const reconnectButton = () => active<HTMLButtonElement>('[aria-label="Reconnect to My computer"]')!;
+    const previousReconnects = host.reconnect.mock.calls.length;
+    let reject!: (reason: Error) => void;
+    host.reconnect.mockImplementationOnce(() => new Promise<void>((_resolve, fail) => { reject = fail; }));
+    await act(async () => reconnectButton().click());
+    expect(host.reconnect).toHaveBeenCalledTimes(previousReconnects + 1);
+    expect(reconnectButton().disabled).toBe(true);
+    await act(async () => reconnectButton().click());
+    expect(host.reconnect).toHaveBeenCalledTimes(previousReconnects + 1);
+    await act(async () => reject(new Error("Host unavailable")));
+    expect(active('[role="alert"]')?.textContent).toContain("Host unavailable");
+    expect(active(".mobile-connection-list")!.textContent).toContain("My computer");
+    expect(reconnectButton().disabled).toBe(false);
+    await act(async () => reconnectButton().click());
+    expect(host.reconnect).toHaveBeenCalledTimes(previousReconnects + 2);
+    expect(active('[role="dialog"][aria-label="Add connection"]')).toBeNull();
+    expect(host.connect).not.toHaveBeenCalled();
+    expect(host.suspend).not.toHaveBeenCalled();
+    expect(host.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("reconnects the selected saved Host rather than the active one", async () => {
+    const other = { endpoint: "http://other:3774", token: "saved-token", name: "Other Host", environmentId: "other" };
+    host.savedConnections.mockResolvedValue([other] as never);
+    await openConnections();
+    await act(async () => button("Reconnect to Other Host").click());
+    expect(host.switchTo).toHaveBeenCalledWith(other.endpoint);
+    expect(host.reconnect).not.toHaveBeenCalled();
+    expect(host.connect).not.toHaveBeenCalled();
+    expect(host.forget).not.toHaveBeenCalled();
+  });
+
+  it("offers reconnect from the saved connection's action menu", async () => {
+    await openConnections();
+    act(() => active(".mobile-connection-details")!
+      .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    const menu = active('[role="dialog"][aria-label="Connection options"]')!;
+    await act(async () => [...menu.querySelectorAll<HTMLButtonElement>("button")]
+      .find(item => item.textContent?.trim() === "Reconnect")!.click());
+    expect(host.reconnect).toHaveBeenCalledOnce();
+    expect(menu.closest<HTMLElement>(".mobile-sheet-backdrop")!.inert).toBe(true);
+    expect(host.connect).not.toHaveBeenCalled();
+  });
+
   it("opens connection actions on a hold, edits the local alias and icon, and preserves the Host name", async () => {
     await openConnections();
     vi.useFakeTimers();

@@ -52,3 +52,12 @@ describe("outgoing messages", () => {
     expect(withOutgoing(snapshot(), undefined)).toEqual(snapshot());
   });
 });
+
+it.each([-65_000, 65_000])("keeps optimistic sends in the Host clock domain with %i ms skew", (clockOffsetMs) => {
+  const base = snapshot({ clockOffsetMs });
+  const outgoing = { id: "new", text: "Hello", startedAt: 100_000, placement: "transcript" as const };
+  const view = withOutgoing(base, outgoing);
+  expect(view.session.blocks[0].startedAt).toBe(100_000 + clockOffsetMs);
+  expect(outgoing.startedAt).toBe(100_000);
+  expect(base.session.blocks).toEqual([]);
+});

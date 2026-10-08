@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import {
   applySessionSync,
+  sessionClockOffset,
   type HostCommand,
   type HostSession,
   type HostSessionSummary,
@@ -10,7 +11,8 @@ import {
   type SessionSyncChunk,
   type SessionSyncResponse,
 } from "./protocol";
-import { remoteProjectFor, ensureSharedProject, sharedHostMachineId } from "./remoteProjects";
+import { remoteProjectFor, ensureSharedProject, sharedHostMachineId, isSharedHostMachine } from "./remoteProjects";
+import { translate } from "../../../shared/i18n/language";
 import { withRemoteAttachmentPreviews } from "./remoteAttachmentPreviews";
 import { hostOrchestrationClient } from "../../orchestration/model/orchestrationClient";
 import { isRemoteProjectPath } from "../../projects/model/recents";
@@ -245,12 +247,14 @@ async function syncRemoteSession(
   sessionId: string,
   revision?: number,
 ): Promise<SessionSync> {
+  const sentAt = Date.now();
   const response = await remoteRequest<SessionSyncResponse>(
     machineId,
     "sessions.sync",
     { sessionId, revision },
   );
-  if (response.kind !== "chunked") return response;
+  const clockOffsetMs = sessionClockOffset(response, sentAt, Date.now());
+  if (response.kind !== "chunked") return { ...response, clockOffsetMs };
   const pieces: string[] = [];
   let offset = 0;
   while (offset < response.length) {
@@ -265,7 +269,7 @@ async function syncRemoteSession(
   }
   if (offset !== response.length)
     throw new Error("Session transfer has an unexpected length");
-  return JSON.parse(pieces.join("")) as SessionSync;
+  return { ...JSON.parse(pieces.join("")) as SessionSync, clockOffsetMs };
 }
 
 /** Fetches only what changed since `known`; falls back to a full snapshot. */
@@ -342,6 +346,9 @@ export async function connectMachine(
 }
 
 export async function disconnectMachine(machineId: string): Promise<void> {
+  const machine = cachedMachines.find((entry) => entry.id === machineId);
+  if (machineId === sharedHostMachineId() || (machine && isSharedHostMachine(machine)))
+    throw new Error(translate("This computer cannot be removed."));
   await invoke("remote_disconnect", { machineId });
   machineRevision++;
   cachedMachines = cachedMachines.filter((entry) => entry.id !== machineId);

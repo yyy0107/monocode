@@ -294,6 +294,7 @@ export const MobileTranscript = memo(function MobileTranscript({
         inert={!visible}
       >
         <AgentTranscript
+          clockOffsetMs={snapshot.clockOffsetMs}
           visible={visible}
           touchScroll
           promptMotion="mobile"

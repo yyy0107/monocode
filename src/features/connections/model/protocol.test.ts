@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { applySessionSync, type HostSession } from "./protocol";
+import { applySessionSync, sessionClockOffset, type HostSession } from "./protocol";
 
 const known: HostSession = {
   projectId: "project",
@@ -65,4 +65,22 @@ it("rejects deltas that do not apply, so the caller loads a snapshot", () => {
   expect(() =>
     applySessionSync(undefined, { kind: "unchanged", revision: 4 }),
   ).toThrow();
+});
+
+it("calibrates sync clocks without rewriting timestamps or losing the offset on a delta", () => {
+  const offset = sessionClockOffset({ kind: "unchanged", revision: 4, serverTime: 35_100 }, 100_000, 100_200);
+  expect(offset).toBe(-65_000);
+  const first = applySessionSync(undefined, { kind: "snapshot", value: known, clockOffsetMs: offset });
+  expect(first.clockOffsetMs).toBe(-65_000);
+  expect(first.session).toBe(known.session);
+  const next = applySessionSync(first, {
+    kind: "delta", base: 4, value: { ...known, revision: 5 },
+    blockIds: ["user", "reply"], blocks: [],
+  });
+  expect(next.clockOffsetMs).toBe(-65_000);
+  expect(next.session.blocks[0]).toBe(known.session.blocks[0]);
+  const refreshed = applySessionSync(next, { kind: "unchanged", revision: 5, clockOffsetMs: 65_000 });
+  expect(refreshed.clockOffsetMs).toBe(65_000);
+  expect(refreshed.session).toBe(next.session);
+  expect(sessionClockOffset({ kind: "unchanged", revision: 5 }, 100, 200)).toBeUndefined();
 });

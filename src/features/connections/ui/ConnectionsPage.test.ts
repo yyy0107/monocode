@@ -10,7 +10,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 let container: HTMLDivElement;
 let root: Root;
-const phone = { id: "phone", name: "My phone", admin: false };
+const phone = { id: "phone", name: "My phone", admin: false, manufacturer: "Samsung", model: "SM-S9280" };
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -65,6 +65,7 @@ it("loads controlling devices and revokes access after StrictMode effect replay"
     params: {},
   });
   expect(container.textContent).toContain("My phone");
+  expect(container.textContent).toContain("Samsung SM-S9280 · Never connected");
   expect(container.textContent).not.toContain("Desktop credential");
   expect(container.textContent).not.toContain("Loading devices…");
   expect(refreshButton().disabled).toBe(false);

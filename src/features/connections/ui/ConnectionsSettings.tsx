@@ -5,6 +5,7 @@ import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { Internet, Loader } from "../../../shared/ui/icons";
 import { ConnectionStatusIcon, type ConnectionState } from "./ConnectionStatusDot";
 import { SshTargetInput } from "./SshTargetInput";
+import { isSharedHostMachine } from "../model/remoteProjects";
 import {
   connectMachine,
   disconnectMachine,
@@ -222,6 +223,7 @@ export function ConnectionsSettings() {
     }
   };
   const remove = async (machine: RemoteMachine, revoke: boolean) => {
+    if (isSharedHostMachine(machine)) return;
     setError("");
     setNotice("");
     setRevoking(true);
@@ -290,6 +292,7 @@ export function ConnectionsSettings() {
           </p>
         ) : (
           machines.map((machine) => {
+            const local = isSharedHostMachine(machine);
             const current = status[machine.id];
             const state = current?.state ?? "checking";
             return (
@@ -347,15 +350,16 @@ export function ConnectionsSettings() {
                 )}
                 <button
                   id={`${disclosureId}-remove-trigger-${machine.id}`}
-                  disabled={busy || revoking}
+                  disabled={local || busy || revoking}
                   className={quietButton}
                   aria-label={uiT("Remove {value0}", {
                     value0: String(machine.name),
                   })}
-                  title={uiT("Remove connection…")}
-                  aria-expanded={removing === machine.id}
+                  title={uiT(local ? "This computer cannot be removed." : "Remove connection…")}
+                  aria-expanded={!local && removing === machine.id}
                   aria-controls={`${disclosureId}-remove-${machine.id}`}
                   onClick={() => {
+                    if (local) return;
                     setError("");
                     setRemoving((current) =>
                       current === machine.id ? undefined : machine.id,
@@ -365,7 +369,7 @@ export function ConnectionsSettings() {
                   {uiT("Remove")}
                 </button>
               </div>
-              <AnimatedCollapse expanded={removing === machine.id}>
+              <AnimatedCollapse expanded={!local && removing === machine.id}>
                 <div
                   id={`${disclosureId}-remove-${machine.id}`}
                   role="group"
@@ -405,14 +409,14 @@ export function ConnectionsSettings() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       className={button}
-                      disabled={revoking}
+                      disabled={local || revoking}
                       onClick={() => void remove(machine, true)}
                     >
                       {uiT("Revoke access and remove")}
                     </button>
                     <button
                       className={button}
-                      disabled={revoking}
+                      disabled={local || revoking}
                       onClick={() => void remove(machine, false)}
                     >
                       {uiT("Remove from this desktop only")}

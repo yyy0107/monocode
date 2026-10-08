@@ -22,6 +22,8 @@ import { sessionNeedsInput } from "../src/features/sessions/model/session";
 const CACHED_SESSIONS = 32;
 
 export type HostDevice = {
+  model?: string;
+  manufacturer?: string;
   id: string;
   name: string;
   admin: boolean;
@@ -75,6 +77,8 @@ export class HostStore {
     if (!deviceColumns.some(column => column.name === "admin")) this.db.exec("ALTER TABLE devices ADD COLUMN admin INTEGER NOT NULL DEFAULT 0");
     if (!deviceColumns.some(column => column.name === "created_at")) this.db.exec("ALTER TABLE devices ADD COLUMN created_at INTEGER");
     if (!deviceColumns.some(column => column.name === "last_seen")) this.db.exec("ALTER TABLE devices ADD COLUMN last_seen INTEGER");
+    if (!deviceColumns.some(column => column.name === "model")) this.db.exec("ALTER TABLE devices ADD COLUMN model TEXT");
+    if (!deviceColumns.some(column => column.name === "manufacturer")) this.db.exec("ALTER TABLE devices ADD COLUMN manufacturer TEXT");
     const columns = this.db.prepare("PRAGMA table_info(sessions)").all();
     if (!this.db.prepare("PRAGMA table_info(projects)").all().some(column => column.name === "kind")) this.db.exec("ALTER TABLE projects ADD COLUMN kind TEXT");
     if (!columns.some((column) => column.name === "summary"))
@@ -415,16 +419,31 @@ export class HostStore {
 
   devices(now = Date.now()): HostDevice[] {
     return this.db
-      .prepare("SELECT id, name, admin, created_at, last_seen, hash FROM devices ORDER BY created_at, name")
+      .prepare("SELECT id, name, admin, created_at, last_seen, hash, model, manufacturer FROM devices ORDER BY created_at, name")
       .all()
       .map((row) => ({
         id: String(row.id),
         name: String(row.name),
         admin: Number(row.admin) === 1,
+        ...(row.model ? { model: String(row.model) } : {}),
+        ...(row.manufacturer ? { manufacturer: String(row.manufacturer) } : {}),
         createdAt: row.created_at == null ? undefined : Number(row.created_at),
         lastSeen: row.last_seen == null ? undefined : Number(row.last_seen),
         online: now - (this.activeAt.get(String(row.hash)) ?? 0) < DEVICE_ONLINE_MS,
       }));
+  }
+
+  /** A client can describe only the device owning its authenticated credential. */
+  updateDeviceInfo(token: string, value: unknown): void {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    const info = value as Record<string, unknown>;
+    const field = (value: unknown) => typeof value === "string"
+      ? value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 120) : "";
+    const model = field(info.model);
+    if (!model) return;
+    const manufacturer = field(info.manufacturer) || null;
+    this.db.prepare("UPDATE devices SET model=?, manufacturer=? WHERE hash=? AND (model IS NOT ? OR manufacturer IS NOT ?)")
+      .run(model, manufacturer, this.hash(token), model, manufacturer);
   }
 
   private seenAt = new Map<string, number>();

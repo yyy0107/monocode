@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { ConnectionsSettings } from "./ConnectionsSettings";
+import { configureSharedHost } from "../model/remoteProjects";
 import {
   REMOTE_PROVIDERS,
   type RemoteMachine,
@@ -25,6 +26,7 @@ const machine: RemoteMachine = {
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.useFakeTimers();
+  configureSharedHost(undefined, []);
   machines = [];
   state = { id: "setup", message: "Installing host…", done: false };
   vi.mocked(invoke).mockReset();
@@ -48,6 +50,7 @@ beforeEach(() => {
   root = createRoot(container);
 });
 afterEach(() => {
+  configureSharedHost(undefined, []);
   act(() => root.unmount());
   container.remove();
   vi.useRealTimers();
@@ -345,4 +348,21 @@ it("does not spellcheck or autocorrect the machine name", async () => {
   expect(name.getAttribute("autocorrect")).toBe("off");
   expect(name.getAttribute("autocapitalize")).toBe("off");
   expect(container.textContent).toContain("loginctl enable-linger");
+});
+
+it.each([
+  ["machine", "other-environment"],
+  ["local-machine", "env"],
+])("protects this computer by machine or Host identity (%s)", async (localId, environmentId) => {
+  configureSharedHost(environmentId, [], localId);
+  machines = [machine, { ...machine, id: "remote", name: "Other computer", environmentId: "remote-env" }];
+  await render();
+  const removeLocal = container.querySelector<HTMLButtonElement>('[aria-label="Remove Home Mac"]')!;
+  expect(removeLocal.disabled).toBe(true);
+  expect(removeLocal.title).toBe("This computer cannot be removed.");
+  await act(async () => removeLocal.click());
+  expect(container.querySelector('[aria-label="Confirm removing Home Mac"]')).toBeNull();
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Remove Other computer"]')!.disabled).toBe(false);
+  expect(invoke).not.toHaveBeenCalledWith("remote_disconnect", expect.anything());
+  expect(requested("devices.revokeSelf")).toBe(false);
 });

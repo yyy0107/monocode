@@ -1,3 +1,4 @@
+import { readMobileDeviceInfo } from "./deviceInfo";
 import { walkTranscript } from "../features/sessions/model/agentTranscript";
 import type { Note, NoteUpsert } from "../features/notes/notesText";
 import type { NoteImageAsset } from "../features/notes/noteImagesText";
@@ -7,8 +8,10 @@ import {
   HOST_PROTOCOL_VERSION,
   REMOTE_PROVIDERS,
   applySessionSync,
+  sessionClockOffset,
   requireHostDescriptor,
   type HostDescriptor,
+  type HostDeviceInfo,
   type HostDirectory,
   type HostProject,
   type HostSession,
@@ -173,6 +176,7 @@ function sameCachedValue(left: unknown, right: unknown): boolean {
 }
 
 export class MobileClient {
+  private deviceInfo?: Promise<HostDeviceInfo | undefined>;
   connection?: Connection;
   private capabilities: string[] = [];
   hasCapability(capability: string): boolean {
@@ -506,6 +510,10 @@ export class MobileClient {
     params: object,
   ): Promise<T> {
     try {
+      if (method === "environment.describe") {
+        const deviceInfo = await (this.deviceInfo ??= readMobileDeviceInfo());
+        if (deviceInfo) params = { ...params, deviceInfo };
+      }
       const result = await this.transport(
         connection.endpoint,
         connection.token,
@@ -806,11 +814,13 @@ export class MobileClient {
     sessionId: string,
     revision?: number,
   ): Promise<SessionSync> {
+    const sentAt = Date.now();
     const result = await this.requestWith<SessionSyncResponse>(connection, "sessions.sync", {
       sessionId,
       revision,
     });
-    if (result.kind !== "chunked") return result;
+    const clockOffsetMs = sessionClockOffset(result, sentAt, Date.now());
+    if (result.kind !== "chunked") return { ...result, clockOffsetMs };
     if (
       !Number.isSafeInteger(result.length) ||
       result.length < 0 ||
@@ -828,7 +838,7 @@ export class MobileClient {
         throw new Error("Incomplete conversation response.");
       serialized += chunk.data;
     }
-    return JSON.parse(serialized) as SessionSync;
+    return { ...JSON.parse(serialized) as SessionSync, clockOffsetMs };
   }
   /** Whether an imported native conversation may be continued now; null for ordinary sessions. */
   async nativeAccess(sessionId: string): Promise<NativeSessionAccess | null> {

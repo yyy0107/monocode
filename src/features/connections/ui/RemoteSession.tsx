@@ -1216,7 +1216,7 @@ function ConnectedRemoteSession({
           attachments: starting.attachments,
           draft: starting.draft,
           ...(starting.draft ? {} : { sending: true }),
-          startedAt: starting.startedAt,
+          startedAt: starting.startedAt + (hostSession ? snapshot?.clockOffsetMs ?? 0 : 0),
           turnModel: starting.turnModel,
         }
       : undefined;
@@ -1517,6 +1517,7 @@ function ConnectedRemoteSession({
   // forwarders keep the pane and every transcript block memoized.
   const overrides = useStableHandlers<RemoteSessionOverrides>({
     session,
+    clockOffsetMs: hostSession ? snapshot?.clockOffsetMs : undefined,
     messageQueue: <MessageQueue key={snapshot?.session.id} {...queue} disabled={!online || sending || !!pending} />,
     remoteSession: true,
     remoteFeatures: {

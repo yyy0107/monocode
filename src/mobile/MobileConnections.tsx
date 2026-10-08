@@ -2,6 +2,7 @@ import { MobileSettingsGlyph } from "./MobileSettingsIcon";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Pencil,
+  RefreshCw,
   Trash2,
   X,
 } from "../shared/ui/icons";
@@ -168,6 +169,16 @@ function ConnectionRow({
           </small>
         </span>
       </button>
+      <button
+        type="button"
+        className="mobile-icon-button"
+        aria-label={t("Reconnect to {host}", { host: name })}
+        title={t("Reconnect")}
+        disabled={disabled}
+        onClick={active ? onReconnect : onSwitch}
+      >
+        <RefreshCw size={20} />
+      </button>
       <label className="mobile-connection-toggle">
         <input
           type="checkbox"
@@ -300,6 +311,19 @@ export function MobileConnections({
       >
         <div className="mobile-connection-menu">
           <p className="mobile-connection-menu-name">{name}</p>
+          <button
+            type="button"
+            className="mobile-sheet-row"
+            disabled={disabled}
+            onClick={() => {
+              close();
+              if (details?.endpoint === activeEndpoint) onReconnect();
+              else if (details) onSwitch(details.endpoint);
+            }}
+          >
+            <RefreshCw size={22} />
+            <span>{t("Reconnect")}</span>
+          </button>
           <button
             type="button"
             className="mobile-sheet-row"

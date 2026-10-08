@@ -79,7 +79,8 @@ export function withOutgoing(
       role: "user",
       text: pending.text,
       sending: true,
-      ...(pending.startedAt ? { startedAt: pending.startedAt } : {}),
+      ...(pending.startedAt != null
+        ? { startedAt: pending.startedAt + (snapshot.clockOffsetMs ?? 0) } : {}),
       ...(pending.turnModel ? { turnModel: pending.turnModel } : {}),
       ...(pending.attachments?.length ? { attachments: pending.attachments } : {}),
     });

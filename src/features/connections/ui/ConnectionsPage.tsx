@@ -13,6 +13,8 @@ import { ConnectionStatusIcon, type ConnectionState } from "./ConnectionStatusDo
 type ConnectionsTab = "control" | "ssh";
 
 export type HostDevice = {
+  model?: string;
+  manufacturer?: string;
   id: string;
   name: string;
   admin: boolean;
@@ -207,6 +209,7 @@ function ControlThisComputer() {
                   {device.name}
                 </div>
                 <div className="mt-0.5 truncate text-ui-caption text-foreground-subtle">
+                  {device.model ? `${[device.manufacturer, device.model].filter(Boolean).join(" ")} · ` : ""}
                   {device.online && !error ? t("Online") : formatLastSeen(t, device.lastSeen)}
                 </div>
               </div>

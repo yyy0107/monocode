@@ -342,3 +342,12 @@ it("caches history without native block IDs and evicts other projects when stora
   expect(stored[0].nativeSession).toEqual({ ...nativeSession, blockIds: [], nativeIds: undefined });
   expect(localStorage.getItem(other)).toBeNull();
 });
+
+it.each([
+  [machine.id, "other-environment"],
+  ["local-machine", machine.environmentId],
+])("rejects removal of the shared local Host before native disconnect (%s)", async (localId, environmentId) => {
+  configureSharedHost(environmentId, [], localId);
+  await expect(disconnectMachine(machine.id)).rejects.toThrow("This computer cannot be removed.");
+  expect(invoke).not.toHaveBeenCalledWith("remote_disconnect", expect.anything());
+});

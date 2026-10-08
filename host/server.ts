@@ -307,6 +307,7 @@ export function createHostServer(
         let result: unknown;
         switch (input.method) {
           case "environment.describe":
+            engine.store.updateDeviceInfo(token, params.deviceInfo);
             result = {
               protocolVersion: HOST_PROTOCOL_VERSION,
               environmentId: engine.store.environmentId,
@@ -527,15 +528,18 @@ export function createHostServer(
           case "sessions.sync": {
             const sessionId = String(params.sessionId ?? "");
             engine.nativeSessions.touch(sessionId);
-            result = transfers.respond(
-              sessionId,
-              engine.store.sync(
+            result = {
+              ...transfers.respond(
                 sessionId,
-                Number.isSafeInteger(params.revision)
-                  ? Number(params.revision)
-                  : undefined,
+                engine.store.sync(
+                  sessionId,
+                  Number.isSafeInteger(params.revision)
+                    ? Number(params.revision)
+                    : undefined,
+                ),
               ),
-            );
+              serverTime: Date.now(),
+            };
             break;
           }
           case "sessions.syncChunk":

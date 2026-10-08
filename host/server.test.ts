@@ -236,7 +236,7 @@ describe("remote host API", () => {
     const sessions = vi.spyOn(s.store, "sessions");
     try {
       for (let index = 0; index < 3; index++) {
-        expect((await s.call("sessions.sync", { sessionId: created.sessionId, revision: current.revision })).value.result).toMatchObject({ kind: "unchanged" });
+        expect((await s.call("sessions.sync", { sessionId: created.sessionId, revision: current.revision })).value.result).toMatchObject({ kind: "unchanged", serverTime: expect.any(Number) });
         expect((await s.call("sessions.get", { sessionId: created.sessionId, revision: current.revision })).value.result).toBeNull();
       }
       expect(prepare.mock.calls.filter(([sql]) => sql === "SELECT snapshot FROM sessions WHERE id=?")).toHaveLength(0);
@@ -1131,4 +1131,24 @@ it("advertises assistant RPC, enforces device auth and hides the private brain",
   store.revokeToken(first.token);
   expect((await call("assistant.get")).status).toBe(401);
   expect((await call("assistant.memoryTopic", { topic: "deploys" })).status).toBe(401);
+});
+
+it("records phone hardware only for the authenticated device and retains it on legacy reconnects", async () => {
+  const s = await setup();
+  s.store.markAdminDevice(s.first.id);
+  const params = { deviceId: s.first.id, deviceInfo: { model: " SM-S9280 ", manufacturer: " Samsung " } };
+  expect((await s.call("environment.describe", params, s.second.token)).status).toBe(200);
+  await s.call("environment.describe", {}, s.second.token);
+  await s.call("environment.describe", { deviceInfo: { model: 123 } }, s.second.token);
+  const devices = (await s.call("devices.list")).value.result.devices;
+  expect(devices.find((device: { id: string }) => device.id === s.second.id)).toMatchObject({
+    name: "Other computer", model: "SM-S9280", manufacturer: "Samsung",
+  });
+  expect(devices.find((device: { id: string }) => device.id === s.first.id).model).toBeUndefined();
+  const reopened = new HostStore(join(s.directory, "host.db"));
+  try {
+    expect(reopened.devices().find(device => device.id === s.second.id)).toMatchObject({ model: "SM-S9280", manufacturer: "Samsung" });
+  } finally {
+    reopened.close();
+  }
 });
