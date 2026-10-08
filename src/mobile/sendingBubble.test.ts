@@ -4,12 +4,15 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileApp } from "./MobileApp";
 import { setUiLanguage } from "../shared/i18n/language";
-import type { Block } from "../features/sessions/model/session";
+import type { Block, QueuedMessage } from "../features/sessions/model/session";
+import { saveFollowUpBehavior } from "../features/settings/model/settings";
 
 const project = vi.hoisted(() => ({ id: "project", name: "Project", cwd: "/project" }));
 const state = vi.hoisted(() => ({
   status: "idle" as "idle" | "running",
   blocks: [] as Block[],
+  queued: [] as QueuedMessage[],
+  steering: undefined as string | undefined,
 }));
 const snapshot = () => ({
   projectId: "project",
@@ -19,7 +22,9 @@ const snapshot = () => ({
   ...(state.status === "running" ? { runId: "turn" } : {}),
   supportsQueue: true,
   canSteer: true,
+  ...(state.steering ? { queueSteeringId: state.steering } : {}),
   session: {
+    ...(state.queued.length ? { queuedMessages: state.queued, queueStatus: "active" as const } : {}),
     id: "session",
     title: "Conversation",
     harness: "codex" as const,
@@ -72,14 +77,24 @@ beforeEach(() => {
   localStorage.clear();
   setUiLanguage("en");
   state.status = "idle";
+  state.queued = [];
+  state.steering = undefined;
   state.blocks = [{ id: "u1", role: "user", text: "Earlier" }, { id: "a1", role: "assistant", text: "Reply" }];
   host.sessions.mockImplementation(async () => [{ ...snapshot(), id: "session", title: "Conversation", harness: "codex" }]);
   host.session.mockImplementation(async () => snapshot());
-  host.dispatch.mockImplementation((command: { commandId: string; text?: string }, prompt?: { text: string }) =>
+  // Like the Host: a busy conversation queues the send (steering it when it
+  // can), otherwise the transcript records it under the command id.
+  host.dispatch.mockImplementation((
+    command: { commandId: string; text?: string; followUpBehavior?: string },
+    prompt?: { text: string },
+  ) =>
     new Promise((resolve, reject) => {
       deferred.resolve = () => {
         const text = command.text ?? prompt?.text ?? "";
-        state.blocks = [...state.blocks, { id: "recorded", role: "user", text }];
+        if (state.status === "running") {
+          state.queued = [...state.queued, { id: command.commandId, text, attachments: [] }];
+          if (command.followUpBehavior === "steer") state.steering = command.commandId;
+        } else state.blocks = [...state.blocks, { id: command.commandId, role: "user", text }];
         resolve({ commandId: command.commandId, sessionId: "session", revision: 9 });
       };
       deferred.reject = reject;
@@ -109,6 +124,7 @@ async function openConversationAndSend(text: string) {
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
 }
 const sendingRows = () => node.querySelectorAll('.user-message-row[data-sending="true"]');
+const queueText = () => node.querySelector(".mobile-message-queue")?.textContent ?? "";
 const bubbles = () => [...node.querySelectorAll(".user-message-bubble")].map((bubble) => bubble.textContent);
 
 describe("mobile sending bubble", () => {
@@ -119,10 +135,14 @@ describe("mobile sending bubble", () => {
     expect(bubbles()).toEqual(["Earlier", "Hello there"]);
     expect(node.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
 
+    const row = sendingRows()[0];
+
     await act(async () => deferred.resolve!());
     expect(sendingRows()).toHaveLength(0);
     expect(bubbles()).toEqual(["Earlier", "Hello there"]);
-    expect(node.querySelector('[data-prompt-anchor="recorded"]')).not.toBeNull();
+    // The Host's copy keeps the id, so the same row simply turns solid.
+    expect([...node.querySelectorAll(".user-message-row")].at(-1)).toBe(row);
+    expect(row.isConnected).toBe(true);
   });
 
   it("returns a failed send to the composer", async () => {
@@ -160,10 +180,33 @@ describe("mobile sending bubble", () => {
     expect(node.querySelector(".mobile-desktop-transcript")).toBe(transcript);
   });
 
-  it("leaves sends to a running conversation to its queue", async () => {
+  it("puts a send to a busy conversation straight into its queue", async () => {
+    saveFollowUpBehavior("queue");
     state.status = "running";
     await openConversationAndSend("Queued");
     expect(host.dispatch).toHaveBeenCalledTimes(1);
     expect(sendingRows()).toHaveLength(0);
+    expect(bubbles()).toEqual(["Earlier"]);
+    expect(queueText()).toContain("Queued");
+    expect(node.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
+
+    await act(async () => deferred.resolve!());
+    expect(sendingRows()).toHaveLength(0);
+    expect(bubbles()).toEqual(["Earlier"]);
+    expect(queueText().match(/Queued/g)).toHaveLength(1);
+  });
+
+  it("keeps a steering send in the transcript while the running turn takes it", async () => {
+    saveFollowUpBehavior("steer");
+    state.status = "running";
+    await openConversationAndSend("Steer this");
+    expect(sendingRows()).toHaveLength(1);
+    expect(queueText()).not.toContain("Steer this");
+
+    // The Host holds it in its queue as steering: it stays in the transcript.
+    await act(async () => deferred.resolve!());
+    expect(sendingRows()).toHaveLength(1);
+    expect(bubbles()).toEqual(["Earlier", "Steer this"]);
+    expect(queueText()).not.toContain("Steer this");
   });
 });

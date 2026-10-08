@@ -202,6 +202,21 @@ describe("prompt rise in the chat layout", () => {
     ]);
   });
 
+  it("lifts a prompt the Host records under the same id where it is", () => {
+    render(first, false);
+    render([...first, { id: "u2", role: "user", text: "Next", sending: true }], false);
+    act(() => vi.advanceTimersByTime(20));
+    const row = container.querySelector<HTMLElement>('[data-prompt-anchor="u2"]')!;
+    const calls = animate.mock.calls.length;
+
+    render([...first, { id: "u2", role: "user", text: "Next" }]);
+    expect(container.querySelector('[data-prompt-anchor="u2"]')).toBe(row);
+    expect(row.dataset.sending).toBeUndefined();
+    expect(animate.mock.calls.slice(calls).map(([frames]) => frames)).toEqual([
+      [{ opacity: 0.5 }, { opacity: 1 }],
+    ]);
+  });
+
   it("drops a withdrawn sending prompt without replaying the previous one", () => {
     render(first, false);
     render([...first, { id: "sending:1", role: "user", text: "Next", sending: true }], false);

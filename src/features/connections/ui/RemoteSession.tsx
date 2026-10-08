@@ -2,6 +2,11 @@ import { requestedProviderAccountId, supportsProviderAccounts } from "../../prov
 import { MessageQueue } from "../../sessions/ui/MessageQueue";
 import { titleStateFor } from "../../sessions/model/titlePolicy";
 import { useHostQueue } from "./useHostQueue";
+import {
+  outgoingPlacement,
+  withOutgoing,
+  type OutgoingMessage,
+} from "../model/outgoing";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { hostOrchestrationClient } from "../../orchestration/model/orchestrationClient";
@@ -327,6 +332,7 @@ function ConnectedRemoteSession({
       | "draftBlockId"
     > & {
       sessionId: string;
+      placement: OutgoingMessage["placement"];
     }
   >();
   // A first message waits here while its session is created on the host.
@@ -398,6 +404,34 @@ function ConnectedRemoteSession({
     unseenActive ||
     (startingActive && !starting?.draft) ||
     pendingSendActive;
+  // A message the host has not recorded yet shows where it will land: tinted
+  // in the transcript, or as a row of the queue of a busy conversation.
+  const outgoing: OutgoingMessage | undefined =
+    unseenActive && unseenSend
+      ? {
+          id: unseenSend.commandId,
+          text: unseenSend.text,
+          attachments: unseenSend.attachments,
+          startedAt: unseenSend.startedAt,
+          turnModel: unseenSend.turnModel,
+          placement: unseenSend.placement,
+        }
+      : pendingSendActive && pending
+        ? {
+            id: pending.commandId,
+            text: pending.type === "send" ? pending.text : "/compact",
+            placement: pending.type === "send"
+              ? outgoingPlacement(hostSession && snapshot, pending.followUpBehavior)
+              : "transcript",
+          }
+        : undefined;
+  const hostView = useMemo(
+    () => (snapshot && hostSession ? withOutgoing(snapshot, outgoing) : snapshot),
+    // The outgoing message is rebuilt each render from these fields.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [snapshot, hostSession, outgoing?.id, outgoing?.placement, outgoing?.text],
+  );
+  const viewSession = hostSession && hostView?.session;
   // An accepted turn stays on screen until a sync shows the host's copy, so
   // the transcript never drops it for a moment in between.
   useEffect(() => {
@@ -635,6 +669,15 @@ function ConnectedRemoteSession({
               turnModel: optimistic?.turnModel ?? selectedTurnModel(),
               draftBlockId:
                 command.type === "send" ? command.draftBlockId : undefined,
+              // Decided as it leaves, so the message never changes places.
+              placement: command.type === "send"
+                ? outgoingPlacement(
+                    snapshotRef.current?.session.id === command.sessionId
+                      ? snapshotRef.current
+                      : undefined,
+                    command.followUpBehavior,
+                  )
+                : "transcript",
             },
       );
     // Keep the original ID across disconnects and app restarts. An ambiguous
@@ -774,7 +817,7 @@ function ConnectedRemoteSession({
     }
   };
 
-  const queue = useHostQueue(snapshot, async (command, transient) => {
+  const queue = useHostQueue(hostView, async (command, transient) => {
     if (!transient) return run(command);
     const receipt = await remoteRequest<CommandReceipt>(machine.id, "commands.dispatch", command);
     if (alive.current) setRefresh((value) => value + 1);
@@ -1146,38 +1189,38 @@ function ConnectedRemoteSession({
       unseenActive ? unseenSend?.draftBlockId : undefined,
     ].filter(Boolean),
   );
-  const blocks: Block[] = (hostSession?.blocks ?? []).filter(
+  const blocks: Block[] = (viewSession?.blocks ?? []).filter(
     (block) => !leavingDrafts.has(block.id),
   );
+  // Without the host's conversation yet, an outgoing or first message shows
+  // on its own.
   const unconfirmed: Block | undefined =
-    unseenActive && unseenSend
-      ? {
-          id: unseenSend.commandId,
-          role: "user",
-          text: unseenSend.text,
-          attachments: unseenSend.attachments,
-          startedAt: unseenSend.startedAt,
-          turnModel: unseenSend.turnModel,
-        }
-      : pendingSendActive && pending
-        ? {
-            id: pending.commandId,
+    outgoing
+      ? hostSession
+        ? undefined
+        : {
+            id: outgoing.id,
             role: "user",
-            text: pending.type === "send" ? pending.text : "/compact",
+            text: outgoing.text,
+            sending: true,
+            ...(outgoing.attachments?.length ? { attachments: outgoing.attachments } : {}),
+            ...(outgoing.startedAt ? { startedAt: outgoing.startedAt } : {}),
+            ...(outgoing.turnModel ? { turnModel: outgoing.turnModel } : {}),
           }
-        : startingActive && starting
-          ? {
-              id: starting.commandId,
-              role: "user",
-              text: starting.text,
-              attachments: starting.attachments,
-              draft: starting.draft,
-              startedAt: starting.startedAt,
-              turnModel: starting.turnModel,
-            }
-          : undefined;
+      : startingActive && starting
+      ? {
+          id: starting.commandId,
+          role: "user",
+          text: starting.text,
+          attachments: starting.attachments,
+          draft: starting.draft,
+          ...(starting.draft ? {} : { sending: true }),
+          startedAt: starting.startedAt,
+          turnModel: starting.turnModel,
+        }
+      : undefined;
   const session: Session = {
-    ...(hostSession ?? {
+    ...(viewSession ?? {
       title: shell.title,
       blocks: [],
     }),
