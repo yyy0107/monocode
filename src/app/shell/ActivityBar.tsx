@@ -243,27 +243,35 @@ export function ActivityBar({
               onClick={() => togglePopup("agents")}
             />
           ) : null}
-          {showUpdates ? (
-            <ActivityAction
-              row={row}
-              ref={updatesAnchor}
-              label={t("Updates")}
-              text={t("Updates")}
-              icon={snapshot?.phase === "downloading" ? Loader : ArrowDownCircle}
-              dot
-              active={popup === "updates"}
-              expanded={popup === "updates"}
-              onClick={() => togglePopup("updates")}
-            />
-          ) : null}
-          <ActivityAction
-            row={row}
-            label={settingsLabel}
-            text={t("Settings")}
-            icon={Settings}
-            active={settingsActive}
-            onClick={onOpenSettings}
-          />
+          <div
+            className={`flex ${row ? "items-center gap-1" : "flex-col-reverse gap-1.5"}`}
+          >
+            <div className={row ? "min-w-0 flex-1" : undefined}>
+              <ActivityAction
+                row={row}
+                label={settingsLabel}
+                text={t("Settings")}
+                icon={Settings}
+                active={settingsActive}
+                onClick={onOpenSettings}
+              />
+            </div>
+            {showUpdates ? (
+              <div className="shrink-0">
+                <ActivityAction
+                  row={row}
+                  ref={updatesAnchor}
+                  label={t("Updates")}
+                  text={t("Updates")}
+                  icon={snapshot?.phase === "downloading" ? Loader : ArrowDownCircle}
+                  dot
+                  active={popup === "updates"}
+                  expanded={popup === "updates"}
+                  onClick={() => togglePopup("updates")}
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
       {popup === "projects" ? (
@@ -330,7 +338,7 @@ export function ActivityBar({
         <Popover
           anchor={updatesAnchor}
           side={popoverSide}
-          align={row ? "start" : "end"}
+          align="end"
           width={280}
           onDismiss={(reason) => {
             setPopup(null);

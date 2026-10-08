@@ -1392,7 +1392,6 @@ function ChangeDirRow({
               <ChevronRight className="size-3.5" />
             )}
           </span>
-          <FileTypeIcon name={dir.name} isDir isOpen={open} size={16} />
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
             {dir.name}
           </span>
