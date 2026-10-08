@@ -22,6 +22,7 @@ import { isLightScheme, SCHEME_CHANGE_EVENT } from "../../settings/model/appeara
 import {
   applyTerminalChrome,
   fitTerminal,
+  refreshTerminalMeasurements,
   resetGridStretch,
   type TerminalFitMode,
 } from "../model/terminalLayout";
@@ -117,7 +118,32 @@ function terminalFont(): string {
   const fromCss = getComputedStyle(document.documentElement)
     .getPropertyValue("--font-terminal")
     .trim();
-  return fromCss || "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+  const stack = fromCss ||
+    'SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace';
+  // Some Linux WebKit/fontconfig setups resolve a named fallback or
+  // ui-monospace to a proportional face. xterm then pads every glyph to W's
+  // width, so check the rendered font rather than trusting the family name.
+  const probe = document.createElement("span");
+  probe.style.cssText =
+    "position:absolute;visibility:hidden;display:inline-block;white-space:pre;font-size:13px;letter-spacing:0;font-kerning:none";
+  probe.style.fontFamily = stack;
+  document.body.appendChild(probe);
+  try {
+    for (const weight of ["400", "700"]) {
+      probe.style.fontWeight = weight;
+      probe.textContent = "W".repeat(32);
+      const wide = probe.getBoundingClientRect().width;
+      probe.textContent = "i".repeat(32);
+      const narrow = probe.getBoundingClientRect().width;
+      if (wide > 0 && narrow > 0 && Math.abs(wide - narrow) > 1) {
+        // Keep the configured families available for Nerd Font/PUA icons.
+        return `monospace, ${stack}`;
+      }
+    }
+    return stack;
+  } finally {
+    probe.remove();
+  }
 }
 
 /**
@@ -159,26 +185,30 @@ type LiveTerminal = {
   term: Terminal;
   spawned: boolean;
   runningProcess: string | null;
-  applySize: () => void;
+  applySize: (remeasure?: boolean) => void;
   attach: (outer: HTMLElement, host: HTMLElement, meta: MetaRef) => object;
   release: (owner: object) => void;
 };
 
 const liveTerminals = new Map<string, LiveTerminal & { parked?: number }>();
 
-function claimTerminal(id: string, cwd: string): LiveTerminal {
+function claimTerminal(id: string, cwd: string, host: HTMLElement): LiveTerminal {
   const existing = liveTerminals.get(id);
   if (existing) {
     if (existing.parked !== undefined) clearTimeout(existing.parked);
     existing.parked = undefined;
     return existing;
   }
-  const created = createLiveTerminal(id, cwd);
+  const created = createLiveTerminal(id, cwd, host);
   liveTerminals.set(id, created);
   return created;
 }
 
-function createLiveTerminal(id: string, cwd: string): LiveTerminal & { parked?: number } {
+function createLiveTerminal(
+  id: string,
+  cwd: string,
+  initialHost: HTMLElement,
+): LiveTerminal & { parked?: number } {
   // xterm renders into its own node, which moves between views' hosts.
   const node = document.createElement("div");
   node.style.width = "100%";
@@ -196,6 +226,9 @@ function createLiveTerminal(id: string, cwd: string): LiveTerminal & { parked?: 
     theme: terminalTheme(isLightScheme()),
     macOptionIsMeta: IS_MAC,
   });
+  // xterm's DOM renderer measures glyphs during open; a detached node reports
+  // zero width. Hidden tabs are measured again when their host becomes visible.
+  initialHost.appendChild(node);
   term.open(node);
   let closed = false;
   let outer: HTMLElement | null = null;
@@ -347,6 +380,7 @@ function createLiveTerminal(id: string, cwd: string): LiveTerminal & { parked?: 
   let lastRows = 0;
   let raf = 0;
   let tuiMode = false;
+  let needsMeasurement = true;
 
   const fitMode = (): TerminalFitMode =>
     term.buffer.active.type === "alternate" ? "tui" : "shell";
@@ -362,8 +396,17 @@ function createLiveTerminal(id: string, cwd: string): LiveTerminal & { parked?: 
     schedule();
   };
 
-  const applySize = () => {
+  const applySize = (remeasure = false) => {
     if (closed || !host) return;
+    needsMeasurement ||= remeasure;
+    if (!host.isConnected || host.clientWidth < 8 || host.clientHeight < 8) {
+      needsMeasurement = true;
+      return;
+    }
+    if (needsMeasurement) {
+      needsMeasurement = false;
+      refreshTerminalMeasurements(term);
+    }
     const next = fitTerminal(term, host, fitMode());
     if (!next) return;
     const { cols, rows } = next;
@@ -392,6 +435,11 @@ function createLiveTerminal(id: string, cwd: string): LiveTerminal & { parked?: 
   });
   const bufferSub = term.buffer.onBufferChange(syncAltScreenMode);
   const observer = new ResizeObserver(schedule);
+  const onFontsLoaded = () => {
+    needsMeasurement = true;
+    schedule();
+  };
+  document.fonts?.addEventListener("loadingdone", onFontsLoaded);
   let frame = 0;
 
   const dispose = () => {
@@ -400,6 +448,7 @@ function createLiveTerminal(id: string, cwd: string): LiveTerminal & { parked?: 
     cancelAnimationFrame(frame);
     if (raf) cancelAnimationFrame(raf);
     observer.disconnect();
+    document.fonts?.removeEventListener("loadingdone", onFontsLoaded);
     node.removeEventListener("copy", onCopy);
     node.removeEventListener("paste", onPaste);
     window.removeEventListener(SCHEME_CHANGE_EVENT, onSchemeChange);
@@ -435,11 +484,12 @@ function createLiveTerminal(id: string, cwd: string): LiveTerminal & { parked?: 
     applyTerminalChrome(term, nextOuter, tuiMode);
     observer.disconnect();
     observer.observe(nextHost);
+    needsMeasurement = true;
     // A new host may have a different size; refit once it has laid out.
     lastCols = 0;
     lastRows = 0;
     cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(applySize);
+    frame = requestAnimationFrame(() => applySize());
     owner = {};
     return owner;
   };
@@ -471,7 +521,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
     const host = hostRef.current;
     if (!outer || !host) return;
     // A terminal moved here from the dock or another pane keeps its shell.
-    const live = claimTerminal(id, cwd);
+    const live = claimTerminal(id, cwd, host);
     const owner = live.attach(outer, host, onMetaChangeRef);
     liveRef.current = live;
     return () => {
@@ -524,7 +574,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
 
   useEffect(() => {
     if (!active) return;
-    liveRef.current?.applySize();
+    liveRef.current?.applySize(true);
     liveRef.current?.term.focus();
   }, [active]);
 

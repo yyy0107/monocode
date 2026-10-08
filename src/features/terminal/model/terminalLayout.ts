@@ -7,6 +7,27 @@ const MIN_TUI_SCROLLBAR_WIDTH = 1;
 
 type CellSize = { width: number; height: number };
 
+type MeasuredTerminal = Terminal & {
+  _core?: {
+    _charSizeService?: { measure(): void };
+    _renderService?: {
+      dimensions?: { css?: { cell?: CellSize } };
+      handleCharSizeChanged?(): void;
+    };
+  };
+};
+
+/** Recover DOM renderer measurements after a hidden host or a font load. */
+export function refreshTerminalMeasurements(term: Terminal): void {
+  const core = (term as MeasuredTerminal)._core;
+  core?._charSizeService?.measure();
+  // xterm 6 keeps a separate DOM glyph-width cache. Measuring the base cell
+  // alone does not invalidate it when the cell size itself stayed unchanged.
+  // Keep this private API access beside the existing cell-dimensions adapter.
+  core?._renderService?.handleCharSizeChanged?.();
+  term.refresh(0, term.rows - 1);
+}
+
 export function terminalScrollbarWidth(
   overviewRuler?: { width?: number },
 ): number {
@@ -15,13 +36,8 @@ export function terminalScrollbarWidth(
 }
 
 function cellSize(term: Terminal): CellSize | null {
-  const dims = (
-    term as unknown as {
-      _core?: {
-        _renderService?: { dimensions?: { css?: { cell?: CellSize } } };
-      };
-    }
-  )._core?._renderService?.dimensions?.css?.cell;
+  const dims = (term as MeasuredTerminal)._core?._renderService?.dimensions?.css
+    ?.cell;
   if (!dims || dims.width < 1 || dims.height < 1) return null;
   return dims;
 }

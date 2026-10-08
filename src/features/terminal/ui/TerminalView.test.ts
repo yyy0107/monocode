@@ -12,12 +12,17 @@ const pty = vi.hoisted(() => ({
   getPtyStatus: vi.fn(async () => ({ foreground: null })),
 }));
 vi.mock("../../../platform/tauri/pty", () => pty);
-const xterm = vi.hoisted(() => ({ options: [] as { fontFamily?: string }[] }));
-vi.mock("../model/terminalLayout", () => ({
-  fitTerminal: () => null,
+const xterm = vi.hoisted(() => ({
+  options: [] as { fontFamily?: string }[],
+  open: vi.fn(),
+}));
+const layout = vi.hoisted(() => ({
+  fitTerminal: vi.fn<() => { cols: number; rows: number } | null>(() => null),
+  refreshTerminalMeasurements: vi.fn(),
   applyTerminalChrome: () => {},
   resetGridStretch: () => {},
 }));
+vi.mock("../model/terminalLayout", () => layout);
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     constructor(options: { fontFamily?: string }) {
@@ -32,7 +37,9 @@ vi.mock("@xterm/xterm", () => ({
       onBufferChange: () => ({ dispose() {} }),
     };
     element = undefined;
-    open() {}
+    open(host: HTMLElement) {
+      xterm.open(host.isConnected);
+    }
     focus() {}
     dispose() {}
     writeln() {}
@@ -51,6 +58,7 @@ import { TERMINAL_HANDOFF_MS, TerminalView } from "./TerminalView";
 afterEach(() => {
   xterm.options.length = 0;
   vi.clearAllMocks();
+  layout.fitTerminal.mockReturnValue(null);
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -76,6 +84,59 @@ function setup() {
   document.body.appendChild(host);
   return { host, root: createRoot(host) };
 }
+
+it("opens xterm only after its node is connected", async () => {
+  const { host, root } = setup();
+  try {
+    await act(async () => {
+      root.render(
+        createElement(TerminalView, {
+          id: "connected", cwd: "/tmp", active: true,
+        }),
+      );
+    });
+    expect(xterm.open).toHaveBeenCalledWith(true);
+  } finally {
+    await act(async () => root.unmount());
+    await lapseHandoff();
+    host.remove();
+  }
+});
+
+it("remeasures a revealed terminal even when its rows and columns stay the same", async () => {
+  const { host, root } = setup();
+  const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get")
+    .mockReturnValue(800);
+  const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get")
+    .mockReturnValue(480);
+  layout.fitTerminal.mockReturnValue({ cols: 80, rows: 24 });
+  const view = (active: boolean) =>
+    createElement(TerminalView, { id: "revealed", cwd: "/tmp", active });
+  try {
+    await act(async () => root.render(view(true)));
+    expect(layout.refreshTerminalMeasurements).toHaveBeenCalledTimes(1);
+    expect(pty.resizePty).toHaveBeenCalledTimes(1);
+
+    width.mockReturnValue(0);
+    await act(async () => root.render(view(false)));
+    await act(async () => root.render(view(true)));
+    expect(layout.refreshTerminalMeasurements).toHaveBeenCalledTimes(1);
+
+    await act(async () => root.render(view(false)));
+    width.mockReturnValue(800);
+    await act(async () => root.render(view(true)));
+    expect(layout.refreshTerminalMeasurements).toHaveBeenCalledTimes(2);
+    expect(pty.resizePty).toHaveBeenCalledTimes(1);
+    expect(pty.spawnPty).toHaveBeenCalledTimes(1);
+    expect(pty.killPty).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+    await lapseHandoff();
+    width.mockRestore();
+    height.mockRestore();
+    host.remove();
+  }
+});
 
 it("does not let StrictMode cleanup kill the replacement shell", async () => {
   const { host, root } = setup();
@@ -225,9 +286,20 @@ it("does not hold a different terminal behind another one's teardown", async () 
   }
 });
 
-it("uses the terminal-specific font stack", async () => {
+it.each([
+  { name: "keeps a resolved monospace font", narrow: 256, boldNarrow: 256, prefix: "" },
+  { name: "replaces a proportional fallback", narrow: 96, boldNarrow: 96, prefix: "monospace, " },
+  { name: "replaces a proportional bold fallback", narrow: 256, boldNarrow: 96, prefix: "monospace, " },
+])("$name while retaining the configured icon fonts", async ({ narrow, boldNarrow, prefix }) => {
   const { host, root } = setup();
   const stack = '"Test Nerd Font", monospace';
+  const measure = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      const width = this.textContent === "i".repeat(32)
+        ? (this.style.fontWeight === "700" ? boldNarrow : narrow)
+        : 256;
+      return new DOMRect(0, 0, width, 16);
+    });
   document.documentElement.style.setProperty("--font-terminal", stack);
   try {
     await act(async () => {
@@ -235,11 +307,13 @@ it("uses the terminal-specific font stack", async () => {
         createElement(TerminalView, { id: "font", cwd: "/tmp", active: true }),
       );
     });
-    expect(xterm.options[0]?.fontFamily).toBe(stack);
+    expect(xterm.options[0]?.fontFamily).toBe(prefix + stack);
   } finally {
     await act(async () => {
       root.unmount();
     });
+    await lapseHandoff();
+    measure.mockRestore();
     host.remove();
     document.documentElement.style.removeProperty("--font-terminal");
   }
