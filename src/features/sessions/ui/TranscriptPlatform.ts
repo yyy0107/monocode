@@ -29,7 +29,7 @@ export const TranscriptPlatformContext = createContext<
     openActivity?: (steps: Block[]) => void;
     /** Clients without a side panel read a whole plan in their own view. */
     openPlan?: (blockId: string) => void;
-    /** Show answered questions as a flat question/answer list instead of a fold. */
+    /** Show answered questions as a flat question/answer list instead of a fold (default: true). */
     answeredQuestionsInline?: boolean;
     /** Open a saved question in the client's answer surface. */
     openQuestion?: (blockId: string) => void;

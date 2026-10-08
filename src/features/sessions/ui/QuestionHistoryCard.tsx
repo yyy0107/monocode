@@ -27,7 +27,7 @@ export function QuestionHistoryCard({
   ) => boolean | void | Promise<boolean | void>;
 }) {
   const { t } = useTranslation();
-  const { openQuestion, answeredQuestionsInline } = useContext(
+  const { openQuestion, answeredQuestionsInline = true } = useContext(
     TranscriptPlatformContext,
   );
   const [open, setOpen] = useState(false);
