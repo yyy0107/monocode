@@ -132,6 +132,35 @@ describe("mobile page transitions", () => {
     expect(mobileRouteDirection(route("root", "settings"), route("appearance", "settings", 1))).toBe(1);
     expect(mobileRouteDirection(route("glass", "settings", 2), route("appearance", "settings", 1))).toBe(-1);
   });
+
+  it.each([
+    { key: "root", depth: 0 },
+    { key: "all", depth: 1 },
+    { key: "project", depth: 2 },
+  ])("pushes chat forward from the $key list and returns back to it", ({ key, depth }) => {
+    const home = route(`home:${key}`, "home", depth);
+    const chat = route("chat:session", "chat", 3);
+    expect(mobileRouteDirection(home, chat)).toBe(1);
+    expect(mobileRouteDirection(chat, home)).toBe(-1);
+  });
+
+  it("keeps home/chat direction even when section depths differ from the current hierarchy", () => {
+    const project = route("home:project", "home", 2);
+    const chat = route("chat:session", "chat", 0);
+    expect(mobileRouteDirection(project, chat)).toBe(1);
+    expect(mobileRouteDirection(chat, project)).toBe(-1);
+  });
+
+  it("uses home depth for ancestors and leaves same-depth siblings neutral", () => {
+    const root = route("home:root");
+    const all = route("home:all", "home", 1);
+    const project = route("home:project", "home", 2);
+    expect(mobileRouteDirection(root, all)).toBe(1);
+    expect(mobileRouteDirection(all, project)).toBe(1);
+    expect(mobileRouteDirection(project, all)).toBe(-1);
+    expect(mobileRouteDirection(all, root)).toBe(-1);
+    expect(mobileRouteDirection(project, route("home:other", "home", 2))).toBe(0);
+  });
 });
 
 it("retains the assistant for an inert exit and supports reopening", () => {

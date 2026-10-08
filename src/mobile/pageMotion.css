@@ -17,6 +17,8 @@
   background: var(--color-background-base);
 }
 .mobile-page-layer[data-page-active="true"] { z-index: 1; }
+/* Chat stays above the list while entering and while sliding back out. */
+.mobile-page-layer[data-page-front="true"] { z-index: 2; }
 .mobile-page-layer[data-page-active="false"] { pointer-events: none; }
 .mobile-page-overlay {
   position: absolute;
@@ -30,12 +32,20 @@
   animation: mobile-page-exit 220ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 @keyframes mobile-page-enter {
-  from { opacity: var(--mobile-page-start-opacity, 0); transform: translateX(var(--mobile-page-offset)); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: var(--mobile-page-start-opacity, 0);
+    transform: translateX(var(--mobile-page-offset));
+    filter: var(--mobile-page-start-filter, none);
+  }
+  to { opacity: 1; transform: none; filter: none; }
 }
 @keyframes mobile-page-exit {
-  from { opacity: 1; transform: none; }
-  to { opacity: var(--mobile-page-start-opacity, 0); transform: translateX(calc(-1 * var(--mobile-page-offset))); }
+  from { opacity: 1; transform: none; filter: none; }
+  to {
+    opacity: var(--mobile-page-start-opacity, 0);
+    transform: translateX(calc(-1 * var(--mobile-page-offset)));
+    filter: var(--mobile-page-start-filter, none);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   :is(.mobile-page-layer, .mobile-page-overlay)[data-page-motion] { animation: none !important; }

@@ -1462,8 +1462,9 @@ export function MobileApp() {
     key: view === "settings" ? `settings:${settingsPage}` : view === "chat" ? `chat:${chatPageKey}`
       : `home:${homeProjectId ?? (allProjectsPage ? "all" : "root")}`,
     section: view,
+    // Home depths are 0–2; chat is always above every list page.
     depth: view === "settings" ? (settingsPage === "root" ? 0 : 1)
-      : view === "home" ? (homeProjectId ? 2 : allProjectsPage ? 1 : 0) : 0,
+      : view === "home" ? (homeProjectId ? 2 : allProjectsPage ? 1 : 0) : 3,
   };
   useMobileHeaderMotion(header, route, navigationReady.current);
   const title =
