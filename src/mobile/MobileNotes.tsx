@@ -32,6 +32,7 @@ import type { MobileClient } from "./client";
 import { MobilePageTransition } from "./MobilePageTransition";
 import { mobileTranscriptPlatform } from "./transcriptPlatform";
 import { formatMobileRelativeTime } from "./relativeTime";
+import { MobileEmpty } from "./MobileEmpty";
 import "./mobileNotes.css";
 
 export type MobileNotesHandle = { back: () => void };
@@ -276,13 +277,10 @@ export function MobileNotes({
                   />
                 </p>
               ) : !filtered.length && !filteredTopics.length && !topics.loading ? (
-                <p className="mobile-notes-empty">
-                  {t(
-                    needle
-                      ? "No matching notes"
-                      : "No notes yet. Create notes on desktop to view them here.",
-                  )}
-                </p>
+                <MobileEmpty icon={needle ? <Search size={40} /> : <File size={40} />}
+                  title={t(needle ? "No matching notes" : "Notes")}>
+                  {!needle && t("No notes yet. Create notes on desktop to view them here.")}
+                </MobileEmpty>
               ) : (
                 <ul className="mobile-notes-list">
                   {filtered.map((note) => (
@@ -329,7 +327,9 @@ export function MobileNotes({
                   </p>
                 ))}
                 {!topics.loading && !topics.errors.length && !filteredTopics.length && (
-                  <p className="mobile-notes-empty">{t(needle ? "No matching notes" : "No topic notes yet.")}</p>
+                  <MobileEmpty icon={<File size={40} />} title={t(needle ? "No matching notes" : "Assistant memory")}>
+                    {!needle && t("No topic notes yet.")}
+                  </MobileEmpty>
                 )}
                 <ul className="mobile-notes-list">
                   {filteredTopics.map((note) => (

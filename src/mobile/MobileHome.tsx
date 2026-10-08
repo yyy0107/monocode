@@ -23,6 +23,8 @@ import {
 import { MobileSheet, type MobileSheetPoint } from "./MobileSheet";
 import { MobileListPreview } from "./MobileListPreview";
 import { MobileSessionRow } from "./MobileSessionRow";
+import { MobileEmpty } from "./MobileEmpty";
+import { MobileListSkeleton } from "./MobileListSkeleton";
 import { lightImpact } from "./haptics";
 import { sortMobileProjects } from "./sessionList";
 import {
@@ -279,30 +281,24 @@ export function MobileHome({
       <div className="mobile-home-scroll" key={project?.id ?? "all"}>
         {projectsUnavailable && !projects.length ? (
           <p className="mobile-home-empty" role="status">{t("Couldn’t load projects")}</p>
-        ) : projectsPending && (
-          <div className="mobile-loading" role="status">
-            <LoaderCircle className="mobile-spin" size={18} />{t("Loading projects…")}
-          </div>
+        ) : projectsPending && !projects.length && (
+          <MobileListSkeleton kind="projects" label={t("Loading projects…")} />
         )}
         {root && !needle && !projects.length && !projectsPending && !projectsUnavailable && (
           <section className="mobile-home-projects" aria-label={t("Projects")}>
-            <button
-              type="button"
-              className="mobile-home-project mobile-home-add"
-              onClick={(event) => onAddProject(event.currentTarget)}
-            >
-              <FolderPlus size={21} />
-              <span>{t("Open project")}</span>
-            </button>
+            <MobileEmpty icon={<Folder size={40} />} title={t("Projects")}
+              action={<button type="button" className="mobile-button mobile-home-add"
+                onClick={(event) => onAddProject(event.currentTarget)}>
+                <FolderPlus size={21} />{t("Open project")}
+              </button>}>
+              {t("Choose a project")}
+            </MobileEmpty>
           </section>
         )}
         {projectsPage && (
           <section className="mobile-home-projects" aria-label={t("Projects")}>
             {projectsLoading ? (
-              <div className="mobile-loading" role="status">
-                <LoaderCircle size={17} className="mobile-spin" />
-                {t("Loading conversations…")}
-              </div>
+              <MobileListSkeleton kind="projects" rows={Math.min(matchingProjects.length || 5, 5)} label={t("Loading conversations…")} />
             ) : <MobileListPreview key={needle} stateKey={needle ? undefined : "projects"} initialLimit={50} items={matchingProjects} renderItem={(item) => {
               const history = histories[item.id]?.sessions ?? [];
               const state = history.some((session) => !session.archived && session.needsInput)
@@ -333,8 +329,11 @@ export function MobileHome({
                 </button>
               );
             }} />}
-            {needle && !matchingProjects.length && (
-              <p className="mobile-home-empty">{t("No matching projects")}</p>
+            {!matchingProjects.length && !projectsPending && !projectsUnavailable && !projectsLoading && (
+              <MobileEmpty icon={needle ? <Search size={40} /> : <Folder size={40} />}
+                title={t(needle ? "No matching projects" : "Projects")}>
+                {!needle && t("Choose a project")}
+              </MobileEmpty>
             )}
           </section>
         )}
@@ -356,18 +355,14 @@ export function MobileHome({
             </div>
           )}
           <MobileListPreview key={`${needle}:${activeFilter}`} stateKey={needle ? undefined : `recent:${activeFilter}`} initialLimit={20} items={ordered} renderItem={row} />
-          {loading && (
-            <div className="mobile-loading" role="status">
-              <LoaderCircle className="mobile-spin" size={18} />
-              {t("Loading conversations…")}
-            </div>
+          {projectsLoading && (
+            <MobileListSkeleton kind="sessions" label={t("Loading conversations…")} />
           )}
           {!ordered.length && !loading && !failed.length && !projectsPending && !projectsUnavailable && (
-            <p className="mobile-home-empty">
-              {needle || activeFilter !== "all"
+            <MobileEmpty icon={needle ? <Search size={40} /> : <MessageSquarePlus size={40} />}
+              title={needle || activeFilter !== "all"
                 ? t("No matching conversations")
-                : t("No conversations yet")}
-            </p>
+                : t("No conversations yet")} />
           )}
           {!!failed.length && (
             <div className="mobile-home-error" role="alert">

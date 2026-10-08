@@ -82,6 +82,22 @@ const ids = (area: string) =>
   );
 
 describe("mobile home and project history", () => {
+  it("waits for project discovery before offering the empty-state action", async () => {
+    const onAddProject = vi.fn();
+    await render({ projects: [], projectsPending: true, onAddProject });
+    expect(node.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("Loading projects…");
+    expect(node.querySelector(".mobile-empty")).toBeNull();
+    expect(node.querySelector(".mobile-home-add")).toBeNull();
+    act(() => setUiLanguage("zh-CN"));
+    expect(node.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("正在加载项目…");
+
+    await render({ projects: [], projectsPending: false, onAddProject });
+    expect(node.querySelector('[role="status"]')).toBeNull();
+    const button = node.querySelector<HTMLButtonElement>(".mobile-empty .mobile-home-add")!;
+    act(() => button.click());
+    expect(onAddProject).toHaveBeenCalledExactlyOnceWith(button);
+  });
+
   it.each([
     { label: "populated", projects, query: "" },
     { label: "empty", projects: [], query: "" },
@@ -147,7 +163,7 @@ describe("mobile home and project history", () => {
     const props = { cachedSessions, loadSessions };
     await render(props);
     expect(ids(".mobile-home-recent")).toEqual(["pin", "latest", "older"]);
-    expect(node.querySelector('.mobile-loading[role="status"]')).toBeNull();
+    expect(node.querySelector('.mobile-list-skeleton[role="status"]')).toBeNull();
     await act(async () => reject(new Error("Offline")));
     expect(ids(".mobile-home-recent")).toEqual(["pin", "latest", "older"]);
     expect(node.querySelector('[role="alert"]')).not.toBeNull();
@@ -167,7 +183,7 @@ describe("mobile home and project history", () => {
     await render({ projects: [projects[0]], cachedSessions, loadSessions });
     await render({ cachedSessions, loadSessions });
     expect(ids(".mobile-home-recent")).toEqual(["live", "cached"]);
-    expect(node.querySelector('.mobile-loading[role="status"]')).toBeNull();
+    expect(node.querySelector('.mobile-list-skeleton[role="status"]')).toBeNull();
   });
 
   it("holds uncached projects in loading state until their first histories arrive", async () => {
@@ -176,9 +192,12 @@ describe("mobile home and project history", () => {
     await render({ projectsPage: true, loadSessions: () => pending });
     expect(node.querySelectorAll('.mobile-home-project[title]')).toHaveLength(0);
     expect(node.querySelector('.mobile-home-projects [role="status"]')).not.toBeNull();
+    expect(node.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("Loading conversations…");
+    act(() => setUiLanguage("zh-CN"));
+    expect(node.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("正在加载对话…");
     await act(async () => resolve([]));
     expect(node.querySelectorAll('.mobile-home-project[title]')).toHaveLength(2);
-    expect(node.querySelector('.mobile-loading[role="status"]')).toBeNull();
+    expect(node.querySelector('.mobile-list-skeleton[role="status"]')).toBeNull();
   });
 
   it("sorts projects by their newest visible conversation and refreshes the order", async () => {
@@ -399,7 +418,7 @@ describe("mobile home and project history", () => {
       id === "one" ? pending : defaults.loadSessions(id),
     );
     await render({ project: projects[0], loadSessions });
-    expect(node.textContent).toContain("Loading conversations…");
+    expect(node.querySelector('[role="status"]')?.getAttribute("aria-label")).toBe("Loading conversations…");
     await render({ project: projects[1], loadSessions });
     await act(async () => resolve([session("stale", "one", 200)]));
     expect(ids(".mobile-home-recent")).toEqual(["new"]);

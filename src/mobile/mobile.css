@@ -1048,6 +1048,7 @@ html[data-mobile-glass="solid"] :is(
   font-weight: 700;
 }
 .mobile-empty p {
+  margin: 0;
   max-width: 320px;
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
   line-height: 1.5;
@@ -1056,6 +1057,9 @@ html[data-mobile-glass="solid"] :is(
 .mobile-empty p .mobile-button {
   display: flex;
   margin: 22px auto 0;
+}
+.mobile-empty > .mobile-button {
+  margin-top: 22px;
 }
 .mobile-home {
   position: relative;
@@ -1079,7 +1083,7 @@ html[data-mobile-glass="solid"] :is(
   width: 0;
   height: 0;
 }
-.mobile-home h2 {
+.mobile-home :where(h2) {
   margin: 0;
   font-size: var(--mobile-font-lg);
   font-weight: 600;
@@ -1303,6 +1307,56 @@ html[data-mobile-glass="solid"] :is(
 }
 .mobile-home-session:active {
   --mobile-press-color: var(--color-selection);
+}
+/* Skeletons keep the real rows' typography, padding and minimum heights. */
+.mobile-list-skeleton {
+  pointer-events: none;
+}
+.mobile-skeleton-bar {
+  display: inline-block;
+  height: 12px;
+  max-width: 100%;
+  border-radius: 6px;
+  vertical-align: middle;
+  background: linear-gradient(90deg,
+    var(--mobile-fill) 25%,
+    color-mix(in srgb, var(--color-content) 15%, transparent) 50%,
+    var(--mobile-fill) 75%);
+  background-size: 200% 100%;
+  animation: mobile-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+.mobile-skeleton-bar.mobile-skeleton-icon {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+}
+.mobile-home-project > .mobile-skeleton-icon {
+  flex-basis: 23px;
+  width: 23px;
+  height: 23px;
+}
+.mobile-skeleton-project-text {
+  flex: 1;
+}
+.mobile-list-skeleton strong > .mobile-skeleton-bar {
+  width: 65%;
+}
+.mobile-list-skeleton small > .mobile-skeleton-bar {
+  width: 45%;
+  height: 8px;
+}
+.mobile-skeleton-age {
+  width: 42px;
+}
+@keyframes mobile-skeleton-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-skeleton-bar {
+    animation: none;
+    background: var(--mobile-fill);
+  }
 }
 /* Home keeps one compact, high-contrast action at the thumb's corner. */
 .mobile-home:not([data-project="true"]) .mobile-home-dock {

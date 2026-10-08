@@ -9,6 +9,8 @@ import { translate } from "../shared/i18n/language";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { formatMobileRelativeTime } from "./relativeTime";
 import { archivedMobileSessions } from "./sessionList";
+import { Archive } from "../shared/ui/icons";
+import { MobileEmpty } from "./MobileEmpty";
 
 type ArchiveGroup = { project: HostProject; sessions: HostSessionSummary[] };
 
@@ -85,9 +87,7 @@ export function MobileArchive({
         </p>
       ) : null}
       {groups.length === 0 && !error ? (
-        <div className="mobile-empty">
-          <p>{t("No archived conversations")}</p>
-        </div>
+        <MobileEmpty icon={<Archive size={40} />} title={t("No archived conversations")} />
       ) : null}
       {groups.map(({ project, sessions }) => (
         <section
