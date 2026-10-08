@@ -230,6 +230,15 @@ describe("mobile connection settings", () => {
     await act(async () => button("Settings").click());
   }
 
+  async function openConnections() {
+    await openConnectedSettings();
+    const row = button("Connections");
+    expect(row.textContent).toContain("My computer · Connected");
+    expect(active(".mobile-connection-list")).toBeNull();
+    await act(async () => row.click());
+    expect(active("header strong")?.textContent).toBe("Connections");
+  }
+
   it("opens Accounts and usage from Settings and returns with native Back", async () => {
     vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
     await openConnectedSettings();
@@ -242,7 +251,7 @@ describe("mobile connection settings", () => {
   });
 
   it("keeps Add connection in the device list and disconnects through its switch", async () => {
-    await openConnectedSettings();
+    await openConnections();
     const list = active(".mobile-connection-list")!;
     expect(list.textContent).toContain("My computer");
     expect(list.textContent).toContain("Connected");
@@ -259,6 +268,7 @@ describe("mobile connection settings", () => {
     healthyStatus.state = "disconnected";
     host.connection.disabled = true;
     await openConnectedSettings();
+    await act(async () => button("Connections").click());
     const list = active(".mobile-connection-list")!;
     expect(list.textContent).toContain("Disconnected");
     const toggle = list.querySelector<HTMLInputElement>('[role="switch"]')!;
@@ -270,7 +280,7 @@ describe("mobile connection settings", () => {
   });
 
   it("opens connection actions on a hold, edits the local alias and icon, and preserves the Host name", async () => {
-    await openConnectedSettings();
+    await openConnections();
     vi.useFakeTimers();
     const details = active<HTMLButtonElement>(".mobile-connection-details")!;
     act(() => details.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 70, clientY: 140 })));
@@ -285,14 +295,14 @@ describe("mobile connection settings", () => {
     act(() => button("Terminal").click());
     act(() => active(".mobile-connection-editor")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(active(".mobile-connection-name")!.textContent).toBe("Workstation");
-    expect(active(".mobile-header-title")!.textContent).toBe("MonoCode");
+    expect(active(".mobile-header-title")!.textContent).toBe("Connections");
     expect(host.connection.name).toBe("My computer");
-    expect(JSON.parse(localStorage.getItem("monocode.mobile.connectionAppearance:settings-host")!)).toEqual({ displayName: "Workstation", icon: "terminal" });
+    expect(JSON.parse(localStorage.getItem("monocode.mobile.connectionAppearance:http://computer:3774")!)).toEqual({ displayName: "Workstation", icon: "terminal" });
     vi.useRealTimers();
   });
 
   it("cancels long press when scrolling and keeps the switch separate from deletion", async () => {
-    await openConnectedSettings();
+    await openConnections();
     vi.useFakeTimers();
     const details = active<HTMLButtonElement>(".mobile-connection-details")!;
     act(() => details.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 70, clientY: 140 })));
@@ -356,12 +366,13 @@ describe("mobile connection settings", () => {
     vi.stubGlobal("crypto", api);
     ensureRandomUUID();
     await render();
-    expect(button("Add connection")).toBeDefined();
+    expect(button("Connections")).toBeDefined();
     expect(api.randomUUID()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
   it("keeps connection fields in a dialog and cancels without connecting", async () => {
     await render();
+    act(() => button("Connections").click());
     expect(active('input[type="url"], input.mobile-pairing-code')).toBeNull();
     open();
     input('input[type="url"]', "http://computer:3774");
@@ -402,6 +413,7 @@ describe("mobile connection settings", () => {
     expect(active("#mobile-theme")!.textContent).toBe("深色");
     expect(button("通知").querySelector(".mobile-settings-value")?.textContent).toBe("关闭");
     expect(button("编写器").querySelector(".mobile-settings-value")?.textContent).toBe("引导");
+    act(() => button("连接").click());
     act(() => button("添加连接").click());
     chooseMethod("配对码");
     input('input[type="url"]', "http://computer:3774");
@@ -458,6 +470,7 @@ describe("mobile connection settings", () => {
 
   it("retains failed connection input for retry and closes only after success", async () => {
     await render();
+    act(() => button("Connections").click());
     open();
     input('input[type="url"]', "http://computer:3774");
     input('input.mobile-pairing-code', "device-token");

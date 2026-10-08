@@ -154,6 +154,19 @@ export function saveMobileAgentDefaults(
   });
 }
 
+/** Moves a record saved under an earlier key (the Host identity) to its connection address. */
+export function moveMobileAgentDefaults(from: string, to: string) {
+  const raw = read();
+  if (raw.version !== 2) return;
+  const saved = hosts(raw);
+  if (!Object.prototype.hasOwnProperty.call(saved, from)) return;
+  const { [from]: value, ...rest } = saved;
+  write({
+    version: 2,
+    hosts: Object.prototype.hasOwnProperty.call(rest, to) ? rest : { ...rest, [to]: value },
+  });
+}
+
 export function configurationForAgent(
   catalog: HostModelCatalog,
   defaults: MobileAgentDefaults,

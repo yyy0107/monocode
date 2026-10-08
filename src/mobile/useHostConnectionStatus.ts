@@ -11,7 +11,7 @@ export function useHostConnectionStatus(
     client.getConnectionStatus,
     client.getConnectionStatus,
   );
-  const environmentId = client.connection?.environmentId;
+  const endpoint = client.connection?.endpoint;
   useEffect(() => {
     if (!connected || !foreground) return;
     let live = true;
@@ -32,6 +32,6 @@ export function useHostConnectionStatus(
       live = false;
       clearTimeout(timer);
     };
-  }, [client, connected, foreground, environmentId]);
+  }, [client, connected, foreground, endpoint]);
   return status;
 }

@@ -19,7 +19,7 @@ const accounts = (): HostProviderAccounts => ({
   claude: [{ id: "default", label: "Claude account", identity: { email: "claude@example.test" } }],
 });
 let host: {
-  connection: { environmentId: string; name: string };
+  connection: { endpoint: string; name: string };
   hasCapability: ReturnType<typeof vi.fn>;
   verify: ReturnType<typeof vi.fn<() => Promise<void>>>;
   providerAccounts: ReturnType<typeof vi.fn<() => Promise<HostProviderAccounts | null>>>;
@@ -33,7 +33,7 @@ beforeEach(() => {
   document.body.append(node);
   root = createRoot(node);
   host = {
-    connection: { environmentId: "host-a", name: "Computer A" },
+    connection: { endpoint: "host-a", name: "Computer A" },
     hasCapability: vi.fn(() => true),
     verify: vi.fn(async () => {}),
     providerAccounts: vi.fn(async () => accounts()),
@@ -48,7 +48,7 @@ afterEach(async () => {
   localStorage.clear();
   vi.unstubAllGlobals();
 });
-async function render(hostId = host.connection.environmentId, enabled = true, visible = true) {
+async function render(hostId = host.connection.endpoint, enabled = true, visible = true) {
   await act(async () => root.render(createElement(SurfaceVisibilityContext.Provider, { value: visible },
     createElement(MobileProviderAccounts, { client: host as unknown as MobileClient, hostId, enabled }))));
 }
@@ -164,7 +164,7 @@ it("ignores late results and queued work after switching Hosts or leaving the pa
   host.providerAccountUsage.mockImplementation(() => new Promise(resolve => pending.push(resolve)));
   await render();
   expect(pending).toHaveLength(2);
-  host.connection = { environmentId: "host-b", name: "Computer B" };
+  host.connection = { endpoint: "host-b", name: "Computer B" };
   host.providerAccounts.mockResolvedValue({ codex: [{ id: "work", label: "Host B only" }] });
   host.providerAccountUsage.mockResolvedValue(errorRateLimits("codex", "Codex not signed in"));
   await render("host-b");

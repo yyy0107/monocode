@@ -41,7 +41,7 @@ export function MobileProviderAccounts({ client, hostId, enabled }: {
       return;
     }
     let live = true;
-    const current = () => live && client.connection?.environmentId === hostId;
+    const current = () => live && client.connection?.endpoint === hostId;
     setState(previous => ({ ...(previous.hostId === hostId ? previous : empty(hostId)), loading: true, error: "" }));
     void (async () => {
       try {

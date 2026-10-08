@@ -30,12 +30,28 @@ it("keeps every paired Host and switches between them", async () => {
   expect((await client.savedConnections()).map((host) => host.environmentId)).toEqual(["host-a", "host-b"]);
   expect(client.connection?.environmentId).toBe("host-b");
 
-  await client.switchTo("host-a");
+  await client.switchTo("http://10.0.0.1:3774");
   expect(client.connection).toMatchObject({ environmentId: "host-a", token: "token-a" });
 
   await client.disconnect();
   expect((await client.savedConnections()).map((host) => host.environmentId)).toEqual(["host-b"]);
   expect(client.connection).toBeUndefined();
+});
+
+it("keeps one Host reached through several addresses as separate connections", async () => {
+  const client = new MobileClient(memory(), async () => ({
+    protocolVersion: 1, environmentId: "host-a", name: "Linux", providers: ["codex"],
+  }));
+  await client.connect("http://10.0.0.1:3774", "token-lan");
+  await client.connect("http://100.64.0.1:3774", "token-tailnet");
+  expect((await client.savedConnections()).map((host) => [host.endpoint, host.environmentId])).toEqual([
+    ["http://10.0.0.1:3774", "host-a"],
+    ["http://100.64.0.1:3774", "host-a"],
+  ]);
+  await client.switchTo("http://10.0.0.1:3774");
+  expect(client.connection).toMatchObject({ endpoint: "http://10.0.0.1:3774", token: "token-lan" });
+  await client.disconnect();
+  expect((await client.savedConnections()).map((host) => host.endpoint)).toEqual(["http://100.64.0.1:3774"]);
 });
 
 it("adopts a Host saved before multiple connections existed", async () => {

@@ -155,6 +155,7 @@ import { useNow } from "../shared/hooks/useNow";
 import { MobilePageOverlay, MobilePageTransition, useMobileHeaderMotion, type MobileRoute } from "./MobilePageTransition";
 import { MobileOverlayHostContext } from "./MobileOverlayHost";
 import { MobileSheetPresence } from "./MobileSheetPresence";
+import { migrateConnectionSettings } from "./connectionScope";
 import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 import { dismissImageLightbox } from "../shared/ui/ImageLightbox";
 
@@ -280,9 +281,9 @@ export function MobileApp() {
   const [assistantIdentity, setAssistantIdentity] = useState<{ hostId: string; name?: string }>();
   const assistantPage = useRef<MobileAssistantHandle>(null);
   const assistantRpc = useCallback(async <T,>(method: string, params?: object) => {
-    const hostId = client.connection?.environmentId;
+    const hostId = client.connection?.endpoint;
     const result = await client.rpc<T>(method, params);
-    if (method === "assistant.get" && hostId && client.connection?.environmentId === hostId) {
+    if (method === "assistant.get" && hostId && client.connection?.endpoint === hostId) {
       const name = (result as { name?: string } | null)?.name;
       setAssistantIdentity((current) => current?.hostId === hostId && current.name === name
         ? current : { hostId, name });
@@ -302,20 +303,21 @@ export function MobileApp() {
   const hostPickerTrigger = useRef<HTMLButtonElement>(null);
   const [settingsPage, setSettingsPage] = useState<MobileSettingsPage>("root");
 
-  const connectionAppearance = useConnectionAppearance(client.connection?.environmentId);
+  const connectionAppearance = useConnectionAppearance(client.connection?.endpoint);
   const connectionName = connectionAppearance.displayName || client.connection?.name || "MonoCode";
   const [connected, setConnected] = useState(false);
   const [connectionRevision, setConnectionRevision] = useState(0);
   const [savedHosts, setSavedHosts] = useState<Connection[]>([]);
+  // Assistant read marks and drafts belong to the Host's conversation, not to one address.
   const assistantHostId = connected ? client.connection?.environmentId : undefined;
   const resolveNoteImage = useMemo(() => {
-    const hostId = client.connection?.environmentId;
+    const hostId = client.connection?.endpoint;
     return async (asset: string) => {
-      if (client.connection?.environmentId !== hostId) throw new Error(t("Host connection changed."));
+      if (client.connection?.endpoint !== hostId) throw new Error(t("Host connection changed."));
       const image = await client.noteImage(asset);
       return `data:${image.mime};base64,${image.data}`;
     };
-  }, [client.connection?.environmentId, t]);
+  }, [client.connection?.endpoint, t]);
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
   const [projects, setProjects] = useState<HostProject[]>([]);
@@ -395,9 +397,10 @@ export function MobileApp() {
     !assistantOpen && foreground &&
       connected && hostStatus.state === "connected" && client.hasCapability("assistant.v1"),
   );
-  const environmentId = client.connection?.environmentId;
-  const previousEnvironment = useRef(environmentId);
-  const hostScopeReady = previousEnvironment.current === environmentId;
+  // Each paired address is its own connection, even when it reaches the same Host.
+  const connectionKey = client.connection?.endpoint;
+  const previousConnection = useRef(connectionKey);
+  const hostScopeReady = previousConnection.current === connectionKey;
   const hostDrafts = useRef(new Map<string, {
     projectId: string; sessionId?: string; text: string; attachments: Attachment[];
     planMode: boolean; accepted: Attachment[]; parked: typeof parkedDrafts.current;
@@ -479,9 +482,9 @@ export function MobileApp() {
   // A selected device owns the whole page, including the failure/loading state.
   // Run before paint: the client changes identity before verification can finish.
   useLayoutEffect(() => {
-    if (previousEnvironment.current === environmentId) return;
-    const previous = previousEnvironment.current;
-    previousEnvironment.current = environmentId;
+    if (previousConnection.current === connectionKey) return;
+    const previous = previousConnection.current;
+    previousConnection.current = connectionKey;
     if (previous && project && (draft.get() || attachments.length || parkedDrafts.current.length)) {
       hostDrafts.current.set(previous, { projectId: project.id, sessionId,
         text: draft.get(), attachments, planMode, accepted: acceptedQueueAttachments.current,
@@ -523,9 +526,9 @@ export function MobileApp() {
     setAssistantOpen(false);
     setNotesOpen(false);
     setPreferencePanel(null);
-    setConnected(!!environmentId && !client.connection?.disabled);
-    setView(environmentId ? "home" : "settings");
-  }, [environmentId]);
+    setConnected(!!connectionKey && !client.connection?.disabled);
+    setView(connectionKey ? "home" : "settings");
+  }, [connectionKey]);
 
   useEffect(() => {
     if (!searchOpen || view !== "home") setSearchQuery("");
@@ -571,6 +574,7 @@ export function MobileApp() {
     const current = () => live && hostAttempt.current === attempt;
     void (async () => {
       try {
+        migrateConnectionSettings(await client.savedConnections().catch(() => []));
         const [restored, pending] = await Promise.all([client.restore(), client.pending()]);
         if (current()) setPending(pending);
         if (restored) {
@@ -616,8 +620,8 @@ export function MobileApp() {
     if (!connected || hostStatus.state !== "connected" || !foreground || pageOverlayOpen || (view === "settings" && !drawerOpen)) return;
     let live = true;
     const turn = navigation.current;
-    const hostId = client.connection?.environmentId;
-    const current = () => live && navigation.current === turn && hostId === client.connection?.environmentId;
+    const hostId = client.connection?.endpoint;
+    const current = () => live && navigation.current === turn && hostId === client.connection?.endpoint;
     let timer: ReturnType<typeof setTimeout>;
     let failures = 0;
     setPollError("");
@@ -687,7 +691,7 @@ export function MobileApp() {
     };
   }, [
     connected,
-    environmentId,
+    connectionKey,
     connectionRevision,
     hostStatus.state,
     foreground,
@@ -743,7 +747,7 @@ export function MobileApp() {
   const refreshSavedHosts = useCallback(() => {
     void client.savedConnections().then(setSavedHosts).catch(() => undefined);
   }, [client]);
-  useEffect(refreshSavedHosts, [refreshSavedHosts, environmentId, connectionRevision, connected]);
+  useEffect(refreshSavedHosts, [refreshSavedHosts, connectionKey, connectionRevision, connected]);
   const connect = async (credentials = { url, token }) => {
     if (pairing) return;
     setPairing(true);
@@ -757,13 +761,13 @@ export function MobileApp() {
       setPairing(false);
     }
   };
-  const switchHost = (environmentId: string) => {
+  const switchHost = (endpoint: string) => {
     if (switching || pairing) return;
     setHostPickerOpen(false);
-    if (client.connection?.environmentId === environmentId && !client.connection.disabled) return;
+    if (client.connection?.endpoint === endpoint && !client.connection.disabled) return;
     setDrawerOpen(false);
     setSwitching(true);
-    void activateConnection(() => client.switchTo(environmentId), (problem) => setHostError(message(problem)))
+    void activateConnection(() => client.switchTo(endpoint), (problem) => setHostError(message(problem)))
       .finally(() => setSwitching(false));
   };
   const activateConnection = async (
@@ -823,7 +827,7 @@ export function MobileApp() {
     const projectTurn = ++projectGeneration.current;
     setProject(item);
     setSessions(client.cachedSessions?.(item.id) ?? []);
-    const defaults = loadMobileAgentDefaults(client.connection?.environmentId);
+    const defaults = loadMobileAgentDefaults(client.connection?.endpoint);
     draftDefaults.current = defaults;
     draftConfigurationChanged.current = false;
     const cachedCatalog = client.cachedModels(item.id);
@@ -906,7 +910,7 @@ export function MobileApp() {
     setSessionConfirmed(false);
     if (cached) setConfiguration(configurationForSession(cached));
     setAnimateFrom(undefined);
-    const hostId = client.connection?.environmentId;
+    const hostId = client.connection?.endpoint;
     const savedDraft = hostId ? hostDrafts.current.get(hostId) : undefined;
     const restoreDraft = savedDraft?.projectId === (restoredProjectId ?? project?.id) && savedDraft?.sessionId === id
       ? savedDraft : undefined;
@@ -1176,7 +1180,7 @@ export function MobileApp() {
     setError("");
     try {
       const generation = navigation.current;
-      const hostId = client.connection?.environmentId;
+      const hostId = client.connection?.endpoint;
       const providerAccountId = !sessionId
         ? defaultProviderAccount(configuration.harness, draftDefaults.current)
         : undefined;
@@ -1186,9 +1190,9 @@ export function MobileApp() {
         if (!accounts[configuration.harness]?.some((account) => account.id === providerAccountId))
           throw new Error(t("This provider account is no longer available. Choose an account in Settings and start a new conversation."));
       }
-      if (generation !== navigation.current || hostId !== client.connection?.environmentId) return;
+      if (generation !== navigation.current || hostId !== client.connection?.endpoint) return;
       const uploaded = await client.uploadAttachments(attachments, acceptedQueueAttachments.current);
-      if (generation !== navigation.current || hostId !== client.connection?.environmentId) return;
+      if (generation !== navigation.current || hostId !== client.connection?.endpoint) return;
       const prompt: MobileFirstMessage = {
         text: parsed.text,
         ...(uploaded.length ? { attachments: uploaded } : {}),
@@ -1331,7 +1335,7 @@ export function MobileApp() {
     navigation.current += 1;
     projectGeneration.current += 1;
     setBusy(true);
-    const environmentId = client.connection?.environmentId;
+    const endpoint = client.connection?.endpoint;
     try {
       if (remove) await client.disconnect();
       else await client.suspend();
@@ -1346,7 +1350,7 @@ export function MobileApp() {
       setError("");
       setHostError("");
       setPollError("");
-      if (remove && environmentId) removeConnectionAppearance(environmentId);
+      if (remove && endpoint) removeConnectionAppearance(endpoint);
     } catch (problem) {
       setError(message(problem));
       throw problem;
@@ -1354,12 +1358,12 @@ export function MobileApp() {
     // Deleting the active Host falls back to another paired one.
     const next = remove ? (await client.savedConnections())[0] : undefined;
     if (next)
-      await activateConnection(() => client.switchTo(next.environmentId), (problem) => setHostError(message(problem)));
+      await activateConnection(() => client.switchTo(next.endpoint), (problem) => setHostError(message(problem)));
   };
   const reconnect = async () => {
     const attempt = ++hostAttempt.current;
-    const hostId = client.connection?.environmentId;
-    const current = () => hostAttempt.current === attempt && client.connection?.environmentId === hostId;
+    const hostId = client.connection?.endpoint;
+    const current = () => hostAttempt.current === attempt && client.connection?.endpoint === hostId;
     setBusy(true);
     try {
       await client.reconnect();
@@ -1450,7 +1454,7 @@ export function MobileApp() {
   ) ?? (homeActionSession?.id === sessionActionsTarget ? homeActionSession : undefined);
   const nativeReadOnly = nativeWriteBlocked(snapshot, nativeAccess);
   const skillHarness = snapshot?.session.harness ?? configuration.harness;
-  const skillContextKey = `${client.connection?.environmentId ?? ""}\0${project?.id ?? ""}\0${skillHarness}\0${sessionId ?? ""}\0${snapshot?.session.worktreeCwd || snapshot?.session.cwd || project?.cwd || ""}`;
+  const skillContextKey = `${client.connection?.endpoint ?? ""}\0${project?.id ?? ""}\0${skillHarness}\0${sessionId ?? ""}\0${snapshot?.session.worktreeCwd || snapshot?.session.cwd || project?.cwd || ""}`;
   const loadSkillCatalog = useCallback((refresh = false) => {
     if (!project) return Promise.reject(new Error("Open a project first."));
     return client.skills(project.id, skillHarness, sessionId, refresh);
@@ -1591,8 +1595,8 @@ export function MobileApp() {
     setNotesOpen(true);
   });
   const onNoteAddToChat = useStableCallback(async (note: Note) => {
-    const hostId = client.connection?.environmentId;
-    const current = () => hostId && client.connection?.environmentId === hostId;
+    const hostId = client.connection?.endpoint;
+    const current = () => hostId && client.connection?.endpoint === hostId;
     if (view !== "chat" || !project) {
       const owner = (note.sourceCwd && noteSourceProject(note.sourceCwd)
         ? projects.find((item) => item.cwd === note.sourceCwd) ?? await client.openProject(note.sourceCwd)
@@ -1640,11 +1644,11 @@ export function MobileApp() {
       onClickCapture={(event) => interceptSearchOutside(event, true)}
       onContextMenuCapture={(event) => interceptSearchOutside(event, true)}
     >
-      <MobilePageOverlay key={`assistant:${client.connection?.environmentId}`} open={assistantOpen && !!client.connection}>
+      <MobilePageOverlay key={`assistant:${client.connection?.endpoint}`} open={assistantOpen && !!client.connection}>
       {client.connection && (
         <MobileAssistant
           ref={assistantPage}
-          key={client.connection.environmentId}
+          key={client.connection.endpoint}
           hostKey={client.connection.environmentId}
           hostName={connectionName}
           rpc={assistantRpc}
@@ -1659,8 +1663,8 @@ export function MobileApp() {
         />
       )}
       </MobilePageOverlay>
-      <MobilePageOverlay key={`notes:${client.connection?.environmentId}`} open={notesOpen && !!client.connection}>
-        {client.connection && <MobileNotes ref={notesPage} client={client} hostKey={client.connection.environmentId} hostName={connectionName}
+      <MobilePageOverlay key={`notes:${client.connection?.endpoint}`} open={notesOpen && !!client.connection}>
+        {client.connection && <MobileNotes ref={notesPage} client={client} hostKey={client.connection.endpoint} hostName={connectionName}
           projects={projects} onClose={() => setNotesOpen(false)} onAddToChat={onNoteAddToChat} />}
       </MobilePageOverlay>
       <SurfaceVisibilityContext.Provider value={!pageOverlayOpen}>
@@ -1851,7 +1855,7 @@ export function MobileApp() {
       )}
       </div>
 
-      <MobilePageTransition key={`pages:${client.connection?.environmentId}`} route={route}
+      <MobilePageTransition key={`pages:${client.connection?.endpoint}`} route={route}
         animate={navigationReady.current} visible={!pageOverlayOpen}>
       {view === "settings" ? (
         <MobileSettings
@@ -1881,7 +1885,7 @@ export function MobileApp() {
           onDeleteConnection={() => disconnectConnection(true)}
           connectionAppearance={connectionAppearance}
           onSaveConnectionAppearance={(value) => {
-            if (client.connection) saveConnectionAppearance(client.connection.environmentId, value);
+            if (client.connection) saveConnectionAppearance(client.connection.endpoint, value);
           }}
           onReconnect={() => void reconnect()}
           theme={theme}
@@ -1931,9 +1935,9 @@ export function MobileApp() {
           }
           agentDefaults={
             <MobileAgentDefaults
-              key={`${client.connection?.environmentId ?? "disconnected"}:${connected}:${connectionRevision}`}
+              key={`${client.connection?.endpoint ?? "disconnected"}:${connected}:${connectionRevision}`}
               client={client}
-              hostId={connected ? client.connection?.environmentId : undefined}
+              hostId={connected ? client.connection?.endpoint : undefined}
               disabled={busy || loading || !connected}
               panel={preferencePanel}
               onPanelChange={setPreferencePanel}
@@ -1941,9 +1945,9 @@ export function MobileApp() {
           }
           providerAccounts={
             <MobileProviderAccounts
-              key={`${client.connection?.environmentId ?? "disconnected"}:${connected}:${connectionRevision}`}
+              key={`${client.connection?.endpoint ?? "disconnected"}:${connected}:${connectionRevision}`}
               client={client}
-              hostId={client.connection?.environmentId}
+              hostId={client.connection?.endpoint}
               enabled={connected && hostStatus.state === "connected"}
             />
           }
@@ -1954,7 +1958,7 @@ export function MobileApp() {
         />
       ) : view === "home" ? (
         <MobileHome
-          key={client.connection?.environmentId}
+          key={client.connection?.endpoint}
           projects={hostScopeReady ? projects : []}
           project={hostScopeReady ? homeProject : undefined}
           projectsPage={!homeProject && allProjectsPage}
@@ -2144,8 +2148,8 @@ export function MobileApp() {
 
       {!!client.connection && (
         <MobileDrawer
-          key={`drawer:${client.connection?.environmentId}`}
-          assistantName={assistantIdentity && assistantIdentity.hostId === assistantHostId ? assistantIdentity.name : undefined}
+          key={`drawer:${client.connection?.endpoint}`}
+          assistantName={connected && assistantIdentity && assistantIdentity.hostId === connectionKey ? assistantIdentity.name : undefined}
           assistantUnreadCount={assistantUnreadCount}
           onAssistant={onDrawerAssistant}
           onNotes={client.hasCapability("notes.v1") ? onDrawerNotes : undefined}
@@ -2182,9 +2186,9 @@ export function MobileApp() {
       <MobileSheetPresence open={hostPickerOpen}>
         <MobileHostPicker anchor={hostPickerTrigger}
           connections={client.connection
-            ? [client.connection, ...savedHosts.filter((item) => item.environmentId !== environmentId)]
+            ? [client.connection, ...savedHosts.filter((item) => item.endpoint !== connectionKey)]
             : savedHosts}
-          activeId={environmentId} status={hostStatus} switching={switching || pairing}
+          activeId={connectionKey} status={hostStatus} switching={switching || pairing}
           probe={probeHost} onSwitch={switchHost} onReconnect={() => { setHostPickerOpen(false); void reconnect(); }}
           onAdd={() => {
             connectionTrigger.current = hostPickerTrigger.current;

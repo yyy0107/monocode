@@ -9,6 +9,7 @@ import type { HostConnectionStatus } from "./client";
 import type { GlassEffect, GlassSettings } from "./glassSettings";
 import { MobileAppUpdates, type useMobileAppUpdates } from "./MobileAppUpdates";
 import { MobileConnections, type SettingsConnection } from "./MobileConnections";
+import { hostStatusLabel } from "./MobileHostStatus";
 import type { ConnectionAppearance } from "./connectionAppearance";
 import { MobileSelect } from "./MobileSelect";
 import type { useMobileActivity } from "./useMobileActivity";
@@ -256,9 +257,9 @@ export function MobileSettings({
     // An exiting settings page must not clear the new page's shared anchor.
     if (element || connectionTrigger.current === previous) connectionTrigger.current = element;
   }, [connectionTrigger]);
-  const addConnection = (
+  const addConnectionRow = (className: string) => (
     <button
-      className="mobile-settings-row mobile-connection-row mobile-connection-add"
+      className={className}
       ref={setConnectionButton}
       type="button"
       aria-label={t("Add connection")}
@@ -286,7 +287,7 @@ export function MobileSettings({
       onDisconnect={onDisconnect}
       onReconnect={onReconnect}
       onDelete={onDeleteConnection}
-      addConnection={addConnection}
+      addConnection={addConnectionRow("mobile-settings-row mobile-connection-row mobile-connection-add")}
     />
   );
 
@@ -563,9 +564,27 @@ export function MobileSettings({
 
   return (
     <main key="root" className="mobile-content mobile-settings">
-      {connections}
       <section className="mobile-settings-group" aria-label={t("Settings")}>
         <div className="mobile-settings-card">
+          <button
+            type="button"
+            className="mobile-settings-row"
+            aria-label={t("Connections")}
+            onClick={() => onPageChange("connections")}
+          >
+            <MobileSettingsGlyph name={connection ? connectionAppearance.icon : "desktop"} />
+            <span className="mobile-settings-label">
+              <span>{t("Connections")}</span>
+              <small className="mobile-settings-value">
+                {connection
+                  ? `${connectionAppearance.displayName || connection.name} · ${t(hostStatusLabel(hostStatus))}`
+                  : t("Not connected")}
+              </small>
+            </span>
+            <ChevronRight size={18} />
+          </button>
+          {/* Without a saved Host, keep pairing one tap away on first launch. */}
+          {connection ? null : addConnectionRow("mobile-settings-row")}
           {agentDefaults ? (
             <button
               type="button"

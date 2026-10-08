@@ -38,12 +38,8 @@ import "./mobileNotes.css";
 export type MobileNotesHandle = { back: () => void };
 type NotesApi = ReturnType<typeof scopedNotes>;
 function scopedNotes(client: MobileClient, hostKey: string) {
-  const endpoint = client.connection?.endpoint;
   const check = () => {
-    if (
-      client.connection?.environmentId !== hostKey ||
-      client.connection?.endpoint !== endpoint
-    )
+    if (client.connection?.endpoint !== hostKey)
       throw new Error(translate("Host connection changed."));
   };
   return {

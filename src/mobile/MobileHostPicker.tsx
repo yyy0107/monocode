@@ -30,8 +30,8 @@ export function MobileHostPicker({
       placement="anchor" anchor={anchor} align="start" side="bottom"
       width={SHEET_WIDTH.list} constrainWidthToAnchor onClose={onClose}>
       {connections.map((connection) => (
-        <Device key={connection.environmentId} connection={connection}
-          active={connection.environmentId === activeId} status={status}
+        <Device key={connection.endpoint} connection={connection}
+          active={connection.endpoint === activeId} status={status}
           open={open} disabled={switching} probe={probe} onSwitch={onSwitch} />
       ))}
       {status.state !== "connected" && activeId && (
@@ -60,7 +60,7 @@ function Device({ connection, active, status, open, disabled, probe, onSwitch }:
   onSwitch: (id: string) => void;
 }) {
   const { t } = useTranslation();
-  const name = useConnectionAppearance(connection.environmentId).displayName || connection.name;
+  const name = useConnectionAppearance(connection.endpoint).displayName || connection.name;
   const [observed, setObserved] = useState<HostConnectionStatus>({ state: "reconnecting" });
   useEffect(() => {
     if (!open || active) return;
@@ -73,9 +73,12 @@ function Device({ connection, active, status, open, disabled, probe, onSwitch }:
   return (
     <button type="button" className="mobile-sheet-row mobile-device-option"
       aria-label={t("Switch to {host}", { host: name })} aria-pressed={active}
-      disabled={disabled} onClick={() => onSwitch(connection.environmentId)}>
+      disabled={disabled} onClick={() => onSwitch(connection.endpoint)}>
       <Computer size={22} />
-      <span className="mobile-device-option-name">{name}</span>
+      <span className="mobile-device-option-name">
+        {name}
+        <small>{connection.endpoint.replace(/^https?:\/\//, "")}</small>
+      </span>
       <MobileHostStatus status={active ? status : observed} dotOnly />
       {active && <Check size={18} />}
     </button>

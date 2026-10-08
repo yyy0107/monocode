@@ -86,7 +86,7 @@ it("tracks notes capability across pairing, verification and Host switches, and 
   expect(client.hasCapability("notes.v1")).toBe(true);
   await client.connect("http://host-b:3774", "token-b");
   expect(client.hasCapability("notes.v1")).toBe(false);
-  await client.switchTo("a");
+  await client.switchTo("http://host-a:3774");
   expect(client.hasCapability("notes.v1")).toBe(true);
   await client.disconnect();
   expect(client.hasCapability("notes.v1")).toBe(false);

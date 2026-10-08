@@ -66,3 +66,16 @@ export function removeConnectionAppearance(id: string) {
   localStorage.removeItem(key(id));
   window.dispatchEvent(new Event(EVENT));
 }
+
+/** Moves presentation saved under an earlier key (the Host identity) to its connection address. */
+export function moveConnectionAppearance(from: string, to: string) {
+  try {
+    const value = localStorage.getItem(key(from));
+    if (value === null) return;
+    if (localStorage.getItem(key(to)) === null) localStorage.setItem(key(to), value);
+    localStorage.removeItem(key(from));
+  } catch {
+    return;
+  }
+  window.dispatchEvent(new Event(EVENT));
+}
