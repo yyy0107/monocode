@@ -1,10 +1,10 @@
 import type { Block } from "./session";
 import { formatLiveElapsed } from "./liveAgents";
-import { isToolBlock, toolCallLabel, toolCallState } from "./transcriptActivity";
+import { isToolBlock, toolCallState } from "./transcriptActivity";
 
 /**
  * The words under a live turn. A key is English UI text for `t()`; a literal
- * is already-built text (a tool summary) shown as is.
+ * is already-built text shown as is.
  */
 export type LiveStatusText =
   | { key: string; params?: Record<string, string | number> }
@@ -18,7 +18,7 @@ export interface LiveStatus {
   /** Current thought/tool time, otherwise the current response round's time. */
   elapsed?: string;
   clock?: "thinking" | "tool" | "round";
-  /** Brief activities, gaps and user waits keep the status line text-only. */
+  /** Brief activities, tool calls and user waits keep the status line text-only. */
   showClock: boolean;
   /** A new origin resets the digits without animating the old time backwards. */
   clockStartedAt?: number;
@@ -27,9 +27,9 @@ export interface LiveStatus {
 }
 
 /**
- * Filler verbs for the stretches where nothing more specific is happening. A
- * verb only says the agent is alive; a new one each phase keeps a long turn
- * from looking frozen. These are English UI keys for `t()`.
+ * Filler verbs shown only while tools run. A verb only says the agent is
+ * alive; a new one each phase keeps a long turn from looking frozen. These are
+ * English UI keys for `t()`.
  */
 export const LIVE_VERBS = [
   "Brewing",
@@ -62,8 +62,6 @@ export interface LiveStatusInput {
   startedAt?: number;
   /** What the turn is blocked on, if anything. */
   waiting?: "approval" | "answers";
-  /** The live activity group's summary ("Running 2 commands"). */
-  toolSummary?: string;
   background?: number;
   /** Stable per turn, so the verb only changes with the phase. */
   seed: string;
@@ -80,17 +78,14 @@ export function liveStatus(input: LiveStatusInput): LiveStatus {
     phaseStartedAt?: number,
   ): LiveStatus => {
     const origin = phaseStartedAt ?? roundStartedAt;
-    const liveReply = last?.streaming && (last.role === "assistant" || last.role === "plan");
-    // Like the verb pool, ordinary replies sometimes carry a clock. The choice
-    // stays fixed for the response, so each token/second cannot toggle it.
-    const timedReply = liveReply && phaseHash(`${input.seed}:clock`, origin ?? 0) % 3 === 0;
     return {
       phase,
       label,
       background,
-      showClock: origin != null && now - origin >= 2_000 && (
-        phase === "thinking" || phase === "tool" || (phase === "working" && !!timedReply)
-      ),
+      // Thinking and replies are timed once they last; tool verbs and user
+      // waits stay text-only.
+      showClock: origin != null && now - origin >= 2_000 &&
+        (phase === "thinking" || phase === "working"),
       ...(origin != null ? {
         elapsed: formatLiveElapsed(origin, now, true),
         clock: phaseStartedAt != null && (phase === "thinking" || phase === "tool")
@@ -114,12 +109,11 @@ export function liveStatus(input: LiveStatusInput): LiveStatus {
 
   const tool = lastRunningTool(turn);
   if (tool) {
-    return status("tool", {
-      literal: input.toolSummary ?? toolCallLabel(tool),
-    }, tool.startedAt);
+    return status("tool", { key: liveVerb(input.seed, turn.length) }, tool.startedAt);
   }
 
-  return status("working", { key: liveVerb(input.seed, turn.length) });
+  // Between tools the agent is still reasoning, even when no thought streams.
+  return status("working", { key: "Thinking…" });
 }
 
 /**
