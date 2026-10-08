@@ -38,7 +38,11 @@ import {
   pickAttachments,
   revokeAttachment,
 } from "../model/attachments";
-import { resizeComposer } from "../model/composerResize";
+import {
+  growComposer,
+  isInsertion,
+  resizeComposer,
+} from "../model/composerResize";
 import {
   isFileReferenceText,
   messageFilesFromClipboard,
@@ -306,6 +310,10 @@ type Props = {
   children?: ReactNode;
 };
 
+const EMPTY_MODEL_SETTINGS: Record<string, string> = {};
+const EMPTY_RECENTS: RecentProject[] = [];
+const EMPTY_QUEUE: QueuedMessage[] = [];
+
 function ToolButton({
   active,
   disabled,
@@ -354,14 +362,14 @@ export function Composer({
   harness,
   model,
   allowedModelHarnesses,
-  modelSettings = {},
+  modelSettings = EMPTY_MODEL_SETTINGS,
   modelSettingOptions,
   runtimeMode,
   cwd = "~",
   executionCwd,
   sessionId,
   branch,
-  recents = [],
+  recents = EMPTY_RECENTS,
   hideProjectPicker = false,
   hideBranchPicker = false,
   hideTopBar = false,
@@ -382,7 +390,7 @@ export function Composer({
   allowBusySubmit = true,
   editLastTurnSupported = false,
   lastTurnRecall = null,
-  queuedMessages = [],
+  queuedMessages = EMPTY_QUEUE,
   queueStatus,
   usageLimit,
   onFocus,
@@ -603,7 +611,15 @@ export function Composer({
   const skillLimit = hasNativeCommands(harness)
     ? Number.POSITIVE_INFINITY
     : undefined;
-  const rankedSkills = rankSkills(slashItems, slash?.query ?? "", skillLimit);
+  const slashQuery = slash?.query;
+  // Sorting the catalog is costly, so typing outside a `/` token skips it.
+  const rankedSkills = useMemo(
+    () =>
+      slashQuery === undefined
+        ? []
+        : rankSkills(slashItems, slashQuery, skillLimit),
+    [slashItems, slashQuery, skillLimit],
+  );
   const attachmentsSupported =
     (!remote || !!remoteFeatures?.attachments) &&
     harnessSupportsAttachments(harness);
@@ -1001,8 +1017,13 @@ export function Composer({
     if (creatingSkill) return;
     const cursor = el.selectionStart ?? 0;
     const token = slashTokenAt(el.value, cursor, hasNativeCommands(harness));
-    setSlash(token);
-    setMention(token ? null : mentionTokenAt(el.value, cursor));
+    const nextMention = token ? null : mentionTokenAt(el.value, cursor);
+    // Input, keyup and select all land here for one keystroke; keep the same
+    // token object so unchanged tokens do not re-render the composer again.
+    setSlash((current) => (sameToken(current, token) ? current : token));
+    setMention((current) =>
+      sameToken(current, nextMention) ? current : nextMention,
+    );
   };
 
   useEffect(() => {
@@ -1819,85 +1840,260 @@ export function Composer({
     captured.field.focus();
   };
 
-  const workspaceBar = hideTopBar ? null : (
-    <div className="composer-workspace-bar flex min-w-0 items-center gap-2.5 px-3 pt-2.5">
-      {!remote && !hideProjectPicker ? (
-        <CwdPicker
-          cwd={cwd}
-          recents={recents}
-          projectLogoPath={projectLogoPath}
-          enabled={enabled}
-          buttonClassName={compact ? undefined : "composer-workspace-trigger"}
-          chevron={!compact}
-          onCwdChange={onCwdChange}
-          onNewTerminal={worktreeRemoved ? undefined : onNewTerminal}
-          onClose={() => ref.current?.focus()}
-        />
-      ) : null}
-      {hideBranchPicker ? null : draftWorkspace &&
-        onWorkspaceModeChange &&
-        onWorktreeBaseChange ? (
-        <>
-          <WorkspacePicker
-            cwd={executionCwd}
-            mode={workspaceMode ?? "current"}
-            base={resolvedWorktreeBase}
-            enabled={enabled && !busy}
-            onModeChange={onWorkspaceModeChange}
-            onBaseChange={onWorktreeBaseChange}
-            onSelectWorktree={onWorktreeChange}
-            onOpenSettings={onManageWorktrees}
-            onClose={() => ref.current?.focus()}
-          />
-          {(workspaceMode ?? "current") === "current" ? (
-            <BranchPicker
-              cwd={executionCwd}
-              branch={branch}
-              enabled={enabled && !busy}
-              onChange={onBranchChange}
+  const focusInput = useCallback(() => ref.current?.focus(), []);
+  const changeModelSettings = useCallback(
+    (settings: Record<string, string>) => onModelSettingsChange?.(settings),
+    [onModelSettingsChange],
+  );
+
+  // Typing and menu toggles re-render the composer on every change. The
+  // pickers below only depend on props, so keep their elements stable and let
+  // React skip them instead of reconciling every picker per keystroke.
+  const workspaceBar = useMemo(
+    () =>
+      hideTopBar ? null : (
+        <div className="composer-workspace-bar flex min-w-0 items-center gap-2.5 px-3 pt-2.5">
+          {!remote && !hideProjectPicker ? (
+            <CwdPicker
+              cwd={cwd}
+              recents={recents}
+              projectLogoPath={projectLogoPath}
+              enabled={enabled}
+              buttonClassName={
+                compact ? undefined : "composer-workspace-trigger"
+              }
+              chevron={!compact}
+              onCwdChange={onCwdChange}
+              onNewTerminal={worktreeRemoved ? undefined : onNewTerminal}
               onClose={() => ref.current?.focus()}
             />
           ) : null}
-        </>
-      ) : worktreeRemoved && onWorktreeChange ? (
-        <WorktreePicker
-          cwd={cwd}
-          executionCwd={executionCwd}
-          enabled={enabled && !busy}
-          onSelect={onWorktreeChange}
-          worktreeRemoved={worktreeRemoved}
-          onBranchChange={onBranchChange}
-          onManage={onManageWorktrees}
-          onClose={() => ref.current?.focus()}
-        />
-      ) : (
-        <>
-          {onWorktreeChange ? (
-            <WorkspaceIdentity
-              worktree={pathKey(cwd) !== pathKey(executionCwd)}
+          {hideBranchPicker ? null : draftWorkspace &&
+            onWorkspaceModeChange &&
+            onWorktreeBaseChange ? (
+            <>
+              <WorkspacePicker
+                cwd={executionCwd}
+                mode={workspaceMode ?? "current"}
+                base={resolvedWorktreeBase}
+                enabled={enabled && !busy}
+                onModeChange={onWorkspaceModeChange}
+                onBaseChange={onWorktreeBaseChange}
+                onSelectWorktree={onWorktreeChange}
+                onOpenSettings={onManageWorktrees}
+                onClose={() => ref.current?.focus()}
+              />
+              {(workspaceMode ?? "current") === "current" ? (
+                <BranchPicker
+                  cwd={executionCwd}
+                  branch={branch}
+                  enabled={enabled && !busy}
+                  onChange={onBranchChange}
+                  onClose={() => ref.current?.focus()}
+                />
+              ) : null}
+            </>
+          ) : worktreeRemoved && onWorktreeChange ? (
+            <WorktreePicker
+              cwd={cwd}
+              executionCwd={executionCwd}
+              enabled={enabled && !busy}
+              onSelect={onWorktreeChange}
+              worktreeRemoved={worktreeRemoved}
+              onBranchChange={onBranchChange}
+              onManage={onManageWorktrees}
+              onClose={() => ref.current?.focus()}
             />
-          ) : null}
-          <BranchPicker
-            cwd={executionCwd}
-            branch={branch}
-            enabled={enabled && !busy}
-            onChange={onBranchChange}
-            onClose={() => ref.current?.focus()}
-          />
-        </>
-      )}
-      <div className="ml-auto flex shrink-0 items-center">
-        <ContextMeter
-          usage={context}
-          onCompact={
-            compactSupported && !worktreeRemoved && !disabled
-              ? onCompactContext
-              : undefined
-          }
-          compactDisabled={busy}
+          ) : (
+            <>
+              {onWorktreeChange ? (
+                <WorkspaceIdentity
+                  worktree={pathKey(cwd) !== pathKey(executionCwd)}
+                />
+              ) : null}
+              <BranchPicker
+                cwd={executionCwd}
+                branch={branch}
+                enabled={enabled && !busy}
+                onChange={onBranchChange}
+                onClose={() => ref.current?.focus()}
+              />
+            </>
+          )}
+          <div className="ml-auto flex shrink-0 items-center">
+            <ContextMeter
+              usage={context}
+              onCompact={
+                compactSupported && !worktreeRemoved && !disabled
+                  ? onCompactContext
+                  : undefined
+              }
+              compactDisabled={busy}
+            />
+          </div>
+        </div>
+      ),
+    [
+      branch,
+      busy,
+      compact,
+      compactSupported,
+      context,
+      cwd,
+      disabled,
+      draftWorkspace,
+      enabled,
+      executionCwd,
+      focusInput,
+      hideBranchPicker,
+      hideProjectPicker,
+      hideTopBar,
+      onBranchChange,
+      onCompactContext,
+      onCwdChange,
+      onManageWorktrees,
+      onNewTerminal,
+      onWorkspaceModeChange,
+      onWorktreeBaseChange,
+      onWorktreeChange,
+      projectLogoPath,
+      recents,
+      remote,
+      resolvedWorktreeBase,
+      workspaceMode,
+      worktreeRemoved,
+    ],
+  );
+
+  const accessPicker = useMemo(
+    () =>
+      !compact && harness !== "fx" ? (
+        <AccessPicker
+          appearance="composer"
+          value={runtimeMode}
+          busy={busy}
+          onChange={onRuntimeModeChange}
+          onClose={focusInput}
         />
-      </div>
-    </div>
+      ) : null,
+    [busy, compact, focusInput, harness, onRuntimeModeChange, runtimeMode],
+  );
+
+  const modelControlElements = useMemo(
+    () => (
+      <>
+        <ModelPicker
+          appearance={compact ? undefined : "composer"}
+          harness={harness}
+          model={model}
+          values={modelSettings}
+          modelSettingOptions={modelSettingOptions}
+          allowedHarnesses={allowedModelHarnesses}
+          project={cwd}
+          hideSettings={controlsBeside}
+          align="end"
+          hotkeys={hotkeys && enabled}
+          onChange={onModelChange}
+          onSettingsChange={changeModelSettings}
+          onClose={focusInput}
+        />
+        {controlsBeside ? (
+          <ModelControlPills
+            appearance={compact ? undefined : "composer"}
+            harness={harness}
+            model={model}
+            values={modelSettings}
+            modelSettingOptions={modelSettingOptions}
+            align="end"
+            onSettingsChange={changeModelSettings}
+            onClose={focusInput}
+          />
+        ) : null}
+      </>
+    ),
+    [
+      allowedModelHarnesses,
+      changeModelSettings,
+      compact,
+      controlsBeside,
+      cwd,
+      enabled,
+      focusInput,
+      harness,
+      hotkeys,
+      model,
+      modelSettingOptions,
+      modelSettings,
+      onModelChange,
+    ],
+  );
+
+  const leadingSurfaces = useMemo(
+    () => (
+      <>
+        {readOnlyReason ? (
+          <p
+            role="status"
+            className="mb-2 rounded-md border border-border bg-content/3 px-3 py-2 text-xs text-muted"
+          >
+            {readOnlyReason}
+          </p>
+        ) : null}
+        {question && onQuestionReply ? (
+          <QuestionForm
+            prompt={question}
+            onReply={onQuestionReply}
+            onInteraction={onQuestionInteraction}
+          />
+        ) : null}
+        {children}
+        {usageLimit ? (
+          <UsageLimitNotice
+            limit={usageLimit}
+            onResume={onUsageLimitResume}
+            onResumeAtReset={onUsageLimitResumeAtReset}
+            onDismiss={onUsageLimitDismiss}
+          />
+        ) : null}
+        {messageQueue ?? (
+          <MessageQueue
+            messages={queuedMessages}
+            status={queueStatus}
+            remote={remote}
+            disabled={disabled}
+            canSteer={!remote || busy}
+            canResume={!remote || !busy}
+            onDelete={onDeleteQueuedMessage}
+            onEdit={onEditQueuedMessage}
+            onEditingChange={onQueuedMessageEditingChange}
+            onSteer={onSteerQueuedMessage}
+            onResume={onResumeQueue}
+          />
+        )}
+      </>
+    ),
+    [
+      busy,
+      children,
+      disabled,
+      messageQueue,
+      onDeleteQueuedMessage,
+      onEditQueuedMessage,
+      onQueuedMessageEditingChange,
+      onQuestionInteraction,
+      onQuestionReply,
+      onResumeQueue,
+      onSteerQueuedMessage,
+      onUsageLimitDismiss,
+      onUsageLimitResume,
+      onUsageLimitResumeAtReset,
+      question,
+      queueStatus,
+      queuedMessages,
+      readOnlyReason,
+      remote,
+      usageLimit,
+    ],
   );
 
   return (
@@ -1909,45 +2105,7 @@ export function Composer({
       onMouseDown={disabled ? undefined : onFocus}
       onKeyDownCapture={disabled ? undefined : onComposerKeyDown}
     >
-      {readOnlyReason ? (
-        <p
-          role="status"
-          className="mb-2 rounded-md border border-border bg-content/3 px-3 py-2 text-xs text-muted"
-        >
-          {readOnlyReason}
-        </p>
-      ) : null}
-      {question && onQuestionReply ? (
-        <QuestionForm
-          prompt={question}
-          onReply={onQuestionReply}
-          onInteraction={onQuestionInteraction}
-        />
-      ) : null}
-      {children}
-      {usageLimit ? (
-        <UsageLimitNotice
-          limit={usageLimit}
-          onResume={onUsageLimitResume}
-          onResumeAtReset={onUsageLimitResumeAtReset}
-          onDismiss={onUsageLimitDismiss}
-        />
-      ) : null}
-      {messageQueue ?? (
-        <MessageQueue
-          messages={queuedMessages}
-          status={queueStatus}
-          remote={remote}
-          disabled={disabled}
-          canSteer={!remote || busy}
-          canResume={!remote || !busy}
-          onDelete={onDeleteQueuedMessage}
-          onEdit={onEditQueuedMessage}
-          onEditingChange={onQueuedMessageEditingChange}
-          onSteer={onSteerQueuedMessage}
-          onResume={onResumeQueue}
-        />
-      )}
+      {leadingSurfaces}
       <div className="relative overflow-visible">
         {mcpPickerOpen ? (
           <div className="absolute inset-x-0 bottom-full z-30 mb-1">
@@ -2193,7 +2351,8 @@ export function Composer({
                 onInput={(e) => {
                   const el = e.currentTarget;
                   if (enterBtwFromPrefix(el)) return;
-                  resizeComposer(el);
+                  if (isInsertion(draft, el.value)) growComposer(el);
+                  else resizeComposer(el);
                   draftRevisionRef.current += 1;
                   setDraft(el.value);
                   setSelectedMcp((current) => {
@@ -2459,15 +2618,7 @@ export function Composer({
                 }}
               >
                 <div className="composer-leading-controls flex shrink-0 items-center gap-1">
-                  {!compact && harness !== "fx" ? (
-                    <AccessPicker
-                      appearance="composer"
-                      value={runtimeMode}
-                      busy={busy}
-                      onChange={onRuntimeModeChange}
-                      onClose={() => ref.current?.focus()}
-                    />
-                  ) : null}
+                  {accessPicker}
                   {!compact && operatorActive ? (
                     <ModeCommandPill
                       name={OPERATOR_COMMAND.name}
@@ -2523,37 +2674,7 @@ export function Composer({
                       <span>{uiT("Cancel edit")}</span>
                     </button>
                   ) : null}
-                  <ModelPicker
-                    appearance={compact ? undefined : "composer"}
-                    harness={harness}
-                    model={model}
-                    values={modelSettings}
-                    modelSettingOptions={modelSettingOptions}
-                    allowedHarnesses={allowedModelHarnesses}
-                    project={cwd}
-                    hideSettings={controlsBeside}
-                    align="end"
-                    hotkeys={hotkeys && enabled}
-                    onChange={onModelChange}
-                    onSettingsChange={(settings) =>
-                      onModelSettingsChange?.(settings)
-                    }
-                    onClose={() => ref.current?.focus()}
-                  />
-                  {controlsBeside ? (
-                    <ModelControlPills
-                      appearance={compact ? undefined : "composer"}
-                      harness={harness}
-                      model={model}
-                      values={modelSettings}
-                      modelSettingOptions={modelSettingOptions}
-                      align="end"
-                      onSettingsChange={(settings) =>
-                        onModelSettingsChange?.(settings)
-                      }
-                      onClose={() => ref.current?.focus()}
-                    />
-                  ) : null}
+                  {modelControlElements}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
@@ -2758,6 +2879,16 @@ export function ComposerAction({
     >
       <ArrowUp className="size-3.5" strokeWidth={2.25} />
     </button>
+  );
+}
+
+function sameToken(
+  a: SlashToken | MentionToken | null,
+  b: SlashToken | MentionToken | null,
+): boolean {
+  if (a === b) return true;
+  return (
+    !!a && !!b && a.start === b.start && a.end === b.end && a.query === b.query
   );
 }
 

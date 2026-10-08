@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { COMPOSER_MAX_HEIGHT, resizeComposer } from "./composerResize";
+import {
+  COMPOSER_MAX_HEIGHT,
+  growComposer,
+  isInsertion,
+  resizeComposer,
+} from "./composerResize";
 
 function field(scrollHeight: number, height = "") {
   return { style: { height }, scrollHeight };
@@ -62,5 +67,44 @@ describe("resizeComposer", () => {
     resizeComposer(el);
     expect(el.style.height).toBe("88px");
     expect(wrapper.style.minHeight).toBe("20px");
+  });
+});
+
+describe("growComposer", () => {
+  it("leaves a field whose draft still fits untouched", () => {
+    const el = { style: { height: "40px" }, scrollHeight: 40, clientHeight: 40 };
+    growComposer(el);
+    expect(el.style.height).toBe("40px");
+  });
+
+  it("grows to the new content up to the max height", () => {
+    const el = { style: { height: "40px" }, scrollHeight: 62, clientHeight: 40 };
+    growComposer(el);
+    expect(el.style.height).toBe("62px");
+    el.scrollHeight = 400;
+    el.clientHeight = 62;
+    growComposer(el);
+    expect(el.style.height).toBe(`${COMPOSER_MAX_HEIGHT}px`);
+  });
+});
+
+describe("isInsertion", () => {
+  it.each([
+    ["", "a"],
+    ["abc", "abcd"],
+    ["abc", "aXbc"],
+    ["abc", "abc\n"],
+    ["aa", "aaa"],
+  ])("treats %j -> %j as an insertion", (previous, next) => {
+    expect(isInsertion(previous, next)).toBe(true);
+  });
+
+  it.each([
+    ["abc", "ab"],
+    ["abc", "abd"],
+    ["a\n\n\nb", "aXYZb"],
+    ["abc", "xyzw"],
+  ])("treats %j -> %j as an edit that may shrink", (previous, next) => {
+    expect(isInsertion(previous, next)).toBe(false);
   });
 });
