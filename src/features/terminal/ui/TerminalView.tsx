@@ -114,6 +114,8 @@ const ANSI_LIGHT = {
 function terminalTheme(light: boolean) {
   return {
     background: "#00000000",
+    // Setting the scrollbar width also enables xterm's white ruler outline.
+    overviewRulerBorder: "#00000000",
     foreground: cssColor("var(--color-content)", light ? "#2e2e2e" : "#e8eef2"),
     cursor: cssColor("var(--color-accent)", light ? "#4078f2" : "#4da3f5"),
     cursorAccent: light ? "#ffffff" : "#000000",
