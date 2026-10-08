@@ -203,7 +203,7 @@ describe("MobileSheet drag", () => {
         expect(sheet.style.transform).toBe("translateY(0px)");
         pull(300, 500, selector);
         expect(sheet.dataset.detent).toBe("half");
-        act(() => vi.advanceTimersByTime(250));
+        act(() => vi.advanceTimersByTime(450));
         expect(sheet.style.transform).toBe("");
         expect(onClose).not.toHaveBeenCalled();
         pull(600, 800, selector);
@@ -237,8 +237,8 @@ describe("MobileSheet drag", () => {
       expect(sheet.dataset.detent).toBe("half");
       expect(sheet.closest(".mobile-sheet-backdrop")?.hasAttribute("inert")).toBe(false);
       expect(sheet.style.transform).toBe("translateY(300px)");
-      expect(sheet.style.transition).toContain("200ms");
-      act(() => vi.advanceTimersByTime(250));
+      expect(sheet.style.transition).toContain("linear(");
+      act(() => vi.advanceTimersByTime(450));
       expect(onClose).not.toHaveBeenCalled();
       expect(node.querySelector(".mobile-sheet")).toBe(sheet);
       expect(sheet.style.transform).toBe("");

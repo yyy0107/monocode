@@ -106,3 +106,62 @@
     animation: none !important;
   }
 }
+
+/* Control content swaps (MobileSwap): the old icon and label leave quickly
+   and the new ones enter a beat later, so text never visibly overlaps. The
+   leaving copy is taken out of flow, so the control sizes to the new state. */
+.mobile-swap,
+.mobile-swap-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: inherit;
+  min-width: 0;
+}
+.mobile-swap {
+  position: relative;
+}
+.mobile-swap-item[data-swap="out"] {
+  position: absolute;
+  inset: 0;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: mobile-swap-out var(--mobile-motion-content-out) var(--mobile-ease-out) both;
+}
+.mobile-swap-item[data-swap="in"] {
+  animation: mobile-swap-in var(--mobile-motion-content-in) var(--mobile-ease-out)
+    calc(var(--mobile-motion-content-out) / 2) both;
+}
+@keyframes mobile-swap-out {
+  to {
+    opacity: 0;
+    transform: translateY(calc(var(--mobile-motion-shift) / -2));
+  }
+}
+@keyframes mobile-swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--mobile-motion-shift) / 2));
+  }
+}
+
+/* Buttons answer the touch at once and spring back when it lifts. */
+.mobile-button {
+  transition: transform var(--mobile-spring-release-duration) var(--mobile-spring-release);
+}
+.mobile-button:active:not(:disabled) {
+  transform: scale(var(--mobile-motion-press-scale));
+  transition: transform var(--mobile-motion-press) var(--mobile-ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-swap-item[data-swap] {
+    animation: none !important;
+  }
+  .mobile-button {
+    transition: none;
+  }
+  .mobile-button:active:not(:disabled) {
+    transform: none;
+  }
+}

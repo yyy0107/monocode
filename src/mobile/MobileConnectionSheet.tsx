@@ -7,6 +7,7 @@ import {
 import { useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { MobileSheet } from "./MobileSheet";
+import { MobileSwap } from "./MobileSwap";
 import { MobileQrScanner } from "./MobileQrScanner";
 import { parsePairingOffer } from "./pairing";
 
@@ -181,12 +182,14 @@ export function MobileConnectionSheet({
                 type="submit"
                 disabled={disabled || !url.trim() || !token.trim()}
               >
-                {disabled ? (
-                  <LoaderCircle size={16} className="mobile-spin" />
-                ) : (
-                  <Internet size={16} />
-                )}
-                {t(disabled ? "Connecting…" : "Connect")}
+                <MobileSwap swapKey={disabled ? "busy" : "idle"}>
+                  {disabled ? (
+                    <LoaderCircle size={16} className="mobile-spin" />
+                  ) : (
+                    <Internet size={16} />
+                  )}
+                  {t(disabled ? "Connecting…" : "Connect")}
+                </MobileSwap>
               </button>
             </form>
           )}

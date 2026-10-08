@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { reducedMotionQuery } from "../shared/lib/reducedMotion";
+import { MOBILE_SPRINGS, springTransition } from "./motion";
 
 /** Pull distance, as a share of the sheet height, that dismisses on release. */
 const DISMISS_SHARE = 0.28;
@@ -76,6 +77,8 @@ export function useSheetDrag(
       backdrop.style.animation = "";
     }
     let startY = 0;
+    /** Sheet offset when the finger landed; mid-settle catches keep it. */
+    let origin = 0;
     let lastY = 0;
     let lastAt = 0;
     let velocity = 0;
@@ -114,7 +117,21 @@ export function useSheetDrag(
         return false;
       return !!target.closest(".mobile-sheet-header");
     };
+    // While a release settles, the inline transform is the target, not where
+    // the sheet is drawn; read the drawn offset so a catch does not jump.
+    const drawnTop = () => {
+      const settling = element
+        .getAnimations?.()
+        .some(
+          (animation) =>
+            "transitionProperty" in animation && animation.playState === "running",
+        );
+      return settling
+        ? new DOMMatrix(getComputedStyle(element).transform).m42
+        : base();
+    };
     const begin = (y: number) => {
+      origin = drawnTop();
       startY = lastY = y;
       lastAt = performance.now();
       velocity = 0;
@@ -129,6 +146,7 @@ export function useSheetDrag(
         if (offset < -SLOP_PX && !expandable) tracking = false;
         if (Math.abs(offset) <= SLOP_PX || (offset < 0 && !expandable)) return;
         dragging = true;
+        if (closeTimer !== undefined) window.clearTimeout(closeTimer);
         element.style.transition = "none";
         if (backdrop) backdrop.style.transition = "none";
       }
@@ -138,7 +156,7 @@ export function useSheetDrag(
       lastY = y;
       lastAt = now;
       // Pulling upward past the top stop only gives a little.
-      const top = base() + offset;
+      const top = origin + offset;
       place(top > 0 ? top : top / 6);
     };
     const end = () => {
@@ -148,20 +166,35 @@ export function useSheetDrag(
       dragging = false;
       const height = element.offsetHeight;
       const reducedMotion = reducedMotionQuery().matches;
+      const released = origin + lastY - startY;
       const settled = detents
-        ? settleDetent(base() + lastY - startY, velocity, halfTop(), halfHeight(), detent)
+        ? settleDetent(released, velocity, halfTop(), halfHeight(), detent)
         : undefined;
       const dismiss = settled
         ? settled === "dismiss"
-        : shouldDismiss(lastY - startY, velocity, height);
-      const duration = dismiss ? SHEET_CLOSE_MS : SHEET_MOTION_MS;
+        : shouldDismiss(released, velocity, height);
+      // Settling continues the finger's speed on the shared spring; a dismiss
+      // keeps the short exit that the sheet's close lifetime expects.
+      const target = dismiss
+        ? height + 24
+        : settled === "full" || !detents ? 0 : halfTop();
+      const settle = dismiss
+        ? undefined
+        : springTransition(
+            "transform",
+            MOBILE_SPRINGS.smooth,
+            target - released,
+            velocity * Math.sign(target - released),
+          );
+      const duration = settle?.duration ?? SHEET_CLOSE_MS;
       element.style.transition = reducedMotion
         ? "none"
-        : `transform ${duration}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+        : (settle?.transition ??
+          `transform ${duration}ms cubic-bezier(0.22, 1, 0.36, 1)`);
       if (backdrop)
         backdrop.style.transition = reducedMotion
           ? "none"
-          : `opacity ${duration}ms ease`;
+          : `opacity ${Math.min(duration, SHEET_MOTION_MS)}ms ease`;
       if (dismiss) {
         closing = true;
         // The drag owns the exit from its current offset. The shared fold
@@ -186,7 +219,7 @@ export function useSheetDrag(
               element.style.transform = "";
               element.style.removeProperty("--mobile-sheet-content-offset");
             }
-          }, reducedMotion ? 0 : SHEET_MOTION_MS);
+          }, reducedMotion ? 0 : duration);
         }
       } else {
         place(0);

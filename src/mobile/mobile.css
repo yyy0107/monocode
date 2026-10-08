@@ -3596,8 +3596,11 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   inherits: false;
   initial-value: 0;
 }
+/* Settles on the shared spring; a released drag swaps in a spring launched
+   at the finger's speed for that one transition (MobileDrawer). */
 .mobile-drawer-backdrop {
-  --mobile-drawer-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  --mobile-drawer-easing: var(--mobile-spring-smooth);
+  --mobile-drawer-duration: var(--mobile-spring-smooth-duration);
   position: fixed;
   inset: 0;
   z-index: 25;
@@ -3605,7 +3608,7 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   /* Horizontal pushes reach JavaScript to close the drawer. */
   touch-action: pan-y;
   transition:
-    background 260ms var(--mobile-drawer-easing),
+    background var(--mobile-drawer-duration) var(--mobile-drawer-easing),
     visibility 0s;
 }
 /* Closed and settled: invisible and untouchable, but kept mounted so a
@@ -3614,8 +3617,8 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   visibility: hidden;
   pointer-events: none;
   transition:
-    background 260ms var(--mobile-drawer-easing),
-    visibility 0s 260ms;
+    background var(--mobile-drawer-duration) var(--mobile-drawer-easing),
+    visibility 0s var(--mobile-drawer-duration);
 }
 .mobile-drawer-backdrop[data-dragging] {
   transition: none;
@@ -3637,7 +3640,7 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   outline: none;
   touch-action: pan-y;
   transform: translateX(-100%);
-  transition: transform 260ms var(--mobile-drawer-easing);
+  transition: transform var(--mobile-drawer-duration) var(--mobile-drawer-easing);
   /* A drag writes the position on every frame without a running transition;
      keep the glass panel on its own layer so it is moved, not repainted. */
   will-change: transform;

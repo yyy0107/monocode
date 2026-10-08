@@ -41,36 +41,75 @@ export const MOBILE_MOTION = {
 const SETTLE = 0.005;
 const SAMPLES = 24;
 
-function position(spring: Spring, t: number) {
+/**
+ * Optional launch state. `velocity` is the speed at release in units of the
+ * whole travel per second (px/s divided by the remaining distance), so a
+ * gesture hands its momentum to the spring instead of starting from rest.
+ */
+export interface SpringLaunch {
+  velocity?: number;
+}
+
+function motion(spring: Spring, velocity: number) {
   const omega = (2 * Math.PI) / spring.response;
-  const zeta = spring.damping;
-  if (zeta >= 1) return 1 - Math.exp(-omega * t) * (1 + omega * t);
+  const zeta = Math.min(spring.damping, 0.999);
   const decay = zeta * omega;
   const damped = omega * Math.sqrt(1 - zeta * zeta);
-  return (
-    1 -
-    Math.exp(-decay * t) *
-      (Math.cos(damped * t) + (decay / damped) * Math.sin(damped * t))
-  );
+  // Displacement from rest: d(0) = -1, d'(0) = velocity.
+  const sine = (velocity - decay) / damped;
+  return {
+    decay,
+    amplitude: Math.hypot(1, sine),
+    at: (t: number) =>
+      1 -
+      Math.exp(-decay * t) * (Math.cos(damped * t) - sine * Math.sin(damped * t)),
+  };
 }
 
 /** Time in ms until the spring's envelope stays within SETTLE of rest. */
-export function springDuration(spring: Spring): number {
-  const omega = (2 * Math.PI) / spring.response;
-  const zeta = Math.min(spring.damping, 0.999);
-  const amplitude = 1 / Math.sqrt(1 - zeta * zeta);
-  const seconds = Math.log(amplitude / SETTLE) / (zeta * omega);
+export function springDuration(spring: Spring, launch: SpringLaunch = {}): number {
+  const { decay, amplitude } = motion(spring, launch.velocity ?? 0);
+  const seconds = Math.log(amplitude / SETTLE) / decay;
   return Math.ceil((seconds * 1000) / 10) * 10;
 }
 
-/** The spring as a CSS `linear()` easing over `springDuration(spring)`. */
-export function springEasing(spring: Spring): string {
-  const duration = springDuration(spring) / 1000;
+/**
+ * The spring as a CSS `linear()` easing over `springDuration`. Surfaces bound
+ * to a screen edge pass `clamp` so a fast fling stops at rest instead of
+ * overshooting past the edge.
+ */
+export function springEasing(
+  spring: Spring,
+  launch: SpringLaunch & { clamp?: boolean } = {},
+): string {
+  const { at } = motion(spring, launch.velocity ?? 0);
+  const duration = springDuration(spring, launch) / 1000;
   const points: string[] = [];
   for (let index = 0; index <= SAMPLES; index++) {
-    const value =
-      index === SAMPLES ? 1 : position(spring, (duration * index) / SAMPLES);
+    let value = index === SAMPLES ? 1 : at((duration * index) / SAMPLES);
+    if (launch.clamp) value = Math.min(1, value);
     points.push(String(Math.round(value * 1000) / 1000));
   }
   return `linear(${points.join(", ")})`;
+}
+
+/**
+ * A CSS transition value that continues a released gesture: `velocity` is in
+ * px/ms toward the target and `distance` the px still to travel.
+ */
+export function springTransition(
+  property: string,
+  spring: Spring,
+  distance: number,
+  velocity: number,
+): { transition: string; duration: number } {
+  // Ignore velocity pointing away from the target and cap wild flicks.
+  const normalized =
+    Math.abs(distance) < 1 ? 0 : Math.min(40, Math.max(0, (velocity * 1000) / Math.abs(distance)));
+  const launch = { velocity: normalized, clamp: true };
+  const duration = springDuration(spring, launch);
+  return {
+    transition: `${property} ${duration}ms ${springEasing(spring, launch)}`,
+    duration,
+  };
 }

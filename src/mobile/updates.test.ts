@@ -79,10 +79,14 @@ async function mount() {
   await act(async () => root!.render(createElement(TestApp)));
   return container;
 }
-const button = (container: HTMLElement, label: string) =>
-  [...container.querySelectorAll("button")].find(
-    (item) => item.textContent === label,
-  )!;
+// Match the label people see; a content swap keeps an aria-hidden exiting copy.
+const label = (item: Element) => {
+  const copy = item.cloneNode(true) as Element;
+  copy.querySelectorAll("[aria-hidden='true']").forEach((node) => node.remove());
+  return copy.textContent;
+};
+const button = (container: HTMLElement, text: string) =>
+  [...container.querySelectorAll("button")].find((item) => label(item) === text)!;
 
 describe("mobile app updates", () => {
   it("compares build codes even when the visible version stays the same", () => {

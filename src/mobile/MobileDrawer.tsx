@@ -40,6 +40,7 @@ import { formatMobileRelativeTime } from "./relativeTime";
 import { sortMobileProjects, sortMobileSessions } from "./sessionList";
 import { useListReorderMotion } from "../shared/hooks/useListReorderMotion";
 import type { MobileSheetPoint } from "./MobileSheet";
+import { MOBILE_SPRINGS, springTransition } from "./motion";
 import {
   canPullDrawerFrom,
   canPushDrawerFrom,
@@ -251,6 +252,16 @@ export const MobileDrawer = memo(function MobileDrawer({
   };
   const followRef = useRef(follow);
   followRef.current = follow;
+  // A release hands its speed to the settle spring for that one transition.
+  const releaseTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const clearRelease = () => {
+    clearTimeout(releaseTimer.current);
+    backdrop.current?.style.removeProperty("--mobile-drawer-easing");
+    backdrop.current?.style.removeProperty("--mobile-drawer-duration");
+  };
+  const clearReleaseRef = useRef(clearRelease);
+  clearReleaseRef.current = clearRelease;
+  useEffect(() => () => clearTimeout(releaseTimer.current), []);
   // Settled positions come from the stylesheet; the commit that ends a drag
   // also clears its inline position, so the transition starts from the finger.
   useLayoutEffect(() => {
@@ -343,12 +354,18 @@ export const MobileDrawer = memo(function MobileDrawer({
       const { open } = latest.current;
       if (!(open ? canPushDrawerFrom : canPullDrawerFrom)(event.target)) return;
       const width = element.offsetWidth;
+      // Catching the drawer while it settles continues from where it is.
+      const settling = element
+        .getAnimations?.()
+        .some((animation) => animation.playState === "running");
       swipe.current = {
         id: event.pointerId,
         x: event.clientX,
         y: event.clientY,
         width,
-        origin: open ? 0 : -width,
+        origin: settling
+          ? clampDrawer(new DOMMatrix(getComputedStyle(element).transform).m41, width)
+          : open ? 0 : -width,
         opening: !open,
         dragging: false,
         last: { x: event.clientX, t: event.timeStamp },
@@ -404,6 +421,26 @@ export const MobileDrawer = memo(function MobileDrawer({
         event.type === "pointercancel"
           ? latest.current.open
           : settleDrawerOpen(translate, current.width, current.velocity);
+      const distance = (open ? 0 : -current.width) - translate;
+      const settle = springTransition(
+        "transform",
+        MOBILE_SPRINGS.smooth,
+        distance,
+        event.type === "pointercancel" ? 0 : current.velocity * Math.sign(distance),
+      );
+      clearReleaseRef.current();
+      const layer = backdrop.current;
+      if (layer) {
+        layer.style.setProperty(
+          "--mobile-drawer-easing",
+          settle.transition.slice(settle.transition.indexOf("linear(")),
+        );
+        layer.style.setProperty("--mobile-drawer-duration", `${settle.duration}ms`);
+        releaseTimer.current = setTimeout(
+          () => clearReleaseRef.current(),
+          settle.duration,
+        );
+      }
       setDragging(false);
       if (open !== latest.current.open) {
         void lightImpact();

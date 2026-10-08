@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { ArrowDownCircle, LoaderCircle, RefreshCw } from "../shared/ui/icons";
+import { MobileSwap } from "./MobileSwap";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import {
   Updates,
@@ -189,12 +190,14 @@ export function MobileAppUpdates({
               disabled={checking || installing}
               onClick={() => void check()}
             >
-              {checking ? (
-                <LoaderCircle size={16} className="mobile-spin" />
-              ) : (
-                <RefreshCw size={16} />
-              )}
-              {t(checking ? "Checking for updates…" : "Check for updates")}
+              <MobileSwap swapKey={checking ? "busy" : "idle"}>
+                {checking ? (
+                  <LoaderCircle size={16} className="mobile-spin" />
+                ) : (
+                  <RefreshCw size={16} />
+                )}
+                {t(checking ? "Checking for updates…" : "Check for updates")}
+              </MobileSwap>
             </button>
             {available && (
               <button
@@ -202,10 +205,12 @@ export function MobileAppUpdates({
                 disabled={installing || checking}
                 onClick={() => void install()}
               >
-                <ArrowDownCircle size={16} />
-                {installing
-                  ? t("Downloading… {percent}%", { percent: progress })
-                  : t("Download and install")}
+                <MobileSwap swapKey={installing ? "busy" : "idle"}>
+                  <ArrowDownCircle size={16} />
+                  {installing
+                    ? t("Downloading… {percent}%", { percent: progress })
+                    : t("Download and install")}
+                </MobileSwap>
               </button>
             )}
           </div>
