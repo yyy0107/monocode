@@ -10,7 +10,7 @@
 }
 .assistant-chat[data-layout="mobile"] {
   position: relative;
-  font-size: 16px;
+  font-size: var(--mobile-font-lg);
   padding-inline: var(--mobile-safe-left) var(--mobile-safe-right);
 }
 .assistant-chat[data-layout="mobile"],
@@ -26,7 +26,7 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  font-size: 14px;
+  font-size: var(--mobile-font-md);
   text-align: center;
   opacity: 0.65;
 }
@@ -80,7 +80,7 @@
   overflow-wrap: anywhere;
   white-space: normal;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--mobile-font-sm);
   line-height: 18px;
   text-align: center;
 }
@@ -182,7 +182,7 @@
   max-width: 88%;
   margin: 4px 4px 6px;
   color: var(--color-foreground-subtle);
-  font-size: 12px;
+  font-size: var(--mobile-font-sm);
   line-height: 18px;
 }
 .assistant-message-reply-context > svg {
@@ -213,7 +213,7 @@
   bottom: 0;
   width: 76px;
   color: var(--color-foreground-subtle);
-  font-size: 12px;
+  font-size: var(--mobile-font-sm);
   line-height: 20px;
   text-align: right;
   white-space: nowrap;
@@ -292,7 +292,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   align-self: center;
   text-align: center;
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: var(--mobile-font-sm);
 }
 .assistant-chat[data-layout="mobile"] :is(.assistant-card, .assistant-input) {
   width: 100%;
@@ -317,14 +317,14 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   grid-column: 1 / -1;
 }
 .assistant-chat[data-layout="mobile"] .assistant-card-heading {
-  font-size: 14px;
+  font-size: var(--mobile-font-md);
   gap: 8px;
 }
 .assistant-chat[data-layout="mobile"] .assistant-card-context {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--mobile-font-xs);
   line-height: 1.5;
 }
 .assistant-card-project {
@@ -413,13 +413,13 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
 .mobile-assistant-welcome p {
   margin-top: 10px;
   line-height: 1.65;
-  font-size: 14px;
+  font-size: var(--mobile-font-md);
 }
 .mobile-assistant-notices {
   display: grid;
   gap: 4px;
   padding: 4px 20px 8px;
-  font-size: 12px;
+  font-size: var(--mobile-font-sm);
   opacity: 0.65;
 }
 .assistant-chat[data-layout="mobile"] .assistant-error {
@@ -429,7 +429,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   margin: 4px 18px 8px;
   padding: 12px 8px 12px 16px;
   border-radius: 20px;
-  font-size: 13px;
+  font-size: var(--mobile-font-md);
 }
 .assistant-chat[data-layout="mobile"] .assistant-error button {
   min-height: 36px;
@@ -499,7 +499,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   border: 0;
   border-radius: 25px;
   background: var(--mobile-fill);
-  font-size: 16px;
+  font-size: var(--mobile-font-lg);
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -552,7 +552,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   border: 0;
   border-radius: 0;
   line-height: 24px;
-  font-size: 16px;
+  font-size: var(--mobile-font-xl);
   transition: none;
 }
 .assistant-chat[data-layout="mobile"]
@@ -632,7 +632,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
 }
 .mobile-assistant-settings-header strong {
   text-align: center;
-  font-size: 17px;
+  font-size: var(--mobile-font-xl);
 }
 .mobile-assistant-settings-content {
   flex: 1;
@@ -661,7 +661,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   padding-inline: 4px;
 }
 .assistant-settings[data-layout="mobile"] .assistant-settings-section h3 {
-  font-size: 13px;
+  font-size: var(--mobile-font-md);
   font-weight: 500;
   opacity: 0.6;
 }
@@ -675,7 +675,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   padding: 8px 10px;
   border-radius: 14px;
   background: var(--mobile-card);
-  font-size: 13px;
+  font-size: var(--mobile-font-md);
   color: color-mix(in srgb, var(--color-content) 58%, transparent);
   gap: 8px;
 }
@@ -698,7 +698,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   padding: 8px 10px;
   outline: none;
   background: var(--mobile-fill);
-  font-size: 16px;
+  font-size: var(--mobile-font-xl);
   line-height: 1.5;
   color: var(--color-content);
   transition: border-color 160ms ease;
@@ -732,12 +732,12 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
 .assistant-settings[data-layout="mobile"] .assistant-settings-disclosure {
   flex: 1;
   min-height: 44px;
-  font-size: 15px;
+  font-size: var(--mobile-font-lg);
   font-weight: 500;
 }
 .assistant-settings[data-layout="mobile"] .assistant-chip > span {
   padding: 8px 10px;
-  font-size: 14px;
+  font-size: var(--mobile-font-md);
   background: var(--mobile-fill);
   border-color: transparent;
 }
@@ -773,7 +773,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
 }
 .assistant-settings[data-layout="mobile"] .assistant-settings-group-title {
   padding-inline: 4px;
-  font-size: 13px;
+  font-size: var(--mobile-font-md);
   opacity: 0.6;
 }
 .assistant-settings[data-layout="mobile"] .assistant-check-grid {
@@ -788,7 +788,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   padding: 8px 10px;
   border-radius: 16px;
   background: var(--mobile-card);
-  font-size: 14px;
+  font-size: var(--mobile-font-md);
   overflow-wrap: anywhere;
 }
 .assistant-settings[data-layout="mobile"] .assistant-check input[type="checkbox"] {
@@ -827,12 +827,12 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   transform: translateX(18px);
 }
 .assistant-settings[data-layout="mobile"] small {
-  font-size: 12px;
+  font-size: var(--mobile-font-sm);
   line-height: 1.5;
 }
 .assistant-chat[data-layout="mobile"] .assistant-worker {
   height: min(45dvh, 420px);
-  font-size: 14px;
+  font-size: var(--mobile-font-md);
 }
 .assistant-chat[data-layout="mobile"] .assistant-worker > header {
   gap: 6px;
@@ -891,7 +891,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   background: var(--mobile-card);
   color: var(--color-content);
   font: inherit;
-  font-size: 15px;
+  font-size: var(--mobile-font-lg);
   text-align: start;
   cursor: pointer;
   transition: background 140ms ease;
@@ -931,7 +931,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
 }
 .mobile-assistant-select-hint {
   padding-inline: 14px;
-  font-size: 12px;
+  font-size: var(--mobile-font-sm);
   line-height: 1.5;
   opacity: 0.6;
 }
@@ -956,7 +956,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   background: var(--mobile-fill);
   color: inherit;
   font: inherit;
-  font-size: 16px;
+  font-size: var(--mobile-font-xl);
 }
 .mobile-assistant-select-options {
   display: grid;
@@ -966,7 +966,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
 }
 .mobile-assistant-select-empty {
   padding: 12px;
-  font-size: 14px;
+  font-size: var(--mobile-font-md);
   opacity: 0.6;
 }
 @media (prefers-reduced-motion: reduce) {

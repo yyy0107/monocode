@@ -27,6 +27,13 @@ describe("postcss font scale", () => {
     expect(await run(once)).toBe(once);
   });
 
+  it("keeps mobile font tokens responsive to the selected font scale", async () => {
+    const css = await run(".a{font-size:var(--mobile-font-md)}.b{font-size:var(--mobile-font-xl)}");
+    expect(css).toContain(".a{font-size:calc(var(--mobile-font-md) * var(--font-scale, 1))}");
+    expect(css).toContain(".b{font-size:calc(var(--mobile-font-xl) * var(--font-scale, 1))}");
+    expect(await run(css)).toBe(css);
+  });
+
   it("lets the user override reduced motion in both directions", async () => {
     const css = await run(
       "@media (prefers-reduced-motion: reduce){.a,html.b{animation:none}}" +

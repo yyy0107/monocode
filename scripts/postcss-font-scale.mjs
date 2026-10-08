@@ -10,7 +10,7 @@
 //   the media query for users who asked to reduce motion explicitly.
 //   `no-preference` queries are handled the same way in reverse.
 
-const SCALABLE_FONT_SIZE = /^(-?\d*\.?\d+px|var\(--text-[\w-]+\))$/;
+const SCALABLE_FONT_SIZE = /^(-?\d*\.?\d+px|var\(--(?:text-[\w-]+|mobile-font-(?:xs|sm|md|lg|xl))\))$/;
 const MOTION_QUERY =
   /^\(\s*prefers-reduced-motion\s*:\s*(reduce|no-preference)\s*\)$/;
 const ALREADY_SCALED = "var(--font-scale";

@@ -22,7 +22,7 @@ html.theme-light .mobile-git-counts [data-kind="del"] {
 .mobile-git-note {
   padding: 8px 0;
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
-  font-size: 13px;
+  font-size: var(--mobile-font-md);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -31,7 +31,7 @@ html.theme-light .mobile-git-counts [data-kind="del"] {
   align-items: center;
   gap: 12px;
   min-height: 44px;
-  font-size: 13px;
+  font-size: var(--mobile-font-md);
 }
 .mobile-git-toolbar > :first-child {
   min-width: 0;
@@ -68,7 +68,7 @@ html.theme-light .mobile-git-counts [data-kind="del"] {
   background: transparent;
   color: var(--color-content);
   text-align: start;
-  font-size: 14px;
+  font-size: var(--mobile-font-md);
 }
 .mobile-git-file-path {
   min-width: 0;
@@ -80,7 +80,7 @@ html.theme-light .mobile-git-counts [data-kind="del"] {
 }
 .mobile-git-error {
   padding: 12px 0;
-  font-size: 13px;
+  font-size: var(--mobile-font-md);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }

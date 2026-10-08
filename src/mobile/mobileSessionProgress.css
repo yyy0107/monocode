@@ -17,7 +17,7 @@
   padding: 8px 12px;
   border-radius: 24px;
   color: var(--color-content);
-  font-size: 13px;
+  font-size: var(--mobile-font-md);
   text-align: start;
   pointer-events: auto;
 }
@@ -39,7 +39,7 @@
 }
 .mobile-progress-count {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--mobile-font-xs);
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
 }
@@ -65,7 +65,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 4px;
-  font-size: 14px;
+  font-size: var(--mobile-font-md);
   font-weight: 600;
 }
 .mobile-progress-section h3 > span:first-child {
@@ -73,7 +73,7 @@
 }
 .mobile-progress-section h3 small {
   margin-inline-start: auto;
-  font-size: 12px;
+  font-size: var(--mobile-font-sm);
   font-weight: 400;
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
 }
@@ -87,7 +87,7 @@
   align-items: flex-start;
   gap: 10px;
   padding: 10px 4px;
-  font-size: 14px;
+  font-size: var(--mobile-font-md);
   line-height: 1.5;
 }
 .mobile-progress-tasks li > span:first-child {
@@ -115,7 +115,7 @@
   background: transparent;
   color: var(--color-content);
   text-align: start;
-  font-size: 14px;
+  font-size: var(--mobile-font-md);
   line-height: 1.5;
 }
 .mobile-progress-row > span:not([aria-label]) {
@@ -129,7 +129,7 @@
 }
 .mobile-progress-row small {
   display: block;
-  font-size: 12px;
+  font-size: var(--mobile-font-sm);
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
 }
 .mobile-progress-command {
@@ -144,7 +144,7 @@
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 60%, transparent);
   text-align: start;
-  font-size: 13px;
+  font-size: var(--mobile-font-md);
 }
 .mobile-progress-more:active,
 button.mobile-progress-row:active {

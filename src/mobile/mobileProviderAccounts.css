@@ -24,7 +24,7 @@
 .mobile-account-toolbar p {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: var(--mobile-font-md);
   color: color-mix(in srgb, var(--color-content) 70%, transparent);
 }
 .mobile-account-toolbar .mobile-icon-button {
@@ -38,7 +38,7 @@
   padding: 14px;
   border-radius: 16px;
   background: var(--mobile-fill);
-  font-size: 13px;
+  font-size: var(--mobile-font-md);
   line-height: 1.6;
 }
 .mobile-account-notice > svg {
@@ -84,7 +84,7 @@
   flex-shrink: 0;
   border-radius: 6px;
   padding: 2px 6px;
-  font-size: 11px;
+  font-size: var(--mobile-font-xs);
   line-height: 1.6;
 }
 .mobile-account-plan {
@@ -97,14 +97,14 @@
 }
 .mobile-account-identity {
   max-width: 100%;
-  font-size: 13px;
+  font-size: var(--mobile-font-md);
   line-height: 1.5;
   overflow-wrap: anywhere;
   user-select: text;
 }
 .mobile-account-detail {
   margin-top: 3px;
-  font-size: 12px;
+  font-size: var(--mobile-font-sm);
   line-height: 1.5;
   overflow-wrap: anywhere;
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
@@ -112,11 +112,11 @@
 .mobile-account-status {
   margin-top: 10px;
   max-width: 100%;
-  font-size: 12px;
+  font-size: var(--mobile-font-sm);
 }
 .mobile-account-updated {
   margin-top: 12px;
-  font-size: 11px;
+  font-size: var(--mobile-font-xs);
   color: color-mix(in srgb, var(--color-content) 50%, transparent);
 }
 .mobile-account-meters {
@@ -125,7 +125,7 @@
   margin-top: 12px;
 }
 .mobile-account-meter > div:first-child {
-  font-size: 12px;
+  font-size: var(--mobile-font-sm);
   line-height: 16px;
 }
 .mobile-account-meter [role="progressbar"] {
