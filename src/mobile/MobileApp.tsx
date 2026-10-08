@@ -51,6 +51,7 @@ import {
   sessionDisplayTitle,
   sessionWorkCwd,
   type Attachment,
+  type Block,
   type QueuedMessage,
 } from "../features/sessions/model/session";
 import { pendingSessionInputKey } from "../features/sessions/model/sessionActivity";
@@ -201,6 +202,19 @@ const readHostImage = (path: string) => client.readBinaryFile(path);
 const browseHostDirectories = (path?: string) => client.browseDirectories(path);
 // Settings doubles as the connection screen before pairing.
 type View = "home" | "chat" | "settings";
+
+/** A sent message shown before the Host records it. */
+type SendingMessage = {
+  commandId: string;
+  /** Transcript identity, kept by the conversation a first message creates. */
+  key: string;
+  sessionId?: string;
+  /** User messages the conversation had when this one left. */
+  userCount: number;
+  block: Block;
+  /** Stands in for a conversation the first message is still creating. */
+  placeholder?: HostSession;
+};
 // The stock glyph packs its dots tightly; the header capsule reads better
 // with wider, slightly heavier dots.
 function HeaderMoreIcon() {
@@ -336,6 +350,13 @@ export function MobileApp() {
   }>();
   const [sessionConfirmed, setSessionConfirmed] = useState(false);
   const [animateFrom, setAnimateFrom] = useState<string>();
+  // A send shown in the transcript the moment it leaves, until the Host has
+  // recorded it (or it failed and its text went back to the composer).
+  const [sendingMessage, setSendingMessage] = useState<SendingMessage>();
+  const sendingRef = useRef<SendingMessage>(undefined);
+  sendingRef.current = sendingMessage;
+  // A new conversation keeps the transcript its sending copy mounted.
+  const transcriptKeys = useRef(new Map<string, string>());
   const [catalog, setCatalog] = useState<HostModelCatalog>();
   const [catalogLoading, setCatalogLoading] = useState(false);
   const draftDefaults = useRef<AgentDefaults>({});
@@ -992,6 +1013,9 @@ export function MobileApp() {
         // A recovered create/send can belong to a different project than the
         // currently visible one. Navigate to its actual owning project.
         const result = await client.session(receipt.sessionId, receipt.revision);
+        const sending = sendingRef.current;
+        if (completedCommand?.type === "create" && sending?.commandId === completedCommand.commandId)
+          transcriptKeys.current.set(receipt.sessionId, sending.key);
         if (
           completedCommand?.type === "send" ||
           completedCommand?.type === "create"
@@ -1178,8 +1202,59 @@ export function MobileApp() {
     }
     setBusy(true);
     setError("");
+    const generation = navigation.current;
+    const commandId = crypto.randomUUID();
+    const sent = { text, attachments };
+    // Show the message at once where the Host will record it in the
+    // transcript. Sends that wait in the Host queue appear there instead.
+    const instant = sessionId
+      ? !!snapshot &&
+        snapshot.session.id === sessionId &&
+        snapshot.status !== "running" &&
+        !snapshot.session.queuedMessages?.length &&
+        !(snapshot.session.nativeSession?.mode === "managed" &&
+          snapshot.nativeStatus && snapshot.nativeStatus.state !== "ready")
+      : !snapshot;
+    if (instant) {
+      const block: Block = {
+        id: `sending:${commandId}`,
+        role: "user",
+        text: parsed.text,
+        startedAt: Date.now(),
+        sending: true,
+        ...(attachments.length ? { attachments } : {}),
+      };
+      setSendingMessage({
+        commandId,
+        key: block.id,
+        sessionId,
+        userCount: snapshot?.session.blocks.filter((item) => item.role === "user").length ?? 0,
+        block,
+        ...(sessionId ? {} : {
+          placeholder: {
+            session: {
+              id: block.id,
+              harness: configuration.harness,
+              model: configuration.model,
+              modelSettings: configuration.modelSettings,
+              runtimeMode: configuration.runtimeMode,
+              title: "",
+              cwd: project.cwd,
+              blocks: [block],
+            },
+            projectId: project.id,
+            revision: 0,
+            status: "idle",
+            updatedAt: Date.now(),
+          },
+        }),
+      });
+      if (!sessionId) setAnimateFrom(block.id);
+      setDraft("");
+      setAttachments([]);
+    }
+    let recorded = false;
     try {
-      const generation = navigation.current;
       const hostId = client.connection?.endpoint;
       const providerAccountId = !sessionId
         ? defaultProviderAccount(configuration.harness, draftDefaults.current)
@@ -1199,18 +1274,18 @@ export function MobileApp() {
         ...(planMode || parsed.planning ? { intent: "plan" } : {}),
       };
       if (sessionId) {
-        await dispatch({
+        recorded = !!await dispatch({
           ...prompt,
           type: "send",
-          commandId: crypto.randomUUID(),
+          commandId,
           sessionId,
           followUpBehavior,
         });
       } else {
-        await dispatch(
+        recorded = !!await dispatch(
           {
             type: "create",
-            commandId: crypto.randomUUID(),
+            commandId,
             projectId: project.id,
             harness: configuration.harness,
             model: configuration.model,
@@ -1225,6 +1300,14 @@ export function MobileApp() {
       setError(message(problem));
     } finally {
       setBusy(false);
+      if (instant) {
+        setSendingMessage(undefined);
+        // Nothing was recorded: the message goes back to the composer.
+        if (!recorded && navigation.current === generation && !draft.get()) {
+          setDraft(sent.text);
+          setAttachments(sent.attachments);
+        }
+      }
     }
   };
   const addFiles = async (files: File[]) => {
@@ -1447,6 +1530,17 @@ export function MobileApp() {
   ]);
 
   const running = snapshot?.status === "running";
+  const transcriptSnapshot = useMemo(() => {
+    const message = sendingMessage;
+    if (!message) return snapshot;
+    if (!message.sessionId)
+      return snapshot ?? (project?.id === message.placeholder?.projectId ? message.placeholder : undefined);
+    if (!snapshot || snapshot.session.id !== message.sessionId) return snapshot;
+    // Another user message means the Host has recorded this one.
+    const blocks = snapshot.session.blocks;
+    if (blocks.filter((block) => block.role === "user").length > message.userCount) return snapshot;
+    return { ...snapshot, session: { ...snapshot.session, blocks: [...blocks, message.block] } };
+  }, [sendingMessage, snapshot, project?.id]);
   // Home and drawer rows can belong to another project, so they carry their
   // own summary; the current project's rows stay live through `sessions`.
   const sessionActionsSummary = view === "home" ? homeActionSession : sessions.find(
@@ -1996,10 +2090,10 @@ export function MobileApp() {
         />
       ) : (
         <main className="mobile-chat" inert={drawerOpen || pageOverlayOpen || hostPickerOpen}>
-          {snapshot ? (
+          {transcriptSnapshot ? (
             <MobileTranscript
-              key={snapshot.session.id}
-              snapshot={snapshot}
+              key={transcriptKeys.current.get(transcriptSnapshot.session.id) ?? transcriptSnapshot.session.id}
+              snapshot={transcriptSnapshot}
               active={!drawerOpen && !pageOverlayOpen && !hostPickerOpen}
               onOverlayChange={onTranscriptOverlayChange}
               gitSource={gitSource}

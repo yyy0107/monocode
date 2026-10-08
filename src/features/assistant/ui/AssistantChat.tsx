@@ -59,11 +59,7 @@ import {
 } from "../../sessions/ui/useTranscriptRenderingPlatform";
 import { Shimmer } from "../../../shared/ui/Shimmer";
 import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
-import {
-  flyPromptBubble,
-  readPromptLaunch,
-  type PromptLaunchOrigin,
-} from "../../sessions/ui/promptLaunch";
+import { slidePromptIn } from "../../sessions/ui/promptLaunch";
 import { Loader2, Sparkles, X } from "../../../shared/ui/icons";
 
 /** History renders newest-first in slices so opening never blocks the app. */
@@ -71,7 +67,7 @@ const INITIAL_HISTORY_ROWS = 30;
 const HISTORY_ROW_STEP = 30;
 /** Older rows load once the reader is this close to the top. */
 const HISTORY_LOAD_DISTANCE = 800;
-// A message that takes longer than this to appear no longer flies from the composer.
+// A message that takes longer than this to appear no longer animates its send.
 const LAUNCH_TTL_MS = 15_000;
 import "./assistant.css";
 
@@ -441,9 +437,9 @@ export function AssistantChat({
     if (followLog.current && element)
       element.scrollTo?.({ top: followScrollTop(element, !!chrome) });
   }, [messages, chrome, visible]);
-  // A sent message flies up out of the composer text it was typed in, once
-  // the Host has recorded it and the log has followed it into view.
-  const launch = useRef<{ origin: PromptLaunchOrigin; at: number }>(undefined);
+  // Once the Host has recorded a sent message and the log has followed it,
+  // the message scrolls in with the rows above it.
+  const launch = useRef<number>(undefined);
   const latestUserId = useMemo(() => {
     for (let i = renderedMessages.length - 1; i >= 0; i--)
       if (renderedMessages[i].kind === "user") return renderedMessages[i].id;
@@ -455,16 +451,37 @@ export function AssistantChat({
     const pending = launch.current;
     launch.current = undefined;
     const element = log.current;
-    if (!pending || !element || !visible || performance.now() - pending.at > LAUNCH_TTL_MS)
+    if (
+      pending === undefined ||
+      !element ||
+      !visible ||
+      !followLog.current ||
+      performance.now() - pending > LAUNCH_TTL_MS
+    )
       return;
     if (reducedMotionQuery().matches) return;
-    const rows = element.querySelectorAll<HTMLElement>(".assistant-message-row-user");
-    const bubble = rows[rows.length - 1]?.querySelector<HTMLElement>(".assistant-message-user");
-    if (!bubble || typeof bubble.animate !== "function") return;
+    const users = element.querySelectorAll<HTMLElement>(".assistant-message-row-user");
+    const row = users[users.length - 1];
+    const bubble = row?.querySelector<HTMLElement>(".assistant-message-user");
+    if (!row || !bubble || typeof bubble.animate !== "function") return;
     const view = element.getBoundingClientRect();
-    const flight = flyPromptBubble(bubble, view, pending.origin, view.bottom, element);
-    if (!flight) return;
-    return flight.release;
+    const landed = row.getBoundingClientRect();
+    // The new row pushed everything above it up by its height and gap.
+    const others = [...element.children].filter(
+      (other): other is HTMLElement =>
+        other instanceof HTMLElement && !other.contains(row),
+    );
+    const above = others
+      .map((other) => other.getBoundingClientRect().bottom)
+      .filter((bottom) => bottom <= landed.top + 0.5);
+    const distance = above.length
+      ? landed.bottom - Math.max(...above)
+      : landed.height;
+    const earlier = others.filter((other) => {
+      const rect = other.getBoundingClientRect();
+      return rect.bottom <= landed.top + 0.5 && rect.bottom + distance > view.top;
+    });
+    return slidePromptIn([bubble], distance, earlier)?.release;
   }, [latestUserId, visible]);
   useEffect(() => {
     const element = log.current;
@@ -982,10 +999,7 @@ export function AssistantChat({
                     setAttachments((a) => a.filter((f) => f.id !== id))
                   }
                   onSend={() => {
-                    const origin = readPromptLaunch(
-                      chat.current?.querySelector(".assistant-conversation textarea") ?? null,
-                    );
-                    launch.current = origin && { origin, at: performance.now() };
+                    launch.current = performance.now();
                     void send(replying ? `${quoteAssistantReply(replyText)}\n\n${draft}` : draft);
                   }}
                 />
