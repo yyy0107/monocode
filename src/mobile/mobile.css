@@ -1873,7 +1873,7 @@ html.has-user-accent .mobile-send:not(:disabled) {
   gap: 12px;
   /* Room for remove buttons hanging over the chip corners; this list scrolls,
      so anything outside its padding box is clipped. */
-  padding: 6px 6px 12px 0;
+  padding: 16px 16px 12px 0;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
@@ -1900,12 +1900,6 @@ html.has-user-accent .mobile-send:not(:disabled) {
   min-height: 20px;
 }
 .mobile-composer-attachments
-  .attachment-chip-remove::after {
-  content: "";
-  position: absolute;
-  inset: -6px;
-}
-.mobile-composer-attachments
   .attachment-chip-remove
   svg {
   width: 10px;
@@ -1921,11 +1915,6 @@ html.has-user-accent .mobile-send:not(:disabled) {
   padding: 0;
   border: 0;
   border-radius: 8px;
-}
-.mobile-composer-plan::after {
-  content: "";
-  position: absolute;
-  inset: -5px 0;
 }
 .mobile-sheet-backdrop {
   position: fixed;
@@ -2366,11 +2355,11 @@ html.has-user-accent .mobile-send:not(:disabled) {
   color: var(--mobile-accent);
 }
 .mobile-model-options .mobile-sheet-row {
-  min-height: 36px;
+  min-height: 44px;
   padding: 4px 10px;
 }
 .mobile-sheet-back {
-  min-height: 36px;
+  min-height: 44px;
   padding: 4px 10px;
 }
 .mobile-sheet-row:active {
@@ -2509,7 +2498,7 @@ html.has-user-accent .mobile-send:not(:disabled) {
   background: var(--color-selection);
 }
 .mobile-session-actions .mobile-sheet-row {
-  min-height: 36px;
+  min-height: 44px;
   padding: 6px 14px;
 }
 .mobile-sidebar-session-actions .mobile-sheet-row {
@@ -2816,7 +2805,7 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 }
 .mobile-desktop-transcript .user-message-actions {
   padding: 3px 4px 0;
-  gap: 2px;
+  column-gap: 18px;
 }
 .mobile-desktop-transcript .user-message-actions button {
   min-height: 28px;
@@ -2839,7 +2828,7 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 
 /* Tool and thinking rows are tap targets that open details. */
 .mobile-desktop-transcript [data-tool-open-row] {
-  min-height: 36px;
+  min-height: 44px;
   margin-inline: -6px;
   padding-inline: 6px;
   border-radius: 10px;
@@ -4640,4 +4629,55 @@ button.mobile-settings-row:active {
     :has(+ .zen-phase-step[data-waiting])
   )::before {
   height: calc(50% - 7px);
+}
+
+/* Invisible hit areas preserve compact control sizes. Do not change the
+   positioned attachment remove button or the floating header's anchors. */
+:is(.mobile-composer-model, .mobile-composer-project, .mobile-composer-plan,
+  .mobile-status-copy, .mobile-detail-copy, .mobile-progress-capsule),
+.mobile-header-actions > .mobile-icon-button,
+.mobile-error .mobile-icon-button,
+.mobile-composer-attachments button:not(.attachment-chip-remove),
+.mobile-desktop-transcript .user-message-actions button,
+.mobile-shared-question [data-question-collapse],
+.mobile-settings-row .mobile-select-trigger {
+  position: relative;
+}
+:is(.mobile-composer-model, .mobile-composer-project, .mobile-composer-plan,
+  .mobile-status-copy, .mobile-detail-copy, .mobile-progress-capsule)::after,
+.mobile-header-actions > .mobile-icon-button::after,
+.mobile-error .mobile-icon-button::after,
+.mobile-composer-attachments button::after,
+.mobile-desktop-transcript .user-message-actions button::after,
+:is(.mobile-app, .mobile-sheet, .mobile-modal, [data-popover-side]) .markdown-code-copy::after,
+.mobile-shared-question [data-question-collapse]::after,
+.mobile-settings-row .mobile-select-trigger::after {
+  content: "";
+  position: absolute;
+  inset: auto;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  translate: -50% -50%;
+}
+/* The front input card covers the toolbar's lower edge. Extend these compact
+   targets upward so the full 44px remains reachable above that card. */
+.mobile-composer-model::after,
+.mobile-session-progress[data-docked="true"] .mobile-progress-capsule::after {
+  top: calc(50% - 4px);
+}
+.mobile-composer-attachments .attachment-chip-remove {
+  z-index: 1;
+}
+.mobile-home-error button,
+.mobile-drawer-more,
+.mobile-drawer-more-toggle,
+button.mobile-drawer-group-status,
+.mobile-pending button,
+.mobile-pairing-methods button,
+.mobile-qr-overlay .mobile-button,
+.mobile-shared-question [data-question-secondary] {
+  min-width: 44px;
+  min-height: 44px;
 }
