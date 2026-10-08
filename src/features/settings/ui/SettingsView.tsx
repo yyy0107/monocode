@@ -24,6 +24,7 @@ import {
   Search,
   Trash2,
 } from "../../../shared/ui/icons";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import {
   createContext,
   Fragment,
@@ -1502,7 +1503,11 @@ function GitlabSettings() {
     setBusy(true);
     setError(null);
     try {
-      const status = await saveGitlabConfig(url, token);
+      const status = await withStatusToast(() => saveGitlabConfig(url, token), {
+        loading: uiT("Connecting to {service}…", { service: "GitLab" }),
+        success: (result) => result.connected && uiT("Connected to {service}", { service: "GitLab" }),
+        error: false,
+      });
       setUrl(status.url);
       setToken("");
       setConnected(status.connected);
@@ -1520,7 +1525,11 @@ function GitlabSettings() {
     setBusy(true);
     setError(null);
     try {
-      const status = await disconnectGitlab(url);
+      const status = await withStatusToast(() => disconnectGitlab(url), {
+        loading: uiT("Disconnecting from {service}…", { service: "GitLab" }),
+        success: uiT("Disconnected from {service}", { service: "GitLab" }),
+        error: false,
+      });
       setConnected(false);
       setUrl(status.url);
       clearInboxCache();
@@ -1628,7 +1637,11 @@ function AzureDevOpsSettings() {
     setBusy(true);
     setError(null);
     try {
-      const status = await saveAzureDevOpsConfig(url, token);
+      const status = await withStatusToast(() => saveAzureDevOpsConfig(url, token), {
+        loading: uiT("Connecting to {service}…", { service: "Azure DevOps" }),
+        success: (result) => result.connected && uiT("Connected to {service}", { service: "Azure DevOps" }),
+        error: false,
+      });
       setUrl(status.url);
       setToken("");
       setConnected(status.connected);
@@ -1646,7 +1659,11 @@ function AzureDevOpsSettings() {
     setBusy(true);
     setError(null);
     try {
-      const status = await disconnectAzureDevOps(url);
+      const status = await withStatusToast(() => disconnectAzureDevOps(url), {
+        loading: uiT("Disconnecting from {service}…", { service: "Azure DevOps" }),
+        success: uiT("Disconnected from {service}", { service: "Azure DevOps" }),
+        error: false,
+      });
       setConnected(false);
       setUrl(status.url || url);
       clearInboxCache();
@@ -1770,7 +1787,11 @@ function LinearSettings() {
     setBusy(true);
     setError(null);
     try {
-      await saveLinearToken(token);
+      await withStatusToast(() => saveLinearToken(token), {
+        loading: uiT("Connecting to {service}…", { service: "Linear" }),
+        success: uiT("Connected to {service}", { service: "Linear" }),
+        error: false,
+      });
       setToken("");
       setConnected(true);
       clearInboxCache();
@@ -1789,7 +1810,11 @@ function LinearSettings() {
     setBusy(true);
     setError(null);
     try {
-      await disconnectLinear();
+      await withStatusToast(() => disconnectLinear(), {
+        loading: uiT("Disconnecting from {service}…", { service: "Linear" }),
+        success: uiT("Disconnected from {service}", { service: "Linear" }),
+        error: false,
+      });
       setConnected(false);
       setTeams([]);
       clearInboxCache();
@@ -4179,7 +4204,11 @@ export function ProviderAccountsSettings() {
     setWorking(`default:${provider}`);
     setError(null);
     try {
-      await setSharedProviderDefault(provider, accountId);
+      await withStatusToast(() => setSharedProviderDefault(provider, accountId), {
+        loading: uiT("Setting default account…"),
+        success: uiT("Default account updated"),
+        error: false,
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -4226,19 +4255,26 @@ export function ProviderAccountsSettings() {
       : `add:${editor.provider}`;
     setWorking(key);
     setError(null);
+    const notice = editor.accountId
+      ? { loading: uiT("Saving…"), success: uiT("Account saved") }
+      : editor.importCurrent
+        ? { loading: uiT("Importing account…"), success: uiT("Account imported") }
+        : { loading: uiT("Adding account…"), success: uiT("Account added") };
     try {
-      if (editor.accountId) {
-        await updateProviderAccountProfile({
-          id: editor.accountId, provider: editor.provider,
-          label: editor.label, dataHome: editor.dataHome,
-        });
-        clearCachedRateLimits(editor.provider, editor.accountId);
-        setVersion((value) => value + 1);
-      } else if (editor.importCurrent) {
-        await importCurrentCodexAccount(editor.label);
-      } else {
-        await addProviderAccountProfile(editor.provider, editor.label, editor.dataHome);
-      }
+      await withStatusToast(async () => {
+        if (editor.accountId) {
+          await updateProviderAccountProfile({
+            id: editor.accountId, provider: editor.provider,
+            label: editor.label, dataHome: editor.dataHome,
+          });
+          clearCachedRateLimits(editor.provider, editor.accountId);
+          setVersion((value) => value + 1);
+        } else if (editor.importCurrent) {
+          await importCurrentCodexAccount(editor.label);
+        } else {
+          await addProviderAccountProfile(editor.provider, editor.label, editor.dataHome);
+        }
+      }, { ...notice, error: false });
       setEditor(null);
     } catch (caught) {
       setError(
@@ -4256,7 +4292,11 @@ export function ProviderAccountsSettings() {
     setWorking(`login:${account.provider}:${account.id}`);
     setError(null);
     try {
-      await loginHarness(account.provider, account.id);
+      await withStatusToast(() => loginHarness(account.provider, account.id), {
+        loading: uiT("Signing in…"),
+        success: uiT("Signed in to {account}", { account: account.label }),
+        error: false,
+      });
       clearCachedRateLimits(account.provider, account.id);
       setVersion((value) => value + 1);
     } catch (reason) {
@@ -4284,7 +4324,10 @@ export function ProviderAccountsSettings() {
     setWorking(key);
     setError(null);
     try {
-      await removeProviderAccountCredentials(account.provider, account.id);
+      await withStatusToast(
+        () => removeProviderAccountCredentials(account.provider, account.id),
+        { loading: uiT("Removing account…"), success: uiT("Account removed"), error: false },
+      );
       removeProviderAccount(account.provider, account.id);
       clearCachedRateLimits(account.provider, account.id);
       if (

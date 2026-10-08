@@ -1,4 +1,5 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useId, useRef, useState } from "react";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
@@ -637,11 +638,12 @@ export function ConnectionsSettings() {
             if (busy) return;
             setBusy(true);
             setError("");
-            void connectMachine("", url, token)
-              .then((machine) => {
-                setToken("");
-                setNotice(`${machine.name} is connected.`);
-              })
+            void withStatusToast(() => connectMachine("", url, token), {
+              loading: uiT("Connecting to the machine…"),
+              success: (machine) => uiT("Connected to {service}", { service: machine.name }),
+              error: false,
+            })
+              .then(() => setToken(""))
               .catch((reason) => setError(String(reason)))
               .finally(() => setBusy(false));
           }}

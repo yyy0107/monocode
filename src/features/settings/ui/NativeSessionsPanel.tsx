@@ -10,6 +10,12 @@ import {
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { RefreshCw, Search } from "../../../shared/ui/icons";
+import {
+  dismissStatusToast,
+  showStatusToast,
+  updateStatusToast,
+  withStatusToast,
+} from "../../../shared/ui/StatusToast";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import {
   discoverNativeSessions,
@@ -127,11 +133,6 @@ export function NativeSessionsPanel({
   const [pending, setPending] = useState<string>();
   const [imported, setImported] = useState<Record<string, string>>({});
   const [bulk, setBulk] = useState<{ done: number; total: number }>();
-  const [bulkResult, setBulkResult] = useState<{
-    imported: number;
-    failed: number;
-    cancelled: boolean;
-  }>();
   const bulkRun = useRef<{ cancelled: boolean }>(undefined);
   const desktop = typeof isTauri === "function" && isTauri();
   useEffect(() => {
@@ -151,7 +152,11 @@ export function NativeSessionsPanel({
     const key = nativeSourceKey(file);
     setPending(key);
     try {
-      const id = await importNativeSession(file);
+      const id = await withStatusToast(() => importNativeSession(file), {
+        loading: t("Importing conversation…"),
+        success: (id) => !!id && t("Conversation imported"),
+        error: false,
+      });
       if (!id) return;
       setImported((current) => ({ ...current, [key]: id }));
       onOpenSession?.(id);
@@ -167,7 +172,6 @@ export function NativeSessionsPanel({
     if (!queue.length || bulk) return;
     const run = { cancelled: false };
     bulkRun.current = run;
-    setBulkResult(undefined);
     setBulk({ done: 0, total: queue.length });
     const added: Record<string, string> = {};
     const { done, failed } = await importNativeSessions(queue, {
@@ -180,11 +184,24 @@ export function NativeSessionsPanel({
     setImported((current) => ({ ...current, ...added }));
     bulkRun.current = undefined;
     setBulk(undefined);
-    setBulkResult({
-      imported: done - failed,
-      failed,
-      cancelled: run.cancelled,
-    });
+    const count = done - failed;
+    const result = failed
+      ? t("Imported {imported} conversations; {failed} could not be imported.", {
+          imported: count,
+          failed,
+        })
+      : t("Imported {imported} conversations.", { imported: count });
+    showStatusToast(
+      run.cancelled ? `${result} ${t("Stopped before finishing.")}` : result,
+      failed && !count ? "error" : "success",
+    );
+  };
+  const syncImported = async () => {
+    const id = showStatusToast(t("Syncing imported conversations…"), "loading");
+    await syncNativeSessions();
+    // Failures stay in the panel's shared error line.
+    if (nativeSessionSnapshot().error) dismissStatusToast(id);
+    else updateStatusToast(id, t("Imported conversations synced"), "success");
   };
   const toggle = (provider: NativeSessionProvider) => {
     setOpen((current) => (current === provider ? undefined : provider));
@@ -237,7 +254,7 @@ export function NativeSessionsPanel({
             type="button"
             className={pillClass}
             disabled={!importedCount || state.busy}
-            onClick={() => void syncNativeSessions()}
+            onClick={() => void syncImported()}
           >
             {t("Sync now")}
           </button>
@@ -289,23 +306,6 @@ export function NativeSessionsPanel({
           </div>
         }
       >
-        {bulkResult ? (
-          <p
-            role="status"
-            className="border-b border-content/5 px-4 py-2.5 text-[12px] text-content/55"
-          >
-            {bulkResult.failed
-              ? t(
-                  "Imported {imported} conversations; {failed} could not be imported.",
-                  { imported: bulkResult.imported, failed: bulkResult.failed },
-                )
-              : t("Imported {imported} conversations.", {
-                  imported: bulkResult.imported,
-                  failed: bulkResult.failed,
-                })}
-            {bulkResult.cancelled ? ` ${t("Stopped before finishing.")}` : ""}
-          </p>
-        ) : null}
         {!desktop ? (
           <p className="px-4 py-3.5 text-[13px] text-content/55">
             {t("Native session import is available in the desktop app.")}

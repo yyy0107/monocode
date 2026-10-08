@@ -1,4 +1,5 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, Loader, RefreshCw, Smartphone } from "../../../shared/ui/icons";
 import { Modal } from "../../../shared/ui/Modal";
@@ -338,9 +339,13 @@ function AddDeviceDialog({
             if (busy || !name.trim()) return;
             setBusy(true);
             setError("");
-            void remoteRequest<{ id: string; token: string }>(machineId, "devices.issue", {
-              name: name.trim(),
-            })
+            void withStatusToast(
+              () =>
+                remoteRequest<{ id: string; token: string }>(machineId, "devices.issue", {
+                  name: name.trim(),
+                }),
+              { loading: t("Adding device…"), success: t("Device added"), error: false },
+            )
               .then((device) => {
                 setToken(device.token);
                 onAdded();

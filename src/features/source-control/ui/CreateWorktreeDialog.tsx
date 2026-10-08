@@ -1,4 +1,5 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useProjectBranchesState } from "../hooks/useProjectBranches";
 import { LAYER } from "../../../shared/lib/layers";
@@ -65,8 +66,14 @@ export function CreateWorktreeDialog({
     setBusy(true);
     setError(undefined);
     try {
-      const tree = await createWorktree(baseCwd, name.trim(), base, existing);
-      await onCreated(tree);
+      await withStatusToast(
+        async () => onCreated(await createWorktree(baseCwd, name.trim(), base, existing)),
+        {
+          loading: uiT("Creating worktree…"),
+          success: uiT("Worktree created"),
+          error: false,
+        },
+      );
     } catch (err) {
       setError(String(err));
     } finally {

@@ -12,6 +12,7 @@ import {
 } from "../../sessions/model/titleModel";
 import type { GeneratedSessionTitle } from "../../sessions/model/sessionTitle";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import { SecondaryButton } from "../../../shared/ui/SecondaryButton";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { SearchableSelect } from "../../../shared/ui/SearchableSelect";
@@ -151,16 +152,14 @@ function TitleModelForm({ machineId }: { machineId: string }) {
             : {}),
       };
       setSettings(
-        await remoteRequest<TitleModelStatus>(
-          machineId,
-          "titleModel.save",
-          update,
+        await withStatusToast(
+          () => remoteRequest<TitleModelStatus>(machineId, "titleModel.save", update),
+          { loading: t("Saving…"), success: t("Saved"), error: false },
         ),
       );
       setKey("");
       setClearKey(false);
       setDirty(false);
-      setNotice(t("Saved"));
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
     } finally {

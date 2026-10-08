@@ -1,4 +1,5 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import { useCallback, useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { SecondaryButton } from "../../../shared/ui/SecondaryButton";
@@ -67,7 +68,13 @@ export function JiraSettings() {
     setBusy(true);
     setError(null);
     try {
-      setStatus(await saveJiraConfig({ site, email, token }));
+      setStatus(
+        await withStatusToast(() => saveJiraConfig({ site, email, token }), {
+          loading: uiT("Connecting to {service}…", { service: "Jira" }),
+          success: uiT("Connected to {service}", { service: "Jira" }),
+          error: false,
+        }),
+      );
       setToken("");
       clearInboxCache();
       saveHiddenJiraProjectIds([]);
@@ -84,7 +91,13 @@ export function JiraSettings() {
     setBusy(true);
     setError(null);
     try {
-      setStatus(await disconnectJira());
+      setStatus(
+        await withStatusToast(() => disconnectJira(), {
+          loading: uiT("Disconnecting from {service}…", { service: "Jira" }),
+          success: uiT("Disconnected from {service}", { service: "Jira" }),
+          error: false,
+        }),
+      );
       setProjects([]);
       setToken("");
       clearInboxCache();

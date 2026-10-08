@@ -1,4 +1,5 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import {
   useEffect,
   useId,
@@ -223,7 +224,11 @@ export function SkillsPage({
   const onCreate = (name: string, scope: "project" | "user"): void => {
     setBusy(true);
     setCreateError(null);
-    void createBlankSkill({ cwd, name, scope })
+    void withStatusToast(() => createBlankSkill({ cwd, name, scope }), {
+      loading: uiT("Creating skill…"),
+      success: uiT("Created skill {name}", { name }),
+      error: false,
+    })
       .then(() => {
         invalidateSkills();
         window.dispatchEvent(new Event(SKILLS_CHANGE_EVENT));

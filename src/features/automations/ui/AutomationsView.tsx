@@ -1,6 +1,7 @@
 import { AppPageHeader } from "../../workspace/ui/AppPageHeader";
 import { translate as translateUi } from "../../../shared/i18n/language";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import {
   useCallback,
   useEffect,
@@ -303,7 +304,11 @@ function AutomationsContent({
     if (saving) return;
     setSaving(true);
     try {
-      const saved = await saveAutomation(nextDraft);
+      const saved = await withStatusToast(() => saveAutomation(nextDraft), {
+        loading: uiT("Saving automation…"),
+        success: uiT("Automation saved"),
+        error: false,
+      });
       setPickerOpen(false);
       setDraft(null);
       setSelectedId(saved.id);

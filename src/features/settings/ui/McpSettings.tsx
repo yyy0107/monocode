@@ -1,4 +1,5 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import {
@@ -189,13 +190,21 @@ function AddServerModal({
       }
       setBusy(true);
       setError("");
-      await invoke("mcp_add", {
-        cwd,
-        provider,
-        scope,
-        name: name.trim(),
-        config,
-      });
+      await withStatusToast(
+        () =>
+          invoke("mcp_add", {
+            cwd,
+            provider,
+            scope,
+            name: name.trim(),
+            config,
+          }),
+        {
+          loading: uiT("Adding MCP server…"),
+          success: uiT("MCP server added"),
+          error: false,
+        },
+      );
       await onAdded();
       onClose();
     } catch (cause) {

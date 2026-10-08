@@ -1,4 +1,5 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import {
   useState,
   type ComponentType,
@@ -73,7 +74,11 @@ export function DeleteWorktreeDialog({
     try {
       // Confirmation covers the complete destructive action, including any
       // local changes that appeared after the last status refresh.
-      await onRemove(cwd, tree.path, true, deleteSessions);
+      await withStatusToast(() => onRemove(cwd, tree.path, true, deleteSessions), {
+        loading: uiT("Deleting worktree…"),
+        success: uiT("Worktree deleted"),
+        error: false,
+      });
       onDeleted();
     } catch (e) {
       setError(String(e));

@@ -1,4 +1,5 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { showStatusToast, withStatusToast } from "../../../shared/ui/StatusToast";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Loader } from "../../../shared/ui/icons";
 import { Modal } from "../../../shared/ui/Modal";
@@ -91,8 +92,10 @@ export function ProjectBackgroundDialog({ project, name, onClose }: Props) {
     setBusy(true);
     setError(null);
     try {
+      // The file picker is the progress UI here; confirm only the result.
       const nextPath = await pickAndSaveProjectChatBackground(project);
       if (!nextPath) return;
+      showStatusToast(uiT("Background updated"));
       save(nextPath, emptyOpacity, sessionOpacity, scope, effect, true);
       setPath(nextPath);
     } catch (cause) {
@@ -106,7 +109,11 @@ export function ProjectBackgroundDialog({ project, name, onClose }: Props) {
     setBusy(true);
     setError(null);
     try {
-      await clearProjectChatBackground(project);
+      await withStatusToast(() => clearProjectChatBackground(project), {
+        loading: uiT("Removing background…"),
+        success: uiT("Background removed"),
+        error: false,
+      });
       clearProjectChatBackgroundSetting(project);
       setPath(null);
       setEmptyOpacity(loadChatBackgroundEmptyOpacity());

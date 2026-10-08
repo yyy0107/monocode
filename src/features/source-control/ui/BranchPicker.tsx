@@ -1,5 +1,6 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { Check, GitBranch, Plus, Search } from "../../../shared/ui/icons";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import {
   useEffect,
   useMemo,
@@ -169,10 +170,19 @@ export function BranchPicker({
     setActive((i) => (rows.length === 0 ? 0 : Math.min(i, rows.length - 1)));
   }, [rows.length]);
 
+  // Failures, including checkout blocked by local changes, stay in the picker or dialog.
   const applySwitch = (pending: PendingSwitch) =>
-    pending.kind === "create"
-      ? gitCreateBranch(cwd, pending.name)
-      : gitCheckout(cwd, pending.name, pending.remote);
+    withStatusToast(
+      () =>
+        pending.kind === "create"
+          ? gitCreateBranch(cwd, pending.name)
+          : gitCheckout(cwd, pending.name, pending.remote),
+      {
+        loading: uiT("Switching branch…"),
+        success: uiT("Switched to {branch}", { branch: pending.name }),
+        error: false,
+      },
+    );
 
   const finishSwitch = () => {
     notifyGitChanged();
