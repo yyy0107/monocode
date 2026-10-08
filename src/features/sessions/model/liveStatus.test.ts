@@ -128,7 +128,9 @@ describe("liveStatus", () => {
     expect(liveStatus({ ...input, turn: [user], now: 30_000 }).showClock).toBe(true);
     expect(liveStatus({ ...input, turn: [user, thought({ durationMs: 3_000 })], now: 30_000 }).showClock).toBe(true);
     const reply: Block = { id: "a1", role: "assistant", text: "Answer", streaming: true, startedAt: 12_000 };
-    expect(liveStatus({ ...input, turn: [user, reply], now: 15_000 }).showClock).toBe(true);
+    expect(liveStatus({ ...input, turn: [user, reply], now: 15_000 })).toMatchObject({
+      label: { key: "Responding…" }, showClock: true,
+    });
   });
 
   it("falls back to the response clock when a tool has no recorded start", () => {

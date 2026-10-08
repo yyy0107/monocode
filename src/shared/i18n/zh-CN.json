@@ -1766,6 +1766,7 @@
   "Thinking": "思考",
   "Thinking: {value0}": "思考过程：{value0}",
   "Thinking…": "正在思考…",
+  "Responding…": "正在回复…",
   "This agent is no longer running. Its work is summarised in the orchestrator's conversation.": "此智能体已结束运行，其工作摘要保存在编排器对话中。",
   "This automation has not run yet.": "此自动化尚未运行。",
   "This branch needs a remote and upstream before it can pull": "此分支需配置远端和上游后才能拉取",

@@ -115,6 +115,10 @@ export function liveStatus(input: LiveStatusInput): LiveStatus {
     return status("tool", { key: liveVerb(input.seed, turn.indexOf(tool)) }, running?.startedAt);
   }
 
+  if (last?.streaming && (last.role === "assistant" || last.role === "plan")) {
+    return status("working", { key: "Responding…" });
+  }
+
   // Between tools the agent is still reasoning, even when no thought streams.
   return status("working", { key: "Thinking…" });
 }
