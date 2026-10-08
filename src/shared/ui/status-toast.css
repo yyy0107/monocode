@@ -1,7 +1,8 @@
 /* Shared progress/result toast (StatusToast.tsx), desktop and mobile. */
 .status-toast-stack {
   position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 52px);
+  /* Android supplies native insets on the root; iOS/browser use env(). */
+  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 52px);
   left: 50%;
   display: flex;
   flex-direction: column;
@@ -15,7 +16,7 @@
 
 @media (max-width: 640px) {
   .status-toast-stack {
-    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    top: calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 10px);
   }
 }
 
