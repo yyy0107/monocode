@@ -1078,6 +1078,8 @@ describe("App workspace app views", () => {
       '[aria-controls="sidebar-navigation-menu"]',
     )!;
     const fold = () => container.querySelector<HTMLElement>("#sidebar-navigation-menu .zen-fold-item");
+    const horizontal = () => container.querySelector<HTMLElement>("[data-titlebar-navigation]")!;
+    expect(horizontal().inert).toBe(true);
     const menu = container.querySelector('[data-activity-bar="sidebar-top"]');
     const footer = container.querySelector('[data-activity-bar="sidebar-footer"]');
     const sidebarToggle = container.querySelector('[data-window-navigation] [aria-label^="Toggle Sidebar"]')!;
@@ -1086,12 +1088,17 @@ describe("App workspace app views", () => {
     await act(async () => toggle.click());
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(fold()?.dataset.foldState).toBe("closing");
+    expect(horizontal().dataset.foldState).toBe("opening");
+    expect(horizontal().inert).toBe(false);
+    expect(horizontal().querySelector('[data-activity-bar="titlebar"]')).not.toBeNull();
     expect(fold()?.inert).toBe(true);
     expect(container.querySelector('[data-activity-bar="sidebar-top"]')).toBe(menu);
     expect(container.querySelector('[data-activity-bar="sidebar-footer"]')).toBe(footer);
     expect(sidebarToggle.getAttribute("aria-pressed")).toBe("true");
     await act(async () => toggle.click());
     expect(fold()?.dataset.foldState).toBe("opening");
+    expect(horizontal().dataset.foldState).toBe("closing");
+    expect(horizontal().inert).toBe(true);
     expect(fold()?.inert).toBe(false);
     expect(container.querySelector('[data-activity-bar="sidebar-top"]')).toBe(menu);
     await act(async () => toggle.click());

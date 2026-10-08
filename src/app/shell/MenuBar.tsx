@@ -28,6 +28,7 @@ import { WindowControls } from "./WindowControls";
 import { startWindowDrag } from "./startWindowDrag";
 
 type Props = {
+  navigationItems?: ReactNode;
   handlers: CommandHandlers;
   dispatch: CommandDispatch;
   canGoBack?: boolean;
@@ -48,6 +49,7 @@ export const MENU_BAR_HEIGHT = 36;
  * menu bar turned off, tapping Alt alone reveals it over the title bar.
  */
 export function MenuBar({
+  navigationItems,
   handlers,
   dispatch,
   canGoBack = false,
@@ -238,6 +240,7 @@ export function MenuBar({
             />
           </nav>
         ) : null}
+        {visible ? navigationItems : null}
         {available.map(({ id, label }) => {
           const isActive = activeMenu === id;
           return (

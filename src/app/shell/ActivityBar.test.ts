@@ -2,6 +2,7 @@
 import { act, createElement, Fragment, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { SurfaceVisibilityContext } from "../../shared/ui/SurfaceVisibility";
 import { ActivityBar, type ActivityBarLayout } from "./ActivityBar";
 import { useUpdateStatus } from "./useUpdateStatus";
 import {
@@ -372,4 +373,45 @@ it("keeps installed update notes accessible from the updates pop-out", async () 
   expect(
     document.querySelector('[role="dialog"][aria-label="Updates"]'),
   ).toBeNull();
+});
+
+
+it("keeps all five named destinations and their actions in the title bar", async () => {
+  props.layout = "titlebar";
+  props.onOpenWorkflows = vi.fn();
+  props.inboxUnseen = true;
+  props.workflowsActive = true;
+  await render();
+  const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
+  expect(buttons.map((button) => button.textContent)).toEqual([
+    "Search", "Inbox", "Notes", "Automations", "Workflows",
+  ]);
+  expect(buttons.every((button) => button.querySelector("svg"))).toBe(true);
+  expect(action("Workflows").getAttribute("aria-pressed")).toBe("true");
+  expect(action("Inbox, new items")).not.toBeNull();
+  act(() => buttons.forEach((button) => button.click()));
+  for (const handler of [props.onSearch, props.onOpenInbox, props.onOpenNotes, props.onOpenAutomations, props.onOpenWorkflows]) {
+    expect(handler).toHaveBeenCalledOnce();
+  }
+  props.notesEnabled = false;
+  await render();
+  expect(action("Notes")).toBeNull();
+});
+
+it("dismisses the inbox context menu when its navigation is hidden", async () => {
+  props.layout = "titlebar";
+  const renderVisible = async (visible: boolean) => {
+    await act(async () => root.render(createElement(
+      SurfaceVisibilityContext.Provider,
+      { value: visible },
+      createElement(ActivityBar, props),
+    )));
+  };
+  await renderVisible(true);
+  act(() => action("Inbox").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })));
+  expect(document.querySelector('[role="menu"]')).not.toBeNull();
+  await renderVisible(false);
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  await renderVisible(true);
+  expect(document.querySelector('[role="menu"]')).toBeNull();
 });

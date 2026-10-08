@@ -1753,19 +1753,31 @@ function hasTurnMetrics(metrics: TurnMetrics): boolean {
   );
 }
 
+// Building an Intl formatter resolves locale data; each turn badge formats
+// several values, so reuse one per option set instead of one per call.
+const metricCountFormats: Intl.NumberFormat[] = [];
 function formatMetricCount(value: number): string {
-  return new Intl.NumberFormat(undefined, {
+  const digits = value >= 1000 ? 1 : 0;
+  metricCountFormats[digits] ??= new Intl.NumberFormat(undefined, {
     notation: "compact",
-    maximumFractionDigits: value >= 1000 ? 1 : 0,
-  }).format(Math.max(0, Math.round(value)));
+    maximumFractionDigits: digits,
+  });
+  return metricCountFormats[digits].format(Math.max(0, Math.round(value)));
 }
 
+const clockTimeFormats = new Map<string, Intl.DateTimeFormat>();
 /** Wall-clock stamp for a finished turn, in the reader's own locale. */
 function formatClockTime(epochMs: number): string {
-  return new Date(epochMs).toLocaleTimeString(getUiLanguage(), {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  const language = getUiLanguage();
+  let format = clockTimeFormats.get(language);
+  if (!format) {
+    format = new Intl.DateTimeFormat(language, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    clockTimeFormats.set(language, format);
+  }
+  return format.format(epochMs);
 }
 
 

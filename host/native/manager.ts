@@ -138,8 +138,11 @@ export class NativeSessionManager {
     this.timer = setInterval(() => this.poll(), this.options.pollMs);
     this.timer.unref?.();
     // Recover sessions that were syncing or settling a Host turn when the Host stopped.
+    const statuses = this.summaryStatuses();
     for (const id of this.managedIds(true)) {
-      const value = this.host.store.sessionIfExists(id);
+      const stored = statuses.get(id);
+      if (statuses.has(id) && stored?.state === "ready" && !stored.hostTurn) continue;
+      const value = this.host.store.peekSession(id);
       if (value && (value.nativeStatus?.state !== "ready" || value.nativeStatus.hostTurn))
         void this.refresh(id).catch(() => undefined);
     }
@@ -726,6 +729,33 @@ export class NativeSessionManager {
   }
 
   /** Managed sessions from the cheap summary index, without parsing every transcript. */
+  /** Each managed session's stored native status, read from the summary
+   * index so scans can pass over settled conversations without parsing them. */
+  private summaryStatuses(): Map<string, NativeSyncStatus | undefined> {
+    return new Map(
+      this.host.store.db
+        .prepare("SELECT id, json_extract(summary, '$.nativeStatus') AS status FROM sessions WHERE json_extract(summary, '$.nativeSession.mode') = 'managed'")
+        .all()
+        .map((row) => [
+          String(row.id),
+          row.status == null ? undefined : (JSON.parse(String(row.status)) as NativeSyncStatus),
+        ]),
+    );
+  }
+
+  /** False only when `watched` cannot hold for the stored transcript. */
+  private mayBeWatched(id: string, statuses: Map<string, NativeSyncStatus | undefined>): boolean {
+    if (!statuses.has(id)) return true;
+    const status = statuses.get(id);
+    return (
+      this.host.busy(id) ||
+      Date.now() - (this.touched.get(id) ?? 0) < this.options.watchWindowMs ||
+      status?.state !== "ready" ||
+      !!status.pendingChange ||
+      this.host.store.hasQueuedMessages(id)
+    );
+  }
+
   private managedIds(fresh = false): string[] {
     if (!fresh && this.managed && Date.now() - this.managed.at < MANAGED_TTL) return this.managed.ids;
     // Served from the covering summary index; transcripts stay unparsed.
@@ -743,8 +773,13 @@ export class NativeSessionManager {
     if (this.closed) return;
     const auto = this.autoSync();
     const keep = new Set<string>();
+    // Every few seconds: decide from summaries first. Parsing every managed
+    // transcript here took about a second per pass on large histories and
+    // pushed the conversations clients were reading out of the cache.
+    const statuses = this.summaryStatuses();
     for (const id of this.managedIds()) {
-      const value = this.host.store.sessionIfExists(id);
+      if (!this.mayBeWatched(id, statuses)) continue;
+      const value = this.host.store.peekSession(id);
       if (!value || !this.watched(value)) continue;
       const link = value.session.nativeSession!;
       keep.add(id);

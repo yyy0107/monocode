@@ -123,6 +123,7 @@ import {
   useRemoteProjectSessions,
 } from "../../features/connections/model/connections";
 import { remoteProjectFor } from "../../features/connections/model/remoteProjects";
+import { prefetchRemoteSession } from "../../features/connections/ui/RemoteSession";
 
 import type { SidebarProps } from "./Sidebar.types";
 import { sameProjectPath } from "../../features/projects/model/recents";
@@ -260,7 +261,13 @@ function ProjectSessionSectionComponent({
           ? onSelectLocalSession?.(sessionId)
           : onSelectRemoteSession?.(cwd, sessionId)
     : onSelectLocalSession;
-  const onPrefetchSession = remoteProject ? undefined : onPrefetchLocalSession;
+  const onPrefetchSession = remoteProject
+    ? (sessionId: string) => {
+        if (opensLocally(sessionId)) onPrefetchLocalSession?.(sessionId);
+        else if (remote.machine)
+          prefetchRemoteSession(remote.machine.id, sessionId);
+      }
+    : onPrefetchLocalSession;
   const onPlaceSessionOnPane =
     remoteProject && onPlaceLocalSessionOnPane
       ? (sessionId: string, targetId: string, edge: PaneEdge) =>

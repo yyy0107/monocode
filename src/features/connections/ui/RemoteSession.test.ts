@@ -811,6 +811,74 @@ it("shows a preloaded conversation's transcript on its first render", async () =
   expect(container.textContent).not.toContain("What should we work on?");
 });
 
+function hostConversation(id: string, blocks: HostSession["session"]["blocks"]) {
+  dispatch({
+    type: "create",
+    commandId: "existing-session",
+    projectId: "project",
+    harness: "codex",
+    model: gpt.id,
+    runtimeMode: "supervised",
+  });
+  host = { ...host!, session: { ...host!.session, id, blocks } };
+  rememberRemoteSession("shell", id);
+}
+const hostCalls = (method: string, sessionId?: string) =>
+  vi.mocked(invoke).mock.calls.filter(([command, input]) => {
+    const request = input as { method?: string; params?: { sessionId?: string } };
+    return command === "remote_request" && request?.method === method &&
+      (!sessionId || request.params?.sessionId === sessionId);
+  });
+
+it("opens on a pressed conversation's read still in flight instead of reading again", async () => {
+  hostConversation("pressed-session", [{ id: "old-message", role: "user", text: "Earlier message" }]);
+  let release!: () => void;
+  syncDelay = new Promise<void>((resolve) => { release = resolve; });
+  const pressed = preloadRemoteSession(machine.id, "pressed-session");
+  await render();
+  expect(hostCalls("sessions.sync", "pressed-session")).toHaveLength(1);
+  release();
+  await act(async () => pressed);
+  await settle();
+  expect(container.textContent).toContain("Earlier message");
+  expect(hostCalls("sessions.sync", "pressed-session")).toHaveLength(1);
+});
+
+it("revalidates a tab when it is shown but not when it is hidden", async () => {
+  hostConversation("switched-session", [{ id: "old-message", role: "user", text: "Earlier message" }]);
+  await render();
+  expect(hostCalls("sessions.sync", "switched-session")).toHaveLength(1);
+  await render(shell(), { visible: false });
+  expect(hostCalls("sessions.sync", "switched-session")).toHaveLength(1);
+  await render();
+  expect(hostCalls("sessions.sync", "switched-session")).toHaveLength(2);
+  expect(hostCalls("environment.describe")).toHaveLength(1);
+});
+
+it("shows a conversation before its image previews finish downloading", async () => {
+  hostConversation("image-session", [{
+    id: "image-message",
+    role: "user",
+    text: "See screenshot",
+    attachments: [{ id: "shot", name: "shot.png", kind: "image", mimeType: "image/png", size: 3 }],
+  }]);
+  const original = vi.mocked(invoke).getMockImplementation()!;
+  let release!: () => void;
+  const downloading = new Promise<void>((resolve) => { release = resolve; });
+  vi.mocked(invoke).mockImplementation(async (command, input) => {
+    if ((input as { method?: string } | undefined)?.method === "attachments.read") {
+      await downloading;
+      return { data: btoa("png"), offset: 3, size: 3 };
+    }
+    return original(command, input);
+  });
+  await render();
+  expect(container.textContent).toContain("See screenshot");
+  expect(hostCalls("attachments.read")).toHaveLength(1);
+  release();
+  await settle();
+});
+
 it("shows an unavailable branch when Git lookup fails", async () => {
   branchFailure = "fatal: not a git repository";
   await render();

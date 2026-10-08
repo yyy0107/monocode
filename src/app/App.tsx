@@ -115,6 +115,7 @@ import { WhatsNewDialog } from "./shell/WhatsNewDialog";
 import { ProviderSignInDialog } from "../features/sessions/ui/ProviderSignInDialog";
 import { WindowDragBar, WINDOW_DRAG_BAR_HEIGHT } from "./shell/WindowChrome";
 import { LAYER } from "../shared/lib/layers";
+import { TitlebarNavigation } from "./shell/TitlebarNavigation";
 import { MENU_BAR_HEIGHT, MenuBar } from "./shell/MenuBar";
 import {
   commandShortcutLabel,
@@ -598,6 +599,7 @@ import { TerminalDockLayout } from "./shell/TerminalDockLayout";
 import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 import { lazySurface } from "../shared/ui/lazySurface";
+import { preloadRemoteSession } from "../features/connections/ui/RemoteSession";
 import { preloadNavigationWhenIdle } from "./model/preloadNavigation";
 import { requestTranscriptJump } from "../features/sessions/model/transcriptJump";
 import type { SettingsAnchor } from "../features/settings/ui/SettingsView";
@@ -605,6 +607,7 @@ import {
   OPEN_CONNECTIONS_EVENT,
   OPEN_REMOTE_PROJECT_EVENT,
   REMOTE_HISTORY_UPDATED,
+  knownRemoteMachine,
   prefetchRemoteProjectSessions,
   rememberRemotePendingWorktree,
   rememberRemoteSession,
@@ -2652,15 +2655,20 @@ function Workspace({
         );
         return;
       }
+      // Read the transcript while the new tab renders; its pane picks up this
+      // request instead of starting its own after mounting.
+      const remoteProject = remoteProjectFor(project);
+      const machine =
+        remoteProject && knownRemoteMachine(remoteProject.environmentId);
+      if (machine)
+        void preloadRemoteSession(machine.id, remoteSessionId).catch(
+          () => undefined,
+        );
       // Reserve a dedicated tab immediately. An apparently blank remote tab
       // may hold composer text or a create/upload that the host has not accepted.
       const session = newDefaultSession(project, sessionDefaults?.runtimeMode);
       const tab = newTab(session.id);
-      rememberRemoteSession(
-        session.id,
-        remoteSessionId,
-        remoteProjectFor(project),
-      );
+      rememberRemoteSession(session.id, remoteSessionId, remoteProject);
       setSessions((prev) => [...prev, session]);
       appendTab(tab, project);
       setActiveTabId(tab.id);
@@ -11245,6 +11253,11 @@ function Workspace({
       </AnimatedCollapse>
     </div>
   ), [navigationExpanded, activityBarProps]);
+  const titlebarNavigation = (
+    <TitlebarNavigation expanded={sessionSidebarOpen && !navigationExpanded}>
+      <ActivityBar layout="titlebar" {...activityBarProps} />
+    </TitlebarNavigation>
+  );
   const sidebarFooter = useMemo(() => (
     <ActivityBar layout="sidebar-footer" {...activityBarProps} />
   ), [activityBarProps]);
@@ -11286,6 +11299,7 @@ function Workspace({
               >
                 {!IS_MAC ? (
                   <MenuBar
+                    navigationItems={titlebarNavigation}
                     handlers={commandHandlers}
                     dispatch={dispatch}
                     canGoBack={tabVisitNav.canBack}
@@ -11301,6 +11315,7 @@ function Workspace({
                 ) : null}
                 {!menuBarPinned ? (
                   <WindowDragBar
+                    navigationItems={titlebarNavigation}
                     canGoBack={tabVisitNav.canBack}
                     canGoForward={tabVisitNav.canForward}
                     onGoBack={onRailBack}

@@ -177,10 +177,13 @@ export const WINDOW_DRAG_BAR_HEIGHT = 40;
 
 /** Keep native window dragging independent of the active page or pane layout. */
 export function WindowDragBar({
+  navigationItems,
   windowLeading,
   windowActions,
   ...props
 }: Parameters<typeof TabVisitNav>[0] & {
+  /** Collapsed sidebar destinations, displayed after the navigation toggle. */
+  navigationItems?: ReactNode;
   /** Left-aligned window-wide destination and its notification preview. */
   windowLeading?: ReactNode;
   /** Window-wide actions shown just before the window controls. */
@@ -195,10 +198,10 @@ export function WindowDragBar({
       style={{ height: WINDOW_DRAG_BAR_HEIGHT }}
     >
       <WindowNavigation {...props} />
-      <div
-        className="self-stretch"
-        style={{ minWidth: WINDOW_NAVIGATION_END }}
-      />
+      <div className="flex items-center self-stretch">
+        <div className="shrink-0" style={{ width: WINDOW_NAVIGATION_END }} />
+        {navigationItems}
+      </div>
       <div
         data-window-leading
         className="flex min-w-0 items-center"

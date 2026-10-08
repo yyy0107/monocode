@@ -1,4 +1,4 @@
-import { useRef, useState, type ComponentProps } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   ArrowDownCircle,
   Bot,
@@ -17,6 +17,7 @@ import {
   useCommandShortcut,
   useShortcutLabel,
 } from "../commands/useCommandShortcut";
+import { useSurfaceVisibility } from "../../shared/ui/SurfaceVisibility";
 import { Popover } from "../../shared/ui/Popover";
 import {
   collectRailProjects,
@@ -36,7 +37,11 @@ import type { UpdateStatus } from "./useUpdateStatus";
  * sidebar open, the same destinations render as ZCode-style rows: the
  * navigation block at the top and the account/updates block at the bottom.
  */
-export type ActivityBarLayout = "rail" | "sidebar-top" | "sidebar-footer";
+export type ActivityBarLayout =
+  | "rail"
+  | "sidebar-top"
+  | "sidebar-footer"
+  | "titlebar";
 
 export type ActivityBarProps = {
   layout?: ActivityBarLayout;
@@ -107,9 +112,11 @@ export function ActivityBar({
   onDismissUpdate,
 }: ActivityBarProps) {
   const { t } = useTranslation();
+  const horizontal = layout === "titlebar";
+  const visible = useSurfaceVisibility();
   const row = layout !== "rail";
   const showTop = layout !== "sidebar-footer";
-  const showBottom = layout !== "sidebar-top";
+  const showBottom = layout !== "sidebar-top" && !horizontal;
   const popoverSide = row ? "top" : "right";
   const quickOpenShortcut = useCommandShortcut("App: Go to File");
   const quickOpenLabel = useShortcutLabel("Quick Open", "App: Go to File");
@@ -121,6 +128,11 @@ export function ActivityBar({
   const [inboxMenu, setInboxMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
+  useEffect(() => {
+    if (visible) return;
+    setPopup(null);
+    setInboxMenu(null);
+  }, [visible]);
   const inboxTrigger = useRef<HTMLElement | null>(null);
   const projectsAnchor = useRef<HTMLButtonElement>(null);
   const agentsAnchor = useRef<HTMLButtonElement>(null);
@@ -152,10 +164,13 @@ export function ActivityBar({
     <nav
       aria-label={t("Activity bar")}
       data-activity-bar={layout}
+      data-tauri-drag-region={horizontal ? "false" : undefined}
       className={
-        row
-          ? `flex shrink-0 flex-col gap-1 px-2 ${layout === "sidebar-top" ? "pb-3 pt-1" : "py-2"}`
-          : "shell-chrome sidebar-glass flex h-full w-12 shrink-0 flex-col items-center pb-1.5"
+        horizontal
+          ? "flex w-max shrink-0 items-center px-1"
+          : row
+            ? `flex shrink-0 flex-col gap-1 px-2 ${layout === "sidebar-top" ? "pb-3 pt-1" : "py-2"}`
+            : "shell-chrome sidebar-glass flex h-full w-12 shrink-0 flex-col items-center pb-1.5"
       }
     >
       {!row && !chromeInMenuBar ? (
@@ -163,19 +178,25 @@ export function ActivityBar({
       ) : null}
       {showTop ? (
         <div
-          className={`flex shrink-0 flex-col ${row ? "gap-1" : "gap-1.5 pt-1.5"}`}
+          className={
+            horizontal
+              ? "flex shrink-0 items-center gap-0.5"
+              : `flex shrink-0 flex-col ${row ? "gap-1" : "gap-1.5 pt-1.5"}`
+          }
         >
           <ActivityAction
             row={row}
+            horizontal={horizontal}
             label={quickOpenLabel}
             text={t("Search")}
-            hint={quickOpenShortcut}
+            hint={horizontal ? undefined : quickOpenShortcut}
             icon={Search}
             active={searchActive}
             onClick={onSearch}
           />
           <ActivityAction
             row={row}
+            horizontal={horizontal}
             label={inboxUnseen ? t("Inbox, new items") : t("Inbox")}
             text={t("Inbox")}
             icon={Inbox}
@@ -191,6 +212,7 @@ export function ActivityBar({
           {notesEnabled ? (
             <ActivityAction
               row={row}
+              horizontal={horizontal}
               label={t("Notes")}
               icon={StickyNote}
               active={notesActive}
@@ -199,6 +221,7 @@ export function ActivityBar({
           ) : null}
           <ActivityAction
             row={row}
+            horizontal={horizontal}
             label={t("Automations")}
             icon={Zap}
             active={automationsActive}
@@ -207,6 +230,7 @@ export function ActivityBar({
           {onOpenWorkflows ? (
             <ActivityAction
               row={row}
+              horizontal={horizontal}
               label={t("Workflows")}
               icon={Workflow}
               active={workflowsActive}
@@ -370,7 +394,7 @@ export function ActivityBar({
           ) : null}
         </Popover>
       ) : null}
-      {inboxMenu ? (
+      {visible && inboxMenu ? (
         <InboxNotificationMenu
           {...inboxMenu}
           projectPaths={[...collectRailProjects(recents, cwd).keys()]}
@@ -387,6 +411,7 @@ export function ActivityBar({
 
 function ActivityAction({
   row = false,
+  horizontal = false,
   label,
   text = label,
   hint,
@@ -399,6 +424,7 @@ function ActivityAction({
   ref,
 }: {
   row?: boolean;
+  horizontal?: boolean;
   label: string;
   /** Visible row text; the tooltip keeps `label` with its shortcut. */
   text?: string;
@@ -454,7 +480,7 @@ function ActivityAction({
       }
       className={
         row
-          ? `relative flex h-8 w-full shrink-0 items-center gap-2 rounded-lg px-2.5 text-left text-ui-base transition-colors ${active ? "bg-selection text-content" : "text-content hover:bg-surface-hover"} disabled:cursor-default disabled:opacity-35`
+          ? `relative flex ${horizontal ? "h-7 w-auto gap-1.5 px-2 text-ui-sm" : "h-8 w-full gap-2 px-2.5 text-ui-base"} shrink-0 items-center rounded-lg text-left transition-colors ${active ? "bg-selection text-content" : "text-content hover:bg-surface-hover"} disabled:cursor-default disabled:opacity-35`
           : `relative grid size-8 shrink-0 place-items-center rounded-lg transition-colors ${active ? "bg-selection text-content" : "text-foreground-subtle hover:bg-surface-hover hover:text-content"} disabled:cursor-default disabled:opacity-35`
       }
     >

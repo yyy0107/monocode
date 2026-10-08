@@ -56,6 +56,9 @@ export class HostStore {
   // treat returned values as immutable.
   private cache = new Map<string, HostSession>();
   private assistantSessions = new Map<string, boolean>();
+  // Sessions holding queued messages. The summary does not carry the queue, so
+  // this set lets background scans skip transcripts without parsing them.
+  private queuedSessions?: Set<string>;
 
   constructor(path: string) {
     this.attachmentDir = join(dirname(path), "attachments");
@@ -108,6 +111,7 @@ export class HostStore {
       return value;
     } catch (error) {
       this.cache.clear();
+      this.queuedSessions = undefined;
       try {
         this.db.exec("ROLLBACK");
       } catch (rollbackError) {
@@ -168,6 +172,31 @@ export class HostStore {
 
   sessionIfExists(id: string): HostSession | undefined {
     return this.isRetired(id) ? undefined : this.find(id);
+  }
+
+  /** Reads a session for a background scan without displacing the recently
+   * used sessions that clients are reading from the cache. */
+  peekSession(id: string): HostSession | undefined {
+    if (this.isRetired(id)) return undefined;
+    const cached = this.cache.get(id);
+    if (cached) return cached;
+    const row = this.db
+      .prepare("SELECT snapshot FROM sessions WHERE id=?")
+      .get(id);
+    return row ? (JSON.parse(String(row.snapshot)) as HostSession) : undefined;
+  }
+
+  /** Whether a stored session has queued messages, without parsing it. */
+  hasQueuedMessages(id: string): boolean {
+    // Seeded once by a text search: JSON escapes quotes inside strings, so the
+    // unescaped key only matches a non-empty queue. Saves keep it current.
+    this.queuedSessions ??= new Set(
+      this.db
+        .prepare(`SELECT id FROM sessions WHERE instr(snapshot, '"queuedMessages":[{') > 0`)
+        .all()
+        .map((row) => String(row.id)),
+    );
+    return this.queuedSessions.has(id);
   }
 
   /** The public RPC privacy guard also checks retained retired rows. */
@@ -290,6 +319,8 @@ export class HostStore {
     this.db
       .prepare("DELETE FROM events WHERE session_id=? AND revision<?")
       .run(value.session.id, value.revision - 2_000);
+    if (value.session.queuedMessages?.length) this.queuedSessions?.add(value.session.id);
+    else this.queuedSessions?.delete(value.session.id);
     this.onSessionSave?.(previous, value, event);
     return this.remember(value);
   }
@@ -331,6 +362,7 @@ export class HostStore {
       this.db.prepare("DELETE FROM sessions WHERE id=?").run(id);
       this.cache.delete(id);
       this.assistantSessions.delete(id);
+      this.queuedSessions?.delete(id);
     });
   }
 
@@ -338,7 +370,10 @@ export class HostStore {
     return !!this.db.prepare("SELECT 1 FROM retired_sessions WHERE id=?").get(id);
   }
 
-  invalidateSession(id: string): void { this.cache.delete(id); }
+  invalidateSession(id: string): void {
+    this.cache.delete(id);
+    this.queuedSessions?.delete(id);
+  }
 
   orchestration(leadId: string): { id: string; run: import("../src/features/orchestration/model/orchestrationState").OrchestrationRun } | undefined {
     const row = this.db.prepare("SELECT id, state FROM orchestration_runs WHERE lead_id=?").get(leadId);

@@ -82,5 +82,7 @@ it("calibrates sync clocks without rewriting timestamps or losing the offset on 
   const refreshed = applySessionSync(next, { kind: "unchanged", revision: 5, clockOffsetMs: 65_000 });
   expect(refreshed.clockOffsetMs).toBe(65_000);
   expect(refreshed.session).toBe(next.session);
+  // Latency jitter must not produce a new snapshot on every unchanged poll.
+  expect(applySessionSync(refreshed, { kind: "unchanged", revision: 5, clockOffsetMs: 65_040 })).toBe(refreshed);
   expect(sessionClockOffset({ kind: "unchanged", revision: 5 }, 100, 200)).toBeUndefined();
 });

@@ -236,6 +236,8 @@ export type SessionSyncResponse = (SessionSync | SessionSyncTransfer) & {
   serverTime?: number;
 };
 
+const CLOCK_OFFSET_TOLERANCE_MS = 1_000;
+
 export function sessionClockOffset(
   response: SessionSyncResponse,
   sentAt: number,
@@ -252,7 +254,16 @@ export function applySessionSync(
   sync: SessionSync,
 ): HostSession {
   const result = mergeSessionSync(known, sync);
-  const offset = sync.clockOffsetMs ?? known?.clockOffsetMs;
+  const previous = known?.clockOffsetMs;
+  const measured = sync.clockOffsetMs;
+  // Each measurement jitters by the request's latency. Keep the known offset
+  // within that noise so an unchanged sync returns the same snapshot object
+  // and polling does not re-render the conversation every few seconds.
+  const offset =
+    measured == null ||
+    (previous != null && Math.abs(measured - previous) < CLOCK_OFFSET_TOLERANCE_MS)
+      ? previous
+      : measured;
   return offset == null || result.clockOffsetMs === offset
     ? result
     : { ...result, clockOffsetMs: offset };

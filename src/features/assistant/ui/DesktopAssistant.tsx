@@ -16,6 +16,7 @@ import { sharedSessionBackend } from "../../sessions/data/sharedSessionBackend";
 import type { SessionReference } from "../model/assistant";
 import type { AssistantTarget } from "../model/assistantNavigation";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { SearchableSelect } from "../../../shared/ui/SearchableSelect";
 import { useDesktopAssistantHosts } from "../model/useDesktopAssistantHosts";
 export function DesktopAssistant({
   selectedMachineId,
@@ -82,18 +83,16 @@ export function DesktopAssistant({
   };
   const hostPicker =
     choices.length > 1 ? (
-      <select
-        className="assistant-host-select"
-        aria-label={t("Host")}
-        value={machine?.id ?? ""}
-        onChange={(e) => onSelectMachine(e.target.value)}
-      >
-        {choices.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.name}
-          </option>
-        ))}
-      </select>
+      <div className="assistant-host-select">
+        <SearchableSelect
+          label={t("Host")}
+          value={machine?.id ?? ""}
+          options={choices.map((host) => ({ value: host.id, label: host.name }))}
+          onChange={onSelectMachine}
+          variant="pill"
+          searchable={false}
+        />
+      </div>
     ) : undefined;
   return (
     <section

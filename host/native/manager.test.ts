@@ -331,6 +331,18 @@ describe.runIf(linux)("Host-managed native sessions", () => {
     expect(context.provider.send).not.toHaveBeenCalled();
   }, 10_000);
 
+  it("polls settled conversations from their summaries without parsing transcripts", async () => {
+    const context = setup();
+    const settled = imported(context);
+    const watched = imported(context);
+    await context.engine.nativeSessions.refresh(settled.id, { force: true });
+    await context.engine.nativeSessions.refresh(watched.id, { force: true });
+    context.engine.nativeSessions.touch(watched.id);
+    const peek = vi.spyOn(context.store, "peekSession");
+    await vi.waitFor(() => expect(peek).toHaveBeenCalledWith(watched.id), { timeout: 2_000 });
+    expect(peek).not.toHaveBeenCalledWith(settled.id);
+  }, 10_000);
+
   it("keeps history and pauses sending on divergence, queuing new messages", async () => {
     const context = setup();
     const { id, path, row } = imported(context);

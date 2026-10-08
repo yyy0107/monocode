@@ -4,6 +4,20 @@ import type { HostSession } from "./protocol";
 
 type Chunk = { data: string; offset: number; size: number };
 const downloads = new Map<string, Promise<string>>();
+const MAX_PREVIEW_BYTES = 20 * 1024 * 1024;
+
+const missingPreview = (file: NonNullable<Block["attachments"]>[number]) =>
+  file.kind === "image" &&
+  !file.data &&
+  !file.previewUrl &&
+  file.size <= MAX_PREVIEW_BYTES;
+
+/** Whether `withRemoteAttachmentPreviews` still has images to download. */
+export function needsRemoteAttachmentPreviews(snapshot: HostSession): boolean {
+  for (const block of walkTranscript(snapshot.session.blocks))
+    if (block.attachments?.some(missingPreview)) return true;
+  return false;
+}
 
 /** Carry already downloaded bytes without making text sync await image I/O.
  * Only matching files in the current blocks are reused; old blocks/metadata
@@ -73,13 +87,7 @@ export async function withRemoteAttachmentPreviews(
       if (!block.attachments?.length) return block;
       const attachments = await Promise.all(
         block.attachments.map(async (file) => {
-          if (
-            file.kind !== "image" ||
-            file.data ||
-            file.previewUrl ||
-            file.size > 20 * 1024 * 1024
-          )
-            return file;
+          if (!missingPreview(file)) return file;
           try {
             let data = previous.get(file.id)?.data;
             if (data === undefined) {

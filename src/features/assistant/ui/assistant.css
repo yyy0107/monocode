@@ -406,15 +406,20 @@
   opacity: 0.65;
 }
 .assistant-chat .assistant-host-select {
+  display: flex;
   min-width: 0;
   max-width: 180px;
-  padding: 1px 4px;
-  border-color: transparent;
-  font-size: var(--text-ui-sm);
-  opacity: 0.8;
 }
-.assistant-chat .assistant-host-select:hover {
-  border-color: var(--assistant-line);
+.assistant-chat .assistant-host-select > div {
+  min-width: 0;
+  max-width: 100%;
+}
+.assistant-chat .assistant-host-select > div > button {
+  background: transparent;
+}
+.assistant-chat .assistant-host-select > div > button:focus-visible {
+  outline: 1px solid var(--assistant-line);
+  outline-offset: 2px;
 }
 .assistant-status {
   display: inline-flex;

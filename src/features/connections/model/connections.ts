@@ -13,7 +13,10 @@ import {
 } from "./protocol";
 import { remoteProjectFor, ensureSharedProject, sharedHostMachineId, isSharedHostMachine } from "./remoteProjects";
 import { translate } from "../../../shared/i18n/language";
-import { withRemoteAttachmentPreviews } from "./remoteAttachmentPreviews";
+import {
+  reuseRemoteAttachmentPreviews,
+  withRemoteAttachmentPreviews,
+} from "./remoteAttachmentPreviews";
 import { hostOrchestrationClient } from "../../orchestration/model/orchestrationClient";
 import { isRemoteProjectPath } from "../../projects/model/recents";
 import {
@@ -278,6 +281,18 @@ export async function loadRemoteSession(
   sessionId: string,
   known?: HostSession,
 ): Promise<HostSession> {
+  const snapshot = await loadRemoteSessionText(machineId, sessionId, known);
+  return withRemoteAttachmentPreviews(machineId, snapshot, known,
+    (params) => remoteRequest(machineId, "attachments.read", params));
+}
+
+/** The conversation without waiting on image downloads. Previews already held
+ * in `known` carry over; `loadRemoteSessionPreviews` fills in the rest. */
+export async function loadRemoteSessionText(
+  machineId: string,
+  sessionId: string,
+  known?: HostSession,
+): Promise<HostSession> {
   const sync = (revision?: number) =>
     syncRemoteSession(machineId, sessionId, revision);
   const update = await sync(known?.revision);
@@ -287,7 +302,15 @@ export async function loadRemoteSession(
   } catch {
     snapshot = applySessionSync(undefined, await sync());
   }
-  return withRemoteAttachmentPreviews(machineId, snapshot, known,
+  return reuseRemoteAttachmentPreviews(snapshot, known);
+}
+
+/** Downloads the image previews `loadRemoteSessionText` left out. */
+export function loadRemoteSessionPreviews(
+  machineId: string,
+  snapshot: HostSession,
+): Promise<HostSession> {
+  return withRemoteAttachmentPreviews(machineId, snapshot, snapshot,
     (params) => remoteRequest(machineId, "attachments.read", params));
 }
 

@@ -1905,7 +1905,7 @@ export function MobileApp() {
             data-capsule="false"
             inert={searchOpen}
             aria-hidden={searchOpen || undefined}
-            aria-label={t("Home menu")}
+            aria-label={t("Projects")}
             aria-haspopup="dialog"
             aria-expanded={homeMenuOpen}
             onClick={() => setHomeMenuOpen((open) => !open)}
@@ -1923,20 +1923,8 @@ export function MobileApp() {
                   <span>{project.name}</span>
                 </span>
               )}
-              {project?.name && client.connection?.name && (
-                <span
-                  className="mobile-header-context-separator"
-                  aria-hidden="true"
-                >
-                  ·
-                </span>
-              )}
-              {client.connection?.name && (
-                <span className="mobile-header-context-item">
-                  <Computer size={12} aria-hidden="true" />
-                  <span>{connectionName}</span>
-                  <MobileHostStatus status={hostStatus} dotOnly />
-                </span>
+              {client.connection && (
+                <MobileHostStatus status={hostStatus} dotOnly />
               )}
             </div>
           ) : null}
@@ -2460,14 +2448,11 @@ export function MobileApp() {
       <MobileHomeMenu
         open={homeMenuOpen && view === "home" && !drawerOpen}
         anchor={homeMenuTrigger}
+        projects={hostScopeReady ? projects : []}
+        projectsPending={projectsPending}
+        projectsUnavailable={projectsUnavailable}
         onClose={() => setHomeMenuOpen(false)}
-        onAddConnection={() => {
-          connectionTrigger.current = homeMenuTrigger.current;
-          setHomeMenuOpen(false);
-          setError("");
-          setAddingConnection(true);
-        }}
-        onSettings={() => navigate("settings")}
+        onProject={onDrawerProject}
       />
       <MobileSheetPresence open={addingConnection}>
         <MobileConnectionSheet

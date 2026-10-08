@@ -27,6 +27,10 @@ import type {
   PlanBuildTarget,
 } from "../../sessions/model/session";
 import { uploadRemoteAttachments } from "../model/remoteAttachments";
+import {
+  needsRemoteAttachmentPreviews,
+  reuseRemoteAttachmentPreviews,
+} from "../model/remoteAttachmentPreviews";
 import { loadRemoteHostCatalog, loadRemoteHostDescriptor } from "../model/remoteHostMetadata";
 import { temporaryWorktreeBranchName } from "../../source-control/model/worktrees";
 import type { AgentModel } from "../../sessions/model/models";
@@ -41,6 +45,8 @@ import { registerRemoteSessionActions } from "../model/remoteSessionActions";
 import {
   clearPendingRemoteCommand,
   loadRemoteSession,
+  loadRemoteSessionPreviews,
+  loadRemoteSessionText,
   OPEN_CONNECTIONS_EVENT,
   pendingRemoteCommand,
   pendingRemoteFollowup,
@@ -134,6 +140,8 @@ function rememberSessionSnapshot(key: string, snapshot: HostSession) {
     cachedSessionSnapshots.delete(cachedSessionSnapshots.keys().next().value!);
 }
 
+const pendingSessionSnapshots = new Map<string, Promise<HostSession>>();
+
 /** Fetches a host conversation into the snapshot cache, so its tab opens with
  * the transcript already laid out, as a local session read from disk does. */
 export async function preloadRemoteSession(
@@ -142,7 +150,49 @@ export async function preloadRemoteSession(
 ): Promise<void> {
   const key = snapshotKey(machineId, sessionId);
   if (cachedSessionSnapshots.has(key)) return;
-  rememberSessionSnapshot(key, await loadRemoteSession(machineId, sessionId));
+  await pendingSnapshot(key, () => loadRemoteSessionText(machineId, sessionId));
+}
+
+/** One full read per conversation: a tab mounting while its press/hover
+ * prefetch is still in flight waits for that read instead of starting another. */
+function pendingSnapshot(
+  key: string,
+  load: () => Promise<HostSession>,
+): Promise<HostSession> {
+  const pending = pendingSessionSnapshots.get(key);
+  if (pending) return pending;
+  const request = load().then((snapshot) => {
+    rememberSessionSnapshot(key, snapshot);
+    return snapshot;
+  });
+  pendingSessionSnapshots.set(key, request);
+  const settle = () => {
+    if (pendingSessionSnapshots.get(key) === request)
+      pendingSessionSnapshots.delete(key);
+  };
+  void request.then(settle, settle);
+  return request;
+}
+
+let activeSessionPrefetch: Promise<void> | undefined;
+
+/** Warms a host conversation from a sidebar hover or press. One prefetch runs
+ * at a time so sweeping across the list does not queue full transcripts. */
+export function prefetchRemoteSession(machineId: string, sessionId: string) {
+  const key = snapshotKey(machineId, sessionId);
+  if (
+    activeSessionPrefetch ||
+    cachedSessionSnapshots.has(key) ||
+    pendingSessionSnapshots.has(key)
+  )
+    return;
+  const request = preloadRemoteSession(machineId, sessionId).catch(
+    () => undefined,
+  );
+  activeSessionPrefetch = request;
+  void request.then(() => {
+    if (activeSessionPrefetch === request) activeSessionPrefetch = undefined;
+  });
 }
 
 /** A tab in a project on another machine. The host owns the session; this
@@ -307,6 +357,8 @@ function ConnectedRemoteSession({
   );
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
+  const lastPollKey = useRef<string | undefined>(undefined);
+  const describedHost = useRef<string | undefined>(undefined);
   const [refresh, setRefresh] = useState(0);
   const [catalog, setCatalog] = useState<HostModelCatalog | undefined>(() =>
     cachedCatalogs.get(catalogKey(machine.id, machine.environmentId, project.projectId)),
@@ -471,24 +523,39 @@ function ConnectedRemoteSession({
       version !== bindingVersion.current ||
       (!!sessionId && deletingSession.current === sessionId);
     // Every request carries the expected host identity; describe again only
-    // after a failure, when the host may have been replaced.
-    let described = false;
+    // after a failure, when the host may have been replaced. Revealing or
+    // hiding a tab keeps the description it already has.
+    const hostKey = descriptorKey(machine.id, machine.environmentId);
+    let described = describedHost.current === hostKey;
     const poll = async () => {
       let active = false;
       try {
         if (!described) {
           const host = await loadRemoteHostDescriptor(machine.id, machine.environmentId);
           if (stale()) return;
-          cachedDescriptors.set(descriptorKey(machine.id, machine.environmentId), host);
-          setDescriptor(host);
+          cachedDescriptors.set(hostKey, host);
+          // An unchanged description keeps its object, so the pane does not
+          // re-render for it.
+          setDescriptor((current) =>
+            current && JSON.stringify(current) === JSON.stringify(host)
+              ? current
+              : host,
+          );
           described = true;
+          describedHost.current = hostKey;
         }
         const known =
           snapshotRef.current?.session.id === sessionId
             ? snapshotRef.current
             : undefined;
+        // Text first: image previews download after the transcript is shown.
         const next = sessionId
-          ? await loadRemoteSession(machine.id, sessionId, known)
+          ? known
+            ? await loadRemoteSessionText(machine.id, sessionId, known)
+            : await pendingSnapshot(
+                snapshotKey(machine.id, sessionId),
+                () => loadRemoteSessionText(machine.id, sessionId),
+              )
           : undefined;
         if (stale()) return;
         if (next && next.projectId !== project.projectId)
@@ -501,6 +568,19 @@ function ConnectedRemoteSession({
         if (next && sessionId)
           rememberSessionSnapshot(snapshotKey(machine.id, sessionId), next);
         setSnapshot(next);
+        if (next && sessionId && needsRemoteAttachmentPreviews(next)) {
+          const key = snapshotKey(machine.id, sessionId);
+          void loadRemoteSessionPreviews(machine.id, next).then((hydrated) => {
+            // Hiding the tab restarts this effect; finished downloads still apply.
+            if (hydrated === next || version !== bindingVersion.current) return;
+            setSnapshot((current) => {
+              if (current?.session.id !== hydrated.session.id) return current;
+              const merged = reuseRemoteAttachmentPreviews(current, hydrated);
+              if (merged !== current) rememberSessionSnapshot(key, merged);
+              return merged;
+            });
+          }, () => undefined);
+        }
         if (next) {
           hostOrchestrationClient.bindShell(source, next.session.id, shell.id);
           hostOrchestrationClient.accept(source, next);
@@ -512,6 +592,7 @@ function ConnectedRemoteSession({
         setOnline(false);
         reportRemoteMachineStatus(machine.id, false);
         described = false;
+        describedHost.current = undefined;
         failed++;
       }
       if (!disposed)
@@ -526,7 +607,19 @@ function ConnectedRemoteSession({
                 : 10_000,
         );
     };
-    void poll();
+    // Hiding a tab only slows its polling. Revalidating it at once would add a
+    // host round trip and a render to every tab switch.
+    const pollKey = JSON.stringify([
+      machine.id,
+      machine.environmentId,
+      project.projectId,
+      sessionId,
+      refresh,
+    ]);
+    const justHidden = !visible && lastPollKey.current === pollKey;
+    lastPollKey.current = pollKey;
+    if (justHidden) timer = setTimeout(() => void poll(), 10_000);
+    else void poll();
     return () => {
       disposed = true;
       clearTimeout(timer);
