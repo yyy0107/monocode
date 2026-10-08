@@ -909,7 +909,7 @@ describe("remote host API", () => {
       .toContainEqual(expect.objectContaining({ relative: "src/app.ts", staged: true }));
     const history = (await run("git_history", { cwd: root, limit: 10 })).result;
     expect(history.commits[0])
-      .toMatchObject({ subject: "initial", head: true });
+      .toMatchObject({ subject: "initial", head: true, author: "Host Test", authorEmail: "host@example.test" });
     expect(history.commits[0].timestamp).toBeLessThan(10_000_000_000);
     expect((await run("git_commit_files", { cwd: root, sha: history.head })).result)
       .toContainEqual(expect.objectContaining({ relative: "src/app.ts", additions: 1 }));

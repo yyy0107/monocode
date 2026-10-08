@@ -250,6 +250,8 @@ export type GitHistoryCommit = {
   shortSha: string;
   parents: string[];
   author: string;
+  /** Absent from older hosts. */
+  authorEmail?: string;
   timestamp: number;
   subject: string;
   /** Message after the subject; absent from older hosts. */

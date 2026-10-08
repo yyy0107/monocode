@@ -28,6 +28,7 @@ import {
   type GraphRef,
   type HistoryItemViewModel,
 } from "../model/gitGraph";
+import { commitCoAuthors, contributorAvatarUrl } from "../model/gitContributors";
 
 type Props = {
   cwd: string;
@@ -205,14 +206,17 @@ function HistoryRow({
         </svg>
         <span className="ml-1 flex min-w-0 flex-1 items-center overflow-hidden">
           <span
-            className={`min-w-0 truncate text-[12px] leading-[22px] ${
+            className={`min-w-0 shrink truncate text-[12px] leading-[22px] ${
               row.kind === "HEAD" ? "font-semibold" : ""
             }`}
           >
             {commit.subject || commit.shortSha}
           </span>
           {commit.author ? (
-            <span className="ml-2 min-w-0 shrink truncate text-[12px] leading-[22px] text-content/45">
+            <span
+              title={commit.author}
+              className="ml-2 max-w-[calc(100%-0.5rem)] shrink-0 truncate text-[12px] leading-[22px] text-content/45"
+            >
               {commit.author}
             </span>
           ) : null}
@@ -226,8 +230,6 @@ function HistoryRow({
   );
 }
 
-const CO_AUTHOR_TRAILER = /^co-authored-by:\s*(.+?)\s*(?:<[^>]*>)?\s*$/gim;
-
 function CommitSummary({
   commit,
   stats,
@@ -237,34 +239,38 @@ function CommitSummary({
 }) {
   const { t: uiT } = useTranslation();
   const date = new Date(commit.timestamp * 1000);
-  const coAuthors = [
-    ...new Set(
-      [...(commit.body ?? "").matchAll(CO_AUTHOR_TRAILER)].map(
-        (match) => match[1],
-      ),
-    ),
-  ];
+  const coAuthors = commitCoAuthors(commit.body);
+  const author = commit.author || uiT("Unknown author");
   const message = [commit.subject, commit.body].filter(Boolean).join("\n\n");
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-baseline gap-1.5">
-          <span className="min-w-0 truncate font-semibold text-content">
-            {commit.author || uiT("Unknown author")}
-          </span>
-          {commit.timestamp > 0 ? (
-            <time
-              dateTime={date.toISOString()}
-              className="shrink-0 text-[11px] text-content/45"
-            >
-              {relativeCommitTime(commit.timestamp, uiT)} ·{" "}
-              {date.toLocaleString()}
-            </time>
-          ) : null}
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <div className="flex min-w-0 items-start gap-2">
+          <ContributorAvatar name={author} email={commit.authorEmail} />
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-content [overflow-wrap:anywhere]">
+              {author}
+            </div>
+            {commit.timestamp > 0 ? (
+              <time
+                dateTime={date.toISOString()}
+                className="block text-[11px] text-content/45"
+              >
+                {relativeCommitTime(commit.timestamp, uiT)} ·{" "}
+                {date.toLocaleString()}
+              </time>
+            ) : null}
+          </div>
         </div>
-        {coAuthors.map((name) => (
-          <div key={name} className="truncate text-[11px] text-content/55">
-            {uiT("{name} (co-author)", { name })}
+        {coAuthors.map(({ name, email }) => (
+          <div
+            key={email || name}
+            className="flex min-w-0 items-center gap-2 text-[11px] text-content/55"
+          >
+            <ContributorAvatar name={name} email={email} />
+            <span className="min-w-0 [overflow-wrap:anywhere]">
+              {uiT("{name} (co-author)", { name })}
+            </span>
           </div>
         ))}
       </div>
@@ -296,6 +302,41 @@ function CommitSummary({
         ))}
       </div>
     </div>
+  );
+}
+
+function ContributorAvatar({ name, email }: { name: string; email?: string }) {
+  const [image, setImage] = useState<{ email?: string; url: string }>();
+  useEffect(() => {
+    let cancelled = false;
+    void contributorAvatarUrl(email)
+      .then((url) => {
+        if (!cancelled) setImage({ email, url });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [email]);
+  const url = image?.email === email ? image?.url : undefined;
+  return url ? (
+    <img
+      src={url}
+      alt=""
+      width={28}
+      height={28}
+      referrerPolicy="no-referrer"
+      draggable={false}
+      onError={() => setImage({ email, url: "" })}
+      className="size-7 shrink-0 rounded-full bg-content/10 object-cover"
+    />
+  ) : (
+    <span
+      aria-hidden
+      className="grid size-7 shrink-0 place-items-center rounded-full bg-content/10 text-[12px] font-medium text-content/65"
+    >
+      {Array.from(name.trim())[0]?.toUpperCase() || "?"}
+    </span>
   );
 }
 
@@ -398,6 +439,10 @@ function sameHistory(
       other &&
       commit.sha === other.sha &&
       commit.subject === other.subject &&
+      commit.author === other.author &&
+      commit.authorEmail === other.authorEmail &&
+      commit.body === other.body &&
+      commit.timestamp === other.timestamp &&
       commit.head === other.head &&
       commit.refs.length === other.refs.length &&
       commit.refs.every(

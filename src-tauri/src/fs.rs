@@ -934,6 +934,7 @@ pub struct GitHistoryCommit {
     pub short_sha: String,
     pub parents: Vec<String>,
     pub author: String,
+    pub author_email: String,
     pub timestamp: i64,
     pub subject: String,
     pub body: String,
@@ -2254,7 +2255,7 @@ fn git_history_for(root: &Path, limit: Option<u32>) -> Result<GitHistory, String
         "--decorate=short".to_string(),
         "--max-count".to_string(),
         count,
-        "--format=%H%x00%h%x00%P%x00%an%x00%at%x00%D%x00%s%x00%b%x1e".to_string(),
+        "--format=%H%x00%h%x00%P%x00%an%x00%at%x00%D%x00%s%x00%b%x00%ae%x1e".to_string(),
     ];
     args.extend(tips);
     let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -2300,6 +2301,7 @@ fn parse_git_history_log(
         };
         let subject = fields.next().unwrap_or("");
         let body = fields.next().unwrap_or("").trim();
+        let author_email = fields.next().unwrap_or("").trim();
         if sha.is_empty() {
             continue;
         }
@@ -2313,6 +2315,7 @@ fn parse_git_history_log(
             },
             parents: parents.split_whitespace().map(str::to_string).collect(),
             author: author.to_string(),
+            author_email: author_email.to_string(),
             timestamp: timestamp.parse().unwrap_or(0),
             subject: subject.to_string(),
             body: body.to_string(),
@@ -7309,6 +7312,7 @@ mod tests {
         let history = git_history_for(&dir.0, Some(10)).unwrap();
         assert_eq!(history.commits.len(), 2);
         assert_eq!(history.commits[0].subject, "second");
+        assert_eq!(history.commits[0].author_email, "monocode@test");
         assert_eq!(history.commits[1].subject, "init");
         assert_eq!(
             history.commits[0].parents,
