@@ -41,6 +41,19 @@ const ALLOWED_EXEC_ARGS = new Set([
   "status --json",
   "agent list",
 ]);
+
+function execArgsAllowed(provider: RemoteProvider, args: string[]): boolean {
+  return (
+    ALLOWED_EXEC_ARGS.has(args.join(" ")) ||
+    (provider === "grok" &&
+      args.length === 4 &&
+      args[0] === "--no-auto-update" &&
+      args[1] === "sessions" &&
+      args[2] === "delete" &&
+      /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(args[3]))
+  );
+}
+
 function childEnvironment(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, MONOCODE_HOST: "1" };
   for (const key of ["MONOCODE_CONTROL_ENDPOINT", "MONOCODE_CONTROL_TOKEN", "MONOCODE_APP_ENDPOINT", "MONOCODE_APP_TOKEN"])
@@ -128,7 +141,7 @@ export class HostChildBackend implements ChildBackend {
           args.command !== commandPath ||
           !Array.isArray(args.args) ||
           !args.args.every((arg) => typeof arg === "string") ||
-          !ALLOWED_EXEC_ARGS.has(args.args.join(" "))
+          !execArgsAllowed(provider, args.args)
         )
           throw new Error("Unsupported headless catalog command");
         const launch = await providerLaunch(commandPath, args.args as string[]);

@@ -109,7 +109,7 @@ it.each(["codex", "claude"].flatMap(provider => ["work", "default"].map(accountI
   }
 });
 
-it("resolves every provider and runs only allowed catalog commands", async () => {
+it("resolves every provider and runs only allowed provider commands", async () => {
   const directory = mkdtempSync(join(tmpdir(), "monocode-catalog-test-"));
   const file = join(directory, "provider.cjs");
   writeFileSync(file, "console.log(JSON.stringify(process.argv.slice(2)))");
@@ -134,6 +134,37 @@ it("resolves every provider and runs only allowed catalog commands", async () =>
       cwd: directory,
     });
     expect(JSON.parse(output)).toEqual(["models", "--json"]);
+    const cleanupArgs = [
+      "--no-auto-update",
+      "sessions",
+      "delete",
+      "550e8400-e29b-41d4-a716-446655440000",
+    ];
+    const cleanupOutput = await backend.invoke<string>("harness_exec", {
+      command: file,
+      args: cleanupArgs,
+      binaryProvider: "grok",
+      cwd: directory,
+    });
+    expect(JSON.parse(cleanupOutput)).toEqual(cleanupArgs);
+    for (const [provider, rejectedArgs] of [
+      ["cursor", cleanupArgs],
+      ["opencode", cleanupArgs],
+      ["grok", ["--no-auto-update", "sessions", "delete", "--all"]],
+      ["grok", ["--no-auto-update", "sessions", "delete", "../sessions"]],
+      ["grok", ["--no-auto-update", "sessions", "delete", "invalid"]],
+      ["grok", ["--no-auto-update sessions delete", cleanupArgs[3]]],
+      ["grok", [...cleanupArgs, "--all"]],
+    ] as const) {
+      await expect(
+        backend.invoke("harness_exec", {
+          command: file,
+          args: rejectedArgs,
+          binaryProvider: provider,
+          cwd: directory,
+        }),
+      ).rejects.toThrow("Unsupported headless catalog command");
+    }
     await expect(
       backend.invoke("harness_exec", {
         command: file,
