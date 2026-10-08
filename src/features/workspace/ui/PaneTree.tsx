@@ -459,8 +459,9 @@ function PaneTreeComponent({
   // window controls). With documents beside it in split view, each column
   // carries its own header on the same top row.
   const ownerTopBar = hasOwnerSession && (unified || !inSplit);
-  // Several chats split the window as equal cards, each with its own header.
-  const paneCards = inSplit && !unified && !hasOwnerSession;
+  // Split view draws every column as a card on a tinted gutter, each with its
+  // own header: chats side by side, and a chat beside its documents.
+  const paneCards = inSplit && !unified;
   // Without a window tab strip, the top corners of the layout carry the
   // window chrome: navigation space on the left, window controls on the right.
   const topLeftId = leaves.find(
@@ -742,13 +743,13 @@ function PaneTreeComponent({
       >
         {leaves.map((leaf) => {
           const editorPane = editorPanes.find((pane) => pane.id === leaf.id);
-          // Documents beside a chat render as cards, like Claude Desktop.
+          // App views beside a chat keep their own full-bleed surface.
           const asCard =
-            !!editorPane &&
-            !unified &&
-            !paneCards &&
-            sessionLeaves.length > 0 &&
-            !editorPane.files.some((file) => file.appView);
+            paneCards &&
+            !(
+              hasOwnerSession &&
+              editorPane?.files.some((file) => file.appView)
+            );
           const session = sessions.find((entry) => entry.id === leaf.id);
           const expanded = unified
             ? selectedId === leaf.id
@@ -807,7 +808,7 @@ function PaneTreeComponent({
                 }}
                 className="flex min-h-0 min-w-0 flex-1 flex-col"
                 style={
-                  paneCards
+                  asCard
                     ? paneCardInset(leaf.rect)
                     : {
                         paddingLeft:
@@ -822,18 +823,11 @@ function PaneTreeComponent({
                 }
               >
                 <PaneCardFrame
-                  card={paneCards}
+                  card={asCard}
                   focused={focusedId === leaf.id}
                 >
                 {editorPane ? (
-                  <div
-                    data-pane-card={asCard ? "" : undefined}
-                    className={
-                      asCard
-                        ? "mb-1 mr-1 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-stroke bg-background-base"
-                        : "flex min-h-0 min-w-0 flex-1 flex-col"
-                    }
-                  >
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                     <FilePane
                       pane={editorPane}
                       tabsLeading={
@@ -853,7 +847,7 @@ function PaneTreeComponent({
                       }
                       tabsTrailing={cardTrailingFor(
                         editorPane.id,
-                        asCard && !!ownerSession,
+                        asCard && hasOwnerSession,
                         maximized === editorPane.id,
                         chromeRightId === editorPane.id,
                       )}
@@ -1035,9 +1029,14 @@ function PaneCardFrame({
   focused: boolean;
   children: ReactNode;
 }) {
-  if (!card) return <>{children}</>;
+  // Keep one element either way: folding a pane can toggle `card`, and a
+  // changed wrapper would remount the chat, editors and running terminals.
   return (
-    <div data-pane-card-frame data-focused={focused} className="pane-card">
+    <div
+      data-pane-card-frame={card ? "" : undefined}
+      data-focused={card ? focused : undefined}
+      className={card ? "pane-card" : "contents"}
+    >
       {children}
     </div>
   );

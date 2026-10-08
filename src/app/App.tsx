@@ -11499,11 +11499,10 @@ function Workspace({
                                   >
                                     <div
                                       className={`flex min-h-0 min-w-0 flex-1 flex-col ${
-                                        leafIds(tab.layout).filter((id) =>
-                                          sessions.some(
-                                            (session) => session.id === id,
-                                          ),
-                                        ).length <= 1
+                                        // One card for a lone pane or a chat's
+                                        // unified view; split views card each
+                                        // column on a gutter (see PaneTree).
+                                        tabIsOneCard(tab, sessions)
                                           ? "pane-card mb-1 mr-1"
                                           : "h-full"
                                       }`}
@@ -11913,4 +11912,14 @@ function sameSettings(
     if (left[key] !== right[key]) return false;
   }
   return true;
+}
+
+/** Mirrors PaneTree: only a lone pane or a single chat's unified view is one card. */
+function tabIsOneCard(tab: WorkspaceTab, sessions: readonly Session[]): boolean {
+  const leaves = leafIds(tab.layout);
+  if (leaves.length <= 1) return true;
+  const chats = leaves.filter((id) =>
+    sessions.some((session) => session.id === id),
+  );
+  return chats.length === 1 && tab.surfaceMode === "unified";
 }
