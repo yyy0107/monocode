@@ -17,7 +17,16 @@ html.theme-light .mobile-git-counts [data-kind="del"] {
   color: #be123c;
 }
 .mobile-git-review {
-  padding: 0 16px 16px;
+  padding-bottom: 16px;
+}
+.mobile-sheet:has(> .mobile-sheet-content > .mobile-git-review) {
+  padding-inline: 0;
+}
+.mobile-sheet-content:has(> .mobile-git-review) {
+  padding: 0;
+}
+.mobile-git-review > :is(.mobile-git-toolbar, .mobile-git-note, .mobile-git-error) {
+  margin-inline: 16px;
 }
 .mobile-git-note {
   padding: 8px 0;
@@ -56,16 +65,22 @@ html.theme-light .mobile-git-counts [data-kind="del"] {
 .mobile-git-file-row:disabled {
   opacity: 0.4;
 }
+.mobile-git-file-entry {
+  border-block: 1px solid var(--color-stroke);
+}
+.mobile-git-file-entry + .mobile-git-file-entry {
+  margin-top: 12px;
+}
 .mobile-git-file-row {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 48px;
-  padding: 12px 0;
+  min-height: 44px;
+  padding: 10px 12px;
   border: 0;
-  border-radius: 8px;
-  background: transparent;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
   color: var(--color-content);
   text-align: start;
   font-size: var(--mobile-font-md);
@@ -73,10 +88,29 @@ html.theme-light .mobile-git-counts [data-kind="del"] {
 .mobile-git-file-path {
   min-width: 0;
   flex: 1;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Ellipsize the directory prefix while preserving the filename and LTR text. */
+  direction: rtl;
+  text-align: left;
+  font-size: calc(var(--mobile-font-md) + 1px);
+  font-weight: 650;
 }
 .mobile-git-file-row > svg {
   flex-shrink: 0;
+}
+.mobile-git-file-chevron {
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.mobile-git-file-row[aria-expanded="true"] .mobile-git-file-chevron {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-git-file-chevron {
+    transition: none;
+  }
 }
 .mobile-git-error {
   padding: 12px 0;
@@ -87,11 +121,32 @@ html.theme-light .mobile-git-counts [data-kind="del"] {
 .mobile-git-error p {
   color: color-mix(in srgb, var(--color-content) 60%, transparent);
 }
-.mobile-git-file > :not(.file-preview-list) {
+.mobile-git-file {
+  min-width: 0;
+}
+.mobile-git-file > :is(.mobile-git-note, .mobile-git-error) {
   margin-inline: 16px;
 }
-.mobile-git-file .file-preview-list [aria-label] {
-  touch-action: pan-x pan-y;
+.mobile-git-diff {
+  --diffs-font-family: var(--user-code-font, "SF Mono"), Consolas, "Liberation Mono", monospace;
+  --diffs-font-size: calc(13px * var(--code-font-scale, 1));
+  --diffs-line-height: calc(22px * var(--code-font-scale, 1));
+  --diffs-bg: var(--color-background-base);
+  --diffs-light-bg: var(--color-background-base);
+  --diffs-dark-bg: var(--color-background-base);
+  min-width: 0;
+  width: 100%;
+  background: var(--color-background-base);
+  user-select: text;
+  -webkit-user-select: text;
+}
+.mobile-git-diff[data-theme="light"] {
+  --mobile-diff-addition: #e6f4ec;
+  --mobile-diff-deletion: #ffe7e4;
+  --diffs-bg-addition-emphasis-override: #c8e9da;
+  --diffs-bg-deletion-emphasis-override: #ffd0ca;
+  --diffs-addition-color-override: #199f73;
+  --diffs-deletion-color-override: #d84444;
 }
 .mobile-progress-git-meta {
   display: flex;

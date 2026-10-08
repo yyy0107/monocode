@@ -31,7 +31,6 @@ import { MobileSessionProgress } from "./MobileSessionProgress";
 import { MobileGitReviewSheet } from "./MobileGitReviewSheet";
 import type { MobileGitSource } from "./mobileGit";
 import { useMobileGitIndex } from "./useMobileGitIndex";
-import type { GitChangedFile } from "../platform/tauri/fs";
 import { buildSessionStatusPanelModel } from "../features/sessions/model/sessionStatusPanel";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { useTranscriptLayout } from "../features/sessions/hooks/useTranscriptLayout";
@@ -40,7 +39,7 @@ import { useStableCallback } from "./useStableCallback";
 
 type Detail =
   | { kind: "progress" }
-  | { kind: "changes"; entry?: GitChangedFile }
+  | { kind: "changes" }
   | { kind: "agent"; blockId: string; fromActivity?: Block[] }
   | { kind: "question"; blockId: string }
   | { kind: "plan"; blockId: string }
@@ -221,9 +220,7 @@ export const MobileTranscript = memo(function MobileTranscript({
   const releasePlan = useCallback(() => setDetail((current) =>
     current.active === "plan" ? current : { ...current, plan: undefined }), []);
   const closeDetail = useCallback(() => setDetail((current) => ({ ...current, active: undefined })), []);
-  const backChanges = useCallback(() => setDetail((current) => current.changes?.entry
-    ? { ...current, changes: { kind: "changes" } }
-    : { ...current, active: "progress" }), []);
+  const backChanges = useCallback(() => setDetail((current) => ({ ...current, active: "progress" })), []);
   const releaseChanges = useCallback(() => setDetail((current) => current.active === "changes" ? current : { ...current, changes: undefined }), []);
   useEffect(() => {
     onOverlayChange?.(visible && detail.active ? detail.active === "changes" ? backChanges : closeDetail : undefined);
@@ -410,8 +407,6 @@ export const MobileTranscript = memo(function MobileTranscript({
             {detail.changes && gitSource && <MobileGitReviewSheet
               open={visible && detail.active === "changes"} onExited={releaseChanges}
               source={gitSource} state={git} enabled={gitEnabled}
-              entry={detail.changes.entry}
-              onSelect={(entry) => setDetail((current) => ({ ...current, changes: { kind: "changes", entry } }))}
               onBack={backChanges} onClose={closeDetail} />}
             {detail.question && savedQuestion && (
               <MobileSheet

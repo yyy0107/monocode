@@ -94,6 +94,10 @@ const activeDialog = () =>
 const page = () =>
   activeDialog()?.querySelector<HTMLElement>('[data-page-active="true"]') ??
   activeDialog();
+const diffText = (scope: ParentNode = page()) =>
+  [...scope.querySelectorAll("diffs-container")]
+    .map((node) => node.shadowRoot?.querySelector("[data-diff]")?.textContent ?? "")
+    .join("\n");
 const click = async (button: HTMLElement) => {
   await act(async () => button.click());
 };
@@ -111,7 +115,7 @@ const fileButton = (position = 0) =>
   page().querySelectorAll<HTMLButtonElement>(".mobile-git-file-row")[position];
 
 describe("mobile Git review from the progress capsule", () => {
-  it("shows counts and one combined uncommitted diff per file with native Back navigation", async () => {
+  it("expands the combined diff in its file row and returns directly to progress with native Back", async () => {
     const source: MobileGitSource = {
       loadIndex: vi.fn(async () => index()),
       loadDiff: vi.fn(async () => diff("HEAD version\n", "Working version\n")),
@@ -121,15 +125,36 @@ describe("mobile Git review from the progress capsule", () => {
       app.querySelector(".mobile-progress-capsule")?.textContent,
     ).toContain("+2−1");
     await openReview();
-    expect(page().textContent).toContain("Uncommitted changes");
+    expect(page().textContent).toContain("1 file changed");
     expect(page().textContent).not.toMatch(/Staged|Unstaged|feature/);
     expect(page().querySelectorAll(".mobile-git-file-row")).toHaveLength(1);
+    const review = activeDialog();
+    const row = fileButton();
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    expect(source.loadDiff).not.toHaveBeenCalled();
     await click(fileButton());
+    expect(activeDialog()).toBe(review);
+    expect(fileButton()).toBe(row);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    expect(review.querySelector(".mobile-sheet-header")?.textContent).toContain("1 file changed");
+    expect(review.querySelector(".file-preview-list")).toBeNull();
+    const body = document.getElementById(row.getAttribute("aria-controls")!)!;
     expect(source.loadDiff).toHaveBeenLastCalledWith("src/app.ts");
-    expect(page().textContent).toContain("HEAD version");
-    expect(page().textContent).toContain("Working version");
-    await act(async () => onOverlayChange.mock.calls.at(-1)![0]());
-    expect(page().querySelectorAll(".mobile-git-file-row")).toHaveLength(1);
+    await act(async () => {
+      await vi.waitFor(() => expect(diffText(body)).toContain("HEAD version"));
+    });
+    expect(diffText(body)).toContain("Working version");
+    await settle();
+    await click(row);
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    expect(body.isConnected).toBe(true);
+    expect(body.closest("[inert]")).not.toBeNull();
+    await click(row);
+    expect(body.closest("[inert]")).toBeNull();
+    await settle();
+    await click(row);
+    await settle();
+    expect(body.isConnected).toBe(false);
     await act(async () => onOverlayChange.mock.calls.at(-1)![0]());
     expect(activeDialog().getAttribute("aria-label")).toBe("Session progress");
   });
@@ -156,11 +181,11 @@ describe("mobile Git review from the progress capsule", () => {
       await openReview();
       await click(fileButton());
       expect(page().textContent).toContain(message);
-      expect(page().querySelector(".file-preview-list")).toBeNull();
+      expect(page().querySelector(".mobile-git-diff")).toBeNull();
     },
   );
 
-  it("shows errors instead of an empty diff and retries the selected file", async () => {
+  it("shows errors instead of an empty diff and retries expanded files from the list toolbar", async () => {
     const loadIndex = vi.fn(async () => index(false));
     loadIndex.mockRejectedValueOnce(new Error("Index read failed"));
     const loadDiff = vi.fn(async () => diff());
@@ -184,15 +209,19 @@ describe("mobile Git review from the progress capsule", () => {
       )!,
     );
     expect(page().querySelector('[role="alert"]')).toBeNull();
-    expect(page().querySelector(".file-preview-list")?.textContent).toContain(
+    expect(diffText()).toContain(
       "new",
     );
+    expect(fileButton().getAttribute("aria-expanded")).toBe("true");
+    expect(loadDiff).toHaveBeenCalledTimes(2);
   });
 
   it("refreshes an emptied working copy without dismissing review or keeping stale capsule counts", async () => {
     const loadIndex = vi.fn(async () => index(false));
-    await render({ loadIndex, loadDiff: vi.fn(async () => diff()) });
+    const loadDiff = vi.fn(async () => diff());
+    await render({ loadIndex, loadDiff });
     await openReview();
+    await click(fileButton());
     loadIndex.mockResolvedValue({
       ...index(false),
       files: [],
@@ -215,7 +244,7 @@ describe("mobile Git review from the progress capsule", () => {
     ).not.toContain("+2");
   });
 
-  it("ignores a file response after navigating to another file", async () => {
+  it("ignores a collapsed file's late response while another file is expanded", async () => {
     let finish!: (value: GitFileDiff) => void;
     const loadDiff = vi.fn<MobileGitSource["loadDiff"]>(async () =>
       diff("Index\n", "Current\n"),
@@ -236,12 +265,64 @@ describe("mobile Git review from the progress capsule", () => {
     });
     await openReview();
     await click(fileButton());
-    await click(
-      page().querySelector<HTMLButtonElement>('[aria-label="Back"]')!,
-    );
+    expect(page().querySelector('[role="status"]')?.textContent).toContain("Loading changes…");
+    await click(fileButton());
     await click(fileButton(1));
     await act(async () => finish(diff("Old request\n", "Old result\n")));
-    expect(page().textContent).toContain("Current");
-    expect(page().textContent).not.toContain("Old result");
+    expect(diffText()).toContain("Current");
+    expect(diffText()).not.toContain("Old result");
+    await click(fileButton());
+    expect(fileButton().getAttribute("aria-expanded")).toBe("true");
+    expect(fileButton(1).getAttribute("aria-expanded")).toBe("true");
+    expect(page().querySelectorAll(".mobile-git-diff")).toHaveLength(2);
+    expect(loadDiff).toHaveBeenCalledTimes(3);
+  });
+
+  it("refreshes only expanded diffs and lets an offline row collapse", async () => {
+    const files = index().files;
+    const loadDiff = vi.fn(async () => diff());
+    const { update } = await render({
+      loadIndex: vi.fn(async () => ({
+        ...index(),
+        files: [...files, { ...files[0], relative: "src/other.ts" }],
+      })),
+      loadDiff,
+    });
+    await openReview();
+    await click(fileButton());
+    loadDiff.mockResolvedValue(diff("old\n", "Refreshed contents\n"));
+    await click(page().querySelector<HTMLButtonElement>('[aria-label="Refresh changes"]')!);
+    expect(loadDiff.mock.calls).toEqual([["src/app.ts"], ["src/app.ts"]]);
+    expect(diffText()).toContain("Refreshed contents");
+    await update({ gitEnabled: false });
+    expect(fileButton().disabled).toBe(false);
+    expect(fileButton(1).disabled).toBe(true);
+    await click(fileButton());
+    await settle();
+    expect(page().querySelector(".mobile-git-diff")).toBeNull();
+    expect(loadDiff).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps long diffs inline, with highlighted changes and localized context gaps", async () => {
+    const original = Array.from({ length: 360 }, (_, index) => `const value${index} = ${index};`);
+    const current = [...original];
+    current[2] = 'const value2 = "changed near the start";';
+    current[350] = 'const value350 = "changed near the end";';
+    await render({
+      loadIndex: vi.fn(async () => index()),
+      loadDiff: vi.fn(async () => diff(original.join("\n"), current.join("\n"))),
+    });
+    await openReview();
+    await click(fileButton());
+    await act(async () => {
+      await vi.waitFor(() => expect(diffText()).toContain("changed near the end"));
+    });
+    expect(diffText()).toContain("changed near the start");
+    expect(page().querySelector(".readonly-text-view")).toBeNull();
+    const shadow = page().querySelector("diffs-container")!.shadowRoot!;
+    expect(shadow.querySelector("[data-line] span[style]")).not.toBeNull();
+    expect(shadow.querySelector("[data-unmodified-lines]")?.textContent).toContain("unmodified lines");
+    await act(async () => setUiLanguage("zh-CN"));
+    expect(shadow.querySelector("[data-unmodified-lines]")?.textContent).toContain("行未改动");
   });
 });

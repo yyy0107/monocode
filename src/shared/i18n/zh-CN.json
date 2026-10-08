@@ -72,6 +72,7 @@
   "{project} on {machine}": "{machine} 上的 {project}",
   "{count} file changed": "{count} 个文件已更改",
   "{count} files changed": "{count} 个文件已更改",
+  "{count} unmodified lines": "{count} 行未改动",
   "{count} project": "{count} 个项目",
   "{count} projects": "{count} 个项目",
   "working": "正在工作",
