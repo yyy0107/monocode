@@ -1,9 +1,11 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   type ComponentProps,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import {
@@ -12,11 +14,18 @@ import {
   type ProjectTerminalDock as ProjectTerminal,
 } from "../../features/projects/model/projectTerminal";
 import { sameProjectPath } from "../../features/projects/model/recents";
+import { beginPaneResize } from "../../shared/lib/paneResize";
 import { ProjectTerminalDock } from "../../features/terminal/ui/ProjectTerminalDock";
 import { useCollapseMotion } from "../../shared/ui/AnimatedCollapse";
 import { SurfaceVisibilityContext } from "../../shared/ui/SurfaceVisibility";
 
 const RetainedTerminalDock = memo(ProjectTerminalDock);
+
+// Short enough to read as a panel move, not a slide-in to wait through.
+const DOCK_FOLD_MS = 200;
+const DOCK_FOLD_STYLE = {
+  "--collapse-duration": `${DOCK_FOLD_MS}ms`,
+} as CSSProperties;
 
 type Props = Omit<
   ComponentProps<typeof ProjectTerminalDock>,
@@ -47,7 +56,11 @@ export function TerminalDockLayout({
   const currentDockRef = useRef(currentDock);
   currentDockRef.current = currentDock;
   const open = !!currentDock?.open;
-  const { foldState, finish } = useCollapseMotion(open);
+  const { foldState, finish } = useCollapseMotion(open, DOCK_FOLD_MS);
+  const folding = foldState === "opening" || foldState === "closing";
+  // Every terminal on screen changes size while the tracks move; refit once
+  // when they settle instead of re-wrapping and resizing PTYs each frame.
+  useEffect(() => (folding ? beginPaneResize() : undefined), [folding]);
   const paintSize = useCallback((size: number) => {
     const dock = currentDockRef.current;
     const element = grid.current;
@@ -83,6 +96,7 @@ export function TerminalDockLayout({
       data-terminal-dock-layout
       data-fold-state={foldState}
       className="animated-collapse-size pane-card-gutter grid h-full min-h-0 min-w-0 flex-1"
+      style={DOCK_FOLD_STYLE}
       onTransitionEnd={(event) => {
         if (
           event.target === event.currentTarget &&

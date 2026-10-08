@@ -1,3 +1,4 @@
+import { beginPaneResize } from "../../../shared/lib/paneResize";
 import {
   memo,
   useCallback,
@@ -960,7 +961,7 @@ function PaneTreeComponent({
               key={`${sash.splitId}:${sash.index}`}
               sash={sash}
               layout={layout}
-              visible={visible && parentVisible}
+              visible={visible && parentVisible && !maximized}
               containerRef={treeRef}
               onPreview={(ratio) => {
                 draft.current = setSplitRatio(
@@ -1168,9 +1169,10 @@ function Sash({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(boundary * 100)}
-      className={
-        row ? "absolute z-10 w-px bg-stroke" : "absolute z-10 h-px bg-stroke"
-      }
+      aria-hidden={!visible || undefined}
+      className={`absolute z-10 bg-stroke transition-opacity duration-150 motion-reduce:transition-none ${
+        row ? "w-px" : "h-px"
+      } ${visible ? "" : "pointer-events-none opacity-0"}`}
       style={sashStyle(sash)}
     >
       <ResizeHandle
@@ -1189,6 +1191,7 @@ function Sash({
           setDragging(true);
           const previousTransition = parent.style.transitionProperty;
           parent.style.transitionProperty = "none";
+          const endPaneResize = beginPaneResize();
           const rect = parent.getBoundingClientRect();
           const restoreSelection = suppressTextSelection();
           const previousCursor = document.body.style.cursor;
@@ -1238,6 +1241,7 @@ function Sash({
               } else callbacks.current.onCancel();
             }
             parent.style.transitionProperty = previousTransition;
+            endPaneResize();
             if (handle.hasPointerCapture(e.pointerId)) {
               handle.releasePointerCapture(e.pointerId);
             }

@@ -35,6 +35,10 @@ import {
 } from "../model/terminalLayout";
 import { IS_MAC } from "../../../platform/tauri/platform";
 import "@xterm/xterm/css/xterm.css";
+import {
+  isPaneResizing,
+  onPaneResizeSettled,
+} from "../../../shared/lib/paneResize";
 
 type Props = {
   id: string;
@@ -406,12 +410,15 @@ function createLiveTerminal(
   };
 
   const schedule = () => {
-    if (raf) return;
+    // Fitting re-wraps the scrollback and resizes the PTY, so a split drag
+    // fits once when it ends rather than on every frame.
+    if (raf || isPaneResizing()) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
       applySize();
     });
   };
+  const stopSettled = onPaneResizeSettled(schedule);
 
   live.applySize = applySize;
   const renderSub = term.onRender(() => {
@@ -432,6 +439,7 @@ function createLiveTerminal(
     cancelAnimationFrame(frame);
     if (raf) cancelAnimationFrame(raf);
     observer.disconnect();
+    stopSettled();
     document.fonts?.removeEventListener("loadingdone", onFontsLoaded);
     stopCompositionGuard();
     window.removeEventListener(SCHEME_CHANGE_EVENT, onSchemeChange);

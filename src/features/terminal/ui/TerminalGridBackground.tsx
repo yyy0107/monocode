@@ -27,6 +27,10 @@ import {
   observeAnimationVisibility,
   type AnimationVisibility,
 } from "../../../shared/lib/animationVisibility";
+import {
+  isPaneResizing,
+  onPaneResizeSettled,
+} from "../../../shared/lib/paneResize";
 
 const CELL = 6;
 const GAP = 1;
@@ -454,8 +458,12 @@ export function TerminalGridBackground({
       refresh();
     });
 
-    const resizeObserver = new ResizeObserver(refresh);
+    // The grid redraws once a split drag ends instead of on every frame.
+    const resizeObserver = new ResizeObserver(() => {
+      if (!isPaneResizing()) refresh();
+    });
     resizeObserver.observe(root);
+    const stopSettled = onPaneResizeSettled(refresh);
 
     const themeObserver = new MutationObserver(() => {
       rgb = parseContentRgb();
@@ -471,6 +479,7 @@ export function TerminalGridBackground({
       cancelAnimationFrame(raf);
       stopObserving();
       resizeObserver.disconnect();
+      stopSettled();
       themeObserver.disconnect();
       boardsRef.current = null;
       refreshRef.current = null;
