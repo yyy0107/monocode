@@ -809,7 +809,7 @@ html[data-mobile-glass="solid"] :is(
   border-radius: 10px;
   font-size: calc(var(--mobile-font-md) + var(--mobile-popup-font-step, 0px));
   font-weight: 600;
-  transition: background-color 160ms ease, color 160ms ease;
+  transition: color var(--mobile-motion-feedback) ease;
 }
 .mobile-pairing-methods button span {
   overflow: hidden;
@@ -818,8 +818,6 @@ html[data-mobile-glass="solid"] :is(
 }
 .mobile-pairing-methods button[aria-selected="true"] {
   color: var(--color-content);
-  background: color-mix(in srgb, var(--color-content) 14%, var(--color-background-base));
-  box-shadow: 0 1px 4px color-mix(in srgb, #000 12%, transparent);
 }
 .mobile-pairing-panel {
   display: flex;
@@ -4231,8 +4229,10 @@ button.mobile-settings-row:active {
   border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-content) 16%, transparent);
-  transition: background 160ms ease;
+  transition: background-color var(--mobile-motion-feedback) ease;
 }
+/* The thumb travels on a spring and stretches toward its travel while
+   pressed; both retarget from the current shape on rapid taps. */
 .mobile-app input.mobile-switch::after {
   content: "";
   position: absolute;
@@ -4245,13 +4245,31 @@ button.mobile-settings-row:active {
   box-shadow:
     0 3px 8px #00000026,
     0 1px 1px #00000029;
-  transition: transform 160ms ease;
+  transition:
+    transform var(--mobile-spring-snappy-duration) var(--mobile-spring-snappy),
+    width var(--mobile-spring-release-duration) var(--mobile-spring-release);
 }
 .mobile-app input.mobile-switch:checked {
   background: #34c759;
 }
 .mobile-app input.mobile-switch:checked::after {
   transform: translateX(20px);
+}
+.mobile-app input.mobile-switch:active:not(:disabled)::after {
+  width: 33px;
+  transition:
+    transform var(--mobile-motion-press) var(--mobile-ease-out),
+    width var(--mobile-motion-press) var(--mobile-ease-out);
+}
+/* A checked thumb stretches leftward, keeping its trailing edge in place. */
+.mobile-app input.mobile-switch:checked:active:not(:disabled)::after {
+  transform: translateX(14px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-app input.mobile-switch,
+  .mobile-app input.mobile-switch::after {
+    transition: none !important;
+  }
 }
 .mobile-settings-note {
   flex-wrap: wrap;

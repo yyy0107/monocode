@@ -12,6 +12,7 @@ import {
 import { initSounds } from "../features/settings/model/sounds";
 import "../styles/index.css";
 import "./mobile.css";
+import "./motion.css";
 
 refreshUiLanguage();
 installKeyboardMotion();

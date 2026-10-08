@@ -1,0 +1,108 @@
+/* Motion tokens for the mobile shell. Values mirror src/mobile/motion.ts
+   (springEasing / springDuration); motion.test.ts fails when they drift.
+   Springs fall back to an ease-out curve where `linear()` is unsupported. */
+:root {
+  --mobile-motion-press: 120ms;
+  --mobile-motion-feedback: 160ms;
+  --mobile-motion-content-in: 220ms;
+  --mobile-motion-content-out: 140ms;
+  --mobile-motion-shift: 8px;
+  --mobile-motion-press-scale: 0.97;
+  --mobile-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --mobile-spring-snappy-duration: 340ms;
+  --mobile-spring-smooth-duration: 400ms;
+  --mobile-spring-release-duration: 310ms;
+  --mobile-spring-snappy: var(--mobile-ease-out);
+  --mobile-spring-smooth: var(--mobile-ease-out);
+  --mobile-spring-release: var(--mobile-ease-out);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    --mobile-spring-snappy: linear(0, 0.037, 0.125, 0.238, 0.358, 0.474, 0.579, 0.672, 0.749, 0.813, 0.864, 0.904, 0.935, 0.958, 0.974, 0.986, 0.994, 0.999, 1.002, 1.004, 1.005, 1.005, 1.005, 1.004, 1);
+    --mobile-spring-smooth: linear(0, 0.036, 0.12, 0.227, 0.341, 0.452, 0.553, 0.643, 0.719, 0.783, 0.834, 0.876, 0.909, 0.934, 0.953, 0.968, 0.979, 0.986, 0.992, 0.996, 0.998, 1, 1.001, 1.001, 1);
+    --mobile-spring-release: linear(0, 0.041, 0.139, 0.264, 0.396, 0.522, 0.635, 0.731, 0.81, 0.872, 0.92, 0.955, 0.979, 0.996, 1.006, 1.012, 1.015, 1.015, 1.014, 1.013, 1.011, 1.009, 1.007, 1.005, 1);
+  }
+}
+
+/* Segmented control: one indicator travels between options instead of each
+   option fading its own background. The edge on the side of travel uses the
+   snappier spring, so the capsule stretches slightly and then catches up.
+   CSS transitions retarget from the current position on rapid taps. */
+.mobile-segmented {
+  --segment-pad: 4px;
+  --segment-gap: 4px;
+  --segment-cell: calc(
+    (100% - 2 * var(--segment-pad) - (var(--segment-count) - 1) * var(--segment-gap)) /
+      var(--segment-count)
+  );
+  position: relative;
+  isolation: isolate;
+}
+.mobile-segmented-indicator {
+  position: absolute;
+  z-index: -1;
+  inset-block: var(--segment-pad);
+  inset-inline-start: calc(
+    var(--segment-pad) + var(--segment-index) * (var(--segment-cell) + var(--segment-gap))
+  );
+  inset-inline-end: calc(
+    var(--segment-pad) +
+      (var(--segment-count) - 1 - var(--segment-index)) *
+      (var(--segment-cell) + var(--segment-gap))
+  );
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-content) 14%, var(--color-background-base));
+  box-shadow: 0 1px 4px color-mix(in srgb, #000 12%, transparent);
+  pointer-events: none;
+  transition:
+    inset-inline-start var(--mobile-spring-smooth-duration) var(--mobile-spring-smooth),
+    inset-inline-end var(--mobile-spring-smooth-duration) var(--mobile-spring-smooth);
+}
+.mobile-segmented[data-direction="forward"] > .mobile-segmented-indicator {
+  transition-property: inset-inline-start, inset-inline-end;
+  transition-duration: var(--mobile-spring-smooth-duration), var(--mobile-spring-snappy-duration);
+  transition-timing-function: var(--mobile-spring-smooth), var(--mobile-spring-snappy);
+}
+.mobile-segmented[data-direction="back"] > .mobile-segmented-indicator {
+  transition-property: inset-inline-start, inset-inline-end;
+  transition-duration: var(--mobile-spring-snappy-duration), var(--mobile-spring-smooth-duration);
+  transition-timing-function: var(--mobile-spring-snappy), var(--mobile-spring-smooth);
+}
+.mobile-segmented > [role="tab"] > * {
+  transition: transform var(--mobile-spring-release-duration) var(--mobile-spring-release);
+}
+/* Press feedback starts on touch and releases on the spring. */
+.mobile-segmented > [role="tab"]:active:not(:disabled) > * {
+  transform: scale(var(--mobile-motion-press-scale));
+  transition: transform var(--mobile-motion-press) var(--mobile-ease-out);
+}
+
+/* Content that replaces other content after a switch enters from the side of
+   travel. Only applied after a change, never on first mount. */
+[data-content-enter="forward"],
+[data-content-enter="back"] {
+  animation: mobile-content-in var(--mobile-motion-content-in) var(--mobile-ease-out) both;
+}
+[data-content-enter="back"] {
+  --mobile-content-from: calc(-1 * var(--mobile-motion-shift));
+}
+@keyframes mobile-content-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--mobile-content-from, var(--mobile-motion-shift)));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-segmented-indicator,
+  .mobile-segmented > [role="tab"] > * {
+    transition: none !important;
+  }
+  .mobile-segmented > [role="tab"]:active:not(:disabled) > * {
+    transform: none;
+  }
+  [data-content-enter] {
+    animation: none !important;
+  }
+}

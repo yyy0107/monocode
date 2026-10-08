@@ -4,7 +4,7 @@ import {
   PairingCode,
   ScanQrCode,
 } from "../shared/ui/icons";
-import { useRef, useState, type RefObject } from "react";
+import { useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { MobileSheet } from "./MobileSheet";
 import { MobileQrScanner } from "./MobileQrScanner";
@@ -47,6 +47,9 @@ export function MobileConnectionSheet({
 }) {
   const { t } = useTranslation();
   const [method, setMethod] = useState<Method>("scan");
+  // Unset until the first switch, so the panel does not animate on open.
+  const [direction, setDirection] = useState<"forward" | "back">();
+  const methodIndex = METHODS.findIndex(({ id }) => id === method);
   const [scanError, setScanError] = useState("");
   // A failed connection restarts the camera; do not resubmit the same QR code
   // in a loop. Switching methods allows that code to be scanned again.
@@ -64,11 +67,19 @@ export function MobileConnectionSheet({
     >
       <div className="mobile-pairing">
         <div
-          className="mobile-pairing-methods"
+          className="mobile-pairing-methods mobile-segmented"
           role="tablist"
           aria-label={t("Connection method")}
+          data-direction={direction}
+          style={
+            {
+              "--segment-count": METHODS.length,
+              "--segment-index": methodIndex,
+            } as CSSProperties
+          }
         >
-          {METHODS.map(({ id, label, Icon }) => (
+          <span className="mobile-segmented-indicator" aria-hidden="true" />
+          {METHODS.map(({ id, label, Icon }, index) => (
             <button
               key={id}
               type="button"
@@ -78,6 +89,8 @@ export function MobileConnectionSheet({
               aria-selected={method === id}
               disabled={disabled}
               onClick={() => {
+                if (id !== method)
+                  setDirection(index > methodIndex ? "forward" : "back");
                 setMethod(id);
                 setScanError("");
                 scanned.current = "";
@@ -89,6 +102,8 @@ export function MobileConnectionSheet({
           ))}
         </div>
         <div
+          key={method}
+          data-content-enter={direction}
           id="mobile-pairing-panel"
           role="tabpanel"
           aria-labelledby={`mobile-pairing-tab-${method}`}
