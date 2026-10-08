@@ -3472,6 +3472,15 @@ html.theme-light .drag-ghost-card {
   line-height: 1.75;
 }
 
+/* A group's steps hang off the rail on the page itself, without a panel. */
+.zen-phase-body > .zen-fold-item > div > div {
+  margin-block: 2px;
+  padding: 4px 0 4px 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 .zen-disclosure-chevron {
   color: var(--color-foreground-subtlest);
   opacity: 0;

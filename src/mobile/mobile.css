@@ -4673,16 +4673,6 @@ button.mobile-settings-row:active {
   overscroll-behavior: contain;
 }
 
-/* A live group's steps hang off the rail on the page itself, without the
-   desktop panel behind them. */
-.mobile-desktop-transcript .zen-phase-body > .zen-fold-item > div > div {
-  margin-block: 2px;
-  padding: 4px 0 4px 2px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
 /* Touch rows are taller than desktop rows and file paths can wrap. Anchor
    their branches to the icon's center; inline disclosures keep their own rail. */
 .mobile-desktop-transcript .zen-phase-step:has(> [data-tool-open-row])::after {
