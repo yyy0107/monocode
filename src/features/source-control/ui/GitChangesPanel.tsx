@@ -1392,7 +1392,7 @@ function ChangeDirRow({
               <ChevronRight className="size-3.5" />
             )}
           </span>
-          <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+          <span className="min-w-0 flex-1 truncate text-[13px] leading-label font-medium">
             {dir.name}
           </span>
         </button>
@@ -1550,7 +1550,7 @@ function ChangeRow({
         >
           {tree ? <span className="size-4 shrink-0" /> : null}
           <FileTypeIcon name={name} isDir={false} size={16} />
-          <span className="min-w-0 flex-1 truncate">
+          <span className="min-w-0 flex-1 truncate leading-label">
             <span className="text-[13px] font-medium">{name}</span>
             {dir ? (
               <span className="ml-1.5 text-[11px] text-content/40">{dir}</span>
