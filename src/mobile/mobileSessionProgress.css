@@ -149,7 +149,13 @@
   font-size: var(--mobile-font-sm);
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
 }
+/* Background commands can embed whole heredoc prompts; keep each row short. */
 .mobile-progress-command {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   font-family: var(--font-mono);
 }
 .mobile-progress-more {
