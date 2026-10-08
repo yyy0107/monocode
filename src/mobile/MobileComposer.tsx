@@ -8,7 +8,6 @@ import {
   Folder,
   ImagePlus,
   LoaderCircle,
-  ListEnd,
   Plus,
   Square,
   X,
@@ -498,11 +497,6 @@ export function MobileComposer(props: Props) {
                     }
                   />
                 </button>
-                {props.running && props.canSend ? (
-                  <button type="submit" className="mobile-composer-action" aria-label={t("Queue message")}>
-                    {props.working ? <LoaderCircle size={20} className="mobile-spin" /> : <ListEnd size={20} />}
-                  </button>
-                ) : null}
               </div>
               {sendButton}
             </div>

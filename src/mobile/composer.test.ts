@@ -463,11 +463,10 @@ describe("mobile composer card", () => {
     expect(node.querySelector("textarea")!.disabled).toBe(false);
     expect(button("Model and reasoning").disabled).toBe(true);
     expect(node.querySelector('[aria-label="Stop"]')).toBeNull();
+    expect(node.querySelector('[aria-label="Queue message"]')).toBeNull();
     click("Send message");
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(onStop).not.toHaveBeenCalled();
-    click("Queue message");
-    expect(onSend).toHaveBeenCalledTimes(2);
     rerender({ canSend: false });
     expect(button("Send message").disabled).toBe(true);
     expect(node.querySelector('[aria-label="Stop"]')).toBeNull();
