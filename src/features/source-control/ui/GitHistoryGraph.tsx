@@ -12,6 +12,11 @@ import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { suppressTextSelection } from "../../../shared/lib/drag";
 import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
 import {
+  HoverSummary,
+  useHoverSummary,
+} from "../../../shared/ui/HoverSummary";
+import {
+  gitCommitFiles,
   gitHistory,
   subscribeGitChanged,
   type GitHistoryCommit,
@@ -34,6 +39,9 @@ type Props = {
 };
 
 const historyByCwd = new Map<string, GitHistoryCommit[]>();
+
+type CommitStats = { files: number; additions: number; deletions: number };
+const statsByCommit = new Map<string, CommitStats>();
 
 export function GitHistoryGraph({
   cwd,
@@ -93,6 +101,7 @@ export function GitHistoryGraph({
                 return (
                   <HistoryRow
                     key={commit.sha}
+                    cwd={cwd}
                     commit={commit}
                     row={row}
                     active={selectedSha === commit.sha}
@@ -109,11 +118,13 @@ export function GitHistoryGraph({
 }
 
 function HistoryRow({
+  cwd,
   commit,
   row,
   active,
   onOpen,
 }: {
+  cwd: string;
   commit: GitHistoryCommit;
   row: HistoryItemViewModel;
   active: boolean;
@@ -121,12 +132,39 @@ function HistoryRow({
 }) {
   const graph = historyItemGraph(row);
   const badge = row.refs.find((ref) => ref.color) ?? row.refs[0];
+  const statsKey = `${cwd}\0${commit.sha}`;
+  const [stats, setStats] = useState(() => statsByCommit.get(statsKey));
+  const hover = useHoverSummary<HTMLButtonElement>({
+    openDelay: 400,
+    onOpen: () => {
+      if (statsByCommit.has(statsKey)) return;
+      void gitCommitFiles(cwd, commit.sha)
+        .then((files) => {
+          const next = files.reduce<CommitStats>(
+            (sum, file) => ({
+              files: sum.files + 1,
+              additions: sum.additions + file.additions,
+              deletions: sum.deletions + file.deletions,
+            }),
+            { files: 0, additions: 0, deletions: 0 },
+          );
+          statsByCommit.set(statsKey, next);
+          setStats(next);
+        })
+        .catch(() => undefined);
+    },
+  });
   return (
     <li className="min-w-0 overflow-visible" style={{ height: GRAPH_ROW_PX }}>
       <button
         type="button"
-        title={`${commit.shortSha} ${commit.subject}${commit.author ? ` — ${commit.author}` : ""}`}
-        onClick={() => onOpen()}
+        ref={hover.anchorRef}
+        {...hover.triggerProps}
+        aria-describedby={hover.open ? hover.id : undefined}
+        onClick={() => {
+          hover.close();
+          onOpen();
+        }}
         onDoubleClick={() => onOpen(true)}
         aria-pressed={active}
         className={`git-history-item flex h-[22px] min-w-0 w-full items-stretch overflow-visible pr-2 text-left ${
@@ -181,8 +219,95 @@ function HistoryRow({
         </span>
         {badge ? <RefPill refInfo={badge} /> : null}
       </button>
+      <HoverSummary hover={hover}>
+        <CommitSummary commit={commit} stats={stats} />
+      </HoverSummary>
     </li>
   );
+}
+
+const CO_AUTHOR_TRAILER = /^co-authored-by:\s*(.+?)\s*(?:<[^>]*>)?\s*$/gim;
+
+function CommitSummary({
+  commit,
+  stats,
+}: {
+  commit: GitHistoryCommit;
+  stats: CommitStats | undefined;
+}) {
+  const { t: uiT } = useTranslation();
+  const date = new Date(commit.timestamp * 1000);
+  const coAuthors = [
+    ...new Set(
+      [...(commit.body ?? "").matchAll(CO_AUTHOR_TRAILER)].map(
+        (match) => match[1],
+      ),
+    ),
+  ];
+  const message = [commit.subject, commit.body].filter(Boolean).join("\n\n");
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <span className="min-w-0 truncate font-semibold text-content">
+            {commit.author || uiT("Unknown author")}
+          </span>
+          {commit.timestamp > 0 ? (
+            <time
+              dateTime={date.toISOString()}
+              className="shrink-0 text-[11px] text-content/45"
+            >
+              {relativeCommitTime(commit.timestamp, uiT)} ·{" "}
+              {date.toLocaleString()}
+            </time>
+          ) : null}
+        </div>
+        {coAuthors.map((name) => (
+          <div key={name} className="truncate text-[11px] text-content/55">
+            {uiT("{name} (co-author)", { name })}
+          </div>
+        ))}
+      </div>
+      <p className="max-h-48 overflow-y-auto whitespace-pre-wrap text-content/85 [overflow-wrap:anywhere]">
+        {message || commit.shortSha}
+      </p>
+      {stats ? (
+        <div className="text-[11px] text-content/55">
+          {stats.files === 1
+            ? uiT("{count} file changed", { count: stats.files })
+            : uiT("{count} files changed", { count: stats.files })}
+          {stats.additions ? (
+            <span className="ml-2 font-mono text-emerald-400">+{stats.additions}</span>
+          ) : null}
+          {stats.deletions ? (
+            <span className="ml-1.5 font-mono text-rose-400">-{stats.deletions}</span>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t border-content/10 pt-1.5 text-[11px] text-content/45">
+        <span className="font-mono">{commit.shortSha}</span>
+        {commit.refs.map((ref) => (
+          <span
+            key={`${ref.kind}:${ref.name}`}
+            className="max-w-full truncate rounded-full bg-content/10 px-1.5 text-content/60"
+          >
+            {ref.name}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function relativeCommitTime(
+  timestamp: number,
+  t: ReturnType<typeof useTranslation>["t"],
+): string {
+  const minutes = Math.max(0, Math.floor((Date.now() / 1000 - timestamp) / 60));
+  if (minutes < 1) return t("just now");
+  if (minutes < 60) return t("{count}m ago", { count: minutes });
+  if (minutes < 1440) return t("{count}h ago", { count: Math.floor(minutes / 60) });
+  return t("{count}d ago", { count: Math.floor(minutes / 1440) });
 }
 
 function RefPill({ refInfo }: { refInfo: GraphRef }) {

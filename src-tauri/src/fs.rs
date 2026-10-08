@@ -936,6 +936,7 @@ pub struct GitHistoryCommit {
     pub author: String,
     pub timestamp: i64,
     pub subject: String,
+    pub body: String,
     pub refs: Vec<GitHistoryRef>,
     pub head: bool,
 }
@@ -2253,7 +2254,7 @@ fn git_history_for(root: &Path, limit: Option<u32>) -> Result<GitHistory, String
         "--decorate=short".to_string(),
         "--max-count".to_string(),
         count,
-        "--format=%H%x00%h%x00%P%x00%an%x00%at%x00%D%x00%s%x1e".to_string(),
+        "--format=%H%x00%h%x00%P%x00%an%x00%at%x00%D%x00%s%x00%b%x1e".to_string(),
     ];
     args.extend(tips);
     let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -2298,6 +2299,7 @@ fn parse_git_history_log(
             continue;
         };
         let subject = fields.next().unwrap_or("");
+        let body = fields.next().unwrap_or("").trim();
         if sha.is_empty() {
             continue;
         }
@@ -2313,6 +2315,7 @@ fn parse_git_history_log(
             author: author.to_string(),
             timestamp: timestamp.parse().unwrap_or(0),
             subject: subject.to_string(),
+            body: body.to_string(),
             refs,
             head: is_head,
         });

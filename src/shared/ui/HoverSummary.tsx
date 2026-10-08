@@ -15,10 +15,13 @@ import { useSurfaceVisibility } from "./SurfaceVisibility";
 export function useHoverSummary<T extends HTMLElement = HTMLElement>({
   enabled = true,
   interactive = false,
+  openDelay = 0,
   onOpen,
 }: {
   enabled?: boolean;
   interactive?: boolean;
+  /** Pointer hover delay (ms) for dense lists; focus still opens at once. */
+  openDelay?: number;
   onOpen?: () => void;
 } = {}) {
   const visible = useSurfaceVisibility();
@@ -32,6 +35,7 @@ export function useHoverSummary<T extends HTMLElement = HTMLElement>({
   const restoringFocus = useRef(false);
   const pointerFocus = useRef(false);
   const openRef = useRef(false);
+  const delayTimer = useRef<number | undefined>(undefined);
   const onOpenRef = useRef(onOpen);
   onOpenRef.current = onOpen;
   const [open, setOpen] = useState(false);
@@ -54,7 +58,13 @@ export function useHoverSummary<T extends HTMLElement = HTMLElement>({
     }
   }
 
+  function cancelDelayedShow() {
+    window.clearTimeout(delayTimer.current);
+    delayTimer.current = undefined;
+  }
+
   function close(restoreFocus = false) {
+    cancelDelayedShow();
     // Focus restoration can itself emit focus; suppress reopening first.
     suppressed.current = true;
     hovered.current = false;
@@ -79,13 +89,16 @@ export function useHoverSummary<T extends HTMLElement = HTMLElement>({
     focused: EventTarget | null = document.activeElement,
   ) {
     if (hovered.current || contains(focused)) return;
+    cancelDelayedShow();
     openRef.current = false;
     setOpen(false);
     suppressed.current = false;
   }
 
+  useEffect(() => cancelDelayedShow, []);
   useEffect(() => {
     if (available) return;
+    cancelDelayedShow();
     hovered.current = false;
     openRef.current = false;
     suppressed.current = false;
@@ -115,6 +128,14 @@ export function useHoverSummary<T extends HTMLElement = HTMLElement>({
       pointerTriggerRef.current = event.currentTarget;
       hovered.current = true;
       suppressed.current = false;
+      if (openDelay > 0 && !openRef.current) {
+        cancelDelayedShow();
+        delayTimer.current = window.setTimeout(() => {
+          delayTimer.current = undefined;
+          if (hovered.current) show();
+        }, openDelay);
+        return;
+      }
       show();
     },
     onPointerLeave(event: PointerEvent) {

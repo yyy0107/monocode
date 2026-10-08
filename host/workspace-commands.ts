@@ -638,11 +638,11 @@ export class WorkspaceCommands {
     }
     const output = await this.gitCommand(cwd, [
       "log", "--topo-order", "--decorate=short", `--max-count=${count}`,
-      "--format=%H%x00%h%x00%P%x00%an%x00%at%x00%D%x00%s%x1e", ...tips,
+      "--format=%H%x00%h%x00%P%x00%an%x00%at%x00%D%x00%s%x00%b%x1e", ...tips,
     ]).catch(() => "");
     const remotes = remoteNames.split("\n").map((name) => name.trim()).filter(Boolean);
     const commits = output.split("\x1e").flatMap((record) => {
-      const [sha, shortSha, parents, author, timestamp, decorations, subject] = record.trim().split("\0");
+      const [sha, shortSha, parents, author, timestamp, decorations, subject, body] = record.trim().split("\0");
       if (!sha || !/^[0-9a-f]{40,64}$/i.test(sha)) return [];
       const refs = (decorations ?? "").split(",").map((raw) => raw.trim()).filter(Boolean)
         .flatMap((raw) => {
@@ -653,7 +653,7 @@ export class WorkspaceCommands {
             ? "remote" : "local" }];
         });
       return [{ sha, shortSha: shortSha || sha.slice(0, 7), parents: parents ? parents.split(" ") : [],
-        author, timestamp: Number(timestamp), subject, refs, head: sha === headSha }];
+        author, timestamp: Number(timestamp), subject, body: body?.trim() ?? "", refs, head: sha === headSha }];
     });
     return { head: headSha, commits };
   }

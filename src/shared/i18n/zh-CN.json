@@ -3395,5 +3395,7 @@
   "Codex usage request failed": "Codex 额度查询失败",
   "reset due": "等待额度重置",
   "Hide email": "隐藏邮箱",
-  "Reveal email": "显示邮箱"
+  "Reveal email": "显示邮箱",
+  "Unknown author": "未知作者",
+  "{name} (co-author)": "{name}（共同作者）"
 }

@@ -252,6 +252,8 @@ export type GitHistoryCommit = {
   author: string;
   timestamp: number;
   subject: string;
+  /** Message after the subject; absent from older hosts. */
+  body?: string;
   refs: GitHistoryRef[];
   head: boolean;
 };
