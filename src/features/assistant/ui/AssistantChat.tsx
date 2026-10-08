@@ -58,6 +58,7 @@ import {
   useTranscriptRenderingPlatform,
 } from "../../sessions/ui/useTranscriptRenderingPlatform";
 import { Shimmer } from "../../../shared/ui/Shimmer";
+import { usePauseOffscreenAnimation } from "../../../shared/hooks/usePauseOffscreenAnimation";
 import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 import { slidePromptIn } from "../../sessions/ui/promptLaunch";
 import { Loader2, Sparkles, X } from "../../../shared/ui/icons";
@@ -219,6 +220,9 @@ export function AssistantChat({
     [visibleMessages, historyRows],
   );
   const hasOlderHistory = historyRows < visibleMessages.length;
+  // The loader sits above the oldest row for as long as older history
+  // remains, usually scrolled away; its spinner only needs to run in view.
+  const pauseOffscreen = usePauseOffscreenAnimation<HTMLDivElement>();
   const growingHistory = useRef(false);
   const showOlderHistory = useCallback(() => {
     if (growingHistory.current) return;
@@ -927,7 +931,11 @@ export function AssistantChat({
                     </div>
                   )}
                   {hasOlderHistory && (
-                    <div className="assistant-history-loading" role="status">
+                    <div
+                      ref={pauseOffscreen}
+                      className="assistant-history-loading"
+                      role="status"
+                    >
                       <Loader2
                         className="assistant-loading-spinner"
                         size={16}

@@ -1317,7 +1317,7 @@
   .assistant-chat > .assistant-loading,
   .assistant-history-loading,
   .assistant-file-card-handle[data-fold-state],
-  .assistant-status::before {
+  .assistant-status[data-lifecycle]::before {
     animation: none;
   }
   .assistant-settings-disclosure > svg,

@@ -3285,6 +3285,13 @@ html.theme-light .drag-ghost-card {
   animation: shimmer-text var(--shimmer-duration, 2s) linear infinite;
 }
 
+/* usePauseOffscreenAnimation: loops out of view or in a hidden window stop
+   ticking instead of restyling every frame. */
+[data-animation-paused],
+[data-animation-paused] * {
+  animation-play-state: paused !important;
+}
+
 /* One light sweep across a composer mode command as it appears. */
 .composer-mode-shimmer {
   background-image: linear-gradient(
@@ -4796,15 +4803,19 @@ html.theme-light .btw-burst {
   }
 }
 
-/* The live turn's mascot and clock hold still when motion is reduced. */
+/* With reduced motion, shimmer, the two-frame mascots (sidebar projects,
+   workflow faces, the composer runner) and the live turn's clock hold still on
+   their resting frame. */
 @media (prefers-reduced-motion: reduce) {
-  .transcript-live-footer .mascot-active,
-  .transcript-live-footer .mascot-rest,
-  .transcript-live-footer .shimmer-text,
+  .mascot-active,
+  .mascot-rest,
+  .shimmer-text,
+  .composer-coin-face,
   .transcript-live-footer .transcript-live-status {
     animation: none;
   }
-  .transcript-live-footer .mascot-talk {
+  .mascot-talk,
+  .composer-coin-edge {
     animation: none;
     opacity: 0;
   }

@@ -1,4 +1,5 @@
 import { memo, useMemo, type CSSProperties, type ElementType } from "react";
+import { usePauseOffscreenAnimation } from "../hooks/usePauseOffscreenAnimation";
 
 export interface ShimmerProps {
   children: string;
@@ -15,6 +16,7 @@ function ShimmerComponent({
   duration = 2,
   spread = 2,
 }: ShimmerProps) {
+  const pauseOffscreen = usePauseOffscreenAnimation<HTMLElement>();
   const dynamicSpread = useMemo(
     () => (children?.length ?? 0) * spread,
     [children, spread],
@@ -22,6 +24,7 @@ function ShimmerComponent({
 
   return (
     <Component
+      ref={pauseOffscreen}
       className={`shimmer-text relative inline-block ${className}`.trim()}
       style={
         {
