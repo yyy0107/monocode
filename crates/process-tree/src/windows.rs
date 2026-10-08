@@ -13,7 +13,9 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 static MANAGED_JOB: OnceLock<Result<OwnedHandle, i32>> = OnceLock::new();
 
-pub(crate) fn managed_job() -> io::Result<&'static OwnedHandle> {
+/// The single kill-on-close job this process enrolls every managed tree in.
+/// Callers that spawn through other APIs (a PTY) can enroll there too.
+pub fn managed_job() -> io::Result<&'static OwnedHandle> {
     MANAGED_JOB
         .get_or_init(|| create_job().map_err(|err| err.raw_os_error().unwrap_or(1)))
         .as_ref()

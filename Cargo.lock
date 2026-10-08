@@ -2398,6 +2398,7 @@ dependencies = [
  "base64 0.22.1",
  "block2",
  "libc",
+ "monocode-process-tree",
  "notify",
  "notify-rust",
  "objc2",

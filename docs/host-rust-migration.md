@@ -50,9 +50,14 @@
 - `host/provider-supervisor.ts` + `host/child-backend.ts`：`HostChildBackend` 优先使用与 `host.mjs` 同目录的 supervisor；`MONOCODE_PROVIDER_SUPERVISOR=<路径>` 可指定其他构建，`=node` 强制回退到原 Node guard。exec/HTTP/SSE/账号环境等仍在 TS。
 - `host/package.mjs`：为本机目标或桌面端 Tauri 目标（`TAURI_ENV_TARGET_TRIPLE`）构建并打包 supervisor；交叉打包的其他目标继续用 Node guard。
 
+- `src-tauri` 已改为依赖 `monocode-process-tree`：`harness.rs` 的 spawn/信号/进程树终止和 `windows.rs` 的 Job Object 只剩一份实现，桌面端和 Host supervisor 共用同一个 kill-on-close 作业。
+
 **尚未做**
-- `src-tauri` 改为依赖 `monocode-process-tree`（目前两份实现并存）。需要在能构建桌面端的环境里改并验证。
-- 在 Windows/macOS 真机上验证 supervisor（Linux 已验证；Windows 仅通过交叉 `cargo clippy`）。
+- 在 Windows/macOS 真机上验证 supervisor 和桌面端（Linux 已运行测试；Windows 只通过了交叉 `cargo clippy`）。
+
+**存储与 Git/文件浏览：评估后暂不迁移**
+- 共享的只有 `checkout_resources` 租约表（TS 在 `host/checkout-guards.ts`，Rust 在 `src-tauri/src/local_host.rs`）。Host 侧的 `claimCheckoutResource` 等接口是**同步**的，并且在 Host 自己的数据库事务里调用（`engine.ts`、`orchestration-workspace.ts`、`workspace-commands.ts`）。改成走异步的 sidecar 必须改这些上层文件，和“上层不动”的约束冲突；而只给桌面端抽 crate 没有第二个使用方。等 Host 侧有异步化的理由时再做。
+- `workspace.ts`、`browse.ts`、`git-worktrees.ts` 的重活已经是 `git ls-files`/`git grep`/`git worktree` 子进程，非 Git 目录的扫描也有 5000 个文件的上限。用 Rust 重写只是把同样的子进程调用挪到另一个进程，没有可靠性或性能收益。按“按需替换”的原则，等阶段 2 的测量显示这里是热点再动。
 
 ### 阶段 2：内存与性能
 - 先测量，不预设热点：用 `node --cpu-prof --heap-prof` 跑大型同步（`large-sync.test.ts` 的场景）和多会话长时间运行，找出热点。

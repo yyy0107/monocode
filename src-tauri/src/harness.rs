@@ -7,8 +7,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
-#[cfg(not(windows))]
-use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -16,6 +14,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::dirs_home;
 use crate::fs::expand_home;
 use crate::passwd_identity;
+pub(crate) use monocode_process_tree::terminate_all;
+#[cfg(not(windows))]
+use monocode_process_tree::tree_alive;
+use monocode_process_tree::{signal_tree, spawn_managed, TreeSignal};
 
 const STDOUT_EVENT: &str = "harness-stdout";
 const STDERR_EVENT: &str = "harness-stderr";
@@ -1632,12 +1634,6 @@ pub(crate) fn exec_output(
 }
 
 const KILL_ESCALATE: Duration = Duration::from_secs(2);
-/// Quit and `Drop` cannot wait on a detached escalate thread — the process
-/// exits first and isolated harness groups stay behind as PID-1 orphans.
-#[cfg(not(windows))]
-const KILL_ALL_GRACE: Duration = Duration::from_millis(300);
-#[cfg(not(windows))]
-const KILL_ALL_KILL_WAIT: Duration = Duration::from_millis(150);
 const HARNESS_PARENT_ENV: &str = "MONOCODE_HARNESS_PARENT";
 
 /// An interactive shell has to source the user's whole rc file; nvm alone can
@@ -1673,44 +1669,6 @@ fn isolate_child(cmd: &mut Command) {
     }
 }
 
-fn spawn_managed(cmd: &mut Command) -> std::io::Result<std::process::Child> {
-    #[cfg(windows)]
-    {
-        crate::windows::spawn_managed(cmd)
-    }
-    #[cfg(unix)]
-    {
-        spawn_retrying_text_file_busy(cmd)
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        cmd.spawn()
-    }
-}
-
-/// Linux refuses to `execve` a file that any process holds open for writing,
-/// and whether one does is not ours to decide: a sibling thread's spawn
-/// inherits our write handles for the moment before it execs its own program.
-/// So a binary written seconds ago — a CLI mid-upgrade, or a `--version` probe
-/// of a path the user just pointed us at — can be briefly unrunnable rather
-/// than wrong, and reporting it as invalid is the wrong answer.
-#[cfg(unix)]
-fn spawn_retrying_text_file_busy(cmd: &mut Command) -> std::io::Result<std::process::Child> {
-    const ATTEMPTS: u32 = 4;
-    for attempt in 1..ATTEMPTS {
-        match cmd.spawn() {
-            Err(e) if is_text_file_busy(&e) => thread::sleep(Duration::from_millis(20) * attempt),
-            settled => return settled,
-        }
-    }
-    cmd.spawn()
-}
-
-#[cfg(unix)]
-fn is_text_file_busy(error: &std::io::Error) -> bool {
-    error.raw_os_error() == Some(libc::ETXTBSY)
-}
-
 fn terminate(pid: u32) {
     terminate_after(pid, KILL_ESCALATE);
 }
@@ -1733,105 +1691,6 @@ fn terminate_after(pid: u32, escalate: Duration) {
                 signal_tree(pid, TreeSignal::Kill);
             }
         });
-    }
-}
-
-/// SIGTERM every tree, then SIGKILL whatever is still standing, before return.
-pub(crate) fn terminate_all(pids: &[u32]) {
-    let pids: Vec<u32> = pids.iter().copied().filter(|pid| *pid > 1).collect();
-    #[cfg(windows)]
-    for pid in pids {
-        signal_tree(pid, TreeSignal::Kill);
-    }
-    #[cfg(not(windows))]
-    {
-        if pids.is_empty() {
-            return;
-        }
-        for pid in &pids {
-            signal_tree(*pid, TreeSignal::Term);
-        }
-        wait_until_dead(&pids, Instant::now() + KILL_ALL_GRACE);
-        let remaining: Vec<u32> = pids
-            .iter()
-            .copied()
-            .filter(|pid| tree_alive(*pid))
-            .collect();
-        if remaining.is_empty() {
-            return;
-        }
-        for pid in &remaining {
-            signal_tree(*pid, TreeSignal::Kill);
-        }
-        wait_until_dead(&remaining, Instant::now() + KILL_ALL_KILL_WAIT);
-    }
-}
-
-/// The thread that owns each `Child` reaps it, so a killed leader stops
-/// answering `kill(pid, 0)` within a poll or two. Reaping here instead would
-/// race that thread for the exit status and free the pid while we still signal
-/// it.
-#[cfg(not(windows))]
-fn wait_until_dead(pids: &[u32], until: Instant) {
-    while Instant::now() < until {
-        if pids.iter().all(|pid| !tree_alive(*pid)) {
-            return;
-        }
-        thread::sleep(Duration::from_millis(20));
-    }
-}
-
-enum TreeSignal {
-    #[cfg(not(windows))]
-    Term,
-    Kill,
-}
-
-fn signal_tree(pid: u32, signal: TreeSignal) {
-    #[cfg(unix)]
-    {
-        let sig = match signal {
-            TreeSignal::Term => libc::SIGTERM,
-            TreeSignal::Kill => libc::SIGKILL,
-        };
-        let ipid = pid as i32;
-        unsafe {
-            // Every child is isolated with process_group(0), so its pid is the
-            // stable group id even after the leader exits. Signal the group
-            // first; looking it up through a dead leader loses descendants
-            // that ignored SIGTERM and prevents the SIGKILL escalation.
-            libc::kill(-ipid, sig);
-            libc::kill(ipid, sig);
-        }
-    }
-    #[cfg(windows)]
-    {
-        let _ = signal;
-        let mut cmd = Command::new("taskkill");
-        crate::hide_window_console(&mut cmd);
-        cmd.args(["/PID", &pid.to_string(), "/T", "/F"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let _ = cmd.status();
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = signal;
-        let _ = Command::new("kill").arg(pid.to_string()).status();
-    }
-}
-
-#[cfg(not(windows))]
-fn tree_alive(pid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        let ipid = pid as i32;
-        unsafe { libc::kill(ipid, 0) == 0 || libc::kill(-ipid, 0) == 0 }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = pid;
-        false
     }
 }
 
@@ -3222,6 +3081,8 @@ fn command_basename(command: &str) -> &str {
 mod tests {
     use super::*;
     use std::os::unix::process::CommandExt;
+    #[cfg(not(windows))]
+    use std::time::Instant;
 
     #[test]
     fn pi_mcp_status_keeps_native_failures_and_omits_connection_credentials() {
@@ -3616,18 +3477,6 @@ mod tests {
     /// The marker is what lets the next launch tell a crashed run's leftovers
     /// from a live instance's children. Every spawn funnels through
     /// `isolate_child`, so losing it here silently un-reaps probes and shells.
-    #[cfg(unix)]
-    #[test]
-    fn only_text_file_busy_is_worth_respawning_for() {
-        assert!(is_text_file_busy(&std::io::Error::from_raw_os_error(
-            libc::ETXTBSY
-        )));
-        assert!(!is_text_file_busy(&std::io::Error::from_raw_os_error(
-            libc::ENOENT
-        )));
-        assert!(!is_text_file_busy(&std::io::Error::other("no errno")));
-    }
-
     #[test]
     fn isolate_child_stamps_the_reap_marker() {
         let pid = std::process::id().to_string();

@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+pub use windows::managed_job;
 
 #[cfg(not(windows))]
 const KILL_ALL_GRACE: Duration = Duration::from_millis(300);
@@ -60,13 +62,16 @@ fn spawn_retrying_text_file_busy(cmd: &mut Command) -> io::Result<Child> {
     const ATTEMPTS: u32 = 4;
     for attempt in 1..ATTEMPTS {
         match cmd.spawn() {
-            Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) => {
-                thread::sleep(Duration::from_millis(20) * attempt)
-            }
+            Err(e) if is_text_file_busy(&e) => thread::sleep(Duration::from_millis(20) * attempt),
             settled => return settled,
         }
     }
     cmd.spawn()
+}
+
+#[cfg(unix)]
+fn is_text_file_busy(error: &io::Error) -> bool {
+    error.raw_os_error() == Some(libc::ETXTBSY)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,6 +174,17 @@ pub fn wait_until_dead(pids: &[u32], until: Instant) -> bool {
 mod tests {
     use super::*;
     use std::process::Stdio;
+
+    #[test]
+    fn only_text_file_busy_is_worth_respawning_for() {
+        assert!(is_text_file_busy(&io::Error::from_raw_os_error(
+            libc::ETXTBSY
+        )));
+        assert!(!is_text_file_busy(&io::Error::from_raw_os_error(
+            libc::ENOENT
+        )));
+        assert!(!is_text_file_busy(&io::Error::other("no errno")));
+    }
 
     #[test]
     fn terminate_all_stops_a_tree_that_ignores_sigterm() {
