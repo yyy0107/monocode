@@ -55,6 +55,33 @@ enum WlPaste {
     Failed,
 }
 
+/// Text pastes from the terminal's menu and explicit shortcuts cannot rely on
+/// WebKit granting the page navigator.clipboard.readText permission.
+#[tauri::command(async)]
+pub fn clipboard_text() -> Result<String, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let offered = match wl_paste("text/plain;charset=utf-8") {
+            WlPaste::Empty => wl_paste("text/plain"),
+            result => result,
+        };
+        match offered {
+            WlPaste::Got(bytes) => {
+                return String::from_utf8(bytes)
+                    .map_err(|_| "The clipboard text is not valid UTF-8.".into());
+            }
+            WlPaste::Empty => return Ok(String::new()),
+            WlPaste::Failed => return Err("The clipboard could not be read.".into()),
+            WlPaste::Unavailable => {}
+        }
+    }
+    match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.get_text()) {
+        Ok(text) => Ok(text),
+        Err(arboard::Error::ContentNotAvailable) => Ok(String::new()),
+        Err(_) => Err("The clipboard could not be read.".into()),
+    }
+}
+
 fn wl_paste(mime: &str) -> WlPaste {
     if std::env::var_os("WAYLAND_DISPLAY").is_none() {
         return WlPaste::Unavailable;

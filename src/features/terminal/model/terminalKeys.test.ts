@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isMacTerminalClearShortcut,
   macTerminalShortcutData,
+  terminalClipboardShortcut,
 } from "./terminalKeys";
 
 function key(
@@ -16,9 +17,41 @@ function key(
     ctrlKey: false,
     metaKey: false,
     shiftKey: false,
+    isComposing: false,
+    keyCode: 0,
     ...modifiers,
   };
 }
+
+describe("terminal clipboard shortcuts", () => {
+  it("preserves Ctrl+C as interrupt unless there is a selection", () => {
+    const event = key("c", { ctrlKey: true });
+    expect(terminalClipboardShortcut(event, false, false)).toBeNull();
+    expect(terminalClipboardShortcut(event, false, true)).toBe("copy");
+    expect(terminalClipboardShortcut(key("C", { ctrlKey: true, shiftKey: true }), false, false)).toBe("copy");
+  });
+
+  it("supports Ctrl+V, Ctrl+Shift+V and Insert shortcuts", () => {
+    expect(terminalClipboardShortcut(key("v", { ctrlKey: true }), false, false)).toBe("paste");
+    expect(terminalClipboardShortcut(key("V", { ctrlKey: true, shiftKey: true }), false, false)).toBe("paste");
+    expect(terminalClipboardShortcut(key("Insert", { ctrlKey: true }), false, true)).toBe("copy");
+    expect(terminalClipboardShortcut(key("Insert", { shiftKey: true }), false, false)).toBe("paste");
+  });
+
+  it("uses Command on macOS and preserves its Ctrl shell bindings", () => {
+    expect(terminalClipboardShortcut(key("c", { metaKey: true }), true, false)).toBe("copy");
+    expect(terminalClipboardShortcut(key("v", { metaKey: true }), true, false)).toBe("paste");
+    expect(terminalClipboardShortcut(key("c", { ctrlKey: true }), true, true)).toBeNull();
+    expect(terminalClipboardShortcut(key("v", { ctrlKey: true }), true, false)).toBeNull();
+  });
+
+  it("leaves IME and Alt combinations untouched", () => {
+    const event = key("v", { ctrlKey: true });
+    expect(terminalClipboardShortcut({ ...event, isComposing: true }, false, false)).toBeNull();
+    expect(terminalClipboardShortcut({ ...event, keyCode: 229 }, false, false)).toBeNull();
+    expect(terminalClipboardShortcut({ ...event, altKey: true }, false, false)).toBeNull();
+  });
+});
 
 describe("mac terminal editing shortcuts", () => {
   it("sends shell word movement for Option+Arrow", () => {

@@ -15,6 +15,8 @@ vi.mock("../../../platform/tauri/pty", () => pty);
 const xterm = vi.hoisted(() => ({
   options: [] as { fontFamily?: string }[],
   open: vi.fn(),
+  selection: "",
+  paste: vi.fn(),
 }));
 const layout = vi.hoisted(() => ({
   fitTerminal: vi.fn<() => { cols: number; rows: number } | null>(() => null),
@@ -41,6 +43,9 @@ vi.mock("@xterm/xterm", () => ({
       xterm.open(host.isConnected);
     }
     focus() {}
+    hasSelection() { return !!xterm.selection; }
+    getSelection() { return xterm.selection; }
+    paste(text: string) { xterm.paste(text); }
     dispose() {}
     writeln() {}
     onData() {
@@ -57,7 +62,9 @@ import { TERMINAL_HANDOFF_MS, TerminalView } from "./TerminalView";
 
 afterEach(() => {
   xterm.options.length = 0;
+  xterm.selection = "";
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   layout.fitTerminal.mockReturnValue(null);
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -84,6 +91,80 @@ function setup() {
   document.body.appendChild(host);
   return { host, root: createRoot(host) };
 }
+
+it("copies selected output with Ctrl+C and preserves Ctrl+C without a selection", async () => {
+  const { host, root } = setup();
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+  try {
+    await act(async () => root.render(createElement(TerminalView, {
+      id: "copy", cwd: "/tmp", active: true,
+    })));
+    const target = host.querySelector(".monocode-terminal-host")!;
+    xterm.selection = "selected output";
+    const selectedKey = new KeyboardEvent("keydown", { key: "c", ctrlKey: true, bubbles: true, cancelable: true });
+    await act(async () => { target.dispatchEvent(selectedKey); });
+    expect(copy).toHaveBeenCalledExactlyOnceWith("selected output");
+    expect(selectedKey.defaultPrevented).toBe(true);
+    xterm.selection = "";
+    const interruptKey = new KeyboardEvent("keydown", { key: "c", ctrlKey: true, bubbles: true, cancelable: true });
+    await act(async () => { target.dispatchEvent(interruptKey); });
+    expect(interruptKey.defaultPrevented).toBe(false);
+    expect(copy).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount());
+    await lapseHandoff();
+    host.remove();
+  }
+});
+
+it("handles native paste once before it reaches xterm's own listeners", async () => {
+  const { host, root } = setup();
+  try {
+    await act(async () => root.render(createElement(TerminalView, {
+      id: "paste", cwd: "/tmp", active: true,
+    })));
+    const target = host.querySelector(".monocode-terminal-host")!;
+    const nativeHandler = vi.fn();
+    target.addEventListener("paste", nativeHandler);
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/plain", "echo 你好\necho world");
+    const event = new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData });
+    await act(async () => { target.dispatchEvent(event); });
+    expect(xterm.paste).toHaveBeenCalledExactlyOnceWith("echo 你好\necho world");
+    expect(event.defaultPrevented).toBe(true);
+    expect(nativeHandler).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+    await lapseHandoff();
+    host.remove();
+  }
+});
+
+it("offers copy and paste in the context menu and closes it when hidden", async () => {
+  const { host, root } = setup();
+  const render = (active: boolean) => root.render(createElement(TerminalView, {
+    id: "clipboard-menu", cwd: "/tmp", active,
+  }));
+  try {
+    await act(async () => render(true));
+    const target = host.querySelector(".monocode-terminal-host")!;
+    await act(async () => {
+      target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }));
+    });
+    const menu = document.querySelector('[role="menu"]');
+    expect(menu).not.toBeNull();
+    const actions = menu!.querySelectorAll<HTMLButtonElement>("button[data-menu-index]");
+    expect(actions).toHaveLength(2);
+    expect(actions[0].disabled).toBe(true);
+    expect(actions[1].disabled).toBe(false);
+    await act(async () => render(false));
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    await lapseHandoff();
+    host.remove();
+  }
+});
 
 it("opens xterm only after its node is connected", async () => {
   const { host, root } = setup();

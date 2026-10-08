@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   attachmentsFromFiles,
   attachmentsFromPaths,
@@ -168,6 +168,10 @@ export async function copyText(text: string): Promise<void> {
     el.remove();
     if (!ok) throw new Error("copy failed");
   }
+}
+
+export function readClipboardText(): Promise<string> {
+  return isTauri() ? invoke<string>("clipboard_text") : navigator.clipboard.readText();
 }
 
 /**

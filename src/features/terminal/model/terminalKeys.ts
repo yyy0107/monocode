@@ -3,6 +3,26 @@ type TerminalKeyEvent = Pick<
   "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey"
 >;
 
+export function terminalClipboardShortcut(
+  event: TerminalKeyEvent & Pick<KeyboardEvent, "isComposing" | "keyCode">,
+  isMac: boolean,
+  hasSelection: boolean,
+): "copy" | "paste" | null {
+  if (event.isComposing || event.keyCode === 229 || event.altKey) return null;
+  const key = event.key.toLowerCase();
+  if (!event.metaKey && key === "insert") {
+    if (event.ctrlKey && !event.shiftKey) return "copy";
+    if (event.shiftKey && !event.ctrlKey) return "paste";
+  }
+  const modifier = isMac
+    ? event.metaKey && !event.ctrlKey
+    : event.ctrlKey && !event.metaKey;
+  if (!modifier) return null;
+  if (key === "v") return "paste";
+  if (key === "c" && (isMac || event.shiftKey || hasSelection)) return "copy";
+  return null;
+}
+
 /** Translate macOS editing shortcuts into sequences understood by common shells. */
 export function macTerminalShortcutData(
   event: TerminalKeyEvent,

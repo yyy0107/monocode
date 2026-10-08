@@ -1,5 +1,10 @@
 import { Terminal } from "@xterm/xterm";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { copyText } from "../../../platform/tauri/clipboard";
+import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
+import { ExplorerMenu } from "../../files/ui/ExplorerMenu";
+import { pasteTerminalClipboard } from "../model/terminalClipboard";
 import {
   getPtyStatus,
   killPty,
@@ -9,9 +14,11 @@ import {
   writePty,
 } from "../../../platform/tauri/pty";
 import { isOscColorQuery, oscColorReply } from "../model/terminalChrome";
+import { guardTerminalComposition } from "../model/terminalComposition";
 import {
   isMacTerminalClearShortcut,
   macTerminalShortcutData,
+  terminalClipboardShortcut,
 } from "../model/terminalKeys";
 import {
   defaultTerminalTitle,
@@ -230,26 +237,12 @@ function createLiveTerminal(
   // zero width. Hidden tabs are measured again when their host becomes visible.
   initialHost.appendChild(node);
   term.open(node);
+  const stopCompositionGuard = guardTerminalComposition(term.textarea);
   let closed = false;
   let outer: HTMLElement | null = null;
   let host: HTMLElement | null = null;
   let meta: MetaRef = { current: undefined };
   let owner: object | null = null;
-
-  const onCopy = (event: ClipboardEvent) => {
-    const text = term.getSelection();
-    if (!text) return;
-    event.clipboardData?.setData("text/plain", text);
-    event.preventDefault();
-  };
-  const onPaste = (event: ClipboardEvent) => {
-    const text = event.clipboardData?.getData("text/plain");
-    if (!text) return;
-    event.preventDefault();
-    term.paste(text);
-  };
-  node.addEventListener("copy", onCopy);
-  node.addEventListener("paste", onPaste);
 
   term.attachCustomKeyEventHandler((event) => {
     const shortcutData = IS_MAC ? macTerminalShortcutData(event) : null;
@@ -270,15 +263,6 @@ function createLiveTerminal(
       return false;
     }
 
-    const mod = event.metaKey || event.ctrlKey;
-    if (!mod || event.altKey) return true;
-    const key = event.key.toLowerCase();
-    if (key === "c") {
-      if (term.hasSelection()) return false;
-      if (event.metaKey && !event.ctrlKey) return false;
-      return true;
-    }
-    if (key === "v") return false;
     return true;
   });
 
@@ -449,8 +433,7 @@ function createLiveTerminal(
     if (raf) cancelAnimationFrame(raf);
     observer.disconnect();
     document.fonts?.removeEventListener("loadingdone", onFontsLoaded);
-    node.removeEventListener("copy", onCopy);
-    node.removeEventListener("paste", onPaste);
+    stopCompositionGuard();
     window.removeEventListener(SCHEME_CHANGE_EVENT, onSchemeChange);
     dataSub.dispose();
     oscFg.dispose();
@@ -510,11 +493,40 @@ function createLiveTerminal(
 }
 
 export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
+  const { t } = useTranslation();
+  const visible = useSurfaceVisibility();
+  const [menu, setMenu] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [clipboardError, setClipboardError] = useState<"copy" | "paste" | null>(null);
+  const interactiveRef = useRef(active && visible);
+  interactiveRef.current = active && visible;
   const outerRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const liveRef = useRef<LiveTerminal | null>(null);
   const onMetaChangeRef = useRef(onMetaChange);
   onMetaChangeRef.current = onMetaChange;
+
+  const clipboardAction = async (action: "copy" | "paste", selection?: string) => {
+    const live = liveRef.current;
+    const host = outerRef.current;
+    if (!live || !host) return;
+    const isCurrent = () => liveRef.current === live && interactiveRef.current;
+    setClipboardError(null);
+    try {
+      if (action === "copy") {
+        const text = selection ?? live.term.getSelection();
+        if (text) await copyText(text);
+        if (isCurrent()) live.term.focus();
+      } else {
+        await pasteTerminalClipboard(live.term, host, isCurrent);
+      }
+    } catch {
+      if (isCurrent()) setClipboardError(action);
+    }
+  };
+
+  useEffect(() => {
+    if (!active || !visible) setMenu(null);
+  }, [active, visible]);
 
   useEffect(() => {
     const outer = outerRef.current;
@@ -583,11 +595,65 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       ref={outerRef}
       className="monocode-terminal flex h-full w-full min-h-0 min-w-0 flex-col bg-background-base"
       onMouseDown={() => liveRef.current?.term.focus()}
+      onKeyDownCapture={(event) => {
+        const term = liveRef.current?.term;
+        if (!term) return;
+        const action = terminalClipboardShortcut(event.nativeEvent, IS_MAC, term.hasSelection());
+        if (!action) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void clipboardAction(action);
+      }}
+      onCopyCapture={(event) => {
+        const text = liveRef.current?.term.getSelection();
+        if (!text) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.clipboardData.setData("text/plain", text);
+      }}
+      onPasteCapture={(event) => {
+        const term = liveRef.current?.term;
+        if (!term) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const text = event.clipboardData.getData("text/plain");
+        if (text) term.paste(text);
+      }}
+      onContextMenuCapture={(event) => {
+        if (!visible) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setMenu({ x: event.clientX, y: event.clientY, text: liveRef.current?.term.getSelection() ?? "" });
+      }}
     >
       <div
         ref={hostRef}
         className="monocode-terminal-host min-h-0 min-w-0 flex-1 overflow-hidden"
       />
+      {clipboardError && (
+        <div role="alert" className="shrink-0 px-2 py-1 text-xs text-destructive">
+          {t(clipboardError === "copy" ? "Copy failed." : "Paste failed.")}
+        </div>
+      )}
+      {menu && active && visible && (
+        <ExplorerMenu
+          x={menu.x}
+          y={menu.y}
+          ariaLabel={t("Terminal")}
+          items={[
+            { kind: "item", id: "copy", label: t("Copy"), disabled: !menu.text,
+              shortcut: IS_MAC ? "⌘C" : "Ctrl+Shift+C" },
+            { kind: "item", id: "paste", label: t("Paste"),
+              shortcut: IS_MAC ? "⌘V" : "Ctrl+Shift+V" },
+          ]}
+          onPick={(action) => {
+            const selection = menu.text;
+            setMenu(null);
+            if (action === "copy" || action === "paste") void clipboardAction(action, selection);
+          }}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   );
 }

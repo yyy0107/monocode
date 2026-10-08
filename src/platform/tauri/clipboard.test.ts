@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
-import { copyMessage, messageFilesFromClipboard } from "./clipboard";
-import { invoke } from "@tauri-apps/api/core";
+import { copyMessage, messageFilesFromClipboard, readClipboardText } from "./clipboard";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   MAX_EMBED_BYTES,
   attachmentsFromFiles,
@@ -9,9 +9,27 @@ import {
   persistableAttachment,
 } from "../../features/sessions/model/attachments";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), isTauri: vi.fn(() => false) }));
 
 afterEach(() => vi.restoreAllMocks());
+
+it("reads native desktop clipboard text without requiring browser permission", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  vi.mocked(invoke).mockResolvedValue("你好\nline 2\n");
+  const browserRead = vi.spyOn(navigator.clipboard, "readText");
+  try {
+    expect(await readClipboardText()).toBe("你好\nline 2\n");
+    expect(invoke).toHaveBeenLastCalledWith("clipboard_text");
+    expect(browserRead).not.toHaveBeenCalled();
+  } finally {
+    vi.mocked(isTauri).mockReturnValue(false);
+  }
+});
+
+it("uses the browser clipboard outside the desktop runtime", async () => {
+  vi.spyOn(navigator.clipboard, "readText").mockResolvedValue("browser text");
+  expect(await readClipboardText()).toBe("browser text");
+});
 
 it("copies fresh disk images but leaves their restored placeholders alone", async () => {
   vi.mocked(invoke).mockResolvedValue(btoa("<svg></svg>"));

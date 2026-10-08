@@ -1290,6 +1290,7 @@
   "Pane: Split Right": "面板：向右分栏",
   "Parallel workers": "并行工作智能体",
   "Paste": "粘贴",
+  "Paste failed.": "粘贴失败。",
   "Paste a server configuration and choose where to add it.": "粘贴服务器配置并选择添加位置。",
   "Paste one entry from an mcpServers block, or a single server object with a name above.": "粘贴 mcpServers 配置块中的一条记录，或一个服务器对象并在上方填写名称。",
   "Paste the full github.com URL. The linked item will appear on the session card.": "粘贴完整的 github.com 地址。关联事项会显示在会话卡片中。",
