@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["src-tauri"]
+members = ["src-tauri", "crates/process-tree", "crates/host-supervisor"]
 exclude = ["vendor/portable-pty"]
 
 [workspace.package]

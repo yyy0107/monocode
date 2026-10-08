@@ -130,6 +130,23 @@ for (const target of targets) {
     ]);
   await copyFile("build/host/monocode-host.mjs", join(folder, "host.mjs"));
   await copyFile("host/provider-guard.mjs", join(folder, "provider-guard.mjs"));
+  // The Rust provider supervisor is built for this machine or the desktop's
+  // Tauri target. Other targets keep the Node provider guard.
+  const triple = desktopPlatform ? process.env.TAURI_ENV_TARGET_TRIPLE : undefined;
+  if (triple || target === `${process.platform}-${process.arch}`) {
+    execFileSync(
+      "cargo",
+      ["build", "--release", "--locked", "-p", "monocode-host-supervisor",
+        ...(triple ? ["--target", triple] : [])],
+      { stdio: "inherit" },
+    );
+    const supervisor = windows ? "monocode-supervisor.exe" : "monocode-supervisor";
+    await copyFile(
+      join(process.env.CARGO_TARGET_DIR ?? "target", triple ?? "", "release", supervisor),
+      join(folder, supervisor),
+    );
+  } else
+    console.warn(`${target}: no provider supervisor; using the Node provider guard`);
   await copyFile("LICENSE", join(folder, "MONOCODE-LICENSE"));
   await writeFile(
     join(folder, "version.json"),

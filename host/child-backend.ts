@@ -29,6 +29,11 @@ import { readClaudeTitleFile } from "./native-title";
 import { defaultProviderAccountHome, namedProviderAccountHome } from "./provider-accounts";
 import type { HostStore } from "./store";
 import { claimCheckoutResource } from "./checkout-guards";
+import {
+  ProviderSupervisor,
+  providerSupervisorPath,
+  type SupervisorLimit,
+} from "./provider-supervisor";
 import { randomUUID } from "node:crypto";
 
 const exec = promisify(execFile);
@@ -81,6 +86,8 @@ export class HostChildBackend implements ChildBackend {
   private streams = new Map<string, AbortController>();
   private closing = false;
   private sessionEnvironment?: (id: string) => Record<string, string>;
+  private supervisor?: ProviderSupervisor;
+  private supervisedReleases = new Map<number, () => void>();
 
   constructor(
     private readonly binaries: Partial<Record<RemoteProvider, string>> = {},
@@ -88,6 +95,27 @@ export class HostChildBackend implements ChildBackend {
     private readonly store?: HostStore,
   ) {
     this.events.setMaxListeners(0);
+    const supervisor = providerSupervisorPath();
+    if (supervisor)
+      this.supervisor = new ProviderSupervisor(supervisor, {
+        line: (sessionId, stream, line) =>
+          this.emit(`harness-${stream}`, { sessionId, line }),
+        exit: (sessionId, pid, code, limit) => this.supervisedExit(sessionId, pid, code, limit),
+      });
+  }
+
+  private supervisedExit(
+    sessionId: string,
+    pid: number,
+    code: number | null,
+    limit?: SupervisorLimit,
+  ): void {
+    this.supervisedReleases.get(pid)?.();
+    this.supervisedReleases.delete(pid);
+    const error = limit === "output_limit"
+      ? HOST_OUTPUT_LIMIT_ERROR
+      : limit === "diagnostic_limit" ? HOST_DIAGNOSTIC_LIMIT_ERROR : undefined;
+    this.emit("harness-exit", { sessionId, code, pid, ...(error ? { error } : {}) });
   }
 
   configureSessionEnvironment(environment: (id: string) => Record<string, string>): void {
@@ -216,6 +244,21 @@ export class HostChildBackend implements ChildBackend {
       case "harness_spawn":
         return (await this.start(id, args)) as T;
       case "harness_write": {
+        if (this.supervisor) {
+          if (!this.supervisor.isCurrent(id))
+            throw new Error("Provider process is not running");
+          let timer: NodeJS.Timeout | undefined;
+          await Promise.race([
+            this.supervisor.write(id, String(args.line)),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error("Provider stdin write timed out")),
+                15_000,
+              );
+            }),
+          ]).finally(() => clearTimeout(timer));
+          return undefined as T;
+        }
         const child = this.children.get(id);
         if (!child || child.stdin.destroyed)
           throw new Error("Provider process is not running");
@@ -364,6 +407,28 @@ export class HostChildBackend implements ChildBackend {
     );
     if (this.closing) throw new Error("Host is stopping");
     const release = this.store ? claimCheckoutResource(this.store, `host-guard:${randomUUID()}`, String(args.cwd)) : undefined;
+    if (this.supervisor) {
+      let pid: number;
+      try {
+        pid = await this.supervisor.spawn(id, {
+          command: launch.command,
+          args: launch.args,
+          cwd: String(args.cwd),
+          env,
+        }, (pid) => {
+          release?.transfer(pid);
+          if (release) this.supervisedReleases.set(pid, release);
+        });
+      } catch (error) {
+        release?.();
+        throw error;
+      }
+      if (this.closing) {
+        await this.kill(id);
+        throw new Error("Host is stopping");
+      }
+      return pid;
+    }
     const child = spawn(
       process.execPath,
       [
@@ -439,6 +504,10 @@ export class HostChildBackend implements ChildBackend {
   }
 
   async kill(id: string): Promise<void> {
+    if (this.supervisor) {
+      if (this.supervisor.isCurrent(id)) await this.supervisor.kill(id);
+      return;
+    }
     const child = this.children.get(id);
     if (!child) return;
     this.children.delete(id);
@@ -490,6 +559,11 @@ export class HostChildBackend implements ChildBackend {
   async close(): Promise<void> {
     this.closing = true;
     for (const id of this.streams.keys()) this.stopStream(id);
+    if (this.supervisor) {
+      await this.supervisor.killAll().catch(() => undefined);
+      this.supervisor.stop();
+      return;
+    }
     await Promise.all([...this.children.keys()].map((id) => this.kill(id)));
   }
 }

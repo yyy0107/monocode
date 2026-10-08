@@ -44,6 +44,16 @@
 - 新增 `host/child-backend` 的 Rust 实现，实现现有的 `ChildBackend` 接口（`src/integrations/harness/core/child.ts:10`）。`harness_spawn/write/kill/kill_all/read_text_file/resolve_*` 这些命令照原样转发。`provider-guard.mjs` 的 fd3 父进程存活检测，改由 sidecar 用进程组（Unix）和 Job Object（Windows）实现。
 - 保留 Node 实现作为回退开关，比如 `--child-backend=node`，稳定后再删掉。
 
+**进度（已实现）**
+- `crates/process-tree`：从 `src-tauri/src/harness.rs`、`windows.rs` 移植的进程树管理（Unix 进程组、ETXTBSY 重试、TERM→KILL 升级；Windows 挂起后加入 kill-on-close Job Object）。
+- `crates/host-supervisor`（二进制 `monocode-supervisor`）：一个长驻进程托管所有 provider 子进程，协议是 stdio 上的换行分隔 JSON（`spawn`/`write`/`kill`/`killAll`，事件 `stdout`/`stderr`/`exit`）。行读取和 64 MiB/8 MiB 上限与 `host/provider-output.ts` 一致；Host 的 stdin 关闭（包括 Host 崩溃）时停止全部进程树；provider 退出后会清理它进程组里残留的子进程（对应 `provider-guard.mjs` 的行为）。
+- `host/provider-supervisor.ts` + `host/child-backend.ts`：`HostChildBackend` 优先使用与 `host.mjs` 同目录的 supervisor；`MONOCODE_PROVIDER_SUPERVISOR=<路径>` 可指定其他构建，`=node` 强制回退到原 Node guard。exec/HTTP/SSE/账号环境等仍在 TS。
+- `host/package.mjs`：为本机目标或桌面端 Tauri 目标（`TAURI_ENV_TARGET_TRIPLE`）构建并打包 supervisor；交叉打包的其他目标继续用 Node guard。
+
+**尚未做**
+- `src-tauri` 改为依赖 `monocode-process-tree`（目前两份实现并存）。需要在能构建桌面端的环境里改并验证。
+- 在 Windows/macOS 真机上验证 supervisor（Linux 已验证；Windows 仅通过交叉 `cargo clippy`）。
+
 ### 阶段 2：内存与性能
 - 先测量，不预设热点：用 `node --cpu-prof --heap-prof` 跑大型同步（`large-sync.test.ts` 的场景）和多会话长时间运行，找出热点。
 - 可能的下沉点：provider 大输出的缓冲与截断（`provider-output.ts`）、原生会话扫描与解析（`host/native/*`）、git 读操作。只有测出确实是热点的部分，才搬进 sidecar 并加 RPC 命令。
