@@ -789,11 +789,21 @@ function ProjectSection({
       ...items.map((project) => ({ id: project.path, project })),
     ],
     itemOrder ?? [],
+  ).sort((a, b) => Number(!!b.entry) - Number(!!a.entry));
+  const sessionSortable = useAnimatedReorder(
+    rows
+      .slice(0, preview.count)
+      .filter((row) => pinned && row.entry)
+      .map((row) => row.id),
+    onReorder,
+    "y",
+    undefined,
+    { activationDistance: 3 },
   );
   const sortable = useAnimatedReorder(
     rows
       .slice(0, preview.count)
-      .filter((row) => pinned || row.project)
+      .filter((row) => row.project)
       .map((row) => row.id),
     onReorder,
     "y",
@@ -847,7 +857,7 @@ function ProjectSection({
                         <SidebarEntry
                           entry={entry}
                           id={id}
-                          sortable={pinned ? sortable : undefined}
+                          sortable={pinned ? sessionSortable : undefined}
                         />
                       );
                     if (!item) return null;

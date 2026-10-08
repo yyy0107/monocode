@@ -7,11 +7,12 @@ import {
 } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { MobileSheet, type MobileSheetPoint } from "./MobileSheet";
-import { MobileHostStatus } from "./MobileHostStatus";
+import { hostStatusLabel } from "./MobileHostStatus";
 import type { HostConnectionStatus } from "./client";
 import type { MobilePreferencePanel } from "./MobileSettings";
 import {
   CONNECTION_ICONS,
+  useConnectionAppearance,
   type ConnectionAppearance,
 } from "./connectionAppearance";
 
@@ -28,43 +29,49 @@ export type SettingsConnection = {
   disabled?: boolean;
 };
 
-export function MobileConnections({
+const HOLD_DELAY = 450;
+
+function ConnectionRow({
   connection,
-  appearance,
+  active,
   hostStatus,
   disabled,
-  panel,
-  onPanelChange,
-  onSave,
-  onDisconnect,
+  menuOpen,
+  probe,
+  onMenu,
+  onSwitch,
   onReconnect,
-  onDelete,
-  addConnection,
+  onDisconnect,
 }: {
-  connection?: SettingsConnection;
-  appearance: ConnectionAppearance;
+  connection: SettingsConnection;
+  active: boolean;
   hostStatus: HostConnectionStatus;
   disabled: boolean;
-  panel: MobilePreferencePanel;
-  onPanelChange: (panel: MobilePreferencePanel) => void;
-  onSave: (value: ConnectionAppearance) => void;
-  onDisconnect: () => Promise<void>;
-  onDelete: () => Promise<void>;
+  menuOpen: boolean;
+  probe: (connection: SettingsConnection) => Promise<HostConnectionStatus>;
+  onMenu: (element: HTMLButtonElement, position?: MobileSheetPoint) => void;
+  onSwitch: () => void;
   onReconnect: () => void;
-  addConnection: ReactNode;
+  onDisconnect: () => Promise<void>;
 }) {
   const { t } = useTranslation();
-  const trigger = useRef<HTMLButtonElement>(null);
-  const lastConnection = useRef(connection);
-  if (connection) lastConnection.current = connection;
-  const details = connection ?? lastConnection.current;
-  const name = appearance.displayName || details?.name || "";
-  const [point, setPoint] = useState<MobileSheetPoint>();
-  const [draft, setDraft] = useState<ConnectionAppearance>(appearance);
-  const [error, setError] = useState("");
+  const appearance = useConnectionAppearance(connection.endpoint);
+  const name = appearance.displayName || connection.name;
+  const [observed, setObserved] = useState<HostConnectionStatus>({ state: "reconnecting" });
+  useEffect(() => {
+    if (active) return;
+    let live = true;
+    setObserved({ state: connection.disabled ? "disconnected" : "reconnecting" });
+    void probe(connection).then((value) => { if (live) setObserved(value); })
+      .catch(() => { if (live) setObserved({ state: "failed" }); });
+    return () => { live = false; };
+  }, [active, connection, probe]);
+  const status = active ? hostStatus : observed;
   const hold = useRef<
     { x: number; y: number; timer: ReturnType<typeof setTimeout> } | undefined
   >(undefined);
+  // A completed hold opens the menu; the click that follows must not also switch.
+  const held = useRef(false);
   const cancelHold = () => {
     if (hold.current) clearTimeout(hold.current.timer);
     hold.current = undefined;
@@ -72,10 +79,164 @@ export function MobileConnections({
   useEffect(() => {
     cancelHold();
     return cancelHold;
-  }, [connection?.environmentId, disabled, panel]);
-  const openMenu = (position?: MobileSheetPoint) => {
+  }, [connection.environmentId, disabled, menuOpen]);
+  const openMenu = (element: HTMLButtonElement, position?: MobileSheetPoint) => {
     cancelHold();
-    if (disabled || !connection) return;
+    if (!disabled) onMenu(element, position);
+  };
+  return (
+    <li className="mobile-settings-row mobile-connection-row mobile-connection-device">
+      <button
+        type="button"
+        className="mobile-connection-details"
+        aria-label={active
+          ? t("Connection options for {host}", { host: name })
+          : t("Switch to {host}", { host: name })}
+        aria-haspopup={active ? "dialog" : undefined}
+        aria-expanded={active ? menuOpen : undefined}
+        aria-current={active || undefined}
+        disabled={disabled}
+        onPointerDown={(event) => {
+          cancelHold();
+          held.current = false;
+          if (event.button !== 0) return;
+          const element = event.currentTarget;
+          const x = event.clientX,
+            y = event.clientY;
+          hold.current = {
+            x,
+            y,
+            timer: setTimeout(() => {
+              held.current = true;
+              openMenu(element, { x, y });
+            }, HOLD_DELAY),
+          };
+        }}
+        onPointerMove={(event) => {
+          if (
+            hold.current &&
+            Math.hypot(
+              event.clientX - hold.current.x,
+              event.clientY - hold.current.y,
+            ) > 10
+          )
+            cancelHold();
+        }}
+        onPointerUp={cancelHold}
+        onPointerCancel={cancelHold}
+        onPointerLeave={cancelHold}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          openMenu(
+            event.currentTarget,
+            event.clientX || event.clientY
+              ? { x: event.clientX, y: event.clientY }
+              : undefined,
+          );
+        }}
+        onClick={(event) => {
+          if (held.current) {
+            held.current = false;
+            return;
+          }
+          if (!active) onSwitch();
+          else if (event.detail === 0) openMenu(event.currentTarget);
+        }}
+        onKeyDown={(event) => {
+          if (
+            event.key === "ContextMenu" ||
+            (event.shiftKey && event.key === "F10")
+          ) {
+            event.preventDefault();
+            openMenu(event.currentTarget);
+          }
+        }}
+      >
+        <MobileSettingsGlyph name={appearance.icon} />
+        <span className="mobile-settings-label">
+          <span className="mobile-connection-name" title={name}>
+            {name}
+          </span>
+          <small className="mobile-connection-status">
+            <span role={active ? "status" : undefined} title={status.detail || undefined}>
+              {/* A reachable device that is not the active one is only available. */}
+              {t(!active && status.state === "connected" ? "Available" : hostStatusLabel(status))}
+            </span>
+            <span className="mobile-connection-address">
+              {connection.endpoint.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+            </span>
+          </small>
+        </span>
+      </button>
+      <label className="mobile-connection-toggle">
+        <input
+          type="checkbox"
+          role="switch"
+          className="mobile-switch"
+          aria-label={t("Connection to {host}", { host: name })}
+          checked={active && connection.disabled !== true}
+          disabled={disabled}
+          onChange={(event) => {
+            if (!active) onSwitch();
+            else if (event.currentTarget.checked) onReconnect();
+            else void onDisconnect().catch(() => {});
+          }}
+        />
+      </label>
+    </li>
+  );
+}
+
+export function MobileConnections({
+  connections,
+  activeEndpoint,
+  hostStatus,
+  disabled,
+  panel,
+  onPanelChange,
+  probe,
+  onSwitch,
+  onSave,
+  onDisconnect,
+  onReconnect,
+  onDelete,
+  addConnection,
+}: {
+  connections: SettingsConnection[];
+  activeEndpoint?: string;
+  hostStatus: HostConnectionStatus;
+  disabled: boolean;
+  panel: MobilePreferencePanel;
+  onPanelChange: (panel: MobilePreferencePanel) => void;
+  probe: (connection: SettingsConnection) => Promise<HostConnectionStatus>;
+  onSwitch: (endpoint: string) => void;
+  onSave: (endpoint: string, value: ConnectionAppearance) => void;
+  onDisconnect: () => Promise<void>;
+  onDelete: (endpoint: string) => Promise<void>;
+  onReconnect: () => void;
+  addConnection: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const [target, setTarget] = useState<string>();
+  const connection = connections.find((item) => item.endpoint === target);
+  // Keep the closing sheets' details after their connection is deleted.
+  const lastConnection = useRef(connection);
+  if (connection) lastConnection.current = connection;
+  const details = connection ?? lastConnection.current;
+  const appearance = useConnectionAppearance(details?.endpoint);
+  const name = appearance.displayName || details?.name || "";
+  const [point, setPoint] = useState<MobileSheetPoint>();
+  const [draft, setDraft] = useState<ConnectionAppearance>(appearance);
+  const [error, setError] = useState("");
+  const openMenu = (
+    endpoint: string,
+    element: HTMLButtonElement,
+    position?: MobileSheetPoint,
+  ) => {
+    if (disabled) return;
+    trigger.current = element;
+    setTarget(endpoint);
     setPoint(position);
     setError("");
     onPanelChange("connection-menu");
@@ -110,91 +271,21 @@ export function MobileConnections({
       <section className="mobile-settings-group" aria-label={t("Connections")}>
         <h2>{t("Connection")}</h2>
         <ul className="mobile-connection-list">
-          {connection && (
-            <li className="mobile-settings-row mobile-connection-row mobile-connection-device">
-              <button
-                ref={trigger}
-                type="button"
-                className="mobile-connection-details"
-                aria-label={t("Connection options for {host}", { host: name })}
-                aria-haspopup="dialog"
-                aria-expanded={panel === "connection-menu"}
-                disabled={disabled}
-                onPointerDown={(event) => {
-                  cancelHold();
-                  if (event.button !== 0) return;
-                  const x = event.clientX,
-                    y = event.clientY;
-                  hold.current = {
-                    x,
-                    y,
-                    timer: setTimeout(() => openMenu({ x, y }), 450),
-                  };
-                }}
-                onPointerMove={(event) => {
-                  if (
-                    hold.current &&
-                    Math.hypot(
-                      event.clientX - hold.current.x,
-                      event.clientY - hold.current.y,
-                    ) > 10
-                  )
-                    cancelHold();
-                }}
-                onPointerUp={cancelHold}
-                onPointerCancel={cancelHold}
-                onPointerLeave={cancelHold}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  openMenu(
-                    event.clientX || event.clientY
-                      ? { x: event.clientX, y: event.clientY }
-                      : undefined,
-                  );
-                }}
-                onClick={(event) => {
-                  if (event.detail === 0) openMenu();
-                }}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === "ContextMenu" ||
-                    (event.shiftKey && event.key === "F10")
-                  ) {
-                    event.preventDefault();
-                    openMenu();
-                  }
-                }}
-              >
-                <MobileSettingsGlyph name={appearance.icon} />
-                <span className="mobile-settings-label">
-                  <span className="mobile-connection-name" title={name}>
-                    {name}
-                  </span>
-                  <small>
-                    {hostStatus.state === "connected" ? (
-                      t("Connected")
-                    ) : (
-                      <MobileHostStatus status={hostStatus} />
-                    )}
-                  </small>
-                </span>
-              </button>
-              <label className="mobile-connection-toggle">
-                <input
-                  type="checkbox"
-                  role="switch"
-                  className="mobile-switch"
-                  aria-label={t("Connection to {host}", { host: name })}
-                  checked={connection.disabled !== true}
-                  disabled={disabled}
-                  onChange={(event) => {
-                    if (event.currentTarget.checked) onReconnect();
-                    else void onDisconnect().catch(() => {});
-                  }}
-                />
-              </label>
-            </li>
-          )}
+          {connections.map((item) => (
+            <ConnectionRow
+              key={item.endpoint}
+              connection={item}
+              active={item.endpoint === activeEndpoint}
+              hostStatus={hostStatus}
+              disabled={disabled}
+              menuOpen={target === item.endpoint && panel === "connection-menu"}
+              probe={probe}
+              onMenu={(element, position) => openMenu(item.endpoint, element, position)}
+              onSwitch={() => onSwitch(item.endpoint)}
+              onReconnect={onReconnect}
+              onDisconnect={onDisconnect}
+            />
+          ))}
           <li>{addConnection}</li>
         </ul>
       </section>
@@ -244,7 +335,7 @@ export function MobileConnections({
             event.preventDefault();
             if (disabled || !changed || !draft.displayName.trim()) return;
             try {
-              onSave({ ...draft, displayName: draft.displayName.trim() });
+              onSave(details!.endpoint, { ...draft, displayName: draft.displayName.trim() });
               close();
             } catch {
               setError(t("Could not save connection preferences. Try again."));
@@ -346,7 +437,7 @@ export function MobileConnections({
             className="mobile-button mobile-connection-editor-action mobile-connection-delete"
             disabled={disabled}
             onClick={() => {
-              void onDelete()
+              void onDelete(details!.endpoint)
                 .then(() => onPanelChange(null))
                 .catch(() =>
                   setError(t("Could not delete the connection. Try again.")),

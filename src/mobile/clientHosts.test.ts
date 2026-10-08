@@ -54,6 +54,15 @@ it("keeps one Host reached through several addresses as separate connections", a
   expect((await client.savedConnections()).map((host) => host.endpoint)).toEqual(["http://100.64.0.1:3774"]);
 });
 
+it("forgets an inactive connection without touching the active one", async () => {
+  const client = new MobileClient(memory(), hosts);
+  await client.connect("http://10.0.0.1:3774", "token-a");
+  await client.connect("http://10.0.0.2:3774", "token-b");
+  await client.forget("http://10.0.0.1:3774");
+  expect((await client.savedConnections()).map((host) => host.endpoint)).toEqual(["http://10.0.0.2:3774"]);
+  expect(client.connection).toMatchObject({ endpoint: "http://10.0.0.2:3774", token: "token-b" });
+});
+
 it("adopts a Host saved before multiple connections existed", async () => {
   const values = new Map<StorageKey, string>([["connection", JSON.stringify({
     endpoint: "http://10.0.0.1:3774", token: "token-a", environmentId: "host-a", name: "Linux",
@@ -61,4 +70,20 @@ it("adopts a Host saved before multiple connections existed", async () => {
   const client = new MobileClient(memory(values), hosts);
   await client.connect("http://10.0.0.2:3774", "token-b");
   expect((await client.savedConnections()).map((host) => host.environmentId)).toEqual(["host-a", "host-b"]);
+});
+
+it("lets a later switch replace one still waiting on an unresponsive Host", async () => {
+  let stall = false;
+  const client = new MobileClient(memory(), async (endpoint, token, request) => {
+    if (stall && endpoint.includes("10.0.0.1")) return new Promise(() => {});
+    return hosts(endpoint, token, request);
+  });
+  await client.connect("http://10.0.0.1:3774", "token-a");
+  await client.connect("http://10.0.0.2:3774", "token-b");
+  await client.connect("http://10.0.0.3:3774", "token-c");
+  stall = true;
+  void client.switchTo("http://10.0.0.1:3774");
+  await client.switchTo("http://10.0.0.2:3774");
+  expect(client.connection).toMatchObject({ endpoint: "http://10.0.0.2:3774", token: "token-b" });
+  expect(client.getConnectionStatus().state).toBe("connected");
 });

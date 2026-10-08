@@ -1,0 +1,28 @@
+Generator: built-in image_gen
+Parameters: transparent_background=true
+Asset: public/ohmymonocode-icon-v3.png
+Direction: fewer and larger pixels, followed by a symmetric >_< terminal face.
+Status: new design asset; application icon references have not been changed.
+
+STEP 1 — Simplify v2
+
+Use case: precise-object-edit
+Asset type: simplified pixel-art app icon for ohmymonocode.
+Input image: the provided v2 icon is the edit target.
+User correction: "Too many pixels." Reduce the NUMBER OF VISUAL BLOCKS and silhouette steps drastically, using much bigger pixel units, not a lower-resolution export.
+Change only the central sprite geometry. Preserve the charcoal rounded-square tile, off-white sprite, cobalt-blue cursor, centered composition, and real alpha transparency outside the tile.
+New sprite: an extremely simple blocky terminal buddy built on a coarse approximately 8 by 8 logical grid. A single wide off-white rectangular body with completely straight top and sides, plus just TWO short rectangular feet. Remove ALL antennae, ears, arms, shoulder steps, chamfered corners, stair-stepped round contours and decorative notches. The outer silhouette must read as ONE RECTANGLE plus TWO FEET, no other protrusions. Visually only three large off-white masses joined into one silhouette.
+Inside the body, keep ONLY the >_ terminal face. Make the black greater-than symbol from exactly THREE LARGE SQUARE PIXELS: top left, middle one cell to the right, bottom left. Make the blue underscore one simple horizontal rectangle approximately two grid cells wide, aligned with the bottom square of the chevron. Leave clear off-white space around and between both symbols.
+The main visual goal is beautiful brutal simplicity: fewer, larger, stronger blocks; plenty of breathing room; instantly recognizable at 24 pixels. The central sprite occupies approximately 58 percent of the overall canvas width.
+Entire image must look flat, clean and intentional: solid color fills, no shading or texture, no highlights, no shadows, no gradients, no 3D, no new colors. No lettering, no words, no extra faces, no scene, no mockup, no multiple options. Produce one finished square PNG icon with transparency outside its tile.
+
+STEP 2 — Make the simplified face symmetric
+
+Use case: precise-object-edit
+Asset type: minimal coarse-pixel product app icon for ohmymonocode.
+Input image: the provided simplified rectangular terminal buddy is the edit target.
+User request: make the terminal face symmetrical while keeping the very low pixel count.
+Change ONLY the face inside the off-white rectangular body. Preserve the exact body silhouette, two simple feet, tile silhouette, centered placement, size, off-white / charcoal / blue palette, and transparent outer margins.
+Replace >_ with a BILATERALLY SYMMETRIC >_< face. Left: a black right-pointing chevron formed from exactly three large square pixels, arranged upper-left, middle-right, lower-left. Right: its exact horizontal mirror, a black left-pointing chevron formed from exactly three same-size square pixels, arranged upper-right, middle-left, lower-right. Center: one short cobalt-blue horizontal cursor rectangle, placed on the central vertical axis between the chevrons and aligned with their bottom row. Left and right black chevrons must be EXACT mirror images, equal in size and spaced equally from the center. The whole face is perfectly symmetric about the body's vertical centerline, like a playful >_< expression.
+Use slightly smaller black square pixels than the input if necessary so the complete face fits with generous identical left and right internal margins. There must be only SEVEN simple facial shapes: three black squares on each side and one blue rectangle in the middle. No additional features, no antennae, no stair-step body outline, no decorations, no extra grid lines.
+Maintain the very simple large-block pixel language. Flat solid color fills, crisp straight edges. No gradients, no shadows, no bevels, no gloss, no texture. One finished app icon only, no text labels, no mockup. Preserve real alpha transparency outside the dark rounded-square tile.

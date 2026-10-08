@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="icon-title icon-desc" data-state="idle" data-paused="false">
+  <title id="icon-title">ohmymonocode</title><desc id="icon-desc">A round terminal companion with symmetrical pixel eyes and a blue cursor.</desc>
+
+  <rect x="12" y="12" width="232" height="232" rx="52" fill="#171717"/>
+  <g class="float"><g class="squash">
+    <path fill="#F2F1EA" d="M44 140C44 96 80 64 128 64S212 96 212 140C212 166 199 181 180 186C181 195 175 200 167 200C160 200 154 195 153 190C137 193 119 193 103 190C102 195 96 200 89 200C81 200 75 195 76 186C57 181 44 166 44 140Z"/>
+    <g class="gaze" fill="#171717">
+      <g class="eye eye-left"><path d="M73 108h16v16H73zM89 124h16v16H89zM73 140h16v16H73z"/></g>
+      <g class="eye eye-right"><path d="M167 108h16v16h-16zM151 124h16v16h-16zM167 140h16v16h-16z"/></g>
+      <rect class="cursor" x="112" y="148" width="32" height="8" fill="#4099FF"/>
+    </g>
+  </g></g>
+</svg>

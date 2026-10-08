@@ -424,10 +424,53 @@ pub fn upgrade_script(platform: HostPlatform, port: u16) -> String {
     }
 }
 
+// The running Host owns host.db. A desktop on that machine may run newer Host
+// code than the installed release (and migrate the schema), so pair with the
+// running Host's own runtime when it can be identified.
+const UNIX_PAIRING: &str = r#"set -eu
+dir="$HOME/.monocode-host"
+node=""
+entry=""
+pid=$(sed -n 's/.*"pid":\([0-9][0-9]*\).*/\1/p' "$dir/running.json" 2>/dev/null || true)
+if [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ]; then
+  node=$(readlink "/proc/$pid/exe" 2>/dev/null || true)
+  entry=$(tr '\0' '\n' < "/proc/$pid/cmdline" | awk 'prev ~ /\.mjs$/ && $0 == "serve" { print prev; exit } { prev = $0 }')
+fi
+if [ -n "$node" ] && [ -x "$node" ] && [ -n "$entry" ] && [ -f "$entry" ]; then
+  exec "$node" "$entry" pair --name @@NAME@@ --json
+fi
+exec "$dir/bin/monocode-host" pair --name @@NAME@@ --json
+"#;
+
+const WINDOWS_PAIRING: &str = r#"$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$base = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.monocode-host'
+$runtime = [IO.File]::ReadAllText((Join-Path $base 'runtime-path')).Trim()
+$node = Join-Path $runtime 'node.exe'
+$entry = Join-Path $runtime 'host.mjs'
+$running = Join-Path $base 'running.json'
+if (Test-Path -LiteralPath $running) {
+  try {
+    $hostPid = [int] (Get-Content -LiteralPath $running -Raw | ConvertFrom-Json).pid
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$hostPid"
+    $line = [string] $process.CommandLine
+    $candidate = $null
+    if ($line -match '"([^"]+\.mjs)"\s+serve(\s|$)') { $candidate = $Matches[1] }
+    elseif ($line -match '(^|\s)([^"\s]+\.mjs)\s+serve(\s|$)') { $candidate = $Matches[2] }
+    if ($candidate -and $process.ExecutablePath -and (Test-Path -LiteralPath $candidate)) {
+      $node = $process.ExecutablePath
+      $entry = $candidate
+    }
+  } catch {}
+}
+& $node $entry pair --name @@NAME@@ --json
+if ($LASTEXITCODE -ne 0) { throw 'Host pairing failed.' }
+"#;
+
 pub fn pairing_script(platform: HostPlatform, name: &str) -> String {
     match platform {
-        HostPlatform::Unix => format!("set -eu\n\"$HOME/.monocode-host/bin/monocode-host\" pair --name {} --json\n", shell_quote(name)),
-        HostPlatform::Windows => format!("$ErrorActionPreference = 'Stop'\n$base = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.monocode-host'\n$runtime = [IO.File]::ReadAllText((Join-Path $base 'runtime-path')).Trim()\n& (Join-Path $runtime 'node.exe') (Join-Path $runtime 'host.mjs') pair --name {} --json\nif ($LASTEXITCODE -ne 0) {{ throw 'Host pairing failed.' }}\n", powershell_quote(name)),
+        HostPlatform::Unix => UNIX_PAIRING.replace("@@NAME@@", &shell_quote(name)),
+        HostPlatform::Windows => WINDOWS_PAIRING.replace("@@NAME@@", &powershell_quote(name)),
     }
 }
 

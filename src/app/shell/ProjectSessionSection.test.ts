@@ -2139,31 +2139,54 @@ describe("unified pinned sidebar group", () => {
     act(() => render());
   }
 
-  it("moves projects and conversations through the same slots immediately and restores their order", () => {
+  it("keeps conversations before projects when restoring a mixed saved order", () => {
     pinFixtures();
+    const initial = pinnedRows();
+    localStorage.setItem(
+      "monocode.sidebarPinnedOrder.v1",
+      JSON.stringify([
+        A,
+        initial[1].dataset.sidebarPinnedEntry,
+        initial[0].dataset.sidebarPinnedEntry,
+      ]),
+    );
+    act(() => root.render(null));
+    act(() => render());
+    expect(pinnedRows().map(
+      (row) => row.dataset.sidebarPinnedEntry ?? row.dataset.projectPath,
+    )).toEqual([
+      initial[1].dataset.sidebarPinnedEntry,
+      initial[0].dataset.sidebarPinnedEntry,
+      A,
+    ]);
+  });
+
+  it("reorders conversations and projects within their own groups and restores their order", () => {
+    pinFixtures();
+    act(() => savePinnedProjects([A, B]));
     const initial = measurePins();
-    const name = project(A).querySelector<HTMLElement>("[data-project-select]")!;
+    const name = initial[3].querySelector<HTMLElement>("[data-project-select]")!;
     expect(name.classList.contains("cursor-grab")).toBe(true);
-    pointer(name, "pointerdown", 82);
-    pointer(window, "pointermove", 78);
+    pointer(name, "pointerdown", 115);
+    pointer(window, "pointermove", 111);
     // No timers or long press are required to start dragging.
-    expect(project(A).dataset.dragging).toBe("true");
+    expect(initial[3].dataset.dragging).toBe("true");
     expect(document.body.style.cursor).toBe("grabbing");
     pointer(window, "pointerup", 16);
     act(() => name.click());
-    expect(pinnedRows()).toEqual([initial[2], initial[0], initial[1]]);
+    expect(pinnedRows()).toEqual([initial[0], initial[1], initial[3], initial[2]]);
     expect(props.onSelectProject).not.toHaveBeenCalled();
     expect(loadProjectTreeExpanded(A).size).toBe(0);
 
     const rows = measurePins();
-    const session = rows[2].querySelector<HTMLElement>("[data-session-card]")!;
+    const session = rows[1].querySelector<HTMLElement>("[data-session-card]")!;
     expect(session.classList.contains("cursor-grab")).toBe(true);
-    pointer(session, "pointerdown", 82);
-    pointer(window, "pointermove", 78);
-    expect(rows[2].dataset.dragging).toBe("true");
+    pointer(session, "pointerdown", 49);
+    pointer(window, "pointermove", 45);
+    expect(rows[1].dataset.dragging).toBe("true");
     pointer(window, "pointerup", 16);
     act(() => session.click());
-    expect(pinnedRows()).toEqual([initial[1], initial[2], initial[0]]);
+    expect(pinnedRows()).toEqual([initial[1], initial[0], initial[3], initial[2]]);
     expect(props.onSelectSession).not.toHaveBeenCalled();
 
     const order = pinnedRows().map(
@@ -2192,7 +2215,7 @@ describe("unified pinned sidebar group", () => {
   });
 
   it.each(["Escape", "pointercancel", "blur"])(
-    "cancels mixed pin sorting on %s without opening the conversation",
+    "cancels pin sorting on %s without opening the conversation",
     (reason) => {
       pinFixtures();
       const rows = measurePins();

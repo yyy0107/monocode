@@ -1,0 +1,16 @@
+Generator: built-in image_gen
+Parameters: transparent_background=true
+Asset: public/ohmymonocode-icon-v1.png
+Status: new design asset; application icon references have not been changed.
+
+Use case: logo-brand
+Asset type: one finished desktop and mobile product app icon, square 1024 by 1024 PNG.
+Primary request: Design a new original icon for ohmymonocode, a personal multi-agent coding workspace that brings several coding agents together in one quiet professional desktop interface.
+Brand context: the current app uses a monochrome black rounded-square icon with a ring of small pixels around a terminal prompt; the UI is restrained charcoal and white. Evolve its strong monochrome identity into a bolder, simpler and more ownable mark.
+Subject: a single beautiful geometric O/M monogram. Explore one unified, thick ivory-white ribbon whose outside contour suggests an O or a portal and whose angular folded inner contour suggests an M. The geometry should quietly evoke parallel code streams coming together. Make it an iconic single silhouette with generous black negative space and a clear central M-shaped valley. The monogram must feel drawn deliberately on a grid, balanced and immediately legible at 32 pixels, not a typographic word.
+Scene/backdrop: matte near-black rounded-square app tile, viewed precisely straight on. Transparent pixels outside the rounded-square tile. Tile approximately 88 percent of the canvas width, centered; the central monogram approximately 58 percent of the canvas width.
+Style/medium: premium minimal software brand design; exceptionally crisp clean vector-like edges. Nearly flat ivory-white mark with only the most subtle satin shading for tactile refinement; very quiet charcoal tile with a restrained edge highlight. Strong contrast and bold thick geometry.
+Composition/framing: one icon only, fills the square image with consistent small transparent outer margins; generous internal breathing room; optically centered.
+Color palette: near black #151515, charcoal #242424, ivory white #F4F3EE. No additional colors.
+Text: none.
+Constraints: deliver the actual usable app icon, not a presentation sheet, no labels, no wordmark, no mockup device, no backdrop outside the tile, no multiple options, no perspective, no tiny detail, no glow, no star/sparkle, no robot, no brain, no circuit illustration, no disconnected orbit dots, no existing company logos. Real alpha transparency outside the tile.

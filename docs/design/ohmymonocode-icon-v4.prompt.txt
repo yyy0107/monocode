@@ -1,0 +1,16 @@
+Generator: built-in image_gen
+Parameters: transparent_background=true
+Input asset: public/ohmymonocode-icon-v3.png
+Output asset: public/ohmymonocode-icon-v4.png
+Direction: refine the existing symmetric pixel terminal character.
+Status: independent design asset; application icon references have not been changed.
+
+Use case: precise-object-edit
+Asset type: refined final product app icon for ohmymonocode.
+Input: the attached v3 icon is the edit target. Preserve its concept and identity: minimal off-white block terminal creature, two feet, symmetric black >_< expression with a blue underscore, charcoal rounded-square tile, transparent outer margins.
+Primary request: professionally refine the proportions, spacing and pixel precision. This is a careful polish of the SAME icon, not a new concept. Keep the very low number of pixels.
+Geometry: use one consistent invisible square-pixel construction grid. Make the main off-white body a clean wide rectangle, approximately 10 grid units wide by 7 units high, with perfectly straight edges. Give it two short symmetrical block feet, each 2 units wide and only 1 unit high, inset equally from the sides. The feet must feel like small pixel notches below the body, not long legs. Preserve the simple silhouette without ears, antennae, arms, corner steps or extra detail.
+Face: exactly six identical black squares form the two mirror-image chevrons. Each chevron uses three squares, upper outside / middle inside / lower outside. Place them on the same three grid rows with exact bilateral symmetry. Pull the overall face together slightly and give it generous off-white margins, with equal gaps on either side of the blue underscore. The blue underscore is centered, two grid units wide and half a unit tall, with its bottom aligned to the bottom row of the black squares. Clear, calm, playful >_< terminal expression.
+Optical balance: make the complete sprite approximately 56 percent of the canvas width, centered as one unit INCLUDING the feet, so its top and bottom visual weight is balanced. Keep the rounded-square charcoal tile at the same size as the reference, with generous external transparent margin.
+Rendering is critical: perfectly FLAT DIGITAL VECTOR-LIKE FILLS, sharply aligned pixel geometry. Off-white #F2F1EA everywhere in the sprite, uniform near-black #171717 in the tile and eye blocks, one uniform blue #4099FF underscore. Remove ALL existing paper texture, mottling, vignette, lighting and gradients. No 3D, bevel, outline, shadow, glow, material, sheen, distortion or antialiased softness within pixel shapes. Render as a crisp minimal software brand mark.
+Only one icon. No presentation sheet, no comparison, no text, no extra elements, no decoration. Keep actual alpha transparency outside the tile.

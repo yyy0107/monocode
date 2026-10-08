@@ -39,6 +39,8 @@ const host = vi.hoisted(() => ({
   pending: vi.fn(async () => undefined),
   savedConnections: vi.fn(async () => []),
   switchTo: vi.fn(async () => undefined),
+  forget: vi.fn(async () => {}),
+  probeConnection: vi.fn(async () => ({ state: "connected" })),
   connect: vi.fn(async () => {}),
   projects: vi.fn(async () => [
     { id: "one", name: "Connections", cwd: "/projects/Connections" },
@@ -69,6 +71,7 @@ beforeEach(() => {
   host.connection.disabled = false;
   host.connect.mockResolvedValue(undefined);
   host.restore.mockResolvedValue(false);
+  host.savedConnections.mockResolvedValue([]);
   localStorage.clear();
   setUiLanguage("en");
   node = document.createElement("div");
@@ -316,6 +319,46 @@ describe("mobile connection settings", () => {
     expect(host.disconnect).toHaveBeenCalledTimes(1);
     expect(host.suspend).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  it("lists every paired device and switches, renames or forgets one that is not active", async () => {
+    const other = { endpoint: "http://100.64.0.1:3774/", token: "tailnet", name: "My computer", environmentId: "settings-host" };
+    host.savedConnections.mockResolvedValue([{ ...host.connection, token: "lan" }, other] as never);
+    await openConnections();
+    const rows = () => [...active(".mobile-connection-list")!.querySelectorAll(".mobile-connection-device")];
+    expect(rows().map((row) => row.querySelector(".mobile-connection-status")!.textContent)).toEqual([
+      "Connectedcomputer:3774",
+      "Available100.64.0.1:3774",
+    ]);
+    expect(host.probeConnection).toHaveBeenCalledWith(other);
+
+    const details = rows()[1].querySelector<HTMLButtonElement>(".mobile-connection-details")!;
+    expect(details.getAttribute("aria-label")).toBe("Switch to My computer");
+    act(() => details.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    act(() => button("Edit").click());
+    input(".mobile-connection-name-field input", "Tailnet");
+    act(() => active(".mobile-connection-editor")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(JSON.parse(localStorage.getItem("monocode.mobile.connectionAppearance:http://100.64.0.1:3774/")!)).toMatchObject({ displayName: "Tailnet" });
+    expect(localStorage.getItem("monocode.mobile.connectionAppearance:http://computer:3774")).toBeNull();
+    expect(rows()[1].querySelector(".mobile-connection-name")!.textContent).toBe("Tailnet");
+
+    act(() => rows()[1].querySelector(".mobile-connection-details")!
+      .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    act(() => button("Delete").click());
+    await act(async () => button("Delete connection").click());
+    expect(host.forget).toHaveBeenCalledWith("http://100.64.0.1:3774/");
+    expect(host.disconnect).not.toHaveBeenCalled();
+    expect(localStorage.getItem("monocode.mobile.connectionAppearance:http://100.64.0.1:3774/")).toBeNull();
+  });
+
+  it("switches to another paired device from its row", async () => {
+    const other = { endpoint: "http://100.64.0.1:3774/", token: "tailnet", name: "My computer", environmentId: "settings-host" };
+    host.savedConnections.mockResolvedValue([{ ...host.connection, token: "lan" }, other] as never);
+    await openConnections();
+    const row = active(".mobile-connection-list")!.querySelectorAll<HTMLButtonElement>(".mobile-connection-details")[1];
+    await act(async () => row.click());
+    expect(host.switchTo).toHaveBeenCalledWith("http://100.64.0.1:3774/");
+    expect(host.forget).not.toHaveBeenCalled();
   });
 
   it("opens the plain Home title dropdown and reuses the connection dialog anchored to that title", async () => {

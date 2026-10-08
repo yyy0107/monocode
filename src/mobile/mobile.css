@@ -4033,6 +4033,19 @@ html.theme-light .mobile-settings {
   white-space: normal;
   color: inherit;
 }
+.mobile-connection-status {
+  display: flex;
+  min-width: 0;
+}
+.mobile-connection-status > span { flex-shrink: 0; }
+.mobile-connection-status > .mobile-connection-address {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-connection-address::before { content: "\00a0·\00a0"; }
 .mobile-connection-toggle {
   display: flex;
   align-items: center;

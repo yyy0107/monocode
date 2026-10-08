@@ -3523,6 +3523,15 @@ html.theme-light .drag-ghost-card {
 }
 
 /*
+ * The window scrolls only vertically. Clipping its column, rather than setting
+ * overflow-x on the scroller itself, keeps a stray wide row from adding a
+ * horizontal scrollbar without the WebKit problem above.
+ */
+.zen-phase-body .zen-phase-live > * {
+  overflow-x: clip;
+}
+
+/*
  * The rail: a spine down the group with a step branching off it on a curve,
  * drawn on the step itself so it follows however tall that step turns out to
  * be. The curve is a quarter circle, tangent to the spine at the top and to

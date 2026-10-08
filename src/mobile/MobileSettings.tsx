@@ -173,6 +173,7 @@ export function MobileSettings({
   page,
   onPageChange,
   connection,
+  connections,
   hostStatus,
   busy,
   loading,
@@ -180,6 +181,8 @@ export function MobileSettings({
   addingConnection,
   connectionTrigger,
   onAddConnection,
+  onSwitchConnection,
+  probeConnection,
   onDisconnect,
   onReconnect,
   onDeleteConnection,
@@ -212,6 +215,8 @@ export function MobileSettings({
   page: MobileSettingsPage;
   onPageChange: (page: MobileSettingsPage) => void;
   connection?: SettingsConnection;
+  /** Every paired connection, the active one included. */
+  connections: SettingsConnection[];
   hostStatus: HostConnectionStatus;
   busy: boolean;
   loading: boolean;
@@ -220,11 +225,13 @@ export function MobileSettings({
   addingConnection: boolean;
   connectionTrigger: RefObject<HTMLButtonElement | null>;
   onAddConnection: () => void;
+  onSwitchConnection: (endpoint: string) => void;
+  probeConnection: (connection: SettingsConnection) => Promise<HostConnectionStatus>;
   onDisconnect: () => Promise<void>;
   onReconnect: () => void;
-  onDeleteConnection: () => Promise<void>;
+  onDeleteConnection: (endpoint: string) => Promise<void>;
   connectionAppearance: ConnectionAppearance;
-  onSaveConnectionAppearance: (value: ConnectionAppearance) => void;
+  onSaveConnectionAppearance: (endpoint: string, value: ConnectionAppearance) => void;
   theme: string;
   onThemeChange: (theme: string) => void;
   language: string;
@@ -276,14 +283,16 @@ export function MobileSettings({
       </span>
     </button>
   );
-  const connections = (
+  const connectionList = (
     <MobileConnections
-      connection={connection}
-      appearance={connectionAppearance}
+      connections={connections}
+      activeEndpoint={connection?.endpoint}
       hostStatus={hostStatus}
       disabled={busy || loading}
       panel={preferencePanel}
       onPanelChange={onPreferencePanelChange}
+      probe={probeConnection}
+      onSwitch={onSwitchConnection}
       onSave={onSaveConnectionAppearance}
       onDisconnect={onDisconnect}
       onReconnect={onReconnect}
@@ -309,7 +318,7 @@ export function MobileSettings({
   if (page === "connections")
     return (
       <main className="mobile-content mobile-settings">
-        {connections}
+        {connectionList}
       </main>
     );
 

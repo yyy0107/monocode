@@ -293,6 +293,7 @@ export class MobileClient {
     return value;
   }
   private dispatching = false;
+  private switchAttempt = 0;
   constructor(
     private readonly storage: MobileStorage,
     private readonly transport: RpcTransport = nativeTransport,
@@ -332,14 +333,18 @@ export class MobileClient {
   /** Makes another paired connection, identified by its address, the active one. */
   async switchTo(endpoint: string): Promise<void> {
     if (this.connection?.endpoint === endpoint && !this.connection.disabled) return;
+    const attempt = ++this.switchAttempt;
     const target = (await this.savedConnections())
       .find((item) => item.endpoint === endpoint);
     if (!target) throw new Error("This Host is no longer paired on this device.");
     const pending = await this.pending();
     if (pending && (pending.endpoint !== endpoint || pending.environmentId !== target.environmentId))
       throw new Error("Reconnect to the previous Host to resolve its pending request first.");
+    // A later switch started while this one read storage; let it win.
+    if (attempt !== this.switchAttempt) return;
     const connection = { ...target, disabled: false };
     await this.persist(connection);
+    if (attempt !== this.switchAttempt) return;
     this.verificationEpoch += 1;
     this.connection = connection;
     this.clearCaches();
@@ -476,6 +481,13 @@ export class MobileClient {
     this.connection = disabled;
     this.setConnectionStatus({ state: "disconnected" });
     this.clearCaches();
+  }
+  /** Forgets a paired connection other than the active one; the active one uses `disconnect`. */
+  async forget(endpoint: string): Promise<void> {
+    if (this.connection?.endpoint === endpoint) return this.disconnect();
+    const remaining = (await this.savedConnections())
+      .filter((item) => item.endpoint !== endpoint);
+    await this.storage.set("connections", JSON.stringify(remaining));
   }
   async disconnect(): Promise<void> {
     const endpoint = this.connection?.endpoint;

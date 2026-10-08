@@ -83,6 +83,7 @@ import {
   type MobileFirstMessage,
   type MobileSessionPatch,
   type Connection,
+  type HostConnectionStatus,
 } from "./client";
 import type { MobileComposerPanel } from "./MobileComposer";
 import { createMobileDraft, MobileDraftComposer } from "./MobileDraftComposer";
@@ -400,7 +401,6 @@ export function MobileApp() {
   // Pairing a new Host is gated separately so a slow or timed-out attempt on
   // the current Host never blocks adding another connection.
   const [pairing, setPairing] = useState(false);
-  const [switching, setSwitching] = useState(false);
   const [pairingError, setPairingError] = useState("");
   /** Each Host connection attempt bumps this; superseded attempts drop their results. */
   const hostAttempt = useRef(0);
@@ -783,13 +783,12 @@ export function MobileApp() {
     }
   };
   const switchHost = (endpoint: string) => {
-    if (switching || pairing) return;
+    // A newer switch supersedes one still loading, so a stalled Host never traps the picker.
+    if (pairing) return;
     setHostPickerOpen(false);
     if (client.connection?.endpoint === endpoint && !client.connection.disabled) return;
     setDrawerOpen(false);
-    setSwitching(true);
-    void activateConnection(() => client.switchTo(endpoint), (problem) => setHostError(message(problem)))
-      .finally(() => setSwitching(false));
+    void activateConnection(() => client.switchTo(endpoint), (problem) => setHostError(message(problem)));
   };
   const activateConnection = async (
     open: () => Promise<void>,
@@ -1640,6 +1639,23 @@ export function MobileApp() {
     setHostPickerOpen(true);
   });
   const probeHost = useCallback((connection: Connection) => client.probeConnection(connection), []);
+  // Settings rows carry no credentials; probe the saved connection with the same address.
+  const probeSavedHost = useCallback((connection: { endpoint: string }) => {
+    const saved = savedHosts.find((item) => item.endpoint === connection.endpoint);
+    return saved ? client.probeConnection(saved) : Promise.resolve<HostConnectionStatus>({ state: "disconnected" });
+  }, [savedHosts]);
+  const pairedConnections = client.connection
+    ? [client.connection, ...savedHosts.filter((item) => item.endpoint !== connectionKey)]
+    : savedHosts;
+  const forgetConnection = async (endpoint: string) => {
+    if (endpoint === client.connection?.endpoint) return disconnectConnection(true);
+    try {
+      await client.forget(endpoint);
+      removeConnectionAppearance(endpoint);
+    } finally {
+      refreshSavedHosts();
+    }
+  };
   const onDrawerLoadSessions = useStableCallback((projectId: string) =>
     client.sessions(projectId),
   );
@@ -1975,12 +1991,13 @@ export function MobileApp() {
             setError("");
             setAddingConnection(true);
           }}
+          connections={pairedConnections}
+          onSwitchConnection={switchHost}
+          probeConnection={probeSavedHost}
           onDisconnect={() => disconnectConnection(false)}
-          onDeleteConnection={() => disconnectConnection(true)}
+          onDeleteConnection={forgetConnection}
           connectionAppearance={connectionAppearance}
-          onSaveConnectionAppearance={(value) => {
-            if (client.connection) saveConnectionAppearance(client.connection.endpoint, value);
-          }}
+          onSaveConnectionAppearance={saveConnectionAppearance}
           onReconnect={() => void reconnect()}
           theme={theme}
           onThemeChange={setTheme}
@@ -2285,10 +2302,8 @@ export function MobileApp() {
       )}
       <MobileSheetPresence open={hostPickerOpen}>
         <MobileHostPicker anchor={hostPickerTrigger}
-          connections={client.connection
-            ? [client.connection, ...savedHosts.filter((item) => item.endpoint !== connectionKey)]
-            : savedHosts}
-          activeId={connectionKey} status={hostStatus} switching={switching || pairing}
+          connections={pairedConnections}
+          activeId={connectionKey} status={hostStatus} switching={pairing}
           probe={probeHost} onSwitch={switchHost} onReconnect={() => { setHostPickerOpen(false); void reconnect(); }}
           onAdd={() => {
             connectionTrigger.current = hostPickerTrigger.current;
