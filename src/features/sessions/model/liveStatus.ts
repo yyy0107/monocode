@@ -107,9 +107,12 @@ export function liveStatus(input: LiveStatusInput): LiveStatus {
     return status("thinking", { key: thinkingKey(thoughtMs) }, last.startedAt);
   }
 
-  const tool = lastRunningTool(turn);
+  // A finished call holds the verb until the model's next output arrives, so a
+  // run of quick calls does not flicker back to "Thinking…" in between.
+  const running = lastRunningTool(turn);
+  const tool = running ?? (last && isToolBlock(last) ? last : undefined);
   if (tool) {
-    return status("tool", { key: liveVerb(input.seed, turn.length) }, tool.startedAt);
+    return status("tool", { key: liveVerb(input.seed, turn.indexOf(tool)) }, running?.startedAt);
   }
 
   // Between tools the agent is still reasoning, even when no thought streams.

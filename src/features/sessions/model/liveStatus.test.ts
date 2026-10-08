@@ -74,7 +74,7 @@ describe("liveStatus", () => {
     expect(tool.clock).toBe("tool");
   });
 
-  it("shows a filler verb only while a tool is running", () => {
+  it("holds a filler verb from a tool call until the next model output", () => {
     const running = liveStatus({
       turn: [user, command("in_progress")],
       now: 2_000,
@@ -86,8 +86,17 @@ describe("liveStatus", () => {
       now: 2_000,
       seed: "u1",
     });
-    expect(done.phase).toBe("working");
-    expect(done.label).toEqual({ key: "Thinking…" });
+    expect(done.label).toEqual(running.label);
+    const status: Block = { id: "status", role: "system", text: "Reviewing" };
+    expect(liveStatus({ turn: [user, command("completed"), status], now: 2_000, seed: "u1" }).label)
+      .toEqual(running.label);
+    const next = liveStatus({
+      turn: [user, command("completed"), thought({ startedAt: 3_000 })],
+      now: 4_000,
+      seed: "u1",
+    });
+    expect(next.phase).toBe("working");
+    expect(next.label).toEqual({ key: "Thinking…" });
   });
 
   it("keeps the clock when working and counts background tasks", () => {
