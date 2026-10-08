@@ -1,10 +1,11 @@
-import { useEffect, useState, type RefObject } from "react";
+import type { RefObject } from "react";
 import { Check, Computer, Plus, RefreshCw, Settings } from "../shared/ui/icons";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import type { Connection, HostConnectionStatus } from "./client";
 import { useConnectionAppearance } from "./connectionAppearance";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
+import { useProbedHostStatus } from "./useProbedHostStatus";
 
 export function MobileHostPicker({
   open = true, onExited, anchor, connections, activeId, status, switching,
@@ -61,15 +62,7 @@ function Device({ connection, active, status, open, disabled, probe, onSwitch }:
 }) {
   const { t } = useTranslation();
   const name = useConnectionAppearance(connection.endpoint).displayName || connection.name;
-  const [observed, setObserved] = useState<HostConnectionStatus>({ state: "reconnecting" });
-  useEffect(() => {
-    if (!open || active) return;
-    let live = true;
-    setObserved({ state: connection.disabled ? "disconnected" : "reconnecting" });
-    void probe(connection).then((value) => { if (live) setObserved(value); })
-      .catch(() => { if (live) setObserved({ state: "failed" }); });
-    return () => { live = false; };
-  }, [open, active, connection, probe]);
+  const observed = useProbedHostStatus(connection, open && !active, probe);
   return (
     <button type="button" className="mobile-sheet-row mobile-device-option"
       aria-label={t("Switch to {host}", { host: name })} aria-pressed={active}

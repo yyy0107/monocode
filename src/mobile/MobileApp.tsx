@@ -116,6 +116,10 @@ import { readLastLocation, saveLastLocation } from "./lastLocation";
 import { useMobileActivity } from "./useMobileActivity";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { MobileHostPicker } from "./MobileHostPicker";
+import { MobileDeviceChips, type MobileHomeScope } from "./MobileDeviceChips";
+import { useMobileHostDirectory } from "./useMobileHostDirectory";
+import { MobileHostUnavailable } from "./MobileHostUnavailable";
+import { loadLastOnline, saveLastOnline } from "./lastOnline";
 import { useHostConnectionStatus } from "./useHostConnectionStatus";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { setUiLanguage, translate } from "../shared/i18n/language";
@@ -166,9 +170,7 @@ import { migrateConnectionSettings } from "./connectionScope";
 import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 import { dismissImageLightbox } from "../shared/ui/ImageLightbox";
 import {
-  dismissStatusToast,
   showStatusToast,
-  updateStatusToast,
   withStatusToast,
 } from "../shared/ui/StatusToast";
 
@@ -298,6 +300,22 @@ function Empty({
     </div>
   );
 }
+const HOME_SCOPE_KEY = "monocode.mobile.homeScope";
+function loadHomeScope(): MobileHomeScope {
+  try {
+    return localStorage.getItem(HOME_SCOPE_KEY) === "all" ? "all" : "device";
+  } catch {
+    return "device";
+  }
+}
+function saveHomeScope(scope: MobileHomeScope) {
+  try {
+    localStorage.setItem(HOME_SCOPE_KEY, scope);
+  } catch {
+    // Scope is a convenience; an unavailable store keeps the session's choice.
+  }
+}
+
 export function MobileApp() {
   const { language, t } = useTranslation();
   const appUpdates = useMobileAppUpdates();
@@ -332,6 +350,11 @@ export function MobileApp() {
   const settingsReturnView = useRef<View>("home");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [hostPickerOpen, setHostPickerOpen] = useState(false);
+  const [homeScope, setHomeScopeState] = useState<MobileHomeScope>(loadHomeScope);
+  const setHomeScope = useCallback((scope: MobileHomeScope) => {
+    saveHomeScope(scope);
+    setHomeScopeState(scope);
+  }, []);
   const hostPickerTrigger = useRef<HTMLButtonElement>(null);
   const [settingsPage, setSettingsPage] = useState<MobileSettingsPage>("root");
 
@@ -439,6 +462,12 @@ export function MobileApp() {
   const connectionKey = client.connection?.endpoint;
   const previousConnection = useRef(connectionKey);
   const hostScopeReady = previousConnection.current === connectionKey;
+  useEffect(() => {
+    if (!connected || hostStatus.state !== "connected" || !connectionKey) return;
+    saveLastOnline(connectionKey);
+    const timer = setInterval(() => saveLastOnline(connectionKey), 60_000);
+    return () => clearInterval(timer);
+  }, [connected, hostStatus.state, connectionKey]);
   const hostDrafts = useRef(new Map<string, {
     projectId: string; sessionId?: string; text: string; attachments: Attachment[];
     planMode: boolean; accepted: Attachment[]; parked: typeof parkedDrafts.current;
@@ -794,16 +823,13 @@ export function MobileApp() {
       await activateConnection(
         () => client.connect(credentials.url, normalizePairingCode(credentials.token)),
         (problem) => setPairingError(connectionErrorMessage(problem, credentials.url)),
-        {
-          loading: t("Connecting to the machine…"),
-          success: (host) => t("Connected to {service}", { service: host }),
-        },
+        (host) => t("Connected to {service}", { service: host }),
       );
     } finally {
       setPairing(false);
     }
   };
-  const switchHost = (endpoint: string) => {
+  const switchHost = (endpoint: string, after?: (projects: HostProject[]) => void) => {
     // A newer switch supersedes one still loading, so a stalled Host never traps the picker.
     if (pairing) return;
     setHostPickerOpen(false);
@@ -812,16 +838,16 @@ export function MobileApp() {
     void activateConnection(
       () => client.switchTo(endpoint),
       (problem) => setHostError(message(problem)),
-      {
-        loading: t("Switching machine…"),
-        success: (host) => t("Switched to {host}", { host }),
-      },
+      (host) => t("Switched to {host}", { host }),
+      after,
     );
   };
   const activateConnection = async (
     open: () => Promise<void>,
     fail: (problem: unknown) => void,
-    notice?: { loading: string; success: (host: string) => string },
+    successNotice?: (host: string) => string,
+    /** Continues navigation once the new Host's Home is ready. */
+    after?: (projects: HostProject[]) => void,
   ) => {
     const attempt = ++hostAttempt.current;
     const current = () => hostAttempt.current === attempt;
@@ -829,9 +855,7 @@ export function MobileApp() {
     setError("");
     setHostError("");
     setPollError("");
-    // Failures and superseded attempts keep their inline status; the toast only confirms.
-    const toast = notice && showStatusToast(notice.loading, "loading");
-    let connectedToast = false;
+    // Connection progress and failures stay inline; only confirm a completed switch.
     try {
       await open();
       if (!current()) return;
@@ -857,21 +881,18 @@ export function MobileApp() {
       setConnected(true);
       setConnectionRevision((value) => value + 1);
       setAddingConnection(false);
-      if (toast) {
-        updateStatusToast(toast, notice.success(client.connection?.name ?? ""), "success");
-        connectedToast = true;
-      }
+      if (successNotice) showStatusToast(successNotice(client.connection?.name ?? ""), "success");
       const pending = await client.pending();
       if (!current()) return;
       setPending(pending);
       await restoreLocation(items);
+      if (current()) after?.(items);
     } catch (problem) {
       if (current()) {
         fail(problem);
         setProjectListState((state) => state === "ready" ? state : "failed");
       }
     } finally {
-      if (toast && !connectedToast) dismissStatusToast(toast);
       if (current()) setBusy(false);
       refreshSavedHosts();
     }
@@ -1510,8 +1531,6 @@ export function MobileApp() {
     const hostId = client.connection?.endpoint;
     const current = () => hostAttempt.current === attempt && client.connection?.endpoint === hostId;
     setBusy(true);
-    const toast = manual ? showStatusToast(t("Reconnecting…"), "loading") : undefined;
-    let reconnected = false;
     try {
       await client.reconnect();
       if (!current()) return;
@@ -1523,10 +1542,7 @@ export function MobileApp() {
       setProjects(items);
       setProjectListState("ready");
       setConnected(true);
-      if (toast) {
-        updateStatusToast(toast, t("Reconnected"), "success");
-        reconnected = true;
-      }
+      if (manual) showStatusToast(t("Reconnected"), "success");
       if (!connected) await restoreLocation(items);
       setError("");
       setHostError("");
@@ -1534,7 +1550,6 @@ export function MobileApp() {
     } catch (problem) {
       if (current()) setHostError(message(problem));
     } finally {
-      if (toast && !reconnected) dismissStatusToast(toast);
       if (current()) setBusy(false);
     }
   };
@@ -1706,6 +1721,25 @@ export function MobileApp() {
   const pairedConnections = client.connection
     ? [client.connection, ...savedHosts.filter((item) => item.endpoint !== connectionKey)]
     : savedHosts;
+  // Device chips keep their paired order instead of moving the active device first.
+  const deviceConnections = client.connection && savedHosts.some((item) => item.endpoint === connectionKey)
+    ? savedHosts.map((item) => item.endpoint === connectionKey ? client.connection! : item)
+    : pairedConnections;
+  const homeOverview = view === "home" && !homeProject && !allProjectsPage;
+  const remoteHosts = useMobileHostDirectory(client, pairedConnections, connectionKey,
+    homeScope === "all" && homeOverview && connected && foreground && !pageOverlayOpen);
+  const onRemoteSession = useStableCallback((endpoint: string, id: string, owner: HostProject) =>
+    switchHost(endpoint, (items) => {
+      const target = items.find((item) => item.id === owner.id);
+      if (!target) return;
+      void openProject(target);
+      void openSession(id, target.id);
+    }));
+  const onRemoteProject = useStableCallback((endpoint: string, owner: HostProject) =>
+    switchHost(endpoint, (items) => {
+      const target = items.find((item) => item.id === owner.id);
+      if (target) openHome(target);
+    }));
   const forgetConnection = async (endpoint: string) => {
     if (endpoint === client.connection?.endpoint) return disconnectConnection(true);
     try {
@@ -1807,6 +1841,9 @@ export function MobileApp() {
   };
   const projectsUnavailable = projectListState === "failed" || hostStatus.state === "failed" || hostStatus.state === "disconnected";
   const projectsPending = projectListState === "loading" && !projectsUnavailable;
+  // An unreachable device keeps Home's device row with a centered retry state.
+  const homeUnavailable = view === "home" && !homeProject && !allProjectsPage && !!client.connection &&
+    !(hostScopeReady && projects.length) && (projectsUnavailable || projectsPending);
   return (
     <MobileOverlayHostContext.Provider value={overlayHost}>
     <div
@@ -1986,7 +2023,7 @@ export function MobileApp() {
 
       <div className="mobile-notices">
       {(error || hostError || pollError || hostStatus.state === "failed") &&
-        !addingConnection && (
+        !addingConnection && !homeUnavailable && (
           <div className="mobile-error" role="alert">
             <span>
               {error ||
@@ -2155,6 +2192,31 @@ export function MobileApp() {
             }
           }}
           onAddProject={openAddProject}
+          devices={
+            <MobileDeviceChips
+              connections={deviceConnections}
+              activeId={connectionKey}
+              status={hostStatus}
+              scope={homeScope}
+              probing={homeOverview && foreground && !pageOverlayOpen}
+              disabled={pairing}
+              probe={probeHost}
+              onScope={setHomeScope}
+              onSwitch={switchHost}
+            />
+          }
+          unavailable={homeUnavailable ? (
+            <MobileHostUnavailable
+              failed={projectsUnavailable}
+              retrying={busy || hostStatus.state === "reconnecting"}
+              lastOnline={loadLastOnline(connectionKey)}
+              now={now}
+              onRetry={() => void reconnect(true)}
+            />
+          ) : undefined}
+          remote={remoteHosts}
+          onRemoteSession={onRemoteSession}
+          onRemoteProject={onRemoteProject}
         />
       ) : (
         <main className="mobile-chat" inert={drawerOpen || pageOverlayOpen || hostPickerOpen}>

@@ -371,6 +371,15 @@ export class MobileClient {
     }
   }
 
+  /** Read another paired device's projects without touching the active caches. */
+  peekProjects(connection: Connection): Promise<HostProject[]> {
+    return this.requestWith<HostProject[]>({ ...connection }, "projects.list", {});
+  }
+  /** Read another paired device's conversations without touching the active caches. */
+  peekSessions(connection: Connection, projectId: string): Promise<HostSessionSummary[]> {
+    return this.requestWith<HostSessionSummary[]>({ ...connection }, "sessions.list", { projectId });
+  }
+
   async restore(): Promise<boolean> {
     const saved = await this.storage.get("connection");
     if (!saved) return false;

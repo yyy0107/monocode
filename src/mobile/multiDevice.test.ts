@@ -183,7 +183,9 @@ it("clears the previous device while verification is pending, then replaces list
   await act(async () => button("Switch to Device B").click());
   expect(fixture.client!.connection?.environmentId).toBe("b");
   expect(node.querySelectorAll('[data-session-id="shared-session"]')).toHaveLength(0);
-  expect(list().textContent).toContain("Loading projects…");
+  expect(list().textContent).toContain("Connecting…");
+  expect(document.querySelector('.status-toast[data-tone="loading"]')).toBeNull();
+  expect(list().querySelector(".mobile-list-skeleton")).toBeNull();
   expect(list().textContent).not.toContain("No conversations yet");
   await act(async () => verifying.resolve(respond(b.endpoint, { method: "environment.describe" })));
   expect(list().textContent).toContain("Device B conversation");
@@ -201,7 +203,7 @@ it("keeps the failed device selected and the picker usable, then refreshes autom
     return respond(endpoint, input);
   });
   await switchTo("Device B");
-  expect(list().textContent).toContain("Couldn’t load projects");
+  expect(list().textContent).toContain("Couldn’t connect");
   expect(list().textContent).not.toContain("No conversations yet");
   expect(node.textContent).not.toContain("Device A conversation");
   await picker();
@@ -225,9 +227,15 @@ it("reloads projects on manual reconnect after the selected device's project req
     return respond(endpoint, input);
   });
   await switchTo("Device B");
-  expect(list().textContent).toContain("Couldn’t load projects");
+  expect(list().textContent).toContain("Couldn’t connect");
   failProjects = false;
-  await act(async () => button("Reconnect").click());
+  const verifying = deferred<unknown>();
+  fixture.request.mockImplementation((endpoint, input) => endpoint === b.endpoint && input.method === "environment.describe"
+    ? verifying.promise : respond(endpoint, input));
+  await act(async () => button("Retry").click());
+  expect(button("Retry").disabled).toBe(true);
+  expect(document.querySelector('.status-toast[data-tone="loading"]')).toBeNull();
+  await act(async () => verifying.resolve(respond(b.endpoint, { method: "environment.describe" })));
   expect(list().textContent).toContain("Device B conversation");
 });
 
@@ -266,8 +274,16 @@ it("opens the selected device's error state on an offline launch and can switch 
     if (endpoint === a.endpoint) throw new Error("Device A offline");
     return respond(endpoint, input);
   });
+  localStorage.setItem("monocode.mobile.lastOnline:http://a", String(new Date(2026, 8, 15, 12).getTime()));
   await mount();
-  expect(list().textContent).toContain("Couldn’t load projects");
+  expect(list().textContent).toContain("Couldn’t connect");
+  expect(list().textContent).toContain("Last online: September 15, 2026");
+  // The device row stays, and the page has no skeleton or duplicate error banner.
+  expect([...active(".mobile-device-chips")!.querySelectorAll("button")].map((chip) => chip.textContent))
+    .toEqual(["All", "Device A", "Device B"]);
+  expect(list().querySelector(".mobile-list-skeleton")).toBeNull();
+  expect(active(".mobile-error")).toBeUndefined();
+  expect(button("Retry")).toBeDefined();
   await switchTo("Device B");
   expect(list().textContent).toContain("Device B conversation");
 });
@@ -284,4 +300,28 @@ it("keeps refreshing the original device when an unresolved command prevents swi
     ? [{ ...summary("Updated A"), revision: 2 }] : respond(endpoint, input));
   await act(async () => vi.advanceTimersByTimeAsync(3_000));
   expect(list().textContent).toContain("Updated A conversation");
+});
+
+it("lists every device from Home's device row and opens another device's conversation there", async () => {
+  await mount();
+  const chips = () => [...active(".mobile-device-chips")!.querySelectorAll<HTMLButtonElement>("button")];
+  expect(chips().map((chip) => chip.textContent)).toEqual(["All", "Device A", "Device B"]);
+  expect(chips()[1].getAttribute("aria-checked")).toBe("true");
+  expect(list().textContent).not.toContain("Device B conversation");
+  await act(async () => chips()[0].click());
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  expect(localStorage.getItem("monocode.mobile.homeScope")).toBe("all");
+  expect(fixture.client!.connection?.environmentId).toBe("a");
+  const remote = [...list().querySelectorAll<HTMLButtonElement>('[data-session-id="shared-session"]')]
+    .find((row) => row.textContent?.includes("Device B conversation"))!;
+  expect(remote.querySelector(".mobile-home-session-host")!.textContent).toBe("Device B");
+  // The other device's rows never enter the active device's caches.
+  expect(fixture.client!.cachedSessions(project.id)?.map((item) => item.title)).toEqual(["Device A conversation"]);
+  await act(async () => remote.click());
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  expect(fixture.client!.connection?.environmentId).toBe("b");
+  expect(active(".mobile-header")!.textContent).toContain("Device B project");
+  expect(fixture.request).toHaveBeenCalledWith(b.endpoint, expect.objectContaining({
+    method: "sessions.sync", params: expect.objectContaining({ sessionId: "shared-session" }),
+  }));
 });

@@ -3456,5 +3456,7 @@
   "Machine disconnected": "已断开连接",
   "Reconnected": "已重新连接",
   "Adding to chat…": "正在添加到对话…",
-  "Added to chat": "已添加到对话"
+  "Added to chat": "已添加到对话",
+  "Couldn’t connect": "无法连接",
+  "Last online: {time}": "上次在线：{time}"
 }

@@ -162,10 +162,10 @@ describe("mobile home and project history", () => {
     const loadSessions = vi.fn(() => pending);
     const props = { cachedSessions, loadSessions };
     await render(props);
-    expect(ids(".mobile-home-recent")).toEqual(["pin", "latest", "older"]);
+    expect(ids(".mobile-home")).toEqual(["pin", "latest", "older"]);
     expect(node.querySelector('.mobile-list-skeleton[role="status"]')).toBeNull();
     await act(async () => reject(new Error("Offline")));
-    expect(ids(".mobile-home-recent")).toEqual(["pin", "latest", "older"]);
+    expect(ids(".mobile-home")).toEqual(["pin", "latest", "older"]);
     expect(node.querySelector('[role="alert"]')).not.toBeNull();
     act(() => root.render(null));
     await render({ ...props, projectsPage: true, loadSessions: () => new Promise(() => {}) });
@@ -361,7 +361,7 @@ describe("mobile home and project history", () => {
     const onSession = vi.fn();
     const onProject = vi.fn();
     await render({ onSession, onProject });
-    expect(ids(".mobile-home-recent")).toEqual(["pin", "new", "old"]);
+    expect(ids(".mobile-home")).toEqual(["pin", "new", "old"]);
     expect(node.textContent).not.toContain("archive");
     expect(node.querySelector(".mobile-home-projects")).toBeNull();
     act(() =>
@@ -377,6 +377,105 @@ describe("mobile home and project history", () => {
         .click(),
     );
     expect(onProject).toHaveBeenCalledExactlyOnceWith(projects[1]);
+  });
+
+  it("splits Home into projects, collapsible pins and recents, and shows only rows when filtered", async () => {
+    await render({});
+    expect(ids(".mobile-home-pinned")).toEqual(["pin"]);
+    expect(ids(".mobile-home-recent")).toEqual(["new", "old"]);
+    const projectRows = node.querySelectorAll(".mobile-home-overview-projects .mobile-home-project");
+    expect(projectRows).toHaveLength(2);
+    expect(projectRows[0].querySelector("small")).toBeNull();
+    const toggle = node.querySelector<HTMLButtonElement>(".mobile-home-pinned .mobile-home-section-toggle")!;
+    act(() => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    act(() => vi.advanceTimersByTime(400));
+    expect(ids(".mobile-home-pinned")).toEqual([]);
+    act(() => toggle.click());
+    expect(ids(".mobile-home-pinned")).toEqual(["pin"]);
+    await render({ query: "o" });
+    expect(node.querySelector(".mobile-home-overview-projects")).toBeNull();
+    expect(node.querySelector(".mobile-home-pinned")).toBeNull();
+    expect(ids(".mobile-home-recent")).toEqual(["pin", "new", "old"]);
+  });
+
+  it("collapses projects in both directions and keeps activity visible and refreshed while closed", async () => {
+    let history = [
+      session("asking", "one", 30, { status: "running", needsInput: true }),
+      session("working", "one", 20, { status: "running" }),
+    ];
+    const loadSessions = async (id: string) => id === "one" ? history : [];
+    await render({ loadSessions });
+    const section = node.querySelector(".mobile-home-overview-projects")!;
+    const toggle = section.querySelector<HTMLButtonElement>(".mobile-home-section-toggle")!;
+    const project = section.querySelector('.mobile-home-project[title="/projects/monocode"]')!;
+    expect(project.querySelector('[aria-label="Needs input"]')).not.toBeNull();
+    expect(project.querySelector('[aria-label="Working"] .mobile-spin')).not.toBeNull();
+    act(() => toggle.click());
+    expect(section.querySelector('[data-fold-state="closing"][inert]')).not.toBeNull();
+    expect(section.querySelectorAll(".mobile-home-project")).toHaveLength(2);
+    // Reversing a close keeps the same content mounted and interactive again.
+    act(() => vi.advanceTimersByTime(100));
+    act(() => toggle.click());
+    expect(section.querySelector('[data-fold-state="opening"]')).not.toBeNull();
+    expect(section.querySelector('[data-fold-state="opening"]')?.hasAttribute("inert")).toBe(false);
+    act(() => vi.advanceTimersByTime(400));
+    act(() => toggle.click());
+    act(() => vi.advanceTimersByTime(400));
+    expect(section.querySelector(".mobile-home-project")).toBeNull();
+    expect(toggle.querySelector('[aria-label="Needs input"]')).not.toBeNull();
+    expect(toggle.querySelector('[aria-label="Working"] .mobile-spin')).not.toBeNull();
+    history = [session("finished", "one", 40),
+      session("archived-work", "one", 50, { archived: true, status: "running" })];
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(toggle.querySelector(".mobile-home-project-activity")).toBeNull();
+    act(() => toggle.click());
+    expect(section.querySelector('[data-fold-state="opening"]')).not.toBeNull();
+    expect(section.querySelectorAll(".mobile-home-project")).toHaveLength(2);
+  });
+
+  it.each([false, true])("shows and searches remote projects when the active device has none (offline: %s)", async (offline) => {
+    const props = {
+      projects: [],
+      projectsUnavailable: offline,
+      unavailable: createElement("p", {}, "Couldn’t connect"),
+      remote: [{ endpoint: "http://b", name: "Laptop", failed: false,
+        projects: [{ id: "remote", name: "Remote project", cwd: "/remote" }],
+        sessions: [session("remote-conversation", "remote", 60)] }],
+    };
+    await render(props);
+    expect(node.querySelectorAll(".mobile-home-overview-projects .mobile-home-project")).toHaveLength(1);
+    expect(ids(".mobile-home-recent")).toEqual(["remote-conversation"]);
+    expect(node.textContent).not.toContain("Couldn’t connect");
+    expect(node.querySelector(".mobile-home-add")).toBeNull();
+    await render({ ...props, query: "remote-conversation" });
+    expect(ids(".mobile-home-recent")).toEqual(["remote-conversation"]);
+  });
+
+  it("lists other devices' conversations and projects with their device and opens them there", async () => {
+    const onRemoteSession = vi.fn();
+    const onRemoteProject = vi.fn();
+    const onSessionActions = vi.fn();
+    const remoteProject = { id: "one", name: "remote-app", cwd: "/srv/app" };
+    const remote = [{
+      endpoint: "http://b", name: "Laptop", failed: false,
+      projects: [remoteProject],
+      // The same id as a local conversation must stay a separate row.
+      sessions: [session("new", "one", 60), session("far", "one", 55)],
+    }];
+    await render({ remote, onRemoteSession, onRemoteProject, onSessionActions });
+    const rows = [...node.querySelectorAll<HTMLButtonElement>(".mobile-home-recent [data-session-id]")];
+    expect(rows.map((row) => row.getAttribute("data-session-id"))).toEqual(["new", "far", "new", "old"]);
+    expect(rows[1].querySelector(".mobile-home-session-host")?.textContent).toBe("Laptop");
+    expect(rows[2].querySelector(".mobile-home-session-host")).toBeNull();
+    act(() => rows[1].click());
+    expect(onRemoteSession).toHaveBeenCalledExactlyOnceWith("http://b", "far", remoteProject);
+    act(() => { rows[1].dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })); });
+    expect(onSessionActions).not.toHaveBeenCalled();
+    const project = [...node.querySelectorAll<HTMLButtonElement>(".mobile-home-overview-projects .mobile-home-project")]
+      .find((item) => item.textContent?.includes("Laptop"))!;
+    act(() => project.click());
+    expect(onRemoteProject).toHaveBeenCalledExactlyOnceWith("http://b", remoteProject);
   });
 
   it("filters a single project using the header query and restores rows when cleared", async () => {
@@ -397,7 +496,7 @@ describe("mobile home and project history", () => {
       return defaults.loadSessions(id);
     });
     await render({ loadSessions });
-    expect(ids(".mobile-home-recent")).toEqual(["pin", "old"]);
+    expect(ids(".mobile-home")).toEqual(["pin", "old"]);
     expect(node.querySelector('[role="alert"]')?.textContent).toContain(
       "Couldn’t load sessions",
     );
@@ -406,7 +505,7 @@ describe("mobile home and project history", () => {
       node.querySelector<HTMLButtonElement>('[role="alert"] button')!.click(),
     );
     expect(node.querySelector('[role="alert"]')).toBeNull();
-    expect(ids(".mobile-home-recent")).toEqual(["pin", "new", "old"]);
+    expect(ids(".mobile-home")).toEqual(["pin", "new", "old"]);
   });
 
   it("ignores a late result from the project left behind", async () => {
@@ -432,7 +531,7 @@ describe("mobile home and project history", () => {
     await act(async () => vi.advanceTimersByTimeAsync(10_000));
     expect(loadSessions).toHaveBeenCalledTimes(2);
     act(() => setUiLanguage("zh-CN"));
-    expect(node.textContent).toContain("会话");
+    expect(node.textContent).toContain("最近");
     expect(node.textContent).not.toContain("Computer");
   });
 

@@ -48,6 +48,16 @@ export function useConnectionAppearance(
   }, [raw]);
 }
 
+/** The saved display name outside React, for lists that label many devices. */
+export function connectionDisplayName(id: string): string {
+  try {
+    const value = JSON.parse(localStorage.getItem(key(id)) || "null");
+    return typeof value?.displayName === "string" ? value.displayName : "";
+  } catch {
+    return "";
+  }
+}
+
 export function saveConnectionAppearance(
   id: string,
   value: ConnectionAppearance,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
   HostProject,
   HostSessionSummary,
@@ -7,6 +7,7 @@ import { sessionDisplayTitle } from "../features/sessions/model/session";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { useMobilePageState } from "./mobilePageState";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
+import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 import {
   Archive,
   Check,
@@ -27,6 +28,7 @@ import { MobileEmpty } from "./MobileEmpty";
 import { MobileListSkeleton } from "./MobileListSkeleton";
 import { lightImpact } from "./haptics";
 import { sortMobileProjects } from "./sessionList";
+import type { MobileRemoteHost } from "./useMobileHostDirectory";
 import {
   filterMobileSessions,
   MOBILE_SESSION_FILTER_LABELS,
@@ -45,6 +47,19 @@ const FILTER_ICONS: Record<MobileSessionFilter, typeof Check> = {
 interface History {
   sessions?: HostSessionSummary[];
   failed: boolean;
+}
+
+/** Where a conversation listed from another paired device lives. */
+interface RemoteOrigin {
+  endpoint: string;
+  name: string;
+  owner: HostProject;
+}
+
+function projectState(history: readonly HostSessionSummary[]) {
+  return history.some((session) => !session.archived && session.needsInput)
+    ? "input"
+    : history.some((session) => !session.archived && session.status === "running") ? "running" : "idle";
 }
 
 /** The same list surface serves Home, All projects and a single project. */
@@ -71,6 +86,11 @@ export function MobileHome({
   onSessionActions,
   sessionActionsId,
   refreshKey = 0,
+  devices,
+  unavailable,
+  remote,
+  onRemoteSession,
+  onRemoteProject,
 }: {
   projects: HostProject[];
   project?: HostProject;
@@ -95,6 +115,14 @@ export function MobileHome({
   onSessionActions?: (session: HostSessionSummary, trigger: HTMLButtonElement, point?: MobileSheetPoint) => void;
   sessionActionsId?: string;
   refreshKey?: number;
+  /** Home's device row, shown above its sections. */
+  devices?: ReactNode;
+  /** Replaces Home's empty lists while its device is unreachable or connecting. */
+  unavailable?: ReactNode;
+  /** Other paired devices' lists while Home shows every device. */
+  remote?: readonly MobileRemoteHost[];
+  onRemoteSession?: (endpoint: string, id: string, project: HostProject) => void;
+  onRemoteProject?: (endpoint: string, project: HostProject) => void;
 }) {
   const { t } = useTranslation();
   const visible = useSurfaceVisibility();
@@ -119,6 +147,9 @@ export function MobileHome({
   const root = !project && !projectsPage;
   // Only Home offers status filters; a project page always lists everything.
   const activeFilter = root ? filter : "all";
+  const [projectsOpen, setProjectsOpen] = useMobilePageState("projectsOpen", true);
+  const [pinnedOpen, setPinnedOpen] = useMobilePageState("pinnedOpen", true);
+  const remoteHosts = useMemo(() => root ? remote ?? [] : [], [root, remote]);
   const [retry, setRetry] = useState(0);
   const hold = useRef<{ pointerId: number; x: number; y: number; timer: ReturnType<typeof setTimeout>; moved: boolean; opened: boolean } | undefined>(undefined);
   const suppressClick = useRef<string | undefined>(undefined);
@@ -188,21 +219,52 @@ export function MobileHome({
     !needle || `${item.name} ${item.cwd}`.toLocaleLowerCase().includes(needle),
   ), [orderedProjects, needle]);
   const ownerById = useMemo(() => new Map(owners.map((item) => [item.id, item])), [owners]);
+  const origins = useMemo(() => {
+    const result = new Map<HostSessionSummary, RemoteOrigin>();
+    for (const host of remoteHosts) {
+      const hostOwners = new Map(host.projects.map((item) => [item.id, item]));
+      for (const item of host.sessions) {
+        const owner = hostOwners.get(item.projectId);
+        if (owner) result.set(item, { endpoint: host.endpoint, name: host.name, owner });
+      }
+    }
+    return result;
+  }, [remoteHosts]);
+  const remoteProjects = useMemo(() => remoteHosts.flatMap((host) =>
+    sortMobileProjects(host.projects, (id) => host.sessions.filter((item) => item.projectId === id))
+      .filter((item) => !needle || `${item.name} ${item.cwd}`.toLocaleLowerCase().includes(needle))
+      .map((item) => ({ host, project: item })),
+  ), [remoteHosts, needle]);
   const sessions = useMemo(() => filterMobileSessions(
-    owners.flatMap((item) => histories[item.id]?.sessions ?? []),
+    [...owners.flatMap((item) => histories[item.id]?.sessions ?? []), ...origins.keys()],
     activeFilter,
-  ).filter((item) => ownerById.has(item.projectId)), [owners, ownerById, histories, activeFilter]);
+  ).filter((item) => origins.has(item) || ownerById.has(item.projectId)), [owners, ownerById, origins, histories, activeFilter]);
   const ordered = useMemo(() => sessions.filter(
       (item) =>
         !needle ||
-        `${sessionDisplayTitle(item.title, item.harness) || t("Untitled conversation")} ${ownerById.get(item.projectId)?.name}`
+        `${sessionDisplayTitle(item.title, item.harness) || t("Untitled conversation")} ${(origins.get(item)?.owner ?? ownerById.get(item.projectId))?.name}`
           .toLocaleLowerCase()
           .includes(needle),
-    ), [sessions, needle, ownerById, t]);
+    ), [sessions, needle, ownerById, origins, t]);
+  // Home's unfiltered overview splits pinned conversations into their own section.
+  const overview = root && !needle && activeFilter === "all";
+  const pinned = useMemo(() => overview ? ordered.filter((item) => item.pinned) : [], [overview, ordered]);
+  const recent = useMemo(() => overview ? ordered.filter((item) => !item.pinned) : ordered, [overview, ordered]);
   const loading = owners.some((item) => !histories[item.id]);
   const projectsLoading = loading && !owners.some((item) => histories[item.id]?.sessions);
   const failed = owners.filter((item) => histories[item.id]?.failed);
   const row = (item: HostSessionSummary) => {
+    const origin = origins.get(item);
+    if (origin) return (
+      <MobileSessionRow
+        key={`${origin.endpoint}:${item.id}`}
+        session={item}
+        now={now}
+        unread={false}
+        hostName={origin.name}
+        onClick={() => onRemoteSession?.(origin.endpoint, item.id, origin.owner)}
+      />
+    );
     const owner = ownerById.get(item.projectId)!;
     return (
       <MobileSessionRow
@@ -271,6 +333,64 @@ export function MobileHome({
     );
   };
 
+  const projectActivity = (history: readonly HostSessionSummary[], combined = false) => {
+    const state = projectState(history);
+    const running = state === "running" || (combined && history.some((session) =>
+      !session.archived && !session.needsInput && session.status === "running"));
+    if (state === "idle") return null;
+    return (
+      <span className="mobile-home-project-activity">
+        {state === "input" && (
+          <span className="mobile-home-project-state" role="img" aria-label={t("Needs input")}>
+            <TriangleAlert size={18} aria-hidden="true" />
+          </span>
+        )}
+        {running && (
+          <span className="mobile-home-project-state" role="img" aria-label={t("Working")}>
+            <LoaderCircle size={18} className="mobile-spin" aria-hidden="true" />
+          </span>
+        )}
+      </span>
+    );
+  };
+  const projectRow = (
+    item: HostProject,
+    history: readonly HostSessionSummary[],
+    onClick: () => void,
+    overview?: { key: string; hostName?: string },
+  ) => {
+    const state = projectState(history);
+    return (
+      <button
+        type="button"
+        className="mobile-home-project"
+        key={overview?.key ?? item.id}
+        title={item.cwd}
+        data-state={state}
+        data-compact={overview ? true : undefined}
+        onClick={onClick}
+      >
+        <Folder size={23} />
+        <span>
+          <strong>{item.name}</strong>
+          {!overview && <small>{item.cwd}</small>}
+        </span>
+        {overview?.hostName && <small className="mobile-home-project-host">{overview.hostName}</small>}
+        {projectActivity(history, !!overview)}
+      </button>
+    );
+  };
+  const overviewProjects = [
+    ...matchingProjects.map((item) => ({ key: item.id, render: () =>
+      projectRow(item, histories[item.id]?.sessions ?? [], () => onProject(item), { key: item.id }) })),
+    ...remoteProjects.map(({ host, project: item }) => {
+      const key = `${host.endpoint}:${item.id}`;
+      return { key, render: () => projectRow(item, host.sessions.filter((session) => session.projectId === item.id),
+        () => onRemoteProject?.(host.endpoint, item), { key, hostName: host.name }) };
+    }),
+  ];
+  const hasProjects = !!projects.length || remoteHosts.some((host) => host.projects.length > 0);
+
   return (
     <main
       className="mobile-home"
@@ -279,12 +399,14 @@ export function MobileHome({
       aria-hidden={inactive || undefined}
     >
       <div className="mobile-home-scroll" key={project?.id ?? "all"}>
-        {projectsUnavailable && !projects.length ? (
+        {root && devices}
+        {root && unavailable && !hasProjects && (projectsUnavailable || projectsPending) ? unavailable
+          : projectsUnavailable && !hasProjects ? (
           <p className="mobile-home-empty" role="status">{t("Couldn’t load projects")}</p>
-        ) : projectsPending && !projects.length && (
+        ) : projectsPending && !hasProjects && (
           <MobileListSkeleton kind="projects" label={t("Loading projects…")} />
         )}
-        {root && !needle && !projects.length && !projectsPending && !projectsUnavailable && (
+        {root && !needle && !hasProjects && !projectsPending && !projectsUnavailable && (
           <section className="mobile-home-projects" aria-label={t("Projects")}>
             <MobileEmpty icon={<Folder size={40} />} title={t("Projects")}
               action={<button type="button" className="mobile-button mobile-home-add"
@@ -299,36 +421,8 @@ export function MobileHome({
           <section className="mobile-home-projects" aria-label={t("Projects")}>
             {projectsLoading ? (
               <MobileListSkeleton kind="projects" rows={Math.min(matchingProjects.length || 5, 5)} label={t("Loading conversations…")} />
-            ) : <MobileListPreview key={needle} stateKey={needle ? undefined : "projects"} initialLimit={50} items={matchingProjects} renderItem={(item) => {
-              const history = histories[item.id]?.sessions ?? [];
-              const state = history.some((session) => !session.archived && session.needsInput)
-                ? "input"
-                : history.some((session) => !session.archived && session.status === "running") ? "running" : "idle";
-              return (
-                <button
-                  type="button"
-                  className="mobile-home-project"
-                  key={item.id}
-                  title={item.cwd}
-                  data-state={state}
-                  onClick={() => onProject(item)}
-                >
-                  <Folder size={23} />
-                  <span>
-                    <strong>{item.name}</strong>
-                    <small>{item.cwd}</small>
-                  </span>
-                  {state !== "idle" && (
-                    <span className="mobile-home-project-state" role="img"
-                      aria-label={t(state === "running" ? "Working" : "Needs input")}>
-                      {state === "running"
-                        ? <LoaderCircle size={18} className="mobile-spin" aria-hidden="true" />
-                        : <TriangleAlert size={18} aria-hidden="true" />}
-                    </span>
-                  )}
-                </button>
-              );
-            }} />}
+            ) : <MobileListPreview key={needle} stateKey={needle ? undefined : "projects"} initialLimit={50} items={matchingProjects} renderItem={(item) =>
+              projectRow(item, histories[item.id]?.sessions ?? [], () => onProject(item))} />}
             {!matchingProjects.length && !projectsPending && !projectsUnavailable && !projectsLoading && (
               <MobileEmpty icon={needle ? <Search size={40} /> : <Folder size={40} />}
                 title={t(needle ? "No matching projects" : "Projects")}>
@@ -337,10 +431,40 @@ export function MobileHome({
             )}
           </section>
         )}
-        {!projectsPage && !!projects.length && <section className="mobile-home-recent" aria-label={t("Sessions")}>
+        {overview && !!overviewProjects.length && (
+          <section className="mobile-home-overview-projects" aria-label={t("Projects")}>
+            <h2 className="mobile-home-section-head">
+              <button type="button" className="mobile-home-section-toggle" aria-expanded={projectsOpen}
+                onClick={() => setProjectsOpen((open) => !open)}>
+                <span>{t("Projects")}</span>
+                {projectActivity(sessions, true)}
+                <ChevronDown size={18} aria-hidden="true" />
+              </button>
+            </h2>
+            <AnimatedCollapse expanded={projectsOpen} motion="height">
+              <MobileListPreview stateKey="home-projects" initialLimit={5} items={overviewProjects}
+                renderItem={(item) => item.render()} />
+            </AnimatedCollapse>
+          </section>
+        )}
+        {overview && !!pinned.length && (
+          <section className="mobile-home-pinned" aria-label={t("Pinned")}>
+            <h2 className="mobile-home-section-head">
+              <button type="button" className="mobile-home-section-toggle" aria-expanded={pinnedOpen}
+                onClick={() => setPinnedOpen((open) => !open)}>
+                <span>{t("Pinned")}</span>
+                <ChevronDown size={18} aria-hidden="true" />
+              </button>
+            </h2>
+            <AnimatedCollapse expanded={pinnedOpen} motion="height">
+              {pinned.map(row)}
+            </AnimatedCollapse>
+          </section>
+        )}
+        {!projectsPage && hasProjects && <section className="mobile-home-recent" aria-label={t(root ? "Recents" : "Sessions")}>
           {root && (
             <div className="mobile-home-section-head">
-              <h2>{t("Sessions")}</h2>
+              <h2>{t("Recents")}</h2>
               <button
                 ref={filterTrigger}
                 type="button"
@@ -354,8 +478,8 @@ export function MobileHome({
               </button>
             </div>
           )}
-          <MobileListPreview key={`${needle}:${activeFilter}`} stateKey={needle ? undefined : `recent:${activeFilter}`} initialLimit={20} items={ordered} renderItem={row} />
-          {projectsLoading && (
+          <MobileListPreview key={`${needle}:${activeFilter}`} stateKey={needle ? undefined : `recent:${activeFilter}`} initialLimit={20} items={recent} renderItem={row} />
+          {projectsLoading && !ordered.length && (
             <MobileListSkeleton kind="sessions" label={t("Loading conversations…")} />
           )}
           {!ordered.length && !loading && !failed.length && !projectsPending && !projectsUnavailable && (

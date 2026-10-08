@@ -12,11 +12,14 @@ export function MobileSessionRow({
   session,
   now,
   unread,
+  hostName,
   ...button
 }: {
   session: HostSessionSummary;
   now: number;
   unread: boolean;
+  /** The paired device a row comes from when Home lists every device. */
+  hostName?: string;
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   const { language, t } = useTranslation();
   const state =
@@ -40,6 +43,7 @@ export function MobileSessionRow({
       {session.pinned && (
         <Pin size={14} className="mobile-home-session-pin" aria-label={t("Pinned")} />
       )}
+      {hostName && <small className="mobile-home-session-host">{hostName}</small>}
       {state === "running" ? (
         <span className="mobile-home-session-state" role="img" aria-label={t("Working")}>
           <LoaderCircle size={18} className="mobile-spin" aria-hidden="true" />
