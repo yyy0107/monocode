@@ -567,6 +567,53 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// Host replays the same file in host/checkout-guards.test.ts.
+    #[test]
+    fn checkout_rules_match_the_shared_host_conformance_cases() {
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("../../host/checkout-guards.conformance.json"))
+                .unwrap();
+        for case in cases["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let root = std::env::temp_dir().join(format!(
+                "monocode-checkout-conformance-{}",
+                uuid::Uuid::new_v4()
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            let database = root.join("host.db");
+            let writer = rusqlite::Connection::open(&database).unwrap();
+            resource_connection(&database).unwrap();
+            for (index, row) in case["rows"].as_array().unwrap().iter().enumerate() {
+                let owner = match row["owner"].as_str().unwrap() {
+                    "live" => std::process::id(),
+                    _ => 0,
+                };
+                writer
+                    .execute(
+                        "INSERT INTO checkout_resources VALUES (?1, ?2, ?3, ?4)",
+                        rusqlite::params![
+                            format!("row:{index}"),
+                            resource_path(&root.join(row["path"].as_str().unwrap())),
+                            row["kind"].as_str().unwrap(),
+                            owner
+                        ],
+                    )
+                    .unwrap();
+            }
+            let request = &case["request"];
+            let allowed = acquire_resource_kind(
+                &database,
+                "request",
+                &root.join(request["path"].as_str().unwrap()),
+                request["kind"].as_str().unwrap(),
+            )
+            .is_ok();
+            assert_eq!(allowed, case["allowed"].as_bool().unwrap(), "{name}");
+            drop(writer);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
     #[test]
     fn dead_resource_owners_are_recovered_without_expiring_live_buffers() {
         let root =

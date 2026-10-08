@@ -56,7 +56,7 @@
 - 在 Windows/macOS 真机上验证 supervisor 和桌面端（Linux 已运行测试；Windows 只通过了交叉 `cargo clippy`）。
 
 **存储与 Git/文件浏览：评估后暂不迁移**
-- 共享的只有 `checkout_resources` 租约表（TS 在 `host/checkout-guards.ts`，Rust 在 `src-tauri/src/local_host.rs`）。Host 侧的 `claimCheckoutResource` 等接口是**同步**的，并且在 Host 自己的数据库事务里调用（`engine.ts`、`orchestration-workspace.ts`、`workspace-commands.ts`）。改成走异步的 sidecar 必须改这些上层文件，和“上层不动”的约束冲突；而只给桌面端抽 crate 没有第二个使用方。等 Host 侧有异步化的理由时再做。
+- 共享的只有 `checkout_resources` 租约表（TS 在 `host/checkout-guards.ts`，Rust 在 `src-tauri/src/local_host.rs`）。Host 侧的 `claimCheckoutResource` 等接口是**同步**的，并且在 Host 自己的数据库事务里调用（`engine.ts`、`orchestration-workspace.ts`、`workspace-commands.ts`）。改成走异步的 sidecar 必须改这些上层文件，和“上层不动”的约束冲突；而只给桌面端抽 crate 没有第二个使用方。等 Host 侧有异步化的理由时再做。两份实现改由共享场景文件 `host/checkout-guards.conformance.json` 约束：`host/checkout-guards.test.ts` 和 `src-tauri/src/local_host.rs` 的测试都逐条回放，任何一边规则走样都会让测试失败。
 - `workspace.ts`、`browse.ts`、`git-worktrees.ts` 的重活已经是 `git ls-files`/`git grep`/`git worktree` 子进程，非 Git 目录的扫描也有 5000 个文件的上限。用 Rust 重写只是把同样的子进程调用挪到另一个进程，没有可靠性或性能收益。按“按需替换”的原则，等阶段 2 的测量显示这里是热点再动。
 
 ### 阶段 2：内存与性能

@@ -15,6 +15,7 @@ import {
   withCheckoutIntegration,
 } from "./checkout-guards";
 import { HostStore } from "./store";
+import conformance from "./checkout-guards.conformance.json";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -243,3 +244,22 @@ it.skipIf(process.platform === "win32")(
     release();
   },
 );
+
+// The desktop replays the same file in src-tauri/src/local_host.rs.
+it.each(conformance.cases)("shares the desktop rule: $name", async ({ rows, request, allowed }) => {
+  const f = setup();
+  rows.forEach((row, index) =>
+    f.store.db
+      .prepare("INSERT INTO checkout_resources VALUES (?, ?, ?, ?)")
+      .run(`row:${index}`, checkoutPath(join(f.root, row.path)), row.kind,
+        row.owner === "live" ? process.pid : 0));
+  const path = join(f.root, request.path);
+  const claim = async () => {
+    if (request.kind === "resource") claimCheckoutResource(f.store, "request", path)();
+    else if (request.kind === "writing") claimCheckoutWrite(f.store, "request", path)();
+    else if (request.kind === "integrating") await withCheckoutIntegration(f.store, [path], async () => {});
+    else await withCheckoutRemoval(f.store, path, async () => {});
+  };
+  if (allowed) await expect(claim()).resolves.toBeUndefined();
+  else await expect(claim()).rejects.toThrow();
+});
