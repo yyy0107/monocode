@@ -897,7 +897,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   transition: background 140ms ease;
 }
 .mobile-assistant-select-trigger:active:not(:disabled) {
-  background: var(--mobile-fill);
+  --mobile-press-color: var(--mobile-fill);
 }
 .mobile-assistant-select-trigger:disabled {
   opacity: 0.5;

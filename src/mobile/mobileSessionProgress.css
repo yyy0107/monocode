@@ -148,5 +148,5 @@
 }
 .mobile-progress-more:active,
 button.mobile-progress-row:active {
-  background: var(--color-selection);
+  --mobile-press-color: var(--color-selection);
 }

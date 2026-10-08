@@ -50,7 +50,7 @@ html.theme-light .mobile-git-counts [data-kind="del"] {
 }
 .mobile-git-refresh:active,
 .mobile-git-file-row:active {
-  background: var(--color-selection);
+  --mobile-press-color: var(--color-selection);
 }
 .mobile-git-refresh:disabled,
 .mobile-git-file-row:disabled {
