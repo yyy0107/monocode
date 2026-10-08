@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   installPendingUpdate,
   probeForUpdate,
@@ -63,12 +63,17 @@ export function useUpdateStatus() {
     };
   }, []);
 
-  return {
-    snapshot,
-    setSnapshot,
-    actionable: isUpdateActionable(snapshot),
-    install,
-  };
+  // Activity bars memoize on this object; a fresh one each render rebuilt the
+  // whole sidebar on every workspace update.
+  return useMemo(
+    () => ({
+      snapshot,
+      setSnapshot,
+      actionable: isUpdateActionable(snapshot),
+      install,
+    }),
+    [snapshot, install],
+  );
 }
 
 export type UpdateStatus = ReturnType<typeof useUpdateStatus>;

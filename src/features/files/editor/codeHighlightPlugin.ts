@@ -6,10 +6,15 @@ import type {
 import {
   bundledLanguages,
   bundledLanguagesInfo,
-  createHighlighter,
   type BundledLanguage,
 } from "shiki";
-import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+import {
+  createCodeTokenizer,
+  themeName,
+  type CodeTokenizeRequest,
+  type CodeTokenizeResponse,
+  type CodeTokenizer,
+} from "./codeTokenizer";
 
 /**
  * `@streamdown/code` keeps every token result in a module-level Map that is
@@ -27,7 +32,6 @@ const DEFAULT_THEMES: [ThemeInput, ThemeInput] = ["github-light", "github-dark"]
 const MAX_ENTRIES = 100;
 const MAX_CACHED_CHARS = 500_000;
 
-type Highlighter = Awaited<ReturnType<typeof createHighlighter>>;
 type HighlightCallback = (result: HighlightResult) => void;
 
 export type BoundedCodePlugin = CodeHighlighterPlugin & {
@@ -35,7 +39,6 @@ export type BoundedCodePlugin = CodeHighlighterPlugin & {
   cachedResults(): number;
 };
 
-const engine = createJavaScriptRegexEngine({ forgiving: true });
 const aliases: Record<string, string> = Object.fromEntries(
   bundledLanguagesInfo.flatMap((info) =>
     (info.aliases ?? []).map((alias) => [alias, info.id]),
@@ -48,35 +51,22 @@ function normalizeLanguage(language: string): string {
   return aliases[lower] ?? lower;
 }
 
-function themeName(theme: ThemeInput): string {
-  return typeof theme === "string" ? theme : (theme.name ?? "custom");
-}
-
 export function createBoundedCodePlugin(
   options: {
     themes?: [ThemeInput, ThemeInput];
     maxEntries?: number;
     maxChars?: number;
+    /** Where grammars load and code is tokenized; the main thread by default. */
+    tokenize?: CodeTokenizer;
   } = {},
 ): BoundedCodePlugin {
   const themes = options.themes ?? DEFAULT_THEMES;
   const maxEntries = options.maxEntries ?? MAX_ENTRIES;
   const maxChars = options.maxChars ?? MAX_CACHED_CHARS;
-  const highlighters = new Map<string, Promise<Highlighter>>();
+  const tokenize = options.tokenize ?? createCodeTokenizer();
   const results = new Map<string, HighlightResult>();
   const pending = new Map<string, Set<HighlightCallback>>();
   let cachedChars = 0;
-
-  const highlighterFor = (pair: [ThemeInput, ThemeInput]) => {
-    const key = `${themeName(pair[0])}\u0000${themeName(pair[1])}`;
-    let highlighter = highlighters.get(key);
-    if (!highlighter) {
-      highlighter = createHighlighter({ themes: pair, langs: [], engine });
-      highlighters.set(key, highlighter);
-      highlighter.catch(() => highlighters.delete(key));
-    }
-    return highlighter;
-  };
 
   const remember = (key: string, result: HighlightResult) => {
     if (results.delete(key)) cachedChars -= key.length;
@@ -116,18 +106,8 @@ export function createBoundedCodePlugin(
         return null;
       }
       pending.set(key, new Set(callback ? [callback] : []));
-      void highlighterFor(pair)
-        .then(async (highlighter) => {
-          if (supported.has(lang) && !highlighter.getLoadedLanguages().includes(lang)) {
-            await highlighter.loadLanguage(lang as BundledLanguage);
-          }
-          const usable = highlighter.getLoadedLanguages().includes(lang)
-            ? lang
-            : "text";
-          const result = highlighter.codeToTokens(code, {
-            lang: usable as BundledLanguage,
-            themes: { light: names[0], dark: names[1] },
-          });
+      void tokenize(code, lang, pair)
+        .then((result) => {
           remember(key, result);
           const callbacks = pending.get(key);
           pending.delete(key);
@@ -142,4 +122,71 @@ export function createBoundedCodePlugin(
   };
 }
 
-export const boundedCode = createBoundedCodePlugin();
+/**
+ * Tokenizes in a worker so grammar compilation and long blocks never hold the
+ * window; a worker that cannot start or fails hands its work to the main
+ * thread instead of leaving blocks unhighlighted.
+ */
+function createWorkerTokenizer(): CodeTokenizer {
+  const fallback = createCodeTokenizer();
+  let worker: Worker | null | undefined;
+  let nextId = 0;
+  const waiting = new Map<
+    number,
+    {
+      request: CodeTokenizeRequest;
+      resolve: (result: HighlightResult) => void;
+      reject: (error: unknown) => void;
+    }
+  >();
+
+  const retire = () => {
+    worker?.terminate();
+    worker = null;
+    for (const { request, resolve, reject } of waiting.values()) {
+      fallback(request.code, request.lang, request.themes).then(resolve, reject);
+    }
+    waiting.clear();
+  };
+
+  const start = (): Worker | null => {
+    if (worker !== undefined) return worker;
+    try {
+      worker = new Worker(new URL("./codeHighlight.worker.ts", import.meta.url), {
+        type: "module",
+      });
+    } catch {
+      worker = null;
+      return worker;
+    }
+    worker.onmessage = (event: MessageEvent<CodeTokenizeResponse>) => {
+      const entry = waiting.get(event.data.id);
+      if (!entry) return;
+      waiting.delete(event.data.id);
+      if ("result" in event.data) entry.resolve(event.data.result);
+      else entry.reject(new Error(event.data.error));
+    };
+    worker.onerror = retire;
+    return worker;
+  };
+
+  return (code, lang, themes) => {
+    const active = start();
+    if (!active) return fallback(code, lang, themes);
+    return new Promise((resolve, reject) => {
+      const request = { id: nextId++, code, lang, themes };
+      waiting.set(request.id, { request, resolve, reject });
+      try {
+        active.postMessage(request);
+      } catch {
+        // A theme that cannot be cloned is tokenized here instead.
+        waiting.delete(request.id);
+        fallback(code, lang, themes).then(resolve, reject);
+      }
+    });
+  };
+}
+
+export const boundedCode = createBoundedCodePlugin({
+  tokenize: typeof Worker === "undefined" ? undefined : createWorkerTokenizer(),
+});

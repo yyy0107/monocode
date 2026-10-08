@@ -69,10 +69,27 @@ function isSeenMap(value: unknown): value is SeenMap {
   );
 }
 
+// Every inbox card asks whether it is unseen; parse the stored map once per
+// distinct value instead of once per card. Another window's write changes the
+// raw string, so the cache never serves a stale map.
+let parsedSeen: { raw: string; store: SeenStore } | null = null;
+
 function loadInboxSeenStore(): SeenStore {
+  let raw: string | null;
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return { seeded: false, items: {} };
+    raw = localStorage.getItem(KEY);
+  } catch {
+    return { seeded: false, items: {} };
+  }
+  if (!raw) return { seeded: false, items: {} };
+  if (parsedSeen?.raw === raw) return parsedSeen.store;
+  const store = parseInboxSeenStore(raw);
+  parsedSeen = { raw, store };
+  return store;
+}
+
+function parseInboxSeenStore(raw: string): SeenStore {
+  try {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return { seeded: false, items: {} };

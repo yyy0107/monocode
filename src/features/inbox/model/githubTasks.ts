@@ -189,6 +189,12 @@ let inboxCacheGeneration = 0;
 const inboxListInflight = new Map<string, Promise<InboxListResult>>();
 const repoByPath = new Map<string, string>();
 const repositoriesByPath = new Map<string, string[]>();
+/**
+ * Projects without a GitHub remote fail discovery. Remember that for a while,
+ * or every inbox refresh asks the backend again for each of them.
+ */
+const REPOSITORY_FAILURE_TTL_MS = 5 * 60_000;
+const repositoryFailures = new Map<string, { at: number; error: unknown }>();
 const workItemByKey = new Map<string, GithubWorkItem>();
 const workItemInflight = new Map<string, Promise<GithubWorkItem>>();
 const detailsByKey = new Map<string, GithubWorkItemDetails>();
@@ -217,6 +223,7 @@ export function clearInboxCache() {
   inboxListInflight.clear();
   repoByPath.clear();
   repositoriesByPath.clear();
+  repositoryFailures.clear();
   workItemByKey.clear();
   workItemInflight.clear();
   detailsByKey.clear();
@@ -300,12 +307,21 @@ export async function githubRepositories(cwd: string): Promise<string[]> {
   const key = normalizeProjectPath(cwd);
   const cached = repositoriesByPath.get(key);
   if (cached) return cached;
-  const repositories = await invoke<string[]>("git_github_repositories", {
-    cwd,
-  });
-  if (repositories.length === 0) {
-    throw new Error("GitHub did not return a repository");
+  const failure = repositoryFailures.get(key);
+  if (failure && Date.now() - failure.at < REPOSITORY_FAILURE_TTL_MS) {
+    throw failure.error;
   }
+  let repositories: string[];
+  try {
+    repositories = await invoke<string[]>("git_github_repositories", { cwd });
+    if (repositories.length === 0) {
+      throw new Error("GitHub did not return a repository");
+    }
+  } catch (error) {
+    repositoryFailures.set(key, { at: Date.now(), error });
+    throw error;
+  }
+  repositoryFailures.delete(key);
   repositoriesByPath.set(key, repositories);
   repoByPath.set(key, repositories[0]!);
   return repositories;
@@ -428,13 +444,23 @@ export function formatRelativeTime(
     amount = Math.abs(value);
   }
   try {
-    return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(
-      value,
-      unit,
-    );
+    return relativeTimeFormat(locale).format(value, unit);
   } catch {
     return "";
   }
+}
+
+// Inbox cards format a time each render; building the formatter dominated it.
+const relativeTimeFormats = new Map<string, Intl.RelativeTimeFormat>();
+
+function relativeTimeFormat(locale: string | undefined): Intl.RelativeTimeFormat {
+  const key = locale ?? "";
+  let format = relativeTimeFormats.get(key);
+  if (!format) {
+    format = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+    relativeTimeFormats.set(key, format);
+  }
+  return format;
 }
 
 export function detailsCacheKey(
