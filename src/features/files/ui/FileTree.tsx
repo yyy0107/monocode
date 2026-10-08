@@ -717,8 +717,141 @@ export const FileTree = memo(function FileTree({
     openMenu({ path: cwd, isDir: true, isRoot: true }, e.clientX, e.clientY);
   };
 
+  const visibleRows = () =>
+    Array.from(
+      rootRef.current?.querySelectorAll<HTMLElement>(
+        "[data-explorer-root], [role='treeitem']",
+      ) ?? [],
+    ).filter((row) => !row.closest("[inert], [hidden], [aria-hidden='true']"));
+
+  const focusRow = (row: HTMLElement | undefined) => {
+    if (
+      !row ||
+      !row.isConnected ||
+      row.closest("[inert], [hidden], [aria-hidden='true']")
+    ) {
+      return;
+    }
+    onSelect(row.title);
+    row.focus({ preventScroll: true });
+    row.scrollIntoView?.({ block: "nearest" });
+  };
+
+  const typeahead = useRef({ text: "", at: 0 });
+
+  // VS Code-style list navigation. Rows are read from the DOM so the order
+  // always matches what's rendered, excluding retained closing disclosure content.
+  const onNavigationKey = (
+    e: ReactKeyboardEvent<HTMLDivElement>,
+    path: string,
+    isDir: boolean,
+  ): boolean => {
+    if (e.altKey || e.ctrlKey || (e.metaKey && e.key !== "ArrowDown")) {
+      return false;
+    }
+    const rows = visibleRows();
+    const index = rows.findIndex((row) => row.title === path);
+    const open = path === cwd ? rootOpen : expanded.has(path);
+    const pageSize = () => {
+      const scroller = rootRef.current?.querySelector(".overflow-y-auto");
+      const rowHeight = rows[rows.length - 1]?.offsetHeight || 28;
+      return Math.max(
+        1,
+        Math.floor((scroller?.clientHeight ?? 0) / rowHeight) - 1,
+      );
+    };
+    const step = (delta: number) =>
+      focusRow(
+        rows[
+          index < 0
+            ? delta > 0
+              ? 0
+              : rows.length - 1
+            : Math.min(rows.length - 1, Math.max(0, index + delta))
+        ],
+      );
+    const activate = (keepFocus: boolean) => {
+      onSelect(path);
+      if (isDir) {
+        toggle(path);
+        return;
+      }
+      onOpenFile(path, undefined, { exact: true });
+      if (keepFocus) {
+        const row = rows[index];
+        requestAnimationFrame(() => focusRow(row));
+      }
+    };
+
+    switch (e.key) {
+      case "ArrowDown":
+        // Cmd+Down opens, as in VS Code on macOS.
+        if (e.metaKey) activate(false);
+        else step(1);
+        return true;
+      case "ArrowUp":
+        step(-1);
+        return true;
+      case "PageDown":
+        step(pageSize());
+        return true;
+      case "PageUp":
+        step(-pageSize());
+        return true;
+      case "Home":
+        focusRow(rows[0]);
+        return true;
+      case "End":
+        focusRow(rows[rows.length - 1]);
+        return true;
+      case "ArrowRight":
+        if (!isDir) return true;
+        if (!open) toggle(path);
+        else if (rows[index + 1] && parentPath(rows[index + 1].title) === path)
+          focusRow(rows[index + 1]);
+        return true;
+      case "ArrowLeft":
+        if (isDir && open) toggle(path);
+        else if (path !== cwd)
+          focusRow(rows.find((row) => row.title === parentPath(path)));
+        return true;
+      case "Enter":
+        activate(false);
+        return true;
+      case " ":
+        activate(true);
+        return true;
+    }
+
+    // Type a name prefix to jump to the next matching row.
+    if (e.metaKey || e.key.length !== 1 || e.key === " ") return false;
+    const now = performance.now();
+    const buffer = typeahead.current;
+    buffer.text = now - buffer.at > 700 ? e.key : buffer.text + e.key;
+    buffer.at = now;
+    // Repeating one letter cycles through its matches instead of narrowing.
+    const lower = buffer.text.toLowerCase();
+    const cycling = [...lower].every((ch) => ch === lower[0]);
+    const needle = cycling ? lower[0] : lower;
+    const start = cycling ? index + 1 : Math.max(index, 0);
+    const ordered = [...rows.slice(start), ...rows.slice(0, start)];
+    const match = ordered.find(
+      (row) =>
+        row.title !== cwd &&
+        basename(row.title).toLowerCase().startsWith(needle),
+    );
+    if (match) focusRow(match);
+    return true;
+  };
+
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest("input")) return;
+    const target = e.target as HTMLElement;
+    if (
+      e.nativeEvent.isComposing ||
+      target.closest("input, [inert], [hidden], [aria-hidden='true']")
+    ) {
+      return;
+    }
     if (
       (e.target as HTMLElement).closest("button") &&
       !(e.target as HTMLElement).closest(
@@ -727,9 +860,17 @@ export const FileTree = memo(function FileTree({
     ) {
       return;
     }
-    const path = selectedPath ?? cwd;
+    const path =
+      target.closest<HTMLElement>("[role='treeitem'], [data-explorer-root]")
+        ?.title ??
+      selectedPath ??
+      cwd;
     const isRoot = path === cwd;
     const isDir = isDirAt(cwd, path);
+    if (onNavigationKey(e, path, isDir)) {
+      e.preventDefault();
+      return;
+    }
     const mod = e.metaKey || e.ctrlKey;
     const key = shortcutLetter(e);
     if (mod && !e.altKey && e.shiftKey && key === "c") {
@@ -953,7 +1094,7 @@ export const FileTree = memo(function FileTree({
                 e.clientY,
               );
             }}
-            className={`flex min-w-0 flex-1 items-center gap-1 h-full rounded-lg pl-2 text-left hover:bg-surface-hover ${
+            className={`flex min-w-0 flex-1 items-center gap-1 h-full rounded-lg pl-2 text-left outline-none focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-accent/40 hover:bg-surface-hover ${
               dragOverPath === cwd ? "bg-selection" : ""
             }`}
           >
@@ -1194,7 +1335,7 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
           }}
           onContextMenu={(e) => onItemContextMenu(entry, e)}
           style={{ paddingLeft: 8 + depth * 12 }}
-          className={`flex h-7 w-full cursor-default items-center gap-1 rounded-lg pr-2 text-left text-ui-base leading-none data-[explorer-dragging]:opacity-50 ${
+          className={`flex h-7 w-full cursor-default items-center gap-1 rounded-lg pr-2 text-left text-ui-base outline-none focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-accent/40 leading-none data-[explorer-dragging]:opacity-50 ${
             selected
               ? "bg-selection text-content"
               : "text-content hover:bg-surface-hover"

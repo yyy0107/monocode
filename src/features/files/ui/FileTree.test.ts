@@ -510,3 +510,154 @@ describe("FileTree starts Explorer file drags", () => {
     window.removeEventListener(EXPLORER_FILE_POINTER_DRAG_EVENT, onDrag);
   });
 });
+
+describe("FileTree keyboard navigation", () => {
+  const selected = () =>
+    container.querySelector<HTMLButtonElement>('[role="treeitem"].bg-selection')
+      ?.title;
+
+  beforeEach(async () => {
+    directories.set(cwd, [folder("src"), file("first.ts"), file("second.ts")]);
+    directories.set(`${cwd}/src`, [
+      { name: "a.ts", path: `${cwd}/src/a.ts`, isDir: false, ignored: false },
+    ]);
+    await refreshDir(cwd);
+    saveSelected(cwd, `${cwd}/src`);
+    await act(async () => render());
+  });
+
+  it("moves the selection with the arrow keys and Home/End", async () => {
+    await press(row("src"), { key: "ArrowDown" });
+    expect(selected()).toBe(`${cwd}/first.ts`);
+    await press(row("first.ts"), { key: "End" });
+    expect(selected()).toBe(`${cwd}/second.ts`);
+    await press(row("second.ts"), { key: "ArrowUp" });
+    expect(selected()).toBe(`${cwd}/first.ts`);
+    await press(row("first.ts"), { key: "Home" });
+    expect(
+      container
+        .querySelector("[data-explorer-root]")
+        ?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(selected()).toBeUndefined();
+  });
+
+  it("expands with Right, enters the folder, and walks back out with Left", async () => {
+    await press(row("src"), { key: "ArrowRight" });
+    expect(row("src").getAttribute("aria-expanded")).toBe("true");
+    expect(row("src/a.ts")).not.toBeNull();
+    await press(row("src"), { key: "ArrowRight" });
+    expect(selected()).toBe(`${cwd}/src/a.ts`);
+    await press(row("src/a.ts"), { key: "ArrowLeft" });
+    expect(selected()).toBe(`${cwd}/src`);
+    await press(row("src"), { key: "ArrowLeft" });
+    expect(row("src").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("opens files with Enter and toggles folders", async () => {
+    await press(row("src"), { key: "Enter" });
+    expect(row("src").getAttribute("aria-expanded")).toBe("true");
+    await press(row("src"), { key: "End" });
+    await press(row("second.ts"), { key: "Enter" });
+    expect(props.onOpenFile).toHaveBeenCalledWith(
+      `${cwd}/second.ts`,
+      undefined,
+      { exact: true },
+    );
+  });
+
+  it("jumps to a row by typing its name", async () => {
+    await press(row("src"), { key: "s" });
+    expect(selected()).toBe(`${cwd}/second.ts`);
+    await press(row("second.ts"), { key: "s" });
+    expect(selected()).toBe(`${cwd}/src`);
+    await press(row("src"), { key: "f" });
+    expect(selected()).toBe(`${cwd}/src`);
+  });
+
+  it("narrows the match as more of the name is typed", async () => {
+    await press(row("src"), { key: "s" });
+    await press(row("second.ts"), { key: "r" });
+    expect(selected()).toBe(`${cwd}/src`);
+  });
+
+  it("moves by a viewport of rows and clamps at either end", async () => {
+    const scroller = container.querySelector(".overflow-y-auto")!;
+    Object.defineProperty(scroller, "clientHeight", { value: 84 });
+    Object.defineProperty(row("second.ts"), "offsetHeight", { value: 28 });
+
+    await press(row("src"), { key: "PageDown" });
+    expect(selected()).toBe(`${cwd}/second.ts`);
+    expect(document.activeElement).toBe(row("second.ts"));
+    await press(row("second.ts"), { key: "PageUp" });
+    expect(selected()).toBe(`${cwd}/src`);
+    await press(row("src"), { key: "PageUp" });
+    expect(document.activeElement).toBe(
+      container.querySelector("[data-explorer-root]"),
+    );
+  });
+
+  it("opens the focused file with Space and restores tree focus", async () => {
+    vi.useFakeTimers();
+    const editor = document.createElement("input");
+    container.append(editor);
+    props.onOpenFile = vi.fn(() => editor.focus());
+    act(() => render());
+
+    // Tab can focus a different row without changing the stored selection.
+    row("first.ts").focus();
+    await press(row("first.ts"), { key: " " });
+    expect(props.onOpenFile).toHaveBeenCalledWith(
+      `${cwd}/first.ts`,
+      undefined,
+      { exact: true },
+    );
+    expect(document.activeElement).toBe(editor);
+    await act(async () => vi.advanceTimersByTimeAsync(20));
+    expect(document.activeElement).toBe(row("first.ts"));
+    expect(selected()).toBe(`${cwd}/first.ts`);
+  });
+
+  it("skips closing folder rows and includes them again on rapid reopening", async () => {
+    vi.useFakeTimers();
+    await press(row("src"), { key: "ArrowRight" });
+    const child = row("src/a.ts");
+    await press(row("src"), { key: "ArrowLeft" });
+    expect(child.closest("[inert]")).not.toBeNull();
+
+    await press(row("src"), { key: "ArrowDown" });
+    expect(selected()).toBe(`${cwd}/first.ts`);
+    await press(row("first.ts"), { key: "a" });
+    expect(selected()).toBe(`${cwd}/first.ts`);
+    await press(child, { key: "Enter" });
+    expect(props.onOpenFile).not.toHaveBeenCalled();
+
+    await press(row("first.ts"), { key: "ArrowUp" });
+    await press(row("src"), { key: "ArrowRight" });
+    expect(row("src/a.ts")).toBe(child);
+    await press(row("src"), { key: "ArrowDown" });
+    expect(document.activeElement).toBe(child);
+  });
+
+  it("keeps navigation at the root while the root is closing", async () => {
+    vi.useFakeTimers();
+    const rootRow = container.querySelector<HTMLButtonElement>(
+      "[data-explorer-root]",
+    )!;
+    await press(row("src"), { key: "Home" });
+    await press(rootRow, { key: "ArrowLeft" });
+    expect(row("src").closest("[inert]")).not.toBeNull();
+    await press(rootRow, { key: "End" });
+    expect(document.activeElement).toBe(rootRow);
+    await press(rootRow, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(rootRow);
+  });
+
+  it("leaves composition and modified navigation keys alone", async () => {
+    await press(row("src"), { key: "Enter", isComposing: true });
+    expect(row("src").getAttribute("aria-expanded")).toBe("false");
+    await press(row("src"), { key: "ArrowDown", ctrlKey: true });
+    await press(row("src"), { key: "ArrowDown", altKey: true });
+    expect(selected()).toBe(`${cwd}/src`);
+  });
+});
