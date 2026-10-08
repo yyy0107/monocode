@@ -169,12 +169,7 @@ import {
   transcriptMutationNeedsRepaint,
   transcriptWordRanges,
 } from "../model/transcriptHighlights";
-import {
-  flyPromptBubble,
-  takePromptLaunch,
-  type PromptFlight,
-  type PromptLaunchOrigin,
-} from "./promptLaunch";
+import { slidePromptIn, type PromptSlide } from "./promptLaunch";
 
 const NEAR_BOTTOM_PX = 16;
 /*
@@ -247,7 +242,7 @@ type Props = {
   touchScroll?: boolean;
   /** A just-submitted turn whose first response may already have arrived. */
   animateFrom?: string;
-  /** A shorter, bottom-origin prompt entrance for the phone composer. */
+  /** Phone sends land after a Host round trip: introduce `animateFrom` on mount too. */
   promptMotion?: "mobile";
   /** The conversation this transcript belongs to, for its workflow run cards. */
   workflowParent?: WorkflowRunParent;
@@ -613,8 +608,8 @@ function AgentTranscriptComponent({
     pinTranscript(el);
   }, [lastUserId, pinTranscript, setShowJump]);
 
-  // In the chat layout a sent prompt flies from the composer (or the bottom
-  // of the viewport) into its laid-out row, whether or not prompts are pinned
+  // In the chat layout a sent prompt scrolls into its laid-out row with the
+  // turns above it, whether or not prompts are pinned
   // to the top. On mount this only plays for a
   // session's first send, or an explicitly marked mobile submission.
   const introducePrompt = useRef({ chat: false, visible });
@@ -3951,13 +3946,12 @@ function measureLastTurn(scroller: HTMLElement | null): PriorTurn | undefined {
   return element ? { element, top: element.getBoundingClientRect().top } : undefined;
 }
 
-/** Flies the prompt from the composer or bottom edge into its final row. */
+/** Scrolls the sent prompt into its final row with the turns above it. */
 function riseIntoAnchor(
   scroller: HTMLElement | null,
   blockId: string,
   prior?: PriorTurn,
 ) {
-  const launch = takePromptLaunch();
   const row = scroller?.querySelector<HTMLElement>(
     `[data-prompt-anchor="${CSS.escape(blockId)}"]`,
   );
@@ -3967,7 +3961,7 @@ function riseIntoAnchor(
   let stopped = false;
   let frame = 0;
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
-  let releaseFlight: (() => void) | undefined;
+  let releaseSlide: (() => void) | undefined;
   const reveal = () => {
     if (stopped) return;
     turn?.setAttribute("data-prompt-rise", "revealing");
@@ -3978,24 +3972,22 @@ function riseIntoAnchor(
   };
   const start = () => {
     row.style.removeProperty("visibility");
-    const flight = launchIntoAnchor(scroller, row, turn, launch, prior);
-    if (!flight) {
+    const slide = scrollIntoAnchor(scroller, row, turn, prior);
+    if (!slide) {
       turn?.removeAttribute("data-prompt-rise");
       return;
     }
-    releaseFlight = flight.release;
-    // Keep the foreground layer until the actual flight has finished.
-    void flight.finished.then(reveal);
+    releaseSlide = slide.release;
+    void slide.finished.then(reveal);
   };
   // Let the sibling dock publish its cleared draft height before measuring.
-  // A missing or expired composer origin still launches from the bottom.
   row.style.visibility = "hidden";
   turn?.setAttribute("data-prompt-rise", "rising");
   frame = requestAnimationFrame(start);
   return () => {
     stopped = true;
     cancelAnimationFrame(frame);
-    releaseFlight?.();
+    releaseSlide?.();
     clearTimeout(revealTimer);
     row.style.removeProperty("visibility");
     turn?.removeAttribute("data-prompt-rise");
@@ -4003,32 +3995,27 @@ function riseIntoAnchor(
 }
 
 /**
- * Flies a sent prompt's text and attachments out of the composer together.
- * Earlier turns share its translation curve, so the send reads as one motion.
- * The first animation is the bubble's flight.
+ * Moves the sent prompt and the turns above it as one scroll. The prompt
+ * starts where it would have followed the previous turn, or just above the
+ * dock when there was none to follow.
  */
-function launchIntoAnchor(
+function scrollIntoAnchor(
   scroller: HTMLElement,
   row: HTMLElement,
   turn: HTMLElement | null,
-  launch: PromptLaunchOrigin | undefined,
   prior: PriorTurn | undefined,
-): PromptFlight | undefined {
+): PromptSlide | undefined {
   const bubble = row.querySelector<HTMLElement>(".user-message-bubble:not([hidden])");
   const media = row.querySelector<HTMLElement>(".user-message-media");
+  const moving = bubble ?? media;
+  if (!moving) return undefined;
   const view = scroller.getBoundingClientRect();
   const dock = parseFloat(getComputedStyle(scroller).paddingBottom) || 0;
-  // Measure previous turns before the flight writes styles or starts moving.
-  const earlier: HTMLElement[] = [];
-  const shift = prior?.element.isConnected
+  const shift = prior?.element.isConnected && prior.element !== turn
     ? prior.top - prior.element.getBoundingClientRect().top
     : 0;
-  if (
-    prior &&
-    shift > 1 &&
-    prior.top < view.bottom &&
-    prior.element !== turn
-  ) {
+  const earlier: HTMLElement[] = [];
+  if (prior && shift > 1 && prior.top < view.bottom) {
     for (
       let element: Element | null = prior.element, count = 0;
       element instanceof HTMLElement &&
@@ -4041,18 +4028,10 @@ function launchIntoAnchor(
       earlier.push(element);
     }
   }
-  const flight = flyPromptBubble(bubble, view, launch, view.bottom - dock - 8, scroller, media);
-  if (!flight) return undefined;
-  for (const element of earlier) {
-    const animation = element.animate([
-      { transform: `translateY(${shift.toFixed(2)}px)` },
-      { transform: "translateY(0px)" },
-    ], { duration: flight.duration, easing: flight.easing });
-    const startTime = flight.animations[0].startTime;
-    if (startTime !== null) animation.startTime = startTime;
-    flight.animations.push(animation);
-  }
-  return flight;
+  const distance = shift > 1
+    ? shift
+    : view.bottom - dock - 8 - moving.getBoundingClientRect().bottom;
+  return slidePromptIn([bubble, media], distance, earlier);
 }
 
 function isNearBottom(el: HTMLElement): boolean {

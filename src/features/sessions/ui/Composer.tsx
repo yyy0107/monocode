@@ -155,7 +155,6 @@ import { resolveTabGroupLogo } from "../../workspace/model/tabGroups";
 import { useComposerSkills } from "./useComposerSkills";
 import { ComposerPopover } from "./ComposerPopover";
 import { UsageLimitNotice } from "./UsageLimitNotice";
-import { notePromptLaunch, takePromptLaunch } from "./promptLaunch";
 import { consumePlanCommand, PLAN_COMMAND } from "../model/plan";
 import {
   consumeOperatorCommand,
@@ -1513,8 +1512,6 @@ export function Composer({
       borrowedAttachmentIdsRef.current,
     );
     const resendSelectedMcp = selectedMcp;
-    // The transcript's text and attachments fly out of the composer together.
-    if (text || files.length) notePromptLaunch(ref.current);
     onDraftChange?.("");
     const accepted = onSubmit(
       mcpContextText(
@@ -1547,7 +1544,6 @@ export function Composer({
     // orchestration is paused). Keep the user's text, files and selected mode
     // intact so resolving the blocker never destroys their work.
     if (accepted === false) {
-      takePromptLaunch();
       restoreDraft(value, files);
       return;
     }
@@ -2093,7 +2089,6 @@ export function Composer({
           <div
             ref={boxRef}
             data-composer-box
-            data-prompt-launch-surface
             data-composer-editing={resendEdited ? "" : undefined}
             data-composer-file-drag={fileDrag || undefined}
             className={`composer-input-shell relative z-10 border bg-content/3 backdrop-blur-sm ${

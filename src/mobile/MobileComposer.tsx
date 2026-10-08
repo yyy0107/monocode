@@ -15,7 +15,6 @@ import {
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { AnimatedCollapse, useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
-import { notePromptLaunch } from "../features/sessions/ui/promptLaunch";
 import { AttachmentList } from "../features/sessions/ui/AttachmentList";
 import { RuntimeModeIcon } from "../features/sessions/ui/RuntimeModeIcon";
 import { MODE_COMMAND_STYLES } from "../features/sessions/ui/modeCommands";
@@ -268,7 +267,6 @@ export function MobileComposer(props: Props) {
   const launch = () => {
     if (props.value.trim() || props.attachments.length) {
       void lightImpact();
-      notePromptLaunch(area.current);
       setLaunching(true);
     }
     props.onSend();
@@ -370,7 +368,7 @@ export function MobileComposer(props: Props) {
             </button>
             {props.progressSlot && <div ref={props.progressSlot} className="mobile-composer-progress" />}
           </div>
-          <div className="mobile-composer-input" data-prompt-launch-surface>
+          <div className="mobile-composer-input">
             <div className="mobile-composer-attachment-region">
               <AnimatedCollapse expanded={props.attachments.length > 0}>
                 <MobileComposerAttachments
