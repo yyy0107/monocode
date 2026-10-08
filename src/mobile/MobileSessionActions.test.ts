@@ -33,7 +33,7 @@ const snapshot = (branch?: string): HostSession => ({
   },
 });
 
-function render(value: HostSession, onStatus = vi.fn()) {
+function render(value: HostSession) {
   const node = document.createElement("div");
   document.body.append(node);
   const anchor = document.createElement("button");
@@ -45,27 +45,24 @@ function render(value: HostSession, onStatus = vi.fn()) {
       anchor: { current: anchor },
       disabled: false,
       onUpdate: async () => {},
-      onStatus,
       onClose: () => {},
     }));
   });
   const row = (label: string) => [...document.querySelectorAll<HTMLButtonElement>(".mobile-sheet-row")]
     .find((button) => button.textContent?.startsWith(label));
-  return { row, onStatus };
+  return { row };
 }
 
-it("copies the conversation's branch and opens its status from the header menu", async () => {
+it("copies the conversation's branch from the header menu", async () => {
   const copy = vi.spyOn(mobileTranscriptPlatform, "copyText").mockResolvedValue();
-  const { row, onStatus } = render(snapshot("feature/mobile"));
+  const { row } = render(snapshot("feature/mobile"));
   expect(row("Copy branch")?.textContent).toBe("Copy branchfeature/mobile");
   await act(async () => row("Copy branch")!.click());
   expect(copy).toHaveBeenCalledWith("feature/mobile");
-  act(() => row("Session status")!.click());
-  expect(onStatus).toHaveBeenCalledOnce();
 });
 
 it("omits Copy branch when the conversation has no branch", () => {
   const { row } = render(snapshot());
   expect(row("Copy branch")).toBeUndefined();
-  expect(row("Session status")).toBeDefined();
+  expect(row("Session status")).toBeUndefined();
 });

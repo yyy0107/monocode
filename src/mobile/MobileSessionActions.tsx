@@ -5,7 +5,6 @@ import {
   ChevronRight,
   CircleDot,
   GitBranch,
-  Info,
   Pencil,
   Pin,
   Trash2,
@@ -31,7 +30,6 @@ export function MobileSessionActions({
   onUpdate,
   onDelete,
   onMarkUnread,
-  onStatus,
   onClose,
 }: {
   open?: boolean;
@@ -44,8 +42,6 @@ export function MobileSessionActions({
   onUpdate: (patch: MobileSessionPatch) => Promise<void>;
   onDelete?: () => Promise<void>;
   onMarkUnread?: () => Promise<void>;
-  /** Opens the conversation's status details; offered from the conversation header. */
-  onStatus?: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -142,17 +138,7 @@ export function MobileSessionActions({
                     </span>
                   </button>
                 )}
-                {onStatus && (
-                  <button
-                    className="mobile-sheet-row"
-                    disabled={blocked}
-                    onClick={onStatus}
-                  >
-                    <Info size={20} />
-                    <span>{t("Session status")}</span>
-                  </button>
-                )}
-                {(branch || onStatus) && (
+                {branch && (
                   <div className="mobile-menu-divider" role="separator" />
                 )}
                 <button

@@ -2394,15 +2394,6 @@ export function MobileApp() {
                 }
               : undefined
           }
-          onStatus={
-            sessionActionsTarget
-              ? undefined
-              : () => {
-                  sessionStatusTrigger.current = sessionActionsTrigger.current;
-                  setSessionActionsOpen(false);
-                  setSessionStatusOpen(true);
-                }
-          }
           onClose={() => {
             setSessionActionsOpen(false);
           }}
