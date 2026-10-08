@@ -32,6 +32,7 @@ import {
 import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -2115,6 +2116,18 @@ export function InboxDetail({
   >(cachedThread);
   const [threadLoading, setThreadLoading] = useState(cachedThread == null);
   const [threadError, setThreadError] = useState<string | null>(null);
+  // A long thread's Markdown renders interruptibly instead of blocking input
+  // as it arrives. The deferred copy carries its item, so switching items
+  // shows the pending state rather than the previous item's comments.
+  const threadKey = inboxItemKey(item);
+  const threadView = useMemo(
+    () => ({ key: threadKey, thread }),
+    [threadKey, thread],
+  );
+  const shownThreadView = useDeferredValue(threadView);
+  const shownThread =
+    shownThreadView.key === threadKey ? shownThreadView.thread : null;
+  const threadRendering = shownThreadView !== threadView && shownThread == null;
   const [replyTo, setReplyTo] = useState<InboxReplyTarget | null>(null);
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
@@ -3050,8 +3063,8 @@ export function InboxDetail({
                   />
                 ) : null}
                 <InboxComments
-                  thread={thread}
-                  loading={threadLoading}
+                  thread={shownThread}
+                  loading={threadLoading || threadRendering}
                   error={threadError}
                   cwd={markdownCwd}
                   provider={item.provider}
