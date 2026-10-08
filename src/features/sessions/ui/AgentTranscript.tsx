@@ -674,6 +674,18 @@ function AgentTranscriptComponent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastUserId]);
 
+  // The Host usually records a sending message under the same id; it then
+  // lifts to full strength where it is, while any slide carries on.
+  const shownSending = useRef({ id: lastUserId, sending: lastUserSending });
+  useLayoutEffect(() => {
+    const previous = shownSending.current;
+    shownSending.current = { id: lastUserId, sending: lastUserSending };
+    if (!lastUserId || previous.id !== lastUserId || !previous.sending || lastUserSending)
+      return;
+    if (!reducedMotionQuery().matches)
+      confirmPrompt(promptParts(promptRow(scroller.current, lastUserId)));
+  }, [lastUserId, lastUserSending]);
+
   useLayoutEffect(() => {
     if (!visible) promptRise.current?.stop();
   }, [visible]);

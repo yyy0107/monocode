@@ -10,6 +10,11 @@ import { MobileAssistant, type MobileAssistantHandle } from "./MobileAssistant";
 import { useMobileAssistantUnread } from "./useMobileAssistantUnread";
 import { resolveAssistantTarget } from "../features/assistant/model/assistantNavigation";
 import { useHostQueue } from "../features/connections/ui/useHostQueue";
+import {
+  outgoingPlacement,
+  withOutgoing,
+  type OutgoingMessage,
+} from "../features/connections/model/outgoing";
 import { consumePlanCommand } from "../features/sessions/model/plan";
 import {
   IMPLEMENT_PLAN_PROMPT,
@@ -207,12 +212,8 @@ type View = "home" | "chat" | "settings";
 /** A sent message shown before the Host records it. */
 type SendingMessage = {
   commandId: string;
-  /** Transcript identity, kept by the conversation a first message creates. */
-  key: string;
   sessionId?: string;
-  /** User messages the conversation had when this one left. */
-  userCount: number;
-  block: Block;
+  outgoing: OutgoingMessage;
   /** Stands in for a conversation the first message is still creating. */
   placeholder?: HostSession;
 };
@@ -1014,7 +1015,7 @@ export function MobileApp() {
         const result = await client.session(receipt.sessionId, receipt.revision);
         const sending = sendingRef.current;
         if (completedCommand?.type === "create" && sending?.commandId === completedCommand.commandId)
-          transcriptKeys.current.set(receipt.sessionId, sending.key);
+          transcriptKeys.current.set(receipt.sessionId, sending.commandId);
         if (
           completedCommand?.type === "send" ||
           completedCommand?.type === "create"
@@ -1113,7 +1114,16 @@ export function MobileApp() {
     },
     [],
   );
-  const queue = useHostQueue(snapshot, queueRequest);
+  // Messages on their way show where the Host will record them.
+  const hostView = useMemo(() => {
+    const message = sendingMessage;
+    if (!snapshot)
+      return message && !message.sessionId && project?.id === message.placeholder?.projectId
+        ? message.placeholder
+        : undefined;
+    return withOutgoing(snapshot, message?.sessionId === snapshot.session.id ? message.outgoing : undefined);
+  }, [sendingMessage, snapshot, project?.id]);
+  const queue = useHostQueue(snapshot && hostView, queueRequest);
   const restoreQueuedMessage = useStableCallback(async (queued: QueuedMessage) => {
     if (!sessionId) return;
     const generation = navigation.current;
@@ -1204,31 +1214,31 @@ export function MobileApp() {
     const generation = navigation.current;
     const commandId = crypto.randomUUID();
     const sent = { text, attachments };
-    // Show the message at once where the Host will record it in the
-    // transcript. Sends that wait in the Host queue appear there instead.
+    // Show the message at once where the Host will record it: in the
+    // transcript, or in the queue of a conversation that is busy.
     const instant = sessionId
-      ? !!snapshot &&
-        snapshot.session.id === sessionId &&
-        snapshot.status !== "running" &&
-        !snapshot.session.queuedMessages?.length &&
-        !(snapshot.session.nativeSession?.mode === "managed" &&
-          snapshot.nativeStatus && snapshot.nativeStatus.state !== "ready")
+      ? !!snapshot && snapshot.session.id === sessionId
       : !snapshot;
     if (instant) {
-      const block: Block = {
-        id: `sending:${commandId}`,
-        role: "user",
+      const outgoing: OutgoingMessage = {
+        id: commandId,
         text: parsed.text,
         startedAt: Date.now(),
+        placement: sessionId ? outgoingPlacement(snapshot, followUpBehavior) : "transcript",
+        ...(attachments.length ? { attachments } : {}),
+      };
+      const block: Block = {
+        id: commandId,
+        role: "user",
+        text: parsed.text,
+        startedAt: outgoing.startedAt,
         sending: true,
         ...(attachments.length ? { attachments } : {}),
       };
       setSendingMessage({
         commandId,
-        key: block.id,
         sessionId,
-        userCount: snapshot?.session.blocks.filter((item) => item.role === "user").length ?? 0,
-        block,
+        outgoing,
         ...(sessionId ? {} : {
           placeholder: {
             session: {
@@ -1529,17 +1539,6 @@ export function MobileApp() {
   ]);
 
   const running = snapshot?.status === "running";
-  const transcriptSnapshot = useMemo(() => {
-    const message = sendingMessage;
-    if (!message) return snapshot;
-    if (!message.sessionId)
-      return snapshot ?? (project?.id === message.placeholder?.projectId ? message.placeholder : undefined);
-    if (!snapshot || snapshot.session.id !== message.sessionId) return snapshot;
-    // Another user message means the Host has recorded this one.
-    const blocks = snapshot.session.blocks;
-    if (blocks.filter((block) => block.role === "user").length > message.userCount) return snapshot;
-    return { ...snapshot, session: { ...snapshot.session, blocks: [...blocks, message.block] } };
-  }, [sendingMessage, snapshot, project?.id]);
   // Home and drawer rows can belong to another project, so they carry their
   // own summary; the current project's rows stay live through `sessions`.
   const sessionActionsSummary = view === "home" ? homeActionSession : sessions.find(
@@ -2107,10 +2106,10 @@ export function MobileApp() {
         />
       ) : (
         <main className="mobile-chat" inert={drawerOpen || pageOverlayOpen || hostPickerOpen}>
-          {transcriptSnapshot ? (
+          {hostView ? (
             <MobileTranscript
-              key={transcriptKeys.current.get(transcriptSnapshot.session.id) ?? transcriptSnapshot.session.id}
-              snapshot={transcriptSnapshot}
+              key={transcriptKeys.current.get(hostView.session.id) ?? hostView.session.id}
+              snapshot={hostView}
               active={!drawerOpen && !pageOverlayOpen && !hostPickerOpen}
               onOverlayChange={onTranscriptOverlayChange}
               gitSource={gitSource}

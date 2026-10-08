@@ -1564,6 +1564,28 @@ it("shows the Host queue in the desktop composer, queues while busy, and edits a
   expect(commands.filter(command => command.type === "queue").map(command => command.type === "queue" && command.action)).toEqual(["hold", "edit", "remove", "remove"]);
 });
 
+it("puts a send to a busy Host conversation straight into the queue, never the transcript", async () => {
+  dispatch({ type: "create", commandId: "queue-session", projectId: "project", harness: "codex", model: gpt.id, runtimeMode: "supervised" });
+  host = { ...host!, status: "running", runId: "shared-run", supportsQueue: true, canSteer: true,
+    session: { ...host!.session, busy: true, blocks: [{ id: "old", role: "user", text: "Current work" }] } };
+  rememberRemoteSession("shell", "host-session");
+  await render();
+  let releaseDispatch = () => {};
+  dispatchDelay = new Promise<void>((resolve) => { releaseDispatch = resolve; });
+  await type("Next up");
+  await act(async () => byLabel("Send")!.click());
+  // In flight: already a queue row, and never a transcript bubble.
+  expect(container.querySelector('[data-message-queue]')?.textContent).toContain("Next up");
+  expect(container.querySelector('[aria-label="Transcript"]')?.textContent).not.toContain("Next up");
+  await act(async () => {
+    releaseDispatch();
+    dispatchDelay = undefined;
+  });
+  await settle();
+  expect(container.querySelector('[data-message-queue]')?.textContent?.match(/Next up/g)).toHaveLength(1);
+  expect(container.querySelector('[aria-label="Transcript"]')?.textContent).not.toContain("Next up");
+});
+
 it("passes an explicit desktop account and leaves a following default for Host to resolve", async () => {
   configureSharedHost("env", [{ id: "project", name: "repo", cwd: "/home/me/repo" }], machine.id);
   rememberSharedProviderDefaults({ codex: "shared" });
