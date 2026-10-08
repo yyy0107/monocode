@@ -291,6 +291,7 @@ export function AssistantChat({
   const log = useRef<HTMLDivElement>(null);
   const chat = useRef<HTMLElement>(null);
   const followLog = useRef(true);
+  const lastScrollTop = useRef(0);
   const [worker, setWorker] = useState<SessionReference>();
   const [workerOpen, setWorkerOpen] = useState(false);
   const canRead = (ref: SessionReference, current = assistant) =>
@@ -904,14 +905,18 @@ export function AssistantChat({
                         element.scrollTop < HISTORY_LOAD_DISTANCE
                       )
                         showOlderHistory();
-                      followLog.current = mobile
-                        ? Math.abs(
-                            element.scrollTop - followScrollTop(element, true),
-                          ) < 60
-                        : element.scrollHeight -
-                            element.scrollTop -
-                            element.clientHeight <
-                          60;
+                      const gap = Math.abs(
+                        element.scrollTop -
+                          (mobile
+                            ? followScrollTop(element, true)
+                            : element.scrollHeight - element.clientHeight),
+                      );
+                      // Leaving the latest row upwards stops following at
+                      // once; otherwise a resize inside the snap distance
+                      // pulls the reader back down while they scroll up.
+                      const movedUp = element.scrollTop < lastScrollTop.current - 0.5;
+                      lastScrollTop.current = element.scrollTop;
+                      followLog.current = gap < 1 || (gap < 60 && !movedUp);
                       element.dataset.followLatest = String(followLog.current);
                       anchor.current = readingAnchor(element);
                     }

@@ -1003,6 +1003,14 @@ it("paints the newest history first and adds older rows near the top", async () 
   log.scrollTop = 4400;
   await act(async () => log.dispatchEvent(new Event("scroll")));
   expect(rows()).toHaveLength(30);
+  expect(log.dataset.followLatest).toBe("true");
+  // Scrolling up stops following before the snap distance is left.
+  log.scrollTop = 4380;
+  await act(async () => log.dispatchEvent(new Event("scroll")));
+  expect(log.dataset.followLatest).toBe("false");
+  log.scrollTop = 4390;
+  await act(async () => log.dispatchEvent(new Event("scroll")));
+  expect(log.dataset.followLatest).toBe("true");
   for (const _ of [1, 2]) {
     log.scrollTop = 100;
     await act(async () => log.dispatchEvent(new Event("scroll")));
