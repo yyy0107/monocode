@@ -268,7 +268,8 @@ export function MobileSettings({
       disabled={pairing}
       onClick={onAddConnection}
     >
-      <MobileSettingsGlyph name="link" />
+      {/* Root rows share the icon column; the Connections list keeps bare glyphs. */}
+      {className === "mobile-settings-row" ? <SettingsIcon name="link" /> : <MobileSettingsGlyph name="link" />}
       <span className="mobile-settings-label">
         <span>{t("Add connection")}</span>
         <small>{t("Scan a QR code or enter a pairing code.")}</small>
@@ -572,7 +573,7 @@ export function MobileSettings({
             aria-label={t("Connections")}
             onClick={() => onPageChange("connections")}
           >
-            <MobileSettingsGlyph name={connection ? connectionAppearance.icon : "desktop"} />
+            <SettingsIcon name={connection ? connectionAppearance.icon : "desktop"} />
             <span className="mobile-settings-label">
               <span>{t("Connections")}</span>
               <small className="mobile-settings-value">
