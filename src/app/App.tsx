@@ -3878,6 +3878,7 @@ function Workspace({
       session?: { sessionId: string; cwd: string },
       changeKind?: GitFileDiffKind,
       pin = false,
+      options?: { exact?: boolean },
     ) => {
       void (async () => {
         const diffCwd = session?.cwd ?? gitCwdRef.current;
@@ -3900,10 +3901,12 @@ function Workspace({
           target.surfaceMode ??
           (loadFileTabMode() === "workspace" ? "unified" : "split");
         const resolved = path
-          ? ((await resolveTabResource(
-              target.id,
-              resolveOpenablePath(diffCwd, path),
-            )) ?? path)
+          ? options?.exact
+            ? path
+            : ((await resolveTabResource(
+                target.id,
+                resolveOpenablePath(diffCwd, path),
+              )) ?? path)
           : undefined;
         if (
           !tabsRef.current.some(
@@ -3959,7 +3962,7 @@ function Workspace({
 
   const onOpenWorkingTreeDiff = useCallback(
     (path: string, kind?: GitFileDiffKind, pin?: boolean) =>
-      onOpenDiff(path, undefined, kind, pin),
+      onOpenDiff(path, undefined, kind, pin, { exact: true }),
     [onOpenDiff],
   );
 

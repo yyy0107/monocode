@@ -486,12 +486,14 @@ vi.mock("../features/sessions/ui/SessionPane", async () => {
       composerFocused,
       visible,
       onClose,
+      onOpenDiff,
       renderHeader,
     }: {
       session: Session;
       composerFocused: boolean;
       visible: boolean;
       onClose: (sessionId: string) => void;
+      onOpenDiff: (path: string, session: { sessionId: string; cwd: string }) => void;
       renderHeader?: (session: Session) => ReactNode;
     }) =>
       el(
@@ -507,6 +509,14 @@ vi.mock("../features/sessions/ui/SessionPane", async () => {
           "data-composer-focused": composerFocused,
         },
         renderHeader?.(session),
+        el(
+          "button",
+          {
+            "data-open-session-diff": session.id,
+            onClick: () => onOpenDiff("file.ts", { sessionId: session.id, cwd: session.cwd }),
+          },
+          "Open session diff",
+        ),
         el(
           "button",
           {
@@ -549,6 +559,13 @@ vi.mock("../features/source-control/ui/WorkingTreeDiff", async () => {
   return {
     WorkingTreeDiff: ({ cwd }: { cwd: string }) =>
       el("div", { "data-diff-cwd": cwd }),
+  };
+});
+vi.mock("../features/source-control/ui/SessionChangesDiff", async () => {
+  const { createElement: el } = await import("react");
+  return {
+    SessionChangesDiff: ({ focusPath }: { focusPath?: string }) =>
+      el("div", { "data-session-diff-path": focusPath }),
   };
 });
 vi.mock("../features/assistant/ui/DesktopAssistant", async () => {
@@ -1264,22 +1281,22 @@ describe("App workspace app views", () => {
       );
       await mount();
       await click(
-        surface === "file" ? '[data-open-file-line="10"]' : "[data-open-diff]",
+        surface === "file" ? '[data-open-file-line="10"]' : '[data-open-session-diff="first"]',
       );
       await selectSession("recent");
       await act(async () => finishOpen("/repo/file.ts"));
       await act(async () => vi.dynamicImportSettled());
       expect(activeTabId()).toBe(recentId);
       expect(
-        workspace(recentId).querySelector("[data-file-editor]"),
+        workspace(recentId).querySelector("[data-file-editor], [data-session-diff-path]"),
       ).toBeNull();
       await selectSession("first");
       expect(
-        workspace(firstId).querySelector('[data-file-editor="/repo/file.ts"]'),
+        workspace(firstId).querySelector(surface === "file"
+          ? '[data-file-editor="/repo/file.ts"]'
+          : '[data-session-diff-path="/repo/file.ts"]'),
       ).not.toBeNull();
-      expect(ownedFileTabs()[0].textContent).toBe(
-        surface === "file" ? "file.ts" : "file.ts (Working Tree)",
-      );
+      expect(ownedFileTabs()).toHaveLength(1);
     },
   );
 
@@ -1309,7 +1326,7 @@ describe("App workspace app views", () => {
       );
       await mount();
       await click(
-        surface === "file" ? '[data-open-file-line="10"]' : "[data-open-diff]",
+        surface === "file" ? '[data-open-file-line="10"]' : '[data-open-session-diff="first"]',
       );
       await click('[data-select-session="replacement"]');
       const replacementTab = activeTabId();
@@ -1325,7 +1342,7 @@ describe("App workspace app views", () => {
       expect(activeTabId()).toBe(replacementTab);
       expect(ownedFileTabs()).toHaveLength(0);
       expect(
-        workspace().querySelector("[data-file-editor], [data-diff-cwd]"),
+        workspace().querySelector("[data-file-editor], [data-diff-cwd], [data-session-diff-path]"),
       ).toBeNull();
       expect(composer?.getAttribute("data-composer-focused")).toBe("true");
       expect(
@@ -1354,6 +1371,7 @@ describe("App workspace app views", () => {
       await selectSession("recent");
       await click('[data-command="App: Settings"]');
       await click("[data-open-diff]");
+      expect(mocks.diffOpen).not.toHaveBeenCalled();
       expect(activeTabId()).toBe(recentId);
       expect(
         workspace(recentId).querySelector(
