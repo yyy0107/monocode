@@ -77,8 +77,11 @@ export default defineConfig({
     {
       name: "mobile-entry",
       apply: "build",
-      closeBundle() {
-        renameSync("dist-mobile/mobile.html", "dist-mobile/index.html");
+      // writeBundle runs only after a successful write; closeBundle also runs
+      // after a failed build, where this rename hid the real error.
+      writeBundle(_options, bundle) {
+        if ("mobile.html" in bundle)
+          renameSync("dist-mobile/mobile.html", "dist-mobile/index.html");
       },
     },
   ],
@@ -96,6 +99,9 @@ export default defineConfig({
   },
   // Settings → Appearance font sizes and reduced-motion override.
   css: { postcss: { plugins: [fontScale()] } },
+  // Code highlighting runs in a worker that loads grammars on demand, which
+  // the default iife worker format cannot code-split.
+  worker: { format: "es" },
   build: { outDir: "dist-mobile", rollupOptions: { input: "mobile.html" } },
   // Capacitor loads index.html. Keep mobile.html separate from the desktop entry.
   resolve: { alias: { "@mobile": resolve("src/mobile") } },
