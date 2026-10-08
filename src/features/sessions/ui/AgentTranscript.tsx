@@ -765,6 +765,12 @@ function AgentTranscriptComponent({
     };
   }, [scrollerEl, followTranscript, syncJumpVisibility, visible, lastUserId]);
 
+  // The anchor class follows state that can change without blocks or busy
+  // changing; keep its stretch on whichever turn carries it now.
+  useLayoutEffect(() => {
+    if (visible) syncTranscriptViewport(scroller.current);
+  });
+
   useTurnScrollAnchor(scrollerEl, visible, stickToBottom, rememberScroll);
 
   const [turnCache] = useState(() => new TranscriptTurnCache());
@@ -4171,9 +4177,24 @@ function animateToBottom(el: HTMLElement | null, done: () => void) {
   frame = requestAnimationFrame(step);
 }
 
-/** Stretch the live turn within the space below any floating controls. */
+const stretchedTurns = new WeakMap<HTMLElement, HTMLElement>();
+
+/**
+ * Stretch the live turn within the space below any floating controls. The
+ * height goes on the anchored turn itself: a custom property on the scroller
+ * would be inherited by every node of the transcript, and changing it
+ * restyled all of them on each resize (over 100ms for a long chat).
+ */
 function syncTranscriptViewport(el: HTMLElement | null) {
   if (!el || el.clientHeight <= 0) return;
+  const anchor = el.querySelector<HTMLElement>(".transcript-turn-anchor");
+  const previous = stretchedTurns.get(el);
+  if (previous && previous !== anchor) previous.style.removeProperty("min-height");
+  if (!anchor) {
+    stretchedTurns.delete(el);
+    return;
+  }
+  stretchedTurns.set(el, anchor);
   const inner = el.firstElementChild as HTMLElement | null;
   const pad = inner
     ? Number.parseFloat(getComputedStyle(inner).paddingBottom) || 0
@@ -4186,6 +4207,6 @@ function syncTranscriptViewport(el: HTMLElement | null) {
   const topInset = Number.parseFloat(style.scrollPaddingTop) || 0;
   const bottomInset = Number.parseFloat(style.paddingBottom) || 0;
   const next = `${Math.max(0, el.clientHeight - pad - topInset - bottomInset)}px`;
-  if (el.style.getPropertyValue("--transcript-viewport") === next) return;
-  el.style.setProperty("--transcript-viewport", next);
+  if (anchor.style.minHeight === next) return;
+  anchor.style.minHeight = next;
 }

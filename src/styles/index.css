@@ -1518,12 +1518,10 @@ html.has-user-accent .user-message-bubble[data-draft="true"] {
 
 /*
  * After a send, the live turn fills the transcript viewport so the prompt sits
- * at the top. Switching tabs keeps this. Closing the tab drops it, so opening
- * that conversation again uses the true bottom (latest reply on the composer).
+ * at the top (`syncTranscriptViewport` sets its min-height). Switching tabs
+ * keeps this. Closing the tab drops it, so opening that conversation again
+ * uses the true bottom (latest reply on the composer).
  */
-.transcript-turn-anchor {
-  min-height: var(--transcript-viewport, 0px);
-}
 
 /* A message the Host has not recorded yet stays tinted and inert. */
 .user-message-row[data-sending] .user-message-bubble,

@@ -3855,13 +3855,16 @@ function Workspace({
         setComposerFocused(true);
         return;
       }
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.id === activeTabId
-            ? { ...t, focusedId: paneId, diffFocused: false }
-            : t,
-        ),
-      );
+      // Refocusing the already-focused pane must keep the same tabs array, or
+      // every click inside a pane re-renders the whole workspace.
+      setTabs((prev) => {
+        const current = prev.find((t) => t.id === activeTabId);
+        if (!current || (current.focusedId === paneId && !current.diffFocused))
+          return prev;
+        return prev.map((t) =>
+          t === current ? { ...t, focusedId: paneId, diffFocused: false } : t,
+        );
+      });
       setComposerFocused(
         sessionsRef.current.some((session) => session.id === paneId),
       );

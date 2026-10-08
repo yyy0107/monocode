@@ -37,6 +37,12 @@ const REVEAL_CATCHUP_S = 0.22;
  * caught up to it. Past this the stream has paused on it, so it shows as is.
  */
 const REVEAL_HOLD_MS = 150;
+/**
+ * Longest wait between reveal steps. A long reply re-renders all of its
+ * Markdown on every step, so steps space out to twice their measured cost and
+ * the reveal never takes more than about a third of the main thread.
+ */
+const REVEAL_MAX_STEP_GAP_MS = 150;
 
 export type TextRevealOptions = {
   unit: "word" | "character";
@@ -138,6 +144,21 @@ export function usePacedText(
   const shown = useRef(Math.min(initialLength, text.length));
   const pacing = useRef(streaming || initialLength < text.length);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
+  // Reveal progress and step timing survive the effect restarting on every
+  // received chunk, or a throttled step would never come due mid-stream.
+  const position = useRef(shown.current);
+  const lastStep = useRef(0);
+  const stepRequested = useRef(0);
+  const stepCost = useRef(0);
+  const step = () => {
+    lastStep.current = stepRequested.current = performance.now();
+    rerender();
+  };
+  useLayoutEffect(() => {
+    if (!stepRequested.current) return;
+    stepCost.current = performance.now() - stepRequested.current;
+    stepRequested.current = 0;
+  });
 
   if (streaming) pacing.current = true;
   if (!pacing.current) shown.current = text.length;
@@ -161,33 +182,37 @@ export function usePacedText(
       if (!streaming) pacing.current = false;
       return;
     }
-    let position = shown.current;
+    position.current = Math.min(
+      text.length,
+      Math.max(position.current, shown.current),
+    );
     let last = performance.now();
     let hold = 0;
     let frame = requestAnimationFrame(function tick(now) {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      const backlog = text.length - position;
+      const backlog = text.length - position.current;
       const speed = Math.max(
         unit === "character" ? 48 : REVEAL_MIN_CPS,
         backlog / (unit === "character" ? 0.55 : REVEAL_CATCHUP_S),
       );
-      position = Math.min(text.length, position + speed * dt);
+      position.current = Math.min(text.length, position.current + speed * dt);
       const end =
         unit === "character"
-          ? characterEnd(boundaries, position)
-          : revealEnd(text, position, streaming);
-      if (end > shown.current) {
+          ? characterEnd(boundaries, position.current)
+          : revealEnd(text, position.current, streaming);
+      const gap = Math.min(REVEAL_MAX_STEP_GAP_MS, stepCost.current * 2);
+      if (end > shown.current && now - lastStep.current >= gap) {
         shown.current = end;
-        rerender();
+        step();
       }
       // Once the reveal has run into the end of what has arrived there is
       // nothing to do until more does, which restarts this.
-      if (position < text.length) frame = requestAnimationFrame(tick);
+      if (position.current < text.length) frame = requestAnimationFrame(tick);
       else if (shown.current < text.length) {
         hold = window.setTimeout(() => {
           shown.current = text.length;
-          rerender();
+          step();
         }, REVEAL_HOLD_MS);
       }
     });

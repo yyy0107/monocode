@@ -263,15 +263,19 @@ describe("transcript scrolling", () => {
       scrollHeight: { get: () => 1000 },
     });
     const observer = observers.find((item) => item.targets.includes(scroller))!;
+    const anchor = () =>
+      scroller.querySelector<HTMLElement>(".transcript-turn-anchor")!;
     act(() => observer.resize());
-    expect(scroller.style.getPropertyValue("--transcript-viewport")).toBe("452px");
+    expect(anchor().style.minHeight).toBe("452px");
     viewport = 300;
     act(() => observer.resize());
-    expect(scroller.style.getPropertyValue("--transcript-viewport")).toBe("152px");
+    expect(anchor().style.minHeight).toBe("152px");
     // Ordinary panes without a floating header retain their full anchoring area.
     scroller.style.scrollPaddingTop = "0px";
     act(() => observer.resize());
-    expect(scroller.style.getPropertyValue("--transcript-viewport")).toBe("268px");
+    expect(anchor().style.minHeight).toBe("268px");
+    // The stretch lives on the turn, not as a property every node inherits.
+    expect(scroller.style.getPropertyValue("--transcript-viewport")).toBe("");
   });
   it("follows streamed layout growth on mobile, pauses for a touch up, and resumes at the bottom", () => {
     const showJump = vi.fn();
