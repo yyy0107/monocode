@@ -7,10 +7,16 @@ import { setUiLanguage } from "../shared/i18n/language";
 import { readMobileAttachments } from "./attachments";
 import { KEYBOARD_EVENT, installKeyboardMotion } from "./keyboardMotion";
 import { takePromptLaunch } from "../features/sessions/ui/promptLaunch";
+import { lightImpact } from "./haptics";
+
+vi.mock("./haptics", () => ({ lightImpact: vi.fn() }));
 
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 let root: Root | undefined;
-beforeEach(() => setUiLanguage("en"));
+beforeEach(() => {
+  setUiLanguage("en");
+  vi.mocked(lightImpact).mockClear();
+});
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
@@ -543,6 +549,7 @@ describe("mobile composer card", () => {
       ),
     );
     expect(onSend).not.toHaveBeenCalled();
+    expect(lightImpact).not.toHaveBeenCalled();
     act(() =>
       area.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -553,6 +560,7 @@ describe("mobile composer card", () => {
       ),
     );
     expect(onSend).toHaveBeenCalledTimes(1);
+    expect(lightImpact).toHaveBeenCalledTimes(1);
     act(() =>
       area.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -566,6 +574,7 @@ describe("mobile composer card", () => {
     expect(onSend).toHaveBeenCalledTimes(1);
     click("Send message");
     expect(onSend).toHaveBeenCalledTimes(2);
+    expect(lightImpact).toHaveBeenCalledTimes(2);
   });
   it("shows Stop with an empty draft while running and locks all configuration controls", () => {
     const onPlanModeChange = vi.fn();

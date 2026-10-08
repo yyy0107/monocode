@@ -5,10 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostSessionSummary } from "../features/connections/model/protocol";
 import { setUiLanguage } from "../shared/i18n/language";
 import { MobileDrawer } from "./MobileDrawer";
+import { lightImpact } from "./haptics";
+
+vi.mock("./haptics", () => ({ lightImpact: vi.fn() }));
 
 let root: Root;
 let node: HTMLDivElement;
 beforeEach(() => {
+  vi.mocked(lightImpact).mockClear();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.useFakeTimers();
   setUiLanguage("en");
@@ -133,6 +137,7 @@ describe("mobile sidebar sessions", () => {
       cwd: "/project",
     });
     expect(onSessionActions).not.toHaveBeenCalled();
+    expect(lightImpact).not.toHaveBeenCalled();
   });
   it("opens actions on a hold and suppresses the release tap, then accepts a fresh tap", () => {
     const { onSession, onSessionActions } = render();
@@ -142,9 +147,11 @@ describe("mobile sidebar sessions", () => {
       x: 100,
       y: 100,
     });
+    expect(lightImpact).toHaveBeenCalledOnce();
     touch("pointerup");
     act(() => row().click());
     expect(onSession).not.toHaveBeenCalled();
+    expect(lightImpact).toHaveBeenCalledOnce();
     touch("pointerdown");
     touch("pointerup");
     act(() => row().click());
@@ -195,6 +202,7 @@ describe("mobile sidebar sessions", () => {
     touch("pointerup", 100, 20);
     act(() => row().click());
     expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(false);
+    expect(lightImpact).toHaveBeenCalledOnce();
     expect(onSession).not.toHaveBeenCalled();
   });
   it("closes from a push that starts anywhere on screen, outside the drawer", () => {
@@ -226,6 +234,7 @@ describe("mobile sidebar sessions", () => {
     expect(panel.style.transform).toBe("translateX(-20px)");
     touch("pointerup", 100, 230);
     expect(onOpenChange).not.toHaveBeenCalled();
+    expect(lightImpact).not.toHaveBeenCalled();
   });
   it("hands the settled position back to the stylesheet when a drag ends", () => {
     render();
@@ -295,6 +304,7 @@ describe("mobile sidebar sessions", () => {
     act(() => tool.click());
     chat.remove();
     expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(true);
+    expect(lightImpact).toHaveBeenCalledOnce();
     expect(clicked).not.toHaveBeenCalled();
   });
   it("leaves pulls that start in a text field alone", () => {

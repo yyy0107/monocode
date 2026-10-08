@@ -23,6 +23,7 @@ import {
 import { MobileSheet, type MobileSheetPoint } from "./MobileSheet";
 import { MobileListPreview } from "./MobileListPreview";
 import { MobileSessionRow } from "./MobileSessionRow";
+import { lightImpact } from "./haptics";
 import { sortMobileProjects } from "./sessionList";
 import {
   filterMobileSessions,
@@ -220,6 +221,7 @@ export function MobileHome({
             timer: setTimeout(() => {
               press.opened = true;
               suppressClick.current = item.id;
+              void lightImpact();
               onSessionActions(item, trigger, { x: press.x, y: press.y });
             }, 450),
           };

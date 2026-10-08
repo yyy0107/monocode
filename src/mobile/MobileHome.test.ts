@@ -9,6 +9,9 @@ import type {
 import { setUiLanguage } from "../shared/i18n/language";
 import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
 import { MobileHome } from "./MobileHome";
+import { lightImpact } from "./haptics";
+
+vi.mock("./haptics", () => ({ lightImpact: vi.fn() }));
 
 const projects: HostProject[] = [
   { id: "one", name: "monocode", cwd: "/projects/monocode" },
@@ -32,6 +35,7 @@ const session = (
 let root: Root;
 let node: HTMLDivElement;
 beforeEach(() => {
+  vi.mocked(lightImpact).mockClear();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.useFakeTimers();
   setUiLanguage("en");
@@ -214,9 +218,11 @@ describe("mobile home and project history", () => {
     touch("pointerdown");
     act(() => vi.advanceTimersByTime(450));
     expect(onSessionActions).toHaveBeenCalledWith(expect.objectContaining({ id: "new", projectId: "two" }), row, { x: 80, y: 200 });
+    expect(lightImpact).toHaveBeenCalledOnce();
     touch("pointerup");
     act(() => row.click());
     expect(onSession).not.toHaveBeenCalled();
+    expect(lightImpact).toHaveBeenCalledOnce();
     touch("pointerdown"); touch("pointerup");
     act(() => row.click());
     expect(onSession).toHaveBeenCalledWith("new", projects[1]);

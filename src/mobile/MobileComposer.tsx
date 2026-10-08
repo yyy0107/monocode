@@ -44,6 +44,7 @@ import {
 import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 import { preserveInputFocus, usePreserveInputFocusOnTouch } from "./inputFocus";
 import { useMobileTextareaAutosize } from "./useMobileTextareaAutosize";
+import { lightImpact } from "./haptics";
 
 export type MobileComposerPanel =
   | "actions"
@@ -264,6 +265,7 @@ export function MobileComposer(props: Props) {
   }, [launching, props.working]);
   const launch = () => {
     if (props.value.trim() || props.attachments.length) {
+      void lightImpact();
       notePromptLaunch(area.current);
       setLaunching(true);
     }

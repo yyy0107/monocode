@@ -35,6 +35,7 @@ import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import type { HostConnectionStatus } from "./client";
 import { MobileHostStatus } from "./MobileHostStatus";
+import { lightImpact } from "./haptics";
 import { formatMobileRelativeTime } from "./relativeTime";
 import { sortMobileProjects, sortMobileSessions } from "./sessionList";
 import { useListReorderMotion } from "../shared/hooks/useListReorderMotion";
@@ -223,6 +224,7 @@ export const MobileDrawer = memo(function MobileDrawer({
       timer: setTimeout(() => {
         press.opened = true;
         suppressClick.current = { id, until: Infinity };
+        void lightImpact();
         showSessionActions(id, trigger, { x: press.x, y: press.y });
       }, 450),
     };
@@ -400,7 +402,10 @@ export const MobileDrawer = memo(function MobileDrawer({
           ? latest.current.open
           : settleDrawerOpen(translate, current.width, current.velocity);
       setDragging(false);
-      if (open !== latest.current.open) latest.current.onOpenChange(open);
+      if (open !== latest.current.open) {
+        void lightImpact();
+        latest.current.onOpenChange(open);
+      }
     };
     const swallowClick = (event: MouseEvent) => {
       if (Date.now() >= dragClickUntil.current) return;
