@@ -7,6 +7,9 @@ import type { HostSessionSummary } from "../features/connections/model/protocol"
 import type { Connection } from "./client";
 import { translate } from "../shared/i18n/language";
 import type { AssistantNotificationActivity } from "../features/assistant/model/assistantNotifications";
+import { sessionDisplayTitle } from "../features/sessions/model/session";
+import { HARNESS_ICONS } from "../features/sessions/ui/HarnessIcon";
+import { notificationText } from "./notificationText";
 
 export type MobileNotificationPermission =
   "prompt" | "granted" | "denied" | "unsupported";
@@ -64,6 +67,7 @@ export function mobileNotificationTexts(host = ""): Record<string, string> {
     reply: translate("A new reply is ready."),
     input: translate("This conversation needs your input."),
     assistant: translate("Assistant"),
+    newSession: translate("New session"),
     remoteChannel: translate("Remote connection"),
     remote: translate("Remote"),
     connected: translate("Connected to {host}", { host }),
@@ -102,9 +106,10 @@ export function showBrowserActivityNotification(
   )
     return;
   try {
-    const notification = new Notification(session.title || "MonoCode", {
+    const notification = new Notification(sessionDisplayTitle(session.title, session.harness) || "MonoCode", {
+      icon: HARNESS_ICONS[session.harness],
       body:
-        session.notificationPreview?.[kind]?.trim() ||
+        notificationText(session.notificationPreview?.[kind]) ||
         mobileNotificationTexts()[kind],
       tag: `${environmentId}:${session.id}`,
     });
@@ -129,7 +134,7 @@ export function showBrowserAssistantNotification(
   if (!activity.latest || typeof Notification === "undefined" || Notification.permission !== "granted") return;
   try {
     const notification = new Notification(activity.name || translate("Assistant"), {
-      body: activity.latest.text || mobileNotificationTexts()[activity.latest.kind],
+      body: notificationText(activity.latest.text) || mobileNotificationTexts()[activity.latest.kind],
       tag: `${environmentId}:assistant`,
     });
     notification.onclick = () => {

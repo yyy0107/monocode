@@ -17,7 +17,7 @@ public final class SessionActivityState {
         public String finished, input;
     }
     public static final class Activity {
-        public String id, projectId, title, finished, input, replyPreview, inputPreview;
+        public String id, projectId, title, harness, finished, input, replyPreview, inputPreview;
         public long revision, reply;
         public boolean archived;
     }
@@ -26,8 +26,8 @@ public final class SessionActivityState {
         public final boolean input;
         Notice(Activity activity, boolean input) { this.activity = activity; this.input = input; }
         public String body(String fallback) {
-            String preview = input ? activity.inputPreview : activity.replyPreview;
-            return preview == null || preview.trim().isEmpty() ? fallback : preview.trim();
+            String preview = NotificationPresentation.plainText(input ? activity.inputPreview : activity.replyPreview);
+            return preview.isEmpty() ? fallback : preview;
         }
     }
     public List<Notice> observe(List<Activity> activities, String visibleId) {

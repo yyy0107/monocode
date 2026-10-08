@@ -97,7 +97,7 @@ public final class ConversationNotificationTest {
         manager.notify(9041, new NotificationCompat.Builder(context, "monocode-monitoring")
             .setSmallIcon(R.drawable.ic_stat_monocode).setContentTitle("Receiving conversation updates").setOngoing(true).build());
         MobileActivityTracker.preferences(context).edit().clear().commit();
-        JSONObject old = new JSONObject().put("id", "one").put("projectId", "project").put("title", "Test conversation")
+        JSONObject old = new JSONObject().put("id", "one").put("projectId", "project").put("title", "codex · Test conversation").put("harness", "codex")
             .put("revision", 10).put("lastReplyRevision", 8).put("lastCompletedRunId", "old");
         MobileActivityTracker.observe(context, "test-host", new JSONArray().put(old), false, new JSONObject());
         AtomicInteger polls = new AtomicInteger();
@@ -120,7 +120,7 @@ public final class ConversationNotificationTest {
                     while (offset < length) { int read = reader.read(body, offset, length - offset); if (read < 0) break; offset += read; }
                     received[0] = new JSONObject(new String(body));
                     JSONObject reply = new JSONObject(old.toString()).put("revision", 12).put("lastReplyRevision", 12).put("lastCompletedRunId", "new")
-                        .put("notificationPreview", new JSONObject().put("reply", "Login now works. Tests pass.").put("input", JSONObject.NULL));
+                        .put("notificationPreview", new JSONObject().put("reply", "**Login now works.** `Tests pass.`").put("input", JSONObject.NULL));
                     byte[] response = new JSONObject().put("result", new JSONObject().put("environmentId", "test-host").put("sessions", new JSONArray().put(reply))).toString().getBytes(StandardCharsets.UTF_8);
                     socket.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + response.length + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.UTF_8));
                     socket.getOutputStream().write(response);
@@ -156,6 +156,7 @@ public final class ConversationNotificationTest {
             }
             assertNotNull("Background conversation reply should reach the system notification manager; received polls=" + polls.get(), delivered);
             assertEquals("Test conversation", delivered.getNotification().extras.getString(Notification.EXTRA_TITLE));
+            assertNotNull("Conversation alert should display its agent icon", delivered.getNotification().getLargeIcon());
             assertEquals("Login now works. Tests pass.", delivered.getNotification().extras.getString(Notification.EXTRA_TEXT));
             assertEquals("Login now works. Tests pass.", delivered.getNotification().extras.getString(Notification.EXTRA_BIG_TEXT));
             assertEquals("Remote card and conversation alert should be posted", 2, manager.getActiveNotifications().length);

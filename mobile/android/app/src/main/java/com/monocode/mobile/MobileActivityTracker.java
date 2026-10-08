@@ -6,6 +6,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.BitmapFactory;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
@@ -96,6 +97,7 @@ final class MobileActivityTracker {
             JSONObject row = sessions.getJSONObject(index);
             SessionActivityState.Activity activity = new SessionActivityState.Activity();
             activity.id = row.getString("id"); activity.projectId = row.getString("projectId"); activity.title = row.optString("title");
+            activity.harness = nullable(row, "harness");
             activity.revision = row.getLong("revision"); activity.reply = row.optLong("lastReplyRevision", 0);
             activity.finished = nullable(row, "lastCompletedRunId"); activity.input = nullable(row, "pendingInputKey");
             JSONObject preview = row.optJSONObject("notificationPreview");
@@ -138,7 +140,7 @@ final class MobileActivityTracker {
             || !NotificationManagerCompat.from(context).areNotificationsEnabled()) return;
         channels(context, texts);
         String kind = latest.optString("kind", "reply");
-        String body = latest.optString("text").trim();
+        String body = NotificationPresentation.plainText(latest.optString("text"));
         if (body.isEmpty()) body = texts.optString(kind, "input".equals(kind)
             ? "This conversation needs your input." : "A new reply is ready.");
         String title = activity.optString("name");
@@ -147,7 +149,7 @@ final class MobileActivityTracker {
             .setData(new Uri.Builder().scheme("monocode-notification").authority("assistant").appendPath(environmentId).build())
             .putExtra("monocodeEnvironment", environmentId).putExtra("monocodeAssistant", true);
         PendingIntent open = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        showNotice(context, environmentId + ":assistant", title, body, open);
+        showNotice(context, environmentId + ":assistant", title, body, open, null);
     }
     static void channels(Context context, JSONObject texts) {
         clearMonitoringNotification(context);
@@ -175,18 +177,36 @@ final class MobileActivityTracker {
     private static void show(Context context, String environmentId, SessionActivityState.Notice notice, JSONObject texts) {
         String body = notice.body(texts.optString(notice.input ? "input" : "reply", notice.input ? "This conversation needs your input." : "A new reply is ready."));
         showNotice(context, environmentId + ":" + notice.activity.id,
-            notice.activity.title.isEmpty() ? "MonoCode" : notice.activity.title, body,
-            openIntent(context, environmentId, notice.activity.projectId, notice.activity.id));
+            NotificationPresentation.displayTitle(notice.activity.title, notice.activity.harness, texts.optString("newSession", "New session")), body,
+            openIntent(context, environmentId, notice.activity.projectId, notice.activity.id), notice.activity.harness);
     }
-    private static void showNotice(Context context, String tag, String title, String body, PendingIntent open) {
+    private static void showNotice(Context context, String tag, String title, String body, PendingIntent open, String harness) {
         NotificationCompat.Builder notification = new NotificationCompat.Builder(context, REPLIES)
             .setSmallIcon(R.drawable.ic_stat_monocode).setContentTitle(title)
             .setContentText(body).setStyle(new NotificationCompat.BigTextStyle().bigText(body))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE).setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_SOUND | NotificationCompat.DEFAULT_VIBRATE)
             .setAutoCancel(true).setContentIntent(open);
+        int icon = harnessIcon(harness);
+        if (icon != 0) notification.setLargeIcon(BitmapFactory.decodeResource(context.getResources(), icon));
         try { NotificationManagerCompat.from(context).notify(tag, 1, notification.build()); }
         catch (SecurityException ignored) { /* Permission can be revoked after the check. */ }
+    }
+    // Raster exports of src/assets/providers/*.svg, with a light backing for monochrome marks.
+    private static int harnessIcon(String harness) {
+        switch (harness == null ? "" : harness) {
+            case "claude": return R.drawable.ic_harness_claude;
+            case "codex": return R.drawable.ic_harness_codex;
+            case "cursor": return R.drawable.ic_harness_cursor;
+            case "grok": return R.drawable.ic_harness_grok;
+            case "opencode": return R.drawable.ic_harness_opencode;
+            case "pi": return R.drawable.ic_harness_pi;
+            case "omp": return R.drawable.ic_harness_omp;
+            case "fx": return R.drawable.ic_harness_fx;
+            case "hermes": return R.drawable.ic_harness_hermes;
+            case "antigravity": return R.drawable.ic_harness_antigravity;
+            default: return 0;
+        }
     }
     static void cancel(Context context, String environmentId, String sessionId) {
         NotificationManagerCompat.from(context).cancel(environmentId + ":" + sessionId, 1);
