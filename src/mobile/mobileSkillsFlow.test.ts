@@ -40,6 +40,7 @@ const host = vi.hoisted(() => ({
   switchTo: vi.fn(async () => undefined),
   verify: vi.fn(async () => {}),
   getConnectionStatus: () => healthyStatus,
+  hasCapability: () => false,
   subscribeConnectionStatus: () => () => {},
   projects: vi.fn(async () => [project]),
   sessions: vi.fn(async () => [

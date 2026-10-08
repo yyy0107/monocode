@@ -117,6 +117,7 @@ const host = vi.hoisted(() => ({
     environmentId: "defaults-one",
   },
   getConnectionStatus: () => healthyStatus,
+  hasCapability: () => false,
   subscribeConnectionStatus: () => () => {},
   restore: vi.fn(async () => true),
   verify: vi.fn(async () => {}),

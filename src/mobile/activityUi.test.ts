@@ -27,6 +27,7 @@ vi.mock("./client", () => ({
       name: "Computer",
     };
     getConnectionStatus = () => mocked.status;
+    hasCapability = () => false;
     subscribeConnectionStatus = () => () => {};
     restore = async () => true;
     pending = async () => undefined;

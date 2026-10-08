@@ -150,7 +150,8 @@ describe("file tab context menu", () => {
 
     await pick("Open in Default App");
 
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+    // The error is portalled to the body so clipped surfaces cannot hide it.
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(
       "No application can open this file",
     );
   });

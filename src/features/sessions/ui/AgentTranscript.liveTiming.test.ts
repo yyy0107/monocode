@@ -56,40 +56,50 @@ function noClock() {
   expect(footer.textContent).not.toMatch(/^\d+[smh] · /);
 }
 
-it("ticks each response round and resets on new replies and completed tool batches", () => {
+function verb(text: string) {
+  const footer = node.querySelector<HTMLElement>("[data-live-footer]")!;
+  expect(footer.textContent).toContain(text);
+}
+
+it("times thinking and replies per response round while tool verbs stay text-only", () => {
+  // Before any output the agent is thinking, timed from the send.
   update();
   tick(8);
-  noClock();
+  clock("round", "8s");
+  verb("Thinking…");
 
   update({ type: "reasoning.delta", text: "First thought" });
   noClock();
   tick(3);
   clock("thinking", "3s");
   update({ type: "reasoning.completed" });
-  noClock();
+  clock("round", "3s");
 
+  // Tool calls show a filler verb without a clock, and a finished call keeps
+  // its verb until the model's next output.
   update({ type: "tool.started", callId: "first", title: "Read file", kind: "read", status: "in_progress" });
   noClock();
   tick(2);
-  clock("tool", "2s");
+  noClock();
   update({ type: "tool.started", callId: "second", title: "Run tests", kind: "shell", status: "in_progress" });
-  noClock();
   tick(2);
-  clock("tool", "2s");
+  noClock();
   update({ type: "tool.updated", callId: "second", status: "completed" });
-  clock("tool", "4s");
   update({ type: "tool.updated", callId: "first", status: "completed" });
-  noClock();
   tick(2);
   noClock();
+  expect(node.querySelector<HTMLElement>("[data-live-footer]")!.dataset.livePhase).toBe("tool");
 
   update({ type: "reasoning.delta", text: "Second thought" });
   tick(2);
   clock("thinking", "2s");
   update({ type: "reasoning.completed" });
-  noClock();
+  clock("round", "2s");
+
+  // A reply starts a new round; further tokens keep its clock in place.
   update({ type: "message.delta", text: "Here is the answer" });
   noClock();
+  verb("Responding…");
   tick(2);
   clock("round", "2s");
   const timer = node.querySelector('[role="timer"]');
@@ -99,14 +109,15 @@ it("ticks each response round and resets on new replies and completed tool batch
   expect(node.querySelector('[role="timer"]')).toBe(timer);
   expect(timer?.getAttribute("data-motion")).toBe(motion);
   update({ type: "message.completed" });
-  noClock();
   tick(3);
-  noClock();
+  clock("round", "5s");
+  verb("Thinking…");
+
   update({ type: "message.delta", text: "Another response" });
   noClock();
   expect(node.querySelector(".rolling-clock-glyph")).toBeNull();
   tick(2);
-  noClock();
+  clock("round", "2s");
 });
 
 it("keeps approval waits text-only without a ticking clock", () => {

@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown } from "../../../shared/ui/icons";
 import {
   remoteRequest,
   useRemoteMachines,
