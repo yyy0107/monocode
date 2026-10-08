@@ -161,6 +161,60 @@ describe("prompt rise in the chat layout", () => {
     expect(slideOf(previous)[1]).toEqual(slideOf(bubble)[1]);
   });
 
+  it("keeps a sending prompt tinted and hands its slide to the recorded copy", async () => {
+    const sending: Block[] = [
+      ...first,
+      { id: "a1", role: "assistant", text: "Hi" },
+      { id: "sending:1", role: "user", text: "Next", sending: true },
+    ];
+    render(first, false);
+    render(sending, false);
+    act(() => vi.advanceTimersByTime(20));
+    const pendingRow = container.querySelector<HTMLElement>('[data-prompt-anchor="sending:1"]')!;
+    expect(pendingRow.dataset.sending).toBe("true");
+    expect(risenPrompts()).toEqual(["sending:1"]);
+    // No settle: the tint stays until the Host records the message.
+    expect(animate.mock.calls.some(([frames]) => "opacity" in frames[0])).toBe(false);
+    const slide = animate.mock.calls[0];
+    const running = animate.mock.results.map((result) => result.value);
+
+    render(second);
+    const bubble = container.querySelector<HTMLElement>('[data-prompt-anchor="u2"] .user-message-bubble')!;
+    const index = animate.mock.contexts.lastIndexOf(bubble);
+    expect(index).toBeGreaterThan(0);
+    expect(animate.mock.calls[index]).toEqual(slide);
+    for (const animation of running) expect(animation.cancel).not.toHaveBeenCalled();
+    expect(bubble.closest<HTMLElement>("[data-prompt-anchor]")!.dataset.sending).toBeUndefined();
+    await act(async () => animate.mock.results[0].value.finish());
+    expect(bubble.closest<HTMLElement>(".transcript-turn")!.dataset.promptRise).toBe("revealing");
+  });
+
+  it("lifts a recorded copy to full strength once the slide has landed", async () => {
+    render(first, false);
+    render([...first, { id: "sending:1", role: "user", text: "Next", sending: true }], false);
+    act(() => vi.advanceTimersByTime(20));
+    await act(async () => animate.mock.results[0].value.finish());
+    const calls = animate.mock.calls.length;
+
+    render([...first, { id: "u2", role: "user", text: "Next" }]);
+    expect(animate.mock.calls.slice(calls).map(([frames]) => frames)).toEqual([
+      [{ opacity: 0.5 }, { opacity: 1 }],
+    ]);
+  });
+
+  it("drops a withdrawn sending prompt without replaying the previous one", () => {
+    render(first, false);
+    render([...first, { id: "sending:1", role: "user", text: "Next", sending: true }], false);
+    act(() => vi.advanceTimersByTime(20));
+    const calls = animate.mock.calls.length;
+    const running = animate.mock.results.map((result) => result.value);
+
+    render(first, false);
+    act(() => vi.advanceTimersByTime(20));
+    expect(animate.mock.calls).toHaveLength(calls);
+    for (const animation of running) expect(animation.cancel).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     [true, "Caption"], [false, "Caption"], [true, ""], [false, ""],
   ] as const)("slides sent images with their caption and supports image-only sends (anchor=%s, text=%s)", async (anchor, text) => {

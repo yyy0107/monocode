@@ -311,6 +311,8 @@ export type TurnMetrics = {
 export type Block = {
   id: string;
   role: BlockRole;
+  /** Client-only copy of a user message the Host has not recorded yet. */
+  sending?: boolean;
   origin?: TurnOrigin;
   text: string;
   /** Persistent clarifying question and the user's accepted answer. */

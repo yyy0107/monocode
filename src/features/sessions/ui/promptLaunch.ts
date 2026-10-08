@@ -5,6 +5,7 @@
 const SLIDE_EASING = "cubic-bezier(.16,1,.3,1)";
 const PENDING_OPACITY = 0.5;
 const SETTLE_MS = 420;
+const CONFIRM_MS = 140;
 
 /** Short sends snap, long ones still land quickly. */
 function slideDuration(distance: number): number {
@@ -20,17 +21,35 @@ export type PromptSlide = {
   finished: Promise<void>;
   /** Cancels all motion; safe to call repeatedly. */
   release: () => void;
+  /**
+   * Moves replacement elements (the Host's recorded copy of a sending
+   * message) on the running slide's clock. False once the slide is over.
+   */
+  follow: (parts: HTMLElement[]) => boolean;
 };
+
+/** A recorded message replaces its sending copy: lift it to full strength. */
+export function confirmPrompt(parts: (HTMLElement | null | undefined)[]) {
+  for (const part of parts) {
+    if (!part || typeof part.animate !== "function") continue;
+    part.animate([{ opacity: PENDING_OPACITY }, { opacity: 1 }], {
+      duration: CONFIRM_MS,
+      easing: "ease-out",
+    });
+  }
+}
 
 /**
  * Slides the sent message (its bubble and any attachments) and the content
- * above it up by `distance` on one clock. The message also fades from its
- * pending tint to full opacity.
+ * above it up by `distance` on one clock. Unless it is still sending (and
+ * keeps its pending tint until recorded), the message also fades from that
+ * tint to full opacity.
  */
 export function slidePromptIn(
   message: (HTMLElement | null | undefined)[],
   distance: number,
   earlier: HTMLElement[] = [],
+  { settle = true }: { settle?: boolean } = {},
 ): PromptSlide | undefined {
   const parts = message.filter((part): part is HTMLElement => !!part);
   if (!parts.length) return undefined;
@@ -44,14 +63,13 @@ export function slidePromptIn(
     animations.push(animation);
     return animation;
   };
+  const slide: Keyframe[] = [
+    { transform: `translateY(${dy.toFixed(2)}px)` },
+    { transform: "translateY(0px)" },
+  ];
   const moved = dy ? [...parts, ...earlier] : [];
-  for (const element of moved) {
-    animate(element, [
-      { transform: `translateY(${dy.toFixed(2)}px)` },
-      { transform: "translateY(0px)" },
-    ], duration, SLIDE_EASING);
-  }
-  for (const part of parts) {
+  for (const element of moved) animate(element, slide, duration, SLIDE_EASING);
+  if (settle) for (const part of parts) {
     animate(part, [
       { opacity: PENDING_OPACITY },
       { opacity: PENDING_OPACITY, offset: 0.6 },
@@ -64,7 +82,21 @@ export function slidePromptIn(
     released = true;
     for (const animation of animations) animation.cancel();
   };
+  if (!animations.length) return undefined;
+  const lead = animations[0];
+  let landed = false;
   // The animations hold no fill, so landing needs no cleanup.
-  const finished = animations[0].finished.then(() => {}, () => {});
-  return { animations, duration, easing: SLIDE_EASING, finished, release };
+  const finished = lead.finished.then(() => {}, () => {}).then(() => {
+    landed = true;
+  });
+  const follow = (next: HTMLElement[]) => {
+    if (released || landed || !dy) return false;
+    for (const element of next) {
+      const animation = element.animate(slide, { duration, easing: SLIDE_EASING });
+      if (lead.startTime !== null) animation.startTime = lead.startTime;
+      animations.push(animation);
+    }
+    return true;
+  };
+  return { animations, duration, easing: SLIDE_EASING, finished, release, follow };
 }

@@ -169,7 +169,7 @@ import {
   transcriptMutationNeedsRepaint,
   transcriptWordRanges,
 } from "../model/transcriptHighlights";
-import { slidePromptIn, type PromptSlide } from "./promptLaunch";
+import { confirmPrompt, slidePromptIn, type PromptSlide } from "./promptLaunch";
 
 const NEAR_BOTTOM_PX = 16;
 /*
@@ -380,16 +380,34 @@ function AgentTranscriptComponent({
   );
   const transcriptLayout = useTranscriptLayout();
   const promptAnchor = useTranscriptAnchor();
-  const lastUserId = lastUserBlockId(blocks, managed);
+  const lastUser = turnUserBlock(blocks, managed);
+  const lastUserId = lastUser?.id;
+  const lastUserSending = !!lastUser?.sending;
   const seenUserId = useRef(lastUserId);
+  const seenSending = useRef(lastUserSending);
+  // The prompt before a sending copy: getting it back means the send failed.
+  const beforeSending = useRef<string | undefined>(undefined);
+  // A sending copy is replaced by its recorded message or withdrawn; neither
+  // is a new send to introduce.
+  const promptChange = useRef<"sent" | "recorded" | "withdrawn">("sent");
   // Where the previous turn sat before a send moves it, read while the
   // DOM still shows the old layout so earlier turns can glide up continuously.
   const priorTurn = useRef<PriorTurn | undefined>(undefined);
   if (lastUserId !== seenUserId.current) {
+    const wasSending = seenSending.current;
+    promptChange.current = !wasSending
+      ? "sent"
+      : lastUserId === beforeSending.current
+        ? "withdrawn"
+        : "recorded";
+    if (lastUserSending && !wasSending) beforeSending.current = seenUserId.current;
     seenUserId.current = lastUserId;
-    priorTurn.current = measureLastTurn(scroller.current);
+    priorTurn.current = promptChange.current === "sent"
+      ? measureLastTurn(scroller.current)
+      : undefined;
     if (lastUserId && !anchorTurn) setAnchorTurn(true);
   }
+  seenSending.current = lastUserSending;
   const currentModelName = harness
     ? resolveModel(harness, model).name
     : undefined;
@@ -618,10 +636,27 @@ function AgentTranscriptComponent({
     visible,
   };
   const introducedPromptMount = useRef(false);
-  const stopPromptRise = useRef<(() => void) | undefined>(undefined);
+  const promptRise = useRef<PromptRise | undefined>(undefined);
   useLayoutEffect(() => {
     const mounting = !introducedPromptMount.current;
     introducedPromptMount.current = true;
+    const change = promptChange.current;
+    promptChange.current = "sent";
+    const own = (rise: PromptRise | undefined) => () => {
+      // A recorded copy takes over the running motion of its sending copy.
+      if (promptChange.current === "recorded" && promptRise.current === rise) return;
+      rise?.stop();
+      if (promptRise.current === rise) promptRise.current = undefined;
+    };
+    if (change === "withdrawn") return;
+    if (change === "recorded") {
+      const rise = promptRise.current;
+      if (lastUserId && rise?.follow(lastUserId)) return own(rise);
+      promptRise.current = undefined;
+      if (lastUserId && !reducedMotionQuery().matches)
+        confirmPrompt(promptParts(promptRow(scroller.current, lastUserId)));
+      return;
+    }
     const { chat, visible } = introducePrompt.current;
     if (!lastUserId || !chat || !visible) return;
     if (
@@ -632,18 +667,15 @@ function AgentTranscriptComponent({
       return;
     const prior = priorTurn.current;
     priorTurn.current = undefined;
-    const stop = riseIntoAnchor(scroller.current, lastUserId, prior);
-    stopPromptRise.current = stop;
-    return () => {
-      stop?.();
-      if (stopPromptRise.current === stop) stopPromptRise.current = undefined;
-    };
+    const rise = riseIntoAnchor(scroller.current, lastUserId, prior);
+    promptRise.current = rise;
+    return own(rise);
     // Only a new prompt starts the motion; later renders must not replay it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastUserId]);
 
   useLayoutEffect(() => {
-    if (!visible) stopPromptRise.current?.();
+    if (!visible) promptRise.current?.stop();
   }, [visible]);
 
   useLayoutEffect(() => {
@@ -2104,6 +2136,7 @@ function UserMessageBlock({
   return (
     <div
       data-prompt-anchor={block.id}
+      data-sending={block.sending ? "true" : undefined}
       data-message-layout={layout}
       data-editing-last-turn={editing ? "true" : undefined}
       className="user-message-row group/usermsg flex flex-col items-end overflow-visible pt-1 pr-4 @md:pr-6 pb-5 pl-[18%]"
@@ -2261,10 +2294,11 @@ function UserMessageBlock({
             />
           ) : null}
         </div>
-        {text ||
+        {!block.sending &&
+        (text ||
         block.attachments?.length ||
         sentAt != null ||
-        onEdit ? (
+        onEdit) ? (
           <div className="user-message-actions flex items-center gap-1 px-3 pt-1">
             {text || block.attachments?.length ? (
               <CopyTurnButton
@@ -3917,10 +3951,6 @@ function InterjectionDivider({ block }: { block: Block }) {
   );
 }
 
-function lastUserBlockId(blocks: Block[], managed = false): string | undefined {
-  return turnUserBlock(blocks, managed)?.id;
-}
-
 function turnUserBlock(blocks: Block[], managed = false): Block | undefined {
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i];
@@ -3946,51 +3976,85 @@ function measureLastTurn(scroller: HTMLElement | null): PriorTurn | undefined {
   return element ? { element, top: element.getBoundingClientRect().top } : undefined;
 }
 
+type PromptRise = {
+  stop: () => void;
+  /** Hands the motion to the recorded copy of a sending prompt. */
+  follow: (blockId: string) => boolean;
+};
+
+function promptRow(scroller: HTMLElement | null, blockId: string) {
+  return scroller?.querySelector<HTMLElement>(
+    `[data-prompt-anchor="${CSS.escape(blockId)}"]`,
+  ) ?? null;
+}
+
+function promptParts(row: HTMLElement | null) {
+  return [
+    row?.querySelector<HTMLElement>(".user-message-bubble:not([hidden])"),
+    row?.querySelector<HTMLElement>(".user-message-media"),
+  ];
+}
+
 /** Scrolls the sent prompt into its final row with the turns above it. */
 function riseIntoAnchor(
   scroller: HTMLElement | null,
   blockId: string,
   prior?: PriorTurn,
-) {
-  const row = scroller?.querySelector<HTMLElement>(
-    `[data-prompt-anchor="${CSS.escape(blockId)}"]`,
-  );
+): PromptRise | undefined {
+  let row = promptRow(scroller, blockId);
   if (!scroller || !row || typeof row.animate !== "function") return;
   if (reducedMotionQuery().matches) return;
-  const turn = row.closest<HTMLElement>(".transcript-turn");
+  let turn = row.closest<HTMLElement>(".transcript-turn");
   let stopped = false;
+  let started = false;
   let frame = 0;
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
-  let releaseSlide: (() => void) | undefined;
+  let slide: PromptSlide | undefined;
   const reveal = () => {
     if (stopped) return;
-    turn?.setAttribute("data-prompt-rise", "revealing");
+    const revealing = turn;
+    revealing?.setAttribute("data-prompt-rise", "revealing");
     revealTimer = setTimeout(
-      () => turn?.removeAttribute("data-prompt-rise"),
+      () => revealing?.removeAttribute("data-prompt-rise"),
       PROMPT_REVEAL_MS,
     );
   };
   const start = () => {
-    row.style.removeProperty("visibility");
-    const slide = scrollIntoAnchor(scroller, row, turn, prior);
+    started = true;
+    row!.style.removeProperty("visibility");
+    slide = scrollIntoAnchor(scroller, row!, turn, prior);
     if (!slide) {
       turn?.removeAttribute("data-prompt-rise");
       return;
     }
-    releaseSlide = slide.release;
     void slide.finished.then(reveal);
   };
   // Let the sibling dock publish its cleared draft height before measuring.
   row.style.visibility = "hidden";
   turn?.setAttribute("data-prompt-rise", "rising");
   frame = requestAnimationFrame(start);
-  return () => {
-    stopped = true;
-    cancelAnimationFrame(frame);
-    releaseSlide?.();
-    clearTimeout(revealTimer);
-    row.style.removeProperty("visibility");
-    turn?.removeAttribute("data-prompt-rise");
+  return {
+    stop: () => {
+      stopped = true;
+      cancelAnimationFrame(frame);
+      slide?.release();
+      clearTimeout(revealTimer);
+      row?.style.removeProperty("visibility");
+      turn?.removeAttribute("data-prompt-rise");
+    },
+    follow: (nextId) => {
+      const next = promptRow(scroller, nextId);
+      if (stopped || !next) return false;
+      if (started && !slide?.follow(
+        promptParts(next).filter((part): part is HTMLElement => !!part),
+      ))
+        return false;
+      row = next;
+      turn = next.closest<HTMLElement>(".transcript-turn");
+      if (!started) row.style.visibility = "hidden";
+      turn?.setAttribute("data-prompt-rise", "rising");
+      return true;
+    },
   };
 }
 
@@ -4005,8 +4069,7 @@ function scrollIntoAnchor(
   turn: HTMLElement | null,
   prior: PriorTurn | undefined,
 ): PromptSlide | undefined {
-  const bubble = row.querySelector<HTMLElement>(".user-message-bubble:not([hidden])");
-  const media = row.querySelector<HTMLElement>(".user-message-media");
+  const [bubble, media] = promptParts(row);
   const moving = bubble ?? media;
   if (!moving) return undefined;
   const view = scroller.getBoundingClientRect();
@@ -4031,7 +4094,10 @@ function scrollIntoAnchor(
   const distance = shift > 1
     ? shift
     : view.bottom - dock - 8 - moving.getBoundingClientRect().bottom;
-  return slidePromptIn([bubble, media], distance, earlier);
+  // A sending copy keeps its pending tint until the Host records it.
+  return slidePromptIn([bubble, media], distance, earlier, {
+    settle: !row.hasAttribute("data-sending"),
+  });
 }
 
 function isNearBottom(el: HTMLElement): boolean {

@@ -258,8 +258,8 @@ export function MobileComposer(props: Props) {
   }, [props.panel]);
   // The compact line carries its own send/stop button while the toolbar folds.
   const inline = useCollapseMotion(!!props.compact);
-  // Acknowledge the tap on the button, but keep the draft visible while the
-  // Host accepts it. Clearing the draft and adding its bubble happen together.
+  // Acknowledge the tap on the button. The app clears the draft as it adds the
+  // message's bubble: at once while it sends, or when a queued send is accepted.
   const [launching, setLaunching] = useState(false);
   useEffect(() => {
     if (launching && !props.working) setLaunching(false);
