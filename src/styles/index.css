@@ -816,9 +816,11 @@ html.has-chat-background.chat-background-effect-ready.chat-background-gradient-b
   }
 }
 
+/* History is paged by turn. Lay out each loaded page at its real height:
+   estimated offscreen heights change the scroll range during a gesture and
+   require scrollTop corrections as the reader moves back through history. */
 .transcript-turn {
-  content-visibility: auto;
-  contain-intrinsic-block-size: auto 240px;
+  content-visibility: visible;
 }
 
 .agent-transcript
@@ -828,15 +830,6 @@ html.has-chat-background.chat-background-effect-ready.chat-background-gradient-b
   display: block;
   overflow: visible;
   -webkit-line-clamp: unset;
-}
-
-/*
- * The live turn is still growing. Size containment would flash the 240px
- * intrinsic fallback when the first step arrives, which bounces Working
- * down and then back up.
- */
-.transcript-turn-live {
-  content-visibility: visible;
 }
 
 /* Touch layouts keep actions in flow. Desktop places them in the existing

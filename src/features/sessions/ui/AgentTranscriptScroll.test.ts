@@ -61,6 +61,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -467,12 +468,12 @@ describe("transcript scrolling", () => {
       borderBoxSize: [{ blockSize }],
       contentRect: { height: blockSize },
     });
-    // Off-screen turns report their placeholder size first.
+    // Remember the laid-out sizes before late content arrives.
     act(() => observer.resize([size(above, 240), size(reading, 240)]));
     expect(top).toBe(1000);
 
-    // Scrolling up lays them out. Only the turn wholly above the view moves
-    // the reader; the one on screen grows below where they are reading.
+    // Late content changes both turns. Only the turn wholly above the view
+    // moves the reader; the on-screen turn grows below the reading position.
     height = 4420;
     readingTop += 900 - 240;
     act(() => observer.resize([size(above, 900), size(reading, 1000)]));
@@ -516,6 +517,86 @@ describe.each([false, true])(
       expect(geometry.top).toBe(600);
       return { scroller, geometry, observer, blocks };
     }
+
+    it("holds following across directionless wheel events, then resumes after the gesture", () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+      const { scroller, geometry, observer } = mountScroller();
+      act(() => {
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 0 }));
+        geometry.height = 1100;
+        observer.resize();
+      });
+      expect(geometry.top).toBe(600);
+
+      act(() => {
+        vi.advanceTimersByTime(100);
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 0 }));
+        vi.advanceTimersByTime(100);
+        observer.resize();
+      });
+      expect(geometry.top).toBe(600);
+      act(() => vi.advanceTimersByTime(50));
+      expect(geometry.top).toBe(700);
+    });
+
+    it("lets an upward gesture release the pin after its directionless opening", () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+      const { scroller, geometry, observer } = mountScroller();
+      act(() => {
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 0 }));
+        geometry.height = 1100;
+        observer.resize();
+        vi.advanceTimersByTime(50);
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -4 }));
+        geometry.top = 596;
+        scroller.dispatchEvent(new Event("scroll"));
+        vi.advanceTimersByTime(100);
+      });
+      expect(geometry.top).toBe(596);
+      geometry.height = 1200;
+      act(() => observer.resize());
+      expect(geometry.top).toBe(596);
+    });
+
+    it("keeps a small downward reversal near the end from resuming following", () => {
+      const { scroller, geometry, observer } = mountScroller();
+      act(() => {
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -4 }));
+        geometry.top = 590;
+        scroller.dispatchEvent(new Event("scroll"));
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 2 }));
+        geometry.top = 592;
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      geometry.height = 1100;
+      act(() => observer.resize());
+      expect(geometry.top).toBe(592);
+    });
+
+    it.each([true, false])(
+      "restores the reader's follow state after parking resets the offset (following=%s)",
+      (following) => {
+        const { scroller, geometry, blocks } = mountScroller();
+        if (!following) {
+          act(() => {
+            scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -100 }));
+            geometry.top = 400;
+            scroller.dispatchEvent(new Event("scroll"));
+          });
+        }
+        act(() => root.render(createElement(AgentTranscript, {
+          blocks, busy: true, touchScroll, visible: false, parked: true,
+        })));
+        geometry.top = 0;
+        geometry.height = 1200;
+        act(() => root.render(createElement(AgentTranscript, {
+          blocks, busy: true, touchScroll, visible: true, parked: false,
+        })));
+        expect(geometry.top).toBe(following ? 800 : 600);
+        act(() => scroller.dispatchEvent(new Event("scroll")));
+        expect(geometry.top).toBe(following ? 800 : 600);
+      },
+    );
 
     // Touch input pauses following from touchmove before the scroll lands.
     it.runIf(!touchScroll).each(["resize", "stream update"])(
@@ -692,7 +773,7 @@ describe.each([false, true])(
         2000,
         1328,
       );
-      // Lazy turn expansion can fit inside the latest turn's reserved space,
+      // A late turn expansion can fit inside the latest turn's reserved space,
       // leaving the overall transcript height unchanged.
       first.getBoundingClientRect = () => ({ top: -1000 }) as DOMRect;
       act(() => {

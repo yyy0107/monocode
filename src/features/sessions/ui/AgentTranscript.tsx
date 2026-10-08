@@ -172,6 +172,7 @@ import {
 import { confirmPrompt, slidePromptIn, type PromptSlide } from "./promptLaunch";
 
 const NEAR_BOTTOM_PX = 16;
+const WHEEL_HOLD_MS = 150;
 /*
  * Tool calls often land in a burst. Each arrival waits for the one before it
  * to finish its whole entrance — rail, branch, row — before starting its own.
@@ -341,6 +342,7 @@ function AgentTranscriptComponent({
   const showJumpRef = useRef(false);
   const distanceFromBottom = useRef(0);
   const scrollGeometry = useRef({ top: 0, height: 0, viewport: 0 });
+  const wheelHold = useRef(0);
   const scrollDirection = useRef<"up" | "down" | undefined>(undefined);
   const touchReadingUp = useRef(false);
   const prependHeight = useRef<number | null>(null);
@@ -471,7 +473,9 @@ function AgentTranscriptComponent({
         if (
           !stickToBottom.current &&
           !touchReadingUp.current &&
-          isNearBottom(el) &&
+          // A slight downward reversal inside the bottom margin is still
+          // reading history. Resume only after reaching the actual end.
+          distance <= 1 &&
           (scrollDirection.current === "down" ||
             (!layoutChanged && el.scrollTop > previous.top + 1))
         )
@@ -504,7 +508,10 @@ function AgentTranscriptComponent({
       // The browser can apply a manual scroll before dispatching its event.
       // Reconcile that offset before a streaming commit or observer pins it.
       syncPinned(el);
-      if (stickToBottom.current) pinTranscript(el);
+      // Directionless trackpad events can precede off-thread scrolling.
+      // Wait for the gesture to reveal its direction before pinning again.
+      if (stickToBottom.current && performance.now() >= wheelHold.current)
+        pinTranscript(el);
     },
     [pinTranscript, syncPinned],
   );
@@ -553,6 +560,7 @@ function AgentTranscriptComponent({
       if (scrollerEl.isConnected && scrollerEl.clientHeight > 0)
         syncPinned(scrollerEl);
     };
+    let release: ReturnType<typeof setTimeout> | undefined;
     const onWheel = (e: WheelEvent) => {
       if (innerScrollerTakes(scrollerEl, e)) return;
       touchReadingUp.current = false;
@@ -560,6 +568,12 @@ function AgentTranscriptComponent({
       if (e.deltaY < 0) {
         stickToBottom.current = false;
         syncJumpVisibility(scrollerEl);
+      } else if (e.deltaY === 0) {
+        wheelHold.current = performance.now() + WHEEL_HOLD_MS;
+        clearTimeout(release);
+        release = setTimeout(() => {
+          if (scrollerEl.isConnected) followTranscript(scrollerEl);
+        }, WHEEL_HOLD_MS);
       }
     };
     let touchY: number | undefined;
@@ -608,6 +622,7 @@ function AgentTranscriptComponent({
       scrollerEl.addEventListener("keydown", onKey);
     }
     return () => {
+      clearTimeout(release);
       scrollerEl.removeEventListener("scroll", onScroll);
       scrollerEl.removeEventListener("wheel", onWheel);
       scrollerEl.removeEventListener("touchstart", onTouchStart);
@@ -616,7 +631,14 @@ function AgentTranscriptComponent({
       scrollerEl.removeEventListener("touchcancel", onTouchEnd);
       scrollerEl.removeEventListener("keydown", onKey);
     };
-  }, [scrollerEl, syncJumpVisibility, syncPinned, visible, touchScroll]);
+  }, [
+    scrollerEl,
+    followTranscript,
+    syncJumpVisibility,
+    syncPinned,
+    visible,
+    touchScroll,
+  ]);
 
   useLayoutEffect(() => {
     stickToBottom.current = true;
@@ -705,7 +727,11 @@ function AgentTranscriptComponent({
       stickToBottom.current = true;
       setShowJump(false);
       pinTranscript(el);
-    } else if (restore && !stickToBottom.current) {
+    } else if (restore && stickToBottom.current) {
+      // Reattaching can reset scrollTop. Restore the bottom pin before a
+      // follow pass mistakes that reset for the reader scrolling upward.
+      pinTranscript(el);
+    } else if (restore) {
       el.scrollTop = Math.max(
         0,
         el.scrollHeight - el.clientHeight - distanceFromBottom.current,
@@ -789,10 +815,11 @@ function AgentTranscriptComponent({
     if (previousHeight == null) {
       // The opening window grows above the screen. Settle the offset in this
       // commit: a scroll event queued by an earlier pin would otherwise read
-      // the taller transcript first and unpin it partway up.
+      // the taller transcript first and unpin it partway up. Inserting turns
+      // can also nudge scrollTop; a wheel or touch already releases the pin.
       if (stickToBottom.current) {
         syncTranscriptViewport(el);
-        followTranscript(el);
+        if (performance.now() >= wheelHold.current) pinTranscript(el);
       } else {
         el.scrollTop =
           el.scrollHeight - el.clientHeight - distanceFromBottom.current;
@@ -803,7 +830,7 @@ function AgentTranscriptComponent({
     prependHeight.current = null;
     el.scrollTop += el.scrollHeight - previousHeight;
     rememberScroll(el);
-  }, [visibleTurnCount, followTranscript, rememberScroll]);
+  }, [visibleTurnCount, pinTranscript, rememberScroll]);
 
   // Short turns can leave the first paint with empty space above them, and
   // the rest of the window arriving later would then push everything down.
@@ -2537,11 +2564,10 @@ function sameActivity(a: ActivityPhasesProps, b: ActivityPhasesProps): boolean {
 }
 
 /**
- * Hold the reader's place while turns above the viewport change height. An
- * off-screen turn keeps its content-visibility placeholder until it is first
- * laid out, and the scroller opts out of native scroll anchoring, so scrolling
- * up through a freshly opened chat would otherwise shove the view down by
- * each turn's correction.
+ * Hold the reader's place while turns above the viewport change height. The
+ * scroller opts out of native scroll anchoring, so late markdown, image or
+ * disclosure sizing above the viewport needs an explicit correction. Loaded
+ * turns use their real heights; scrolling alone must not cause corrections.
  */
 function useTurnScrollAnchor(
   el: HTMLDivElement | null,
@@ -4104,10 +4130,6 @@ function scrollIntoAnchor(
   return slidePromptIn([bubble, media], distance, earlier, {
     settle: !row.hasAttribute("data-sending"),
   });
-}
-
-function isNearBottom(el: HTMLElement): boolean {
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
 }
 
 /** Measure content rather than the anchored turn's blank space or padding. */
