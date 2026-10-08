@@ -9,6 +9,7 @@ import {
 } from "../model/outgoing";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useStableHandlers } from "../../../shared/hooks/useStableHandlers";
 import { hostOrchestrationClient } from "../../orchestration/model/orchestrationClient";
 import { localizeOrchestrationMessage } from "../../orchestration/ui/orchestrationMessages";
 import { OrchestrationActions, OrchestrationWorkers, OrchestrationRuntimeContext, type OrchestrationRuntime, type OrchestrationWorkerDetail } from "../../orchestration/ui/OrchestrationActions";
@@ -1512,7 +1513,9 @@ function ConnectedRemoteSession({
     return project.local ? absolute : remotePath(machine.environmentId, absolute);
   };
 
-  const overrides: RemoteSessionOverrides = {
+  // Inline callbacks below would be new on every host update; stable
+  // forwarders keep the pane and every transcript block memoized.
+  const overrides = useStableHandlers<RemoteSessionOverrides>({
     session,
     messageQueue: <MessageQueue key={snapshot?.session.id} {...queue} disabled={!online || sending || !!pending} />,
     remoteSession: true,
@@ -1606,7 +1609,7 @@ function ConnectedRemoteSession({
     onArchiveSession: undefined,
     onDeleteSession: undefined,
     reviewUndoLocked: true,
-  };
+  });
 
   return (
     <ModelSourceContext.Provider value={modelSource}>
