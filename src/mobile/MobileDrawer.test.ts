@@ -143,7 +143,7 @@ describe("mobile sidebar sessions", () => {
     const { onSession, onSessionActions } = render();
     touch("pointerdown");
     act(() => vi.advanceTimersByTime(450));
-    expect(onSessionActions).toHaveBeenCalledExactlyOnceWith("recent", row(), {
+    expect(onSessionActions).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "recent" }), row(), {
       x: 100,
       y: 100,
     });
@@ -156,6 +156,27 @@ describe("mobile sidebar sessions", () => {
     touch("pointerup");
     act(() => row().click());
     expect(onSession).toHaveBeenCalledOnce();
+  });
+  it("opens actions for a pinned conversation from another project", () => {
+    const other = { id: "other", name: "Other", cwd: "/other" };
+    const pinned: HostSessionSummary = {
+      id: "other-pinned",
+      title: "Other pinned",
+      projectId: other.id,
+      harness: "codex",
+      status: "idle",
+      revision: 1,
+      updatedAt: 100,
+      pinned: true,
+    };
+    const { onSessionActions } = render(true, {
+      projects: [{ id: "project", name: "Project", cwd: "/project" }, other],
+      cachedSessions: (id: string) => id === other.id ? [pinned] : undefined,
+    });
+    const target = node.querySelector('[data-session-id="other-pinned"]')!;
+    touch("pointerdown", 100, 100, target);
+    act(() => vi.advanceTimersByTime(450));
+    expect(onSessionActions).toHaveBeenCalledExactlyOnceWith(pinned, target, { x: 100, y: 100 });
   });
   it("leaves scroll gestures to the list without opening actions or navigating", () => {
     const { onSession, onSessionActions } = render();
@@ -188,7 +209,7 @@ describe("mobile sidebar sessions", () => {
     });
     act(() => row().dispatchEvent(event));
     expect(event.defaultPrevented).toBe(true);
-    expect(onSessionActions).toHaveBeenCalledWith("recent", row(), {
+    expect(onSessionActions).toHaveBeenCalledWith(expect.objectContaining({ id: "recent" }), row(), {
       x: 72,
       y: 112,
     });
@@ -445,14 +466,16 @@ describe("mobile sidebar recents", () => {
       node.querySelector('[data-session-id="android-chat"] .mobile-drawer-session-project')?.textContent,
     ).toBe("Android");
   });
-  it("opens another project's conversation in that project without offering its actions", async () => {
+  it("opens another project's conversation in that project and offers its actions", async () => {
     const loadSessions = vi.fn(async (id: string) => [session(id, 500)]);
     const { onSession, onSessionActions } = render(true, { projects, project, loadSessions });
     await act(async () => {});
     const other = node.querySelector<HTMLButtonElement>('[data-session-id="android-chat"]')!;
-    expect(other.hasAttribute("aria-haspopup")).toBe(false);
+    expect(other.getAttribute("aria-haspopup")).toBe("dialog");
     act(() => other.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
-    expect(onSessionActions).not.toHaveBeenCalled();
+    expect(onSessionActions).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: "android-chat", projectId: "android" }), other, undefined);
+    act(() => vi.advanceTimersByTime(500));
     act(() => other.click());
     expect(onSession).toHaveBeenCalledExactlyOnceWith("android-chat", projects[0]);
   });

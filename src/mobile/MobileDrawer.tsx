@@ -92,6 +92,7 @@ export const MobileDrawer = memo(function MobileDrawer({
   onAllProjects,
   loadSessions,
   cachedSessions,
+  refreshKey = 0,
   onSession,
   onSessionActions,
   sessionActionsId,
@@ -127,9 +128,11 @@ export const MobileDrawer = memo(function MobileDrawer({
   /** Reads another project's conversations; the current one arrives as `sessions`. */
   loadSessions: (projectId: string) => Promise<HostSessionSummary[]>;
   cachedSessions?: (projectId: string) => HostSessionSummary[] | undefined;
+  /** Changes after a metadata edit so other projects' rows re-read the cache. */
+  refreshKey?: number;
   onSession: (id: string, project: HostProject) => void;
   onSessionActions: (
-    id: string,
+    summary: HostSessionSummary,
     trigger: HTMLButtonElement,
     point?: MobileSheetPoint,
   ) => void;
@@ -170,7 +173,7 @@ export const MobileDrawer = memo(function MobileDrawer({
       }
       return next;
     });
-  }, [open, projectIds, cachedSessions]);
+  }, [open, projectIds, cachedSessions, refreshKey]);
   const historyTurn = useRef<Record<string, number>>({});
   const panel = useRef<HTMLElement>(null);
   const backdrop = useRef<HTMLDivElement>(null);
@@ -191,7 +194,7 @@ export const MobileDrawer = memo(function MobileDrawer({
     hold.current = undefined;
   };
   const showSessionActions = (
-    id: string,
+    summary: HostSessionSummary,
     trigger: HTMLButtonElement,
     point?: MobileSheetPoint,
   ) => {
@@ -201,14 +204,14 @@ export const MobileDrawer = memo(function MobileDrawer({
     }
     swipe.current = undefined;
     setDragging(false);
-    onSessionActions(id, trigger, point);
+    onSessionActions(summary, trigger, point);
   };
   useEffect(() => {
     cancelHold();
     return cancelHold;
   }, [open, covered, project?.id]);
   const startHold = (
-    id: string,
+    summary: HostSessionSummary,
     event: ReactPointerEvent<HTMLButtonElement>,
   ) => {
     cancelHold();
@@ -223,9 +226,9 @@ export const MobileDrawer = memo(function MobileDrawer({
       opened: false,
       timer: setTimeout(() => {
         press.opened = true;
-        suppressClick.current = { id, until: Infinity };
+        suppressClick.current = { id: summary.id, until: Infinity };
         void lightImpact();
-        showSessionActions(id, trigger, { x: press.x, y: press.y });
+        showSessionActions(summary, trigger, { x: press.x, y: press.y });
       }, 450),
     };
     hold.current = press;
@@ -464,8 +467,6 @@ export const MobileDrawer = memo(function MobileDrawer({
   }), [tree, projectHistory]);
   const row = (item: HostSessionSummary) => {
     const owner = ownerById.get(item.projectId)!;
-    // Actions edit through the current project's summary list.
-    const actionable = owner.id === project?.id;
     return (
       <button
         type="button"
@@ -474,11 +475,9 @@ export const MobileDrawer = memo(function MobileDrawer({
         data-session-id={item.id}
         data-needs-input={item.needsInput || undefined}
         aria-current={item.id === sessionId ? "page" : undefined}
-        aria-haspopup={actionable ? "dialog" : undefined}
-        aria-expanded={actionable ? sessionActionsId === item.id : undefined}
-        onPointerDown={(event) => {
-          if (actionable) startHold(item.id, event);
-        }}
+        aria-haspopup="dialog"
+        aria-expanded={sessionActionsId === item.id}
+        onPointerDown={(event) => startHold(item, event)}
         onPointerMove={(event) => {
           const press = hold.current;
           if (!press || press.pointerId !== event.pointerId) return;
@@ -502,7 +501,6 @@ export const MobileDrawer = memo(function MobileDrawer({
         }}
         onContextMenu={(event) => {
           event.preventDefault();
-          if (!actionable) return;
           suppressClick.current = { id: item.id, until: Date.now() + 500 };
           const press = hold.current;
           const point = press
@@ -510,7 +508,7 @@ export const MobileDrawer = memo(function MobileDrawer({
             : event.clientX || event.clientY
               ? { x: event.clientX, y: event.clientY }
               : undefined;
-          showSessionActions(item.id, event.currentTarget, point);
+          showSessionActions(item, event.currentTarget, point);
         }}
         onClick={(event) => {
           if (

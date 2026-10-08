@@ -1443,9 +1443,11 @@ export function MobileApp() {
   ]);
 
   const running = snapshot?.status === "running";
+  // Home and drawer rows can belong to another project, so they carry their
+  // own summary; the current project's rows stay live through `sessions`.
   const sessionActionsSummary = view === "home" ? homeActionSession : sessions.find(
     (item) => item.id === sessionActionsTarget,
-  );
+  ) ?? (homeActionSession?.id === sessionActionsTarget ? homeActionSession : undefined);
   const nativeReadOnly = nativeWriteBlocked(snapshot, nativeAccess);
   const skillHarness = snapshot?.session.harness ?? configuration.harness;
   const skillContextKey = `${client.connection?.environmentId ?? ""}\0${project?.id ?? ""}\0${skillHarness}\0${sessionId ?? ""}\0${snapshot?.session.worktreeCwd || snapshot?.session.cwd || project?.cwd || ""}`;
@@ -1565,6 +1567,12 @@ export function MobileApp() {
       setSessionActionsTarget(id);
       setSessionActionsPoint(point);
       setSessionActionsOpen(true);
+    },
+  );
+  const onDrawerSummaryActions = useStableCallback(
+    (summary: HostSessionSummary, trigger: HTMLButtonElement, point?: MobileSheetPoint) => {
+      setHomeActionSession(summary);
+      onDrawerSessionActions(summary.id, trigger, point);
     },
   );
   const onDrawerSettings = useStableCallback(() => navigate("settings"));
@@ -2164,8 +2172,9 @@ export function MobileApp() {
           onHome={onDrawerHome}
           onAllProjects={onDrawerAllProjects}
           onSession={onDrawerSession}
+          refreshKey={homeRefreshKey}
           sessionActionsId={sessionActionsOpen ? sessionActionsTarget : undefined}
-          onSessionActions={onDrawerSessionActions}
+          onSessionActions={onDrawerSummaryActions}
           onNewSession={onDrawerNewSession}
           onSettings={onDrawerSettings}
         />
