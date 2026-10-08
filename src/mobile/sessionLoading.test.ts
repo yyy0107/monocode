@@ -10,6 +10,7 @@ import { NATIVE_SESSION_PROVIDERS, type NativeSessionAccess, type NativeSessionP
 const host = vi.hoisted(() => ({
   connection: { endpoint: "http://computer:3774", environmentId: "host", name: "Computer" },
   status: { state: "connected" as const },
+  capabilities: new Set<string>(),
   restore: vi.fn(async () => true),
   verify: vi.fn(async () => {}),
   pending: vi.fn(async () => undefined),
@@ -24,7 +25,7 @@ const host = vi.hoisted(() => ({
 }));
 vi.mock("./client", () => ({
   MobileClient: class {
-    hasCapability = () => false;
+    hasCapability = (capability: string) => host.capabilities.has(capability);
     connection = host.connection;
     getConnectionStatus = () => host.status;
     subscribeConnectionStatus = () => () => {};
@@ -106,6 +107,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   host.cache.clear();
   host.summaries.clear();
+  host.capabilities.clear();
   host.projects.mockReset().mockResolvedValue([{ id: "project", cwd: "/project", name: "Project" }]);
   host.updateSession.mockReset();
   host.markUnread.mockClear();
@@ -217,6 +219,7 @@ describe("mobile conversation loading UI", () => {
   const projectChat = async () => {
     await mount();
     await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Menu"]')!.click());
+    await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-more-toggle")!.click());
     await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
     await act(async () => activePage().querySelector<HTMLButtonElement>('.mobile-home-project[title="/project"]')!.click());
     await open("one");
@@ -276,9 +279,13 @@ describe("mobile conversation loading UI", () => {
     expect(node.querySelector("header strong")!.textContent).toBe("Project");
   });
 
-  it("shows the configured assistant name and refreshes it when reopening the drawer", async () => {
+  it("shows the configured assistant name and refreshes it through foreground polling", async () => {
     const identity = deferred<{ name: string }>();
-    host.rpc.mockReturnValueOnce(identity.promise);
+    host.capabilities.add("assistant.v1");
+    const getAssistant = vi.fn().mockReturnValue(identity.promise);
+    host.rpc.mockImplementation(async (method: string) => method === "assistant.get"
+      ? getAssistant()
+      : { entries: [], nextRevision: 0, hasMore: false });
     await mount();
     const openDrawer = async () => {
       await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Menu"]')!.click());
@@ -293,12 +300,14 @@ describe("mobile conversation loading UI", () => {
     await act(async () => identity.resolve({ name: "小管家" }));
     expect(assistant().textContent).toBe("小管家");
     await closeDrawer();
-    host.rpc.mockResolvedValueOnce({ name: "我的助理" });
+    getAssistant.mockResolvedValue({ name: "我的助理" });
     await openDrawer();
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
     expect(assistant().textContent).toBe("我的助理");
     await closeDrawer();
-    host.rpc.mockRejectedValueOnce(new Error("Offline"));
+    getAssistant.mockRejectedValue(new Error("Offline"));
     await openDrawer();
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
     expect(assistant().textContent).toBe("我的助理");
   });
 
