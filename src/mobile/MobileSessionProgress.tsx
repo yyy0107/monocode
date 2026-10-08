@@ -35,11 +35,14 @@ export function MobileSessionProgress({
   onNavigate,
   review,
   onReview,
+  dock,
 }: {
   model: SessionStatusPanelModel;
   visible: boolean;
   open: boolean;
   sheetHost: HTMLElement | null;
+  /** Composer slot beside the model picker; without it the capsule floats below the header. */
+  dock?: HTMLElement | null;
   onOpen: () => void;
   onClose: () => void;
   onNavigate: (kind: "plan" | "agent", blockId: string) => void;
@@ -54,9 +57,8 @@ export function MobileSessionProgress({
   const retained = useRef(model);
   if (model.hasContent) retained.current = model;
   const summaryModel = shown ? model : retained.current;
-  return (
-    <>
-      <div className="mobile-session-progress">
+  const capsule = (
+      <div className="mobile-session-progress" data-docked={dock ? true : undefined}>
         <AnimatedCollapse expanded={shown} motion="height">
           <button
             type="button"
@@ -84,6 +86,10 @@ export function MobileSessionProgress({
           </button>
         </AnimatedCollapse>
       </div>
+  );
+  return (
+    <>
+      {dock ? createPortal(capsule, dock) : capsule}
       {sheetHost &&
         createPortal(
           <MobileSheetPresence open={shown && open}>

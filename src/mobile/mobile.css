@@ -1670,7 +1670,8 @@ html.theme-light .mobile-composer-card {
 .mobile-composer-model {
   flex: 0 1 auto;
   min-height: 32px;
-  max-width: 100%;
+  /* Leaves room for the session progress capsule docked on the right. */
+  max-width: 60%;
 }
 .mobile-composer-project {
   flex: 0 1 auto;

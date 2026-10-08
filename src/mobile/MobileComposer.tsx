@@ -56,6 +56,8 @@ export type MobileComposerPanel =
 const planStyle = MODE_COMMAND_STYLES[PLAN_COMMAND.name];
 type Props = {
   queue?: ReactNode;
+  /** Receives the slot beside the model picker for the session progress capsule. */
+  progressSlot?: (element: HTMLDivElement | null) => void;
   value: string;
   onChange: (text: string) => void;
   configuration: MobileConfiguration;
@@ -366,6 +368,7 @@ export function MobileComposer(props: Props) {
                 <ChevronsUpDown size={16} aria-hidden="true" />
               )}
             </button>
+            {props.progressSlot && <div ref={props.progressSlot} className="mobile-composer-progress" />}
           </div>
           <div className="mobile-composer-input" data-prompt-launch-surface>
             <div className="mobile-composer-attachment-region">

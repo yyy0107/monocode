@@ -21,6 +21,23 @@
   text-align: start;
   pointer-events: auto;
 }
+/* Docked beside the composer's model picker. */
+.mobile-composer-progress {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-start: auto;
+}
+.mobile-session-progress[data-docked="true"] {
+  position: static;
+  inset: auto;
+}
+.mobile-session-progress[data-docked="true"] .mobile-progress-capsule {
+  width: auto;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 4px 10px;
+  border-radius: 16px;
+}
 .mobile-progress-icon,
 .mobile-progress-capsule > svg {
   flex-shrink: 0;

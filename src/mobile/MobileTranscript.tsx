@@ -72,6 +72,7 @@ export const MobileTranscript = memo(function MobileTranscript({
   onOverlayChange,
   gitSource,
   gitEnabled = true,
+  progressDock,
   questionOpen = true,
   onQuestionOpenChange,
   planDecision,
@@ -87,6 +88,8 @@ export const MobileTranscript = memo(function MobileTranscript({
   onOverlayChange?: (close?: () => void) => void;
   gitSource?: MobileGitSource;
   gitEnabled?: boolean;
+  /** Composer slot that hosts the session progress capsule. */
+  progressDock?: HTMLElement | null;
   /** Whether the pending question's answer panel is expanded. */
   questionOpen?: boolean;
   /** Collapse the panel to read the conversation, or reopen it from its card. */
@@ -268,6 +271,7 @@ export const MobileTranscript = memo(function MobileTranscript({
     <TranscriptPlatformContext.Provider value={platform}>
       <MobileSessionProgress model={progress} visible={visible} open={detail.active === "progress"}
         sheetHost={sheetHost}
+        dock={progressDock}
         review={gitSource ? git : undefined}
         onReview={() => {
           git.refresh();
@@ -282,7 +286,7 @@ export const MobileTranscript = memo(function MobileTranscript({
         ref={findSheetHost}
         className="mobile-desktop-transcript"
         data-layout={layout}
-        data-progress={visible && (progress.hasContent || !!git.error || (detail.active === "progress" && !!gitSource))}
+        data-progress={!progressDock && visible && (progress.hasContent || !!git.error || (detail.active === "progress" && !!gitSource))}
         role="log"
         aria-label="Conversation"
         aria-live={visible ? "polite" : "off"}

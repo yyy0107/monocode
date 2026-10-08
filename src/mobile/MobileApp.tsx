@@ -362,6 +362,7 @@ export function MobileApp() {
     accepted: Attachment[];
   }>>([]);
   const [composerPanel, setComposerPanel] = useState<MobileComposerPanel>(null);
+  const [progressDock, setProgressDock] = useState<HTMLDivElement | null>(null);
   const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
   const [homeActionSession, setHomeActionSession] = useState<HostSessionSummary>();
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
@@ -1990,6 +1991,7 @@ export function MobileApp() {
               active={!drawerOpen && !pageOverlayOpen && !hostPickerOpen}
               onOverlayChange={onTranscriptOverlayChange}
               gitSource={gitSource}
+              progressDock={progressDock}
               gitEnabled={foreground && connected && hostStatus.state === "connected" && sessionConfirmed && !loading}
               animateFrom={animateFrom}
               readBinaryFile={readHostImage}
@@ -2036,6 +2038,7 @@ export function MobileApp() {
             {nativeSyncNotice(snapshot?.nativeStatus) ?? nativeAccessNotice(nativeAccess)}
           </p> : null}
           {project && <MobileDraftComposer
+            progressSlot={setProgressDock}
             compact={questionOpen || planDecisionOpen}
             onExpand={() => {
               if (questionOpen) onQuestionOpenChange(false);
