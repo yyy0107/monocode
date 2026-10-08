@@ -2169,6 +2169,9 @@ export function MobileApp() {
             catalog={catalog}
             catalogLoading={catalogLoading}
             lockedAgent={!!sessionId}
+            allowHandoff={
+              client.hasCapability("sessions.handoff") && !running
+            }
             disabled={
               nativeReadOnly ||
               busy ||
@@ -2216,6 +2219,9 @@ export function MobileApp() {
                   type: "configure",
                   commandId: crypto.randomUUID(),
                   sessionId,
+                  ...(snapshot && next.harness !== snapshot.session.harness
+                    ? { harness: next.harness }
+                    : {}),
                   model: next.model,
                   modelSettings: next.modelSettings,
                   runtimeMode: next.runtimeMode,

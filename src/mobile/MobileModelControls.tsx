@@ -97,6 +97,7 @@ export function MobileModelControls({
   loading = false,
   configuration,
   lockedAgent,
+  allowHandoff = false,
   disabled,
   onChange,
   onClose,
@@ -109,6 +110,8 @@ export function MobileModelControls({
   loading?: boolean;
   configuration: MobileConfiguration;
   lockedAgent: boolean;
+  /** Let an existing session change agents through a host handoff. */
+  allowHandoff?: boolean;
   disabled: boolean;
   onChange: (configuration: MobileConfiguration) => void;
   onClose: () => void;
@@ -138,6 +141,7 @@ export function MobileModelControls({
   const settings = [...controls.settings].sort(
     (a, b) => Number(isEffortSettingId(b.id)) - Number(isEffortSettingId(a.id)),
   );
+  const agentLocked = lockedAgent && !allowHandoff;
   const selectedSetting = settings.find((setting) => setting.id === settingId);
   const rowIndicator = loading ? (
     <LoaderCircle size={20} className="mobile-spin" role="status" aria-label={t("Loading…")} />
@@ -179,7 +183,7 @@ export function MobileModelControls({
             <button
               type="button"
               className="mobile-sheet-row"
-              disabled={disabled || lockedAgent || loading}
+              disabled={disabled || agentLocked || loading}
               aria-busy={loading || undefined}
               onClick={() => setPage("agents")}
             >
@@ -344,7 +348,7 @@ export function MobileModelControls({
               key={provider}
               aria-checked={configuration.harness === provider}
               disabled={
-                disabled || lockedAgent || !catalog?.models[provider]?.length
+                disabled || agentLocked || !catalog?.models[provider]?.length
               }
               onClick={() => {
                 const next = catalog?.models[provider]?.[0];

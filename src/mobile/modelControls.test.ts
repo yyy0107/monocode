@@ -82,6 +82,7 @@ afterEach(() => {
 function render(
   lockedAgent = false,
   configuration = configurationForModel(catalog.models.codex![0]),
+  allowHandoff = false,
 ) {
   const node = document.createElement("div");
   document.body.append(node);
@@ -94,6 +95,7 @@ function render(
           catalog,
           configuration: next,
           lockedAgent,
+          allowHandoff,
           disabled: false,
           onClose: () => {},
           onChange: (value) => {
@@ -260,5 +262,18 @@ describe("mobile Agent, model and reasoning controls", () => {
     ).toBe(false);
     change("Reasoning effort", "medium");
     expect(changes.at(-1)!.modelSettings.reasoningEffort).toBe("medium");
+  });
+  it("lets an existing conversation change Agent when the host supports handoff", () => {
+    const { change, changes, row } = render(
+      true,
+      configurationForModel(catalog.models.codex![0]),
+      true,
+    );
+    expect(row("Agent").disabled).toBe(false);
+    change("Agent", "claude");
+    expect(changes.at(-1)).toMatchObject({
+      harness: "claude",
+      model: "claude:test",
+    });
   });
 });

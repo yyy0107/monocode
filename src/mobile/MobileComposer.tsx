@@ -64,6 +64,7 @@ type Props = {
   catalogLoading?: boolean;
   onConfigurationChange: (value: MobileConfiguration) => void;
   lockedAgent: boolean;
+  allowHandoff?: boolean;
   disabled: boolean;
   running: boolean;
   canSend: boolean;
@@ -532,6 +533,7 @@ export function MobileComposer(props: Props) {
         loading={props.catalogLoading}
         configuration={props.configuration}
         lockedAgent={props.lockedAgent}
+        allowHandoff={props.allowHandoff}
         disabled={props.disabled}
         onChange={props.onConfigurationChange}
         onClose={close}
