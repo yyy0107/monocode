@@ -68,7 +68,7 @@ async function render(visible = true) {
         children: createElement(MobileNotes, {
           ref: handle,
           client,
-          hostKey: "host",
+          hostKey: "http://host",
           projects: [{ id: "project", cwd: "/work/project", name: "Project" }],
           onClose: close,
           onAddToChat: add,

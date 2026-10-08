@@ -1144,9 +1144,6 @@ function AgentTranscriptComponent({
           const foldWork = foldEntries.filter(
             ({ entry }) => entry.type !== "subagents",
           );
-          const lastItem = items.at(-1);
-          const liveActivity =
-            lastItem?.type === "activity" ? lastItem : undefined;
           // Clients with a step sheet list a settled turn's work there in one tap.
           const sheetFold = !!openActivity && !!fold && !live;
           const foldLineRow = (
@@ -1276,11 +1273,6 @@ function AgentTranscriptComponent({
                           ? pendingQuestion
                             ? "answers"
                             : "approval"
-                          : undefined
-                      }
-                      toolSummary={
-                        liveActivity && !answering
-                          ? workSummaryLine(liveActivity.blocks, true)
                           : undefined
                       }
                       background={backgroundTasks}
@@ -1429,7 +1421,6 @@ function LiveTurnFooter({
   seed,
   startedAt,
   waiting,
-  toolSummary,
   background,
 }: {
   cwd: string;
@@ -1437,7 +1428,6 @@ function LiveTurnFooter({
   seed: string;
   startedAt?: number;
   waiting?: "approval" | "answers";
-  toolSummary?: string;
   background?: string[];
 }) {
   const { t: uiT } = useTranslation();
@@ -1449,7 +1439,6 @@ function LiveTurnFooter({
     now,
     startedAt,
     waiting,
-    toolSummary,
     background: background?.length,
     seed,
   });
@@ -1457,8 +1446,7 @@ function LiveTurnFooter({
     "literal" in status.label
       ? status.label.literal
       : uiT(status.label.key, status.label.params);
-  const verb =
-    status.phase === "working" || status.phase === "tool" ? `${label}…` : label;
+  const verb = status.phase === "tool" ? `${label}…` : label;
   return (
     <div
       className="transcript-live-footer flex min-w-0 items-center gap-2 px-4 pt-2 pb-1 font-sans text-sm @md:px-6"

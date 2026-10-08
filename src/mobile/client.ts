@@ -314,29 +314,29 @@ export class MobileClient {
     const active = await this.storage.get("connection");
     if (active) {
       const connection = JSON.parse(active) as Connection;
-      const index = saved.findIndex((item) => item.environmentId === connection.environmentId);
+      const index = saved.findIndex((item) => item.endpoint === connection.endpoint);
       if (index < 0) saved.unshift(connection);
       else saved[index] = connection;
     }
     return saved;
   }
-  /** Saves the active connection and keeps it in the paired Host list. */
+  /** Saves the active connection and keeps it in the paired Host list, one entry per address. */
   private async persist(connection: Connection): Promise<void> {
     const saved = await this.savedConnections();
-    const index = saved.findIndex((item) => item.environmentId === connection.environmentId);
+    const index = saved.findIndex((item) => item.endpoint === connection.endpoint);
     if (index < 0) saved.push(connection);
     else saved[index] = connection;
     await this.storage.set("connections", JSON.stringify(saved));
     await this.storage.set("connection", JSON.stringify(connection));
   }
-  /** Makes another paired Host the active one. */
-  async switchTo(environmentId: string): Promise<void> {
-    if (this.connection?.environmentId === environmentId && !this.connection.disabled) return;
+  /** Makes another paired connection, identified by its address, the active one. */
+  async switchTo(endpoint: string): Promise<void> {
+    if (this.connection?.endpoint === endpoint && !this.connection.disabled) return;
     const target = (await this.savedConnections())
-      .find((item) => item.environmentId === environmentId);
+      .find((item) => item.endpoint === endpoint);
     if (!target) throw new Error("This Host is no longer paired on this device.");
     const pending = await this.pending();
-    if (pending && pending.environmentId !== environmentId)
+    if (pending && (pending.endpoint !== endpoint || pending.environmentId !== target.environmentId))
       throw new Error("Reconnect to the previous Host to resolve its pending request first.");
     const connection = { ...target, disabled: false };
     await this.persist(connection);
@@ -478,9 +478,9 @@ export class MobileClient {
     this.clearCaches();
   }
   async disconnect(): Promise<void> {
-    const environmentId = this.connection?.environmentId;
+    const endpoint = this.connection?.endpoint;
     const remaining = (await this.savedConnections())
-      .filter((item) => item.environmentId !== environmentId);
+      .filter((item) => item.endpoint !== endpoint);
     await this.storage.set("connections", JSON.stringify(remaining));
     await this.storage.remove("connection");
     this.connection = undefined;

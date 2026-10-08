@@ -66,30 +66,37 @@ describe("liveStatus", () => {
     const tool = liveStatus({
       turn: [user, latest, prose, { ...command("in_progress"), startedAt: 7_000 }],
       now: 9_000,
-      toolSummary: "Running 1 command",
       startedAt: 0,
       seed: "u1",
     });
-    expect(tool.label).toEqual({ literal: "Running 1 command" });
+    expect(tool.phase).toBe("tool");
     expect(tool.elapsed).toBe("2s");
     expect(tool.clock).toBe("tool");
   });
 
-  it("shows the tool summary only while a tool is running", () => {
+  it("holds a filler verb from a tool call until the next model output", () => {
     const running = liveStatus({
       turn: [user, command("in_progress")],
       now: 2_000,
-      toolSummary: "Running 1 command",
       seed: "u1",
     });
-    expect(running.label).toEqual({ literal: "Running 1 command" });
+    expect(LIVE_VERBS).toContain((running.label as { key: string }).key);
     const done = liveStatus({
       turn: [user, command("completed")],
       now: 2_000,
-      toolSummary: "Ran 1 command",
       seed: "u1",
     });
-    expect(done.phase).toBe("working");
+    expect(done.label).toEqual(running.label);
+    const status: Block = { id: "status", role: "system", text: "Reviewing" };
+    expect(liveStatus({ turn: [user, command("completed"), status], now: 2_000, seed: "u1" }).label)
+      .toEqual(running.label);
+    const next = liveStatus({
+      turn: [user, command("completed"), thought({ startedAt: 3_000 })],
+      now: 4_000,
+      seed: "u1",
+    });
+    expect(next.phase).toBe("working");
+    expect(next.label).toEqual({ key: "Thinking…" });
   });
 
   it("keeps the clock when working and counts background tasks", () => {
@@ -110,31 +117,18 @@ describe("liveStatus", () => {
     expect(status.showClock).toBe(false);
   });
 
-  it("keeps brief activities and response gaps text-only", () => {
+  it("times thinking and replies once they last, but not tools or user waits", () => {
     const input = { startedAt: 0, seed: "u1" };
     const thinking = [user, thought({ streaming: true })];
+    expect(liveStatus({ ...input, turn: thinking, now: 2_000 }).showClock).toBe(false);
+    expect(liveStatus({ ...input, turn: thinking, now: 3_000 }).showClock).toBe(true);
+    expect(liveStatus({ ...input, turn: thinking, now: 30_000, waiting: "approval" }).showClock).toBe(false);
     const running = [user, { ...command("in_progress"), startedAt: 1_000 }];
-    for (const turn of [thinking, running]) {
-      expect(liveStatus({ ...input, turn, now: 2_000 }).showClock).toBe(false);
-      expect(liveStatus({ ...input, turn, now: 3_000 }).showClock).toBe(true);
-      expect(liveStatus({ ...input, turn, now: 30_000, waiting: "approval" }).showClock).toBe(false);
-    }
-    expect(liveStatus({ ...input, turn: [user], now: 30_000 }).showClock).toBe(false);
-    expect(liveStatus({ ...input, turn: [user, thought({ durationMs: 3_000 })], now: 30_000 }).showClock).toBe(false);
-    expect(liveStatus({ ...input, turn: [user, { ...command("completed"), startedAt: 1_000, durationMs: 3_000 }], now: 30_000 }).showClock).toBe(false);
-  });
-
-  it("mixes timed and text-only reply rounds without toggling on tokens or seconds", () => {
-    const reply: Block = { id: "a1", role: "assistant", text: "Answer", streaming: true, startedAt: 12_000, sentAt: 14_000 };
-    const choices = Array.from({ length: 12 }, (_, index) => {
-      const input = { turn: [user, reply], now: 15_000, startedAt: 0, seed: `reply-${index}` };
-      const visible = liveStatus(input).showClock;
-      expect(liveStatus({ ...input, now: 16_000, turn: [user, { ...reply, text: "Answer and details", sentAt: 16_000 }] }).showClock).toBe(visible);
-      expect(liveStatus({ ...input, turn: [user, { ...reply, streaming: false }] }).showClock).toBe(false);
-      return visible;
-    });
-    expect(choices).toContain(true);
-    expect(choices).toContain(false);
+    expect(liveStatus({ ...input, turn: running, now: 30_000 }).showClock).toBe(false);
+    expect(liveStatus({ ...input, turn: [user], now: 30_000 }).showClock).toBe(true);
+    expect(liveStatus({ ...input, turn: [user, thought({ durationMs: 3_000 })], now: 30_000 }).showClock).toBe(true);
+    const reply: Block = { id: "a1", role: "assistant", text: "Answer", streaming: true, startedAt: 12_000 };
+    expect(liveStatus({ ...input, turn: [user, reply], now: 15_000 }).showClock).toBe(true);
   });
 
   it("falls back to the response clock when a tool has no recorded start", () => {
