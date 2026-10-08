@@ -4876,6 +4876,13 @@ function ProviderRow({
           })}
           value={current.id}
           onChange={(next) => onModelChange(harness, next)}
+          onOpen={() => {
+            // Fallbacks keep models non-empty and routine refreshes skip live
+            // catalogs. Explicitly opening the picker must refresh either one.
+            if (available) {
+              void refreshHarnessCatalogs([harness], { force: true });
+            }
+          }}
           options={models.map((item) => ({
             value: item.id,
             label: item.name,
@@ -5406,11 +5413,13 @@ function Select({
   value,
   options,
   onChange,
+  onOpen,
 }: {
   label: string;
   value: string;
   options: { value: string; label: string; icon?: ReactNode }[];
   onChange: (value: string) => void;
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(() =>
@@ -5436,6 +5445,11 @@ function Select({
       ),
     );
   }, [open, value, options]);
+
+  useEffect(() => {
+    if (open) onOpen?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;

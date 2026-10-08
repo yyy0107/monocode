@@ -8,6 +8,11 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { SettingsView } from "./SettingsView";
 import * as scrollWithinModule from "../../../shared/lib/scrollWithin";
 import { loginHarness } from "../../../integrations/harness/core/auth";
+import * as harnessRegistry from "../../../integrations/harness/core/registry";
+import {
+  resetHarnessModelOverlays,
+  setHarnessModels,
+} from "../../sessions/model/models";
 import { AppViewDialog } from "../../workspace/ui/AppViewDialog";
 import {
   refreshUiLanguage,
@@ -162,6 +167,47 @@ afterEach(async () => {
 });
 
 describe("settings pages", () => {
+  it.each(["claude", "grok"] as const)(
+    "refreshes a cached %s model list on each open only when the provider is available",
+    async (harness) => {
+      setHarnessModels(harness, [
+        { id: `${harness}:cached`, harness, name: "Cached model" },
+      ]);
+      const refresh = vi
+        .spyOn(harnessRegistry, "refreshHarnessCatalogs")
+        .mockImplementation(async (ids) => {
+          if ([...ids].includes(harness)) {
+            setHarnessModels(harness, [
+              { id: `${harness}:cached`, harness, name: "Cached model" },
+              { id: `${harness}:new`, harness, name: "New model" },
+            ]);
+          }
+        });
+      try {
+        await render("providers");
+        refresh.mockClear();
+        const trigger = container.querySelector<HTMLButtonElement>(
+          `[aria-label^="${HARNESS_TITLE[harness]} model:"]`,
+        )!;
+        await act(async () => trigger.click());
+        if (harness === "claude") {
+          expect(refresh).toHaveBeenCalledExactlyOnceWith([harness], { force: true });
+          expect(document.querySelector('[role="listbox"]')?.textContent).toContain("New model");
+          // The catalog update rerenders the open picker without probing again.
+          await render("providers");
+          expect(refresh).toHaveBeenCalledTimes(1);
+        } else {
+          expect(refresh).not.toHaveBeenCalled();
+        }
+        await act(async () => trigger.click());
+        await act(async () => trigger.click());
+        expect(refresh).toHaveBeenCalledTimes(harness === "claude" ? 2 : 0);
+      } finally {
+        await act(async () => resetHarnessModelOverlays());
+      }
+    },
+  );
+
   it("drags the window from the popup header while preserving search, actions, close and body interaction", async () => {
     windowMock.nativeDesktop = true;
     const onClose = vi.fn();
