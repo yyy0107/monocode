@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement, type CSSProperties, type ReactNode } from "react";
+import { act, createElement, useState, type CSSProperties, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -106,6 +106,7 @@ import {
   resetHarnessModelOverlays,
   saveRecentModelChoice,
   setHarnessModels,
+  type ModelSetting,
 } from "../model/models";
 
 let container: HTMLDivElement;
@@ -167,6 +168,81 @@ function inputText(input: HTMLInputElement, value: string) {
 }
 
 describe("model picker", () => {
+  it.each(["pointer", "keyboard"])("keeps the combined picker open for consecutive settings and model changes by %s", (input) => {
+    const settings: ModelSetting[] = [
+      {
+        id: "reasoningEffort", label: "Reasoning", kind: "select", value: "high",
+        options: [{ value: "low", label: "Low" }, { value: "high", label: "High" }],
+      },
+      {
+        id: "serviceTier", label: "Service Tier", kind: "select", value: "default",
+        options: [{ value: "default", label: "Standard" }, { value: "fast", label: "Fast" }],
+      },
+    ];
+    setHarnessModels("codex", [
+      { id: "codex:first", name: "First", harness: "codex", settings },
+      { id: "codex:second", name: "Second", harness: "codex", settings },
+    ]);
+    const onClose = vi.fn();
+    const onSettingsChange = vi.fn();
+    function Picker() {
+      const [model, setModel] = useState("codex:first");
+      const [values, setValues] = useState<Record<string, string>>({ reasoningEffort: "high", serviceTier: "default" });
+      return createElement(ModelPicker, {
+        harness: "codex", model, values, onClose,
+        onChange: (_, next) => setModel(next),
+        onSettingsChange: (next) => {
+          onSettingsChange(next);
+          setValues(next);
+        },
+      });
+    }
+    act(() => root.render(createElement(Picker)));
+    const trigger = container.querySelector<HTMLButtonElement>("[data-model-picker-trigger]")!;
+    act(() => trigger.click());
+    const menu = container.querySelector<HTMLElement>('[role="menu"][aria-label="Model and settings"]')!;
+    const row = (label: string) => [...menu.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.startsWith(label))!;
+    const choose = (label: string, option: string) => {
+      hover(row(label));
+      const submenu = container.querySelector<HTMLElement>(`[role="menu"][aria-label="${label}"]`)!;
+      const choices = [...submenu.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+      const selected = choices.find((button) => button.textContent === option)!;
+      if (input === "pointer") act(() => selected.click());
+      else {
+        const from = choices.findIndex((button) => button.getAttribute("aria-checked") === "true");
+        const to = choices.indexOf(selected);
+        for (let i = 0; i < Math.abs(to - from); i++) keyDown(menu, to > from ? "ArrowDown" : "ArrowUp");
+        keyDown(menu, "Enter");
+      }
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      expect(selected.getAttribute("aria-checked")).toBe("true");
+      expect(menu.isConnected).toBe(true);
+      expect(onClose).not.toHaveBeenCalled();
+    };
+    choose("Reasoning", "Low");
+    choose("Service Tier", "Fast");
+    expect(onSettingsChange).toHaveBeenLastCalledWith({ reasoningEffort: "low", serviceTier: "fast" });
+
+    hover(row("Model"));
+    const second = [...container.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+      .find((button) => button.textContent === "Second")!;
+    if (input === "pointer") act(() => second.click());
+    else {
+      keyDown(menu, "ArrowDown");
+      keyDown(menu, "Enter");
+    }
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(trigger.textContent).toContain("Second");
+    expect(second.getAttribute("aria-selected")).toBe("true");
+    choose("Reasoning", "High");
+    expect(onSettingsChange).toHaveBeenLastCalledWith({ reasoningEffort: "high", serviceTier: "fast" });
+    keyDown(window, "Escape");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector("[data-model-picker]")).toBeNull();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("ignores global menu and Escape events while its app view is hidden", () => {
     const onClose = vi.fn();
     const picker = createElement(ModelPicker, {
@@ -929,7 +1005,7 @@ describe("model picker", () => {
     expect(high.classList.contains("codex-effort-option")).toBe(false);
   });
 
-  it("groups the service tier inside the effort popover", () => {
+  it("keeps grouped effort and service tier controls open for consecutive changes", () => {
     setHarnessModels("codex", [
       {
         id: "codex:gpt-5.6-sol",
@@ -961,17 +1037,18 @@ describe("model picker", () => {
       },
     ]);
     const onSettingsChange = vi.fn();
-
-    act(() =>
-      root.render(
-        createElement(ModelControlPills, {
-          harness: "codex",
-          model: "codex:gpt-5.6-sol",
-          values: { reasoningEffort: "high", serviceTier: "default" },
-          onSettingsChange,
-        }),
-      ),
-    );
+    const onClose = vi.fn();
+    function Controls() {
+      const [values, setValues] = useState<Record<string, string>>({ reasoningEffort: "high", serviceTier: "default" });
+      return createElement(ModelControlPills, {
+        harness: "codex", model: "codex:gpt-5.6-sol", values, onClose,
+        onSettingsChange: (next) => {
+          onSettingsChange(next);
+          setValues(next);
+        },
+      });
+    }
+    act(() => root.render(createElement(Controls)));
 
     expect(
       container.querySelector('button[aria-label="Service Tier: Standard"]'),
@@ -1002,6 +1079,18 @@ describe("model picker", () => {
       reasoningEffort: "high",
       serviceTier: "fast",
     });
+    expect(menu.isConnected).toBe(true);
+    expect(effortPill.getAttribute("aria-expanded")).toBe("true");
+    expect(fast.getAttribute("aria-checked")).toBe("true");
+    const extraHigh = [...menu.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Extra High")!;
+    act(() => extraHigh.click());
+    expect(onSettingsChange).toHaveBeenLastCalledWith({ reasoningEffort: "xhigh", serviceTier: "fast" });
+    expect(extraHigh.getAttribute("aria-checked")).toBe("true");
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => effortPill.click());
+    expect(menu.isConnected).toBe(false);
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("groups fast mode inside the effort popover", () => {
@@ -1132,6 +1221,8 @@ describe("model picker", () => {
     )!;
     act(() => selected.click());
     expect(onChange).toHaveBeenCalledWith("cursor", "cursor:composer-2.5");
+    expect(modelTrigger.getAttribute("aria-expanded")).toBe("true");
+    expect(flyout.isConnected).toBe(true);
   });
 
   it("picks the highlighted model on Enter even when focus sits on another row", () => {

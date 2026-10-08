@@ -216,10 +216,10 @@ export function MobileComposer(props: Props) {
     },
   });
   useEffect(() => {
-    // Applying a setting, switching project or reading attachments briefly
-    // disables the composer. Close any open sheet without disturbing the draft.
-    if (props.disabled) props.onPanelChange(null);
-  }, [props.disabled, props.onPanelChange]);
+    // Saving an existing session's configuration briefly disables the composer.
+    // Keep its model sheet open so another option can be chosen after saving.
+    if (props.disabled && props.panel !== "model") props.onPanelChange(null);
+  }, [props.disabled, props.panel, props.onPanelChange]);
   useEffect(() => {
     if (props.panel !== null) return;
     // Dismiss the keyboard on an outside tap while keeping the card visible. Touch

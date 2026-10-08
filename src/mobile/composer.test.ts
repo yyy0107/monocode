@@ -3,6 +3,7 @@ import { createElement, act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileComposer, type MobileComposerPanel } from "./MobileComposer";
+import type { MobileConfiguration } from "./MobileModelControls";
 import { setUiLanguage } from "../shared/i18n/language";
 import { readMobileAttachments } from "./attachments";
 import { KEYBOARD_EVENT, installKeyboardMotion } from "./keyboardMotion";
@@ -225,6 +226,74 @@ describe("mobile composer popup focus", () => {
     }));
     expect(document.activeElement).toBe(area);
     expect(blur).not.toHaveBeenCalled();
+  });
+
+  it("keeps existing-session model controls open through saving consecutive choices", () => {
+    const onConfigurationChange = vi.fn((_: MobileConfiguration) =>
+      rerender({ disabled: true, working: true }),
+    );
+    const { node, button, click, rerender } = render({
+      lockedAgent: true,
+      allowHandoff: true,
+      onConfigurationChange,
+      catalog: {
+        models: {
+          codex: [
+            {
+              id: "codex:test", name: "Test model", harness: "codex",
+              settings: [{
+                id: "reasoningEffort", label: "Reasoning", kind: "select", value: "high",
+                options: [{ value: "low", label: "Low" }, { value: "high", label: "High" }],
+              }],
+            },
+            { id: "codex:other", name: "Other model", harness: "codex" },
+          ],
+          claude: [{ id: "claude:test", name: "Claude model", harness: "claude" }],
+        },
+        errors: {},
+      },
+    });
+    const dialog = () => node.querySelector<HTMLElement>('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]');
+    const row = (label: string) => [...dialog()!.querySelectorAll<HTMLButtonElement>(".mobile-sheet-row")]
+      .find((element) => element.querySelector("strong")?.textContent === label)!;
+    click("Model and reasoning");
+    const sheet = dialog();
+    for (const [label, option] of [
+      ["Reasoning effort", "Low"],
+      ["Model", "Other model"],
+      ["Agent", "Claude Code"],
+    ]) {
+      act(() => row(label).click());
+      act(() => row(option).click());
+      expect(dialog()).toBe(sheet);
+      expect(dialog()!.getAttribute("aria-label")).toBe("Model and reasoning");
+      expect(button("Model and reasoning").getAttribute("aria-expanded")).toBe("true");
+      expect(row("Model").disabled).toBe(true);
+      const calls = onConfigurationChange.mock.calls.length;
+      act(() => row("Model").click());
+      expect(onConfigurationChange).toHaveBeenCalledTimes(calls);
+      expect(dialog()!.getAttribute("aria-label")).toBe("Model and reasoning");
+
+      const configuration = onConfigurationChange.mock.lastCall![0];
+      if (label === "Reasoning effort") expect(configuration.modelSettings.reasoningEffort).toBe("low");
+      if (label === "Model") expect(configuration.model).toBe("codex:other");
+      if (label === "Agent") expect(configuration.harness).toBe("claude");
+      rerender({ configuration, disabled: false, working: false });
+      expect(dialog()).toBe(sheet);
+      expect(row("Model").disabled).toBe(false);
+      expect(row(label).querySelector("small")?.textContent).toBe(option);
+    }
+    expect(onConfigurationChange).toHaveBeenCalledTimes(3);
+    act(() => sheet!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(dialog()).toBeNull();
+    expect(node.querySelector("textarea")!.value).toBe("Keep this draft");
+  });
+
+  it("still dismisses other composer sheets when the composer becomes disabled", () => {
+    const { node, click, rerender } = render();
+    click("Permissions: Supervised");
+    rerender({ disabled: true, working: true });
+    expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
   });
 
   it("closes with Escape from the input and allows Tab to enter popup navigation", () => {

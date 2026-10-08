@@ -559,7 +559,9 @@ export function ModelPicker({
   const pickModel = (item: AgentModel) => {
     if (!source.available(item.harness)) return;
     onChange(item.harness, item.id);
-    dismiss(true);
+    // Keep the full picker available for further model/setting changes.
+    // The recent-model shortcut still completes its single quick switch.
+    if (recentOpenRef.current) dismiss(true);
   };
 
   useEffect(() => {
@@ -587,11 +589,6 @@ export function ModelPicker({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [visible, recentActive, recentMenu]);
-
-  const pickSetting = (setting: ModelSetting, value: string) => {
-    setSetting(setting, value);
-    dismiss(true);
-  };
 
   const toggleFavorite = (id: string) => {
     setFavorites((previous) => {
@@ -674,7 +671,7 @@ export function ModelPicker({
     }
     if (submenu?.kind === "setting") {
       const option = submenu.setting.options[activeSetting];
-      if (option) pickSetting(submenu.setting, option.value);
+      if (option) setSetting(submenu.setting, option.value);
       return;
     }
     const entry = entries[active];
@@ -926,7 +923,7 @@ export function ModelPicker({
                       aria-checked={selected}
                       onMouseDown={(event) => event.preventDefault()}
                       onMouseEnter={() => setActiveSetting(index)}
-                      onClick={() => pickSetting(submenu.setting, option.value)}
+                      onClick={() => setSetting(submenu.setting, option.value)}
                       className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] ${
                         highlighted
                           ? "bg-selection text-content"
@@ -1201,7 +1198,6 @@ function SelectPill({
   };
   const pick = (pickedSetting: ModelSetting, optionValue: string) => {
     onSettingsChange({ ...values, [pickedSetting.id]: optionValue });
-    dismiss(true);
   };
 
   return (
