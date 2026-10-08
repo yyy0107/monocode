@@ -1102,13 +1102,14 @@ const gitTheme = EditorView.theme({
     right: "0",
     bottom: "0",
     zIndex: "13",
-    width: "var(--editor-scrollbar-width, 18px)",
+    width:
+      "var(--editor-scrollbar-width, max(var(--scrollbar-min-size, 0px), calc(18px * var(--scrollbar-scale, 1))))",
     pointerEvents: "none",
   },
   ".cm-gitOverviewTick": {
     position: "absolute",
-    left: "3px",
-    right: "2px",
+    left: "calc(3px * var(--scrollbar-scale, 1))",
+    right: "calc(2px * var(--scrollbar-scale, 1))",
     boxSizing: "border-box",
     borderRadius: "1px",
     pointerEvents: "auto",

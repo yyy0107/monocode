@@ -173,6 +173,9 @@
 }
 
 :root {
+  --scrollbar-scale: 0.5;
+  --scrollbar-min-size: 6px;
+  --readonly-scrollbar-width: auto;
   --motion-reorder-duration: 160ms;
   --motion-tab-close-duration: 200ms;
   --motion-feedback-duration: 120ms;
@@ -278,8 +281,7 @@ body,
     var(--motion-ease-out);
 }
 
-/* Linux/Windows: explicit sans + thin scrollbars. macOS keeps native overlay
-   scrollbars and default text rendering. */
+/* Linux/Windows: explicit sans. macOS keeps default text rendering. */
 html:not(.is-mac),
 html:not(.is-mac) body,
 html:not(.is-mac) #root {
@@ -312,29 +314,29 @@ body {
   font-weight: var(--code-font-weight, 400);
 }
 
-html:not(.is-mac) ::-webkit-scrollbar {
-  width: 14px;
-  height: 14px;
+html ::-webkit-scrollbar {
+  width: max(var(--scrollbar-min-size), calc(14px * var(--scrollbar-scale)));
+  height: max(var(--scrollbar-min-size), calc(14px * var(--scrollbar-scale)));
 }
 
-html:not(.is-mac) ::-webkit-scrollbar-track {
+html ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* ZCode: pill thumb in the border color inside a 3px transparent ring. */
-html:not(.is-mac) ::-webkit-scrollbar-thumb {
+/* Scale the transparent ring with the rail to keep the pill thumb visible. */
+html ::-webkit-scrollbar-thumb {
   min-height: 32px;
   background: var(--color-stroke);
   background-clip: padding-box;
-  border: 3px solid transparent;
+  border: calc(3px * var(--scrollbar-scale)) solid transparent;
   border-radius: 9999px;
 }
 
-html:not(.is-mac) ::-webkit-scrollbar-thumb:hover {
+html ::-webkit-scrollbar-thumb:hover {
   background-color: var(--color-border-hover);
 }
 
-html:not(.is-mac) ::-webkit-scrollbar-corner {
+html ::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -3427,7 +3429,7 @@ html.theme-light .drag-ghost-card {
   display: none !important;
 }
 
-/* Keep xterm's full drag rail while drawing a slim thumb next to the edge. */
+/* Draw a slim thumb inside xterm's configured drag rail. */
 .monocode-terminal .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
   background: transparent !important;
 }
@@ -3436,9 +3438,9 @@ html.theme-light .drag-ghost-card {
   content: "";
   position: absolute;
   top: 0;
-  right: 1px;
+  right: calc(1px * var(--scrollbar-scale));
   bottom: 0;
-  width: 6px;
+  width: max(var(--scrollbar-min-size), calc(6px * var(--scrollbar-scale)));
   pointer-events: none;
   border-radius: 2px;
   background: color-mix(in srgb, var(--color-content) 20%, transparent);

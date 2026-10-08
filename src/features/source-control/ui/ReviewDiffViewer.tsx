@@ -27,6 +27,8 @@ const viewerStyle = {
   "--diffs-font-family":
     'var(--user-code-font,) Consolas, "Cascadia Mono", "Liberation Mono", ui-monospace, monospace',
   "--diffs-font-size": "calc(12px * var(--code-font-scale, 1))",
+  "--diffs-scrollbar-gutter-override":
+    "max(var(--scrollbar-min-size, 0px), calc(10px * var(--scrollbar-scale, 1)))",
 } as CSSProperties;
 
 export const ReviewDiffViewer = memo(function ReviewDiffViewer({
@@ -66,6 +68,24 @@ export const ReviewDiffViewer = memo(function ReviewDiffViewer({
       maxLineDiffLength: 1000,
       tokenizeMaxLineLength: 1000,
       overflow: "scroll",
+      // The viewer's shadow root does not inherit the global scrollbar rules.
+      unsafeCSS: `
+        [data-code] {
+          scrollbar-width: auto;
+          scrollbar-color: auto;
+        }
+        [data-code]::-webkit-scrollbar {
+          width: max(var(--scrollbar-min-size, 0px), calc(10px * var(--scrollbar-scale, 1)));
+          height: max(var(--scrollbar-min-size, 0px), calc(10px * var(--scrollbar-scale, 1)));
+        }
+        [data-code]::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        [data-code]::-webkit-scrollbar-thumb {
+          background: var(--diffs-bg-context);
+          border-radius: 9999px;
+        }
+      `,
       theme: { light: "github-light", dark: "github-dark" },
       themeType,
       preferredHighlighter: "shiki-wasm",

@@ -274,7 +274,7 @@ const scrollbarPlugin = ViewPlugin.fromClass(EditorScrollbar);
 const scrollbarTheme = EditorView.theme({
   "&": {
     position: "relative",
-    "--editor-scrollbar-width": `${RAIL_WIDTH}px`,
+    "--editor-scrollbar-width": `max(var(--scrollbar-min-size, 0px), calc(${RAIL_WIDTH}px * var(--scrollbar-scale, 1)))`,
   },
   ".cm-scroller": {
     scrollbarWidth: "none",
@@ -284,7 +284,7 @@ const scrollbarTheme = EditorView.theme({
     height: "0",
   },
   ".cm-content": {
-    paddingRight: `${RAIL_WIDTH}px`,
+    paddingRight: "var(--editor-scrollbar-width)",
   },
   ".cm-editorScrollbar": {
     position: "absolute",
@@ -292,7 +292,7 @@ const scrollbarTheme = EditorView.theme({
     top: "0",
     right: "0",
     bottom: "0",
-    width: `${RAIL_WIDTH}px`,
+    width: "var(--editor-scrollbar-width)",
     boxSizing: "border-box",
     borderLeft:
       "1px solid color-mix(in srgb, var(--color-content) 7%, transparent)",
@@ -311,8 +311,9 @@ const scrollbarTheme = EditorView.theme({
     zIndex: "1",
     top: "0",
     left: "auto",
-    right: "1px",
-    width: "6px",
+    right: "calc(1px * var(--scrollbar-scale, 1))",
+    width:
+      "max(var(--scrollbar-min-size, 0px), calc(6px * var(--scrollbar-scale, 1)))",
     minHeight: `${MIN_THUMB_HEIGHT}px`,
     borderRadius: "2px",
     backgroundColor:
@@ -330,8 +331,8 @@ const scrollbarTheme = EditorView.theme({
   ".cm-editorScrollbarTick": {
     position: "absolute",
     zIndex: "2",
-    left: "3px",
-    right: "2px",
+    left: "calc(3px * var(--scrollbar-scale, 1))",
+    right: "calc(2px * var(--scrollbar-scale, 1))",
     height: "3px",
     minHeight: "3px",
     borderRadius: "1px 0 0 1px",

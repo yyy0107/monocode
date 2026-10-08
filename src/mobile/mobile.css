@@ -8,6 +8,9 @@ body,
 }
 /* Root tokens also reach sheets and previews that portal outside the shell. */
 :root {
+  --scrollbar-scale: 1;
+  --scrollbar-min-size: 0px;
+  --readonly-scrollbar-width: thin;
   --mobile-font-xs: 11px;
   --mobile-font-sm: 12px;
   --mobile-font-md: 13px;

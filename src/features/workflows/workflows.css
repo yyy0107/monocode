@@ -318,7 +318,7 @@
 }
 /* 边檐：时间线自由滚动，原生滚动条隐藏；
  * 折到檐上的站在内容里淡出（160 ms 后 visibility 才切，淡出期间不可点也不可聚焦）；檐上的灯悬停
- * 放大 1.25；底部 2px 滚动条静止时隐形，指针在时间线上或正在滚 / 拖时露出，悬停轨道加粗到 4px。
+ * 放大 1.25；底部滚动条静止时隐形，指针在时间线上或正在滚 / 拖时露出，悬停轨道加粗。
  */
 .wf-scroller {
   scrollbar-width: none;
@@ -346,6 +346,7 @@
   transform: scale(1.25);
 }
 .wf-sb {
+  height: max(var(--scrollbar-min-size, 0px), calc(2px * var(--scrollbar-scale, 1)));
   opacity: 0;
   transition:
     opacity var(--wf-t-base) var(--wf-ease),
@@ -358,7 +359,7 @@
 }
 .wf-sb:hover,
 .wf-sb[data-dragging="true"] {
-  height: 4px;
+  height: max(var(--scrollbar-min-size, 0px), calc(4px * var(--scrollbar-scale, 1)));
 }
 @media (prefers-reduced-motion: no-preference) {
   .wf-lamp-running {

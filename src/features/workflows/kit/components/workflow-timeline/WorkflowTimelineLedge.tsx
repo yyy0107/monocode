@@ -21,8 +21,8 @@ import type { TimelineViewport } from "./use-timeline-viewport.js";
  * 靠内容的一端一段短轨道接到第一个开着的站，远端是超出五枚时的 `+n`。每枚灯是按钮：点一下，
  * 镜头把那一站带回来。折叠的站在内容里不画——檐上那枚灯**就是**它。
  *
- * 滚动条：时间线底部 2px 一根，轨道 border 色、拇指 foreground-subtlest；静止时 opacity 0，指针在
- * 卡上或正在滚时露出，悬停轨道加粗到 4px；拇指可拖，点轨道翻页。原生滚动条隐藏。
+ * 滚动条：时间线底部一根，轨道 border 色、拇指 foreground-subtlest；静止时 opacity 0，指针在
+ * 卡上或正在滚时露出，悬停轨道加粗；拇指可拖，点轨道翻页。原生滚动条隐藏。
  */
 
 /** 站灯：`STATUS_DOT` 词汇表，running 外加 3px 光晕（呼吸）——它是画面上唯一发光的东西。 */

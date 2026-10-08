@@ -2,7 +2,7 @@ import type { Terminal } from "@xterm/xterm";
 
 export type TerminalFitMode = "shell" | "tui";
 
-const DEFAULT_SCROLLBAR_WIDTH = 14;
+const DEFAULT_SCROLLBAR_WIDTH = 7;
 const MIN_TUI_SCROLLBAR_WIDTH = 1;
 
 type CellSize = { width: number; height: number };
@@ -118,5 +118,7 @@ export function applyTerminalChrome(
   tui: boolean,
 ): void {
   outer.classList.toggle("monocode-terminal--alt-screen", tui);
-  term.options.overviewRuler = tui ? { width: MIN_TUI_SCROLLBAR_WIDTH } : {};
+  term.options.overviewRuler = {
+    width: tui ? MIN_TUI_SCROLLBAR_WIDTH : DEFAULT_SCROLLBAR_WIDTH,
+  };
 }
