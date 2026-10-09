@@ -1,7 +1,7 @@
 import { PROJECT_LIST_PREFERENCES, PROJECT_MAP_PREFERENCES } from "./sharedPreferenceSchema";
 import { SHARED_PREFERENCES_CHANGED, SHARED_PREFERENCES_STATUS, type PreferenceCodec, type SharedPreferenceStore } from "./sharedPreferences";
 import { encodeProjectPreferenceListPath, parseProjectPreferenceIdentity } from "./projectPreferenceCodec";
-import { REMOTE_PROJECTS_CHANGED, remoteProjectFor, sharedProjects } from "../../connections/model/remoteProjects";
+import { REMOTE_PROJECTS_CHANGED, parseRemotePath, remoteProjectFor, sharedProjects } from "../../connections/model/remoteProjects";
 import { pathKey } from "../../../shared/lib/paths";
 
 type Stores = { primary: SharedPreferenceStore; hosts: ReadonlyMap<string, SharedPreferenceStore> };
@@ -137,10 +137,15 @@ export function flushProjectPreferenceStaging(): void {
   }
 }
 
-export function projectPreferencePending(): boolean {
-  return [...PROJECT_MAP_PREFERENCES].some((key) => Object.keys(staged(key)).length > 0)
-    || !!current && ([...current.hosts.values()].some((store) => store.pendingCount > 0)
-      || [...PROJECT_LIST_PREFERENCES].some((key) => localStorage.getItem(pendingListKey(current!.primary.hostId, key)) !== null));
+export function projectPreferencePending(hostId?: string): boolean {
+  if (!current) return false;
+  const primaryHostId = current.primary.hostId;
+  const includesHost = (id: string) => hostId === undefined || id === hostId;
+  return [...PROJECT_MAP_PREFERENCES].some((key) => Object.keys(staged(key)).some((path) =>
+    includesHost(owner(path) ?? parseRemotePath(path)?.environmentId ?? primaryHostId)))
+    || [...current.hosts.values()].some((store) => includesHost(store.hostId) && store.pendingCount > 0)
+    || includesHost(primaryHostId) && [...PROJECT_LIST_PREFERENCES].some((key) =>
+      localStorage.getItem(pendingListKey(primaryHostId, key)) !== null);
 }
 
 export const projectPreferenceErrors = (): string[] => current

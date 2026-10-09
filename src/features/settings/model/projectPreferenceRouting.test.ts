@@ -61,6 +61,21 @@ it("keeps unregistered project choices durable until the Host returns a project 
   expect(JSON.parse(local.store.getItem(key)!)).toEqual({ "/new": { defaultHarness: "pi" } });
 });
 
+it("scopes pending project settings to their Host, including unregistered projects", async () => {
+  const local = host("local");
+  configureProjectPreferenceStores(local.store);
+  routeSet(key, JSON.stringify({ "remote://unregistered/app": { defaultHarness: "pi" } }));
+  await local.store.sync();
+  expect(projectPreferencePending()).toBe(true);
+  expect(projectPreferencePending("local")).toBe(false);
+  expect(projectPreferencePending("unregistered")).toBe(true);
+
+  routeSet(key, JSON.stringify({ "/new": { defaultHarness: "pi" } }));
+  await local.store.sync();
+  expect(projectPreferencePending("local")).toBe(true);
+  expect(projectPreferencePending("unregistered")).toBe(false);
+});
+
 it("does not route global preferences or project rail ordering away from the primary Host", () => {
   const local = host("local");
   configureProjectPreferenceStores(local.store);
@@ -75,6 +90,8 @@ it("retains a newly opened folder in recents while waiting for project registrat
   const raw = JSON.stringify([{ path: "/new", openedAt: 12 }, { path: "/app", openedAt: 4 }]);
   routeSet(recentKey, raw);
   expect(projectPreferencePending()).toBe(true);
+  expect(projectPreferencePending("local")).toBe(true);
+  expect(projectPreferencePending("remote")).toBe(false);
   expect(routeGet(recentKey)).toBe(raw);
   expect(vi.mocked(local.request).mock.calls).toHaveLength(0);
   configureSharedHost("local", [{ id: "new-project", cwd: "/new", name: "New" }], "local-machine");

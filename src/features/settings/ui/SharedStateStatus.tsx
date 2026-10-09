@@ -1,4 +1,4 @@
-import { projectPreferencePending, projectPreferenceErrors } from "../model/projectPreferenceRouting";
+import { projectPreferencePending } from "../model/projectPreferenceRouting";
 import { useSyncExternalStore } from "react";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { activePreferenceStore, SHARED_PREFERENCES_STATUS } from "../model/sharedPreferences";
@@ -11,7 +11,8 @@ function subscribe(listener: () => void) {
 }
 function status(pending: () => boolean = hostWorkspacePending) {
   const store = activePreferenceStore();
-  return store?.error || projectPreferenceErrors()[0] || (store?.pendingCount || projectPreferencePending() || pending() ? "Not yet synced" : "");
+  // This device's sync status belongs to its active Host, not every saved connection.
+  return store?.error || (store?.pendingCount || (store && projectPreferencePending(store.hostId)) || pending() ? "Not yet synced" : "");
 }
 export function SharedStateStatus({ className, pending }: { className?: string; pending?: () => boolean }) {
   const value = useSyncExternalStore(subscribe, () => status(pending), () => "");
