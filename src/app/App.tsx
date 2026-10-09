@@ -449,6 +449,7 @@ import {
   type SessionHeaderActions,
 } from "../features/workspace/ui/SessionHeaderActions";
 import { applyAddToChatRequest } from "../features/sessions/model/addChatToWorkspace";
+import { newWorkspaceSession } from "./model/newWorkspaceSession";
 import {
   ADD_TO_CHAT_EVENT,
   requestAddToChat,
@@ -2584,12 +2585,7 @@ function Workspace({
           return reusable.id;
         }
       }
-      const session = {
-        ...newDefaultSession(cwd, newSessionRuntimeMode),
-        ...(desiredWorktree
-          ? { worktreeCwd: desiredWorktree, branch: focus?.branch ?? undefined }
-          : {}),
-      };
+      const session = newWorkspaceSession(cwd, newSessionRuntimeMode);
       const tab = newTab(session.id);
       setSessions((previous) => [...previous, session]);
       appendTab(tab, cwd);
@@ -2612,8 +2608,8 @@ function Workspace({
   );
 
   const onNew = useCallback(
-    () => onNewInProject(active?.cwd ?? sessionDefaults?.cwd ?? projectCwd),
-    [active?.cwd, onNewInProject, sessionDefaults?.cwd, projectCwd],
+    () => onNewInProject(sidebarCwd),
+    [onNewInProject, sidebarCwd],
   );
 
   const ensureContentTab = useCallback(
