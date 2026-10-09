@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { appendReadyHandoff, buildDeterministicHandoff } from "../../sessions/model/handoff";
 import { invokeWorkspace, notifyGitChanged } from "../../../platform/tauri/fs";
 import { isFilesystemTab, type FilePaneTab } from "../../workspace/model/layout";
@@ -23,20 +24,39 @@ export type Worktrees = { worktrees: Worktree[]; defaultRoot: string };
 export const listWorktrees = (cwd: string) =>
   invokeWorkspace<Worktrees>("git_worktrees", { cwd });
 
+/** Event carrying one line of `git worktree add` output, tagged with its log id. */
+export const WORKTREE_CREATE_LOG_EVENT = "worktree-create-log";
+
 export async function createWorktree(
   cwd: string,
   branch: string,
   base: string,
   existing: boolean,
+  progress?: { id: string; onLine: (line: string) => void },
 ) {
-  const tree = await invoke<Worktree>("git_worktree_create", {
-    cwd,
-    branch,
-    base,
-    existing,
-  });
-  notifyGitChanged();
-  return tree;
+  // Subscribe before invoking so the first Git lines are not dropped.
+  const unlisten = progress
+    ? await listen<{ id: string; line: string }>(
+        WORKTREE_CREATE_LOG_EVENT,
+        (event) => {
+          if (event.payload.id === progress.id)
+            progress.onLine(event.payload.line);
+        },
+      )
+    : undefined;
+  try {
+    const tree = await invoke<Worktree>("git_worktree_create", {
+      cwd,
+      branch,
+      base,
+      existing,
+      logId: progress?.id,
+    });
+    notifyGitChanged();
+    return tree;
+  } finally {
+    unlisten?.();
+  }
 }
 
 export async function createOrchestrationWorktree(

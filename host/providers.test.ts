@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
   REMOTE_PROVIDERS,
   isRemoteProvider,
@@ -6,6 +6,19 @@ import {
 } from "../src/features/connections/model/protocol";
 import { hostProviders } from "./providers";
 import { HARNESSES } from "../src/features/sessions/model/session";
+import { runPiTextPrompt, runOmpTextPrompt } from "../src/integrations/harness/providers/pi/piText";
+
+vi.mock("../src/integrations/harness/providers/pi/piText", () => ({
+  runPiTextPrompt: vi.fn(async () => '{"branch":"pi-worktree-name"}'),
+  runOmpTextPrompt: vi.fn(async () => '{"branch":"omp-worktree-name"}'),
+}));
+
+it.each(["pi", "omp"] as const)("uses the %s text model for Host worktree naming", async (id) => {
+  expect(await hostProviders[id].generateBranchName!("/repo", "为工作树命名")).toBe(`${id}-worktree-name`);
+  expect(id === "pi" ? runPiTextPrompt : runOmpTextPrompt).toHaveBeenCalledWith(expect.objectContaining({
+    cwd: "/repo", prompt: expect.stringContaining("为工作树命名"),
+  }));
+});
 
 it("exposes every local harness through the remote host contract", () => {
   expect(Object.keys(hostProviders).sort()).toEqual(

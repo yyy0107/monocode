@@ -149,17 +149,25 @@ import {
   detachSessionWorktree,
   checkWorktreeRemoval,
   listWorktrees,
-  namedWorktreeBranch,
   orchestrationWorktreeBranchName,
   removeOrchestrationBranch,
   removeOrchestrationWorktree,
   removeWorktree,
-  renameWorktreeBranch,
   sessionInWorktree,
-  temporaryWorktreeBranchName,
   worktreeSessionIds,
   type Worktree,
 } from "../features/source-control/model/worktrees";
+import { createTaskWorktree } from "../features/source-control/model/taskWorktree";
+import {
+  anchorWorktreeCreation,
+  appendWorktreeCreationLog,
+  completeWorktreeCreation,
+  failWorktreeCreation,
+  foldWorktreeCreation,
+  persistWorktreeCreation,
+  startWorktreeCreation,
+  WORKTREE_CREATION_FOLD_MS,
+} from "../features/source-control/model/worktreeCreation";
 import { useProjectBranches } from "../features/source-control/hooks/useProjectBranches";
 import { useInboxActivity } from "../features/inbox/hooks/useInboxUnseen";
 import {
@@ -300,7 +308,6 @@ import {
   compactHarnessContext,
   rewindHarnessLastTurn,
   forgetHarnessSession,
-  generateHarnessBranchName,
   isLiveHarness,
   latestTurnNeedsHarnessLogin,
   probeHarnessAvailability,
@@ -6531,6 +6538,7 @@ function Workspace({
       const initialWorkCwd = sessionWorkCwd(current);
       const createDraftWorktree =
         !current.worktreeCwd && current.workspaceMode === "worktree";
+      const creationId = crypto.randomUUID();
       const accountProvider = supportsProviderAccounts(current.harness)
         ? current.harness
         : undefined;
@@ -6858,9 +6866,19 @@ function Workspace({
               ...selected,
               providerAccountId,
               usageLimit: undefined,
-              worktreePreparing: createDraftWorktree
-                ? true
-                : selected.worktreePreparing,
+              // Only a live harness reaches the creation below; otherwise the
+              // preparing flags would never clear.
+              worktreePreparing:
+                createDraftWorktree && live
+                  ? true
+                  : selected.worktreePreparing,
+              worktreeCreation:
+                createDraftWorktree && live
+                  ? startWorktreeCreation(
+                      current.worktreeBase || "HEAD",
+                      creationId,
+                    )
+                  : selected.worktreeCreation,
               inboxCard:
                 rawCommand || options?.ciRepair ? s.inboxCard : undefined,
               noteCard:
@@ -6944,6 +6962,28 @@ function Workspace({
       if (!options?.resendEdited) {
         flushSync(commitSubmittedTurn);
       }
+      if (createDraftWorktree && live) {
+        // The creation record hangs under the message this send just committed.
+        setSessions((prev) =>
+          prev.map((session) => {
+            if (session.id !== sessionId || !session.worktreeCreation)
+              return session;
+            const message = [...session.blocks]
+              .reverse()
+              .find((block) => block.role === "user");
+            return message
+              ? {
+                  ...session,
+                  worktreeCreation: anchorWorktreeCreation(
+                    session.worktreeCreation,
+                    creationId,
+                    message.id,
+                  ),
+                }
+              : session;
+          }),
+        );
+      }
 
       const launchTitleGeneration = (workCwd: string) => {
         if (!live) return;
@@ -7018,57 +7058,97 @@ function Workspace({
       void (async () => {
         let workCwd = initialWorkCwd;
         if (createDraftWorktree) {
-          const tree = await createWorktree(
+          const tree = await createTaskWorktree(
             current.cwd,
-            temporaryWorktreeBranchName(),
+            current.harness,
+            harnessText || attachments.map((file) => file.name).join(", "),
             current.worktreeBase || "HEAD",
-            false,
+            {
+              id: creationId,
+              onLine: (line) =>
+                setSessions((prev) =>
+                  prev.map((session) =>
+                    session.id === sessionId && session.worktreeCreation
+                      ? {
+                          ...session,
+                          worktreeCreation: appendWorktreeCreationLog(
+                            session.worktreeCreation,
+                            creationId,
+                            line,
+                          ),
+                        }
+                      : session,
+                  ),
+                ),
+            },
+            () => turnGen.current.get(sessionId) === gen,
           );
+          if (!tree) {
+            setSessions((prev) => prev.map((session) =>
+              session.id === sessionId && session.worktreeCreation
+                ? { ...session, worktreeCreation: failWorktreeCreation(session.worktreeCreation, creationId, "Worktree creation cancelled.") }
+                : session,
+            ));
+            return;
+          }
           workCwd = tree.path;
           workspacePins.current.set(sessionId, currentWorkspace(current.cwd));
           if (proposalDraft)
             proposalDraft = { ...proposalDraft, checkoutCwd: tree.path };
           setSessions((prev) =>
-            prev.map((session) =>
-              session.id === sessionId
-                ? {
-                    ...session,
-                    worktreeCwd: tree.path,
-                    branch: tree.branch ?? undefined,
-                    workspaceMode: undefined,
-                    worktreeBase: undefined,
-                    worktreePreparing: undefined,
-                  }
-                : session,
-            ),
+            prev.map((session) => {
+              if (session.id !== sessionId) return session;
+              const completed = session.worktreeCreation
+                ? completeWorktreeCreation(
+                    session.worktreeCreation,
+                    creationId,
+                    tree.path,
+                  )
+                : undefined;
+              const record = completed
+                ? persistWorktreeCreation(completed)
+                : undefined;
+              return {
+                ...session,
+                worktreeCwd: tree.path,
+                branch: tree.branch ?? undefined,
+                workspaceMode: undefined,
+                worktreeBase: undefined,
+                worktreePreparing: undefined,
+                worktreeCreation: completed,
+                // The agent's clock starts now, not at the send, so the worktree
+                // time is not counted as work. The finished record stays with its
+                // message, so its log survives a reload.
+                blocks: session.blocks.map((block) =>
+                  block.id === session.worktreeCreation?.afterBlockId
+                    ? {
+                        ...block,
+                        startedAt: Date.now(),
+                        ...(record ? { worktreeCreation: record } : {}),
+                      }
+                    : block,
+                ),
+              };
+            }),
           );
+          // The log stays readable for a moment, then folds away.
+          window.setTimeout(() => {
+            setSessions((prev) =>
+              prev.map((session) =>
+                session.id === sessionId && session.worktreeCreation
+                  ? {
+                      ...session,
+                      worktreeCreation: foldWorktreeCreation(
+                        session.worktreeCreation,
+                        creationId,
+                      ),
+                    }
+                  : session,
+              ),
+            );
+          }, WORKTREE_CREATION_FOLD_MS);
           notifyReviewChanged(sessionId);
 
-          const branchMessage =
-            harnessText || attachments.map((file) => file.name).join(", ");
-          void generateHarnessBranchName(
-            pickTextHarness(current.harness),
-            workCwd,
-            branchMessage,
-          )
-            .then(async (fragment) => {
-              const branch = fragment ? namedWorktreeBranch(fragment) : null;
-              if (!branch) return;
-              const renamed = await renameWorktreeBranch(
-                current.cwd,
-                tree.path,
-                branch,
-              );
-              setSessions((prev) =>
-                prev.map((session) =>
-                  session.id === sessionId &&
-                  pathKey(sessionWorkCwd(session)) === pathKey(tree.path)
-                    ? { ...session, branch: renamed.branch ?? undefined }
-                    : session,
-                ),
-              );
-            })
-            .catch(() => undefined);
         }
         launchTitleGeneration(workCwd);
         if (turnGen.current.get(sessionId) !== gen) return;
@@ -7504,6 +7584,14 @@ function Workspace({
                 const stopped = {
                   ...stopStreaming(session),
                   worktreePreparing: undefined,
+                  worktreeCreation:
+                    session.worktreeCreation?.status === "creating"
+                      ? failWorktreeCreation(
+                          session.worktreeCreation,
+                          session.worktreeCreation.id,
+                          controlOutcome.error ?? "",
+                        )
+                      : session.worktreeCreation,
                 };
                 return proposalId && proposalDraft
                   ? withOrchestrationProposal(

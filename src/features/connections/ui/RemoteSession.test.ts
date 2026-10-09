@@ -26,6 +26,8 @@ import type {
   RemoteMachine,
 } from "../model/protocol";
 
+import type { WorktreeCreation } from "../../source-control/model/worktreeCreation";
+
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn(async () => undefined),
@@ -43,6 +45,7 @@ vi.mock("../../sessions/ui/AgentTranscript", () => ({
     onOpenFile,
     onOpenDiff,
     onQuestionFollowUp,
+    worktreeCreation,
   }: {
     blocks: Block[];
     busy: boolean;
@@ -51,16 +54,28 @@ vi.mock("../../sessions/ui/AgentTranscript", () => ({
     onOpenFile?: (path: string) => void;
     onOpenDiff?: (path: string) => void;
     onQuestionFollowUp?: (answer: QuestionAnswer) => unknown;
+    worktreeCreation?: WorktreeCreation;
   }) =>
     createElement(
       "ol",
       { "aria-label": "Transcript", "data-busy": busy },
       createElement("button", { "aria-label": "Open transcript file", onClick: () => onOpenFile?.("src/app.ts") }),
       createElement("button", { "aria-label": "Open transcript diff", onClick: () => onOpenDiff?.("src/app.ts") }),
+      worktreeCreation
+        ? createElement(
+            "li",
+            {
+              "aria-label": "Worktree creation",
+              "data-anchor": worktreeCreation.afterBlockId,
+              "data-status": worktreeCreation.status,
+            },
+            [worktreeCreation.status, ...worktreeCreation.log.flatMap((line) => (line.kind === "output" ? [line.text] : []))].join("\n"),
+          )
+        : null,
       blocks.map((block) =>
         createElement(
           "li",
-          { key: block.id },
+          { key: block.id, "data-block-id": block.id },
           block.text,
           block.question && onQuestionFollowUp ? createElement("button", {
             "aria-label": "Answer historical question",
@@ -140,9 +155,11 @@ let branchActionFailure: string | undefined;
 let currentBranch: string;
 let createdBranch: string | undefined;
 let createdWorktree: string | undefined;
+let nameFailure: string | undefined;
 let deletedSessions: string[];
 
 beforeEach(async () => {
+  nameFailure = undefined;
   configureSharedHost(undefined, []);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
@@ -236,6 +253,10 @@ beforeEach(async () => {
             : []),
         ],
       };
+    if (method === "git.worktreeName") {
+      if (nameFailure) throw new Error(nameFailure);
+      return "mc/work-in-new-tree";
+    }
     if (method === "git.worktreeCreate") {
       createdBranch = params.branch;
       createdWorktree = `/home/me/repo-worktrees/wt-${params.branch.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -245,6 +266,10 @@ beforeEach(async () => {
         head: "abc",
         isMain: false,
         missing: false,
+        log: [
+          `Preparing worktree (new branch '${createdBranch}')`,
+          "HEAD is now at abc1234 initial",
+        ],
       };
     }
     if (operation === "git.switch" || operation === "git.createBranch" ||
@@ -1131,7 +1156,7 @@ it("starts a remote session in the worktree chosen before its first message", as
     worktreeCwd: "/home/me/repo-worktrees/dev",
   });
   expect(host?.session.cwd).toBe("/home/me/repo-worktrees/dev");
-  expect(container.querySelector('[aria-label="Workspace Worktree"]')?.tagName)
+  expect(container.querySelector('[aria-label="Workspace dev"]')?.tagName)
     .toBe("DIV");
   expect(byLabel("Workspace Worktree")).toBeNull();
 });
@@ -1175,7 +1200,7 @@ it("creates a host worktree through the composer and selects it", async () => {
       params: expect.objectContaining({
         projectId: "project",
         cwd: "/home/me/repo",
-        branch: expect.stringMatching(/^mc\/[a-z0-9]+$/),
+        branch: "mc/work-in-new-tree",
         base: "dev",
         existing: false,
       }),
@@ -1184,8 +1209,54 @@ it("creates a host worktree through the composer and selects it", async () => {
   expect(commands[0]).toMatchObject({
     type: "create",
     worktreeCwd: createdWorktree,
-    autoWorktreeBranch: createdBranch,
   });
+  expect(commands[0]).not.toHaveProperty("autoWorktreeBranch");
+  expect(invoke).toHaveBeenCalledWith("remote_request", expect.objectContaining({
+    method: "git.worktreeName",
+    params: expect.objectContaining({ projectId: "project", message: "Work in new tree", harness: "codex" }),
+  }));
+  expect(createdWorktree).toBe("/home/me/repo-worktrees/wt-mc-work-in-new-tree");
+  // The first message keeps the record, so the Host can show it after a reload.
+  expect(commands[1]).toMatchObject({
+    type: "send",
+    worktreeCreation: {
+      base: "dev",
+      path: createdWorktree,
+      log: expect.arrayContaining([
+        { kind: "output", text: `Preparing worktree (new branch '${createdBranch}')` },
+      ]),
+    },
+  });
+  // The record reaches the transcript anchored to the first message, with Git's lines.
+  const firstMessage = [...document.body.querySelectorAll<HTMLElement>("[data-block-id]")].find(
+    (node) => node.textContent?.includes("Work in new tree"),
+  );
+  const record = document.body.querySelector<HTMLElement>('[aria-label="Worktree creation"]');
+  expect(firstMessage).toBeDefined();
+  expect(record?.dataset.status).toBe("created");
+  expect(record?.dataset.anchor).toBe(firstMessage?.dataset.blockId);
+  expect(record?.textContent).toContain(`Preparing worktree (new branch '${createdBranch}')`);
+});
+
+it("keeps a failed naming attempt retryable without creating a random worktree", async () => {
+  await render();
+  await act(async () => byLabel("Workspace Current checkout")!.click());
+  const create = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+    .find((button) => button.textContent?.trim() === "New worktree");
+  await act(async () => create!.click());
+  nameFailure = "Could not generate a worktree name. Check the title model or agent connection and retry.";
+  await send("Work in new tree");
+  expect(invoke).not.toHaveBeenCalledWith("remote_request", expect.objectContaining({ method: "git.worktreeCreate" }));
+  expect(commands).toEqual([]);
+  expect(document.body.textContent).toContain("Could not generate a worktree name");
+  nameFailure = undefined;
+  const retry = [...document.body.querySelectorAll<HTMLButtonElement>("button")]
+    .find((button) => button.textContent?.trim() === "Try again");
+  expect(retry).toBeDefined();
+  await act(async () => retry!.click());
+  await settle();
+  expect(createdWorktree).toBe("/home/me/repo-worktrees/wt-mc-work-in-new-tree");
+  expect(commands.map((command) => command.type)).toEqual(["create", "send"]);
 });
 
 it("searches and creates a host branch from the composer picker", async () => {

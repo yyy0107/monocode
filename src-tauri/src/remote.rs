@@ -141,7 +141,14 @@ fn rpc(
     let agent = ureq::AgentBuilder::new()
         .redirects(0)
         .timeout_connect(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(30))
+        // Naming can try the configured API (20s), then a provider helper (90s).
+        .timeout(std::time::Duration::from_secs(
+            if method == "git.worktreeName" {
+                150
+            } else {
+                30
+            },
+        ))
         .build();
     let payload = json!({ "version": 1, "environmentId": environment_id, "method": method, "params": params });
     let response = agent
@@ -386,6 +393,7 @@ fn supported_remote_method(method: &str) -> bool {
             | "titleModel.save"
             | "titleModel.test"
             | "titleModel.generate"
+            | "titleModel.generateBranch"
             | "sessions.list"
             | "sessions.get"
             | "sessions.update"
@@ -412,6 +420,7 @@ fn supported_remote_method(method: &str) -> bool {
             | "git.createBranch"
             | "git.worktrees"
             | "git.worktreeCreate"
+            | "git.worktreeName"
             | "files.read"
             | "files.list"
             | "files.index"
@@ -742,6 +751,7 @@ mod tests {
             "git.createBranch",
             "git.worktrees",
             "git.worktreeCreate",
+            "git.worktreeName",
             "attachments.upload",
             "attachments.read",
             "workflows.request",
@@ -749,6 +759,7 @@ mod tests {
             "titleModel.save",
             "titleModel.test",
             "titleModel.generate",
+            "titleModel.generateBranch",
         ] {
             assert!(supported_remote_method(method), "{method}");
         }

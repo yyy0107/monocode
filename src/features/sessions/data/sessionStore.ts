@@ -8,6 +8,7 @@ import {
 import { codexCommandPresentation } from "../../../integrations/harness/providers/codex/codexProtocol";
 import { recoverCursorSubagents } from "../../../integrations/harness/providers/cursor/cursorSubagents";
 import { persistableAttachment } from "../model/attachments";
+import { parsePersistedWorktreeCreation } from "../../source-control/model/worktreeCreation";
 import { restoreQuestionRecord, questionTranscriptText } from "../model/questionHistory";
 import type { ContextUsage } from "../model/contextUsage";
 import { isRemoteProjectPath, normalizeProjectPath } from "../../projects/model/recents";
@@ -867,6 +868,10 @@ function sanitizeBlock(
   if (block.durationMs != null) next.durationMs = block.durationMs;
   const turnModel = sanitizeTurnModel(block.turnModel);
   if (block.role === "user" && turnModel) next.turnModel = turnModel;
+  if (block.role === "user") {
+    const worktreeCreation = parsePersistedWorktreeCreation(block.worktreeCreation);
+    if (worktreeCreation) next.worktreeCreation = worktreeCreation;
+  }
   if (block.role === "user" && block.draft) next.draft = true;
   if (block.role === "user" && block.monocode) next.monocode = true;
   if (

@@ -455,9 +455,12 @@ export function createHostServer(
             result = await engine.titleModel.generate("Explain how session titles work");
             break;
           case "titleModel.generate":
+          case "titleModel.generateBranch":
             if (typeof params.message !== "string" || params.message.length > 100_000)
               throw new Error("Invalid title message");
-            result = await engine.titleModel.generate(params.message);
+            result = input.method === "titleModel.generateBranch"
+              ? await engine.titleModel.generateBranch(params.message)
+              : await engine.titleModel.generate(params.message);
             break;
           case "notes.list":
             result = engine.notes.list();
@@ -779,6 +782,9 @@ export function createHostServer(
             result = await hostWorktrees(project.cwd);
             break;
           }
+          case "git.worktreeName":
+            result = await engine.generateWorktreeName(params.projectId, params.cwd, params.harness, params.message);
+            break;
           case "git.worktreeCreate": {
             const project = engine.store.project(
               String(params.projectId ?? ""),

@@ -26,8 +26,17 @@ export type HostWorktree = {
   head: string;
   isMain: boolean;
   missing: boolean;
+  /** Git's own output while a new worktree was created, one line per entry. */
+  log?: string[];
 };
 export type HostWorktrees = { worktrees: HostWorktree[]; defaultRoot: string };
+
+function gitOutputLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
 
 function parse(text: string): HostWorktree[] {
   const trees: HostWorktree[] = [];
@@ -64,6 +73,11 @@ function registeredSync(cwd: string): HostWorktree[] {
     ...tree,
     path: available(tree.path) ? realpathSync.native(tree.path) : tree.path,
   }));
+}
+
+/** Snapshot the selected linked checkout's branch when binding a new session. */
+export function hostWorktreeAt(projectCwd: string, path: string): HostWorktree | undefined {
+  return registeredSync(projectCwd).find((tree) => tree.path === path);
 }
 
 export function resolveHostWorktree(
@@ -185,14 +199,14 @@ export async function createHostWorktree(
     )
   ).stdout.trim();
   await mkdir(listed.defaultRoot, { recursive: true });
-  if (existing)
-    await exec("git", ["worktree", "add", "--", path, branch], options(cwd));
-  else
-    await exec(
-      "git",
-      ["worktree", "add", "--no-track", "-b", branch, "--", path, commit],
-      options(cwd),
-    );
+  // Git writes its progress to stderr even when the command succeeds.
+  const added = existing
+    ? await exec("git", ["worktree", "add", "--", path, branch], options(cwd))
+    : await exec(
+        "git",
+        ["worktree", "add", "--no-track", "-b", branch, "--", path, commit],
+        options(cwd),
+      );
   const created = (await hostWorktrees(cwd)).worktrees.find(
     (tree) => tree.path === path,
   );
@@ -200,7 +214,7 @@ export async function createHostWorktree(
     throw new Error(
       "Worktree created, but could not be found. Refresh the picker.",
     );
-  return created;
+  return { ...created, log: gitOutputLines(added.stderr) };
 }
 
 /** Rename only the temporary branch created for this specific worktree. */

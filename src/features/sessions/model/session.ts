@@ -8,6 +8,10 @@ import type { InboxAskContext } from "../../inbox/model/inboxAsk";
 import type { NoteCardMeta, NoteComposerCard } from "../../notes";
 import type { OrchestrationProposal } from "../../orchestration/model/orchestrationPlan";
 import type { LinkedWorkItemUpdateCard } from "../../inbox/model/linkedWorkItemActivity";
+import type {
+  PersistedWorktreeCreation,
+  WorktreeCreation,
+} from "../../source-control/model/worktreeCreation";
 import {
   defaultSessionChoice,
   firstEnabledHarness,
@@ -329,6 +333,8 @@ export type Block = {
   durationMs?: number;
   /** Stable model label for this turn. Present on newly created user blocks. */
   turnModel?: TurnModel;
+  /** The worktree this user message created, kept with it so its log survives. */
+  worktreeCreation?: PersistedWorktreeCreation;
   /** Provider turn boundary used to replace this user message, when known. */
   providerTurnId?: string;
   /** User turn saved to the session but not submitted to the harness yet. */
@@ -519,6 +525,8 @@ export type Session = {
   worktreeBase?: string;
   /** Internal guard while the first turn creates its selected worktree. */
   worktreePreparing?: boolean;
+  /** Progress card for that creation. In-memory only; never persisted. */
+  worktreeCreation?: WorktreeCreation;
   /** Select a working copy before continuing after the previous one was deleted. */
   worktreeRemoved?: boolean;
   /** One-shot composer text when opening a session from Inbox. */

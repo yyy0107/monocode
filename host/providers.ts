@@ -23,6 +23,11 @@ import { discoverPiCommands } from "../src/integrations/harness/providers/pi/piS
 import { ompCommandProvider } from "../src/integrations/harness/providers/pi/piFamily";
 import { generateCodexBranchName } from "../src/integrations/harness/providers/codex/codexGit";
 import { generateClaudeBranchName } from "../src/integrations/harness/providers/claude/claudeGit";
+import { generateCursorBranchName } from "../src/integrations/harness/providers/cursor/cursorGit";
+import { generateGrokBranchName } from "../src/integrations/harness/providers/grok/grokGit";
+import { generateOpenCodeBranchName } from "../src/integrations/harness/providers/opencode/opencodeGit";
+import { runPiTextPrompt, runOmpTextPrompt } from "../src/integrations/harness/providers/pi/piText";
+import { generateTextBranchName } from "../src/integrations/harness/core/branchName";
 import {
   PI_FLAVOR,
   OMP_FLAVOR,
@@ -75,6 +80,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     generateBranchName: generateClaudeBranchName,
   },
   cursor: {
+    generateBranchName: generateCursorBranchName,
     readSessionTitle: cursor.readCursorSessionTitle,
     send: cursor.sendCursorTurn,
     steer: cursor.steerCursorTurn,
@@ -85,6 +91,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     answer: cursor.respondCursorQuestion,
   },
   grok: {
+    generateBranchName: generateGrokBranchName,
     readSessionTitle: grok.readGrokSessionTitle,
     send: grok.sendGrokTurn,
     compact: grok.compactGrokContext,
@@ -95,6 +102,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     answer: grok.respondGrokQuestion,
   },
   opencode: {
+    generateBranchName: generateOpenCodeBranchName,
     readSessionTitle: opencode.readOpenCodeSessionTitle,
     send: opencode.sendOpenCodeTurn,
     steer: opencode.steerOpenCodeTurn,
@@ -106,6 +114,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
     answer: opencode.respondOpenCodeQuestion,
   },
   pi: {
+    generateBranchName: (cwd, message) => generateTextBranchName(runPiTextPrompt, cwd, message),
     commands: { rawSlashCommands: true, discover: ({ cwd }) => discoverPiCommands(cwd) },
     readSessionTitle: (input) => readFamilySessionTitle(PI_FLAVOR, input),
     send: pi.sendPiTurn,
@@ -119,6 +128,7 @@ export const hostProviders: Record<RemoteProvider, HostProvider> = {
       respondPiQuestion(PI_FLAVOR, id, request, reply),
   },
   omp: {
+    generateBranchName: (cwd, message) => generateTextBranchName(runOmpTextPrompt, cwd, message),
     commands: ompCommandProvider,
     readSessionTitle: (input) => readFamilySessionTitle(OMP_FLAVOR, input),
     send: omp.sendOmpTurn,

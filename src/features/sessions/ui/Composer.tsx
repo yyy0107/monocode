@@ -134,7 +134,8 @@ import { HandoffMiniCard } from "./HandoffMiniCard";
 import { ModelControlPills, ModelPicker } from "./ModelPicker";
 import { QuestionForm } from "./QuestionForm";
 import { SkillPicker } from "../../skills/ui/SkillPicker";
-import { pathKey, projectKey } from "../../../shared/lib/paths";
+import { pathKey, projectKey, projectName } from "../../../shared/lib/paths";
+import type { WorktreeCreation } from "../../source-control/model/worktreeCreation";
 import { consumeQuoteRequest, type QuoteRequest } from "../model/quoteDraft";
 import { useTabGroupLogos } from "../../projects/hooks/useTabGroupLogos";
 import { useProjectBranchesState } from "../../source-control/hooks/useProjectBranches";
@@ -254,6 +255,7 @@ type Props = {
   inboxCard?: InboxComposerCard;
   noteCard?: NoteComposerCard;
   handoffCard?: HandoffComposerCard;
+  worktreeCreation?: WorktreeCreation;
   question?: UserQuestionPrompt;
   busy?: boolean;
   /** Allow typed text to replace Stop with Send while a turn is running. */
@@ -417,6 +419,7 @@ export function Composer({
   onBtwCommand,
   onNoteCardDismiss,
   onHandoffCardDismiss,
+  worktreeCreation,
   onQuestionReply,
   onQuestionInteraction,
   onSubmit,
@@ -479,6 +482,12 @@ export function Composer({
     worktreeBase && worktreeBase !== "HEAD"
       ? worktreeBase
       : branch || draftBranches?.current || worktreeBase || undefined;
+  // A worktree is named by its folder, which keeps its name when the branch is renamed.
+  const workingName =
+    pathKey(cwd) !== pathKey(executionCwd)
+      ? projectName(executionCwd)
+      : undefined;
+  const creating = worktreeCreation?.status === "creating";
   useEffect(() => {
     if (
       draftWorkspace &&
@@ -1918,6 +1927,8 @@ export function Composer({
                 cwd={executionCwd}
                 mode={workspaceMode ?? "current"}
                 base={resolvedWorktreeBase}
+                workingName={workingName}
+                creating={creating}
                 enabled={enabled && !busy}
                 onModeChange={onWorkspaceModeChange}
                 onBaseChange={onWorktreeBaseChange}
@@ -1951,6 +1962,7 @@ export function Composer({
               {onWorktreeChange ? (
                 <WorkspaceIdentity
                   worktree={pathKey(cwd) !== pathKey(executionCwd)}
+                  name={workingName}
                 />
               ) : null}
               <BranchPicker
@@ -2002,6 +2014,8 @@ export function Composer({
       recents,
       remote,
       resolvedWorktreeBase,
+      workingName,
+      creating,
       workspaceMode,
       worktreeRemoved,
     ],

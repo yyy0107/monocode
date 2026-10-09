@@ -13,10 +13,25 @@ export async function generateConfiguredSessionTitle(
   cwd: string,
   message: string,
 ): Promise<GeneratedSessionTitle | null> {
+  return generateConfigured(cwd, message, "titleModel.generate");
+}
+
+export async function generateConfiguredWorktreeName(
+  cwd: string,
+  message: string,
+): Promise<string | null> {
+  return generateConfigured(cwd, message, "titleModel.generateBranch");
+}
+
+async function generateConfigured<T>(
+  cwd: string,
+  message: string,
+  method: string,
+): Promise<T | null> {
   const project = remoteProjectFor(cwd);
   const machineId = project
     ? (await remoteMachineFor(project.environmentId))?.id
     : sharedHostMachineId();
   if (!machineId) return null;
-  return remoteRequest(machineId, "titleModel.generate", { message });
+  return remoteRequest(machineId, method, { message });
 }

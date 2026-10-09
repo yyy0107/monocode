@@ -75,9 +75,21 @@ it("does not issue any request when unconfigured or disabled", async () => {
   const fetch = vi.fn();
   vi.stubGlobal("fetch", fetch);
   expect(await api.generate("Name this")).toBeNull();
+  expect(await api.generateBranch("Name this")).toBeNull();
   api.save({ ...input, enabled: false });
   expect(await api.generate("Name this")).toBeNull();
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it("generates a branch fragment through the configured stateless API", async () => {
+  const { api } = setup();
+  api.save(input);
+  const fetch = vi.fn(async () => Response.json({ choices: [{ message: { content: '{"branch":"fix-login"}' } }] }));
+  vi.stubGlobal("fetch", fetch);
+  expect(await api.generateBranch("修复登录")).toBe("fix-login");
+  expect(fetch).toHaveBeenCalledWith(input.endpoint, expect.objectContaining({
+    body: expect.stringContaining("lowercase English words joined by hyphens"),
+  }));
 });
 
 it("sends a single stateless model request and parses its title", async () => {

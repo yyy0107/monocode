@@ -13,6 +13,7 @@ import {
   runHarnessTextPrompt,
   canRewindHarnessLastTurn,
   compactHarnessContext,
+  generateHarnessBranchName,
   isLiveHarness,
   listHarnesses,
   refreshHarnessCatalogs,
@@ -25,7 +26,7 @@ import type { SendTurnInput, SteerTurnInput } from "./types";
 import { registerBuiltinHarnesses } from "./register";
 
 function stub(
-  id: "cursor" | "codex" | "claude" | "pi",
+  id: "cursor" | "codex" | "claude" | "pi" | "omp",
   extra: Partial<HarnessAdapter> = {},
 ): HarnessAdapter {
   return {
@@ -43,6 +44,14 @@ function stub(
 }
 
 describe("harness registry", () => {
+  it.each(["pi", "omp"] as const)("generates branch names with %s's isolated text adapter", async (id) => {
+    const runTextPrompt = vi.fn(async () => '{"branch":"fix-login"}');
+    registerHarness(stub(id, { runTextPrompt }));
+    expect(await generateHarnessBranchName(id, "/repo", "修复登录")).toBe("fix-login");
+    expect(runTextPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: "/repo", prompt: expect.stringContaining("修复登录"), timeoutMs: 90_000,
+    }));
+  });
   afterEach(() => {
     resetHarnessModelOverlays();
     resetHarnessIdlePark();

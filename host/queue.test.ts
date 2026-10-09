@@ -72,6 +72,20 @@ function setup(harness: RemoteProvider = "pi", steer = true) {
 }
 
 describe("Host owns the shared message queue", () => {
+  it("stores a first message's worktree record on that message", async () => {
+    const s = setup();
+    const record = {
+      base: "main",
+      path: "/trees/mc-3f2a1b7c",
+      log: [{ kind: "output" as const, text: "HEAD is now at abc1234 initial" }],
+    };
+    s.send("first-with-record", "Fix login", { worktreeCreation: record });
+    await vi.waitFor(() => expect(s.turns).toHaveLength(1));
+    expect(
+      s.store.session(s.id).session.blocks.find((row) => row.id === "first-with-record"),
+    ).toMatchObject({ role: "user", text: "Fix login", worktreeCreation: record });
+  });
+
   it("validates the optional follow-up preference without changing legacy command signatures", () => {
     const command = { type: "send", commandId: "preference", sessionId: "session", text: "Later" };
     expect(parseCommand(command)).toEqual(command);

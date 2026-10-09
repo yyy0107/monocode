@@ -35,6 +35,7 @@ vi.mock("../../source-control/hooks/useProjectBranches", () => ({
 }));
 
 import { Composer, ComposerAction } from "./Composer";
+import { startWorktreeCreation } from "../../source-control/model/worktreeCreation";
 import {
   clearMcpSettingsCache,
   loadMcpSettings,
@@ -1668,7 +1669,7 @@ describe("Composer question focus", () => {
     );
 
     const workspace = container.querySelector(
-      '[aria-label="Workspace Worktree"]',
+      '[aria-label="Workspace mc-greeting"]',
     );
     expect(workspace?.tagName).toBe("DIV");
     expect(
@@ -1791,6 +1792,70 @@ describe("Composer question focus", () => {
       ),
     );
     expect(onWorktreeBaseChange).toHaveBeenLastCalledWith("mc/greeting");
+  });
+
+  it("names a started worktree by its folder while its branch can change", async () => {
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          focused: true,
+          harness: "claude" as const,
+          model: "claude-sonnet",
+          runtimeMode: "supervised" as const,
+          cwd: "/repo",
+          executionCwd: "/repo-worktrees/mc-3f2a1b7c",
+          branch: "mc/fix-login",
+          hideProjectPicker: true,
+          draftWorkspace: false,
+          onFocus: vi.fn(),
+          onCwdChange: vi.fn(),
+          onBranchChange: vi.fn(async () => {}),
+          onWorktreeChange: vi.fn(async () => {}),
+          onModelChange: vi.fn(),
+          onRuntimeModeChange: vi.fn(),
+          onSubmit: vi.fn(),
+        }),
+      ),
+    );
+    expect(
+      container.querySelector('[aria-label="Workspace mc-3f2a1b7c"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[aria-label="Workspace Worktree"]'),
+    ).toBeNull();
+  });
+
+  it("shows a creating marker while the first send makes its worktree", async () => {
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          focused: true,
+          harness: "claude" as const,
+          model: "claude-sonnet",
+          runtimeMode: "supervised" as const,
+          cwd: "/repo",
+          executionCwd: "/repo",
+          branch: "main",
+          hideProjectPicker: true,
+          draftWorkspace: true,
+          workspaceMode: "worktree" as const,
+          worktreeBase: "main",
+          worktreeCreation: startWorktreeCreation("main", "run-1"),
+          onFocus: vi.fn(),
+          onCwdChange: vi.fn(),
+          onBranchChange: vi.fn(async () => {}),
+          onWorktreeChange: vi.fn(async () => {}),
+          onWorkspaceModeChange: vi.fn(),
+          onWorktreeBaseChange: vi.fn(),
+          onModelChange: vi.fn(),
+          onRuntimeModeChange: vi.fn(),
+          onSubmit: vi.fn(),
+        }),
+      ),
+    );
+    expect(
+      container.querySelector('[aria-label="Workspace Creating worktree…"]'),
+    ).not.toBeNull();
   });
 
   it("returns focus to the composer textarea once a question is answered", async () => {

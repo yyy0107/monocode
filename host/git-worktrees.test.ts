@@ -166,6 +166,8 @@ it("creates registered host worktrees and binds new sessions to the selected che
     isMain: false,
     missing: false,
   });
+  // The client shows Git's own lines in the creation record.
+  expect(tree.log?.some((line) => line.includes("feature/task"))).toBe(true);
   expect(resolveHostWorktree(cwd, tree.path)).toBe(tree.path);
   const listed = await hostWorktrees(cwd);
   expect(listed.worktrees.map((item) => item.branch)).toEqual([

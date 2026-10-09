@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { generateConfiguredSessionTitle } from "./titleModelClient";
+import { generateConfiguredSessionTitle, generateConfiguredWorktreeName } from "./titleModelClient";
 import {
   remoteMachineFor,
   remoteRequest,
@@ -26,6 +26,11 @@ it("uses the local Host's API for desktop-owned sessions", async () => {
   expect(remoteRequest).toHaveBeenCalledWith("local", "titleModel.generate", {
     message: "Title this",
   });
+});
+it("uses the configured Host model for branch and directory names", async () => {
+  vi.mocked(remoteRequest).mockResolvedValue("fix-login");
+  expect(await generateConfiguredWorktreeName("/repo", "修复登录")).toBe("fix-login");
+  expect(remoteRequest).toHaveBeenCalledWith("local", "titleModel.generateBranch", { message: "修复登录" });
 });
 it("never sends a disconnected remote project's message to the local Host", async () => {
   vi.mocked(remoteProjectFor).mockReturnValue({

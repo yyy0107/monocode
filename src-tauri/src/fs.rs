@@ -4556,6 +4556,55 @@ pub(crate) fn git_checked(root: &Path, args: &[&str]) -> Result<(), String> {
     Err(format!("git {} failed", args.join(" ")))
 }
 
+/// Like `git_checked`, but reports each stderr line while the command runs.
+/// Git writes worktree progress to stderr even when the command succeeds.
+pub(crate) fn git_checked_with_progress(
+    root: &Path,
+    args: &[&str],
+    on_line: &mut dyn FnMut(&str),
+) -> Result<(), String> {
+    let mut cmd = git_cmd_for_args(args);
+    let mut child = cmd
+        .arg("--no-pager")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let mut lines = Vec::new();
+    if let Some(stderr) = child.stderr.take() {
+        let mut reader = BufReader::new(stderr);
+        let mut raw = Vec::new();
+        loop {
+            raw.clear();
+            match reader.read_until(b'\n', &mut raw) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            let text = String::from_utf8_lossy(&raw);
+            let line = text.trim();
+            if line.is_empty() {
+                continue;
+            }
+            on_line(line);
+            lines.push(line.to_owned());
+        }
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if status.success() {
+        return Ok(());
+    }
+    if !lines.is_empty() {
+        return Err(lines.join("\n"));
+    }
+    Err(format!("git {} failed", args.join(" ")))
+}
+
 fn git_blob(root: &Path, spec: &str) -> Option<Vec<u8>> {
     git_output(root, &["cat-file", "-p", spec])
 }

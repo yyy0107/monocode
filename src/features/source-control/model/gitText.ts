@@ -80,6 +80,8 @@ export function buildBranchNamePrompt(message: string): string {
     "Rules:",
     "- Branch should describe the requested work from the user message.",
     "- Keep it short and specific (2-6 words).",
+    "- Use lowercase English words joined by hyphens, even when the user message is in another language.",
+    "- Do not include a branch prefix; the application adds it.",
     "- Use plain words only, no issue prefixes and no punctuation-heavy text.",
     "",
     "User message:",

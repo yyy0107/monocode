@@ -291,6 +291,29 @@ describe("persisting a subagent's trail", () => {
   });
 });
 
+describe("persisted worktree record", () => {
+  it("keeps a finished record on its user message and drops a malformed one", () => {
+    const record = {
+      base: "main",
+      path: "/trees/mc-3f2a1b7c",
+      log: [{ kind: "output" as const, text: "HEAD is now at abc1234 initial" }],
+    };
+    const session = newSession("codex", "/repo");
+    session.blocks = [
+      { id: "user-1", role: "user", text: "Fix login", worktreeCreation: record },
+      {
+        id: "user-2",
+        role: "user",
+        text: "Again",
+        worktreeCreation: { base: 1 } as unknown as typeof record,
+      },
+    ];
+    const [kept, dropped] = sanitizeSessionForPersist(session).blocks;
+    expect(kept).toMatchObject({ worktreeCreation: record });
+    expect(dropped.worktreeCreation).toBeUndefined();
+  });
+});
+
 describe("sanitizeSessionForPersist", () => {
   it("keeps the stripped /operator turn marker for later turns", () => {
     const submitted = appendUser(newSession("codex", "/repo"), "list notes", [], {

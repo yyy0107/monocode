@@ -55,6 +55,7 @@ import { sessionHasBtwThreads, supportsBtwHarness } from "../model/btw";
 import { BtwSheet, useBtwConversation } from "./BtwSheet";
 import { AgentTranscript } from "./AgentTranscript";
 import { PooledTranscript, type TranscriptPool } from "./TranscriptPool";
+import { agentWaitingForWorktree } from "../../source-control/model/worktreeCreation";
 import { TranscriptFind } from "./TranscriptFind";
 import { SessionStatusPanel } from "./SessionStatusPanel";
 import { useProjectDiffStats } from "../../source-control/hooks/useProjectDiffStats";
@@ -659,6 +660,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
       inboxCard={session.inboxCard}
       noteCard={session.noteCard}
       handoffCard={session.handoffCard}
+      worktreeCreation={session.worktreeCreation}
       question={session.pendingQuestion}
       children={
         <AnimatedCollapse expanded={!!decidingPlanId}>
@@ -930,13 +932,18 @@ const LocalSessionPane = memo(function LocalSessionPane({
                 <AgentTranscript
                   clockOffsetMs={clockOffsetMs}
                   blocks={session.blocks}
-                  busy={!!session.busy}
+                  // No working clock until the worktree exists and the agent has the message.
+                  busy={
+                    !!session.busy &&
+                    !agentWaitingForWorktree(session.worktreeCreation, session.blocks)
+                  }
                   visible={visible}
                   cwd={workCwd}
                   harness={session.harness}
                   model={session.model}
                   modelSettings={session.modelSettings}
                   workflowParent={workflowParent}
+                  worktreeCreation={session.worktreeCreation}
                   pendingQuestion={!!session.pendingQuestion}
                   pendingQuestionHistoryId={session.pendingQuestion?.historyId}
                   onQuestionFollowUp={session.worktreeRemoved || session.harness !== "codex" ? undefined : (answer) =>

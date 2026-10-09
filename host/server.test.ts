@@ -187,10 +187,47 @@ it("configures the title API through authenticated RPC without exposing credenti
   const generate = vi.spyOn(s.engine.titleModel, "generate").mockResolvedValue({ title: "API title", workItem: null });
   expect((await s.call("titleModel.generate", { message: "Name this" })).value.result.title).toBe("API title");
   expect(generate).toHaveBeenCalledWith("Name this");
+  const generateBranch = vi.spyOn(s.engine.titleModel, "generateBranch").mockResolvedValue("fix-login");
+  expect((await s.call("titleModel.generateBranch", { message: "修复登录" })).value.result).toBe("fix-login");
+  expect(generateBranch).toHaveBeenCalledWith("修复登录");
   expect((await s.call("titleModel.test")).value.result.title).toBe("API title");
   expect((await s.call("titleModel.generate", { message: 42 })).value.error).toContain("Invalid title message");
   expect(s.send).not.toHaveBeenCalled();
   expect((await s.call("titleModel.status", {}, "bad-token")).status).toBe(401);
+});
+
+it("names both the branch and worktree directory before creation through RPC", async () => {
+  const s = await setup();
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: s.project.cwd });
+  git("init", "-q");
+  git("checkout", "-q", "-b", "main");
+  writeFileSync(join(s.project.cwd, "file.txt"), "initial\n");
+  git("add", "file.txt");
+  git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "initial");
+  cleanups.push(async () => rmSync(join(s.project.cwd, "..", `${s.project.name}-worktrees`), { recursive: true, force: true }));
+  vi.spyOn(s.engine.titleModel, "generateBranch").mockResolvedValue("fix-login");
+  const nameParams = { projectId: s.project.id, harness: "codex", message: "修复登录" };
+  const named = await s.call("git.worktreeName", nameParams);
+  expect(named.value.result).toBe("mc/fix-login");
+  const generated = await s.call("git.worktreeCreate", {
+    projectId: s.project.id, branch: named.value.result, base: "main", existing: false,
+  });
+  expect(generated.value.result).toMatchObject({
+    branch: "mc/fix-login", path: expect.stringMatching(/[/\\]wt-mc-fix-login$/),
+    log: expect.arrayContaining(["Preparing worktree (new branch 'mc/fix-login')"]),
+  });
+  expect((await s.call("git.worktreeName", nameParams)).value.result).toBe("mc/fix-login-2");
+  expect((await s.call("git.worktreeName", { ...nameParams, message: 42 })).status).toBe(400);
+  expect((await s.call("git.worktreeName", { ...nameParams, harness: "unknown" })).status).toBe(400);
+  const created = await s.call("commands.dispatch", {
+    type: "create", commandId: "named-worktree-session", projectId: s.project.id,
+    worktreeCwd: generated.value.result.path, harness: "codex", model: "codex:test", runtimeMode: "supervised",
+  });
+  expect(s.store.session(created.value.result.sessionId)).toMatchObject({
+    session: { branch: "mc/fix-login", worktreeCwd: generated.value.result.path },
+  });
+  expect(s.store.session(created.value.result.sessionId).autoWorktreeBranch).toBeUndefined();
+  expect(s.send).not.toHaveBeenCalled();
 });
 
 describe("remote host API", () => {

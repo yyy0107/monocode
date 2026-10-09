@@ -7,6 +7,7 @@ import type { HarnessId } from "../../sessions/model/session";
 import type { OrchestrationWorkspace, TaskStatus } from "../../orchestration/model/orchestrationState";
 import type { ProposedTask } from "../../orchestration/model/orchestrationPlan";
 import type { SessionNotificationPreview } from "../../sessions/model/sessionActivity";
+import type { PersistedWorktreeCreation } from "../../source-control/model/worktreeCreation";
 
 /** Public run projection. Execution credentials and journals remain on Host. */
 export type HostOrchestrationView = {
@@ -124,6 +125,8 @@ export type HostWorktree = {
   head: string;
   isMain: boolean;
   missing: boolean;
+  /** Git's own output while a new worktree was created, one line per entry. */
+  log?: string[];
 };
 export type HostSession = {
   /** Client-only estimate: Host time minus local time; never changes stored timestamps. */
@@ -347,6 +350,8 @@ export type HostCommand =
       planBlockId?: string;
       /** Host FIFO dispatch; callers cannot bypass a paused or edited head. */
       queuedMessageId?: string;
+      /** The worktree this first message created; the Host keeps it on the message. */
+      worktreeCreation?: PersistedWorktreeCreation;
     }
   | {
       type: "draft";

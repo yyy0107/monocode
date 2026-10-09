@@ -10,6 +10,7 @@ import type { PrContent } from "../../../features/source-control/model/gitText";
 import { beginCatalogLoad, hasFreshCatalog } from "../../../features/sessions/model/models";
 import type { UserQuestionReply } from "../../../features/sessions/model/userQuestion";
 import { translate } from "../../../shared/i18n/language";
+import { generateTextBranchName } from "./branchName";
 import type { NativeCommandProvider } from "./nativeCommands";
 import type {
   ApprovalDecision,
@@ -458,8 +459,10 @@ export async function generateHarnessBranchName(
   message: string,
 ): Promise<string | null> {
   const adapter = getHarness(harness);
-  if (!adapter?.generateBranchName) return null;
-  return adapter.generateBranchName(cwd, message);
+  if (adapter?.generateBranchName) return adapter.generateBranchName(cwd, message);
+  return adapter?.runTextPrompt
+    ? generateTextBranchName(adapter.runTextPrompt, cwd, message)
+    : null;
 }
 
 export async function warmupHarnessText(

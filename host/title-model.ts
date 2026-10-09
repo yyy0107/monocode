@@ -17,6 +17,7 @@ import {
   parseGeneratedSessionTitle,
   type GeneratedSessionTitle,
 } from "../src/features/sessions/model/sessionTitle";
+import { buildBranchNamePrompt, parseBranchName } from "../src/features/source-control/model/gitText";
 
 type Config = Omit<TitleModelStatus, "hasApiKey"> & { apiKey: string };
 const MAX_RESPONSE_BYTES = 256 * 1024;
@@ -119,6 +120,20 @@ export class TitleModelApi {
   }
 
   async generate(message: string): Promise<GeneratedSessionTitle | null> {
+    return this.request(message, buildThreadTitlePrompt(message), (output) =>
+      parseGeneratedSessionTitle(output, message),
+    );
+  }
+
+  async generateBranch(message: string): Promise<string | null> {
+    return this.request(message, buildBranchNamePrompt(message), parseBranchName);
+  }
+
+  private async request<T>(
+    message: string,
+    prompt: string,
+    parse: (output: string) => T | null,
+  ): Promise<T | null> {
     const settings = this.read();
     if (!settings.enabled || !message.trim()) return null;
     let response: Response;
@@ -134,7 +149,7 @@ export class TitleModelApi {
         body: JSON.stringify({
           model: settings.model,
           messages: [
-            { role: "user", content: buildThreadTitlePrompt(message) },
+            { role: "user", content: prompt },
           ],
           stream: false,
           store: false,
@@ -187,7 +202,7 @@ export class TitleModelApi {
       typeof choice?.message?.content !== "string"
     )
       throw new Error("Title model did not return a title.");
-    const title = parseGeneratedSessionTitle(choice.message.content, message);
+    const title = parse(choice.message.content);
     if (!title) throw new Error("Title model did not return a title.");
     // Discard completions from credentials/settings that changed while awaiting the model.
     return JSON.stringify(this.read()) === JSON.stringify(settings)

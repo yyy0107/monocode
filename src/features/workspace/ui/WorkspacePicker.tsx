@@ -70,6 +70,8 @@ export function WorkspacePicker({
   onOpenChange,
   popoverSide = "top",
   initialPicker,
+  workingName,
+  creating = false,
 }: {
   initialPicker?: "workspace" | "base";
   cwd: string;
@@ -83,6 +85,9 @@ export function WorkspacePicker({
   onClose?: () => void;
   onOpenChange?: (open: boolean) => void;
   popoverSide?: "top" | "bottom";
+  /** Folder name of the working copy when it is a worktree. */
+  workingName?: string;
+  creating?: boolean;
 }) {
   const [modeOpen, setModeOpen] = useState(false);
   const [baseOpen, setBaseOpen] = useState(false);
@@ -105,6 +110,8 @@ export function WorkspacePicker({
         initialOpen={initialPicker === "workspace"}
         cwd={cwd}
         mode={mode}
+        workingName={workingName}
+        creating={creating}
         enabled={enabled && !!resolvedBase}
         onChange={(next) =>
           onModeChange(next, next === "worktree" ? effectiveBase : undefined)
@@ -133,10 +140,17 @@ export function WorkspacePicker({
 }
 
 /** A started conversation owns its working copy; only its branch stays mutable. */
-export function WorkspaceIdentity({ worktree }: { worktree: boolean }) {
+export function WorkspaceIdentity({
+  worktree,
+  name,
+}: {
+  worktree: boolean;
+  /** The worktree's folder name, which stays put when its branch is renamed. */
+  name?: string;
+}) {
   const { t: uiT } = useTranslation();
   const Icon = worktree ? FolderTree : Folder;
-  const label = worktree ? uiT("Worktree") : uiT("Current checkout");
+  const label = worktree ? (name ?? uiT("Worktree")) : uiT("Current checkout");
   return (
     <div
       title={uiT("Workspace: {value0}", { value0: String(label) })}
@@ -160,10 +174,14 @@ function WorkspaceModePicker({
   onOpenChange,
   popoverSide = "top",
   initialOpen = false,
+  workingName,
+  creating = false,
 }: {
   cwd: string;
   mode: WorkspaceMode;
   enabled: boolean;
+  workingName?: string;
+  creating?: boolean;
   onChange: (mode: WorkspaceMode) => void;
   onSelectWorktree?: (tree: Worktree) => Promise<void>;
   onOpenSettings?: () => void;
@@ -256,8 +274,13 @@ function WorkspaceModePicker({
       setPickError(undefined);
     }, HOVER_CLOSE_MS);
   };
-  const label =
-    mode === "worktree" ? uiT("New worktree") : uiT("Current checkout");
+  // The marker names the working copy once one exists; "New worktree" is only
+  // the draft choice before the first send creates it.
+  const label = creating
+    ? uiT("Creating worktree…")
+    : mode === "worktree"
+      ? uiT("New worktree")
+      : (workingName ?? uiT("Current checkout"));
   const shortcut = keybindingShortcutLabel(
     "Composer: Toggle Workspace",
     WORKSPACE_MODE_SHORTCUT,
@@ -266,7 +289,8 @@ function WorkspaceModePicker({
     "Composer: Toggle Workspace",
     "Meta+Shift+G Control+Shift+G",
   );
-  const Icon = mode === "worktree" ? FolderTree : Folder;
+  const Icon =
+    creating || mode === "worktree" || workingName ? FolderTree : Folder;
 
   return (
     <div ref={anchor} className="relative flex min-w-0 shrink-0">

@@ -57,6 +57,11 @@ import { localizeOrchestrationMessage } from "../../orchestration/ui/orchestrati
 import { TaskListPreview } from "./TaskListPreview";
 import { HandoffButton, SecondOpinionButton } from "./SecondOpinionButton";
 import { SecondOpinionCard } from "./SecondOpinionCard";
+import { WorktreeCreationCard } from "./WorktreeCreationCard";
+import {
+  worktreeCreationFromRecord,
+  type WorktreeCreation,
+} from "../../source-control/model/worktreeCreation";
 import { NoteMiniCard } from "../../notes/ui/NoteMiniCard";
 
 import { TerminalSpinner } from "./TerminalSpinner";
@@ -251,6 +256,8 @@ type Props = {
   promptMotion?: "mobile";
   /** The conversation this transcript belongs to, for its workflow run cards. */
   workflowParent?: WorkflowRunParent;
+  /** The worktree the first send created; its card sits under that message. */
+  worktreeCreation?: WorktreeCreation;
 };
 
 function AgentTranscriptComponent({
@@ -261,6 +268,7 @@ function AgentTranscriptComponent({
   model,
   modelSettings,
   workflowParent,
+  worktreeCreation,
   pendingQuestion = false,
   pendingQuestionHistoryId,
   onQuestionFollowUp,
@@ -1276,8 +1284,29 @@ function AgentTranscriptComponent({
                     {renderItem(item, itemIndex)}
                   </div>
                 );
-                if (itemIndex !== foldLineAt) return row;
-                return [foldLineRow, row];
+                // The creation card sits under the message that started it: the
+                // live one while it is fresh, then the record that message keeps.
+                const creation =
+                  item.type === "block" && item.block.role === "user"
+                    ? worktreeCreation?.afterBlockId === item.block.id
+                      ? worktreeCreation
+                      : item.block.worktreeCreation
+                        ? worktreeCreationFromRecord(
+                            item.block.id,
+                            item.block.worktreeCreation,
+                          )
+                        : undefined
+                    : undefined;
+                const creationRow = creation ? (
+                  <div key="worktree-creation" className="px-4 @md:px-6 pt-1 pb-2">
+                    <WorktreeCreationCard creation={creation} />
+                  </div>
+                ) : null;
+                if (itemIndex !== foldLineAt)
+                  return creationRow ? [row, creationRow] : row;
+                return creationRow
+                  ? [foldLineRow, row, creationRow]
+                  : [foldLineRow, row];
               })}
               {foldLineAt >= items.length ? foldLineRow : null}
               {settled &&

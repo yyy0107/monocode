@@ -34,7 +34,19 @@ import {
   reuseRemoteAttachmentPreviews,
 } from "../model/remoteAttachmentPreviews";
 import { loadRemoteHostCatalog, loadRemoteHostDescriptor } from "../model/remoteHostMetadata";
-import { temporaryWorktreeBranchName } from "../../source-control/model/worktrees";
+import { WORKTREE_NAME_ERROR } from "../../source-control/model/worktreeNaming";
+import {
+  anchorWorktreeCreation,
+  appendWorktreeCreationLog,
+  completeWorktreeCreation,
+  failWorktreeCreation,
+  foldWorktreeCreation,
+  persistWorktreeCreation,
+  startWorktreeCreation,
+  WORKTREE_CREATION_FOLD_MS,
+  type PersistedWorktreeCreation,
+  type WorktreeCreation,
+} from "../../source-control/model/worktreeCreation";
 import type { AgentModel } from "../../sessions/model/models";
 import {
   ModelSourceContext,
@@ -373,6 +385,8 @@ function ConnectedRemoteSession({
   const [draftWorkspaceMode, setDraftWorkspaceMode] =
     useState<WorkspaceMode>("current");
   const [draftWorktreeBase, setDraftWorktreeBase] = useState("HEAD");
+  // The worktree the first send asked the host to create, shown above that message.
+  const [worktreeCreation, setWorktreeCreation] = useState<WorktreeCreation>();
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const preparingRef = useRef(false);
@@ -1041,37 +1055,80 @@ function ConnectedRemoteSession({
       );
       if (version !== bindingVersion.current) return;
       let worktreeCwd = selectedCwd;
-      let autoWorktreeBranch: string | undefined;
+      let persistedCreation: PersistedWorktreeCreation | undefined;
       if (draftWorkspaceMode === "worktree") {
+        // The record sits under the first message, which shares the turn's id
+        // with the host's copy once the session exists.
+        const creationId = crypto.randomUUID();
+        setWorktreeCreation(
+          anchorWorktreeCreation(
+            startWorktreeCreation(draftWorktreeBase, creationId),
+            creationId,
+            turn.commandId,
+          ),
+        );
         try {
+          const branch = await remoteRequest<string>(machine.id, "git.worktreeName", {
+            projectId: project.projectId,
+            cwd: selectedCwd,
+            harness: draft.harness,
+            message: turn.text || turn.attachments.map((file) => file.name).join(", "),
+          });
+          if (!alive.current || version !== bindingVersion.current) return;
           const tree = await remoteRequest<HostWorktree>(
             machine.id,
             "git.worktreeCreate",
             {
               projectId: project.projectId,
               cwd: selectedCwd,
-              branch: temporaryWorktreeBranchName(),
+              branch,
               base: draftWorktreeBase,
               existing: false,
             },
           );
+          const finished = completeWorktreeCreation(
+            (tree.log ?? []).reduce(
+              (next, line) => appendWorktreeCreationLog(next, creationId, line),
+              startWorktreeCreation(draftWorktreeBase, creationId),
+            ),
+            creationId,
+            tree.path,
+          );
+          persistedCreation = persistWorktreeCreation(finished);
+          setWorktreeCreation(
+            anchorWorktreeCreation(finished, creationId, turn.commandId),
+          );
+          window.setTimeout(
+            () =>
+              setWorktreeCreation((current) =>
+                current?.id === creationId
+                  ? foldWorktreeCreation(current, creationId)
+                  : current,
+              ),
+            WORKTREE_CREATION_FOLD_MS,
+          );
           if (version !== bindingVersion.current) return;
           worktreeCwd = tree.path;
-          autoWorktreeBranch = tree.branch ?? undefined;
           rememberRemotePendingWorktree(shell.id, tree.path);
           if (alive.current) {
             setSelectedCwd(tree.path);
             setDraftWorkspaceMode("current");
           }
         } catch (reason) {
+          const key = String(reason).replace(/^Error: /, "").replace(/^Host rejected request: /, "");
+          setWorktreeCreation((current) =>
+            current?.id === creationId
+              ? failWorktreeCreation(current, creationId, String(reason))
+              : current,
+          );
           if (alive.current && version === bindingVersion.current) {
-            setError(String(reason));
+            setError(key === WORKTREE_NAME_ERROR ? uiT(key) : String(reason));
             setStarting({ ...turn, failed: true });
           }
           return;
         }
       }
-      const followup: Exclude<HostCommand, { type: "create" }> = turn.draft
+      const followupMessage: Exclude<HostCommand, { type: "create" }> = turn.draft
         ? {
             type: "draft",
             commandId: turn.commandId,
@@ -1090,13 +1147,17 @@ function ConnectedRemoteSession({
             turn.refreshTitle,
             turn.retryProposalBlockId,
           );
+      // The first message keeps the worktree it created, so its log survives a reload.
+      const followup: Exclude<HostCommand, { type: "create" }> =
+        persistedCreation && followupMessage.type === "send"
+          ? { ...followupMessage, worktreeCreation: persistedCreation }
+          : followupMessage;
       const receipt = await run(
         {
           type: "create",
           commandId: crypto.randomUUID(),
           projectId: project.projectId,
           ...(worktreeCwd !== project.cwd ? { worktreeCwd } : {}),
-          ...(autoWorktreeBranch ? { autoWorktreeBranch } : {}),
           harness: draft.harness,
           model: draft.model,
           modelSettings: draft.settings,
@@ -1341,6 +1402,7 @@ function ConnectedRemoteSession({
         : project.local ? executionCwd : remotePath(machine.environmentId, executionCwd),
     workspaceMode: hostSession ? undefined : draftWorkspaceMode,
     worktreeBase: hostSession ? undefined : draftWorktreeBase,
+    worktreeCreation,
     branch: branches?.current ?? hostSession?.branch,
     harness: hostSession?.harness ?? configuration.harness,
     model: hostSession?.model ?? configuration.model,

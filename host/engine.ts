@@ -15,7 +15,9 @@ import { ACCOUNT_PROVIDERS, desktopProviderAccounts, providerAccountDirectory, p
 import { realpath, stat } from "node:fs/promises";
 import { readFileSync, unlinkSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { renameHostWorktreeBranch, resolveHostWorktree } from "./git-worktrees";
+import { hostWorktreeAt, hostWorktrees, renameHostWorktreeBranch, resolveHostWorktree } from "./git-worktrees";
+import { hostBranches } from "./git-branches";
+import { availableWorktreeBranch, generateWorktreeBranch } from "../src/features/source-control/model/worktreeNaming";
 import {
   applyHarnessEvent,
   appendSteerUser,
@@ -55,6 +57,7 @@ import { NativeSessionManager, nativeHolding, type NativeManagerOptions } from "
 import { migrateNativeLink, restoreImportedNativeActivity } from "./native/migrate";
 import { parseRemoteAttachments, resolveAttachments, saveGeneratedImageAttachment } from "./attachments";
 import type { Attachment } from "../src/features/sessions/model/session";
+import { parsePersistedWorktreeCreation } from "../src/features/source-control/model/worktreeCreation";
 import type { UserQuestionReply } from "../src/features/sessions/model/userQuestion";
 import { questionFollowUp, recordQuestionAnswer } from "../src/features/sessions/model/questionHistory";
 import {
@@ -244,6 +247,12 @@ export function parseCommand(input: unknown): HostCommand {
       (v.type !== "send" || v.intent !== "build")
     )
       throw new Error("Invalid plan build");
+    const worktreeCreation =
+      v.type === "send" && v.worktreeCreation !== undefined
+        ? parsePersistedWorktreeCreation(v.worktreeCreation)
+        : undefined;
+    if (v.type === "send" && v.worktreeCreation !== undefined && !worktreeCreation)
+      throw new Error("Invalid worktree record");
     let questionAnswer;
     if (v.questionAnswer !== undefined) {
       const answer = v.questionAnswer as { blockId?: unknown; reply?: unknown } | null;
@@ -261,6 +270,7 @@ export function parseCommand(input: unknown): HostCommand {
       ...(questionAnswer ? { questionAnswer } : {}),
       text: v.text,
       ...(attachments.length ? { attachments } : {}),
+      ...(worktreeCreation ? { worktreeCreation } : {}),
       ...(v.type === "send" && v.refreshTitle === true ? { refreshTitle: true } : {}),
       ...(v.type === "send" && v.followUpBehavior !== undefined
         ? { followUpBehavior: v.followUpBehavior as "queue" | "steer" }
@@ -1092,6 +1102,7 @@ export class HostEngine {
           command.providerAccountId,
         );
         const cwd = resolveHostWorktree(project.cwd, command.worktreeCwd);
+        const worktree = cwd !== project.cwd ? hostWorktreeAt(project.cwd, cwd) : undefined;
         assertCheckoutAvailable(this.store, cwd);
         this.orchestration.assertCheckout(cwd);
         const now = Date.now();
@@ -1116,8 +1127,8 @@ export class HostEngine {
               : {}),
             title: "New remote session",
             titleState: { source: "placeholder", epoch: 0, purpose: "initial", fallbackAttempted: false },
-            ...(command.autoWorktreeBranch
-              ? { branch: command.autoWorktreeBranch, worktreeCwd: cwd }
+            ...(worktree
+              ? { branch: worktree.branch ?? undefined, worktreeCwd: cwd }
               : {}),
             blocks: [],
           },
@@ -1396,6 +1407,9 @@ export class HostEngine {
                   origin: queued?.origin ?? origin,
                   text: prompt,
                   ...(attachments.length ? { attachments } : {}),
+                  ...(command.type === "send" && command.worktreeCreation
+                    ? { worktreeCreation: command.worktreeCreation }
+                    : {}),
                   startedAt: Date.now(),
                   turnModel: {
                     harness: value.session.harness,
@@ -1762,6 +1776,25 @@ export class HostEngine {
         ? { ...file, data: readFileSync(file.path).toString("base64") }
         : file,
     );
+  }
+
+  async generateWorktreeName(
+    projectId: unknown,
+    requestedCwd: unknown,
+    harness: unknown,
+    message: unknown,
+  ): Promise<string> {
+    const project = this.store.project(text(projectId, "project"));
+    const cwd = resolveHostWorktree(project.cwd, requestedCwd);
+    if (!isRemoteProvider(harness)) throw new Error("Invalid provider");
+    const provider = this.provider(harness);
+    const prompt = text(message, "worktree message", 100_000);
+    const generated = await generateWorktreeBranch([
+      () => this.titleModel.generateBranch(prompt),
+      () => provider.generateBranchName?.(cwd, prompt) ?? Promise.resolve(null),
+    ]);
+    const [branches, trees] = await Promise.all([hostBranches(cwd), hostWorktrees(project.cwd)]);
+    return availableWorktreeBranch(generated, branches.branches, trees.worktrees.map((tree) => tree.path));
   }
 
   private generateFirstTurnNames(

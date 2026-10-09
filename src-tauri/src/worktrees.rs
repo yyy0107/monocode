@@ -2,9 +2,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
-use crate::fs::{expand_home, git_checked, git_diff_files_for, path_to_js, resolve_repo_path};
+use crate::fs::{
+    expand_home, git_checked, git_checked_with_progress, git_diff_files_for, path_to_js,
+    resolve_repo_path,
+};
 use crate::session_store::SessionStore;
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -155,6 +158,16 @@ pub fn git_worktrees(cwd: String, store: State<'_, SessionStore>) -> Result<Work
 }
 
 fn create(root: &Path, branch: &str, base: &str, existing: bool) -> Result<Worktree, String> {
+    create_with_progress(root, branch, base, existing, &mut |_: &str| {})
+}
+
+fn create_with_progress(
+    root: &Path,
+    branch: &str,
+    base: &str,
+    existing: bool,
+    on_line: &mut dyn FnMut(&str),
+) -> Result<Worktree, String> {
     let branch = branch.trim();
     if branch.starts_with('-') || branch.starts_with('@') || branch.is_empty() {
         return Err("Enter a valid branch name".into());
@@ -205,9 +218,9 @@ fn create(root: &Path, branch: &str, base: &str, existing: bool) -> Result<Workt
     std::fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
     let path_str = path_to_js(&path);
     if existing {
-        git_checked(root, &["worktree", "add", "--", &path_str, branch])?;
+        git_checked_with_progress(root, &["worktree", "add", "--", &path_str, branch], on_line)?;
     } else {
-        git_checked(
+        git_checked_with_progress(
             root,
             &[
                 "worktree",
@@ -219,6 +232,7 @@ fn create(root: &Path, branch: &str, base: &str, existing: bool) -> Result<Workt
                 &path_str,
                 commit.trim(),
             ],
+            on_line,
         )?;
     }
     list(root)?
@@ -229,16 +243,38 @@ fn create(root: &Path, branch: &str, base: &str, existing: bool) -> Result<Workt
         })
 }
 
+const WORKTREE_CREATE_LOG_EVENT: &str = "worktree-create-log";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorktreeCreateLog {
+    id: String,
+    line: String,
+}
+
 #[tauri::command(async)]
 pub async fn git_worktree_create(
+    app: AppHandle,
     cwd: String,
     branch: String,
     base: String,
     existing: bool,
+    log_id: Option<String>,
 ) -> Result<Worktree, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let _write = crate::local_host::claim_checkout_write(&expand_home(&cwd))?;
-        create(&expand_home(&cwd), &branch, &base, existing)
+        let mut on_line = |line: &str| {
+            if let Some(id) = &log_id {
+                let _ = app.emit(
+                    WORKTREE_CREATE_LOG_EVENT,
+                    WorktreeCreateLog {
+                        id: id.clone(),
+                        line: line.to_owned(),
+                    },
+                );
+            }
+        };
+        create_with_progress(&expand_home(&cwd), &branch, &base, existing, &mut on_line)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -824,6 +860,24 @@ mod tests {
         assert_eq!(trees[1].path, "/a\nquoted\"path");
         assert!(trees[1].locked && trees[1].prunable);
         assert!(!trees[1].is_main);
+    }
+
+    #[test]
+    fn create_reports_git_progress_lines() {
+        let repo = repo();
+        let root = repo.0.join("repo");
+        let mut lines = Vec::new();
+        let tree = create_with_progress(
+            &root,
+            "feature/progress",
+            "HEAD",
+            false,
+            &mut |line: &str| lines.push(line.to_owned()),
+        )
+        .unwrap();
+        assert_eq!(tree.branch.as_deref(), Some("feature/progress"));
+        assert!(lines.iter().any(|line| line.contains("feature/progress")));
+        assert!(lines.iter().all(|line| !line.trim().is_empty()));
     }
 
     #[test]
