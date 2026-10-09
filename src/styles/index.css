@@ -310,8 +310,9 @@ body {
   font-weight: var(--content-font-weight, 500);
 }
 
+/* Sans `pre` (user messages, thinking) is prose kept verbatim, not code. */
 :is(.agent-transcript, .markdown-preview, .whats-new-md, .inbox-comment-md)
-  :where(pre, code),
+  :where(pre:not(.font-sans), code),
 .unified-diff,
 .inbox-pr-diff {
   --font-scale: var(--code-font-scale, 1);
