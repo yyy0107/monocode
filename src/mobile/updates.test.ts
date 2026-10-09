@@ -39,6 +39,8 @@ import {
   parseMobileUpdate,
   hasMobileUpdate,
   updateBaseUrl,
+  updateBaseUrls,
+  updateDownloadUrl,
 } from "./updates";
 import { MobileAppUpdates, useMobileAppUpdates } from "./MobileAppUpdates";
 
@@ -72,7 +74,8 @@ afterEach(async () => {
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
-const advance = (ms: number) => act(async () => vi.advanceTimersByTimeAsync(ms));
+const advance = (ms: number) =>
+  act(async () => vi.advanceTimersByTimeAsync(ms));
 async function mount(settle = true) {
   const container = document.createElement("div");
   document.body.append(container);
@@ -88,11 +91,15 @@ async function mount(settle = true) {
 // Match the label people see; a content swap keeps an aria-hidden exiting copy.
 const label = (item: Element) => {
   const copy = item.cloneNode(true) as Element;
-  copy.querySelectorAll("[aria-hidden='true']").forEach((node) => node.remove());
+  copy
+    .querySelectorAll("[aria-hidden='true']")
+    .forEach((node) => node.remove());
   return copy.textContent;
 };
 const button = (container: HTMLElement, text: string) =>
-  [...container.querySelectorAll("button")].find((item) => label(item) === text)!;
+  [...container.querySelectorAll("button")].find(
+    (item) => label(item) === text,
+  )!;
 
 describe("mobile app updates", () => {
   it("compares build codes even when the visible version stays the same", () => {
@@ -122,11 +129,40 @@ describe("mobile app updates", () => {
     );
   });
   it("checks the fixed HTTP source without requiring a Host login", async () => {
-    expect(await checkMobileUpdate()).toEqual(manifest);
+    expect(await checkMobileUpdate()).toEqual({
+      ...manifest,
+      sourceUrl: updateBaseUrl,
+    });
     expect(native.http.mock.calls[0][0]).toMatchObject({
       url: `${updateBaseUrl}/latest.json`,
     });
     expect(native.http.mock.calls[0][0].headers).toBeUndefined();
+  });
+  it("falls back to HTTPS and downloads from the successful source", async () => {
+    native.http.mockRejectedValueOnce(new Error("LAN offline"));
+    const container = await mount();
+    expect(native.http.mock.calls[1][0].url).toBe(
+      `${updateBaseUrls[1]}/latest.json`,
+    );
+    expect(container.textContent).toContain(updateBaseUrls[1]);
+    await act(async () => button(container, "Download and install").click());
+    expect(native.install).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: `${updateBaseUrls[1]}${manifest.downloadPath}`,
+      }),
+    );
+  });
+  it("ignores manifest source URLs and rejects unconfigured download sources", async () => {
+    native.http.mockResolvedValueOnce({
+      status: 200,
+      data: { ...manifest, sourceUrl: "https://other.example" },
+    });
+    expect(updateDownloadUrl(await checkMobileUpdate())).toBe(
+      `${updateBaseUrl}${manifest.downloadPath}`,
+    );
+    expect(() =>
+      updateDownloadUrl({ ...manifest, sourceUrl: "https://other.example" }),
+    ).toThrow();
   });
   it("checks on app startup and foreground, and exposes the newer APK", async () => {
     const container = await mount(false);
@@ -227,7 +263,7 @@ describe("mobile app updates", () => {
     expect(container.querySelector("progress")).toBeNull();
   });
   it("recovers from an offline update server and hides install when already current", async () => {
-    native.http.mockRejectedValueOnce(new Error("offline"));
+    native.http.mockRejectedValue(new Error("offline"));
     const container = await mount(false);
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
       "offline",
@@ -235,6 +271,7 @@ describe("mobile app updates", () => {
     await advance(1_999);
     expect(button(container, "Checking for updates…").disabled).toBe(true);
     await advance(1);
+    native.http.mockResolvedValue({ status: 200, data: manifest });
     native.info.mockResolvedValue({ version: "0.7.0", build: "5" });
     await act(async () => button(container, "Check for updates").click());
     expect(container.querySelector('[role="alert"]')).toBeNull();

@@ -8,7 +8,11 @@ import {
 import config from "../../mobile/update-config.json";
 
 export const updateBaseUrl = config.baseUrl;
+export const updateBaseUrls = [
+  ...new Set([config.baseUrl, ...config.baseUrls]),
+];
 export interface MobileUpdate {
+  sourceUrl?: string;
   packageId: string;
   versionName: string;
   versionCode: number;
@@ -75,27 +79,49 @@ export async function getInstalledBuild(): Promise<InstalledBuild> {
   return { version: info.version, build };
 }
 
-export async function checkMobileUpdate(): Promise<MobileUpdate> {
-  const url = `${updateBaseUrl}/latest.json`;
+export function updateDownloadUrl(update: MobileUpdate): string {
+  const source = update.sourceUrl ?? updateBaseUrl;
+  if (!updateBaseUrls.includes(source))
+    throw new Error("Invalid update information.");
+  return `${source}${update.downloadPath}`;
+}
+
+async function checkUpdateSource(source: string): Promise<MobileUpdate> {
+  const url = `${source}/latest.json`;
+  let data: unknown;
   if (Capacitor.isNativePlatform()) {
     const response = await CapacitorHttp.get({
       url,
       readTimeout: 15000,
-      connectTimeout: 10000,
+      connectTimeout: 5000,
       responseType: "json",
     });
     if (response.status !== 200)
       throw new Error("Unable to reach the update server.");
-    return parseMobileUpdate(
+    data =
       typeof response.data === "string"
         ? JSON.parse(response.data)
-        : response.data,
-    );
+        : response.data;
+  } else {
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error("Unable to reach the update server.");
+    data = await response.json();
   }
-  const response = await fetch(url, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!response.ok) throw new Error("Unable to reach the update server.");
-  return parseMobileUpdate(await response.json());
+  // Use our configured address, never an address supplied by the manifest.
+  return { ...parseMobileUpdate(data), sourceUrl: source };
+}
+
+export async function checkMobileUpdate(): Promise<MobileUpdate> {
+  let failure: unknown;
+  for (const source of updateBaseUrls) {
+    try {
+      return await checkUpdateSource(source);
+    } catch (error) {
+      failure = error;
+    }
+  }
+  throw failure;
 }

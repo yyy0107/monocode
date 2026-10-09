@@ -1,4 +1,5 @@
 import groovy.json.JsonSlurper
+import groovy.json.JsonOutput
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.time.Instant
@@ -39,7 +40,9 @@ android {
     defaultConfig {
         versionCode nextCode
         versionName buildVersionName
-        buildConfigField 'String', 'MONOCODE_UPDATE_BASE_URL', '"' + updateConfig.baseUrl + '"'
+        def updateSources = ([updateConfig.baseUrl] + (updateConfig.baseUrls ?: [])).unique()
+        buildConfigField 'String[]', 'MONOCODE_UPDATE_BASE_URLS',
+            'new String[]{' + updateSources.collect { JsonOutput.toJson(it) }.join(',') + '}'
     }
 }
 

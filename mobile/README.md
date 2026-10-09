@@ -255,6 +255,20 @@ successful APK build also starts it. The server exposes only `/latest.json`,
 versioned `/apk/monocode-N.apk` packages, and `/health` on the fixed LAN address.
 Published packages do not require the Host token.
 
+`mobile/update-config.json` keeps `baseUrl` as the LAN publication/server address
+and lists update sources in `baseUrls`. The app tries LAN first, then the
+Tailscale HTTPS source if the first request fails, and downloads from the source
+that returned valid metadata. Android allows downloads only from these configured
+sources. Both addresses are shown under Update source.
+The Tailscale entry requires a tailnet connection and proxies the same packages:
+
+```sh
+tailscale serve --bg --https=8444 http://192.168.0.206:3780
+```
+
+The resulting source is `https://wy-ubuntu.tail03a41a.ts.net:8444`.
+Changing app update sources requires installing an APK built with that config.
+
 ### Publish manually
 
 Builds and LAN publication are run manually; no conversation hooks are configured.

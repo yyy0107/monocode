@@ -9,7 +9,8 @@ import {
   checkMobileUpdate,
   getInstalledBuild,
   hasMobileUpdate,
-  updateBaseUrl,
+  updateBaseUrls,
+  updateDownloadUrl,
   type InstalledBuild,
   type MobileUpdate,
 } from "./updates";
@@ -79,7 +80,7 @@ export function useMobileAppUpdates() {
     let listener;
     try {
       if (Capacitor.getPlatform() !== "android") {
-        window.location.assign(`${updateBaseUrl}${latest.downloadPath}`);
+        window.location.assign(updateDownloadUrl(latest));
         return;
       }
       const permission = await Updates.installPermission({ request: true });
@@ -97,7 +98,7 @@ export function useMobileAppUpdates() {
         },
       );
       await Updates.downloadAndInstall({
-        url: `${updateBaseUrl}${latest.downloadPath}`,
+        url: updateDownloadUrl(latest),
         ...latest,
       });
       if (live.current)
@@ -174,7 +175,11 @@ export function MobileAppUpdates({
             </div>
             <div>
               <dt>{t("Update source")}</dt>
-              <dd className="mobile-update-source">{updateBaseUrl}</dd>
+              <dd className="mobile-update-source">
+                {updateBaseUrls.map((source) => (
+                  <div key={source}>{source}</div>
+                ))}
+              </dd>
             </div>
             {latest && (
               <div>

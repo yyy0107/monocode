@@ -48,8 +48,10 @@ public class MonoCodeUpdatesPlugin extends Plugin {
         Integer size = call.getInt("size");
         Integer code = call.getInt("versionCode");
         try {
-            URI expected = URI.create(BuildConfig.MONOCODE_UPDATE_BASE_URL + "/apk/monocode-" + code + ".apk");
-            if (!expected.equals(URI.create(url)) || code == null || code < 1 ||
+            URI requested = URI.create(url);
+            boolean trusted = Arrays.stream(BuildConfig.MONOCODE_UPDATE_BASE_URLS).anyMatch(source ->
+                URI.create(source + "/apk/monocode-" + code + ".apk").equals(requested));
+            if (!trusted || code == null || code < 1 ||
                 size == null || size <= 0 || size > 512L * 1024 * 1024 || !checksum.matches("[a-f0-9]{64}"))
                 throw new IllegalArgumentException("Invalid update package.");
             if (Build.VERSION.SDK_INT >= 26 && !getContext().getPackageManager().canRequestPackageInstalls())
