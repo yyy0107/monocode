@@ -106,6 +106,24 @@ function readAll(): Record<string, RemoteProject> {
   }
 }
 
+/** The remote path git operations should run in for the active session: the
+ * session's own work path when it differs from the project root (a linked
+ * worktree), not the terminal tab's cwd, which follows the shell a session
+ * was launched from rather than the repo its changes live in. */
+export function remoteSessionGitCwd(
+  project: Pick<RemoteProject, "environmentId" | "cwd" | "local">,
+  gitCwd: string | undefined,
+  projectRoot: string,
+): string {
+  // Shared Hosts on this machine still use native filesystem commands.
+  if (project.local) return gitCwd ?? project.cwd;
+  if (gitCwd && isRemoteProjectPath(gitCwd)) return gitCwd;
+  return remotePath(
+    project.environmentId,
+    gitCwd && gitCwd !== projectRoot ? gitCwd : project.cwd,
+  );
+}
+
 export function remoteProjectFor(path: string): RemoteProject | undefined {
   if (!isRemoteProjectPath(path)) return localEnvironment && path && path !== "~"
     ? localProjects.get(localKey(path)) ?? { key: localKey(path), cwd: path,

@@ -632,6 +632,7 @@ import {
   remotePath,
   remoteProjectFor,
   sessionUsesHost,
+  remoteSessionGitCwd,
 } from "../features/connections/model/remoteProjects";
 import type { HostSession } from "../features/connections/model/protocol";
 import { AddRemoteProjectDialog } from "../features/connections/ui/AddRemoteProjectDialog";
@@ -1849,8 +1850,12 @@ function Workspace({
                 : remoteFilesProject.cwd),
           )
       : gitCwd;
-  const gitCwdRef = useRef(filesCwd);
-  gitCwdRef.current = filesCwd;
+  // Git follows the session checkout; the Explorer may follow a terminal.
+  const gitRootCwd = remoteFilesProject
+    ? remoteSessionGitCwd(remoteFilesProject, gitCwd, sidebarCwd)
+    : gitCwd;
+  const gitCwdRef = useRef(gitRootCwd);
+  gitCwdRef.current = gitRootCwd;
   const projectBranches = useProjectBranches(
     sidebarCwd,
     Boolean(sidebarCwd) && sidebarCwd !== "~",
