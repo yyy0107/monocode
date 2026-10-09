@@ -3,7 +3,6 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import {
   clampUsedPercent,
   formatRateLimitWindowChipLabel,
-  formatResetCountdown,
   formatResetDuration,
   formatUsagePercent,
   formatWindowLabel,
@@ -66,6 +65,8 @@ import {
 } from "../../features/providers/model/providerAccountIdentity";
 import { ProviderAccountSubtitle } from "../../features/providers/ui/ProviderAccountSubtitle";
 import { useShowRemainingUsage } from "../../features/settings/model/displayPrefs";
+
+type Translate = ReturnType<typeof useTranslation>["t"];
 
 type UsageWindowEntry = {
   key: "session" | "weekly" | "monthly";
@@ -303,80 +304,7 @@ export function UsageProviderChip({
         </>
       ) : (
         <>
-          <div className="flex items-start gap-2.5 px-1 pb-2.5 pt-0.5">
-            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-content/[0.06] ring-1 ring-inset ring-content/[0.07]">
-              <HarnessIcon harness={iconHarness} className="size-4" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-[13px] font-medium leading-4">
-                {providerLabel} {uiT("usage")}
-              </h2>
-              <p className="mt-0.5 text-[10px] leading-4 text-content/40">
-                {updatedLabel(limits, now)}
-              </p>
-              {presentation?.sourceLabel ? (
-                <p className="mt-0.5 text-[10px] leading-4 text-content/55">
-                  {presentation.sourceLabel}
-                </p>
-              ) : null}
-              {canManageAccounts ? (
-                <div className="pointer-events-none relative mt-1 -ml-1 inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 text-[10px] text-content/55">
-                  {/* Keep account switching separate from email revelation. */}
-                  <button
-                    type="button"
-                    className="pointer-events-auto absolute inset-0 rounded hover:bg-content/10 focus-visible:outline-2 focus-visible:outline-accent"
-                    aria-label={uiT("Switch {value0} account", {
-                      value0: String(providerLabel),
-                    })}
-                    onClick={() => setAccountView("accounts")}
-                  />
-                  <span className="max-w-[60%] shrink-0 truncate">
-                    {activeAccountLabel}
-                  </span>
-                  <ProviderAccountSubtitle
-                    key={activeAccount && identityKey(activeAccount)}
-                    identity={activeIdentity}
-                    className="text-content/35"
-                  />
-                  <ChevronRight
-                    className="size-2.5 shrink-0"
-                    aria-hidden
-                  />
-                </div>
-              ) : null}
-            </div>
-            {limits.status === "fetching" ? (
-              <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-content/40">
-                <RefreshCw
-                  className="size-2.5 animate-spin"
-                  aria-hidden
-                />
-                {uiT("Updating")}
-              </span>
-            ) : null}
-          </div>
-
-          {limits.status === "error" && windows.length > 0 ? (
-            <p className="mb-2 rounded-lg bg-amber-400/10 px-2.5 py-2 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
-              {uiT("Couldn’t refresh. Showing the last available snapshot.")}
-            </p>
-          ) : null}
-
-          {windows.length > 0 ? (
-            <div className="flex flex-col gap-1.5">
-              {windows.map((entry) => (
-                <UsageWindowCard
-                  key={entry.key}
-                  kind={entry.key}
-                  window={entry.window}
-                  now={now}
-                />
-              ))}
-            </div>
-          ) : (
-            <EmptyUsageState limits={limits} loading={loading} />
-          )}
-
+          {/* The way out of an exhausted account comes before the numbers. */}
           {suggestion && onSelectAccount ? (
             <SwitchSuggestion
               account={suggestion}
@@ -389,6 +317,80 @@ export function UsageProviderChip({
               }}
             />
           ) : null}
+
+          <div className="flex items-center gap-2 px-1 pb-2 pt-0.5">
+            <span className="grid size-6 shrink-0 place-items-center rounded-md bg-content/[0.06] ring-1 ring-inset ring-content/[0.07]">
+              <HarnessIcon harness={iconHarness} className="size-3.5" />
+            </span>
+            <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium leading-4">
+              {providerLabel} {uiT("usage")}
+            </h2>
+            {limits.status === "fetching" ? (
+              <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-content/40">
+                <RefreshCw
+                  className="size-2.5 animate-spin"
+                  aria-hidden
+                />
+                {uiT("Updating")}
+              </span>
+            ) : (
+              <span className="shrink-0 text-[10px] text-content/40">
+                {updatedLabel(limits, now, uiT)}
+              </span>
+            )}
+          </div>
+          {presentation?.sourceLabel ? (
+            <p className="-mt-1 px-1 pb-2 text-[10px] leading-4 text-content/55">
+              {presentation.sourceLabel}
+            </p>
+          ) : null}
+
+          {canManageAccounts ? (
+            <div className="pointer-events-none relative mb-3 flex h-8 w-full items-center gap-1.5 rounded-lg bg-content/[0.045] px-2.5 text-[11px] ring-1 ring-inset ring-content/[0.06]">
+              {/* Keep account switching separate from email revelation. */}
+              <button
+                type="button"
+                className="pointer-events-auto absolute inset-0 rounded-lg hover:bg-content/[0.05] focus-visible:outline-2 focus-visible:outline-accent"
+                aria-label={uiT("Switch {value0} account", {
+                  value0: String(providerLabel),
+                })}
+                onClick={() => setAccountView("accounts")}
+              />
+              <span className="max-w-[45%] shrink-0 truncate font-medium">
+                {activeAccountLabel}
+              </span>
+              <ProviderAccountSubtitle
+                key={activeAccount && identityKey(activeAccount)}
+                identity={activeIdentity}
+                className="text-[10px] text-content/40"
+              />
+              <ChevronRight
+                className="ml-auto size-3 shrink-0 text-content/35"
+                aria-hidden
+              />
+            </div>
+          ) : null}
+
+          {limits.status === "error" && windows.length > 0 ? (
+            <p className="mb-2 rounded-lg bg-amber-400/10 px-2.5 py-2 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
+              {uiT("Couldn’t refresh. Showing the last available snapshot.")}
+            </p>
+          ) : null}
+
+          {windows.length > 0 ? (
+            <div className="flex flex-col gap-3 px-1 pb-1">
+              {windows.map((entry) => (
+                <UsageWindowRow
+                  key={entry.key}
+                  kind={entry.key}
+                  window={entry.window}
+                  now={now}
+                />
+              ))}
+            </div>
+          ) : (
+            <EmptyUsageState limits={limits} loading={loading} />
+          )}
 
           {limits.provider === "codex" ? (
             <BankedResets
@@ -699,23 +701,32 @@ function SwitchSuggestion({
 }) {
   const { t: uiT } = useTranslation();
   return (
-    <section className="mt-2 flex items-center gap-2.5 rounded-lg bg-content/[0.045] px-3 py-2.5 ring-1 ring-inset ring-content/[0.06]">
-      <div className="min-w-0 flex-1">
-        <p className="text-[10px] leading-4 text-content/45">
+    <section
+      data-usage-switch-suggestion
+      className={`mb-2.5 flex items-center gap-2 rounded-lg px-2.5 py-1.5 ring-1 ring-inset ${
+        exhausted
+          ? "bg-red-500/[0.07] ring-red-500/15"
+          : "bg-amber-400/10 ring-amber-400/20"
+      }`}
+    >
+      <span
+        className={`size-1.5 shrink-0 rounded-full ${exhausted ? "bg-red-500" : "bg-amber-500"}`}
+        aria-hidden
+      />
+      <p className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] leading-4">
+        <span className="shrink-0 text-content/55">
           {exhausted ? uiT("Out of usage") : uiT("Running low")}{" "}
           {uiT("· switch to")}
-        </p>
-        <p className="mt-0.5 flex min-w-0 items-center gap-2 text-[11px]">
-          <span className="min-w-0 truncate font-medium">{account.label}</span>
-          <AccountStatusLabel
-            status={accountStatus(limits, now)}
-            className="text-[10px]"
-          />
-        </p>
-      </div>
+        </span>
+        <span className="min-w-0 truncate font-medium">{account.label}</span>
+        <AccountStatusLabel
+          status={accountStatus(limits, now)}
+          className="shrink-0 text-[10px]"
+        />
+      </p>
       <button
         type="button"
-        className="h-7 shrink-0 rounded-md bg-content px-2.5 text-[11px] font-medium text-background-base transition-transform duration-150 hover:bg-content/85 active:scale-[0.97]"
+        className="h-6 shrink-0 rounded-md bg-content px-2.5 text-[11px] font-medium text-background-base transition-transform duration-150 hover:bg-content/85 active:scale-[0.97]"
         onClick={onSwitch}
       >
         {uiT("Switch")}
@@ -822,7 +833,7 @@ function usageWindows(limits: ProviderRateLimits): UsageWindowEntry[] {
   ].filter((entry): entry is UsageWindowEntry => entry != null);
 }
 
-function UsageWindowCard({
+function UsageWindowRow({
   kind,
   window,
   now,
@@ -844,17 +855,35 @@ function UsageWindowCard({
         : kind === "monthly"
           ? "Monthly limit"
           : `${formatWindowLabel(window.windowMinutes)} limit`;
+  const reset =
+    window.resetsAt == null
+      ? uiT("{value0} window", {
+          value0: String(formatWindowLabel(window.windowMinutes)),
+        })
+      : resetLabel(window.resetsAt - now, uiT);
   return (
-    <section className="rounded-lg bg-content/[0.045] px-3 py-2.5 ring-1 ring-inset ring-content/[0.06]">
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-[11px] font-medium text-content/65">{title}</h3>
+    <section>
+      <div className="flex items-baseline gap-2">
+        <h3 className="shrink-0 text-[11px] font-medium text-content/70">
+          {uiT(title)}
+        </h3>
+        <span
+          className="min-w-0 flex-1 truncate text-[10px] tabular-nums text-content/40"
+          title={
+            window.resetsAt == null
+              ? undefined
+              : new Date(window.resetsAt).toLocaleString()
+          }
+        >
+          {reset}
+        </span>
         <span className="shrink-0 text-[11px] font-medium tabular-nums">
           {formatUsagePercent(shown)}{" "}
           {showRemaining ? uiT("remaining") : uiT("used")}
         </span>
       </div>
       <div
-        className="mt-2 h-1.5 overflow-hidden rounded-full bg-content/10"
+        className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-content/10"
         role="progressbar"
         aria-label={`${title} ${showRemaining ? "remaining" : "used"}`}
         aria-valuemin={0}
@@ -866,28 +895,15 @@ function UsageWindowCard({
           style={{ width: `${shown}%` }}
         />
       </div>
-      <div className="mt-1.5 flex items-center justify-between gap-3 text-[10px] leading-4 text-content/40">
-        <span className="tabular-nums">
-          {formatUsagePercent(showRemaining ? pct : remaining)}{" "}
-          {showRemaining ? uiT("used") : uiT("remaining")}
-        </span>
-        <span
-          className="truncate text-right tabular-nums"
-          title={
-            window.resetsAt == null
-              ? undefined
-              : new Date(window.resetsAt).toLocaleString()
-          }
-        >
-          {window.resetsAt == null
-            ? uiT("{value0} window", {
-                value0: String(formatWindowLabel(window.windowMinutes)),
-              })
-            : formatResetCountdown(window.resetsAt - now)}
-        </span>
-      </div>
     </section>
   );
+}
+
+function resetLabel(ms: number, uiT: Translate): string {
+  const duration = formatResetDuration(ms);
+  return duration === "now"
+    ? uiT("Resets now")
+    : uiT("Resets in {value0}", { value0: duration });
 }
 
 function BankedResets({
@@ -1198,15 +1214,22 @@ export function needsProviderLogin(limits: ProviderRateLimits): boolean {
   );
 }
 
-function updatedLabel(limits: ProviderRateLimits, now: number): string {
-  if (limits.updatedAt <= 0) return "Rate-limit details";
+function updatedLabel(
+  limits: ProviderRateLimits,
+  now: number,
+  uiT: Translate,
+): string {
+  if (limits.updatedAt <= 0) return uiT("Rate-limit details");
   const elapsedMinutes = Math.max(
     0,
     Math.floor((now - limits.updatedAt) / 60_000),
   );
-  if (elapsedMinutes === 0) return "Updated just now";
-  if (elapsedMinutes < 60) return `Updated ${elapsedMinutes}m ago`;
-  return `Updated ${Math.floor(elapsedMinutes / 60)}h ago`;
+  if (elapsedMinutes === 0) return uiT("Updated just now");
+  if (elapsedMinutes < 60)
+    return uiT("Updated {value0}m ago", { value0: String(elapsedMinutes) });
+  return uiT("Updated {value0}h ago", {
+    value0: String(Math.floor(elapsedMinutes / 60)),
+  });
 }
 
 function resetOutcomeLabel(outcome: CodexRateLimitResetOutcome): string {

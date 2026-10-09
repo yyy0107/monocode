@@ -156,10 +156,11 @@ describe("UsageProviderChip", () => {
     expect(dialog?.textContent).toContain("Weekly limit");
     expect(dialog?.textContent).toContain("58% remaining");
     expect(dialog?.textContent).toContain("19% remaining");
+    // Each limit is one row: title, reset countdown, then the percentage.
     expect(
-      dialog?.querySelector("section")?.querySelector("h3")?.nextElementSibling
+      dialog?.querySelector("section")?.querySelector("h3")?.parentElement
         ?.textContent,
-    ).toBe("58% remaining");
+    ).toBe("5-hour limitResets in 2h58% remaining");
     expect(dialog?.querySelectorAll('[role="progressbar"]')).toHaveLength(2);
     const sessionBar = dialog?.querySelector(
       '[aria-label="5-hour limit remaining"]',
@@ -242,7 +243,7 @@ describe("UsageProviderChip", () => {
       );
       expect(remainingBar?.getAttribute("aria-valuenow")).toBe("19");
       expect(remainingBar?.previousElementSibling?.textContent).toBe(
-        "Weekly limit19% remaining",
+        "Weekly limitResets in 2d 23h19% remaining",
       );
 
       await changePreference(false);
@@ -256,7 +257,7 @@ describe("UsageProviderChip", () => {
       );
       expect(usedBar?.getAttribute("aria-valuenow")).toBe("81");
       expect(usedBar?.previousElementSibling?.textContent).toBe(
-        "Weekly limit81% used",
+        "Weekly limitResets in 2d 23h81% used",
       );
     },
   );
