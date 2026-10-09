@@ -6,6 +6,7 @@ import type { useHoverSummary } from "../../shared/ui/HoverSummary";
 import { Popover } from "../../shared/ui/Popover";
 import {
   formatUpdateReleaseDate,
+  localizedReleaseNotes,
   presentReleaseNotes,
 } from "../model/releaseNotes";
 
@@ -26,8 +27,14 @@ export function UpdateNotesPopover({
   // Available versions usually aren't in the installed build's changelog yet.
   // Prefer the update feed, with an exact-version bundled fallback.
   const remoteNotes = releaseNotes?.trim();
-  const notes = presentReleaseNotes(version, remoteNotes || undefined);
-  const markdown = notes?.markdown ?? remoteNotes;
+  const notes = presentReleaseNotes(
+    version,
+    remoteNotes || undefined,
+    language,
+  );
+  const markdown =
+    notes?.markdown ??
+    (remoteNotes ? localizedReleaseNotes(remoteNotes, language) : undefined);
   const date = releaseDate || notes?.date;
   const formattedDate = date ? formatUpdateReleaseDate(date, language) : null;
   const title = t("v{version} Release notes", {

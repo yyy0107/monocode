@@ -1,7 +1,15 @@
 // @vitest-environment happy-dom
 import { createElement, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 vi.hoisted(() => vi.stubEnv("MONOCODE_UPDATE_CHANNEL", "lan"));
 afterAll(() => vi.unstubAllEnvs());
@@ -15,6 +23,7 @@ const native = vi.hoisted(() => ({
   listener: vi.fn(),
   foreground: vi.fn(),
   remove: vi.fn(),
+  language: "en",
 }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
@@ -33,9 +42,14 @@ vi.mock("@capacitor/app", () => ({
 }));
 vi.mock("../shared/i18n/useTranslation", () => ({
   useTranslation: () => ({
+    language: native.language,
     t: (text: string, values?: Record<string, unknown>) =>
       text.replace(/\{(\w+)\}/g, (_, key: string) => String(values?.[key])),
   }),
+}));
+vi.mock("../features/sessions/ui/AgentMarkdown", () => ({
+  AgentMarkdown: ({ text }: { text: string }) =>
+    createElement("div", null, text),
 }));
 import {
   checkMobileUpdate,
@@ -62,6 +76,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   native.platform = "android";
+  native.language = "en";
   native.info.mockResolvedValue({ version: "0.7.0", build: "4" });
   native.http.mockResolvedValue({ status: 200, data: manifest });
   native.foreground.mockResolvedValue({ remove: native.remove });
@@ -105,6 +120,23 @@ const button = (container: HTMLElement, text: string) =>
   )!;
 
 describe("mobile app updates", () => {
+  it("accepts optional bilingual notes and selects the current language", async () => {
+    const notes =
+      "<!-- release-notes:en -->\nEnglish preview\n<!-- /release-notes -->\n<!-- release-notes:zh-CN -->\n中文预览\n<!-- /release-notes -->";
+    expect(parseMobileUpdate({ ...manifest, notes }).notes).toBe(notes);
+    expect(() => parseMobileUpdate({ ...manifest, notes: {} })).toThrow(
+      "Invalid update information",
+    );
+    native.language = "zh-CN";
+    native.http.mockResolvedValue({
+      status: 200,
+      data: { ...manifest, notes },
+    });
+    const container = await mount();
+    expect(container.textContent).toContain("中文预览");
+    expect(container.textContent).not.toContain("English preview");
+  });
+
   it("compares build codes even when the visible version stays the same", () => {
     expect(parseMobileUpdate(manifest)).toEqual(manifest);
     expect(hasMobileUpdate({ version: "0.7.0", build: 4 }, manifest)).toBe(

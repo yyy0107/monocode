@@ -5,6 +5,11 @@ import { ArrowDownCircle, LoaderCircle, RefreshCw } from "../shared/ui/icons";
 import { MobileSwap } from "./MobileSwap";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import {
+  localizedReleaseNotes,
+  presentReleaseNotes,
+} from "../app/model/releaseNotes";
+import { AgentMarkdown } from "../features/sessions/ui/AgentMarkdown";
+import {
   Updates,
   checkMobileUpdate,
   getInstalledBuild,
@@ -141,7 +146,7 @@ export function MobileAppUpdates({
 }: {
   state: ReturnType<typeof useMobileAppUpdates>;
 }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const {
     installed,
     latest,
@@ -155,6 +160,15 @@ export function MobileAppUpdates({
     check,
     install,
   } = state;
+  const notesVersion = available ? latest?.versionName : installed?.version;
+  const remoteNotes =
+    latest?.versionName === notesVersion ? latest?.notes?.trim() : undefined;
+  const notes = notesVersion
+    ? presentReleaseNotes(notesVersion, remoteNotes || undefined, language)
+    : null;
+  const markdown =
+    notes?.markdown ??
+    (remoteNotes ? localizedReleaseNotes(remoteNotes, language) : undefined);
   return (
     <section className="mobile-app-updates" aria-label={t("App updates")}>
       <h2>{t("App updates")}</h2>
@@ -256,6 +270,15 @@ export function MobileAppUpdates({
               {t(error)}
             </p>
           )}
+          {markdown ? (
+            <section
+              aria-label={t("Release notes")}
+              className="mt-4 max-h-64 overflow-y-auto overscroll-contain"
+            >
+              <h3>{t("Release notes")}</h3>
+              <AgentMarkdown text={markdown} streaming={false} />
+            </section>
+          ) : null}
           <p className="mobile-update-hint">
             {t(
               "Checks automatically when you open the app. Your computer publishes each new APK build.",

@@ -89,6 +89,13 @@ test("fingerprints additions, edits and deletions in mobile/shared inputs, ignor
   await write("scripts/production-inputs.mjs", "bundler input policy");
   assert.notEqual(await sourceFingerprint(root), original);
   await rm(join(root, "scripts/production-inputs.mjs"));
+  await write("CHANGELOG.md", "bundled release notes");
+  const notes = await sourceFingerprint(root);
+  assert.notEqual(notes, original);
+  await write("CHANGELOG.md", "updated bilingual release notes");
+  assert.notEqual(await sourceFingerprint(root), notes);
+  await rm(join(root, "CHANGELOG.md"));
+  assert.equal(await sourceFingerprint(root), original);
   await write("mobile/android/app/src/main/java/MainActivity.java", "native");
   assert.notEqual(await sourceFingerprint(root), original);
 });

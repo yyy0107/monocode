@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatReleaseDate,
   formatUpdateReleaseDate,
+  localizedReleaseNotes,
   presentReleaseNotes,
   releaseNotesForVersion,
   releaseNotesMarkdown,
@@ -30,6 +31,51 @@ const fixture = `# Changelog
 ### Fixed
 - Older fix.
 `;
+
+const bilingual = `## [0.11.0] - 2026-10-09
+
+<!-- release-notes:en -->
+### Fixed
+- English update.
+<!-- /release-notes -->
+
+<!-- release-notes:zh-CN -->
+### 修复
+- 中文更新。
+<!-- /release-notes -->
+`;
+
+describe("localized release notes", () => {
+  it.each([
+    ["en", "English update.", "中文更新。"],
+    ["zh-CN", "中文更新。", "English update."],
+  ])("selects %s in bundled and feed notes", (language, included, excluded) => {
+    const notes = presentReleaseNotes("0.11.0", bilingual, language);
+    expect(notes?.date).toBe("2026-10-09");
+    expect(notes?.markdown).toContain(included);
+    expect(notes?.markdown).not.toContain(excluded);
+    expect(notes?.markdown).not.toContain("release-notes:");
+    expect(notes?.markdown).not.toContain("## [0.11.0]");
+    expect(
+      releaseNotesMarkdown({ version: "0.11.0" }, bilingual, language),
+    ).toContain(included);
+    expect(
+      presentReleaseNotes("0.11.0", undefined, language)?.markdown,
+    ).toContain(language === "en" ? "### Fixed" : "### 修复");
+  });
+
+  it("keeps old unmarked notes and falls back to English when a locale is absent", () => {
+    expect(localizedReleaseNotes(fixture, "zh-CN")).toBe(fixture);
+    expect(localizedReleaseNotes(bilingual, "fr")).toContain("English update.");
+    expect(localizedReleaseNotes(bilingual, "fr")).not.toContain("中文更新。");
+    expect(
+      localizedReleaseNotes(
+        "Shared\n<!-- release-notes:en -->\nOnly English\n<!-- /release-notes -->\nEnd",
+        "zh-CN",
+      ),
+    ).toBe("Shared\nOnly English\nEnd");
+  });
+});
 
 describe("releaseNotesForVersion", () => {
   it("extracts only the requested release", () => {

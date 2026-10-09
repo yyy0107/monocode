@@ -1,6 +1,6 @@
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import {
-  formatReleaseDate,
+  formatUpdateReleaseDate,
   presentReleaseNotes,
   releaseNotesTitle,
 } from "../model/releaseNotes";
@@ -14,8 +14,8 @@ type Props = {
 };
 
 export function WhatsNewBody({ version }: { version: string }) {
-  const { t: uiT } = useTranslation();
-  const notes = presentReleaseNotes(version);
+  const { t: uiT, language } = useTranslation();
+  const notes = presentReleaseNotes(version, undefined, language);
   const title = releaseNotesTitle(version);
 
   return (
@@ -38,9 +38,11 @@ export function WhatsNewBody({ version }: { version: string }) {
 }
 
 export function WhatsNewDialog({ version, onClose }: Props) {
-  const { t: uiT } = useTranslation();
-  const notes = presentReleaseNotes(version);
-  const date = notes?.date ? formatReleaseDate(notes.date) : null;
+  const { t: uiT, language } = useTranslation();
+  const notes = presentReleaseNotes(version, undefined, language);
+  const date = notes?.date
+    ? formatUpdateReleaseDate(notes.date, language)
+    : null;
 
   return (
     <Modal

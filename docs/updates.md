@@ -34,6 +34,20 @@ The explicit `build:linux:release` and `build:windows:release` commands remain
 available and use the same GitHub endpoint. The desktop manifest must include
 package URLs and updater signatures made with the configured signing key.
 
+Write each new version's English and Simplified Chinese notes in `CHANGELOG.md`,
+under its `## [version] - YYYY-MM-DD` heading. Wrap each language's body in
+`<!-- release-notes:en -->` or `<!-- release-notes:zh-CN -->`, followed by
+`<!-- /release-notes -->`. Keep section headings inside these blocks at level
+three or below. The app selects the current interface language, falls back to
+English when needed, and still accepts older notes without language markers.
+
+Copy the complete bilingual version section into the `notes` field of both
+`latest.json` and `mobile-latest.json`, and include it in the GitHub Release body.
+The mobile `notes` field is optional for compatibility with older feeds. Desktop
+and Android update previews use the feed's notes; installed-version views can
+use the bundled changelog. GitHub displays both languages because the markers
+are Markdown comments.
+
 Changing the update source requires installing a newly built app once; existing
 installed binaries retain the address they were built with.
 

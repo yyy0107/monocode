@@ -28,6 +28,7 @@ export interface MobileUpdate {
   sha256: string;
   size: number;
   publishedAt: string;
+  notes?: string;
 }
 export interface InstalledBuild {
   version: string;
@@ -67,7 +68,8 @@ export function parseMobileUpdate(value: unknown): MobileUpdate {
     update.size! <= 0 ||
     update.size! > 512 * 1024 * 1024 ||
     typeof update.publishedAt !== "string" ||
-    !Number.isFinite(Date.parse(update.publishedAt))
+    !Number.isFinite(Date.parse(update.publishedAt)) ||
+    (update.notes !== undefined && typeof update.notes !== "string")
   )
     throw new Error("Invalid update information.");
   return update as MobileUpdate;

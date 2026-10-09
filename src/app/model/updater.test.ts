@@ -4,6 +4,7 @@ import { saveUpdatePreferences } from "./updatePreferences";
 
 const mocks = vi.hoisted(() => ({
   announce: vi.fn(),
+  ask: vi.fn(),
   check: vi.fn(),
   downloadAndInstall: vi.fn(),
   getVersion: vi.fn(),
@@ -14,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: mocks.getVersion }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
-  ask: vi.fn(),
+  ask: mocks.ask,
   message: mocks.message,
 }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: mocks.relaunch }));
@@ -109,6 +110,21 @@ it("includes feed notes and date when an update check finds a release", async ()
     releaseNotes: "### Fixed\n\n- Update preview.",
     releaseDate: "2026-09-30T12:00:00Z",
   });
+});
+
+it("localizes native update prompts while retaining both languages in the snapshot", async () => {
+  const body =
+    "<!-- release-notes:en -->\nEnglish notes\n<!-- /release-notes -->\n<!-- release-notes:zh-CN -->\n中文日志\n<!-- /release-notes -->";
+  const { setUiLanguage } = await import("../../shared/i18n/language");
+  setUiLanguage("zh-CN");
+  mocks.check.mockResolvedValue({ version: "0.11.0", body });
+  mocks.ask.mockResolvedValue(false);
+  const { runUpdateFlow } = await import("./updater");
+  const snapshot = await runUpdateFlow(true);
+  expect(snapshot.releaseNotes).toBe(body);
+  expect(mocks.ask.mock.calls[0][0]).toContain("中文日志");
+  expect(mocks.ask.mock.calls[0][0]).not.toContain("English notes");
+  setUiLanguage("en");
 });
 
 it("silently ignores the skipped version on automatic probes but allows later versions", async () => {

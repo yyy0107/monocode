@@ -1,5 +1,6 @@
 import bundledChangelog from "../../../CHANGELOG.md?raw";
 import { formatBuildVersion } from "../../shared/lib/buildVersion";
+import { getUiLanguage, translate } from "../../shared/i18n/language";
 
 export type ReleaseNotesTabSource = {
   version: string;
@@ -11,12 +12,38 @@ export type ReleaseNotesDocument = {
 };
 
 export function releaseNotesTitle(version: string): string {
-  return `What's new in MonoCode ${formatBuildVersion(version)}`;
+  return translate("What's new in MonoCode {version}", {
+    version: formatBuildVersion(version),
+  });
+}
+
+/** The same bilingual Markdown serves GitHub, updater feeds and bundled notes. */
+export function localizedReleaseNotes(
+  markdown: string,
+  language: string = getUiLanguage(),
+): string {
+  const blocks =
+    /<!-- release-notes:(en|zh-CN) -->\r?\n([\s\S]*?)<!-- \/release-notes -->/g;
+  const locales = new Set(
+    [...markdown.matchAll(blocks)].map((match) => match[1]),
+  );
+  if (!locales.size) return markdown;
+  const selected = locales.has(language)
+    ? language
+    : locales.has("en")
+      ? "en"
+      : "zh-CN";
+  return markdown
+    .replace(blocks, (_block, locale: string, body: string) =>
+      locale === selected ? body.trim() : "",
+    )
+    .trim();
 }
 
 export function releaseNotesForVersion(
   version: string,
   changelog: string = bundledChangelog,
+  language: string = getUiLanguage(),
 ): ReleaseNotesDocument | null {
   const normalized = version.trim();
   if (!normalized || normalized === "Unreleased") return null;
@@ -32,7 +59,10 @@ export function releaseNotesForVersion(
   const nextHeading = /^## /gm;
   nextHeading.lastIndex = match.index + match[0].length;
   const next = nextHeading.exec(changelog);
-  const markdown = changelog.slice(match.index, next?.index).trimEnd();
+  const markdown = localizedReleaseNotes(
+    changelog.slice(match.index, next?.index).trimEnd(),
+    language,
+  );
 
   return {
     source: { version: normalized },
@@ -43,8 +73,12 @@ export function releaseNotesForVersion(
 export function releaseNotesMarkdown(
   source: ReleaseNotesTabSource,
   changelog: string = bundledChangelog,
+  language: string = getUiLanguage(),
 ): string | null {
-  return releaseNotesForVersion(source.version, changelog)?.markdown ?? null;
+  return (
+    releaseNotesForVersion(source.version, changelog, language)?.markdown ??
+    null
+  );
 }
 
 export type ReleaseNotesPresentation = {
@@ -57,8 +91,9 @@ export type ReleaseNotesPresentation = {
 export function presentReleaseNotes(
   version: string,
   changelog: string = bundledChangelog,
+  language: string = getUiLanguage(),
 ): ReleaseNotesPresentation | null {
-  const release = releaseNotesForVersion(version, changelog);
+  const release = releaseNotesForVersion(version, changelog, language);
   if (!release) return null;
 
   const escapedVersion = release.source.version.replace(

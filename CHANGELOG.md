@@ -16,8 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.11.0] - 2026-10-09
 
+<!-- release-notes:en -->
+
 ### Added
 
+- Bundled release notes and desktop and Android update previews follow the interface language, with English and Simplified Chinese content. GitHub releases include both languages.
 - Settings, provider accounts, connections, and workspace state can be shared through the connected Host across desktop and mobile, with local caches for offline use. Sync indicators describe the active Host, and a phone keeps its existing preferences until that Host supplies shared values.
 - Existing Claude and Codex conversations can switch provider accounts in place. Host conversations copy native history into the selected account when available, with a handoff recap as a fallback; conversation headers show the account actually used by that conversation.
 - The repository Git graph opens in a large dialog and loads history in pages of 50 commits. Historical commits use the same file review controls as working-copy changes.
@@ -45,6 +48,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remote session identity, provider-account changes, and shell state stay synchronized. Host usage-limit notices can be dismissed or resumed, and unread Host replies appear beside desktop session titles.
 - Switching shared terminal tabs no longer shifts their text. Popovers receive focus after becoming interactive, and code reviews remain accessible during live agent turns.
 - Git branch badges retain letter descenders, graph styles no longer affect branch icons, resize grips align with their handles, and the title-bar icon remains legible in light mode.
+
+<!-- /release-notes -->
+
+<!-- release-notes:zh-CN -->
+
+### 新增
+
+- 应用内更新日志以及桌面端、Android 的更新预览随界面语言切换，提供英文和简体中文内容；GitHub Release 同时保留两种语言。
+- 桌面端和移动端可通过当前 Host 共享偏好设置、Provider 账号、连接与工作区状态，离线时保留本地缓存。同步指示器对应当前 Host；手机在收到 Host 的共享设置前保留原有偏好。
+- 已有 Claude 和 Codex 会话支持原地切换账号。Host 会话优先将原生历史复制到目标账号，缺少原生记录时使用交接摘要；会话标题栏显示该会话实际使用的账号。
+- 仓库 Git 提交图可在大窗口中打开，每次加载 50 条历史提交；历史提交与工作区改动使用一致的文件审查操作。
+- 新工作树可根据首条任务生成分支和目录名，重名时自动追加编号；首条消息下方显示创建进度。创建失败可重试，取消发送时不会继续创建工作树。
+- 字体设置列出已安装字体，支持系统界面字体，代码字体仅提供等宽字体；字号滑块在松开后应用修改。
+
+### 改进
+
+- 大型 Markdown 代码块流式输出复用已完成的代码行和增量高亮状态，减少重复解析与渲染；保留本 Fork 的后台高亮、移动端长代码虚拟化、主题切换、复制操作和字体设置。适配上游 #863。
+- Diff 审查按需加载文件内容，刷新后保留折叠状态，并在不同审查之间复用后台 Worker，减少重复初始化与渲染。
+- 新会话立即显示缓存的模型列表和 Agent 可用状态，再在后台刷新；模型选择器提示尚未完成的加载。
+- 会话和文档正文（包括用户消息）使用独立于代码的正文字体与字号，默认正文字重为中等。
+- 会话与助手输入框统一错误、重试和额度提示样式。侧边栏面板立即切换，选中指示器继续动画；运行、未读和工作树标识更清晰。
+- 手机首页菜单按最近会话活动排列项目；非 Git 项目会说明工作树操作不可用的原因，工作副本使用分支名作为显示标题。
+
+### 修复
+
+- Codex 优先从登录 Shell 解析可执行文件，再尝试其他位置，与用户终端中使用的路径保持一致。来自上游 #878。
+- 鼠标在窗口外松开、丢失抬起事件后，排序拖拽可以恢复。来自上游 #879。
+- Markdown 表格保留可读的最小列宽并顶部对齐，窄面板下横向滚动，避免文件名被挤成逐字排列。来自上游 #876。
+- 未暂存文件时仍可编辑提交信息，执行 Git 操作期间除外。
+- 在系统文件管理器中显示文件改为后台执行，避免阻塞主界面。来自上游 #902。
+- 新会话使用侧边栏当前选择的项目和工作树，切走后保留尚未发送的草稿。适配上游 #896，并保留本地草稿逻辑。
+- 远程文件浏览和 Git Diff 使用会话关联的工作树，包括会话启动前已选择的工作副本；本地共享 Host 项目继续使用原生路径。来自上游 #887。
+- 远程会话身份、Provider 账号切换和 Shell 状态保持同步；Host 会话的额度提示支持关闭与恢复，桌面会话标题旁显示 Host 回复的未读状态。
+- 切换共享终端标签时文字不再偏移；弹出层在可交互后获取焦点，Agent 运行期间仍可打开代码审查。
+- Git 分支标签不再裁切字母下伸部分，提交图样式不再影响分支图标；调整尺寸的拖拽柄居中，浅色模式下标题栏图标保持清晰。
+
+<!-- /release-notes -->
 
 ## [0.7.0] - 2026-10-02
 

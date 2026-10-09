@@ -1,19 +1,19 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
+import {
+  check,
+  type DownloadEvent,
+  type Update,
+} from "@tauri-apps/plugin-updater";
 import { announceUpdateAvailable } from "../../features/settings/model/sounds";
 import { rememberInstalledUpdate } from "./updateNotice";
 import { formatBuildVersion } from "../../shared/lib/buildVersion";
 import { loadUpdatePreferences } from "./updatePreferences";
+import { localizedReleaseNotes } from "./releaseNotes";
 
 export type UpdaterPhase =
-  | "idle"
-  | "checking"
-  | "current"
-  | "available"
-  | "downloading"
-  | "error";
+  "idle" | "checking" | "current" | "available" | "downloading" | "error";
 
 export type UpdaterSnapshot = {
   phase: UpdaterPhase;
@@ -84,7 +84,9 @@ export async function runUpdateFlow(
 
     if (!manual) return available;
 
-    const notes = update.body?.trim();
+    const notes = update.body?.trim()
+      ? localizedReleaseNotes(update.body.trim())
+      : "";
     const detail = notes ? `\n\n${notes}` : "";
     const yes = await ask(
       `MonoCode ${formatBuildVersion(update.version)} is available (you have ${formatBuildVersion(currentVersion)}).${detail}\n\nInstall now?`,
@@ -179,7 +181,9 @@ export async function installPendingUpdate(
       error,
     };
     onProgress?.(failed);
-    await message(`Couldn't install the update.\n\n${error}`, { title: "MonoCode" });
+    await message(`Couldn't install the update.\n\n${error}`, {
+      title: "MonoCode",
+    });
     return failed;
   }
 }

@@ -11,9 +11,9 @@ export function ReleaseNotesSurface({
 }: {
   source: ReleaseNotesTabSource;
 }) {
-  const { t: uiT } = useTranslation();
+  const { t: uiT, language } = useTranslation();
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
-  const markdown = releaseNotesMarkdown(source);
+  const markdown = releaseNotesMarkdown(source, undefined, language);
 
   return (
     <div

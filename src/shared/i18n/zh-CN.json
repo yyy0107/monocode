@@ -1,4 +1,5 @@
 {
+  "What's new in MonoCode {version}": "MonoCode {version} 更新内容",
   "Host returned invalid account metadata.": "Host 返回的账号信息无效。",
   "v{version} Release notes": "v{version} 更新日志",
   "New version available  v{version}": "发现新版本  v{version}",

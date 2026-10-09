@@ -30,6 +30,7 @@ const generatedFiles = new Set([
 
 function isBuildInput(path) {
   if (generatedFiles.has(path)) return false;
+  if (path === "CHANGELOG.md") return true;
   if (/(^|\/)(?:__tests__|test|androidTest)\//.test(path)) return false;
   if (/\.(?:test|spec)\.[^/]+$|\.md$/.test(path)) return false;
   return (

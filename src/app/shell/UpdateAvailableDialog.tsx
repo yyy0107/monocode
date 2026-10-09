@@ -3,8 +3,10 @@ import { useTranslation } from "../../shared/i18n/useTranslation";
 import { formatBuildVersion } from "../../shared/lib/buildVersion";
 import { Modal } from "../../shared/ui/Modal";
 import { CalendarDays, Loader } from "../../shared/ui/icons";
+import { AgentMarkdown } from "../../features/sessions/ui/AgentMarkdown";
 import {
   formatUpdateReleaseDate,
+  localizedReleaseNotes,
   presentReleaseNotes,
 } from "../model/releaseNotes";
 import {
@@ -32,10 +34,16 @@ export function UpdateAvailableDialog({
   const [starting, setStarting] = useState(false);
   const busy = starting || snapshot.phase === "downloading";
   const version = snapshot.availableVersion ?? "";
-  const date =
-    snapshot.releaseDate ||
-    presentReleaseNotes(version, snapshot.releaseNotes?.trim() || undefined)
-      ?.date;
+  const remoteNotes = snapshot.releaseNotes?.trim();
+  const notes = presentReleaseNotes(
+    version,
+    remoteNotes || undefined,
+    language,
+  );
+  const markdown =
+    notes?.markdown ??
+    (remoteNotes ? localizedReleaseNotes(remoteNotes, language) : undefined);
+  const date = snapshot.releaseDate || notes?.date;
   const formattedDate = date ? formatUpdateReleaseDate(date, language) : null;
   const downloadLabel = busy
     ? snapshot.progress != null
@@ -85,6 +93,18 @@ export function UpdateAvailableDialog({
             ) : null}
           </div>
         </div>
+        {markdown ? (
+          <section
+            aria-label={t("Release notes")}
+            className="mt-6 max-h-64 overflow-y-auto overscroll-contain"
+          >
+            <AgentMarkdown
+              className="update-notes-md"
+              text={markdown}
+              streaming={false}
+            />
+          </section>
+        ) : null}
         <label className="mt-8 flex cursor-pointer items-center gap-2.5 text-[14px]">
           <input
             type="checkbox"
