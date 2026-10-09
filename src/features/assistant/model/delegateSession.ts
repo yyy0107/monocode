@@ -18,7 +18,16 @@ export function delegateSession(
     {
       loading: translate("Handing over to assistant…"),
       success: translate("Conversation handed over to assistant"),
-      error: (error) => translate(assistantErrorMessage(error)),
+      error: (error) => translate(delegateErrorMessage(error)),
     },
   );
+}
+
+const HOST_TOO_OLD =
+  "This Host is too old to take over conversations. Update MonoCode on that Host and try again.";
+
+/** Hosts from before hand-over validate these fields as another control and reject them. */
+function delegateErrorMessage(error: unknown): string {
+  const message = assistantErrorMessage(error);
+  return /unknown input field/i.test(message) ? HOST_TOO_OLD : message;
 }

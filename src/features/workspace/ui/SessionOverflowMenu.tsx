@@ -7,6 +7,7 @@ import {
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import {
   Archive,
+  Bot,
   ChevronLeft,
   MoreHorizontal,
   PanelRight,
@@ -104,7 +105,7 @@ export function SessionOverflowMenu({
               kind: "item" as const,
               id: "delegate-assistant",
               label: t("Hand over to assistant"),
-              description: t("Follow this conversation and allow configured assistant actions"),
+              icon: <Bot className="size-4" />,
             }] : []),
             {
               kind: "item",

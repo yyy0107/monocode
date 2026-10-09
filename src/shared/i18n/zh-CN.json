@@ -3479,6 +3479,7 @@
   "Last online: {time}": "上次在线：{time}",
   "Watched conversations": "已关注会话",
   "Hand over to assistant": "交给助理",
+  "This Host is too old to take over conversations. Update MonoCode on that Host and try again.": "这台 Host 版本过旧，不支持把会话交给助理。请先更新那台 Host 上的 MonoCode 再试。",
   "Handing over to assistant…": "正在交给助理…",
   "Conversation handed over to assistant": "已将会话交给助理",
   "No watched conversations.": "暂无已关注会话。",
