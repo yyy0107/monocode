@@ -1701,3 +1701,35 @@ it("honors a temporary desktop account choice for the first Host create", async 
   await send("Use the selected account");
   expect(commands.find(command => command.type === "create")).toMatchObject({ providerAccountId: "temporary" });
 });
+
+it("dismisses a Host usage limit locally and resumes it with a continue turn", async () => {
+  dispatch({ type: "create", commandId: "limited-session", projectId: "project", harness: "codex", model: gpt.id, runtimeMode: "supervised" });
+  host = { ...host!, session: { ...host!.session, usageLimit: {},
+    blocks: [{ id: "old", role: "user", text: "Earlier work" }] } };
+  rememberRemoteSession("shell", "host-session");
+  await render();
+  const notice = () => container.querySelector("[data-usage-limit]");
+  expect(notice()).not.toBeNull();
+  expect(byLabel("Resume at reset")).toBeNull();
+
+  // Reshowing the tab revalidates it against the Host.
+  const resync = async () => {
+    await render(shell(), { visible: false });
+    await render();
+  };
+  await act(async () => byLabel("Dismiss usage limit notice")!.click());
+  await resync();
+  await vi.waitFor(() => expect(notice()).toBeNull());
+
+  // A later limit from the Host shows again, and Resume sends the continue turn.
+  host = { ...host!, revision: host!.revision + 1, session: { ...host!.session, usageLimit: undefined } };
+  await resync();
+  host = { ...host!, revision: host!.revision + 1, session: { ...host!.session, usageLimit: {} } };
+  await resync();
+  await vi.waitFor(() => expect(notice()).not.toBeNull());
+  const resume = [...container.querySelectorAll<HTMLButtonElement>("[data-usage-limit] button")]
+    .find((button) => button.textContent === "Resume")!;
+  await act(async () => resume.click());
+  await settle();
+  expect(commands.at(-1)).toMatchObject({ type: "send", text: "Continue from where you left off." });
+});

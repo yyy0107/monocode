@@ -58,11 +58,12 @@ import {
   useTranscriptRenderingPlatform,
 } from "../../sessions/ui/useTranscriptRenderingPlatform";
 import { Shimmer } from "../../../shared/ui/Shimmer";
+import { ComposerNotice, ComposerNoticeButton } from "../../../shared/ui/ComposerNotice";
 import { withStatusToast } from "../../../shared/ui/StatusToast";
 import { usePauseOffscreenAnimation } from "../../../shared/hooks/usePauseOffscreenAnimation";
 import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 import { slidePromptIn } from "../../sessions/ui/promptLaunch";
-import { Loader2, Sparkles, X } from "../../../shared/ui/icons";
+import { Loader2, Sparkles } from "../../../shared/ui/icons";
 
 /** History renders newest-first in slices so opening never blocks the app. */
 const INITIAL_HISTORY_ROWS = 30;
@@ -741,33 +742,27 @@ export function AssistantChat({
     },
   });
   const errorNotice = (error || assistant?.error) && (
-    <div className="assistant-error" role="alert">
-      <span>{t(error ?? assistant!.error!)}</span>
-      {settingsOpen ? (
-        <button
-          type="button"
+    <ComposerNotice
+      className="assistant-error"
+      actions={settingsOpen ? (
+        <ComposerNoticeButton
           onClick={() => {
             setSettingsBase(assistant ?? null);
             setError(undefined);
           }}
         >
           {t("Reload settings")}
-        </button>
+        </ComposerNoticeButton>
       ) : !error && continuable && controls ? (
-        <button type="button" disabled={busy} onClick={controls.onToggle}>
+        <ComposerNoticeButton disabled={busy} onClick={controls.onToggle}>
           {t("Continue")}
-        </button>
-      ) : error ? (
-        <button
-          type="button"
-          className="assistant-error-dismiss"
-          aria-label={t("Dismiss")}
-          onClick={() => setError(undefined)}
-        >
-          <X size={16} />
-        </button>
+        </ComposerNoticeButton>
       ) : null}
-    </div>
+      onDismiss={!settingsOpen && error ? () => setError(undefined) : undefined}
+      dismissLabel={t("Dismiss")}
+    >
+      {t(error ?? assistant!.error!)}
+    </ComposerNotice>
   );
   const respond = useCallback((
     message: Extract<AssistantMessage, { kind: "input" }>,
