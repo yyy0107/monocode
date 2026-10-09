@@ -92,9 +92,9 @@ On Windows, the launcher is `%USERPROFILE%\.monocode-host\bin\monocode-host.cmd`
 
 `npm run host:package` builds a self-contained package for the current Windows/Mac/Linux architecture. `npm run host:package -- --all` builds all six archives, using pinned official Node binaries and checksums. Archives contain the host bundle, runtime, launcher, and licenses. `host/package.mjs` pins the runtime version. Cross-packaging Windows on Unix requires `zip` and `unzip`; native Windows packaging uses PowerShell.
 
-The release workflow publishes `monocode-host-{darwin,linux}-{arm64,x64}.tar.gz`, `monocode-host-win32-{arm64,x64}.zip`, and their `.sha256` files alongside the desktop release. SSH setup downloads from the exact desktop version's GitHub release, then installs under `~/.monocode-host/runtime`.
+Host archive names are `monocode-host-{darwin,linux}-{arm64,x64}.tar.gz` and `monocode-host-win32-{arm64,x64}.zip`, with matching `.sha256` files. SSH setup needs these assets in the exact desktop version's GitHub release, then installs under `~/.monocode-host/runtime`. Check that release's assets: publishing desktop installers alone does not provide standalone Host archives.
 
-**Unreleased development builds:** automatic first-time installation and **Update Host** require host archives published for the desktop version. Release builds from v0.5.0 onward include the matching archives; an unreleased checkout may not have them. Until the matching release is available, use the manual development connection above. A missing archive produces an explicit error in Settings. No fallback to an arbitrary latest release or unverified download is used. Connecting does not automatically upgrade a running host. When an SSH host lacks Explorer or Changes, Settings → Connections offers **Update Host**. This downloads and verifies the matching package, restarts the host service, and reconnects using the existing device credential. The restart interrupts active agent turns; sessions and history remain on the host. URL connections must be updated on the host manually.
+**Unreleased development builds:** automatic first-time installation and **Update Host** require host archives published for the desktop version. A personal-fork release or an unreleased checkout may not include them. Until the matching release is available, use the manual development connection above. A missing archive produces an explicit error in Settings. No fallback to an arbitrary latest release or unverified download is used. Connecting does not automatically upgrade a running host. When an SSH host lacks Explorer or Changes, Settings → Connections offers **Update Host**. This downloads and verifies the matching package, restarts the host service, and reconnects using the existing device credential. The restart interrupts active agent turns; sessions and history remain on the host. URL connections must be updated on the host manually.
 
 ## Scope of this first version
 
@@ -110,7 +110,7 @@ of redispatching them. Worker histories are inspected through their lead and are
 protected from independent writes. Older Hosts expose no orchestration controls.
 Phone clients receive orchestration status and history without new controls.
 
-The headless host runs the reused TypeScript adapters with a Node process backend. It proves the execution boundary without introducing the planned Rust daemon/worker IPC yet. Node is included in both Host release archives and desktop bundles. Local desktop projects now connect to the same background service automatically; see [shared desktop and mobile conversations](shared-sessions.md) for migration and current feature limits. Imported named Codex/Claude accounts use the local desktop's existing account directories; standalone remote Hosts retain their separate account limitations.
+The headless Host runs the shared TypeScript adapters on Node. Provider process trees use the bundled Rust supervisor when present, with the Node guard as a fallback. `MONOCODE_PROVIDER_SUPERVISOR=node` explicitly selects that fallback. Packaging includes the supervisor for the current machine or the desktop Tauri target; other cross-packaged targets keep the Node guard. Node is included in both Host release archives and desktop bundles. Local desktop projects now connect to the same background service automatically; see [shared desktop and mobile conversations](shared-sessions.md) for migration and current feature limits. Imported named Codex/Claude accounts use the local desktop's existing account directories; standalone remote Hosts retain their separate account limitations.
 
 ## Verify
 
@@ -158,5 +158,6 @@ brain execution stays private. Target messages retain the user role and show an
 open read-only details. Removing read permission or project scope disables the
 card's navigation.
 
-Actual checks and unverified combinations are recorded in
-[the assistant compatibility record](../specs/022-host-assistant/compatibility.md).
+For the separate assistant evaluation tools and their scope, see the
+[assistant evaluation guide](../host/assistant/eval/README.md). Historical local
+`specs/` verification notes are not included in this repository.

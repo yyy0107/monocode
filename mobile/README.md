@@ -1,4 +1,4 @@
-# MonoCode Mobile
+# ohmymonocode Mobile
 
 A Capacitor iOS / Android client for an existing MonoCode Host. The app supports
 manual **Host URL + device token** connections, opening projects by host folder
@@ -38,12 +38,11 @@ and issue a separate device credential for your phone:
 npm ci
 npm run host:build
 node build/host/monocode-host.mjs start
-node build/host/monocode-host.mjs pair --name "My phone" --token 123
+node build/host/monocode-host.mjs pair --name "My phone"
 ```
 
-The command above registers `123` as this phone's device token. Omit `--token`
-to generate a random token instead. The Host validates the registered device
-credential, and revoking that device also invalidates `123`.
+The command prints a generated device token for this phone. Use a separate
+credential for each device; revoking the device invalidates its token.
 
 The app accepts both HTTP and HTTPS Host URLs, including LAN IP addresses and
 hostnames. For example, enter `http://192.168.1.10:3774` and the device token
@@ -199,7 +198,7 @@ show Stop and lock configuration controls.
 
 ## Build
 
-From the repository root, use Node.js 22 or newer (required by Capacitor 8):
+From the repository root, use Node.js 24 or newer, matching the shared Host toolchain:
 
 ```sh
 npm ci
@@ -215,7 +214,7 @@ Android requires JDK 21, Android SDK 36, and the platform's build tools. Open
 
 ```sh
 npm run mobile:android
-# Or build an unsigned/debug APK after mobile:sync:
+# Or build a debug-signed APK after mobile:sync:
 cd mobile/android
 ./gradlew :app:assembleDebug
 ```
@@ -233,100 +232,14 @@ the project version for ordinary builds and the date label for explicit LAN buil
 `mobile/android/local.properties` is machine-specific and ignored by Git;
 configure `sdk.dir` or your normal Android SDK environment before using Gradle.
 
-## GitHub updates (default)
+## Updates and publication
 
-Ordinary desktop and mobile builds check this repository's GitHub Releases:
+Default builds use this fork's GitHub Releases. Build commands do not publish a
+Release. See [builds, signing and update channels](../docs/updates.md) for the
+GitHub manifests, APK signing requirements, installation checks and explicit
+`mobile:publish` / `desktop:publish` LAN workflows.
 
-- Desktop: `https://github.com/yyy0107/ohmymonocode/releases/latest/download/latest.json`
-- Android: `https://github.com/yyy0107/ohmymonocode/releases/latest/download/mobile-latest.json`
-
-`npm run mobile:apk` produces a debug-signed APK with the project version and
-GitHub updates; it does not publish to LAN. The frontend and Android download
-allowlist both use `mobile/update-config.release.json`. The manifest uses the
-existing mobile schema with a flat `/monocode-N.apk` download path. Upload the
-APK under that name and its matching size/SHA-256 manifest to the same Release.
-Use the same signing certificate as the installed app for compatible updates.
-
-`npm run mobile:apk:release` selects the Release variant and always uses GitHub,
-even if a LAN channel is configured in the environment. Gradle does not configure
-a Release signing key by default, so this APK needs signing before distribution.
-Neither build command uploads files or publishes a GitHub Release.
-
-Ordinary desktop builds use the HTTPS endpoint in `src-tauri/tauri.conf.json`.
-The explicit `build:linux:release` and `build:windows:release` commands remain
-available and use the same GitHub endpoint. The desktop manifest must include
-package URLs and updater signatures made with the configured signing key.
-
-Changing the update source requires installing a newly built app once; existing
-installed binaries retain the address they were built with.
-
-## LAN app updates (explicit publication)
-
-`npm run mobile:publish` explicitly selects `MONOCODE_UPDATE_CHANNEL=lan` for
-both the web assets and Android's download allowlist. It uses the addresses in
-`mobile/update-config.json`, trying LAN first and then Tailscale HTTPS. Normal
-GitHub builds do not fall back to these addresses.
-
-LAN builds retain the `MM-dd-HHmm` date label in `America/Los_Angeles`.
-Every assembled APK receives an increasing versionCode. Version counters and
-packages are shared in `~/.local/share/monocode/mobile-updates` (or under
-`XDG_DATA_HOME`); `MONOCODE_MOBILE_UPDATE_DIR` selects an isolated directory.
-
-The LAN server exposes `/latest.json`, immutable `/apk/monocode-N.apk` downloads,
-and `/health`. It can be started with `npm run mobile:updates`. The optional
-Tailscale source proxies that same server:
-
-```sh
-tailscale serve --bg --https=8444 http://192.168.0.206:3780
-```
-
-Desktop LAN publication uses `src-tauri/tauri.lan.conf.json` explicitly on Linux
-and Windows, so its build, signing and deployment checks retain the LAN endpoint.
-
-### Publish manually
-
-Builds and LAN publication are run manually; no conversation hooks are configured.
-On Linux, run from the repository root:
-
-```sh
-npm run mobile:publish
-# Equivalent script entry:
-bash mobile/task-publish.sh
-```
-
-The command uses `flock` to reject overlapping invocations, builds with
-`MONOCODE_MOBILE_DEFER_PUBLISH=1`, compares source fingerprints before and after
-the build, and only then publishes through the existing updater. A changed input
-or failed build leaves the previous LAN release in place. Fix or finish the task
-and invoke it again; it does not retry automatically. Avoid concurrent Android
-Studio or direct `mobile:apk` builds, which do not take this command's lock.
-
-Fingerprints cover Android sources, `src/mobile/` and its local imports,
-`src/styles/`, `public/`, mobile build/publish scripts, package manifests, and build
-configuration.
-Tests, documentation, iOS-only code, and generated outputs are excluded. The
-local import scan follows shared TypeScript/JavaScript, JSON, CSS and assets,
-including literal dynamic imports. Unrelated desktop source does not change it.
-An unchanged successful publication is skipped while it remains the latest LAN
-release. Local state lives in ignored `build/mobile-publish/`. The first invocation
-builds once because earlier manual releases have no source fingerprint.
-
-The build includes the existing TypeScript checks; task-specific checks must
-pass before publishing. The command reports publication results in the terminal
-and does not install a phone update automatically. Verify changes to this workflow
-with `npm run test:mobile-publish`.
-
-Install the first APK containing this updater once. Subsequent updates use
-**Check for updates → Download and install**. If Android requests permission,
-allow MonoCode to install apps, return, and tap Download and install again.
-Downloads show progress and verify size, SHA-256, package ID, versionCode, and
-signing certificate before opening the system installer. Android still requires
-the user to confirm installation. Connection credentials are kept during an
-in-place update. iOS cannot install these Android packages; its update entry
-explains that an Apple distribution channel is required.
-
-Verify publication and update behavior with `npm run test:mobile-updates` and
-`npx vitest run src/mobile/updates.test.ts`.
+## iOS development
 
 For iOS, use macOS with Xcode and Swift Package Manager:
 

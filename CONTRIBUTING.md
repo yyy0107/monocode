@@ -1,64 +1,42 @@
-# Contributing
+# Contributing to ohmymonocode
 
-MonoCode is early and I’m the only maintainer, so small and focused lands much faster than large and ambitious. Past that, the door is open - bug reports and fixes are genuinely welcome.
+This is an independently maintained personal fork of MonoCode. Keep changes
+focused and follow [AGENTS.md](AGENTS.md). Upstream issues, provider restrictions
+and maintainer approvals are not prerequisites for work in this fork.
 
-Please don’t open PRs that add a new provider right now. The existing harnesses still need to agree on a few patterns, and a new adapter would copy whatever is there today. See [New providers](#new-providers).
+## Development
 
-## Get it running
+Use Node.js 24+, a stable Rust toolchain, native Tauri dependencies, and at least
+one installed and authenticated provider CLI. Follow the [README](README.md#get-started)
+for setup; use `npm ci` to install the locked dependencies.
 
-You need Node.js 20+, a current stable Rust toolchain, and at least one provider CLI installed and logged in:
+| Directory | Responsibility |
+| --- | --- |
+| `src/app/`, `src/features/` | Desktop shell and product features |
+| `src/integrations/harness/core/`, `providers/` | Shared provider contracts and protocol adapters |
+| `src/shared/`, `src/platform/tauri/` | Shared UI and native platform adapters |
+| `src-tauri/`, `crates/` | Native desktop and shared Rust process management |
+| `host/` | Shared sessions, assistant and workflow runtime |
+| `src/mobile/`, `mobile/` | Mobile UI, native projects and build tools |
 
-- [Claude Code](https://claude.com/product/claude-code) - `claude auth login`
-- [Codex](https://developers.openai.com/codex/cli) - `codex login`
-- [Cursor CLI](https://cursor.com/cli) - `agent login`
-- [Grok Build](https://docs.x.ai/build/overview) - `curl -fsSL https://x.ai/cli/install.sh | bash` then `grok login`
-- [OpenCode](https://opencode.ai) - `opencode auth login`
-- [Antigravity](https://antigravity.google/docs/cli-install) (macOS/Linux) - `curl -fsSL https://antigravity.google/cli/install.sh | bash`, then run `agy` once to sign in
-- [Pi](https://pi.dev/) - `npm install -g @earendil-works/pi-coding-agent`
-- [omp](https://omp.sh) - `curl -fsSL https://omp.sh/install | sh`
-- [fx](https://fx.sh) - `curl -fsSL https://fx.sh/setup.sh | bash` then `fx login`
-- [Hermes Agent](https://github.com/NousResearch/hermes-agent) - macOS/Linux: `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`; Windows PowerShell: `iex (irm https://hermes-agent.nousresearch.com/install.ps1)`; then run `hermes model`
+Pi and OMP share `piFamily.ts`; verify both when changing shared behavior.
+Application-owned text follows the [localization guide](docs/localization.md).
+Desktop and Host reuse adapters, but image persistence differs by runtime.
 
-macOS, Linux, and Windows are supported targets. On Debian/Ubuntu, `npm run setup:linux:deb` installs the native Tauri build dependencies.
+## Verification and delivery
 
-```bash
-npm install
-npm run tauri dev
-```
+Run the smallest existing checks that cover the change and record their results.
+Documentation-only edits need link and formatting inspection, not application
+test suites. Use `npm run check:web`, `npm run test:host` or `npm run build` when
+their scope is relevant; run `npm run check:rust` for Rust changes. Do not claim
+compatibility for provider or device combinations that were not exercised.
 
-One provider is enough. MonoCode probes for each CLI at startup and disables the ones it can’t find, with a hint about how to install them, so a missing Codex doesn’t stop you from working on anything else.
+Builds and publication are manual, explicitly requested operations. Follow the
+[build and update guide](docs/updates.md); pushing source and publishing a Release
+are separate steps. Do not configure automatic LAN publication hooks.
 
-## Where things live
+For pull requests, describe the final behavior, relevant checks and limitations.
+Use the [PR template](.github/pull_request_template.md); include screenshots when
+they help explain a UI change. Keep unrelated work out of the patch.
 
-- `src/app/` - application composition, startup behavior, window shell, and release/update UI
-- `src/features/` - product behavior grouped by feature, with UI, model, data access, hooks, and tests kept together
-- `src/integrations/harness/` - the provider-independent harness core and one folder per provider adapter
-- `src/platform/tauri/` - browser-to-Tauri adapters for filesystem, PTY, clipboard, and platform behavior
-- `src/shared/` - reusable UI, hooks, and small utilities that contain no feature behavior
-- `src-tauri/src/` - the Rust side: PTYs, filesystem and git, session storage, native window
-
-`src/integrations/harness/` is the most useful place to start if you want to fix something real. Each folder under `providers/` has an adapter (`claudeAdapter.ts`) that implements the shared `HarnessAdapter` lifecycle from `core/registry.ts`, and a protocol module (`claudeProtocol.ts`) that translates the CLI’s output into MonoCode’s own event types. The protocol modules are pure functions with unit tests beside them, so you can fix a Codex parsing bug with only Claude Code installed. That’s for the providers we already ship - please don’t add a new one yet.
-
-## Before you push
-
-```bash
-npm run check
-```
-
-That runs what CI runs: vitest, `tsc --noEmit`, `cargo fmt`, `cargo clippy`, and `cargo test`. If it’s green locally it should be green on GitHub. `npm run check:web` and `npm run check:rust` run the two halves separately when you only touched one side.
-
-## New providers
-
-I’m pausing new harnesses until the current ones share the same patterns - session lifecycle, catalog probes, usage, approvals, and how slash commands and skills are wired. A PR that adds another provider will be closed for now, even if the work is good. Fixes, tests, and protocol bugs on Claude, Codex, Cursor, Grok, OpenCode, Antigravity, Pi, omp, fx, and Hermes Agent are still the best kind of contribution.
-
-When the pause lifts, this section goes away.
-
-## Pull requests
-
-Keep a PR to one thing, and say what changed and why. The [PR template](.github/pull_request_template.md) covers the rest. If it changes the UI, a before/after screenshot helps a lot.
-
-For anything that moves product direction - a new surface, new provider behavior, a refactor that changes the shape of the app - open an issue first. That’s not gatekeeping, I’d just rather you hear “I’m already halfway through that” before you write it than after. New providers are the exception: don’t send the adapter, even from an issue, until the pause above is gone.
-
-I might close a PR, ask you to shrink it, or end up implementing the idea differently. That’s a call about scope and timing, not about you or the quality of your work.
-
-Be kind: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Security reports: [SECURITY.md](SECURITY.md).
+[Code of conduct](CODE_OF_CONDUCT.md) · [Security reports](SECURITY.md)

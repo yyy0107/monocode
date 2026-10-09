@@ -1,5 +1,7 @@
 # Host 从 Node 迁移到 Rust：可行性分析与路线
 
+> 历史设计记录，归档于 2026-10-09。文中的代码规模、实施状态和验证结论仅代表记录时点；当前 Host 说明见 [远程访问](../remote-access.md)。
+
 ## Context
 用户想知道 headless Host（`host/`，以 esbuild 打包成 `build/host/monocode-host.mjs`，再和一个内置的 Node 24 运行时一起分发）能不能改用 Rust 实现。本文是分析和路线规划，尚未实施。
 

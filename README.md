@@ -24,6 +24,10 @@ A personal fork of [MonoCode](https://github.com/hardbeat920/monocode), focused 
 - **Desktop and mobile** — connect to a shared Host to access project conversations across devices.
 - **Everyday tools** — notes, inbox, automations and workflows, with English and Simplified Chinese interfaces.
 
+## Downloads and updates
+
+Find installers in [GitHub Releases](https://github.com/yyy0107/ohmymonocode/releases); available versions and platforms depend on the published assets. Desktop and Android builds check this fork for updates by default. See the [update guide](docs/updates.md) for builds and manual LAN publication.
+
 ## Get started
 
 Install and sign in to at least one supported agent CLI. To run the desktop app from source, prepare Node.js 24+, a stable Rust toolchain and the native Tauri dependencies for your system.
@@ -41,11 +45,7 @@ For the mobile client, follow the [setup guide](mobile/README.md) and connect us
 
 ## Documentation
 
-- [Shared conversations](docs/shared-sessions.md)
-- [Remote access](docs/remote-access.md)
-- [Mobile setup and builds](mobile/README.md)
-- [Assistant evaluation](host/assistant/eval/README.md)
-- [Manual development refresh](scripts/dev-refresh.md)
+[Documentation index](docs/README.md) · [Mobile](mobile/README.md) · [Remote access](docs/remote-access.md) · [Contributing](CONTRIBUTING.md)
 
 ## License
 

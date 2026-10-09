@@ -24,6 +24,10 @@
 - **桌面与移动端**：通过共享 Host，在不同设备访问项目会话。
 - **日常工具**：笔记、收件箱、自动化与工作流，支持中文和英文界面。
 
+## 下载与更新
+
+安装包见 [GitHub Releases](https://github.com/yyy0107/ohmymonocode/releases)，具体版本和平台以已发布附件为准。桌面端与 Android 默认从本仓库检查更新；自行构建和局域网发布见[更新指南](docs/updates.md)。
+
 ## 开始使用
 
 先安装并登录至少一个支持的智能体 CLI。从源码运行桌面端需要 Node.js 24+、稳定版 Rust 工具链，以及对应系统的 Tauri 原生依赖。
@@ -41,11 +45,7 @@ Linux 用户先安装原生依赖：Ubuntu/Debian 使用 `npm run setup:linux:de
 
 ## 文档
 
-- [共享会话](docs/shared-sessions.md)
-- [远程访问](docs/remote-access.md)
-- [移动端设置与构建](mobile/README.md)
-- [助理评测](host/assistant/eval/README.md)
-- [手动刷新开发环境](scripts/dev-refresh.md)
+[文档索引](docs/README.md) · [移动端](mobile/README.md) · [远程访问](docs/remote-access.md) · [贡献指南](CONTRIBUTING.md)
 
 ## 许可
 

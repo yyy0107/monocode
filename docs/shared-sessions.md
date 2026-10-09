@@ -37,10 +37,10 @@ history read-only; older Hosts show an upgrade notice. Rebuild and restart the
 development desktop to upgrade an idle older Host, or finish its running turns
 before retrying. Repeated synchronization reuses image copies. Desktop-native
 metadata changes are reconciled before native file refreshes, and a running Host
-turn is preserved during those refreshes. Actual provider/phone continuation and
-restart limits are recorded in [the mobile native continuation record](../specs/025-mobile-native-continuation/compatibility.md).
+turn is preserved during those refreshes. Provider and phone continuation must be verified with the matching Host and
+client versions.
 
-The Host now owns native conversations in its projects ([feature 030](../specs/030-host-native-sessions/spec.md)).
+The Host now owns native conversations in its projects.
 It lists provider sources and imports them itself. It runs every turn of an
 imported conversation, and it watches and merges external CLI writes even when
 the desktop is closed. Before a turn, the Host takes the writer lock, rechecks
@@ -67,8 +67,7 @@ A conversation MonoCode started itself keeps its warm provider process. If the s
 conversation is continued in the CLI, the next MonoCode send takes it over and
 merges the CLI's turns first. A rewind or branch switch outside MonoCode keeps
 history and pauses sending. Ownership checks remain Linux-only; on macOS and
-Windows, managed native conversations stay read-only. Verification status is in
-[the feature 030 compatibility record](../specs/030-host-native-sessions/compatibility.md).
+Windows, managed native conversations stay read-only.
 
 Local project paths, file operations and terminals remain native. Shared history
 is listed, searched and edited through the Host; SQLite continues to hold native
@@ -99,9 +98,9 @@ does not rescan orchestration created after migration.
 Host sessions retain the existing restrictions on `/operator`, handoff and BTW
 conversations. Mobile push notifications and background polling remain unchanged.
 
-Verification and unexercised environments are recorded in
-[the shared-session record](../specs/002-shared-sessions/quickstart.md) and
-[the Host orchestration record](../specs/019-host-orchestration/quickstart.md).
+Historical local `specs/` verification notes are not included in this repository.
+These behavior descriptions do not establish compatibility for untested provider
+or device combinations.
 
 
 ## Host personal assistant
@@ -136,8 +135,8 @@ queue revocation and stable request-ID replay still apply.
 **Continue** explicitly resumes interrupted reasoning and inspects durable action
 receipts. Changing the brain's provider creates a separate native conversation
 while keeping the public chat. Unknown external operations require verification
-before retry. See [assistant verification](../specs/022-host-assistant/compatibility.md)
-for the real-provider, browser, desktop and phone evidence boundaries.
+before retry. The separate [assistant evaluation guide](../host/assistant/eval/README.md)
+explains the scope of simulated and model-based evaluations.
 
 ## Shared default provider account
 

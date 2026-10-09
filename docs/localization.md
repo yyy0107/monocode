@@ -30,7 +30,8 @@ source code, terminal output, and external service error messages intact.
 Settings and keybinding searches match both English and Chinese labels without
 altering the internal IDs used to navigate or save preferences.
 
-Run `npm run check:web` and `npm run check:rust` before pushing. Localization
-tests cover persistence, storage failure, synchronization, fallback and
+Run the relevant localization and UI tests for changed behavior; run
+`npm run check:rust` when Rust code changes. Follow [AGENTS.md](../AGENTS.md#verification)
+for verification scope. Localization tests cover persistence, storage failure, synchronization, fallback and
 interpolation, Chinese search, the real settings control, and live switching
 without losing editor state or changing project names.
