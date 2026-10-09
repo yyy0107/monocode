@@ -1,10 +1,16 @@
 import type {
+  AssistantHistory,
+  AssistantHistoryCursor,
   AssistantMessage,
   AssistantMessages,
   AssistantView,
 } from "./assistant";
 import type { RemoteAttachment } from "../../connections/model/protocol";
 export type AssistantRpc = <T>(method: string, params?: object) => Promise<T>;
+type AssistantSync = {
+  assistant: AssistantView | null;
+  messages: AssistantMessage[];
+};
 export function mergeAssistantMessages(
   previous: AssistantMessage[],
   incoming: AssistantMessage[],
@@ -25,6 +31,13 @@ export function mergeAssistantMessages(
 export class AssistantClient {
   private revision = 0;
   private entries: AssistantMessage[] = [];
+  private syncMode?: "history" | "incremental";
+  private historySupported = false;
+  private historyCursor?: AssistantHistoryCursor;
+  private olderHistory = false;
+  private historyIds = new Set<string>();
+  private syncing?: Promise<AssistantSync>;
+  private loadingHistory?: Promise<AssistantMessage[]>;
   private outbox?: {
     commandId: string;
     text: string;
@@ -35,12 +48,48 @@ export class AssistantClient {
     readonly rpc: AssistantRpc,
     private storage?: Pick<Storage, "getItem" | "setItem" | "removeItem">,
   ) {}
-  async sync(): Promise<{
-    assistant: AssistantView | null;
-    messages: AssistantMessage[];
-  }> {
+  get hasOlderHistory() { return this.olderHistory; }
+  get historyMessageIds(): ReadonlySet<string> { return this.historyIds; }
+  sync({ history = this.historySupported, fresh = false } = {}): Promise<AssistantSync> {
+    this.historySupported = history;
+    // A mutation needs a read that starts after its receipt, even when an
+    // earlier poll is still in flight.
+    if (fresh && this.syncing)
+      return this.syncing.then(
+        () => this.sync({ history, fresh }),
+        () => this.sync({ history, fresh }),
+      );
+    // Share overlapping polls so an older response cannot roll the cursor backwards.
+    return this.syncing ??= this.syncMessages(history).finally(() => {
+      this.syncing = undefined;
+    });
+  }
+  private async syncMessages(history: boolean): Promise<AssistantSync> {
+    if (history && !this.syncMode) {
+      const page = await this.rpc<AssistantHistory>("assistant.messages", {
+        latest: true,
+        limit: 30,
+      });
+      this.entries = mergeAssistantMessages([], page.entries);
+      this.revision = page.assistant?.chatRevision ?? 0;
+      this.historyCursor = page.nextCursor;
+      this.olderHistory = page.hasMore;
+      this.historyIds = new Set(page.entries.map((message) => message.id));
+      this.syncMode = page.assistant ? "history" : undefined;
+      return { assistant: page.assistant, messages: this.entries };
+    }
     const assistant = await this.rpc<AssistantView | null>("assistant.get");
-    if (!assistant) return { assistant, messages: [] };
+    if (!assistant) {
+      this.entries = [];
+      this.revision = 0;
+      this.syncMode = undefined;
+      this.olderHistory = false;
+      this.historyCursor = undefined;
+      this.historyIds.clear();
+      return { assistant, messages: this.entries };
+    }
+    if (this.syncMode === "history" && assistant.chatRevision === this.revision)
+      return { assistant, messages: this.entries };
     let page: AssistantMessages;
     do {
       page = await this.rpc<AssistantMessages>("assistant.messages", {
@@ -50,7 +99,28 @@ export class AssistantClient {
       this.entries = mergeAssistantMessages(this.entries, page.entries);
       this.revision = page.nextRevision;
     } while (page.hasMore);
+    this.syncMode ??= "incremental";
     return { assistant, messages: this.entries };
+  }
+  loadOlder(): Promise<AssistantMessage[]> {
+    if (this.loadingHistory) return this.loadingHistory;
+    if (!this.olderHistory || !this.historyCursor)
+      return Promise.resolve(this.entries);
+    this.loadingHistory = this.rpc<AssistantHistory>("assistant.messages", {
+      latest: true,
+      before: this.historyCursor,
+      limit: 30,
+    }).then((page) => {
+      // Delta polling may have updated a card while its older page was in flight.
+      this.entries = mergeAssistantMessages(this.entries, page.entries);
+      for (const message of page.entries) this.historyIds.add(message.id);
+      this.historyCursor = page.nextCursor;
+      this.olderHistory = page.hasMore;
+      return this.entries;
+    }).finally(() => {
+      this.loadingHistory = undefined;
+    });
+    return this.loadingHistory;
   }
   pending() {
     const key = `monocode.assistant-outbox:${this.hostKey}`;

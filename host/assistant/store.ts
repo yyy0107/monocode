@@ -6,6 +6,8 @@ import {
   defaultAssistantPersona,
   fullAssistantPolicy,
   type AssistantAction,
+  type AssistantHistory,
+  type AssistantHistoryCursor,
   type AssistantMessage,
   type AssistantMessages,
   type AssistantPatch,
@@ -96,6 +98,7 @@ export class AssistantStore {
       .exec(`CREATE TABLE IF NOT EXISTS assistants (singleton INTEGER PRIMARY KEY CHECK(singleton=1), payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS assistant_messages (revision INTEGER PRIMARY KEY, id TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS assistant_messages_id ON assistant_messages(id, revision);
+      CREATE INDEX IF NOT EXISTS assistant_messages_history ON assistant_messages(json_extract(payload, '$.createdAt'), id, revision);
       CREATE TABLE IF NOT EXISTS assistant_wakeups (id TEXT PRIMARY KEY, dedupe TEXT UNIQUE NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS assistant_receipts (id TEXT PRIMARY KEY, signature TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS assistant_actions (request_id TEXT PRIMARY KEY, payload TEXT NOT NULL);
@@ -353,6 +356,39 @@ export class AssistantStore {
       )
       .all()
       .map((row) => JSON.parse(String(row.payload)));
+  }
+  history(before?: AssistantHistoryCursor, limit = 30): AssistantHistory {
+    if (
+      !Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
+      (before && (!Number.isSafeInteger(before.createdAt) || before.createdAt < 0 ||
+        typeof before.id !== "string" || !before.id.length))
+    )
+      throw new Error("Invalid history cursor or limit");
+    // Seek by creation order, not the latest revision: updates to an old card
+    // must neither move it into the newest page nor skip it in older pages.
+    // The scalar timestamp bound lets SQLite seek its expression index.
+    const query = this.host.db.prepare(`
+      SELECT message.payload FROM assistant_messages AS message
+      WHERE ${before ? "json_extract(message.payload, '$.createdAt') <= ? AND (json_extract(message.payload, '$.createdAt'), message.id) < (?, ?) AND" : ""}
+        NOT EXISTS (
+          SELECT 1 FROM assistant_messages AS newer
+          WHERE newer.id = message.id AND newer.revision > message.revision
+        )
+      ORDER BY json_extract(message.payload, '$.createdAt') DESC, message.id DESC
+      LIMIT ?
+    `);
+    const rows = before
+      ? query.all(before.createdAt, before.createdAt, before.id, limit + 1)
+      : query.all(limit + 1);
+    const entries: AssistantMessage[] = rows.slice(0, limit)
+      .map((row) => JSON.parse(String(row.payload))).reverse();
+    const oldest = entries[0];
+    return {
+      assistant: this.view(),
+      entries,
+      hasMore: rows.length > limit,
+      nextCursor: oldest && { createdAt: oldest.createdAt, id: oldest.id },
+    };
   }
   notificationActivity() {
     const assistant = this.get();

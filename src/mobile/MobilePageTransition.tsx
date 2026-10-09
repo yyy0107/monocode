@@ -223,15 +223,26 @@ export function MobilePageTransition({ route, visible = true, animate = true, sl
 }
 
 /** Fullscreen overlays retain their own subtree until the exit completes. */
-export function MobilePageOverlay({ open, children }: { open: boolean; children: ReactNode }) {
+export function MobilePageOverlay({ open, children, keepMounted = false }: {
+  open: boolean;
+  children: ReactNode;
+  /** Retain an opened page's data and DOM for the next visit. */
+  keepMounted?: boolean;
+}) {
   const { foldState, finish } = useCollapseMotion(open, MOBILE_PAGE_MOTION_MS);
   const element = useRef<HTMLDivElement>(null);
   const retained = useRef(children);
-  if (open) retained.current = children;
+  const opened = useRef(false);
+  if (open) {
+    retained.current = children;
+    opened.current = true;
+  }
   usePageMotion(element, open, true, 1, finish);
-  if (!open && foldState === "closed") return null;
+  const closed = !open && foldState === "closed";
+  if (closed && (!keepMounted || !opened.current)) return null;
   return (
     <div ref={element} className="mobile-page-overlay" inert={!open} aria-hidden={!open || undefined}
+      hidden={closed}
       data-page-motion={open ? "enter" : "exit"}
       style={{ "--mobile-page-offset": "10px" } as CSSProperties}
       onAnimationEnd={(event) => { if (event.target === event.currentTarget) finish(); }}>

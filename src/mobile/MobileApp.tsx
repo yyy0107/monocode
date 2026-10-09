@@ -1855,7 +1855,7 @@ export function MobileApp() {
       onClickCapture={(event) => interceptSearchOutside(event, true)}
       onContextMenuCapture={(event) => interceptSearchOutside(event, true)}
     >
-      <MobilePageOverlay key={`assistant:${client.connection?.endpoint}`} open={assistantOpen && !!client.connection}>
+      <MobilePageOverlay key={`assistant:${client.connection?.endpoint}:${client.connection?.environmentId}`} open={assistantOpen && !!client.connection} keepMounted>
       {client.connection && (
         <MobileAssistant
           ref={assistantPage}

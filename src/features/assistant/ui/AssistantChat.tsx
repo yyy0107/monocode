@@ -213,13 +213,14 @@ export function AssistantChat({
   // Only the newest rows render at first. Older ones join as the reader
   // nears the top, so cost follows what is read, not the history's length.
   const [historyRows, setHistoryRows] = useState(INITIAL_HISTORY_ROWS);
+  const [remoteHistory, setRemoteHistory] = useState(false);
   const renderedMessages = useMemo(
     () => historyRows >= visibleMessages.length
       ? visibleMessages
       : visibleMessages.slice(-historyRows),
     [visibleMessages, historyRows],
   );
-  const hasOlderHistory = historyRows < visibleMessages.length;
+  const hasOlderHistory = remoteHistory || historyRows < visibleMessages.length;
   // The loader sits above the oldest row for as long as older history
   // remains, usually scrolled away; its spinner only needs to run in view.
   const pauseOffscreen = usePauseOffscreenAnimation<HTMLDivElement>();
@@ -227,8 +228,22 @@ export function AssistantChat({
   const showOlderHistory = useCallback(() => {
     if (growingHistory.current) return;
     growingHistory.current = true;
-    startTransition(() => setHistoryRows((rows) => rows + HISTORY_ROW_STEP));
-  }, []);
+    const rows = historyRows + HISTORY_ROW_STEP;
+    if (rows <= visibleMessages.length || !client.hasOlderHistory) {
+      startTransition(() => setHistoryRows(rows));
+      return;
+    }
+    void client.loadOlder().then((entries) => {
+      startTransition(() => {
+        setMessages(entries);
+        setRemoteHistory(client.hasOlderHistory);
+        setHistoryRows(rows);
+      });
+    }, (e) => {
+      growingHistory.current = false;
+      setError(assistantErrorMessage(e));
+    });
+  }, [client, historyRows, visibleMessages.length]);
   useEffect(() => {
     growingHistory.current = false;
   }, [historyRows]);
@@ -253,6 +268,7 @@ export function AssistantChat({
   const renderingPlatform = useTranscriptRenderingPlatform(replies, {
     // An empty first sync is still loaded history; the first new reply animates.
     historyReady: assistant !== undefined,
+    historyIds: client.historyMessageIds,
   });
   const [catalog, setCatalog] = useState<HostModelCatalog>({
     models: {},
@@ -275,6 +291,11 @@ export function AssistantChat({
     "loading" | "ready" | "failed"
   >("loading");
   const [catalogError, setCatalogError] = useState<string>();
+  const catalogLoad = useMemo(() => ({ requested: false, disposed: false }), [client]);
+  useEffect(() => {
+    catalogLoad.disposed = false;
+    return () => { catalogLoad.disposed = true; };
+  }, [catalogLoad]);
   const [draft, setDraft] = useAssistantDraft(hostKey);
   const [retry, setRetry] = useState(() => client.pending());
   const [replyText, setReplyText] = useState<string | undefined>(() => {
@@ -302,16 +323,18 @@ export function AssistantChat({
     if (worker && !canRead(worker)) setWorkerOpen(false);
   }, [assistant, worker]);
   const sync = useCallback(async () => {
-    const result = await client.sync();
+    const result = await client.sync({ fresh: true });
     setAssistant(result.assistant);
     setMessages(result.messages);
+    setRemoteHistory(client.hasOlderHistory);
   }, [client]);
   useEffect(() => {
     if (!visible) return;
     let disposed = false,
       fetching = false,
       capable = false,
-      catalogRequested = false;
+      historySupported = false,
+      synchronized = assistant !== undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let refreshDelay = 2000;
     setConnectError(undefined);
@@ -319,18 +342,19 @@ export function AssistantChat({
       if (fetching || disposed) return;
       fetching = true;
       try {
-        const next = await client.sync();
+        const next = await client.sync({ history: historySupported });
         if (disposed) return;
+        synchronized = true;
+        setConnectError(undefined);
         setAssistant(next.assistant);
         setMessages(next.messages);
+        setRemoteHistory(client.hasOlderHistory);
         refreshDelay = next.assistant?.lifecycle === "running" ? 250 : 2000;
-        // The catalog loads once the Host has answered an assistant sync.
-        if (!catalogRequested) {
-          catalogRequested = true;
-          void loadCatalog(() => disposed);
-        }
       } catch (e) {
-        if (!disposed) setError(assistantErrorMessage(e));
+        if (!disposed) {
+          if (synchronized) setError(assistantErrorMessage(e));
+          else setConnectError(assistantErrorMessage(e));
+        }
       } finally {
         fetching = false;
         if (!disposed && capable)
@@ -351,6 +375,7 @@ export function AssistantChat({
         setImSupported(descriptor.capabilities?.includes("im.feishu.v1") ?? false);
         if (!available) return;
         capable = true;
+        historySupported = descriptor.capabilities?.includes("assistant.history") ?? false;
         await refresh();
       })
       .catch((e) => {
@@ -361,23 +386,31 @@ export function AssistantChat({
       clearTimeout(timer);
     };
   }, [client, rpc, attempt, visible]);
-  const loadCatalog = async (disposed: () => boolean = () => false) => {
+  const loadCatalog = useCallback(async () => {
+    catalogLoad.requested = true;
     setCatalogState("loading");
+    setCatalogError(undefined);
     try {
       const [models, projects] = await Promise.all([
         rpc<HostModelCatalog>("models.list"),
         rpc<HostProject[]>("projects.list"),
       ]);
-      if (disposed()) return;
+      if (catalogLoad.disposed) return;
       setCatalog(models);
       setProjects(projects);
       setCatalogState("ready");
     } catch (e) {
-      if (disposed()) return;
+      if (catalogLoad.disposed) return;
       setCatalogError(assistantErrorMessage(e));
       setCatalogState("failed");
     }
-  };
+  }, [rpc, catalogLoad]);
+  // A normal chat does not need model discovery or the project catalog.
+  // Keep those RPCs off the entry path until setup or settings are shown.
+  useEffect(() => {
+    if (visible && supported === true && (settingsOpen || assistant === null) && !catalogLoad.requested)
+      void loadCatalog();
+  }, [visible, supported, settingsOpen, assistant === null, catalogLoad, loadCatalog]);
   const loadSessions = useCallback(
     async (projectIds: string[]) => {
       const lists = await Promise.all(

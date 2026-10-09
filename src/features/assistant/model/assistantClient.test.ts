@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { AssistantClient, mergeAssistantMessages } from "./assistantClient";
-import type { AssistantMessage } from "./assistant";
+import type { AssistantHistory, AssistantMessage } from "./assistant";
 const message = (id: string, revision: number): AssistantMessage => ({
   id,
   kind: "assistant",
@@ -76,6 +76,97 @@ it("drains message pages in order and retains its cursor across polling", async 
   const client = new AssistantClient("one", rpc);
   expect((await client.sync()).messages).toHaveLength(2);
   expect(rpc.mock.calls[2][1]).toMatchObject({ afterRevision: 1 });
+});
+it("opens with one recent history read and skips unchanged message polls", async () => {
+  const assistant = { id: "assistant", chatRevision: 1000 } as AssistantHistory["assistant"];
+  const rpc = vi.fn().mockResolvedValueOnce({
+    assistant,
+    entries: [message("newest", 1000)],
+    nextCursor: { createdAt: 1, id: "newest" },
+    hasMore: true,
+  }).mockResolvedValueOnce(assistant).mockResolvedValueOnce({ ...assistant, chatRevision: 1001 })
+    .mockResolvedValueOnce({ entries: [message("newest", 1001)], nextRevision: 1001, hasMore: false });
+  const client = new AssistantClient("recent", rpc);
+  const first = await client.sync({ history: true });
+  expect(first.messages).toEqual([message("newest", 1000)]);
+  expect(rpc.mock.calls).toEqual([["assistant.messages", { latest: true, limit: 30 }]]);
+  expect(client.hasOlderHistory).toBe(true);
+  expect((await client.sync()).messages).toBe(first.messages);
+  expect(rpc).toHaveBeenCalledTimes(2);
+  expect((await client.sync()).messages).toEqual([message("newest", 1001)]);
+  expect(rpc.mock.calls[3]).toEqual(["assistant.messages", { afterRevision: 1000, limit: 100 }]);
+});
+it("keeps recent history enabled when setup finishes after an empty first read", async () => {
+  const assistant = { id: "a", chatRevision: 1 } as AssistantHistory["assistant"];
+  const rpc = vi.fn().mockResolvedValueOnce({ assistant: null, entries: [], hasMore: false })
+    .mockResolvedValueOnce({ assistant, entries: [message("first", 1)], hasMore: false })
+    .mockResolvedValueOnce(assistant);
+  const client = new AssistantClient("setup", rpc);
+  expect((await client.sync({ history: true })).assistant).toBeNull();
+  expect((await client.sync({ fresh: true })).messages).toEqual([message("first", 1)]);
+  await client.sync();
+  expect(rpc.mock.calls.map(([method]) => method)).toEqual([
+    "assistant.messages", "assistant.messages", "assistant.get",
+  ]);
+  expect(rpc.mock.calls[1][1]).toEqual({ latest: true, limit: 30 });
+});
+it("merges a delayed older page with live revisions without resetting the delta cursor", async () => {
+  let resolveHistory!: (page: AssistantHistory) => void;
+  const history = new Promise<AssistantHistory>((resolve) => { resolveHistory = resolve; });
+  const assistant = { id: "assistant", chatRevision: 10 } as AssistantHistory["assistant"];
+  const rpc = vi.fn().mockResolvedValueOnce({
+    assistant, entries: [message("latest", 10)],
+    nextCursor: { createdAt: 1, id: "latest" }, hasMore: true,
+  }).mockReturnValueOnce(history)
+    .mockResolvedValueOnce({ ...assistant, chatRevision: 11 })
+    .mockResolvedValueOnce({ entries: [message("older", 11)], nextRevision: 11, hasMore: false })
+    .mockResolvedValueOnce({ ...assistant, chatRevision: 11 });
+  const client = new AssistantClient("history", rpc);
+  await client.sync({ history: true });
+  const pending = client.loadOlder();
+  expect(client.loadOlder()).toBe(pending);
+  await client.sync();
+  resolveHistory({ assistant, entries: [message("older", 1)], hasMore: false });
+  expect(await pending).toEqual([message("latest", 10), message("older", 11)]);
+  expect(client.historyMessageIds.has("older")).toBe(true);
+  expect(client.hasOlderHistory).toBe(false);
+  expect((await client.sync()).messages).toEqual(await pending);
+  expect(rpc).toHaveBeenCalledTimes(5);
+  expect(rpc.mock.calls[1][1]).toEqual({ latest: true, before: { createdAt: 1, id: "latest" }, limit: 30 });
+});
+it("shares concurrent refreshes and allows a failed older page to retry", async () => {
+  let resolve!: (page: AssistantHistory) => void;
+  const rpc = vi.fn().mockReturnValueOnce(new Promise<AssistantHistory>((done) => { resolve = done; }))
+    .mockRejectedValueOnce(new Error("offline"))
+    .mockResolvedValueOnce({ entries: [message("old", 1)], hasMore: false });
+  const client = new AssistantClient("concurrent", rpc);
+  const first = client.sync({ history: true });
+  expect(client.sync()).toBe(first);
+  expect(rpc).toHaveBeenCalledTimes(1);
+  resolve({ assistant: { id: "a", chatRevision: 2 } as any, entries: [message("new", 2)],
+    hasMore: true, nextCursor: { createdAt: 1, id: "new" } });
+  await first;
+  await expect(client.loadOlder()).rejects.toThrow("offline");
+  expect(client.hasOlderHistory).toBe(true);
+  expect((await client.loadOlder()).map((m) => m.id)).toEqual(["new", "old"]);
+  expect(rpc.mock.calls[1]).toEqual(rpc.mock.calls[2]);
+});
+it("refreshes after a mutation instead of reusing a poll that began before it", async () => {
+  const assistant = { id: "a", chatRevision: 1 } as AssistantHistory["assistant"];
+  let resolvePoll!: (view: AssistantHistory["assistant"]) => void;
+  const rpc = vi.fn().mockResolvedValueOnce({ assistant, entries: [message("one", 1)], hasMore: false })
+    .mockReturnValueOnce(new Promise((resolve) => { resolvePoll = resolve; }))
+    .mockResolvedValueOnce({ ...assistant, chatRevision: 2 })
+    .mockResolvedValueOnce({ entries: [message("two", 2)], nextRevision: 2, hasMore: false });
+  const client = new AssistantClient("mutation", rpc);
+  await client.sync({ history: true });
+  const poll = client.sync();
+  const refreshed = client.sync({ fresh: true });
+  expect(rpc).toHaveBeenCalledTimes(2);
+  resolvePoll(assistant);
+  expect((await poll).messages).toEqual([message("one", 1)]);
+  expect((await refreshed).messages).toEqual([message("one", 1), message("two", 2)]);
+  expect(rpc.mock.calls[3]).toEqual(["assistant.messages", { afterRevision: 1, limit: 100 }]);
 });
 
 it("reuses unchanged messages across empty and repeated incremental pages", () => {

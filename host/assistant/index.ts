@@ -197,7 +197,18 @@ export class HostAssistant {
       return this.store.view();
     }
     if (method === "assistant.messages") {
-      fields(raw, ["afterRevision", "limit"]);
+      fields(raw, ["afterRevision", "limit", "latest", "before"]);
+      if (raw.latest !== undefined) {
+        if (raw.latest !== true || raw.afterRevision !== undefined)
+          throw new Error("Invalid history cursor");
+        const before = raw.before === undefined ? undefined : object(raw.before);
+        if (before) fields(before, ["createdAt", "id"]);
+        return this.store.history(
+          before ? { createdAt: before.createdAt as number, id: before.id as string } : undefined,
+          raw.limit === undefined ? 30 : Number(raw.limit),
+        );
+      }
+      if (raw.before !== undefined) throw new Error("Invalid history cursor");
       return this.store.messages(
         raw.afterRevision === undefined ? 0 : Number(raw.afterRevision),
         raw.limit === undefined ? 50 : Number(raw.limit),

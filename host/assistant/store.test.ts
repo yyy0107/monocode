@@ -198,6 +198,47 @@ it("compacts partial snapshots while preserving cursors, order and interrupted o
   ]);
   expect(restored.messages().entries).toHaveLength(2);
 });
+it("pages newest message snapshots by stable creation order across revisions and timestamp ties", () => {
+  const { assistant } = setup();
+  assistant.initialize({ harness: "codex", model: "test" });
+  const messages = Array.from({ length: 65 }, (_, index) => assistant.message({
+    id: `m${String(index).padStart(2, "0")}`,
+    kind: "assistant",
+    text: `Reply ${index}`,
+    createdAt: Math.floor(index / 3) + 1,
+    streaming: index === 35,
+  }));
+  const first = assistant.history();
+  expect(first.entries).toEqual(messages.slice(-30));
+  expect(first.hasMore).toBe(true);
+  expect(first.assistant?.chatRevision).toBe(messages.at(-1)?.revision);
+  expect(first.assistant).not.toHaveProperty("brainSessionId");
+  // Streaming compaction removes the boundary's old revision. The cursor must
+  // still work, and updating an older reply must not move it between pages.
+  assistant.message({ id: "m35", kind: "assistant", text: "Boundary updated", streaming: true });
+  messages[10] = assistant.message({ id: "m10", kind: "assistant", text: "Older reply updated" });
+  assistant.message({ id: "new", kind: "user", text: "New arrival", createdAt: 100 });
+  const second = assistant.history(first.nextCursor);
+  expect(second.entries).toEqual(messages.slice(5, 35));
+  expect(second.hasMore).toBe(true);
+  const last = assistant.history(second.nextCursor);
+  expect(last.entries).toEqual(messages.slice(0, 5));
+  expect(last.hasMore).toBe(false);
+  expect(assistant.history(last.nextCursor).entries).toEqual([]);
+  expect(assistant.messages(first.assistant!.chatRevision).entries.map((m) => m.id))
+    .toEqual(["m35", "m10", "new"]);
+});
+it("validates history limits and cursors and returns empty history before setup", () => {
+  const { assistant } = setup();
+  expect(assistant.history()).toMatchObject({ assistant: null, entries: [], hasMore: false });
+  for (const limit of [0, 101, 1.5, NaN])
+    expect(() => assistant.history(undefined, limit)).toThrow(/cursor or limit/);
+  for (const before of [
+    { createdAt: -1, id: "one" }, { createdAt: 0.5, id: "one" },
+    { createdAt: 1, id: "" }, { createdAt: 1, id: null },
+  ])
+    expect(() => assistant.history(before as any)).toThrow(/cursor or limit/);
+});
 it("canonical signatures ignore object key order but preserve content", () => {
   expect(signature({ b: 2, a: { c: 1 } })).toBe(
     signature({ a: { c: 1 }, b: 2 }),

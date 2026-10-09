@@ -180,6 +180,29 @@ it("retains the assistant for an inert exit and supports reopening", () => {
   finish();
   expect(node.querySelector("main")).toBeNull();
 });
+it.each([false, true])("retains an opened overlay after closing when requested (reduced motion: %s)", (reduced) => {
+  vi.spyOn(window, "matchMedia").mockReturnValue({ matches: reduced } as MediaQueryList);
+  const show = (open: boolean) => act(() => root.render(createElement(MobilePageOverlay,
+    { open, keepMounted: true, children: createElement(Page, { name: "assistant" }) })));
+  show(false);
+  expect(node.querySelector("main")).toBeNull();
+  show(true);
+  const page = node.querySelector("main")!;
+  act(() => page.querySelector("button")!.click());
+  show(false);
+  if (!reduced) expect(node.querySelector<HTMLElement>(".mobile-page-overlay")!.hidden).toBe(false);
+  finish();
+  const layer = node.querySelector<HTMLElement>(".mobile-page-overlay")!;
+  expect(layer.hidden).toBe(true);
+  expect(layer.hasAttribute("inert")).toBe(true);
+  expect(page.dataset.visible).toBe("false");
+  show(true);
+  expect(layer.hidden).toBe(false);
+  expect(layer.hasAttribute("inert")).toBe(false);
+  expect(node.querySelector("main")).toBe(page);
+  expect(page.textContent).toContain("assistant:1");
+  expect(page.dataset.visible).toBe("true");
+});
 
 it("freezes sheet payload on close and prevents late exits from removing a reopened sheet", () => {
   let exited: (() => void) | undefined;

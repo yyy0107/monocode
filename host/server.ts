@@ -360,6 +360,7 @@ export function createHostServer(
                 "nativeSources.syncAll",
                 "sessions.orchestration",
                 "assistant.v1",
+                "assistant.history",
                 "assistant.persona",
                 "im.feishu.v1",
                 "resources",

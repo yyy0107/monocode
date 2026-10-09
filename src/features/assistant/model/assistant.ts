@@ -253,6 +253,15 @@ export type AssistantMessages = {
   hasMore: boolean;
   nextRevision: number;
 };
+/** Creation order stays stable when a reply streams or a card changes status. */
+export type AssistantHistoryCursor = { createdAt: number; id: string };
+/** Newest public message snapshots, with the view from the same Host read. */
+export type AssistantHistory = {
+  assistant: AssistantView | null;
+  entries: AssistantMessage[];
+  hasMore: boolean;
+  nextCursor?: AssistantHistoryCursor;
+};
 export type AssistantReceipt = {
   commandId: string;
   revision: number;

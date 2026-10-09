@@ -1103,8 +1103,11 @@ it("advertises assistant RPC, enforces device auth and hides the private brain",
   const { engine, store, project, call, first } = await setup();
   await engine.ready;
   engine.assistant.setCatalog(async () => ["codex"], async () => ({ models: { codex: [{ id: "test", name: "Test" }] }, errors: {} }));
-  expect((await call("environment.describe")).value.result.capabilities).toContain("assistant.v1");
+  expect((await call("environment.describe")).value.result.capabilities)
+    .toEqual(expect.arrayContaining(["assistant.v1", "assistant.history"]));
   expect((await call("assistant.get")).value.result).toBeNull();
+  expect((await call("assistant.messages", { latest: true })).value.result)
+    .toMatchObject({ assistant: null, entries: [], hasMore: false });
   expect((await call("assistant.memoryTopic", { topic: "deploys" })).value.result).toBeNull();
   const command = { commandId: "setup-assistant", expectedRevision: 0, patch: { harness: "codex", model: "test", triggers: { user: true, event: false, schedule: false } } };
   expect((await call("assistant.configure", command)).status).toBe(200);
@@ -1121,6 +1124,16 @@ it("advertises assistant RPC, enforces device auth and hides the private brain",
   expect((await call("assistant.memoryTopic", { topic: "deploys", text: "overwrite" })).value.error).toBeTruthy();
   expect(engine.assistant.store.memoryDoc("topic:deploys")).toEqual({ text: topicText, revision: 1 });
   expect((await call("assistant.send", { commandId: "assistant-message", text: "Hello" })).status).toBe(200);
+  const history = (await call("assistant.messages", { latest: true, limit: 1 })).value.result;
+  expect(history.entries).toHaveLength(1);
+  expect(history.assistant.id).toBe((await call("assistant.get")).value.result.id);
+  expect(history.assistant).not.toHaveProperty("brainSessionId");
+  for (const params of [
+    { latest: false }, { latest: true, afterRevision: 0 },
+    { latest: true, before: { createdAt: 1, id: "one", extra: true } },
+    { before: history.nextCursor },
+  ])
+    expect((await call("assistant.messages", params)).value.error).toBeTruthy();
   await vi.waitFor(() => expect(engine.assistant.store.get()?.brainSessionId).toBeTruthy());
   const brain = engine.assistant.store.get()!.brainSessionId!;
   expect((await call("sessions.get", { sessionId: brain })).value.error).toMatch(/private/);
@@ -1130,6 +1143,7 @@ it("advertises assistant RPC, enforces device auth and hides the private brain",
   expect((await call("assistant.configure", { ...command, commandId: "conflict", patch: { name: "Changed" } })).value).toMatchObject({ code: "conflict" });
   store.revokeToken(first.token);
   expect((await call("assistant.get")).status).toBe(401);
+  expect((await call("assistant.messages", { latest: true })).status).toBe(401);
   expect((await call("assistant.memoryTopic", { topic: "deploys" })).status).toBe(401);
 });
 

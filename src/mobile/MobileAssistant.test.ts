@@ -627,6 +627,7 @@ it("handles menu, settings and exit as separate back steps while retaining the d
   expect(data.close).not.toHaveBeenCalled();
   act(() => button("Assistant options").click());
   act(() => button("Settings").click());
+  await flush();
   const page = node.querySelector<HTMLElement>(
     ".mobile-assistant-settings-page",
   )!;
@@ -655,6 +656,7 @@ it("reopens the settings sheet during closing without losing unsaved edits", asy
   const data = await mount();
   act(() => button("Assistant options").click());
   act(() => button("Settings").click());
+  await flush();
   const page = node.querySelector<HTMLElement>(
     ".mobile-assistant-settings-page",
   )!;
@@ -682,6 +684,7 @@ it("opens and closes the settings sheet immediately with reduced motion", async 
   const data = await mount();
   act(() => button("Assistant options").click());
   act(() => button("Settings").click());
+  await flush();
   const page = node.querySelector<HTMLElement>(
     ".mobile-assistant-settings-page",
   )!;
@@ -701,6 +704,7 @@ it("releases the settings action bar's space during typing and restores unsaved 
     await mount();
     act(() => button("Assistant options").click());
     act(() => button("Settings").click());
+    await flush();
     const name = node.querySelector<HTMLInputElement>('.assistant-settings input:not([type])')!;
     type(name, "Unsaved name");
     const actions = () => node.querySelector<HTMLElement>(".mobile-assistant-settings-actions");
@@ -737,6 +741,7 @@ it("opens settings above an existing keyboard and restores actions without anima
     keyboard(320);
     act(() => button("Assistant options").click());
     act(() => button("Settings").click());
+    await flush();
     expect(node.querySelector(".assistant-settings")).not.toBeNull();
     expect(node.querySelector(".assistant-settings-footer")).toBeNull();
     keyboard(0);
@@ -1048,6 +1053,7 @@ it("closes only the nested settings picker on Escape", async () => {
   const data = await mount();
   act(() => button("Assistant options").click());
   act(() => button("Settings").click());
+  await flush();
   act(() => vi.advanceTimersByTime(211));
   const page = node.querySelector<HTMLElement>(
     ".mobile-assistant-settings-page",

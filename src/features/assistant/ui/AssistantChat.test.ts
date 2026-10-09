@@ -4,10 +4,12 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AssistantChat } from "./AssistantChat";
+import { MobileAssistant } from "../../../mobile/MobileAssistant";
 import { AssistantSettings } from "./AssistantSettings";
 import {
   fullAssistantPolicy,
   type AssistantMessage,
+  type AssistantHistory,
   type AssistantPatch,
   type AssistantView,
 } from "../model/assistant";
@@ -955,8 +957,10 @@ it("only acknowledges messages while the assistant page and document are visible
 });
 it("paints the newest history first and adds older rows near the top", async () => {
   // A tall log: the newest rows already fill the viewport.
-  Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get() { return this.classList.contains("assistant-messages") ? 5000 : 0; } });
-  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get() { return this.classList.contains("assistant-messages") ? 600 : 0; } });
+  const height = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get")
+    .mockImplementation(function () { return this.classList.contains("assistant-messages") ? 5000 : 0; });
+  const viewport = vi.spyOn(HTMLElement.prototype, "clientHeight", "get")
+    .mockImplementation(function () { return this.classList.contains("assistant-messages") ? 600 : 0; });
   const view = {
     id: "a",
     name: "Assistant",
@@ -1017,6 +1021,110 @@ it("paints the newest history first and adds older rows near the top", async () 
   }
   expect(rows()).toHaveLength(75);
   expect(rows()[0]?.textContent).toContain("Message 0");
-  delete (HTMLElement.prototype as any).scrollHeight;
-  delete (HTMLElement.prototype as any).clientHeight;
+  height.mockRestore();
+  viewport.mockRestore();
+});
+it.each([false, true])("opens a paged chat before older history and defers catalog discovery until settings (mobile: %s)", async (mobile) => {
+  const height = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get")
+    .mockImplementation(function () { return this.classList.contains("assistant-messages") ? 5000 : 0; });
+  const viewport = vi.spyOn(HTMLElement.prototype, "clientHeight", "get")
+    .mockImplementation(function () { return this.classList.contains("assistant-messages") ? 600 : 0; });
+  const getRect = HTMLElement.prototype.getBoundingClientRect;
+  const geometry = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function () {
+      const parent = this.parentElement;
+      if (parent?.classList.contains("assistant-messages"))
+        return new DOMRect(0, [...parent.children].indexOf(this) * 100 - parent.scrollTop, 300, 100);
+      if (this.classList.contains("assistant-messages")) return new DOMRect(0, 0, 300, 600);
+      return getRect.call(this);
+    });
+  try {
+    const view = { ...configuredView(), chatRevision: 75 };
+    const entries: AssistantMessage[] = Array.from({ length: 75 }, (_, index) => ({
+      id: `m${index}`, kind: index === 20 ? "assistant" : "user",
+      text: index === 20 ? "An older reply should appear immediately without replaying its text animation." : `Message ${index}`,
+      createdAt: index + 1, revision: index + 1,
+    }));
+    let resolveOlder!: (page: AssistantHistory) => void;
+    const older = new Promise<AssistantHistory>((resolve) => { resolveOlder = resolve; });
+    const rpc = vi.fn(async (method: string, params?: any) => {
+      if (method === "environment.describe") return { capabilities: ["assistant.v1", "assistant.history"] };
+      if (method === "assistant.get") return view;
+      if (method === "assistant.messages") {
+        expect(params.latest).toBe(true);
+        if (params.before?.id === "m45") return older;
+        const end = params.before ? Number(params.before.id.slice(1)) : 75;
+        const start = Math.max(0, end - params.limit);
+        return { assistant: view, entries: entries.slice(start, end), hasMore: start > 0,
+          nextCursor: { createdAt: start + 1, id: `m${start}` } };
+      }
+      if (method === "models.list") return { models: { codex: [{ id: "test", name: "Test" }] }, errors: {} };
+      if (method === "projects.list") return [];
+      throw new Error(`Unexpected method: ${method}`);
+    });
+    act(() => root.render(createElement(mobile ? MobileAssistant : AssistantChat, {
+      hostKey: "paged", hostName: "Host", rpc: rpc as any, onOpen: () => {},
+    })));
+    await flush();
+    expect(node.querySelectorAll(".assistant-message-row")).toHaveLength(30);
+    expect(node.textContent).toContain("Message 74");
+    expect(node.textContent).not.toContain("Message 0");
+    expect(rpc.mock.calls.map(([method]) => method)).toEqual(["environment.describe", "assistant.messages"]);
+    const log = node.querySelector<HTMLDivElement>(".assistant-messages")!;
+    log.scrollTop = 100;
+    act(() => {
+      log.dispatchEvent(new Event("scroll"));
+      log.dispatchEvent(new Event("scroll"));
+    });
+    const anchored = [...log.querySelectorAll<HTMLElement>(".assistant-message-row")]
+      .find((row) => row.textContent?.includes("Message 50"))!;
+    const anchorTop = anchored.getBoundingClientRect().top;
+    await flush();
+    expect(node.querySelectorAll(".assistant-message-row")).toHaveLength(30);
+    expect(rpc.mock.calls.filter(([method]) => method === "assistant.messages")).toHaveLength(2);
+    await act(async () => resolveOlder({ assistant: view, entries: entries.slice(15, 45), hasMore: true,
+      nextCursor: { createdAt: 16, id: "m15" } }));
+    await flush();
+    expect(node.querySelectorAll(".assistant-message-row")).toHaveLength(60);
+    expect(anchored.getBoundingClientRect().top).toBe(anchorTop);
+    expect(node.querySelector(".assistant-markdown")?.textContent).toContain(entries[20].kind === "assistant" && entries[20].text);
+    log.scrollTop = 100;
+    act(() => log.dispatchEvent(new Event("scroll")));
+    await flush();
+    expect(node.querySelectorAll(".assistant-message-row")).toHaveLength(75);
+    expect(node.querySelector(".assistant-history-loading")).toBeNull();
+    if (mobile) {
+      act(() => node.querySelector<HTMLButtonElement>('[aria-label="Assistant options"]')!.click());
+      act(() => [...document.querySelectorAll<HTMLButtonElement>("button.mobile-sheet-row")]
+        .find((button) => button.textContent === "Settings")!.click());
+    } else act(() => node.querySelector<HTMLButtonElement>('[aria-label="Settings"]')!.click());
+    await flush();
+    expect(rpc.mock.calls.filter(([method]) => method === "models.list")).toHaveLength(1);
+    expect(rpc.mock.calls.filter(([method]) => method === "projects.list")).toHaveLength(1);
+  } finally {
+    height.mockRestore();
+    viewport.mockRestore();
+    geometry.mockRestore();
+  }
+});
+it("offers a retry when the first history read fails and keeps legacy Hosts on incremental sync", async () => {
+  const view = configuredView();
+  const rpc = vi.fn().mockResolvedValueOnce({ capabilities: ["assistant.v1", "assistant.history"] })
+    .mockRejectedValueOnce(new Error("Host connection failed"))
+    .mockResolvedValueOnce({ capabilities: ["assistant.v1"] })
+    .mockResolvedValueOnce(view)
+    .mockResolvedValueOnce({ entries: [], nextRevision: 0, hasMore: false });
+  act(() => root.render(createElement(AssistantChat, {
+    hostKey: "retry-history", hostName: "Host", rpc: rpc as any, onOpen: () => {},
+  })));
+  await flush();
+  expect(node.querySelector(".assistant-loading")).toBeNull();
+  act(() => [...node.querySelectorAll<HTMLButtonElement>('[role="alert"] button')]
+    .find((button) => button.textContent === "Retry")!.click());
+  await flush();
+  expect(node.querySelector(".assistant-conversation")).not.toBeNull();
+  expect(rpc.mock.calls.filter(([method]) => method === "assistant.messages")).toEqual([
+    ["assistant.messages", { latest: true, limit: 30 }],
+    ["assistant.messages", { afterRevision: 0, limit: 100 }],
+  ]);
 });

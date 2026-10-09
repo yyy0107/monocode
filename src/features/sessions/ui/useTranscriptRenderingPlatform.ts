@@ -15,8 +15,9 @@ export function useTranscriptRenderingPlatform(
   entries: readonly { id: string; text: string }[],
   {
     historyReady = entries.length > 0,
+    historyIds,
     animateFrom,
-  }: { historyReady?: boolean; animateFrom?: string } = {},
+  }: { historyReady?: boolean; historyIds?: ReadonlySet<string>; animateFrom?: string } = {},
 ) {
   const platform = useContext(TranscriptPlatformContext);
   const lengths = useMemo(
@@ -41,6 +42,11 @@ export function useTranscriptRenderingPlatform(
     );
     seededReveal.current = true;
   }
+  // Older pages arrive after first paint, but their replies are already complete.
+  if (historyIds)
+    for (const entry of entries)
+      if (historyIds.has(entry.id) && !seenLengths.current.has(entry.id))
+        seenLengths.current.set(entry.id, entry.text.length);
   const revealText = useCallback(
     (id?: string) => {
       if (!id) return { unit: "character" as const };
