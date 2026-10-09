@@ -321,8 +321,8 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   {
     id: "ui-font-weight",
     section: "appearance",
-    label: "Interface font style",
-    keywords: "weight bold medium regular 界面 字体 样式 粗细 字重",
+    label: "Interface font",
+    keywords: "typeface family system weight bold medium regular 界面 字体 系统 样式 粗细 字重",
   },
   {
     id: "content-font",

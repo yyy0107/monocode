@@ -38,11 +38,13 @@ export interface AppearanceProfile {
   hue: number;
   saturation: number;
   contrast: number;
+  /** Font family name; empty uses the system interface font. */
+  uiFont: string;
   uiWeight: FontWeight;
   /** Font family name; empty follows the interface font. */
   contentFont: string;
   contentWeight: FontWeight;
-  /** Font family name; empty uses the system monospace stack. */
+  /** Font family name; empty uses Consolas, then the system monospace stack. */
   codeFont: string;
   codeWeight: FontWeight;
 }
@@ -63,6 +65,20 @@ export const FONT_WEIGHT_LABELS: Record<FontWeight, string> = {
   600: "Semibold",
   700: "Bold",
 };
+
+let systemFontsRequest: Promise<string[]> | null = null;
+
+/** Installed font families from the desktop backend; presets elsewhere. */
+export function loadSystemFonts(): Promise<string[]> {
+  systemFontsRequest ??= import("@tauri-apps/api/core")
+    .then(({ invoke }) => invoke<string[]>("list_system_fonts"))
+    .then((fonts) => (Array.isArray(fonts) ? fonts : []))
+    .catch(() => {
+      systemFontsRequest = null;
+      return [];
+    });
+  return systemFontsRequest;
+}
 
 export const CONTENT_FONT_PRESETS = [
   "Inter",
@@ -94,6 +110,7 @@ export const DEFAULT_PROFILE: AppearanceProfile = {
   hue: THEME_HUE_DEFAULT,
   saturation: THEME_SATURATION_DEFAULT,
   contrast: CONTRAST_DEFAULT,
+  uiFont: "",
   uiWeight: 400,
   contentFont: "",
   contentWeight: 400,
@@ -190,6 +207,7 @@ export function normalizeProfile(value: unknown): AppearanceProfile {
       CONTRAST_MIN,
       CONTRAST_MAX,
     ),
+    uiFont: normalizeFontFamily(raw.uiFont),
     uiWeight: normalizeWeight(raw.uiWeight),
     contentFont: normalizeFontFamily(raw.contentFont),
     contentWeight: normalizeWeight(raw.contentWeight),
@@ -315,6 +333,7 @@ function fontStackPrefix(family: string) {
 /** Fonts, weights and contrast; colour goes through the appearance helpers. */
 export function applyTypographyProfile(profile: AppearanceProfile) {
   const style = document.documentElement.style;
+  style.setProperty("--user-ui-font", fontStackPrefix(profile.uiFont));
   style.setProperty("--user-content-font", fontStackPrefix(profile.contentFont));
   style.setProperty("--user-code-font", fontStackPrefix(profile.codeFont));
   style.setProperty("--ui-font-weight", String(profile.uiWeight));

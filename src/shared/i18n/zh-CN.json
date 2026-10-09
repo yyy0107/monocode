@@ -3516,5 +3516,7 @@
   "Cannot locate npm package directory": "找不到 npm 包目录",
   "Cannot locate npm prefix": "找不到 npm 安装前缀",
   "Cannot locate npm package parent": "找不到 npm 包的父目录",
-  "Cannot locate npm package name": "找不到 npm 包名称"
+  "Cannot locate npm package name": "找不到 npm 包名称",
+  "Interface font": "界面字体",
+  "Default (Consolas)": "默认（Consolas）"
 }

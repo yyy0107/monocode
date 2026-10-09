@@ -9,6 +9,7 @@ mod control;
 pub mod control_cli;
 mod cursor_store;
 mod external_editor;
+mod fonts;
 mod fs;
 mod fs_watch;
 mod gitlab;
@@ -269,6 +270,7 @@ pub fn run() {
             local_host::shared_host_prepare,
             local_host::shared_host_resource_claim,
             local_host::shared_host_resource_release,
+            fonts::list_system_fonts,
             remote::remote_machines,
             remote::remote_connect,
             remote::remote_disconnect,

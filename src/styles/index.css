@@ -113,11 +113,12 @@
   --color-mention: #38bdf8;
   /* Settings → Appearance → Code font prepends `--user-code-font`. */
   --font-mono:
-    var(--user-code-font,) ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    var(--user-code-font,) Consolas, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
     "Noto Sans CJK SC", monospace;
+  /* Settings → Appearance → Interface font prepends `--user-ui-font`. */
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    var(--user-ui-font,) ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
     Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
   /* Settings → Appearance → Content font; empty follows the interface. */
   --font-content: var(--user-content-font,) var(--font-sans);

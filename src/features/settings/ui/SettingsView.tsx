@@ -88,6 +88,7 @@ import {
   FONT_WEIGHT_LABELS,
   FONT_WEIGHTS,
   loadFontSize,
+  loadSystemFonts,
   loadProfile,
   loadReducedMotion,
   loadSeparateSchemes,
@@ -2594,7 +2595,22 @@ function TintRows({ appearance }: { appearance: AppearanceSettings }) {
 
 const CUSTOM_FONT = "__custom__";
 
-/** Preset font list plus a free-text family for anything else installed. */
+/** Installed families, or `fallback` until/unless the backend answers. */
+function useSystemFonts(fallback: readonly string[]): readonly string[] {
+  const [fonts, setFonts] = useState<readonly string[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void loadSystemFonts().then((list) => {
+      if (alive && list.length > 0) setFonts(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return fonts ?? fallback;
+}
+
+/** Installed font list plus a free-text family for anything else. */
 function FontFamilySelect({
   label,
   value,
@@ -2609,6 +2625,7 @@ function FontFamilySelect({
   onChange: (value: string) => void;
 }) {
   const { t: uiT } = useTranslation();
+  presets = useSystemFonts(presets);
   const isPreset = value === "" || presets.includes(value);
   const [custom, setCustom] = useState(!isPreset);
   const [draft, setDraft] = useState(isPreset ? "" : value);
@@ -2794,7 +2811,14 @@ function TypographyCards({ appearance }: { appearance: AppearanceSettings }) {
             <TintRows appearance={appearance} />
           </>
         ) : null}
-        <Row id="ui-font-weight" label={uiT("Interface font style")}>
+        <Row id="ui-font-weight" label={uiT("Interface font")}>
+          <FontFamilySelect
+            label={uiT("Interface font")}
+            value={profile.uiFont}
+            defaultLabel={uiT("System")}
+            presets={CONTENT_FONT_PRESETS}
+            onChange={(uiFont) => updateProfile({ uiFont })}
+          />
           <FontWeightSelect
             label={uiT("Interface font style")}
             value={profile.uiWeight}
@@ -2819,7 +2843,7 @@ function TypographyCards({ appearance }: { appearance: AppearanceSettings }) {
           <FontFamilySelect
             label={uiT("Code font")}
             value={profile.codeFont}
-            defaultLabel={uiT("System")}
+            defaultLabel={uiT("Default (Consolas)")}
             presets={CODE_FONT_PRESETS}
             onChange={(codeFont) => updateProfile({ codeFont })}
           />
