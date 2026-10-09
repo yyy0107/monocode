@@ -26,6 +26,12 @@ vi.mock("streamdown", async (importOriginal) => {
   };
 });
 
+// Regular fences now use the incremental renderer; exercise the same failure
+// boundary while the Streamdown renderer remains the Mermaid fallback.
+vi.mock("./HighlightedCodeBlock", async () => ({
+  HighlightedCodeBlock: (await import("streamdown")).CodeBlock,
+}));
+
 describe("code highlighting failure containment (desktop and mobile)", () => {
   let root: Root;
   let node: HTMLDivElement;

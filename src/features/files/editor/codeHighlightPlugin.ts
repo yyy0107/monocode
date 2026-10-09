@@ -28,7 +28,10 @@ import {
  * Mounted blocks hold their tokens in component state, so eviction only means
  * a remounted block briefly shows plain text while it is highlighted again.
  */
-const DEFAULT_THEMES: [ThemeInput, ThemeInput] = ["github-light", "github-dark"];
+const DEFAULT_THEMES: [ThemeInput, ThemeInput] = [
+  "github-light",
+  "github-dark",
+];
 const MAX_ENTRIES = 100;
 const MAX_CACHED_CHARS = 500_000;
 
@@ -63,10 +66,13 @@ export function createBoundedCodePlugin(
   const themes = options.themes ?? DEFAULT_THEMES;
   const maxEntries = options.maxEntries ?? MAX_ENTRIES;
   const maxChars = options.maxChars ?? MAX_CACHED_CHARS;
-  const tokenize = options.tokenize ?? createCodeTokenizer();
+  const tokenize = options.tokenize ?? createCodeTokenizer(maxChars);
   const results = new Map<string, HighlightResult>();
   const pending = new Map<string, Set<HighlightCallback>>();
   let cachedChars = 0;
+  let completed:
+    | { config: string; source: string; tokens: HighlightResult["tokens"] }
+    | undefined;
 
   const remember = (key: string, result: HighlightResult) => {
     if (results.delete(key)) cachedChars -= key.length;
@@ -108,6 +114,25 @@ export function createBoundedCodePlugin(
       pending.set(key, new Set(callback ? [callback] : []));
       void tokenize(code, lang, pair)
         .then((result) => {
+          const config = `${lang}\u0000${names[0]}\u0000${names[1]}`;
+          // Worker messages clone token arrays. Restore complete-line identity
+          // so memoized code rows survive streaming updates on the UI thread.
+          if (
+            completed?.config === config &&
+            code.startsWith(completed.source)
+          ) {
+            for (let i = 0; i < completed.tokens.length; i += 1)
+              result.tokens[i] = completed.tokens[i];
+          }
+          const boundary = code.lastIndexOf("\n") + 1;
+          completed =
+            boundary > 0 && boundary <= maxChars
+              ? {
+                  config,
+                  source: code.slice(0, boundary),
+                  tokens: result.tokens.slice(0, -1),
+                }
+              : undefined;
           remember(key, result);
           const callbacks = pending.get(key);
           pending.delete(key);
@@ -144,7 +169,10 @@ function createWorkerTokenizer(): CodeTokenizer {
     worker?.terminate();
     worker = null;
     for (const { request, resolve, reject } of waiting.values()) {
-      fallback(request.code, request.lang, request.themes).then(resolve, reject);
+      fallback(request.code, request.lang, request.themes).then(
+        resolve,
+        reject,
+      );
     }
     waiting.clear();
   };
@@ -152,9 +180,12 @@ function createWorkerTokenizer(): CodeTokenizer {
   const start = (): Worker | null => {
     if (worker !== undefined) return worker;
     try {
-      worker = new Worker(new URL("./codeHighlight.worker.ts", import.meta.url), {
-        type: "module",
-      });
+      worker = new Worker(
+        new URL("./codeHighlight.worker.ts", import.meta.url),
+        {
+          type: "module",
+        },
+      );
     } catch {
       worker = null;
       return worker;
