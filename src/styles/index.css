@@ -117,8 +117,9 @@
     "Courier New", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
     "Noto Sans CJK SC", monospace;
   /* Settings → Appearance → Interface font prepends `--user-ui-font`. */
-  --font-sans:
-    var(--user-ui-font,) ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+  --font-sans: var(--user-ui-font,) var(--font-system-sans);
+  --font-system-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
     Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
   /* Settings → Appearance → Content font; empty follows the interface. */
   --font-content: var(--user-content-font,) var(--font-sans);
@@ -306,6 +307,9 @@ body {
 .whats-new-md,
 .inbox-comment-md {
   --font-scale: var(--content-font-scale, 1);
+  /* `font-sans` text inside (prose, user messages) uses the content font. */
+  --font-sans: var(--user-content-font,) var(--user-ui-font,)
+    var(--font-system-sans);
   font-family: var(--font-content);
   font-weight: var(--content-font-weight, 500);
 }
