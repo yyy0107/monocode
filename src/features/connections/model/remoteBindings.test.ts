@@ -2,7 +2,9 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   forgetDeletedRemoteBindings,
+  forgetUnknownRemoteBindings,
   remoteSessionFor,
+  remoteSessionResolver,
   remoteSessionScopeFor,
   rememberRemoteSession,
 } from "./connections";
@@ -36,6 +38,51 @@ it("decodes large binding and scope tables once across repeated row lookups", ()
 
   expect(parse.mock.calls.filter(([raw]) => raw === bindings)).toHaveLength(1);
   expect(parse.mock.calls.filter(([raw]) => raw === scopes)).toHaveLength(1);
+});
+
+it("resolves many tabs from one storage read", () => {
+  rememberRemoteSession("shell-1", "host-1", scope);
+  const read = vi.spyOn(localStorage, "getItem");
+  const resolve = remoteSessionResolver();
+
+  expect(resolve("shell-1")).toBe("host-1");
+  expect(resolve("missing")).toBeUndefined();
+  expect(read.mock.calls.filter(([key]) => key === BINDINGS)).toHaveLength(1);
+});
+
+it("forgets only this Host's bindings to sessions it no longer lists", () => {
+  rememberRemoteSession("live", "live", scope);
+  rememberRemoteSession("gone", "gone", scope);
+  rememberRemoteSession("open-tab", "gone-open", scope);
+  rememberRemoteSession("queued", "gone-queued", scope);
+  rememberRemoteSession("elsewhere", "gone-elsewhere", { ...scope, environmentId: "other" });
+  rememberRemoteSession("other-project", "gone-project", { ...scope, projectId: "other" });
+  localStorage.setItem(BINDINGS, JSON.stringify({
+    ...JSON.parse(localStorage.getItem(BINDINGS)!),
+    legacy: "gone-legacy",
+  }));
+
+  const local = { environmentId: "local", projectIds: new Set(["project"]) };
+  expect(forgetUnknownRemoteBindings(
+    local,
+    new Set(["live"]),
+    new Set(["open-tab", "gone-queued"]),
+  )).toEqual(["gone"]);
+  expect(remoteSessionFor("gone")).toBeUndefined();
+  expect(remoteSessionScopeFor("gone")).toBeUndefined();
+  for (const [shell, host] of [
+    ["live", "live"],
+    ["open-tab", "gone-open"],
+    ["queued", "gone-queued"],
+    ["elsewhere", "gone-elsewhere"],
+    ["other-project", "gone-project"],
+    ["legacy", "gone-legacy"],
+  ]) expect(remoteSessionFor(shell)).toBe(host);
+
+  const write = vi.spyOn(localStorage, "setItem");
+  expect(forgetUnknownRemoteBindings(local, new Set(["live"]), new Set(["open-tab", "gone-queued"])))
+    .toEqual([]);
+  expect(write).not.toHaveBeenCalled();
 });
 
 it("ignores repeated identical bindings so pollers cannot trigger history refreshes", () => {

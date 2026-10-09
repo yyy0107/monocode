@@ -169,6 +169,39 @@ export function forgetDeletedRemoteBindings(ids: readonly string[], local?: {
   return removed;
 }
 
+/**
+ * Drops bindings into this Host's projects whose session the Host no longer
+ * lists. `known` must be its complete session list; bindings without a scope,
+ * for other machines or projects, or named in `keep` are left alone.
+ */
+export function forgetUnknownRemoteBindings(
+  local: { environmentId: string; projectIds: ReadonlySet<string> },
+  known: ReadonlySet<string>,
+  keep: ReadonlySet<string>,
+): string[] {
+  const bindings = { ...remoteTabBindings() };
+  const scopes = { ...remoteTabScopes() };
+  const removed: string[] = [];
+  for (const [shellId, hostId] of Object.entries(bindings)) {
+    if (typeof hostId !== "string" || known.has(hostId)) continue;
+    if (keep.has(shellId) || keep.has(hostId)) continue;
+    const scope = remoteSessionScopeFor(shellId);
+    if (
+      scope?.environmentId !== local.environmentId ||
+      !local.projectIds.has(scope.projectId)
+    )
+      continue;
+    delete bindings[shellId];
+    delete scopes[shellId];
+    removed.push(shellId);
+  }
+  // Rewriting the whole table on every launch costs more than it saves.
+  if (!removed.length) return removed;
+  localStorage.setItem(TAB_KEY, JSON.stringify(bindings));
+  localStorage.setItem(TAB_SCOPE_KEY, JSON.stringify(scopes));
+  return removed;
+}
+
 const pendingPrefix = (project: string, environment: string) =>
   `${OUTBOX_PREFIX}${JSON.stringify([project, environment])}:`;
 

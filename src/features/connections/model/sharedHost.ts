@@ -17,6 +17,7 @@ import {
   remoteSessionFor,
   refreshRemoteMachines,
   forgetDeletedRemoteBindings,
+  forgetUnknownRemoteBindings,
   remoteSessionScopeFor,
 } from "./connections";
 import {
@@ -69,6 +70,23 @@ export function clearRetiredHostOutbox(environmentId: string, retired: ReadonlyS
   if (removals.length) void deleteOutboxEntries(removals);
 }
 
+/** Session and shell IDs that queued Host requests still refer to. */
+function pendingOutboxIds(): Set<string> {
+  const ids = new Set<string>();
+  for (const key of outboxKeys()) {
+    if (!key.startsWith(OUTBOX_PREFIX)) continue;
+    try {
+      const entry = JSON.parse(outboxEntry(key)!);
+      const command = entry.command ?? entry;
+      if (typeof command.sessionId === "string") ids.add(command.sessionId);
+      if (typeof entry.shellId === "string") ids.add(entry.shellId);
+    } catch {
+      // Malformed requests never reach the Host, so they pin nothing.
+    }
+  }
+  return ids;
+}
+
 /** Awaited before workspace restore: there is no fallback to a second runtime. */
 export async function initializeSharedHost(): Promise<void> {
   await loadRemoteOutbox();
@@ -93,6 +111,24 @@ export async function initializeSharedHost(): Promise<void> {
     projectIds: new Set(prepared.projects.map(project => project.id)),
     legacyShellIds,
   });
+  // Without this, bindings to sessions the Host has dropped accumulate forever.
+  try {
+    forgetUnknownRemoteBindings(
+      {
+        environmentId: prepared.machine.environmentId,
+        projectIds: new Set(prepared.projects.map((project) => project.id)),
+      },
+      new Set([...prepared.sessions.map((row) => row.id), ...deletedIds]),
+      new Set([
+        ...(Array.isArray(workspace?.sessions) ? workspace.sessions : []).flatMap(
+          (row) => (typeof row.id === "string" ? [row.id] : []),
+        ),
+        ...pendingOutboxIds(),
+      ]),
+    );
+  } catch {
+    // Cleanup is best effort; a full storage must not block startup.
+  }
   const retiredIds = [...new Set([...deletedIds, ...deletedAliases])];
   setRetiredSessionIds(retiredIds);
   hostOrchestrationClient.retire(prepared.machine.environmentId, retiredIds);

@@ -217,6 +217,20 @@ it("removes deleted Host bindings before restoring a desktop workspace", async (
   expect(await getSession("history")).toBeNull();
 });
 
+it("forgets bindings to sessions this Host dropped unless a workspace tab still uses them", async () => {
+  const local = { environmentId: "local", projectId: "project" };
+  rememberRemoteSession("dropped", "dropped", local);
+  rememberRemoteSession("open", "dropped-open", local);
+  rememberRemoteSession("elsewhere", "dropped", { environmentId: "other", projectId: "project" });
+  workspace = { sessions: [{ id: "open", cwd: project.cwd }] };
+  await initializeSharedHost();
+  expect(remoteSessionFor("dropped")).toBeUndefined();
+  expect(remoteSessionFor("open")).toBe("dropped-open");
+  expect(remoteSessionFor("elsewhere")).toBe("dropped");
+  expect(remoteSessionFor("history")).toBe("history");
+  expect(isRetiredSession("dropped")).toBe(false);
+});
+
 it("retires scoped local aliases before hydration without requiring workspace evidence", async () => {
   rememberRemoteSession("local-alias", "history", { environmentId: "local", projectId: "project" });
   rememberRemoteSession("other-project-alias", "history", { environmentId: "local", projectId: "other-project" });
