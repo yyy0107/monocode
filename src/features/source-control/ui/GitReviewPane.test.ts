@@ -108,6 +108,10 @@ class TestResizeObserver {
     );
   }
 }
+/** Diffs mount after the open animation completes. */
+async function settle() {
+  await act(async () => vi.advanceTimersByTimeAsync(350));
+}
 async function measure() {
   await act(async () => {
     for (const observer of observers) observer.deliver();
@@ -212,6 +216,8 @@ it("virtualizes cards, supports multiple expansions, and removes offscreen expan
   expect(gitFileDiff).not.toHaveBeenCalled();
   await click("Expand file", card(0));
   await click("Expand file", card(1));
+  expect(card(0).querySelector("[data-diff-content]")).toBeNull();
+  await settle();
   await measure();
   expect(card(0).querySelector("[data-diff-content]")).not.toBeNull();
   expect(card(1).querySelector("[data-diff-content]")).not.toBeNull();
@@ -239,6 +245,7 @@ it("virtualizes cards, supports multiple expansions, and removes offscreen expan
   expect(
     vi.mocked(gitFileDiff).mock.calls.length - loadsBefore,
   ).toBeLessThanOrEqual(3);
+  await settle();
   await measure();
   expect(
     container.querySelectorAll("[data-diff-content]").length,
@@ -254,6 +261,7 @@ it("virtualizes cards, supports multiple expansions, and removes offscreen expan
 it("retains the card and scroll position during refresh and reloads its invalidated diff", async () => {
   await render();
   await click("Expand file", card(0));
+  await settle();
   const existing = card(0);
   scroller().scrollTop = 50;
   let finish!: (value: GitDiffIndex) => void;
@@ -282,6 +290,7 @@ it("uses Monocode file operations and stages the chunk's document position", asy
   await click("Discard changes", card(0));
   expect(gitDiscardFile).toHaveBeenCalledWith("/repo", files[0].relative);
   await click("Expand file", card(0));
+  await settle();
   await click("Stage hunk", card(0));
   expect(gitStageContents).toHaveBeenCalledWith(
     "/repo",

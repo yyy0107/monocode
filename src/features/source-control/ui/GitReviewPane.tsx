@@ -32,6 +32,7 @@ import {
 import { useReviewSource } from "../model/useReviewSource";
 import {
   estimateReviewBodyHeight,
+  type ReviewDiffState,
   type ReviewFile,
   type ReviewSource,
 } from "../model/reviewDiff";
@@ -165,6 +166,54 @@ export function GitReviewPane({
       setBusy(new Set(busyRef.current));
     }
   };
+  // Cards are memoized; route their callbacks through the latest render state.
+  const latest = useRef({ cwd, source, scopeKey, getDiff, runAction });
+  latest.current = { cwd, source, scopeKey, getDiff, runAction };
+  const toggleFile = useCallback((file: ReviewFile) => {
+    const id = `${latest.current.scopeKey}:${file.relative}`;
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const performFileAction = useCallback(
+    (file: ReviewFile, action: "stage" | "unstage" | "discard") => {
+      const { cwd, runAction } = latest.current;
+      void runAction(file, () =>
+        action === "stage"
+          ? gitStageFile(cwd, file.relative)
+          : action === "unstage"
+            ? gitUnstageFile(cwd, file.relative)
+            : gitDiscardFile(cwd, file.relative),
+      );
+    },
+    [],
+  );
+  const stageHunk = useCallback(
+    (file: ReviewFile, diffState: ReviewDiffState | undefined, pos: number) => {
+      const { cwd, source, getDiff, runAction } = latest.current;
+      // Use the snapshot that produced this annotation, never a newer
+      // response with a different chunk at the same character offset.
+      if (
+        source !== "unstaged" ||
+        diffState?.state !== "loaded" ||
+        getDiff(file.relative) !== diffState
+      )
+        return;
+      const next = stageChunkText(
+        diffState.diff.original,
+        diffState.diff.current,
+        pos,
+        null,
+        LINE_DIFF_CONFIG,
+      );
+      if (next != null)
+        void runAction(file, () => gitStageContents(cwd, file.relative, next));
+    },
+    [],
+  );
   const totals = useMemo(
     () =>
       rows.reduce(
@@ -328,44 +377,9 @@ export function GitReviewPane({
                       )}
                       loadDiff={loadDiff}
                       onError={reportError}
-                      onToggle={() =>
-                        setExpanded((current) => {
-                          const next = new Set(current);
-                          if (next.has(id)) next.delete(id);
-                          else next.add(id);
-                          return next;
-                        })
-                      }
-                      onAction={(action) => {
-                        void runAction(file, () =>
-                          action === "stage"
-                            ? gitStageFile(cwd, file.relative)
-                            : action === "unstage"
-                              ? gitUnstageFile(cwd, file.relative)
-                              : gitDiscardFile(cwd, file.relative),
-                        );
-                      }}
-                      onStageHunk={(pos) => {
-                        // Use the snapshot that produced this annotation, never a newer
-                        // response with a different chunk at the same character offset.
-                        if (
-                          source !== "unstaged" ||
-                          diffState?.state !== "loaded" ||
-                          getDiff(file.relative) !== diffState
-                        )
-                          return;
-                        const next = stageChunkText(
-                          diffState.diff.original,
-                          diffState.diff.current,
-                          pos,
-                          null,
-                          LINE_DIFF_CONFIG,
-                        );
-                        if (next != null)
-                          void runAction(file, () =>
-                            gitStageContents(cwd, file.relative, next),
-                          );
-                      }}
+                      onToggle={toggleFile}
+                      onAction={performFileAction}
+                      onStageHunk={stageHunk}
                     />
                   </div>
                 );

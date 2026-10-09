@@ -1,5 +1,12 @@
 // Adapted from ZCode (Apache-2.0).
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { basename, revealPath } from "../../../platform/tauri/fs";
 import { copyText } from "../../../platform/tauri/clipboard";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
@@ -23,7 +30,11 @@ import type {
 } from "../model/reviewDiff";
 import { ReviewDiffViewer } from "./ReviewDiffViewer";
 
-export function GitReviewChangeCard({
+/**
+ * Memoized with pane-level callbacks that receive the file, so toggling one card
+ * or a virtualizer resize frame does not re-render every mounted diff.
+ */
+export const GitReviewChangeCard = memo(function GitReviewChangeCard({
   file,
   source,
   expanded,
@@ -46,9 +57,16 @@ export function GitReviewChangeCard({
   /** Reserved while loading so neighbours are not pulled into view. */
   placeholderHeight?: number;
   loadDiff: (path: string) => void;
-  onToggle: () => void;
-  onAction: (action: "stage" | "unstage" | "discard") => void;
-  onStageHunk: (pos: number) => void;
+  onToggle: (file: ReviewFile) => void;
+  onAction: (
+    file: ReviewFile,
+    action: "stage" | "unstage" | "discard",
+  ) => void;
+  onStageHunk: (
+    file: ReviewFile,
+    diffState: ReviewDiffState | undefined,
+    pos: number,
+  ) => void;
   onError: (error: unknown) => void;
 }) {
   const { t } = useTranslation();
@@ -58,6 +76,21 @@ export function GitReviewChangeCard({
   useEffect(() => {
     if (expanded && !diffState) loadDiff(file.relative);
   }, [diffState, expanded, file.relative, loadDiff]);
+  // Mount the diff after the open animation so highlighting and layout do not
+  // compete with it. Cards mounted already expanded (e.g. scrolled back into
+  // view) render immediately.
+  const [entered, setEntered] = useState(expanded);
+  if (!expanded && entered) setEntered(false);
+  const onEntered = useCallback(() => setEntered(true), []);
+  const toggle = () => onToggle(file);
+  // Start fetching on press so the diff is often ready when the card opens.
+  const prefetch = () => {
+    if (!diffState) loadDiff(file.relative);
+  };
+  const stageHunk = useCallback(
+    (pos: number) => onStageHunk(file, diffState, pos),
+    [diffState, file, onStageHunk],
+  );
   const name = basename(file.relative);
   const dir = file.relative.slice(0, -name.length).replace(/[\\/]$/, "");
   const unified = diffState?.state === "loaded" ? diffState.diff.unified : null;
@@ -79,7 +112,8 @@ export function GitReviewChangeCard({
         <button
           type="button"
           aria-expanded={expanded}
-          onClick={onToggle}
+          onPointerDown={prefetch}
+          onClick={toggle}
           title={file.relative}
           className="flex h-full min-w-0 flex-1 items-center gap-2 text-left hover:text-content"
         >
@@ -101,7 +135,7 @@ export function GitReviewChangeCard({
               disabled={busy}
               title={source === "staged" ? t("Unstage file") : t("Stage file")}
               onClick={() =>
-                onAction(source === "staged" ? "unstage" : "stage")
+                onAction(file, source === "staged" ? "unstage" : "stage")
               }
             >
               {source === "staged" ? (
@@ -114,7 +148,7 @@ export function GitReviewChangeCard({
               <ReviewIconButton
                 disabled={busy}
                 title={t("Discard changes")}
-                onClick={() => onAction("discard")}
+                onClick={() => onAction(file, "discard")}
               >
                 <Undo2 className="size-3.5" />
               </ReviewIconButton>
@@ -134,7 +168,8 @@ export function GitReviewChangeCard({
         </button>
         <ReviewIconButton
           title={expanded ? t("Collapse file") : t("Expand file")}
-          onClick={onToggle}
+          onPointerDown={prefetch}
+          onClick={toggle}
         >
           <ChevronDown
             className={`size-3.5 transition-transform duration-300 motion-reduce:transition-none ${expanded ? "rotate-180" : ""}`}
@@ -175,35 +210,66 @@ export function GitReviewChangeCard({
         expanded={expanded}
         motion="height"
         animateContentResize
+        onEntered={onEntered}
       >
-        {() =>
-          diffState?.state === "loaded" ? (
-            <ReviewDiffViewer
-              path={file.path}
-              relative={file.relative}
-              diff={diffState.diff}
-              busy={busy}
-              onStageHunk={source === "unstaged" ? onStageHunk : undefined}
-            />
-          ) : (
-            <p
-              className="px-4 py-4 text-[12px] text-content/45"
-              role={diffState?.state === "error" ? "alert" : undefined}
-              style={
-                diffState?.state === "error"
-                  ? undefined
-                  : { minHeight: placeholderHeight }
-              }
-            >
-              {diffState?.state === "error"
-                ? t("Couldn’t load diff: {error}", { error: diffState.error })
-                : t("Loading…")}
-            </p>
-          )
-        }
+        {() => (
+          <DeferredMount
+            ready={entered}
+            fallback={
+              <p
+                className="px-4 py-4 text-[12px] text-content/45"
+                style={{ minHeight: placeholderHeight }}
+              >
+                {diffState?.state === "loaded" ? null : t("Loading…")}
+              </p>
+            }
+          >
+            {diffState?.state === "loaded" ? (
+              <ReviewDiffViewer
+                path={file.path}
+                relative={file.relative}
+                diff={diffState.diff}
+                busy={busy}
+                onStageHunk={source === "unstaged" ? stageHunk : undefined}
+              />
+            ) : (
+              <p
+                className="px-4 py-4 text-[12px] text-content/45"
+                role={diffState?.state === "error" ? "alert" : undefined}
+                style={
+                  diffState?.state === "error"
+                    ? undefined
+                    : { minHeight: placeholderHeight }
+                }
+              >
+                {diffState?.state === "error"
+                  ? t("Couldn’t load diff: {error}", { error: diffState.error })
+                  : t("Loading…")}
+              </p>
+            )}
+          </DeferredMount>
+        )}
       </AnimatedCollapse>
     </section>
   );
+});
+
+/**
+ * Latches once ready, so content stays during a closing animation and resets
+ * only when the collapse unmounts it.
+ */
+function DeferredMount({
+  ready,
+  fallback,
+  children,
+}: {
+  ready: boolean;
+  fallback: ReactNode;
+  children: ReactNode;
+}) {
+  const [shown, setShown] = useState(ready);
+  if (ready && !shown) setShown(true);
+  return shown || ready ? children : fallback;
 }
 
 function MenuItem({
@@ -232,11 +298,13 @@ export function ReviewIconButton({
   title,
   disabled,
   onClick,
+  onPointerDown,
   children,
 }: {
   title: string;
   disabled?: boolean;
   onClick: () => void;
+  onPointerDown?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -246,6 +314,7 @@ export function ReviewIconButton({
       aria-label={title}
       disabled={disabled}
       onClick={onClick}
+      onPointerDown={onPointerDown}
       className="grid size-6 shrink-0 place-items-center rounded text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-40"
     >
       {children}
