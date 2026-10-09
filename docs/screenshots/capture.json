@@ -29,8 +29,8 @@
     "note": "Unpaired browser preview; no device token, account, or model session.",
     "sha256": "c1e9d9d6b0ac5fde7c732b9030512aa92c486bde94044471403522decab03bce"
   },
-  "privacy": "Settings capture excludes underlying private conversation/project sidebar. Conversation capture uses a separate window with an empty demo project and unsent draft; no private conversation/account data is visible. Mobile uses an unpaired fresh profile. No post-capture image edits or generated mockups.",
-  "publication": "Repository assets updated locally; no git commit/push or GitHub attachment upload performed. Library delivery is recorded separately.",
+  "privacy": "Historical capture notes apply to desktop, mobile and desktopConversation only. currentDesktop and currentMobile are user-provided screenshots and include visible workspace content.",
+  "publication": "Local documentation assets. Capture metadata does not imply a release or remote publication.",
   "desktopConversation": {
     "file": "desktop-conversation.png",
     "capturedAt": "2026-10-09T12:03:29.171324+00:00",
@@ -50,5 +50,23 @@
     "note": "Actual conversation UI, no generated transcript or image editing. New window with empty demo project and unsent draft. Existing native development binary; no new native build or release validation.",
     "sha256": "16bf372f8e38ff96371c81e6580e09997bb275e6db02c656b906d6ef6ac70658",
     "privateDataVisible": false
+  },
+  "currentDesktop": {
+    "file": "desktop-workspace.png",
+    "source": "User-provided desktop screenshot for the ohmymonocode README",
+    "receivedOn": "2026-10-09",
+    "pixels": [
+      2553,
+      1436
+    ],
+    "sha256": "b900dd7e5199c04088f102a0c5b826cef15145414d48d5011012483e693a70ea",
+    "note": "Copied unchanged from the supplied image. Shows project navigation, a conversation and a terminal. Capture time and build version were not supplied."
+  },
+  "currentMobile": {
+    "file": "mobile-sessions.jpg",
+    "source": "User-provided mobile screenshot for the ohmymonocode README",
+    "receivedOn": "2026-10-09",
+    "sha256": "f57a107e55f44a3e490b6504770800999dca034123ee597195707b7c65ead21e",
+    "note": "Copied unchanged from the supplied image. Shows the device selector and conversation list. Capture time and build version were not supplied."
   }
 }
