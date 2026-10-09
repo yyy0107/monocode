@@ -66,16 +66,25 @@ export const FONT_WEIGHT_LABELS: Record<FontWeight, string> = {
   700: "Bold",
 };
 
-let systemFontsRequest: Promise<string[]> | null = null;
+export interface SystemFonts {
+  all: string[];
+  /** Fixed-pitch families, offered for the code font. */
+  monospace: string[];
+}
+
+let systemFontsRequest: Promise<SystemFonts> | null = null;
 
 /** Installed font families from the desktop backend; presets elsewhere. */
-export function loadSystemFonts(): Promise<string[]> {
+export function loadSystemFonts(): Promise<SystemFonts> {
   systemFontsRequest ??= import("@tauri-apps/api/core")
-    .then(({ invoke }) => invoke<string[]>("list_system_fonts"))
-    .then((fonts) => (Array.isArray(fonts) ? fonts : []))
+    .then(({ invoke }) => invoke<SystemFonts>("list_system_fonts"))
+    .then((fonts) => ({
+      all: Array.isArray(fonts?.all) ? fonts.all : [],
+      monospace: Array.isArray(fonts?.monospace) ? fonts.monospace : [],
+    }))
     .catch(() => {
       systemFontsRequest = null;
-      return [];
+      return { all: [], monospace: [] };
     });
   return systemFontsRequest;
 }

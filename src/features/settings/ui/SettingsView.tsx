@@ -101,6 +101,7 @@ import {
   type AppearanceProfile,
   type FontSizeKind,
   type FontWeight,
+  type SystemFonts,
   type ReducedMotionPreference,
 } from "../model/typography";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
@@ -2596,17 +2597,21 @@ function TintRows({ appearance }: { appearance: AppearanceSettings }) {
 const CUSTOM_FONT = "__custom__";
 
 /** Installed families, or `fallback` until/unless the backend answers. */
-function useSystemFonts(fallback: readonly string[]): readonly string[] {
+function useSystemFonts(
+  kind: keyof SystemFonts,
+  fallback: readonly string[],
+): readonly string[] {
   const [fonts, setFonts] = useState<readonly string[] | null>(null);
   useEffect(() => {
     let alive = true;
-    void loadSystemFonts().then((list) => {
+    void loadSystemFonts().then((fonts) => {
+      const list = fonts[kind];
       if (alive && list.length > 0) setFonts(list);
     });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [kind]);
   return fonts ?? fallback;
 }
 
@@ -2616,16 +2621,19 @@ function FontFamilySelect({
   value,
   defaultLabel,
   presets,
+  monospace = false,
   onChange,
 }: {
   label: string;
   value: string;
   defaultLabel: string;
   presets: readonly string[];
+  /** Code fonts list only fixed-pitch families. */
+  monospace?: boolean;
   onChange: (value: string) => void;
 }) {
   const { t: uiT } = useTranslation();
-  presets = useSystemFonts(presets);
+  presets = useSystemFonts(monospace ? "monospace" : "all", presets);
   const isPreset = value === "" || presets.includes(value);
   const [custom, setCustom] = useState(!isPreset);
   const [draft, setDraft] = useState(isPreset ? "" : value);
@@ -2845,6 +2853,7 @@ function TypographyCards({ appearance }: { appearance: AppearanceSettings }) {
             value={profile.codeFont}
             defaultLabel={uiT("Default (Consolas)")}
             presets={CODE_FONT_PRESETS}
+            monospace
             onChange={(codeFont) => updateProfile({ codeFont })}
           />
           <FontWeightSelect
