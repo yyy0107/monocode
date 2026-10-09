@@ -964,6 +964,7 @@
   "Jump to latest": "跳到最新消息",
   "Keep": "保留",
   "Keep all session changes and dismiss this card": "保留此会话的所有改动并关闭卡片",
+  "Keep and undo are unavailable while the session is running": "会话运行中，暂时无法保留或撤销改动",
   "Keep archived conversations listed alongside the active ones.": "将已归档对话与活动对话一起显示在列表中。",
   "Keep project navigation available as a compact icon rail, or hide the rail completely.": "将项目导航保留为紧凑图标栏，或完全隐藏项目栏。",
   "Keybinding": "快捷键",

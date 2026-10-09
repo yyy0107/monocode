@@ -1,6 +1,6 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { ChevronDown, ChevronRight, FileDiff } from "../../../shared/ui/icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import {
   keepSessionChanges,
   sessionCheckpointStatus,
@@ -17,6 +17,7 @@ import {
 } from "../../../platform/tauri/fs";
 import { formatInteger } from "../../../shared/lib/numbers";
 import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
+import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 
 type Props = {
   sessionId: string;
@@ -42,30 +43,56 @@ export function SessionReview({
   const [files, setFiles] = useState<CheckpointFile[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [acting, setActing] = useState<"keep" | "undo" | null>(null);
+  const [revision, refresh] = useReducer((value: number) => value + 1, 0);
   const filesRef = useRef(files);
   filesRef.current = files;
 
-  const load = useCallback(() => {
-    if (!cwd || cwd === "~") {
-      setFiles([]);
-      return;
-    }
-    void sessionCheckpointStatus(sessionId, cwd)
-      .then((status) => setFiles(status.files))
-      .catch(() => setFiles([]));
+  useEffect(() => {
+    setFiles([]);
+    setExpanded(false);
   }, [sessionId, cwd]);
 
   useEffect(() => {
-    if (!enabled || busy) return;
-    load();
+    if (!enabled || !cwd || cwd === "~") return;
+    let stale = false;
+    let loading = false;
+    let pending = false;
     let timer: number | null = null;
+    const load = () => {
+      if (loading) {
+        pending = true;
+        return;
+      }
+      loading = true;
+      void sessionCheckpointStatus(sessionId, cwd)
+        .then((status) => {
+          if (!stale) setFiles(status.files);
+        })
+        .catch(() => {
+          // A transient read failure must not remove a usable review entry.
+        })
+        .finally(() => {
+          loading = false;
+          if (!stale && pending) {
+            pending = false;
+            schedule();
+          }
+        });
+    };
     const schedule = () => {
-      if (timer != null) window.clearTimeout(timer);
+      // Bound live refreshes without waiting for a pause in streaming edits or
+      // stacking status reads behind the session's checkpoint writes.
+      if (loading) {
+        pending = true;
+        return;
+      }
+      if (timer != null) return;
       timer = window.setTimeout(() => {
         timer = null;
         load();
       }, 200);
     };
+    load();
     const unsubReview = subscribeReviewChanged((id) => {
       if (!id || id === sessionId) schedule();
     });
@@ -78,30 +105,26 @@ export function SessionReview({
     window.addEventListener("focus", onResume);
     document.addEventListener("visibilitychange", onResume);
     return () => {
+      stale = true;
       if (timer != null) window.clearTimeout(timer);
       window.removeEventListener("focus", onResume);
       document.removeEventListener("visibilitychange", onResume);
       unsubReview();
       unsubGit();
     };
-  }, [enabled, load, sessionId, busy]);
+  }, [enabled, cwd, sessionId, busy, revision]);
 
   useEffect(() => {
     if (files.length <= 3) setExpanded(false);
   }, [files.length]);
 
-  useEffect(() => {
-    if (busy) setFiles([]);
-  }, [busy]);
+  if (files.length === 0) return null;
 
-  // The card represents the result of a turn. Keep it out of the live turn,
-  // then refresh and reveal it once the turn has settled.
-  if (busy || files.length === 0) return null;
-
-  const disabled = acting != null;
+  // Captured diffs are readable during a turn; accepting or undoing them must
+  // wait until the agent has finished writing to the checkout.
+  const disabled = busy || acting != null;
   const canUndoAll = !undoLocked && files.every((file) => file.undoable);
-  const visibleFiles = expanded ? files : files.slice(0, 3);
-  const hiddenFileCount = files.length - visibleFiles.length;
+  const hiddenFileCount = files.length - 3;
   const totals = files.reduce(
     (sum, file) => ({
       additions: sum.additions + file.additions,
@@ -111,7 +134,7 @@ export function SessionReview({
   );
 
   const run = (action: "keep" | "undo") => {
-    if (disabled) return;
+    if (disabled || (action === "undo" && !canUndoAll)) return;
     setActing(action);
     const op =
       action === "keep"
@@ -125,9 +148,19 @@ export function SessionReview({
         invalidateWatchedFiles(previous);
         invalidateProjectFiles(cwd);
       })
-      .catch(() => load())
+      .catch(() => refresh())
       .finally(() => setActing(null));
   };
+  const fileRow = (file: CheckpointFile) => (
+    <li key={file.relative}>
+      <FileRow
+        file={file}
+        sessionId={sessionId}
+        cwd={cwd}
+        onOpenDiff={onOpenDiff}
+      />
+    </li>
+  );
 
   return (
     <div className="px-4 pt-1 pb-2 font-sans" data-session-review-shell>
@@ -157,15 +190,19 @@ export function SessionReview({
             <button
               type="button"
               title={
-                canUndoAll
-                  ? uiT("Undo all session changes")
-                  : undoLocked
-                    ? uiT(
-                        "Undo is unavailable while another session is running in this project",
-                      )
-                    : uiT(
-                        "Undo is unavailable because a file changed outside this session",
-                      )
+                busy
+                  ? uiT(
+                      "Keep and undo are unavailable while the session is running",
+                    )
+                  : canUndoAll
+                    ? uiT("Undo all session changes")
+                    : undoLocked
+                      ? uiT(
+                          "Undo is unavailable while another session is running in this project",
+                        )
+                      : uiT(
+                          "Undo is unavailable because a file changed outside this session",
+                        )
               }
               disabled={disabled || !canUndoAll}
               onClick={() => run("undo")}
@@ -175,7 +212,13 @@ export function SessionReview({
             </button>
             <button
               type="button"
-              title={uiT("Keep all session changes and dismiss this card")}
+              title={
+                busy
+                  ? uiT(
+                      "Keep and undo are unavailable while the session is running",
+                    )
+                  : uiT("Keep all session changes and dismiss this card")
+              }
               disabled={disabled}
               onClick={() => run("keep")}
               className="h-7 rounded-md px-2.5 text-[11px] text-content/50 hover:bg-content/8 hover:text-content disabled:opacity-35"
@@ -192,22 +235,12 @@ export function SessionReview({
             </button>
           </div>
         </div>
-        <ul
-          className={`scrollbar-none border-t border-stroke py-1 ${
-            expanded ? "max-h-64 overflow-y-auto" : ""
-          }`}
-        >
-          {visibleFiles.map((file) => (
-            <li key={file.relative}>
-              <FileRow
-                file={file}
-                sessionId={sessionId}
-                cwd={cwd}
-                onOpenDiff={onOpenDiff}
-              />
-            </li>
-          ))}
-        </ul>
+        <div className="scrollbar-none max-h-64 overflow-y-auto border-t border-stroke py-1">
+          <ul>{files.slice(0, 3).map(fileRow)}</ul>
+          <AnimatedCollapse expanded={expanded}>
+            {() => <ul>{files.slice(3).map(fileRow)}</ul>}
+          </AnimatedCollapse>
+        </div>
         {files.length > 3 ? (
           <button
             type="button"
