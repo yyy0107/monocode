@@ -8,6 +8,8 @@ import {
   getComposerMcpTags,
   setComposerDraft,
   setComposerMcpTags,
+  stashComposerAttachments,
+  takeComposerAttachments,
 } from "./draftCache";
 import { newMcpTag } from "./mcpPicker";
 
@@ -89,5 +91,25 @@ describe("draftCache", () => {
     expect(getComposerMcpTags("mcp-two")).toEqual([]);
     setComposerDraft("mcp-one", "");
     expect(getComposerMcpTags("mcp-one")).toEqual([]);
+  });
+
+  it("keeps stashed attachments as draft content until taken or cleared", () => {
+    const file = {
+      id: "image",
+      name: "shot.png",
+      mimeType: "image/png",
+      kind: "image" as const,
+      size: 1,
+      data: "AA==",
+    };
+    stashComposerAttachments("stash", [file], new Set());
+    expect(hasComposerDraftContent("stash")).toBe(true);
+    expect(takeComposerAttachments("stash")?.attachments).toEqual([file]);
+    expect(takeComposerAttachments("stash")).toBeUndefined();
+
+    stashComposerAttachments("stash", [file], new Set());
+    clearComposerDraft("stash");
+    expect(takeComposerAttachments("stash")).toBeUndefined();
+    expect(hasComposerDraftContent("stash")).toBe(false);
   });
 });

@@ -61,3 +61,29 @@ export function pruneDepartedEmptySessions(
     removedIds: [...removable],
   };
 }
+
+/**
+ * A new conversation the user started and typed into but left unsent. New
+ * session returns to it instead of opening a second blank one, unless that
+ * draft is the pane already in front of the user.
+ */
+export function pendingNewSessionDraft(
+  sessions: readonly Session[],
+  tabs: readonly WorkspaceTab[],
+  matches: (session: Session) => boolean,
+  focusedId: string | undefined,
+): { session: Session; tab: WorkspaceTab } | undefined {
+  for (const session of sessions) {
+    if (
+      session.id === focusedId ||
+      !matches(session) ||
+      !isReusableDraftSession(session) ||
+      !hasComposerDraftContent(session.id)
+    ) {
+      continue;
+    }
+    const tab = tabs.find((entry) => leafIds(entry.layout).includes(session.id));
+    if (tab) return { session, tab };
+  }
+  return undefined;
+}

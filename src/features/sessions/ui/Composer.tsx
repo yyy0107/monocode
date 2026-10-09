@@ -195,9 +195,12 @@ import {
 import {
   beginComposerAttachmentRead,
   getComposerMcpTags,
+  peekComposerAttachments,
   setComposerAttachmentCount,
   setComposerDraft,
   setComposerMcpTags,
+  stashComposerAttachments,
+  takeComposerAttachments,
 } from "../model/draftCache";
 import { type McpConnection } from "../../settings/model/mcp";
 import {
@@ -440,8 +443,16 @@ export function Composer({
   const boxRef = useRef<HTMLDivElement>(null);
   const plusRef = useRef<HTMLDivElement>(null);
   const highlightRef = useRef<HTMLDivElement>(null);
-  const attachmentsRef = useRef<Attachment[]>([]);
-  const borrowedAttachmentIdsRef = useRef(new Set<string>());
+  // Attachments left unsent when this session's Composer last unmounted.
+  const [restoredAttachments] = useState(() =>
+    sessionId ? peekComposerAttachments(sessionId) : undefined,
+  );
+  const attachmentsRef = useRef<Attachment[]>(
+    restoredAttachments?.attachments ?? [],
+  );
+  const borrowedAttachmentIdsRef = useRef(
+    new Set<string>(restoredAttachments?.borrowedIds),
+  );
   const attachmentLifecycleRef = useRef(0);
   const consumedQuoteId = useRef<number | null>(null);
   const draftRevisionRef = useRef(0);
@@ -487,11 +498,14 @@ export function Composer({
   const [hasValue, setHasValue] = useState(
     () =>
       (initialDraft ?? "").trim().length > 0 ||
+      !!restoredAttachments?.attachments.length ||
       !!inboxCard ||
       !!noteCard ||
       !!handoffCard,
   );
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>(
+    () => restoredAttachments?.attachments ?? [],
+  );
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [fileDrag, setFileDrag] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
@@ -839,18 +853,45 @@ export function Composer({
   );
   useEffect(() => {
     const lifecycle = ++attachmentLifecycleRef.current;
+    if (sessionId) {
+      // Runs after a previous Composer's unmount stash for this session, which
+      // may land after this one rendered (a pane moving between splits).
+      queueMicrotask(() => {
+        if (attachmentLifecycleRef.current !== lifecycle) return;
+        const stash = takeComposerAttachments(sessionId);
+        if (!stash) return;
+        const known = new Set(attachmentsRef.current.map((file) => file.id));
+        const added = stash.attachments.filter((file) => !known.has(file.id));
+        for (const id of stash.borrowedIds) {
+          borrowedAttachmentIdsRef.current.add(id);
+        }
+        if (!added.length) return;
+        const next = [...attachmentsRef.current, ...added];
+        attachmentsRef.current = next;
+        setAttachments(next);
+        syncHasValue(ref.current?.value ?? "", next);
+      });
+    }
     return () => {
       queueMicrotask(() => {
         if (attachmentLifecycleRef.current !== lifecycle) return;
         pasteGenerationRef.current += 1;
-        for (const file of attachmentsRef.current) {
-          if (!borrowedAttachmentIdsRef.current.delete(file.id)) {
-            revokeAttachment(file);
+        if (sessionId) {
+          // Unsent attachments outlive the pane, like the draft text does.
+          stashComposerAttachments(
+            sessionId,
+            attachmentsRef.current,
+            borrowedAttachmentIdsRef.current,
+          );
+        } else {
+          for (const file of attachmentsRef.current) {
+            if (!borrowedAttachmentIdsRef.current.delete(file.id)) {
+              revokeAttachment(file);
+            }
           }
         }
         attachmentsRef.current = [];
-        borrowedAttachmentIdsRef.current.clear();
-        if (sessionId) setComposerAttachmentCount(sessionId, 0);
+        borrowedAttachmentIdsRef.current = new Set();
       });
     };
   }, [sessionId]);

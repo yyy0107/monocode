@@ -12,7 +12,12 @@ import {
   leafIds,
 } from "../../features/workspace/model/layout";
 import {
+  clearComposerDraft,
+  setComposerDraft,
+} from "../../features/sessions/model/draftCache";
+import {
   isDisposableEmptySession,
+  pendingNewSessionDraft,
   pruneDepartedEmptySessions,
 } from "./emptySessionCleanup";
 
@@ -111,5 +116,33 @@ describe("empty session cleanup", () => {
       pruneDepartedEmptySessions([blank], new Set(["empty"]), () => false)
         .removedIds,
     ).toEqual([]);
+  });
+
+  it("finds an unsent new conversation unless it is already in front", () => {
+    const typed = newSession("codex", "/repo");
+    const untouched = newSession("codex", "/repo");
+    const sent = {
+      ...newSession("codex", "/repo"),
+      blocks: [{ id: "sent", role: "user" as const, text: "Sent" }],
+    };
+    const tabs = [newTab(typed.id), newTab(untouched.id), newTab(sent.id)];
+    const sessions = [untouched, sent, typed];
+    setComposerDraft(typed.id, "half typed");
+    setComposerDraft(sent.id, "follow-up");
+    const all = () => true;
+    try {
+      expect(
+        pendingNewSessionDraft(sessions, tabs, all, sent.id)?.session.id,
+      ).toBe(typed.id);
+      expect(
+        pendingNewSessionDraft(sessions, tabs, all, typed.id),
+      ).toBeUndefined();
+      expect(
+        pendingNewSessionDraft(sessions, tabs, () => false, undefined),
+      ).toBeUndefined();
+    } finally {
+      clearComposerDraft(typed.id);
+      clearComposerDraft(sent.id);
+    }
   });
 });

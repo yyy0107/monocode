@@ -12,17 +12,55 @@
  * tree for as long as the app process is running: the draft comes back when
  * the pane for that session opens again.
  *
+ * Unsent attachments are stashed here when the Composer unmounts, so an
+ * image-only draft comes back too.
+ *
  * It does not survive an app restart or a full reload - that needs the
  * draft written into the session's persisted record on disk, which is a
  * separate, larger change (touches the Rust-side session_upsert schema
  * too).
  */
 import type { McpTag } from "./mcpPicker";
+import type { Attachment } from "./session";
 
 const drafts = new Map<string, string>();
 const mcpTags = new Map<string, McpTag[]>();
 const attachmentCounts = new Map<string, number>();
 const attachmentReads = new Map<string, number>();
+/**
+ * Attachments of a Composer that unmounted with them unsent. The cache owns
+ * them (and their preview URLs) until the session's Composer mounts again.
+ */
+const stashedAttachments = new Map<
+  string,
+  { attachments: Attachment[]; borrowedIds: ReadonlySet<string> }
+>();
+
+/** Hand an unmounting Composer's unsent attachments to the cache. */
+export function stashComposerAttachments(
+  sessionId: string,
+  attachments: Attachment[],
+  borrowedIds: ReadonlySet<string>,
+): void {
+  if (attachments.length > 0) {
+    stashedAttachments.set(sessionId, { attachments, borrowedIds });
+  } else {
+    stashedAttachments.delete(sessionId);
+  }
+  setComposerAttachmentCount(sessionId, attachments.length);
+}
+
+/** Read without taking ownership, e.g. for a render-time initial value. */
+export function peekComposerAttachments(sessionId: string) {
+  return stashedAttachments.get(sessionId);
+}
+
+/** Take ownership back; the mounted Composer releases them from here on. */
+export function takeComposerAttachments(sessionId: string) {
+  const stash = stashedAttachments.get(sessionId);
+  stashedAttachments.delete(sessionId);
+  return stash;
+}
 
 /** Metadata only: the mounted Composer still owns attachments and their URLs. */
 export function setComposerAttachmentCount(
@@ -81,6 +119,12 @@ export function setComposerMcpTags(sessionId: string, tags: McpTag[]): void {
 }
 
 export function clearComposerDraft(sessionId: string): void {
+  const stash = takeComposerAttachments(sessionId);
+  for (const file of stash?.attachments ?? []) {
+    if (file.previewUrl && !stash?.borrowedIds.has(file.id)) {
+      URL.revokeObjectURL(file.previewUrl);
+    }
+  }
   drafts.delete(sessionId);
   mcpTags.delete(sessionId);
   attachmentCounts.delete(sessionId);

@@ -42,6 +42,7 @@ import { useIdleSessionDetach } from "./hooks/useIdleSessionDetach";
 import { useEmptySessionCleanup } from "./hooks/useEmptySessionCleanup";
 import {
   isDisposableEmptySession,
+  pendingNewSessionDraft,
   tabHasSessionResources,
 } from "./model/emptySessionCleanup";
 import { HarnessEventQueue } from "./model/harnessFlush";
@@ -2541,16 +2542,25 @@ function Workspace({
       const focus = worktreeFocus(cwd);
       const desiredWorktree =
         focus && pathKey(focus.path) !== pathKey(cwd) ? focus.path : undefined;
-      // Explicit new-session actions always create. Composer launchers may
-      // opt into reusing an untouched draft to receive their initial text.
+      const inPlace = (session: Session) =>
+        sameProjectPath(session.cwd, cwd) &&
+        (session.worktreeCwd ?? undefined) === desiredWorktree;
+      // Composer launchers may opt into reusing an untouched draft to receive
+      // their initial text. Explicit new-session actions return to an unsent
+      // new conversation elsewhere instead of hiding it behind another one.
+      const activeTab = tabsRef.current.find(
+        (entry) => entry.id === activeTabIdRef.current,
+      );
       const reusable = options?.reuseDraft
         ? sessionsRef.current.find(
-            (session) =>
-              sameProjectPath(session.cwd, cwd) &&
-              (session.worktreeCwd ?? undefined) === desiredWorktree &&
-              isReusableDraftSession(session),
+            (session) => inPlace(session) && isReusableDraftSession(session),
           )
-        : undefined;
+        : pendingNewSessionDraft(
+            sessionsRef.current,
+            tabsRef.current,
+            (session) => inPlace(session) && !remoteSessionFor(session.id),
+            activeTab?.focusedId,
+          )?.session;
       if (reusable) {
         const hostTab = tabsRef.current.find((entry) =>
           leafIds(entry.layout).includes(reusable.id),
