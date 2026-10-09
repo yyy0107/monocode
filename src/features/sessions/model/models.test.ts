@@ -7,7 +7,9 @@ import {
   defaultSessionChoice,
   encodeModelLaunchId,
   firstEnabledHarness,
+  hasFreshCatalog,
   hasLiveCatalog,
+  hydrateCachedModelCatalogs,
   isPickerProviderVisible,
   loadDefaultModels,
   loadHiddenPickerProviders,
@@ -17,6 +19,7 @@ import {
   mergeModelSettings,
   modelEffortSetting,
   modelPickerTabs,
+  modelsFor,
   nativeModelId,
   preferredModelId,
   preferredModelSettings,
@@ -31,6 +34,7 @@ import {
   showProviderInModelPicker,
   stepModelPickerTab,
   type AgentModel,
+  validCatalogModels,
   withSessionModelSettings,
 } from "./models";
 
@@ -431,6 +435,35 @@ describe("live catalog overlays", () => {
     ]);
     expect(hasLiveCatalog("pi")).toBe(true);
     expect(hasLiveCatalog("omp")).toBe(false);
+  });
+
+  it("restores the previous run's catalog as live but not fresh", () => {
+    mockLocalStorage();
+    const opusLive: AgentModel = {
+      id: "pi:opus",
+      harness: "pi",
+      name: "Opus",
+      nativeId: "anthropic/opus",
+    };
+    setHarnessModels("pi", [opusLive]);
+    expect(hasFreshCatalog("pi")).toBe(true);
+    const saved = localStorage.getItem("monocode.liveModelCatalogs");
+
+    // A new run: memory is empty, storage holds the last catalog.
+    resetHarnessModelOverlays();
+    localStorage.setItem(
+      "monocode.liveModelCatalogs",
+      saved!.replace("]", ',{"id":"omp:x","harness":"pi","name":"Misfiled"}]'),
+    );
+    hydrateCachedModelCatalogs();
+
+    expect(hasLiveCatalog("pi")).toBe(true);
+    expect(hasFreshCatalog("pi")).toBe(false);
+    expect(modelsFor("pi")).toEqual([opusLive, expect.anything()]);
+    expect(validCatalogModels("pi", [opusLive, { id: 1 }, null])).toEqual([
+      opusLive,
+    ]);
+    resetHarnessModelOverlays();
   });
 
   it("keeps saved Claude versions distinct from a live alias", () => {

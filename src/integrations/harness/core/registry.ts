@@ -7,7 +7,7 @@ import type {
 } from "../../../features/sessions/model/session";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { PrContent } from "../../../features/source-control/model/gitText";
-import { hasLiveCatalog } from "../../../features/sessions/model/models";
+import { beginCatalogLoad, hasFreshCatalog } from "../../../features/sessions/model/models";
 import type { UserQuestionReply } from "../../../features/sessions/model/userQuestion";
 import { translate } from "../../../shared/i18n/language";
 import type { NativeCommandProvider } from "./nativeCommands";
@@ -396,7 +396,11 @@ export function bindHarnessSession(
  * Boot used to refresh every adapter; that spawned unused CLIs (Pi with
  * extensions can sit at ~1GB) even when the workspace never touched them.
  */
-/** `force` re-reads a catalog that already loaded, e.g. after a CLI update. */
+/**
+ * A catalog cached by an earlier run is shown at once but still re-read once
+ * per run. `force` re-reads a catalog that already loaded, e.g. after a CLI
+ * update.
+ */
 export async function refreshHarnessCatalogs(
   ids: Iterable<HarnessId>,
   options?: { force?: boolean },
@@ -408,10 +412,14 @@ export async function refreshHarnessCatalogs(
       .filter((adapter) => wanted.has(adapter.id))
       .map(async (adapter) => {
         if (!adapter.refreshCatalog) return;
-        if (!options?.force && hasLiveCatalog(adapter.id)) return;
-        await adapter.refreshCatalog().catch((error: unknown) => {
-          console.debug(`[monocode] ${adapter.id} catalog`, error);
-        });
+        if (!options?.force && hasFreshCatalog(adapter.id)) return;
+        const done = beginCatalogLoad(adapter.id);
+        await adapter
+          .refreshCatalog()
+          .catch((error: unknown) => {
+            console.debug(`[monocode] ${adapter.id} catalog`, error);
+          })
+          .finally(done);
       }),
   );
 }

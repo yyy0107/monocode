@@ -3021,6 +3021,17 @@ fn login_shell_path() -> Option<String> {
     login_shell_env("PATH")
 }
 
+/// Read the login-shell environment off the main thread at startup.
+///
+/// An interactive login shell can take a second or more, and every binary
+/// lookup waits on it. Starting it at launch means the first provider probe
+/// for a new session finds it cached instead of paying for it.
+pub(crate) fn prewarm_login_shell_env() {
+    std::thread::spawn(|| {
+        let _ = login_shell_path();
+    });
+}
+
 fn login_shell_env(name: &str) -> Option<String> {
     let mut cache = LOGIN_SHELL_ENV.lock().ok()?;
     if cache.is_none() {

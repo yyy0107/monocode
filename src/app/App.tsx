@@ -375,6 +375,7 @@ import {
   type OpenFileFn,
 } from "../features/search/model/search";
 import {
+  defaultSessionChoice,
   mergeModelSettings,
   nativeModelId,
   preferredModelSettings,
@@ -1654,7 +1655,14 @@ function Workspace({
   }, [resumed, readProjectReturnMemory, harnessEvents]);
 
   useEffect(() => {
-    void probeHarnessAvailability();
+    // The next new session's harness also loads at boot, so its picker is
+    // ready; only once the probe confirms that CLI is installed.
+    void probeHarnessAvailability().then(() => {
+      const next = defaultSessionChoice(sidebarCwdRef.current).harness;
+      if (isLiveHarness(next) && isHarnessAvailable(next)) {
+        void refreshHarnessCatalogs([next]);
+      }
+    });
     // Only the harnesses already in this window. Probing every installed CLI
     // at boot left unused agents (especially Pi) running in the background.
     const harnesses = [

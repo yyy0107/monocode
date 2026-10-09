@@ -232,6 +232,7 @@ const LAST_MODEL_SETTINGS_KEY = "monocode.lastModelSettings";
 const DEFAULT_MODELS_KEY = "monocode.defaultModels";
 const RECENT_MODELS_KEY = "monocode.recentModels";
 const RECENT_MODEL_LIMIT = 6;
+const LIVE_CATALOGS_KEY = "monocode.liveModelCatalogs";
 
 export type ModelPickerTab = "favorites" | HarnessId;
 
@@ -257,6 +258,8 @@ const EMPTY_MODELS: AgentModel[] = [];
 
 let overlays: Partial<Record<HarnessId, AgentModel[]>> = {};
 let overlayDefaults: Partial<Record<HarnessId, string>> = {};
+const freshCatalogs = new Set<HarnessId>();
+const loadingCatalogs = new Map<HarnessId, number>();
 let catalogVersion = 0;
 const listeners = new Set<() => void>();
 
@@ -281,23 +284,115 @@ export function getModelSnapshot(): number {
 
 export function setHarnessModels(harness: HarnessId, models: AgentModel[]) {
   if (models.length === 0) return;
+  applyOverlay(harness, models);
+  freshCatalogs.add(harness);
+  persistCatalogs();
+  emit();
+}
+
+function applyOverlay(harness: HarnessId, models: AgentModel[]) {
   overlays = { ...overlays, [harness]: models };
   overlayDefaults = {
     ...overlayDefaults,
     [harness]: pickDefaultId(harness, models),
   };
-  emit();
 }
 
-/** True after a live CLI catalog has replaced the built-in fallback list. */
+/** True after a live CLI catalog, fresh or cached, replaced the fallback list. */
 export function hasLiveCatalog(harness: HarnessId): boolean {
   return overlays[harness] != null;
+}
+
+/**
+ * True once this run has loaded the harness catalog itself. A catalog cached
+ * by an earlier run still shows at once, but is re-read in the background.
+ */
+export function hasFreshCatalog(harness: HarnessId): boolean {
+  return freshCatalogs.has(harness);
+}
+
+/** True while a catalog read for this harness is in flight. */
+export function isCatalogLoading(harness: HarnessId): boolean {
+  return (loadingCatalogs.get(harness) ?? 0) > 0;
+}
+
+/** Bracket one catalog read; overlapping reads keep the flag until the last. */
+export function beginCatalogLoad(harness: HarnessId): () => void {
+  const wasLoading = isCatalogLoading(harness);
+  loadingCatalogs.set(harness, (loadingCatalogs.get(harness) ?? 0) + 1);
+  if (!wasLoading) emit();
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    const left = (loadingCatalogs.get(harness) ?? 1) - 1;
+    if (left > 0) loadingCatalogs.set(harness, left);
+    else loadingCatalogs.delete(harness);
+    if (left <= 0) emit();
+  };
+}
+
+/** Catalog rows a harness may hold; drops anything malformed or misfiled. */
+export function validCatalogModels(
+  harness: HarnessId,
+  models: unknown[],
+): AgentModel[] {
+  return models.filter(
+    (model): model is AgentModel =>
+      !!model &&
+      typeof model === "object" &&
+      typeof (model as AgentModel).id === "string" &&
+      typeof (model as AgentModel).name === "string" &&
+      (model as AgentModel).harness === harness,
+  );
+}
+
+function persistCatalogs() {
+  try {
+    localStorage.setItem(LIVE_CATALOGS_KEY, JSON.stringify(overlays));
+  } catch {
+    // private mode / quota
+  }
+}
+
+/**
+ * Restore the catalogs the previous run discovered, so a new session shows
+ * real models immediately instead of waiting for each CLI to start.
+ */
+export function hydrateCachedModelCatalogs() {
+  let parsed: unknown;
+  try {
+    const raw = localStorage.getItem(LIVE_CATALOGS_KEY);
+    if (!raw) return;
+    parsed = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+  let restored = false;
+  for (const [harness, models] of Object.entries(parsed)) {
+    // A catalog this run already loaded is newer than the cache.
+    if (!isHarnessId(harness) || freshCatalogs.has(harness)) continue;
+    if (!Array.isArray(models)) continue;
+    const valid = validCatalogModels(harness, models);
+    if (valid.length === 0) continue;
+    applyOverlay(harness, valid);
+    restored = true;
+  }
+  if (restored) emit();
 }
 
 /** Test seam. */
 export function resetHarnessModelOverlays() {
   overlays = {};
   overlayDefaults = {};
+  freshCatalogs.clear();
+  loadingCatalogs.clear();
+  try {
+    localStorage.removeItem(LIVE_CATALOGS_KEY);
+  } catch {
+    // private mode / unavailable
+  }
   emit();
 }
 
@@ -1012,3 +1107,5 @@ function pickDefaultId(harness: HarnessId, models: AgentModel[]): string {
     DEFAULT_MODEL_ID[harness]
   );
 }
+
+hydrateCachedModelCatalogs();
