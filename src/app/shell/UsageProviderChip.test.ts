@@ -357,6 +357,7 @@ describe("UsageProviderChip", () => {
               isDefault: true,
             },
           ],
+          identitySource: "local",
           onSelectAccount,
           onAddAccount: vi.fn(),
         }),

@@ -9,6 +9,7 @@ import { AttachmentChip } from "../features/sessions/ui/AttachmentChip";
 import { setUiLanguage, UI_LANGUAGE_KEY } from "../shared/i18n/language";
 import { ensureRandomUUID } from "./browserCrypto";
 import { LIQUID_GLASS_SELECTOR } from "./liquidGlass";
+import { loadThemePreference } from "../features/settings/model/appearance";
 
 const nativeBack = vi.hoisted(() => ({
   listener: undefined as (() => void) | undefined,
@@ -553,7 +554,7 @@ describe("mobile connection settings", () => {
     );
     expect(active('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();
     expect(appearance.textContent).toBe("Light");
-    expect(localStorage.getItem("monocode-mobile-theme")).toBe("light");
+    expect(loadThemePreference()).toBe("light");
     expect(active("#mobile-theme")!.textContent).toBe("Light");
   });
 

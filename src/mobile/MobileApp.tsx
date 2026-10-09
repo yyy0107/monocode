@@ -926,7 +926,7 @@ export function MobileApp() {
 
   useEffect(() => subscribeSharedPreferences(() => {
     if (!project || sessionId || draftConfigurationChanged.current) return;
-    const defaults = loadMobileProjectDefaults(client.connection?.environmentId, project.id);
+    const defaults = loadMobileProjectDefaults(client.connection, project.id);
     draftDefaults.current = defaults;
     const next = catalog && firstConfiguration(catalog, defaults);
     if (next) setConfiguration(next);
@@ -1029,7 +1029,7 @@ export function MobileApp() {
     const projectTurn = ++projectGeneration.current;
     setProject(item);
     setSessions(client.cachedSessions?.(item.id) ?? []);
-    const defaults = loadMobileProjectDefaults(client.connection?.environmentId, item.id);
+    const defaults = loadMobileProjectDefaults(client.connection, item.id);
     draftDefaults.current = defaults;
     draftConfigurationChanged.current = false;
     const cachedCatalog = client.cachedModels(item.id);
@@ -2281,7 +2281,7 @@ export function MobileApp() {
             <MobileAgentDefaults
               key={`${client.connection?.endpoint ?? "disconnected"}:${connected}:${connectionRevision}`}
               client={client}
-              hostId={connected ? client.connection?.environmentId : undefined}
+              hostId={connected ? client.connection : undefined}
               disabled={busy || loading || !connected}
               panel={preferencePanel}
               onPanelChange={setPreferencePanel}

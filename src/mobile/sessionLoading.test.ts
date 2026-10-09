@@ -357,7 +357,10 @@ describe("mobile conversation loading UI", () => {
     expect(node.querySelector(".mobile-app")?.getAttribute("data-view")).toBe("home");
     expect(node.querySelector('[data-session-id="one"]')).not.toBeNull();
     expect(host.session).not.toHaveBeenCalled();
-    expect(node.querySelector('[role="alert"]')).toBeNull();
+    // This mock is an older Host, so only its upgrade notice may show.
+    expect([...node.querySelectorAll('[role="alert"]')]
+      .map((alert) => alert.textContent ?? "")
+      .filter((text) => !text.startsWith("Update Host to share"))).toEqual([]);
     await act(async () => models.resolve(catalog));
   });
 

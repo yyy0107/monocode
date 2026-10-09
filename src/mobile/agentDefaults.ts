@@ -112,15 +112,35 @@ function hosts(raw: Record<string, unknown>): StoredDefaults["hosts"] {
     : {};
 }
 
+/**
+ * A paired connection: Host-shared preferences follow the Host identity, while
+ * the phone's own fallback stays keyed by connection address (see
+ * `migrateConnectionSettings`). A plain string serves as both.
+ */
+export type MobileDefaultsHost = string | { endpoint: string; environmentId?: string };
+const sharedHostId = (host: MobileDefaultsHost) =>
+  typeof host === "string" ? host : (host.environmentId ?? host.endpoint);
+const localHostId = (host: MobileDefaultsHost) =>
+  typeof host === "string" ? host : host.endpoint;
+
 /** Call with a verified Host only. An unscoped legacy record is claimed once. */
-export function loadMobileAgentDefaults(hostId?: string): MobileAgentDefaults {
-  if (!hostId) return {};
+export function loadMobileAgentDefaults(host?: MobileDefaultsHost): MobileAgentDefaults {
+  if (!host) return {};
   const active = activePreferenceStore();
   if (active) {
-    if (active.hostId !== hostId) return {};
-    try { return parseDefaults(JSON.parse(preferenceStorage.getItem(SHARED_KEY) ?? "{}")); }
+    if (active.hostId !== sharedHostId(host)) return {};
+    const shared = preferenceStorage.getItem(SHARED_KEY);
+    // Until this Host shares defaults, keep the ones this phone already saved.
+    const local = shared == null ? read() : undefined;
+    if (local?.version === 2) {
+      const saved = hosts(local);
+      if (Object.prototype.hasOwnProperty.call(saved, localHostId(host)))
+        return saved[localHostId(host)];
+    }
+    try { return parseDefaults(JSON.parse(shared ?? "{}")); }
     catch { return {}; }
   }
+  const hostId = localHostId(host);
   const raw = read();
   if (raw.version === 2) {
     const saved = hosts(raw);
@@ -153,23 +173,24 @@ export function loadMobileAgentDefaults(hostId?: string): MobileAgentDefaults {
   return write({ version: 2, hosts: { [hostId]: migrated } }) ? migrated : {};
 }
 export function saveMobileAgentDefaults(
-  hostId: string,
+  host: MobileDefaultsHost,
   value: MobileAgentDefaults,
 ) {
   const active = activePreferenceStore();
   if (active) {
-    if (active.hostId === hostId) preferenceStorage.setItem(SHARED_KEY, JSON.stringify(parseDefaults(value)));
+    if (active.hostId === sharedHostId(host)) preferenceStorage.setItem(SHARED_KEY, JSON.stringify(parseDefaults(value)));
     return;
   }
   write({
     version: 2,
-    hosts: { ...hosts(read()), [hostId]: parseDefaults(value) },
+    hosts: { ...hosts(read()), [localHostId(host)]: parseDefaults(value) },
   });
 }
 
 /** Project-specific desktop choices override global defaults for a new mobile draft. */
-export function loadMobileProjectDefaults(hostId: string | undefined, projectId: string): MobileAgentDefaults {
-  const defaults = loadMobileAgentDefaults(hostId);
+export function loadMobileProjectDefaults(host: MobileDefaultsHost | undefined, projectId: string): MobileAgentDefaults {
+  const defaults = loadMobileAgentDefaults(host);
+  const hostId = host && sharedHostId(host);
   if (!hostId || activePreferenceStore()?.hostId !== hostId) return defaults;
   const identity = `@project:${encodeURIComponent(hostId)}:${encodeURIComponent(projectId)}`;
   try {
