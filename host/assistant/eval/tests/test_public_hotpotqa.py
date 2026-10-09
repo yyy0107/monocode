@@ -37,6 +37,7 @@ def execute_reference(episode):
     return final, trace
 
 
+@unittest.skipUnless(data_path('public/hotpotqa/cases.jsonl').is_file(), 'Prepare the HotpotQA cache before running dataset regressions')
 class HotpotQATests(unittest.TestCase):
     def test_all_48_original_records_reference_pass(self):
         adapter = load_adapter()

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Prepare checksum-locked evaluation datasets in the user's external cache.
 
-Only explicitly selected sources are fetched. Original MonoCode fixtures are
-generated locally; public sources use immutable upstream revisions. Downloads
+Only explicitly selected sources are fetched. Original MonoCode fixtures come
+from an external input directory or HTTPS base URL; public sources use immutable
+upstream revisions. Downloads
 and rebuilt datasets are verified before an atomic, per-source publication.
 No dependency installation, model calls, or project-directory data writes occur.
 """
@@ -21,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import types
+import urllib.parse
 import urllib.request
 
 EVAL_ROOT = Path(__file__).resolve().parents[1]
@@ -270,11 +272,42 @@ def _prepare_bipia(stage, downloads):
     _module(directory / "build_subset.py").build()
 
 
-def _build_source(source, stage, downloads):
-    if source == "original":
-        subprocess.run([sys.executable, str(stage / "data/author_cases.py"), "--out", str(stage / "data")], check=True)
+def _prepare_original(stage, downloads):
+    """Read original cases from external input; never reconstruct them in code."""
+    configured = os.environ.get("MONOCODE_EVAL_ORIGINAL_SOURCE", "").strip()
+    source = configured or str(Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "monocode/eval-inputs/original")
+    is_url = "://" in source
+    if is_url:
+        parsed = urllib.parse.urlsplit(source)
+        if parsed.scheme != "https" or not parsed.netloc or parsed.query or parsed.fragment:
+            raise ValueError("MONOCODE_EVAL_ORIGINAL_SOURCE must be an external directory or an HTTPS base URL without query/fragment")
     else:
-        globals()["_prepare_" + source](stage, downloads)
+        directory = Path(source).expanduser().resolve()
+        if directory == PROJECT_ROOT or PROJECT_ROOT in directory.parents:
+            raise ValueError("MONOCODE_EVAL_ORIGINAL_SOURCE must be outside the project directory")
+    for relative, digest in load_lock()["sources"]["original"]["files"].items():
+        destination = stage / relative
+        if is_url:
+            url = source.rstrip("/") + "/" + urllib.parse.quote(relative, safe="/")
+            copy_download(url, digest, destination, downloads)
+        else:
+            original = (directory / relative).resolve()
+            if original == PROJECT_ROOT or PROJECT_ROOT in original.parents:
+                raise ValueError("Original eval inputs must be outside the project directory")
+            if not original.is_file():
+                raise FileNotFoundError(
+                    f"Original eval dataset input missing: {original}. "
+                    "Set MONOCODE_EVAL_ORIGINAL_SOURCE to an external directory or HTTPS base URL "
+                    "containing the data/... paths listed in data/datasets.lock.json."
+                )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(original, destination)
+        if sha256(destination) != digest:
+            raise ValueError(f"Original eval dataset input does not match locked SHA256: {relative}")
+
+
+def _build_source(source, stage, downloads):
+    globals()["_prepare_" + source](stage, downloads)
 
 
 def _copy_sources(stage, source, lock):
@@ -312,11 +345,14 @@ def ensure_data(sources=None):
             print(f"Preparing eval dataset: {source}", file=sys.stderr)
             with tempfile.TemporaryDirectory(dir=root.parent, prefix=f".prepare-{source}-") as temporary:
                 work = Path(temporary) / "work"
-                _copy_sources(work, source, lock)
-                environment = dict(os.environ, MONOCODE_EVAL_BUILD_ROOT=str(work), PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1")
-                subprocess.run([sys.executable, str(Path(__file__).resolve()), "--_build", source,
-                                "--_stage", str(work), "--_downloads", str(root.parent / "downloads")],
-                               env=environment, stdout=sys.stderr, check=True)
+                if source == "original":
+                    _prepare_original(work, root.parent / "downloads")
+                else:
+                    _copy_sources(work, source, lock)
+                    environment = dict(os.environ, MONOCODE_EVAL_BUILD_ROOT=str(work), PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1")
+                    subprocess.run([sys.executable, str(Path(__file__).resolve()), "--_build", source,
+                                    "--_stage", str(work), "--_downloads", str(root.parent / "downloads")],
+                                   env=environment, stdout=sys.stderr, check=True)
                 prepared = Path(temporary) / "ready"
                 for name, digest in files.items():
                     source_file = work / name

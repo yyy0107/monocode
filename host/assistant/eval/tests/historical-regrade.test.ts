@@ -1,5 +1,6 @@
+import { evalDataPath } from "../src/evalData";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -24,7 +25,11 @@ function report() {
   };
 }
 afterAll(() => rmSync(temp, { recursive: true, force: true }));
-describe("offline historical measurement", () => {
+describe.skipIf(
+  !existsSync(
+    evalDataPath(root, "reports/expanded-summary-2026-10-09/summary.json"),
+  ) || !existsSync(evalDataPath(root, "data/cases.jsonl")),
+)("offline historical measurement", () => {
   it("reports zero new executions and separates observed-final regrading", () => {
     const { summary, rows } = report();
     expect(summary.mode).toBe("offline-historical-regrade-no-model");
@@ -43,7 +48,7 @@ describe("offline historical measurement", () => {
   it("preserves every selected historical final, trace, state and raw output byte value", () => {
     for (const row of report().rows) {
       const source = JSON.parse(
-        readFileSync(join(root, row.evidence.path), "utf8").split("\n")[
+        readFileSync(evalDataPath(root, row.evidence.path), "utf8").split("\n")[
           row.evidence.line - 1
         ],
       );
@@ -52,7 +57,7 @@ describe("offline historical measurement", () => {
       expect(row.regrade.candidate.scorerVersion).toBe("citation-v2");
       expect(row.evidence.fileSha256).toBe(
         createHash("sha256")
-          .update(readFileSync(join(root, row.evidence.path)))
+          .update(readFileSync(evalDataPath(root, row.evidence.path)))
           .digest("hex"),
       );
     }

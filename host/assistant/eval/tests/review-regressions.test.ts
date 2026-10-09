@@ -1,17 +1,22 @@
 import { fileURLToPath } from "node:url";
-import { ensureEvalData, evalDataPath } from "../src/evalData";
-import { it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { evalDataPath } from "../src/evalData";
+import { it as testIt, expect } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
 import { CaseSchema } from "../src/schema";
 import { Environment } from "../src/environment";
 import { evaluate } from "../src/scoring";
 import { parsePiOutput } from "../src/adapters";
 const evalRoot = fileURLToPath(new URL("..", import.meta.url));
-await ensureEvalData(evalRoot, ["original"]);
-const cases = readFileSync(evalDataPath(evalRoot, "data/cases.jsonl"), "utf8")
-  .trim()
-  .split("\n")
-  .map((l) => CaseSchema.parse(JSON.parse(l)));
+const originalsAvailable = existsSync(
+  evalDataPath(evalRoot, "data/cases.jsonl"),
+);
+const it = testIt.skipIf(!originalsAvailable);
+const cases = originalsAvailable
+  ? readFileSync(evalDataPath(evalRoot, "data/cases.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => CaseSchema.parse(JSON.parse(l)))
+  : [];
 const get = (id: string) => cases.find((c) => c.id === id)!;
 it("does not accept 300 as a sum of 30", () => {
   const c = get("spreadsheets-sum"),

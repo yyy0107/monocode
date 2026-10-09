@@ -27,8 +27,16 @@ def cache_root(root=ROOT):
     return base.expanduser().resolve() / digest
 
 
+def archive_root(root=ROOT):
+    """Location of optional historical evidence, separate from dataset caches."""
+    if os.environ.get("MONOCODE_EVAL_ARCHIVE_ROOT"):
+        return Path(os.environ["MONOCODE_EVAL_ARCHIVE_ROOT"]).expanduser().resolve()
+    base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+    return base.expanduser().resolve() / "monocode/eval-archive"
+
+
 def data_path(relative, root=ROOT):
-    """Map a logical file (or payload-only directory) to its owning source cache."""
+    """Resolve payload caches and optional reports; custom fixture roots stay local."""
     relative = Path(relative)
     if relative.is_absolute() or ".." in relative.parts:
         raise ValueError("Evaluation data paths must be relative to the eval root")
@@ -36,6 +44,8 @@ def data_path(relative, root=ROOT):
     build_root = os.environ.get("MONOCODE_EVAL_BUILD_ROOT")
     if build_root:
         return Path(build_root) / relative
+    if relative.parts and relative.parts[0] == "reports" and (Path(root) / "data/datasets.lock.json").exists():
+        return archive_root(root) / relative
     key = relative.as_posix()
     for source, entry in dataset_lock(Path(root)).get("sources", {}).items():
         if key in entry["files"] or any(name.startswith(key + "/") for name in entry["files"]):
@@ -51,6 +61,17 @@ def resolve_data_file(path, root=ROOT):
     except ValueError:
         return path
     return data_path(relative, root)
+
+
+def require_external_output(path, root=ROOT):
+    """Managed eval outputs must remain outside the checkout, including symlinks."""
+    output = Path(path).resolve()
+    root = Path(root).resolve()
+    if (root / "data/datasets.lock.json").is_file():
+        project = root.parents[2]
+        if output.is_relative_to(project):
+            raise ValueError("Evaluation output must be outside the project checkout")
+    return output
 
 
 def ensure_data(sources, root=ROOT):

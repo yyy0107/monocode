@@ -1,6 +1,11 @@
-import { ensureEvalData, evalDataPath } from "./evalData";
+import {
+  ensureEvalData,
+  evalDataPath,
+  requireEvalInputPath,
+  assertEvalOutputOutsideProject,
+} from "./evalData";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { CaseSchema, DecisionSchema, type Result } from "./schema";
@@ -38,6 +43,10 @@ while (args.length) {
     throw new Error(`Invalid option ${name}`);
   opts[key] = args.shift()!;
 }
+const replayInput =
+  command === "replay" && opts.campaign
+    ? await requireEvalInputPath(root, opts.campaign)
+    : undefined;
 await ensureEvalData(root, ["original"]);
 const readJSONL = async (file: string) =>
   (await readFile(evalDataPath(root, `data/${file}`), "utf8"))
@@ -141,12 +150,7 @@ if (command === "schema") {
     throw new Error("replay requires --campaign and --out");
   console.log(
     JSON.stringify(
-      await replayCampaign(
-        root,
-        resolve(opts.campaign),
-        resolve(opts.out),
-        cases,
-      ),
+      await replayCampaign(root, replayInput!, resolve(opts.out), cases),
     ),
   );
 } else if (command === "run") {
@@ -173,12 +177,13 @@ if (command === "schema") {
   if (!selected.length) throw new Error("No cases selected");
   const out = resolve(
     opts.out ??
-      join(
+      evalDataPath(
         root,
-        "reports",
-        mode + "-" + new Date().toISOString().replace(/[:.]/g, "-"),
+        `reports/${mode}-${new Date().toISOString().replace(/[:.]/g, "-")}`,
       ),
   );
+  await assertEvalOutputOutsideProject(root, out);
+  if (!opts.out) await mkdir(dirname(out), { recursive: true });
   await mkdir(out, { recursive: false });
   const budget = new Budget(
     numeric("max-requests", 24),

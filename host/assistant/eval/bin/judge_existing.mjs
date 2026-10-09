@@ -18,12 +18,13 @@ import { Budget, PiAdapter, emptyUsage, addUsage } from './src/adapters';
 import { judgeResult } from './src/judge';
 import { loadCalibrationRegistry } from './src/judgeTrust';
 import { CaseSchema } from './src/schema';
-import { ensureEvalData, evalDataPath } from './src/evalData';
+import { ensureEvalData, evalDataPath, requireEvalInputPath, assertEvalOutputOutsideProject } from './src/evalData';
 import { Environment } from './src/environment';
 import { evaluate } from './src/scoring';
 export async function run(root,args) {
   if(args.length!==3)throw new Error('Usage: judge_existing.mjs CAMPAIGN NEW_OUTPUT IDS_COMMA_SEPARATED');
-  const campaign=resolve(args[0]),out=resolve(args[1]);
+  const campaign=await requireEvalInputPath(root,args[0]),out=resolve(args[1]);
+  await assertEvalOutputOutsideProject(root,out);
   if(!out.startsWith(campaign+'/'))throw new Error('Judge extension output must be inside its campaign');
   const ledger=JSON.parse(await readFile(join(campaign,'campaign.json'),'utf8'));
   if(!ledger.finishedAt)throw new Error('Wait for campaign completion before spending remaining budget');

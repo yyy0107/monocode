@@ -1,5 +1,6 @@
-import { readFile, realpath } from "node:fs/promises";
-import { join, resolve, relative, isAbsolute } from "node:path";
+import { safeEvalDataPath } from "./evalData";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
@@ -74,13 +75,12 @@ async function verifiedFile(
   root: string,
   item: { path: string; sha256: string },
 ) {
-  if (isAbsolute(item.path))
-    throw new Error("CALIBRATION_EVIDENCE_PATH_INVALID");
-  const base = await realpath(root),
-    path = await realpath(resolve(base, item.path)),
-    rel = relative(base, path);
-  if (rel === ".." || rel.startsWith("../") || isAbsolute(rel))
-    throw new Error("CALIBRATION_EVIDENCE_PATH_INVALID");
+  let path: string;
+  try {
+    path = await safeEvalDataPath(root, item.path);
+  } catch (error) {
+    throw new Error("CALIBRATION_EVIDENCE_PATH_INVALID", { cause: error });
+  }
   const text = await readFile(path, "utf8");
   if (createHash("sha256").update(text).digest("hex") !== item.sha256)
     throw new Error("CALIBRATION_EVIDENCE_HASH_MISMATCH");

@@ -1,6 +1,10 @@
-import { ensureEvalData, evalDataPath } from "./evalData";
+import {
+  ensureEvalData,
+  readEvalText,
+  assertEvalOutputOutsideProject,
+} from "./evalData";
 import { createHash } from "node:crypto";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { CaseSchema, type Scenario, type Result } from "./schema";
 import type { Environment } from "./environment";
@@ -77,12 +81,13 @@ function parseTerminal(raw: string, version: TransportPolicyVersion) {
 }
 
 export async function buildHistoricalRegrade(root: string) {
+  await readEvalText(root, "reports/expanded-summary-2026-10-09/summary.json");
   await ensureEvalData(root, ["original"]);
   const sourceEvidenceSha256: Record<string, string> = {};
   const contents = new Map<string, string>();
   async function read(path: string) {
     if (contents.has(path)) return contents.get(path)!;
-    const text = await readFile(evalDataPath(root, path), "utf8");
+    const text = await readEvalText(root, path);
     contents.set(path, text);
     sourceEvidenceSha256[path] = digest(text);
     return text;
@@ -237,12 +242,13 @@ export async function buildHistoricalRegrade(root: string) {
 }
 
 export async function writeHistoricalRegrade(root: string, out: string) {
+  await assertEvalOutputOutsideProject(root, out);
   const report = await buildHistoricalRegrade(root);
   // Verify before creating an output directory; a different snapshot must never be relabeled.
   for (const [path, expected] of Object.entries(
     report.summary.sourceEvidenceSha256,
   ))
-    if (digest(await readFile(evalDataPath(root, path), "utf8")) !== expected)
+    if (digest(await readEvalText(root, path)) !== expected)
       throw new Error(`Historical regrade input changed: ${path}`);
   await mkdir(out, { recursive: false }); // Existing evidence is never overwritten.
   await writeFile(

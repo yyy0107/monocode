@@ -35,6 +35,8 @@ def execute_reference(episode):
 class PublicAPIBankTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not data_path('public/api_bank/cases.jsonl').is_file():
+            raise unittest.SkipTest('Prepare the API-Bank cache before running dataset regressions')
         cls.cases = api.load_cases()
         cls.by_api = {case['data']['target']['api_name']: case for case in cls.cases}
 
@@ -183,7 +185,7 @@ class PublicAPIBankTests(unittest.TestCase):
         mapping = json.loads(data_path('public/api_bank/raw/data_mapping.json').read_text())
         self.assertEqual(len(mapping), 399)
         self.assertTrue(all(row['expected_call_exact_match'] for row in mapping))
-        excluded = [json.loads(line) for line in (ROOT / 'exclusions.jsonl').read_text().splitlines()]
+        excluded = [json.loads(line) for line in data_path('public/api_bank/exclusions.jsonl').read_text().splitlines()]
         self.assertEqual(len(excluded) + len(self.cases), 534)
         self.assertEqual(len({case['upstream_id'] for case in self.cases}), 32)
 

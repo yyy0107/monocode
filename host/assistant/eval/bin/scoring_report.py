@@ -17,7 +17,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bin"))
-from eval_data import data_path, ensure_data
+from eval_data import archive_root, cache_root, data_path, dataset_lock, ensure_data, require_external_output
 SOURCES = ("bfcl", "longmemeval", "tau_bench", "api_bank", "hotpotqa", "bipia")
 GATED = "reports/calibration-gated-final-2026-10-09"
 CAMPAIGN = "reports/pi-breadth-2026-10-09"
@@ -33,6 +33,25 @@ def sha(path):
 
 def read_rows(path):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def evidence_path(relative, root=ROOT):
+    """Archive remapping must preserve the existing evidence containment boundary."""
+    path = data_path(relative, root=root)
+    parts = Path(relative).parts
+    if not parts:
+        raise ValueError("Evidence path must identify a file")
+    boundary = Path(root)
+    if parts[0] == "reports" and (boundary / 'data/datasets.lock.json').exists():
+        boundary = archive_root(root)
+    else:
+        for source, entry in dataset_lock(Path(root)).get('sources', {}).items():
+            if Path(relative).as_posix() in entry['files']:
+                boundary = cache_root(root) / source
+                break
+    if not path.resolve().is_relative_to(Path(boundary).resolve()):
+        raise ValueError("Calibration evidence path escapes its source tree")
+    return path
 
 
 def load_catalog(root):
@@ -111,18 +130,27 @@ def metric_summary(rows, key, predicate=lambda row: True):
 
 
 def build(root):
+    reports = data_path("reports", root=root)
+    if not reports.is_dir():
+        raise FileNotFoundError("Historical reports are unavailable; set MONOCODE_EVAL_ARCHIVE_ROOT to the archive containing reports/")
     catalog = load_catalog(root)
     evidence = {}
 
+    def logical(path):
+        try:
+            return str(Path("reports") / path.relative_to(reports))
+        except ValueError:
+            return str(path.relative_to(root))
+
     def remember(path):
-        evidence[str(path.relative_to(root))] = sha(path)
+        evidence[logical(path)] = sha(path)
 
     for relative in ["data/cases.jsonl", "data/judge-calibration.json"] + [
         f"public/{source}/cases.jsonl" for source in SOURCES
     ]:
         evidence[relative] = sha(data_path(relative, root=root))
-    gated_path = root / GATED / "results.jsonl"
-    gated_summary = root / GATED / "summary.json"
+    gated_path = evidence_path(f"{GATED}/results.jsonl", root)
+    gated_summary = evidence_path(f"{GATED}/summary.json", root)
     gated = {}
     if gated_path.exists():
         # Refuse a stale trust snapshot. Re-run the existing offline replay first
@@ -133,7 +161,7 @@ def build(root):
             raise ValueError("Trust snapshot differs from current calibration registry; refresh the offline replay")
         for record in registry["records"]:
             for item in record.get("evidence", []):
-                p = root / item["path"]
+                p = evidence_path(item["path"], root)
                 if sha(p) != item["sha256"]:
                     raise ValueError("Calibration evidence hash mismatch")
                 remember(p)
@@ -142,15 +170,16 @@ def build(root):
 
     attempts, runs, framework = [], [], []
     dataset_hash = sha(data_path("data/cases.jsonl", root=root))
-    for summary_path in sorted((root / "reports").rglob("summary.json")):
+    for summary_path in sorted(reports.rglob("summary.json")):
+        evidence_path(logical(summary_path), root)
         summary = json.loads(summary_path.read_text())
-        result_path = summary_path.with_name("results.jsonl")
-        manifest_path = summary_path.with_name("manifest.json")
+        result_path = evidence_path(logical(summary_path.with_name("results.jsonl")), root)
+        manifest_path = evidence_path(logical(summary_path.with_name("manifest.json")), root)
         manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
         mode = manifest.get("mode", summary.get("mode"))
         if mode == "reference":
-            framework.append({"run_id": str(summary_path.parent.relative_to(root)),
-                              "kind": "reference_only", "evidence": str(summary_path.relative_to(root)),
+            framework.append({"run_id": logical(summary_path.parent),
+                              "kind": "reference_only", "evidence": logical(summary_path),
                               "sha256": sha(summary_path), "cases": summary.get("cases", summary.get("total")),
                               "statuses": summary.get("statuses", summary.get("sources")),
                               "real_model_executed": False})
@@ -160,7 +189,7 @@ def build(root):
         remember(summary_path); remember(result_path)
         if manifest_path.exists():
             remember(manifest_path)
-        run_id = str(result_path.parent.relative_to(root))
+        run_id = logical(result_path.parent)
         config = {"mode": mode, "seed": manifest.get("seed", summary.get("seed")),
                   "model": manifest.get("model"), "dataset_sha256": summary.get("datasetSha256"),
                   "max_steps": manifest.get("maxSteps"), "timeout_ms": manifest.get("timeoutMs"),
@@ -199,13 +228,13 @@ def build(root):
                 "denominator": int(real and result["status"] in ("passed", "failed")),
                 "checks": checks, "metrics": grade.get("metrics", {}), "judge": judge,
                 "failure_reason": "; ".join(reasons) or (None if result["status"] == "passed" else "No recorded fine-grained reason"),
-                "evidence": f"{result_path.relative_to(root)}:L{line}",
-                "judge_evidence": str(gated_path.relative_to(root)) if trusted and trusted.get("judge") else None,
+                "evidence": f"{logical(result_path)}:L{line}",
+                "judge_evidence": logical(gated_path) if trusted and trusted.get("judge") else None,
                 "usage": result.get("usage", {}), "agent_usage": result.get("agentUsage"),
                 "transport": result.get("transport"), "selected": False})
         runs.append({"run_id": run_id, "timestamp": when, "config": config,
                      "attempts": len(seen), "usage": summary.get("usage"),
-                     "evidence": str(summary_path.relative_to(root))})
+                     "evidence": logical(summary_path)})
 
     latest = {}
     for attempt in sorted(attempts, key=lambda item: (item["timestamp"], item["run_id"])):
@@ -278,6 +307,7 @@ def rate(item):
 
 def write_report(root, out):
     root, out = root.resolve(), out.resolve()
+    require_external_output(out, root)
     if out.exists():
         raise ValueError("Output must be a new directory; historical reports are immutable")
     if out == root or out in root.parents or any(out == root / name or root / name in out.parents for name in ("public", "data", "src", "tests", "bin")):
@@ -322,7 +352,7 @@ def write_report(root, out):
         lines.append("| " + " | ".join(map(md, [row["id"], f"{row['dataset']}/{row['category']}", score, row["real_model_executed"], row["run_id"], row["failure_reason"], row["evidence"] or row["catalog_evidence"]])) + " |")
     lines += ["", "## 框架验证，非助理得分", "", f"保留 {len(summary['reference_runs'])} 个历史 reference 运行索引，详见 summary.json.reference_runs。单元测试与迁移回放结果见 ../migration-2026-10-09/verification.json；绝不进入上述能力分母。", "",
         "## 刷新", "", "仓库根目录：", "```bash", "python3 host/assistant/eval/bin/scoring_report.py --out /tmp/assistant-scores-NEW", "```", "",
-        "或进入 host/assistant/eval 后运行 `python3 bin/scoring_report.py --out /tmp/assistant-scores-NEW`。输出必须为新目录。原始证据路径以 eval 根目录为基准；:L 后为 JSONL 行号。", "",
+        "或进入 host/assistant/eval 后运行 `python3 bin/scoring_report.py --out /tmp/assistant-scores-NEW`。输出必须是源码目录外的新目录。reports/ 证据路径以 MONOCODE_EVAL_ARCHIVE_ROOT 归档为基准；:L 后为 JSONL 行号。", "",
         "历史原记录/报告字节不变，输入 SHA-256 列于 summary.json。旧报告内 eval/ 的绝对路径按 docs/MIGRATION.md 映射到新位置。"]
     (out / "scores.md").write_text("\n".join(lines) + "\n")
     h = html.escape

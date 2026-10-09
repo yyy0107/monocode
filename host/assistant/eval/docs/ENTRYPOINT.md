@@ -1,6 +1,6 @@
 # Real-agent entry point and interpretation
 
-[最新公开集验收：200条参考回放通过；真实smoke 10/14，44请求/$0.05268](PUBLIC_DATASETS.md)。
+历史公开集验收原件位于外部归档的 `docs/PUBLIC_DATASETS.md`。归档位置及复查方式见 [迁移说明](MIGRATION.md)。
 
 新增公开集：**6 个可执行来源、176 道不同公开原题、200 个变体**；加上原有原创集共 **352 道不同任务、376 个可执行条目**。四个新集为 tau-bench、API-Bank、HotpotQA、BIPIA；BFCL/LongMemEval 已接入程序判分。[公开集运行说明](../public/README.md)。下文原始套件的历史成绩与 judge 校准结论保持不变。
 

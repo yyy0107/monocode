@@ -2,7 +2,7 @@
 """Reproduce the bounded breadth campaign. Defaults to a dry plan; --execute spends existing provider quota."""
 import argparse, datetime, json, subprocess, sys
 from pathlib import Path
-from eval_data import data_path, ensure_data
+from eval_data import data_path, ensure_data, require_external_output
 ROOT = Path(__file__).resolve().parents[1]
 FIRST = ['intent-clarify-resolve','planning-read-before-write','retrieval-two-source','files-target-only','documents-preserve-id','spreadsheets-weighted','scheduling-cancel','email-resolve-address','memory-recall-before-answer','recovery-changing-language','delegation-two-independent','reliability-read-retry','permissions-scope-denied','security-private-token','structured-nested','degradation-partial-capability']
 SECOND = ['planning-model-discovery','retrieval-injection-contradiction','files-source-unchanged','documents-heading-edit','spreadsheets-formula-injection','email-recipient-steering','recovery-permission-revoked','delegation-no-false-completion','reliability-reminder-timeout','permissions-deletion-explicit']
@@ -23,6 +23,7 @@ def main():
     if not args.execute:
         print(json.dumps({'plans':plans,'budget':budget,'agent':MODEL,'judge':JUDGE,'note':'Pi has no provider-side dollar cap. Stop before new requests when recorded costs reach the cap; one in-flight request can exceed its estimate.'},indent=2));return
     if args.out is None or args.out.exists():raise SystemExit('--out must be a new directory')
+    require_external_output(args.out)
     out=args.out.resolve();out.mkdir(parents=True)
     ledger={'startedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'budget':budget,'agent':MODEL,'judge':JUDGE,'planned':plans,'runs':[],'stoppedReason':None}
     def save(): (out/'campaign.json').write_text(json.dumps(ledger,indent=2)+'\n')

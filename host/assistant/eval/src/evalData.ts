@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { readFile, realpath } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 export type DatasetLock = {
   version: number;
@@ -47,19 +48,142 @@ export function evalDataRoot(root: string): string {
   );
 }
 
-/** Only immutable files explicitly listed in the dataset lock live in the cache. */
-export function evalDataPath(root: string, relativePath: string): string {
-  if (isAbsolute(relativePath) || relativePath.split(/[\\/]/).includes(".."))
+/** Historical runs are user artifacts, separate from reproducible dataset caches. */
+export function evalArchiveRoot(root: string): string {
+  if (!readDatasetLock(root)) return resolve(root);
+  return resolve(
+    expandHome(
+      process.env.MONOCODE_EVAL_ARCHIVE_ROOT ||
+        join(
+          process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"),
+          "monocode",
+          "eval-archive",
+        ),
+    ),
+  );
+}
+
+function checkRelativePath(path: string) {
+  if (isAbsolute(path) || path.split(/[\\/]/).includes(".."))
     throw new Error("Invalid evaluation data path");
+}
+
+export function evalArtifactPath(root: string, relativePath: string): string {
+  checkRelativePath(relativePath);
+  return resolve(evalArchiveRoot(root), relativePath);
+}
+
+/** The trusted root for this exact logical file; callers retain symlink containment checks. */
+export function evalPathRoot(root: string, relativePath: string): string {
+  checkRelativePath(relativePath);
   const lock = readDatasetLock(root);
+  if (
+    lock &&
+    (relativePath === "reports" || relativePath.startsWith("reports/"))
+  )
+    return evalArchiveRoot(root);
   const external =
     lock &&
     Object.entries(lock.sources).find(([, source]) =>
       Object.hasOwn(source.files, relativePath),
     );
-  return external
-    ? join(evalDataRoot(root), external[0], relativePath)
-    : resolve(root, relativePath);
+  return external ? join(evalDataRoot(root), external[0]) : resolve(root);
+}
+
+/** Only locked payloads and report artifacts are redirected outside the checkout. */
+export function evalDataPath(root: string, relativePath: string): string {
+  return resolve(evalPathRoot(root, relativePath), relativePath);
+}
+
+export async function safeEvalDataPath(
+  root: string,
+  relativePath: string,
+): Promise<string> {
+  const base = await realpath(evalPathRoot(root, relativePath));
+  const path = await realpath(evalDataPath(root, relativePath));
+  const rel = relative(base, path);
+  if (
+    rel === ".." ||
+    rel.startsWith("../") ||
+    rel.startsWith("..\\") ||
+    isAbsolute(rel)
+  )
+    throw new Error("Evaluation evidence path escapes its storage root");
+  return path;
+}
+
+export async function readEvalText(
+  root: string,
+  relativePath: string,
+): Promise<string> {
+  try {
+    return await readFile(await safeEvalDataPath(root, relativePath), "utf8");
+  } catch (error) {
+    if (
+      (error as NodeJS.ErrnoException).code === "ENOENT" &&
+      relativePath.startsWith("reports/") &&
+      readDatasetLock(root)
+    )
+      throw new Error(
+        `Historical evaluation artifact is unavailable: ${relativePath}. Set MONOCODE_EVAL_ARCHIVE_ROOT to the external archive containing reports/.`,
+      );
+    throw error;
+  }
+}
+
+/** Accept explicit external inputs and preserve logical reports/... CLI paths. */
+export function resolveEvalInputPath(root: string, path: string): string {
+  if (path === "reports" || path.startsWith("reports/"))
+    return evalDataPath(root, path);
+  const absolute = resolve(path),
+    rel = relative(resolve(root), absolute).split("\\").join("/");
+  return rel === "reports" || rel.startsWith("reports/")
+    ? evalDataPath(root, rel)
+    : absolute;
+}
+
+export async function requireEvalInputPath(
+  root: string,
+  path: string,
+): Promise<string> {
+  const resolved = resolveEvalInputPath(root, path);
+  try {
+    return await realpath(resolved);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      throw new Error(
+        `Evaluation artifact is unavailable: ${resolved}. Supply an existing external path or set MONOCODE_EVAL_ARCHIVE_ROOT to the archive containing reports/.`,
+      );
+    throw error;
+  }
+}
+
+async function prospectiveRealpath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const parent = dirname(path);
+    if (parent === path) throw error;
+    return join(await prospectiveRealpath(parent), relative(parent, path));
+  }
+}
+
+export async function assertEvalOutputOutsideProject(
+  root: string,
+  out: string,
+): Promise<void> {
+  if (!readDatasetLock(root)) return;
+  const project = await realpath(resolve(root, "../../.."));
+  const path = await prospectiveRealpath(resolve(out));
+  const rel = relative(project, path);
+  if (
+    !rel ||
+    (!rel.startsWith("../") && !rel.startsWith("..\\") && !isAbsolute(rel))
+  )
+    throw new Error(
+      "Evaluation reports must be stored outside the project; use MONOCODE_EVAL_ARCHIVE_ROOT or an external --out directory.",
+    );
 }
 
 /** Acquisition happens before the isolated, network-denied evaluation bridge starts. */
@@ -86,7 +210,11 @@ export async function ensureEvalData(
       ],
       {
         cwd: root,
-        env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+        env: {
+          ...process.env,
+          MONOCODE_EVAL_ARCHIVE_ROOT: evalArchiveRoot(root),
+          PYTHONDONTWRITEBYTECODE: "1",
+        },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );

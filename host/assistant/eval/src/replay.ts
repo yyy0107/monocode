@@ -1,4 +1,14 @@
-import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
+import {
+  assertEvalOutputOutsideProject,
+  requireEvalInputPath,
+} from "./evalData";
+import {
+  readFile,
+  writeFile,
+  mkdir,
+  readdir,
+  realpath,
+} from "node:fs/promises";
 import { join, resolve, relative, isAbsolute } from "node:path";
 import { createHash } from "node:crypto";
 import type { Scenario, Result } from "./schema";
@@ -17,9 +27,20 @@ export async function replayCampaign(
   out: string,
   cases: Scenario[],
 ) {
+  await assertEvalOutputOutsideProject(root, out);
+  campaign = await requireEvalInputPath(root, campaign);
   const evidence: Record<string, string> = {};
   const read = async (path: string) => {
-    const text = await readFile(path, "utf8");
+    const actual = await realpath(path),
+      rel = relative(campaign, actual);
+    if (
+      rel === ".." ||
+      rel.startsWith("../") ||
+      rel.startsWith("..\\") ||
+      isAbsolute(rel)
+    )
+      throw new Error("Campaign evidence escapes its directory");
+    const text = await readFile(actual, "utf8");
     evidence[path] = digest(text);
     return text;
   };

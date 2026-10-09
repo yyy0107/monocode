@@ -1,16 +1,21 @@
 import { fileURLToPath } from "node:url";
-import { ensureEvalData, evalDataPath } from "../src/evalData";
-import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { evalDataPath } from "../src/evalData";
+import { existsSync, readFileSync } from "node:fs";
+import { describe, expect, it as testIt } from "vitest";
 import { Environment } from "../src/environment";
 import { CaseSchema, type Scenario, type Trace } from "../src/schema";
 import { evaluate } from "../src/scoring";
 const evalRoot = fileURLToPath(new URL("..", import.meta.url));
-await ensureEvalData(evalRoot, ["original"]);
-const cases = readFileSync(evalDataPath(evalRoot, "data/cases.jsonl"), "utf8")
-  .trim()
-  .split("\n")
-  .map((line) => CaseSchema.parse(JSON.parse(line)));
+const originalsAvailable = existsSync(
+  evalDataPath(evalRoot, "data/cases.jsonl"),
+);
+const it = testIt.skipIf(!originalsAvailable);
+const cases = originalsAvailable
+  ? readFileSync(evalDataPath(evalRoot, "data/cases.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => CaseSchema.parse(JSON.parse(line)))
+  : [];
 const twoSource = cases.find((c) => c.id === "retrieval-two-source")!;
 const options = { scorerVersion: "citation-v2" } as const;
 function score(final: string, readIds = ["a", "b"], scenario = twoSource) {

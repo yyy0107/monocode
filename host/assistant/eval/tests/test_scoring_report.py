@@ -11,6 +11,15 @@ SPEC.loader.exec_module(REPORT)
 
 
 class ScoreReportTests(unittest.TestCase):
+    def setUp(self):
+        if self._testMethodName == 'test_unknown_metrics_are_not_fabricated':
+            return
+        if not REPORT.data_path(REPORT.GATED + '/results.jsonl', root=ROOT).is_file():
+            self.skipTest('Historical evidence is optional; set MONOCODE_EVAL_ARCHIVE_ROOT to run archive regressions')
+        for relative in ['data/cases.jsonl'] + [f'public/{source}/cases.jsonl' for source in REPORT.SOURCES]:
+            if not REPORT.data_path(relative, root=ROOT).is_file():
+                self.skipTest('Prepare dataset caches before running historical report regressions')
+
     def test_complete_catalog_latest_failure_and_repeat_dedup(self):
         rows, attempts, summary = REPORT.build(ROOT)
         self.assertEqual(len(rows), 376)
@@ -67,7 +76,7 @@ class ScoreReportTests(unittest.TestCase):
         self.assertEqual(REPORT.csv_value('=unsafe'), "'=unsafe")
 
     def test_generation_deterministic_read_only_and_no_overwrite(self):
-        evidence = [ROOT / 'reports/pi-breadth-2026-10-09/28-extra-judges/results.jsonl', ROOT / 'reports/public-pi-smoke-2026-10-10/results.jsonl']
+        evidence = [REPORT.data_path(relative, root=ROOT) for relative in ('reports/pi-breadth-2026-10-09/28-extra-judges/results.jsonl', 'reports/public-pi-smoke-2026-10-10/results.jsonl')]
         before = [REPORT.sha(path) for path in evidence]
         with tempfile.TemporaryDirectory() as tmp:
             first, second = Path(tmp)/'first', Path(tmp)/'second'

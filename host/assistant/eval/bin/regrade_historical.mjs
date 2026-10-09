@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { evalDataPath } from "../src/evalData.ts";
 import { build } from "esbuild";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,7 +13,7 @@ if (args.length && (args.length !== 2 || args[0] !== "--out")) {
 }
 const out = args.length
   ? resolve(args[1])
-  : join(root, "reports/optimization-offline-2026-10-09");
+  : evalDataPath(root, "reports/optimization-offline-2026-10-09");
 const temporary = await mkdtemp(
   join(tmpdir(), "monocode-historical-regrade-build-"),
 );

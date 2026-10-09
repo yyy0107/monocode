@@ -4,7 +4,9 @@
     "original": {
       "files": {
         "data/cases.jsonl": "505a160328ffcf6db60f2a4b40c3958d0511a64e8a41e1275d57ac7bcbae6472",
-        "data/references.jsonl": "e316e4a3e5ffa96aaf52b8cb7f839938c9a1c3cddd31a21508c7e1dcdf9649bf"
+        "data/references.jsonl": "e316e4a3e5ffa96aaf52b8cb7f839938c9a1c3cddd31a21508c7e1dcdf9649bf",
+        "data/variants/structured-nested-v2.jsonl": "ad659871357d5349a228e44bb426901326c967c8a656ebc345d05c3f4319102a",
+        "data/quality-annotations.jsonl": "efab4cf60df6c866b28922c09c27344e3ac8adf155bbe720dfe38822c14ad7db"
       }
     },
     "bfcl": {
@@ -278,7 +280,9 @@
         "public/api_bank/raw/dialogues/Translate-level-1-4.jsonl": "08e55c6d29712040d954d93bdf82186714a58db2393a7dfbabeedd57f6e0e0cc",
         "public/api_bank/raw/dialogues/Wiki-level-1-1.jsonl": "de4c0fbfc3b2275ea1f3903e0251a2c8ff4d80b4cd1ed04d05fd09a75eb38a6f",
         "public/api_bank/raw/level-1-api.json": "0d3155c5495399836b5b1f1cc4eb6d5d50efa16b2734af50a016a158e9dd79bb",
-        "public/api_bank/raw/level-2-api.json": "c61966448d9d5cf98334f39b44c0db1fe5a9c6c84a1f53e652f4aacdbbfc5da0"
+        "public/api_bank/raw/level-2-api.json": "c61966448d9d5cf98334f39b44c0db1fe5a9c6c84a1f53e652f4aacdbbfc5da0",
+        "public/api_bank/exclusions.jsonl": "66f44efa365ae94c2e26a7ea5e005a99b5bb97864eb6f61666cf6ce47d3b5dfa",
+        "public/api_bank/raw/data_mapping.json": "de8971f7cc26f89ee4da0a6a703e1afb7620def867095ed11fbbfcf8ca9e7d1a"
       }
     },
     "hotpotqa": {

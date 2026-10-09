@@ -25,14 +25,22 @@ class PrepareDataTests(unittest.TestCase):
         self.content = b'{"id":"locked-example"}\n'
         self.relative = "public/bfcl/cases.jsonl"
         self.digest = hashlib.sha256(self.content).hexdigest()
+        self.original_contents = {
+            "data/cases.jsonl": b'{"id":"external-original"}\n',
+            "data/references.jsonl": b'{"caseId":"external-original","actions":[]}\n',
+            "data/variants/example.jsonl": b'{"id":"external-variant"}\n',
+        }
         self.lock = {"version": 1, "sources": {"bfcl": {"files": {self.relative: self.digest}},
-                                               "original": {"files": {"data/cases.jsonl": self.digest}}}}
+                                               "original": {"files": {name: hashlib.sha256(raw).hexdigest()
+                                                                      for name, raw in self.original_contents.items()}}}}
         self.lock_path = self.project / "data/datasets.lock.json"
         self.lock_path.write_text(json.dumps(self.lock))
         self.root = self.directory / "cache"
         for context in (patch.object(prepare, "EVAL_ROOT", self.project),
                         patch.object(prepare, "LOCK_PATH", self.lock_path),
-                        patch.dict(os.environ, {"MONOCODE_EVAL_DATA_ROOT": str(self.root)})):
+                        patch.dict(os.environ, {"MONOCODE_EVAL_DATA_ROOT": str(self.root),
+                                                "MONOCODE_EVAL_ORIGINAL_SOURCE": "",
+                                                "XDG_DATA_HOME": str(self.directory / "user-data")})):
             context.start()
             self.addCleanup(context.stop)
 
@@ -103,6 +111,62 @@ class PrepareDataTests(unittest.TestCase):
                 prepare.download(url, self.digest, downloads)
         self.assertEqual(downloaded.read_bytes(), b"corrupt")
         self.assertEqual(list(downloads.glob(".download-*")), [])
+
+    def write_original_inputs(self, directory):
+        for name, raw in self.original_contents.items():
+            target = directory / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(raw)
+
+    def test_original_cold_cache_reads_default_external_inputs_without_generating(self):
+        source = self.directory / "user-data/monocode/eval-inputs/original"
+        self.write_original_inputs(source)
+        with patch.object(prepare.subprocess, "run") as generator, patch.object(prepare.urllib.request, "urlopen") as network:
+            prepare.ensure_data("original")
+        generator.assert_not_called()
+        network.assert_not_called()
+        self.assertTrue(prepare.valid_dataset(self.root / "original", self.lock["sources"]["original"]["files"]))
+        for name, raw in self.original_contents.items():
+            self.assertEqual((source / name).read_bytes(), raw)
+
+    def test_original_override_checks_each_file_before_publication(self):
+        source = self.directory / "custom-inputs"
+        self.write_original_inputs(source)
+        (source / "data/references.jsonl").write_bytes(b"changed original input")
+        with patch.dict(os.environ, {"MONOCODE_EVAL_ORIGINAL_SOURCE": str(source)}):
+            with self.assertRaisesRegex(ValueError, "locked SHA256: data/references.jsonl"):
+                prepare.ensure_data("original")
+        self.assertFalse((self.root / "original").exists())
+        self.assertEqual(list(self.root.parent.glob(".prepare-*")), [])
+
+    def test_missing_original_source_reports_configuration_without_project_fallback(self):
+        self.write_original_inputs(self.project)
+        with self.assertRaisesRegex(FileNotFoundError, "MONOCODE_EVAL_ORIGINAL_SOURCE"):
+            prepare.ensure_data("original")
+        self.assertFalse((self.root / "original").exists())
+
+    def test_original_https_source_uses_logical_paths_and_verified_downloads(self):
+        base = "https://example.invalid/my-originals"
+        seen = []
+        def response(request, **kwargs):
+            seen.append(request.full_url)
+            self.assertTrue(request.full_url.startswith(base + "/"))
+            relative = request.full_url.removeprefix(base + "/")
+            return io.BytesIO(self.original_contents[relative])
+        with patch.dict(os.environ, {"MONOCODE_EVAL_ORIGINAL_SOURCE": base + "/"}), \
+                patch.object(prepare.urllib.request, "urlopen", side_effect=response):
+            prepare.ensure_data("original")
+        self.assertEqual(seen, [base + "/" + name for name in self.original_contents])
+        self.assertTrue(prepare.valid_dataset(self.root / "original", self.lock["sources"]["original"]["files"]))
+
+    def test_original_source_rejects_project_directory_and_non_https_url(self):
+        with patch.object(prepare, "PROJECT_ROOT", self.project):
+            with patch.dict(os.environ, {"MONOCODE_EVAL_ORIGINAL_SOURCE": str(self.project)}):
+                with self.assertRaisesRegex(ValueError, "outside the project"):
+                    prepare.ensure_data("original")
+        with patch.dict(os.environ, {"MONOCODE_EVAL_ORIGINAL_SOURCE": "http://example.invalid/original"}):
+            with self.assertRaisesRegex(ValueError, "HTTPS base URL"):
+                prepare.ensure_data("original")
 
 
 if __name__ == "__main__":

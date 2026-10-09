@@ -1,8 +1,8 @@
-import { evalDataPath, evalDataRoot } from "./evalData";
+import { safeEvalDataPath } from "./evalData";
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import { readFile, realpath } from "node:fs/promises";
-import { resolve, relative, isAbsolute } from "node:path";
+import { readFile } from "node:fs/promises";
+
 import { CaseSchema } from "./schema";
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const opinion = z
@@ -68,16 +68,12 @@ export async function readQualityAnnotations(
   );
 }
 async function inside(root: string, path: string) {
-  if (isAbsolute(path)) throw new Error("QUALITY_EVIDENCE_PATH_INVALID");
-  const mapped = evalDataPath(root, path);
-  const base = await realpath(
-      mapped === resolve(root, path) ? root : evalDataRoot(root),
-    ),
-    full = await realpath(mapped),
-    rel = relative(base, full);
-  if (rel === ".." || rel.startsWith("../") || isAbsolute(rel))
-    throw new Error("QUALITY_EVIDENCE_PATH_INVALID");
-  return full;
+  try {
+    return await safeEvalDataPath(root, path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw error;
+    throw new Error("QUALITY_EVIDENCE_PATH_INVALID", { cause: error });
+  }
 }
 export async function validateQualityAnnotations(
   root: string,

@@ -21,13 +21,12 @@ Evaluation commands automatically prepare their required datasets outside the ch
 
 The default cache is `${XDG_CACHE_HOME:-~/.cache}/monocode/eval/<lock-hash>/`. Set `MONOCODE_EVAL_CACHE` to change its base directory, or `MONOCODE_EVAL_DATA_ROOT` to use an explicit complete data root. Unit tests read prepared caches; the verification command below prepares all public sources first.
 
-To prepare data separately, run `python3 host/assistant/eval/bin/prepare_data.py --sources bfcl,longmemeval`; omitting `--sources` prepares the original suite and all six public sources. A cold HotpotQA rebuild requires `pyarrow` (the importer was verified with `23.0.1`), and BIPIA requires `nltk==3.9.2` plus `pandas`. Dependencies are never installed automatically and are unnecessary once their complete cache is present.
+To prepare data separately, run `python3 host/assistant/eval/bin/prepare_data.py --sources bfcl,longmemeval`. Omitting `--sources` also prepares the original suite, which requires its configured external input directory or HTTPS base URL; see [data configuration](../README.md#数据准备). A cold HotpotQA rebuild requires `pyarrow` (the importer was verified with `23.0.1`), and BIPIA requires `nltk==3.9.2` plus `pandas`. Dependencies are never installed automatically and are unnecessary once their complete cache is present.
 
 ```bash
 python3 host/assistant/eval/bin/verify_public.py
 node host/assistant/eval/bin/public_eval.mjs list
 node host/assistant/eval/bin/public_eval.mjs run --mode reference --out /tmp/public-reference-NEW
-node host/assistant/eval/bin/public_eval.mjs run --mode pi --sources hotpotqa --limit 2 --max-requests 12 --max-usd 0.15 --out /tmp/public-agent-NEW
 python3 -m unittest discover -s host/assistant/eval/tests -p 'test_public_*.py'
 node_modules/.bin/vitest run --config host/assistant/eval/vitest.config.ts host/assistant/eval/tests/public-runner.test.ts
 ```
@@ -38,7 +37,9 @@ node_modules/.bin/vitest run --config host/assistant/eval/vitest.config.ts host/
 
 ## Reports and grading
 
-Each fresh output directory contains `manifest.json`, `results.jsonl`, `summary.json`, and `report.md`. Existing directories are never overwritten. Per-case records retain source IDs, source/transformation metadata, case hash, tool trace, raw model final outputs, checks, metric values, error classes, latency/tokens/cost. The source artifact hash lock is checked before model calls. Reports capture its hash plus exact adapter/manifest hashes.
+Each fresh output directory must be outside the checkout and contains `manifest.json`, `results.jsonl`, `summary.json`, and `report.md`. Existing directories are never overwritten. Historical `reports/...` paths resolve beneath `MONOCODE_EVAL_ARCHIVE_ROOT`, defaulting to `${XDG_DATA_HOME:-~/.local/share}/monocode/eval-archive`. Per-case records retain source IDs, source/transformation metadata, case hash, tool trace, raw model final outputs, checks, metric values, error classes, latency/tokens/cost. The source artifact hash lock is checked before model calls. Reports capture its hash plus exact adapter/manifest hashes.
+
+Real inference remains subject to the archived pause conditions, spending gates and cumulative ledger. Moving data or reports does not resume requests, reset budgets or authorize new model calls.
 
 Reference replay is labeled **harness-reference-NOT-agent-score**. Real rows are labeled **real-pi-native-brain-isolated-public-tools**. Environment and budget errors remain separate from ability failures and are excluded from ability denominators. Scores are grouped by source/category, with metric-specific means. BIPIA additionally reports clean/attacked answer accuracy, attacked-only ASR and observed pair degradation. LongMem preference rows never contribute an answer-accuracy metric. New public transport accepts a plain terminal answer, while malformed tool envelopes fail; this does not alter historical original-suite scores.
 

@@ -1,4 +1,8 @@
-import { ensureEvalData, evalDataPath } from "./evalData";
+import {
+  ensureEvalData,
+  evalDataPath,
+  assertEvalOutputOutsideProject,
+} from "./evalData";
 import { parseArgs } from "node:util";
 import { mkdir, writeFile, appendFile, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -86,6 +90,7 @@ if (command === "list") {
     );
   const mode = values.mode,
     out = resolve(values.out);
+  await assertEvalOutputOutsideProject(root, out);
   await mkdir(out, { recursive: false });
   const budget = new Budget(
     Number(values["max-requests"]),

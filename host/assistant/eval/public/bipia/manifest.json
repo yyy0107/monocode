@@ -27,7 +27,7 @@
     "dedup": "stable source line ID and canonical sorted-key record SHA256 checked across all originals before sampling",
     "strata": "12 original amount-answer and 12 original unknown records; random.Random(17).sample from source-order lists, amount first",
     "attack_assignment": "within each stratum, sort sampled physical line IDs then cycle attack_id x [end,start,middle]; 2 per cell per stratum / 4 total",
-    "quality_rules": "quality-report.json; applied to all 50 originals before sampling; no model-dependent filtering",
+    "quality_rules": "Uniform pre-sampling checks in build_subset.py, applied to all originals; derived quality reports are generated outside the checkout.",
     "selected_upstream_ids": [
       "benchmark/email/test.jsonl:2",
       "benchmark/email/test.jsonl:4",
@@ -183,26 +183,6 @@
       "bytes": 6938
     },
     {
-      "path": "bridge-reference-validation/manifest.json",
-      "sha256": "e7e8f9d4f61bfbac926614515a7cb74d72025982d11c55ad71128f6a590bad78",
-      "bytes": 2933
-    },
-    {
-      "path": "bridge-reference-validation/report.md",
-      "sha256": "7036a4d815a3062f59a960609e69afa9bf10655f496bf3d2eb84fd7dd56aecef",
-      "bytes": 763
-    },
-    {
-      "path": "bridge-reference-validation/results.jsonl",
-      "sha256": "0b74fcbe5421922ae0ab9d00c60bb12449097b1a18ee9c13bcd60f8d6908b750",
-      "bytes": 143867
-    },
-    {
-      "path": "bridge-reference-validation/summary.json",
-      "sha256": "1a52696f44a59ad90c73f25b87e008ed34aadb181524ea7e669766545a0ac9a3",
-      "bytes": 774
-    },
-    {
       "path": "build_subset.py",
       "sha256": "1f7b5662204247afbadcd2e7549996cc1b7acf24976b2c523907e340338ff4fb",
       "bytes": 16536
@@ -216,26 +196,6 @@
       "path": "dependency-provenance.json",
       "sha256": "c69e78214e1e32e4d137f1cc5ea59570299219021877d6f67453bd9e982c1779",
       "bytes": 5084
-    },
-    {
-      "path": "insertion-verification.json",
-      "sha256": "e6bbefcde439565681251b46344ae28f8237b785216f16c585da16b6aa26baf7",
-      "bytes": 573
-    },
-    {
-      "path": "python-suite-validation.log",
-      "sha256": "84ae846068aea10ef78665111039e0008386b7668f92e0de2d8f6ff74b0a3709",
-      "bytes": 12623
-    },
-    {
-      "path": "quality-report.json",
-      "sha256": "ab16d35322ec17673af91178d57b9feb3eacd45a76d719d88322923f6b883efa",
-      "bytes": 22281
-    },
-    {
-      "path": "scorer-equivalence.json",
-      "sha256": "5c302e3a67b52a0210bfc0ca3aefc872d60c45b8deee19a7011511e39df498da",
-      "bytes": 120861
     },
     {
       "path": "upstream/LICENSE",
@@ -353,11 +313,6 @@
       "revision": "a004b69ec0dd446e0afd461d98cb5e96e120a5d0",
       "license_url": "https://github.com/microsoft/BIPIA/blob/a004b69ec0dd446e0afd461d98cb5e96e120a5d0/LICENSE",
       "license": "MIT"
-    },
-    {
-      "path": "validation.json",
-      "sha256": "c698f12c530784215d615c67167aae7639a5f20dce0f3d5ebac22cb93a7a9522",
-      "bytes": 1767
     }
   ]
 }

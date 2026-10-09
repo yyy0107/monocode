@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 // Report regeneration; prepares immutable datasets without model calls.
-import { ensureEvalData, evalDataPath } from "../src/evalData.ts";
+import {
+  ensureEvalData,
+  evalDataPath,
+  readEvalText,
+  requireEvalInputPath,
+  assertEvalOutputOutsideProject,
+} from "../src/evalData.ts";
 import { build } from "esbuild";
 import {
   mkdtemp,
@@ -21,8 +27,15 @@ const { values } = parseArgs({
 if (!values.run || !values.out)
   throw Error("--run EXISTING_CAMPAIGN --out NEW_DIRECTORY required");
 const root = resolve(dirname(fileURLToPath(import.meta.url)), ".."),
-  run = resolve(values.run),
+  run = await requireEvalInputPath(root, values.run),
   out = resolve(values.out);
+await assertEvalOutputOutsideProject(root, out);
+const history = (
+  await readEvalText(root, "reports/scores-2026-10-09/cases.jsonl")
+)
+  .split("\n")
+  .filter(Boolean)
+  .map((line) => JSON.parse(line));
 const readJSONL = async (p) =>
   (await readFile(p, "utf8"))
     .split("\n")
@@ -43,7 +56,9 @@ await ensureEvalData(root, [
 ]);
 const originals = [
   ...(await readJSONL(evalDataPath(root, "data/cases.jsonl"))),
-  ...(await readJSONL(join(root, "data/variants/structured-nested-v2.jsonl"))),
+  ...(await readJSONL(
+    evalDataPath(root, "data/variants/structured-nested-v2.jsonl"),
+  )),
 ];
 const catalog = originals.map((c) => ({
   id: c.id,
@@ -69,9 +84,8 @@ for (const source of [
       upstreamId: `${source}/${c.upstream_id}`,
       variant: c.variant,
     });
-const quality = await readJSONL(join(root, "data/quality-annotations.jsonl"));
-const history = await readJSONL(
-  join(root, "reports/scores-2026-10-09/cases.jsonl"),
+const quality = await readJSONL(
+  evalDataPath(root, "data/quality-annotations.jsonl"),
 );
 const budget = JSON.parse(await readFile(join(run, "budget.json"), "utf8"));
 const temp = await mkdtemp(join(tmpdir(), "monocode-report-only-"));

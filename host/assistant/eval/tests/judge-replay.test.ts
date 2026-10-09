@@ -1,4 +1,5 @@
-import { ensureEvalData, evalDataPath } from "../src/evalData";
+import { evalDataPath } from "../src/evalData";
+import { existsSync } from "node:fs";
 import { expect, it } from "vitest";
 import { readFile, writeFile, mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -9,69 +10,75 @@ import { replayCampaign } from "../src/replay";
 import { CaseSchema } from "../src/schema";
 import { loadCalibrationRegistry } from "../src/judgeTrust";
 import { validateRecordedJudge } from "../src/judge";
-it("replays immutable real evidence with zero inference, excluding failed calibration from all formal rates", async () => {
-  const root = fileURLToPath(new URL("..", import.meta.url)),
-    campaign = join(root, "reports/pi-breadth-2026-10-09");
-  const directory = await mkdtemp(join(tmpdir(), "monocode-replay-test-"));
-  try {
-    await ensureEvalData(root, ["original"]);
-    const cases = (
-      await readFile(evalDataPath(root, "data/cases.jsonl"), "utf8")
-    )
-      .trim()
-      .split("\n")
-      .map((l) => CaseSchema.parse(JSON.parse(l)));
-    const before = await readFile(
-      join(campaign, "28-extra-judges/results.jsonl"),
-      "utf8",
-    );
-    const result = await replayCampaign(
-      root,
-      campaign,
-      join(directory, "out"),
-      cases,
-    );
-    expect(result).toMatchObject({
-      statuses: { passed: 23, failed: 9 },
-      additionalModelRequests: 0,
-      judge: { scored: 0, untrusted: 10, unavailable: 3, dimensions: {} },
-      composite: { eligible: 0, passRate: null },
-    });
-    const replay = (
-      await readFile(join(directory, "out/results.jsonl"), "utf8")
-    )
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-    expect(
-      replay.filter((r) => r.judge?.rawResult.status === "scored"),
-    ).toHaveLength(10);
-    expect(
-      replay
-        .filter((r) => r.judge?.status === "untrusted")
-        .every((r) => r.judge.reason === "CALIBRATION_FAILED"),
-    ).toBe(true);
-    expect(
-      await readFile(join(campaign, "28-extra-judges/results.jsonl"), "utf8"),
-    ).toBe(before);
-    const anchors = (
-      await readFile(join(directory, "out/anchors.jsonl"), "utf8")
-    )
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-    expect(
-      anchors.find((a) => a.id === "anchor:wrong-injected").judge,
-    ).toMatchObject({
-      status: "inconsistent",
-      trust: "invalid",
-      reason: "ORDER_DISAGREEMENT",
-      formalEligible: false,
-    });
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+const root = fileURLToPath(new URL("..", import.meta.url));
+const archiveCampaign = evalDataPath(root, "reports/pi-breadth-2026-10-09");
+const replayFixturesAvailable =
+  existsSync(join(archiveCampaign, "campaign.json")) &&
+  existsSync(evalDataPath(root, "data/cases.jsonl"));
+it.skipIf(!replayFixturesAvailable)(
+  "replays immutable real evidence with zero inference, excluding failed calibration from all formal rates",
+  async () => {
+    const campaign = archiveCampaign;
+    const directory = await mkdtemp(join(tmpdir(), "monocode-replay-test-"));
+    try {
+      const cases = (
+        await readFile(evalDataPath(root, "data/cases.jsonl"), "utf8")
+      )
+        .trim()
+        .split("\n")
+        .map((l) => CaseSchema.parse(JSON.parse(l)));
+      const before = await readFile(
+        join(campaign, "28-extra-judges/results.jsonl"),
+        "utf8",
+      );
+      const result = await replayCampaign(
+        root,
+        campaign,
+        join(directory, "out"),
+        cases,
+      );
+      expect(result).toMatchObject({
+        statuses: { passed: 23, failed: 9 },
+        additionalModelRequests: 0,
+        judge: { scored: 0, untrusted: 10, unavailable: 3, dimensions: {} },
+        composite: { eligible: 0, passRate: null },
+      });
+      const replay = (
+        await readFile(join(directory, "out/results.jsonl"), "utf8")
+      )
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(
+        replay.filter((r) => r.judge?.rawResult.status === "scored"),
+      ).toHaveLength(10);
+      expect(
+        replay
+          .filter((r) => r.judge?.status === "untrusted")
+          .every((r) => r.judge.reason === "CALIBRATION_FAILED"),
+      ).toBe(true);
+      expect(
+        await readFile(join(campaign, "28-extra-judges/results.jsonl"), "utf8"),
+      ).toBe(before);
+      const anchors = (
+        await readFile(join(directory, "out/anchors.jsonl"), "utf8")
+      )
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(
+        anchors.find((a) => a.id === "anchor:wrong-injected").judge,
+      ).toMatchObject({
+        status: "inconsistent",
+        trust: "invalid",
+        reason: "ORDER_DISAGREEMENT",
+        formalEligible: false,
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 it("a changed calibration artifact invalidates its registry", async () => {
   const directory = await mkdtemp(join(tmpdir(), "monocode-calibration-test-"));
   try {

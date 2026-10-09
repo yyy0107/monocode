@@ -18,6 +18,8 @@ DIRECTORY = Path(__file__).resolve().parents[1] / "public" / "tau_bench"
 SPEC = importlib.util.spec_from_file_location("public_tau_adapter_test", DIRECTORY / "adapter.py")
 adapter = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(adapter)
+if not data_path('public/tau_bench/cases.jsonl').is_file():
+    raise unittest.SkipTest('Prepare the tau-bench cache before running dataset regressions')
 CASES = adapter.load_cases()
 
 

@@ -1,4 +1,9 @@
-import { ensureEvalData, evalDataPath } from "./evalData";
+import {
+  ensureEvalData,
+  evalDataPath,
+  readEvalText,
+  assertEvalOutputOutsideProject,
+} from "./evalData";
 import { parseArgs } from "node:util";
 import { readFile, writeFile, appendFile, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -52,6 +57,13 @@ const { values } = parseArgs({
 const root = process.env.MONOCODE_EVAL_ROOT!,
   out = resolve(values.out ?? "");
 if (!values.out) throw Error("--out NEW_DIRECTORY is required");
+await assertEvalOutputOutsideProject(root, out);
+const historical = (
+  await readEvalText(root, "reports/scores-2026-10-09/cases.jsonl")
+)
+  .split("\n")
+  .filter(Boolean)
+  .map((line) => JSON.parse(line));
 const maxRequests = Number(values["max-requests"]),
   maxUsd = Number(values["max-usd"]);
 if (
@@ -73,7 +85,7 @@ const originals = (await readRows(evalDataPath(root, "data/cases.jsonl"))).map(
   (c) => CaseSchema.parse(c),
 );
 const variants = (
-  await readRows(join(root, "data/variants/structured-nested-v2.jsonl"))
+  await readRows(evalDataPath(root, "data/variants/structured-nested-v2.jsonl"))
 ).map((c) => CaseSchema.parse(c));
 const cases = new Map([...originals, ...variants].map((c) => [c.id, c]));
 const integrity = await verifyPublicIntegrity(root);
@@ -93,9 +105,6 @@ for (const source of PUBLIC_SOURCES)
   ))
     publicRecords.set(c.id, c);
 const quality = await readQualityAnnotations(root);
-const historical = await readRows(
-  join(root, "reports/scores-2026-10-09/cases.jsonl"),
-);
 const catalog = [
   ...[...cases.values()].map((c) => ({
     id: c.id,

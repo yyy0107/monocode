@@ -35,6 +35,7 @@ def execute(episode, decisions=None):
     return final, trace
 
 
+@unittest.skipUnless(all(data_path(f'public/{source}/cases.jsonl').is_file() for source in ('bfcl', 'longmemeval')), 'Prepare BFCL and LongMemEval caches before running dataset regressions')
 class BFCLTests(unittest.TestCase):
     def test_counts_originals_and_checksums(self):
         cases = BFCL.load_cases()
@@ -168,6 +169,7 @@ class BFCLTests(unittest.TestCase):
             self.assertEqual(fresh.errors, [])
 
 
+@unittest.skipUnless(data_path('public/longmemeval/cases.jsonl').is_file(), 'Prepare the LongMemEval cache before running dataset regressions')
 class MemoryTests(unittest.TestCase):
     def test_counts_originals_and_scope(self):
         cases = MEMORY.load_cases()
