@@ -307,7 +307,7 @@ body {
 .inbox-comment-md {
   --font-scale: var(--content-font-scale, 1);
   font-family: var(--font-content);
-  font-weight: var(--content-font-weight, 400);
+  font-weight: var(--content-font-weight, 500);
 }
 
 :is(.agent-transcript, .markdown-preview, .whats-new-md, .inbox-comment-md)

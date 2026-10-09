@@ -113,7 +113,7 @@ export const DEFAULT_PROFILE: AppearanceProfile = {
   uiFont: "",
   uiWeight: 400,
   contentFont: "",
-  contentWeight: 400,
+  contentWeight: 500,
   codeFont: "",
   codeWeight: 400,
 };
@@ -160,16 +160,22 @@ export function normalizeFontSize(kind: FontSizeKind, value: unknown): number {
   return Math.round(clamp(parsed, limits.min, limits.max));
 }
 
-function normalizeWeight(value: unknown): FontWeight {
+function normalizeWeight(
+  value: unknown,
+  fallback: FontWeight = 400,
+): FontWeight {
   return FONT_WEIGHTS.includes(value as FontWeight)
     ? (value as FontWeight)
-    : 400;
+    : fallback;
 }
 
 /** Keeps a family name usable inside a quoted CSS string. */
 export function normalizeFontFamily(value: unknown): string {
   return typeof value === "string"
-    ? value.replace(/["\\;{}<>]/g, "").trim().slice(0, 80)
+    ? value
+        .replace(/["\\;{}<>]/g, "")
+        .trim()
+        .slice(0, 80)
     : "";
 }
 
@@ -194,7 +200,12 @@ export function normalizeProfile(value: unknown): AppearanceProfile {
       typeof raw.accentColor === "string" && isHexColor(raw.accentColor)
         ? raw.accentColor.toLowerCase()
         : ACCENT_COLOR_DEFAULT,
-    hue: normalizeNumber(raw.hue, THEME_HUE_DEFAULT, THEME_HUE_MIN, THEME_HUE_MAX),
+    hue: normalizeNumber(
+      raw.hue,
+      THEME_HUE_DEFAULT,
+      THEME_HUE_MIN,
+      THEME_HUE_MAX,
+    ),
     saturation: normalizeNumber(
       raw.saturation,
       THEME_SATURATION_DEFAULT,
@@ -210,7 +221,10 @@ export function normalizeProfile(value: unknown): AppearanceProfile {
     uiFont: normalizeFontFamily(raw.uiFont),
     uiWeight: normalizeWeight(raw.uiWeight),
     contentFont: normalizeFontFamily(raw.contentFont),
-    contentWeight: normalizeWeight(raw.contentWeight),
+    contentWeight: normalizeWeight(
+      raw.contentWeight,
+      DEFAULT_PROFILE.contentWeight,
+    ),
     codeFont: normalizeFontFamily(raw.codeFont),
     codeWeight: normalizeWeight(raw.codeWeight),
   };
@@ -294,7 +308,10 @@ export function loadProfile(scope: AppearanceScope): AppearanceProfile {
   });
 }
 
-export function saveProfile(scope: AppearanceScope, profile: AppearanceProfile) {
+export function saveProfile(
+  scope: AppearanceScope,
+  profile: AppearanceProfile,
+) {
   const next = normalizeProfile(profile);
   if (scope === "shared") {
     saveAccentColor(next.accentColor);
@@ -334,14 +351,19 @@ function fontStackPrefix(family: string) {
 export function applyTypographyProfile(profile: AppearanceProfile) {
   const style = document.documentElement.style;
   style.setProperty("--user-ui-font", fontStackPrefix(profile.uiFont));
-  style.setProperty("--user-content-font", fontStackPrefix(profile.contentFont));
+  style.setProperty(
+    "--user-content-font",
+    fontStackPrefix(profile.contentFont),
+  );
   style.setProperty("--user-code-font", fontStackPrefix(profile.codeFont));
   style.setProperty("--ui-font-weight", String(profile.uiWeight));
   style.setProperty("--content-font-weight", String(profile.contentWeight));
   style.setProperty("--code-font-weight", String(profile.codeWeight));
   style.setProperty(
     "--contrast-offset",
-    String((profile.contrast - CONTRAST_DEFAULT) / (CONTRAST_MAX - CONTRAST_DEFAULT)),
+    String(
+      (profile.contrast - CONTRAST_DEFAULT) / (CONTRAST_MAX - CONTRAST_DEFAULT),
+    ),
   );
 }
 
