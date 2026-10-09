@@ -23,7 +23,7 @@ export async function createWindowsSnapshot(root, archive) {
   const files = [];
   for (const path of [...new Set(candidates.split("\0"))].sort()) {
     if (
-      !/^(?:src\/|src-tauri\/|host\/|public\/|vendor\/|scripts\/|\.cargo\/)/.test(
+      !/^(?:src\/|src-tauri\/|crates\/|host\/|public\/|vendor\/|scripts\/|\.cargo\/)/.test(
         path,
       ) &&
       path !== "mobile/update-config.json" &&

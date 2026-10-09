@@ -161,6 +161,7 @@ test("desktop fingerprints track UI, native, bundled Host and assets, excluding 
     "CHANGELOG.md",
     "src/shared/Test.tsx",
     "src-tauri/src/example.rs",
+    "crates/process-tree/src/lib.rs",
     "host/service.ts",
     "public/icon.svg",
     "scripts/desktop-task-publish.sh",

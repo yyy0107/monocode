@@ -49,6 +49,7 @@ test("Windows snapshots contain current uncommitted inputs, exclude credentials/
   const { root, write } = await fixture(t);
   await write("src/main.ts", "edited");
   await write("host/new.ts", "untracked input");
+  await write("crates/process-tree/Cargo.toml", "workspace crate");
   await write("CHANGELOG.md", "bundled release notes");
   await write(".env", "secret");
   await write("build/output", "generated");
@@ -68,6 +69,7 @@ test("Windows snapshots contain current uncommitted inputs, exclude credentials/
   assert.deepEqual(list, [
     "CHANGELOG.md",
     "Cargo.toml",
+    "crates/process-tree/Cargo.toml",
     "host/new.ts",
     "mobile/update-config.json",
     "mobile/update-config.release.json",

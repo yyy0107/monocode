@@ -52,8 +52,8 @@ function isBuildInput(path) {
   return (
     rootInputs.has(path) ||
     (path.startsWith("src/") && !path.startsWith("src/mobile/")) ||
-    ["src-tauri/", "host/", "public/", "vendor/", ".cargo/"].some((prefix) =>
-      path.startsWith(prefix),
+    ["src-tauri/", "crates/", "host/", "public/", "vendor/", ".cargo/"].some(
+      (prefix) => path.startsWith(prefix),
     ) ||
     /^scripts\/(?:desktop-|publish-desktop-update\.|turn-publish\.)/.test(path)
   );
