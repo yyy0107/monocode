@@ -23,6 +23,7 @@ export function SidebarWorktreeSwitcher({
   pending = false,
   switchError,
   compact = false,
+  iconOnly = false,
 }: {
   cwd: string;
   onSelect?: (focus?: WorktreeFocus) => void;
@@ -30,6 +31,8 @@ export function SidebarWorktreeSwitcher({
   switchError?: string;
   /** Show the branch beside a separate project picker in the sidebar header. */
   compact?: boolean;
+  /** A separate branch picker already labels the current working copy. */
+  iconOnly?: boolean;
   /** Open tabs per worktree path key; hidden worktrees can still hold some. */
   tabStats?: ReadonlyMap<string, { tabs: number; busy: boolean }>;
 }) {
@@ -73,12 +76,13 @@ export function SidebarWorktreeSwitcher({
 
   const title = basename(cwd);
   if (
-    (!canListWorktrees || (!compact && data && worktrees.length === 0)) &&
+    (!canListWorktrees ||
+      ((!compact || iconOnly) && data && worktrees.length === 0)) &&
     !focus &&
     !switchError &&
     !pending
   )
-    return compact ? null : (
+    return compact || iconOnly ? null : (
       <span className="min-w-0 truncate text-sm font-medium leading-tight">
         {title}
       </span>
@@ -152,66 +156,75 @@ export function SidebarWorktreeSwitcher({
           if (!open) void refresh();
           setOpen(!open);
         }}
-        className={`flex min-w-0 max-w-full items-center rounded-md px-1.5 leading-tight hover:bg-content/8 aria-expanded:bg-content/8 ${compact ? "h-8 gap-1.5 text-[12px] text-content/60 hover:text-content" : "-ml-1.5 h-6.5 gap-2 text-sm font-medium"}`}
+        className={`flex min-w-0 max-w-full items-center rounded-md leading-tight hover:bg-content/8 aria-expanded:bg-content/8 ${iconOnly ? "size-6 shrink-0 justify-center text-content/60 hover:text-content" : compact ? "h-8 gap-1.5 px-1.5 text-[12px] text-content/60 hover:text-content" : "-ml-1.5 h-6.5 gap-2 px-1.5 text-sm font-medium"}`}
       >
-        {compact ? <GitBranch className="size-3.5 shrink-0" /> : null}
-        <span className="min-w-0 truncate">{compact ? branchLabel : title}</span>
+        {iconOnly ? (
+          !pending ? (
+            <FolderTree className="size-3.5 shrink-0" />
+          ) : null
+        ) : (
+          <>
+            {compact ? <GitBranch className="size-3.5 shrink-0" /> : null}
+            <span className="min-w-0 truncate">
+              {compact ? branchLabel : title}
+            </span>
+          </>
+        )}
         {pending ? (
           <Loader
             aria-label={uiT("Switching working copy")}
             className="size-3.5 shrink-0 animate-spin text-content/45"
           />
-        ) : compact ? (
+        ) : iconOnly ? null : compact ? (
           <ChevronDown className="size-3 shrink-0 text-content/45" />
         ) : (
           <ChevronsUpDown className="size-3.5 shrink-0 text-content/45" />
         )}
       </button>
-      {open ? (
-        <Popover
-          anchor={anchor}
-          side="bottom"
-          align="start"
-          width={280}
-          maxHeight={360}
-          onDismiss={() => setOpen(false)}
-          role="listbox"
-          aria-label={uiT("Working copies")}
-          className="overflow-y-auto p-1"
-        >
-          {row(
-            "default",
-            !focus,
-            <GitBranch className="size-3.5 shrink-0 text-content/50" />,
-            main?.branch ?? "Project folder",
-            "Project folder · all sessions",
-            () => onSelect?.(undefined),
-            main?.path ?? cwd,
-          )}
-          {!data && !error && (canListWorktrees || !settled) ? (
-            <div className="flex items-center gap-2 p-2 text-[12px] text-content/50">
-              <Loader className="size-3.5 animate-spin" />
-              {uiT("Loading working copies…")}
-            </div>
-          ) : null}
-          {worktrees.map((tree) =>
-            row(
-              tree.path,
-              !!focus && pathKey(focus.path) === pathKey(tree.path),
-              <FolderTree className="size-3.5 shrink-0 text-content/50" />,
-              tree.branch ?? `Detached ${tree.head.slice(0, 7)}`,
-              prettyCwd(tree.path),
-              () => onSelect?.({ path: tree.path, branch: tree.branch }),
-              tree.path,
-            ),
-          )}
-          {switchError || error ? (
-            <p role="alert" className="px-2 py-2 text-[11px] text-red-400">
-              {switchError || error}
-            </p>
-          ) : null}
-        </Popover>
-      ) : null}
+      <Popover
+        open={open}
+        anchor={anchor}
+        side="bottom"
+        align="start"
+        width={280}
+        maxHeight={360}
+        onDismiss={() => setOpen(false)}
+        role="listbox"
+        aria-label={uiT("Working copies")}
+        className="overflow-y-auto p-1"
+      >
+        {row(
+          "default",
+          !focus,
+          <GitBranch className="size-3.5 shrink-0 text-content/50" />,
+          main?.branch ?? "Project folder",
+          "Project folder · all sessions",
+          () => onSelect?.(undefined),
+          main?.path ?? cwd,
+        )}
+        {!data && !error && (canListWorktrees || !settled) ? (
+          <div className="flex items-center gap-2 p-2 text-[12px] text-content/50">
+            <Loader className="size-3.5 animate-spin" />
+            {uiT("Loading working copies…")}
+          </div>
+        ) : null}
+        {worktrees.map((tree) =>
+          row(
+            tree.path,
+            !!focus && pathKey(focus.path) === pathKey(tree.path),
+            <FolderTree className="size-3.5 shrink-0 text-content/50" />,
+            tree.branch ?? `Detached ${tree.head.slice(0, 7)}`,
+            prettyCwd(tree.path),
+            () => onSelect?.({ path: tree.path, branch: tree.branch }),
+            tree.path,
+          ),
+        )}
+        {switchError || error ? (
+          <p role="alert" className="px-2 py-2 text-[11px] text-red-400">
+            {switchError || error}
+          </p>
+        ) : null}
+      </Popover>
     </>
   );
 }

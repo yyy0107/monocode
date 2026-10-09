@@ -371,76 +371,75 @@ export function BranchPicker({
           }}
         />
       ) : null}
-      {open ? (
-        <Popover
-          anchor={root}
-          side={popoverSide}
-          width={MENU_WIDTH}
-          minHeight={MENU_MIN_HEIGHT}
-          maxHeight={MENU_MAX_HEIGHT}
-          onDismiss={(reason) => dismiss(reason === "escape")}
-          role="dialog"
-          aria-label={uiT("Branch picker")}
-          data-branch-picker
-          className="flex flex-col overflow-hidden"
-        >
-          <label className="flex shrink-0 items-center gap-2 border-b border-stroke px-3 py-2.5 text-content/50">
-            <Search className="size-3.5 shrink-0" />
-            <input
-              ref={search}
-              type="text"
-              value={query}
-              placeholder={uiT("Search or create a branch...")}
-              aria-label={uiT("Search or create a branch")}
-              spellCheck={false}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              disabled={busy}
-              className="min-w-0 flex-1 bg-transparent font-sans text-[13px] text-content outline-none placeholder:text-content/40 disabled:opacity-60"
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setActive(0);
-                setError(null);
-              }}
-              onKeyDown={onSearchKey}
-            />
-          </label>
-          <BranchList
-            rows={rows}
-            active={active}
-            busy={busy}
-            emptyLabel={query.trim() ? "No matching branches" : "No branches"}
-            onActive={setActive}
-            onPick={pick}
+      <Popover
+        open={open}
+        anchor={root}
+        side={popoverSide}
+        width={MENU_WIDTH}
+        minHeight={MENU_MIN_HEIGHT}
+        maxHeight={MENU_MAX_HEIGHT}
+        onDismiss={(reason) => dismiss(reason === "escape")}
+        role="dialog"
+        aria-label={uiT("Branch picker")}
+        data-branch-picker
+        className="flex flex-col overflow-hidden"
+      >
+        <label className="flex shrink-0 items-center gap-2 border-b border-stroke px-3 py-2.5 text-content/50">
+          <Search className="size-3.5 shrink-0" />
+          <input
+            ref={search}
+            type="text"
+            value={query}
+            placeholder={uiT("Search or create a branch...")}
+            aria-label={uiT("Search or create a branch")}
+            spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            disabled={busy}
+            className="min-w-0 flex-1 bg-transparent font-sans text-[13px] text-content outline-none placeholder:text-content/40 disabled:opacity-60"
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setActive(0);
+              setError(null);
+            }}
+            onKeyDown={onSearchKey}
           />
-          {error ? (
-            <p className="max-h-16 shrink-0 overflow-y-auto whitespace-pre-wrap border-t border-stroke px-2.5 py-2 text-[11px] leading-4 text-red-400/90">
-              {error}
-            </p>
-          ) : null}
-          {createRow ? (
-            <div className="shrink-0 border-t border-stroke p-1 px-1.5">
-              <button
-                type="button"
-                disabled={busy}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => pick(createRow)}
-                className="flex h-7.5 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-content/75 hover:bg-content/8 hover:text-content disabled:opacity-60"
-              >
-                <Plus className="size-4 shrink-0" />
-                <span className="min-w-0 truncate">
-                  {createRow.name
-                    ? uiT("Create and checkout {value0}", {
-                        value0: String(createRow.name),
-                      })
-                    : uiT("New branch")}
-                </span>
-              </button>
-            </div>
-          ) : null}
-        </Popover>
-      ) : null}
+        </label>
+        <BranchList
+          rows={rows}
+          active={active}
+          busy={busy}
+          emptyLabel={query.trim() ? "No matching branches" : "No branches"}
+          onActive={setActive}
+          onPick={pick}
+        />
+        {error ? (
+          <p className="max-h-16 shrink-0 overflow-y-auto whitespace-pre-wrap border-t border-stroke px-2.5 py-2 text-[11px] leading-4 text-red-400/90">
+            {error}
+          </p>
+        ) : null}
+        {createRow ? (
+          <div className="shrink-0 border-t border-stroke p-1 px-1.5">
+            <button
+              type="button"
+              disabled={busy}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(createRow)}
+              className="flex h-7.5 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] text-content/75 hover:bg-content/8 hover:text-content disabled:opacity-60"
+            >
+              <Plus className="size-4 shrink-0" />
+              <span className="min-w-0 truncate">
+                {createRow.name
+                  ? uiT("Create and checkout {value0}", {
+                      value0: String(createRow.name),
+                    })
+                  : uiT("New branch")}
+              </span>
+            </button>
+          </div>
+        ) : null}
+      </Popover>
     </div>
   );
 }
@@ -506,9 +505,7 @@ function BranchList({
             {selected ? (
               <Check className="size-3.5 shrink-0" />
             ) : (
-              <GitBranch
-                className="size-3.5 shrink-0 text-content/50"
-              />
+              <GitBranch className="size-3.5 shrink-0 text-content/50" />
             )}
             <span
               className={`min-w-0 flex-1 truncate ${selected ? "font-medium" : ""}`}

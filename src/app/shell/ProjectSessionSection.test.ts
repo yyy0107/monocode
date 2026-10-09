@@ -6,6 +6,8 @@ import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "./Sidebar";
+import { invoke } from "@tauri-apps/api/core";
+import type { GitBranches } from "../../platform/tauri/fs";
 import {
   loadProjectTreeExpanded,
   saveProjectTreeExpanded,
@@ -42,6 +44,23 @@ const remoteState = vi.hoisted(() => ({
   subscriptions: vi.fn(),
   request: vi.fn(),
   refresh: vi.fn(),
+}));
+const branchStates = vi.hoisted(() => new Map<string, GitBranches>());
+vi.mock("../../features/source-control/hooks/useProjectBranches", () => ({
+  useProjectBranchesState: (cwd: string, enabled: boolean) => ({
+    settled: enabled,
+    branches:
+      enabled && cwd && cwd !== "~"
+        ? branchStates.get(cwd) ?? {
+            current: "main",
+            detached: false,
+            branches: [
+              { name: "main", current: true, remote: null },
+              { name: "feature/sidebar", current: false, remote: null },
+            ],
+          }
+        : null,
+  }),
 }));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => null),
@@ -210,6 +229,8 @@ beforeEach(() => {
   remoteState.subscriptions.mockClear();
   remoteState.request.mockReset().mockResolvedValue(undefined);
   remoteState.refresh.mockReset();
+  branchStates.clear();
+  vi.mocked(invoke).mockClear();
   vi.mocked(useProjectDiffStats).mockReset().mockReturnValue(null);
   resizeCallbacks = [];
   measuredHeight = 700;
@@ -1374,6 +1395,92 @@ describe("named project/session tree", () => {
     expect(card("b")).not.toBeNull();
     expect(loadProjectTreeExpanded()).toEqual(new Set([A, B]));
     expect(props.onSelectProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("switches branches for a scoped project without requiring a working-copy callback", async () => {
+    act(() => render());
+    expect(container.querySelector('[aria-label="Branch main"]')).toBeNull();
+    pickScope(A);
+    const branch = container.querySelector<HTMLButtonElement>(
+      '[data-project-header] [aria-label="Branch main"]',
+    )!;
+    expect(branch).not.toBeNull();
+    await act(async () => branch.click());
+    expect(
+      document.querySelector('input[aria-label="Search or create a branch"]'),
+    ).not.toBeNull();
+    const feature = [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        '[data-branch-picker] [role="option"]',
+      ),
+    ].find((row) => row.textContent === "feature/sidebar")!;
+    await act(async () => feature.click());
+    expect(invoke).toHaveBeenCalledWith("git_checkout", {
+      cwd: A,
+      name: "feature/sidebar",
+      remote: null,
+    });
+    branchStates.set(A, {
+      current: "feature/sidebar",
+      detached: false,
+      branches: [],
+    });
+    props.workspaceSwitchPending = true;
+    act(() => render());
+    expect(
+      container.querySelector('[aria-label="Branch feature/sidebar"]'),
+    ).not.toBeNull();
+    pickScope(null);
+    expect(container.querySelector("[data-active-worktree-toolbar]")).toBeNull();
+  });
+
+  it("hides the branch picker for a scoped folder without Git", () => {
+    branchStates.set(B, { current: null, detached: false, branches: [] });
+    act(() => render());
+    pickScope(B);
+    expect(scopePicker().textContent).toContain("beta");
+    expect(container.querySelector("[data-active-worktree-toolbar]")).toBeNull();
+  });
+
+  it("targets the selected project before navigation and its working copy after navigation", async () => {
+    props.gitCwd = `${A}-worktree`;
+    act(() => render());
+    pickScope(B);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Branch main"]')!
+        .click(),
+    );
+    const feature = [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        '[data-branch-picker] [role="option"]',
+      ),
+    ].find((row) => row.textContent === "feature/sidebar")!;
+    await act(async () => feature.click());
+    expect(invoke).toHaveBeenCalledWith("git_checkout", {
+      cwd: B,
+      name: "feature/sidebar",
+      remote: null,
+    });
+
+    props.cwd = B;
+    props.gitCwd = `${B}-worktree`;
+    branchStates.set(props.gitCwd, {
+      current: "worktree-branch",
+      detached: false,
+      branches: [],
+    });
+    act(() => render());
+    expect(
+      container.querySelector('[aria-label="Branch worktree-branch"]'),
+    ).not.toBeNull();
+    props.workspaceSwitchPending = true;
+    act(() => render());
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Branch worktree-branch"]',
+      )!.disabled,
+    ).toBe(true);
   });
 
   it("activates and expands a selected collapsed project without hiding its sessions again", () => {

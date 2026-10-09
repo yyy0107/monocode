@@ -37,6 +37,7 @@ const render = async (
   pending = false,
   switchError?: string,
   compact = false,
+  iconOnly = false,
 ) => {
   await act(async () =>
     root.render(
@@ -46,6 +47,7 @@ const render = async (
         pending,
         switchError,
         compact,
+        iconOnly,
       }),
     ),
   );
@@ -68,9 +70,11 @@ beforeEach(() => {
     branches: { current: "main", detached: false, branches: [] },
     settled: true,
   });
-  worktreeState.mockReset().mockImplementation((_cwd, enabled = true) =>
-    enabled ? loadedWorktrees() : { refresh: refreshWorktrees },
-  );
+  worktreeState
+    .mockReset()
+    .mockImplementation((_cwd, enabled = true) =>
+      enabled ? loadedWorktrees() : { refresh: refreshWorktrees },
+    );
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -179,6 +183,24 @@ it("shows the current branch in compact mode even when the repository only has i
   expect(option("main").getAttribute("aria-selected")).toBe("true");
   await act(async () => option("main").click());
   expect(select).toHaveBeenCalledExactlyOnceWith(undefined);
+});
+
+it("keeps a separate working-copy action beside the branch picker only when needed", async () => {
+  await render(false, undefined, true, true);
+  expect(trigger().textContent).toBe("");
+  await act(async () => trigger().click());
+  await act(async () => option("feature-a").click());
+  expect(select).toHaveBeenCalledExactlyOnceWith({
+    path: "/picker-a",
+    branch: "feature-a",
+  });
+
+  worktreeState.mockReturnValue({
+    data: { worktrees: [{ path: "/picker", branch: "main", isMain: true }] },
+    refresh: refreshWorktrees,
+  });
+  await render(false, undefined, true, true);
+  expect(trigger()).toBeNull();
 });
 
 it("shows the focused worktree branch and preserves the focus until a switch succeeds", async () => {

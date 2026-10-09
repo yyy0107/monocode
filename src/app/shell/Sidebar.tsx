@@ -23,7 +23,9 @@ import { useDragResize } from "../../shared/hooks/useDragResize";
 import { useLockOverscroll } from "../../shared/hooks/useLockOverscroll";
 import { sessionRecencyAt } from "../../features/sessions/model/sessionActivity";
 import { useProjectDiffStats } from "../../features/source-control/hooks/useProjectDiffStats";
+import { useProjectBranchesState } from "../../features/source-control/hooks/useProjectBranches";
 import { useGitFileStatuses } from "../../features/source-control/hooks/useGitFileStatuses";
+import { BranchPicker } from "../../features/source-control/ui/BranchPicker";
 import { SidebarWorktreeSwitcher } from "../../features/source-control/ui/SidebarWorktreeSwitcher";
 import { FileTree } from "../../features/files/ui/FileTree";
 import { ProjectSearch } from "../../features/projects/ui/ProjectSearch";
@@ -767,6 +769,16 @@ function SidebarComponent(props: SidebarProps) {
           remoteExecutionCwd ?? hostProject.cwd,
         )
       : props.gitCwd || cwd;
+  const headerProjectPath = tab === "sessions" ? sessionProjectPath : cwd;
+  const headerGitRoot = headerProjectPath
+    ? sameProjectPath(headerProjectPath, cwd)
+      ? gitRoot
+      : headerProjectPath
+    : "";
+  const { branches: headerBranches } = useProjectBranchesState(
+    headerGitRoot,
+    props.recents !== undefined && open,
+  );
   const changes = useProjectDiffStats(gitRoot, open);
   const additions = changes?.additions ?? 0;
   const deletions = changes?.deletions ?? 0;
@@ -1049,6 +1061,7 @@ function SidebarComponent(props: SidebarProps) {
       key={compact ? cwd : undefined}
       cwd={cwd}
       compact={compact}
+      iconOnly={compact}
       tabStats={props.worktreeTabStats}
       onSelect={props.onSelectWorkspace}
       pending={props.workspaceSwitchPending}
@@ -1111,8 +1124,8 @@ function SidebarComponent(props: SidebarProps) {
                 appearance="ghost"
                 compact
                 showLabel
-                className="min-w-0 flex-1"
-                buttonClassName="max-w-full"
+                className="min-w-0 shrink"
+                buttonClassName="max-w-full h-6! gap-1! px-1.5!"
                 onSelectProject={(path) => {
                   if (tab === "sessions") {
                     setSessionProjectPath(path);
@@ -1127,15 +1140,21 @@ function SidebarComponent(props: SidebarProps) {
                 }
                 onOpenProject={props.onOpenProject}
               />
-              {showWorktreeSwitcher &&
-              (tab !== "sessions" ||
-                (sessionProjectPath &&
-                  sameProjectPath(sessionProjectPath, cwd))) ? (
+              {headerProjectPath && headerBranches?.current ? (
                 <div
                   data-active-worktree-toolbar
-                  className="flex min-w-0 max-w-[50%] items-center"
+                  className="ml-auto flex min-w-0 max-w-[50%] items-center gap-1 pl-1.5"
                 >
-                  {renderWorktreeSwitcher(true)}
+                  <BranchPicker
+                    key={headerGitRoot}
+                    cwd={headerGitRoot}
+                    enabled={open && !props.workspaceSwitchPending}
+                    popoverSide="bottom"
+                  />
+                  {showWorktreeSwitcher &&
+                  sameProjectPath(headerProjectPath, cwd)
+                    ? renderWorktreeSwitcher(true)
+                    : null}
                 </div>
               ) : null}
             </div>
