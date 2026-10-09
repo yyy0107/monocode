@@ -321,7 +321,43 @@ it("lists every device from Home's device row and opens another device's convers
   await act(async () => vi.advanceTimersByTimeAsync(0));
   expect(fixture.client!.connection?.environmentId).toBe("b");
   expect(active(".mobile-header")!.textContent).toContain("Device B project");
+  expect(node.textContent).toContain("Update Host to share settings.");
   expect(fixture.request).toHaveBeenCalledWith(b.endpoint, expect.objectContaining({
     method: "sessions.sync", params: expect.objectContaining({ sessionId: "shared-session" }),
   }));
+});
+
+it("keeps conversation navigation usable when workspace sync fails and reconnects without restoring over it", async () => {
+  let workspaceAvailable = false;
+  fixture.request.mockImplementation((endpoint, input) => {
+    if (input.method === "environment.describe") return { ...respond(endpoint, input),
+      capabilities: ["clientState.v1", "workspaces.read", "connections.list"] };
+    if (input.method === "preferences.read") return { revision: 0, imported: true, values: {} };
+    if (input.method === "connections.list") return { revision: 0, connections: [] };
+    if (input.method === "sessions.sync") return { kind: "snapshot", value: respond(endpoint, { method: "sessions.get" }), serverTime: Date.now() };
+    if (input.method === "workspaces.read") {
+      if (endpoint === a.endpoint) return null;
+      if (!workspaceAvailable) throw new Error("Workspace service unavailable");
+      return { revision: 1, kind: "desktop", windowId: "desktop", updatedAt: 1,
+        snapshot: { location: { environmentId: "b", projectId: project.id, sessionId: "other-session" } } };
+    }
+    if (input.method === "workspaces.save") return { ...input.params, revision: 2, updatedAt: 2 };
+    return respond(endpoint, input);
+  });
+  await mount();
+  await switchTo("Device B");
+  await act(async () => active('[data-session-id="shared-session"]')!.click());
+  expect(active(".mobile-header")!.textContent).toContain("Device B project");
+  expect(active(".mobile-error")!.textContent).toContain("Workspace service unavailable");
+
+  workspaceAvailable = true;
+  fixture.request.mockClear();
+  await act(async () => button("Reconnect").click());
+  expect(fixture.request).toHaveBeenCalledWith(b.endpoint, expect.objectContaining({ method: "workspaces.read" }));
+  expect(fixture.request).not.toHaveBeenCalledWith(b.endpoint, expect.objectContaining({
+    method: "sessions.sync", params: expect.objectContaining({ sessionId: "other-session" }),
+  }));
+  expect(active(".mobile-header")!.textContent).toContain("Device B project");
+  expect(active("textarea")).toBeDefined();
+  expect(active(".mobile-error")).toBeUndefined();
 });

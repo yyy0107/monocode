@@ -11,7 +11,7 @@ import type { LegacyRetirementManifest } from "./legacy-orchestration";
 import { SessionTitleCoordinator } from "../src/integrations/harness/core/titleCoordinator";
 import { TitleModelApi } from "./title-model";
 import { titleStateFor } from "../src/features/sessions/model/titlePolicy";
-import { ACCOUNT_PROVIDERS, desktopProviderAccounts, resolveDefaultAccount } from "./provider-accounts";
+import { ACCOUNT_PROVIDERS, desktopProviderAccounts, providerAccountDirectory, providerUsageProfile, resolveDefaultAccount } from "./provider-accounts";
 import { realpath, stat } from "node:fs/promises";
 import { readFileSync, unlinkSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
@@ -47,6 +47,7 @@ import {
 } from "../src/features/connections/model/protocol";
 import type { HostProvider } from "./providers";
 import { HostStore } from "./store";
+import { HostClientState } from "./client-state";
 import { HostSkills } from "./skills";
 import { HostNotes } from "./notes";
 import { NativeSessionGuard, nativeAccessMessage, type NativeLease } from "./native-access";
@@ -320,6 +321,7 @@ export class HostEngine {
   private checkoutReleases = new Map<string, () => void>();
   private retiring = new Set<string>();
   private switchingProjects = new Set<string>();
+  private switchingAccounts = new Set<string>();
   private boundSessions = new Set<string>();
   private running = new Map<
     string,
@@ -357,6 +359,7 @@ export class HostEngine {
   /** Host owner of native histories: sources, sync, watching and turn settlement. */
   readonly nativeSessions: NativeSessionManager;
   readonly notes: HostNotes;
+  private readonly clientState: HostClientState;
   private nativeLeases = new Map<string, NativeLease>();
   private editors = new Map<
     string,
@@ -369,6 +372,7 @@ export class HostEngine {
     private readonly skills = new HostSkills(),
     options: HostOrchestrationOptions & { native?: NativeManagerOptions; im?: HostImOptions } = {},
   ) {
+    this.clientState = new HostClientState(store);
     this.notes = new HostNotes(dirname(store.attachmentDir), () => this.desktopDirectory());
     this.nativeSessions = new NativeSessionManager({
       store,
@@ -500,29 +504,23 @@ export class HostEngine {
     this.boundSessions.add(session.id);
   }
 
-  /** Named login profiles published by the paired desktop. */
+  /** Public metadata from the Host-owned account catalog. */
   providerAccounts() {
     return desktopProviderAccounts(
       join(dirname(this.store.attachmentDir), "desktop-owner.json"),
     );
   }
 
-  /** The paired desktop's data directory holds MonoCode provider-account profiles. */
-  private desktopDirectory(): string | undefined {
-    // Read on every native sync and listing; the pairing file changes only at desktop startup.
-    if (this.desktopOwner && Date.now() - this.desktopOwner.at < 10_000) return this.desktopOwner.value;
-    let value: string | undefined;
-    try {
-      const config = JSON.parse(readFileSync(join(dirname(this.store.attachmentDir), "desktop-owner.json"), "utf8"));
-      value = typeof config.desktopDirectory === "string" ? config.desktopDirectory : undefined;
-    } catch {
-      value = undefined;
-    }
-    // Only a paired directory is cached; an unpaired Host picks up a pairing at once.
-    if (value) this.desktopOwner = { at: Date.now(), value };
-    return value;
+  async stopProviderAccount(provider: "codex" | "claude", accountId: string): Promise<void> {
+    const sessions = this.store.sessions().filter(value => value.session.harness === provider
+      && (value.session.providerAccountId ?? "default") === accountId);
+    await Promise.all(sessions.map(value => this.stopManaged(value.session.id)));
   }
-  private desktopOwner?: { at: number; value: string | undefined };
+
+  /** Host account metadata references existing desktop/custom credential Homes. */
+  private desktopDirectory(): string | undefined {
+    return providerAccountDirectory(join(dirname(this.store.attachmentDir), "desktop-owner.json"));
+  }
 
   /** Whether a client may continue an imported native session now (null for ordinary sessions). */
   async nativeAccess(sessionId: string) {
@@ -974,6 +972,81 @@ export class HostEngine {
     };
   }
 
+  /**
+   * Move an idle conversation to another account profile of the same agent.
+   * Provider threads live in an account Home, so the native records are copied
+   * there and the conversation resumes in place; without them, the next turn
+   * starts a fresh provider thread with a recap.
+   */
+  async switchProviderAccount(id: string, requested: string): Promise<HostSession> {
+    this.flush(id);
+    const value = this.store.session(id);
+    const harness = value.session.harness;
+    if (!ACCOUNT_PROVIDERS.includes(harness as never)) throw new Error("This agent has no account profiles");
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(requested)) throw new Error("Invalid provider account");
+    this.orchestration.assertSessionWrite(id, "configure");
+    if (value.session.assistantOwnerId) throw new Error("The assistant brain keeps its account");
+    const owner = join(dirname(this.store.attachmentDir), "desktop-owner.json");
+    const next = resolveDefaultAccount(owner, harness, requested);
+    if ((next ?? "default") === (value.session.providerAccountId ?? "default")) return value;
+    if (value.status === "running" || this.running.has(id) || this.switchingAccounts.has(id))
+      throw new Error("Wait for the current turn before switching accounts");
+    if (this.switchingProjects.has(value.projectId)) throw new Error("Wait for the branch switch to finish");
+    this.switchingAccounts.add(id);
+    try {
+      await this.stopManaged(id);
+      const current = this.store.session(id);
+      if (current.status === "running" || this.running.has(id))
+        throw new Error("Wait for the current turn before switching accounts");
+      const session = current.session;
+      const link = session.nativeSession;
+      let copied: ReturnType<NativeSessionManager["copyToAccount"]> = null;
+      if (session.providerSessionId) {
+        try {
+          copied = this.nativeSessions.copyToAccount(harness as "claude" | "codex", session.providerSessionId,
+            link?.accountId ?? session.providerAccountId, providerUsageProfile(owner, harness, requested).home);
+        } catch {
+          copied = null;
+        }
+      }
+      let nextSession: Session = { ...session, providerAccountId: next, usageLimit: undefined };
+      if (copied && link) {
+        const { accountId: _accountId, ...rest } = link;
+        // Keep the synced revision: the copy is re-read once and merges idempotently.
+        nextSession.nativeSession = { ...rest, path: copied.path, dataDir: copied.dataDir, ...(next ? { accountId: next } : {}) };
+      } else if (!copied && session.providerSessionId) {
+        const history = { ...session, blocks: session.blocks.filter((block) => !block.draft) };
+        const handedOff = history.blocks.some((block) => block.role === "user")
+          ? appendReadyHandoff(history, harness, harness, buildDeterministicHandoff(history))
+          : history;
+        nextSession = {
+          ...nextSession,
+          blocks: [...handedOff.blocks, ...session.blocks.filter((block) => block.draft)],
+          providerSessionId: undefined,
+          nativeSession: undefined,
+          nativeSyncStatus: undefined,
+          context: undefined,
+        };
+      }
+      const saved = this.save({
+        ...current,
+        // A lazily bound source is looked up again in the new Home after the next turn.
+        nativeBinding: undefined,
+        ...(nextSession.nativeSession ? {} : { nativeStatus: undefined }),
+        session: nextSession,
+      }, { type: "session.account", providerAccountId: next ?? "default" });
+      const live = this.live.get(id);
+      if (live) live.value = saved;
+      this.nativeSessions.detach(id);
+      this.native.forget(id);
+      this.boundSessions.delete(id);
+      if (saved.session.providerSessionId) this.bindRetainedSession(saved.session);
+      return saved;
+    } finally {
+      this.switchingAccounts.delete(id);
+    }
+  }
+
   private finishHarnessSwitch(sessionId: string, outgoing: RemoteProvider): void {
     this.titles.cancel(sessionId);
     this.nativeSessions.detach(sessionId);
@@ -1067,6 +1140,8 @@ export class HostEngine {
           this.switchingProjects.has(value.projectId)
         )
           throw new Error("Wait for the branch switch to finish");
+        if (command.type !== "cancel" && this.switchingAccounts.has(command.sessionId))
+          throw new Error("Wait for the account switch to finish");
         if (command.type === "send" && value.status !== "running" && value.session.pendingConfiguration) {
           if (this.running.has(command.sessionId))
             throw new Error("Wait for the current turn before changing settings");
@@ -1798,6 +1873,7 @@ export class HostEngine {
               model: session.model,
               modelSettings: session.modelSettings,
               providerAccountId: session.providerAccountId,
+              ...(session.harness === "claude" ? { claudeHooks: this.clientState.preferencesRead()!.values["monocode.claudeHooks"] !== "0" } : {}),
               runtimeMode: session.runtimeMode,
               intent: intent === "orchestrate" ? "plan" : intent,
               onEvent: (event) => { if (!this.orchestration.planningEvent(session.id, event)) this.event(session.id, runId!, event, session.harness, session.providerAccountId); },

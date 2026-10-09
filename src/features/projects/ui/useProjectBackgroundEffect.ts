@@ -6,6 +6,7 @@ import {
 } from "../../settings/model/appearance";
 import { prepareNewThreadBackgroundEffect } from "../../settings/model/newThreadBackgroundEffects";
 import { projectChatBackgroundSrc } from "../model/chatBackground";
+import { PREFERENCE_ASSET_READY } from "../../settings/model/preferenceAssets";
 
 function subscribeScheme(listener: () => void) {
   window.addEventListener(SCHEME_CHANGE_EVENT, listener);
@@ -18,6 +19,12 @@ export function useProjectBackgroundEffect(
   effect: NewThreadBackgroundEffect,
   revision: number,
 ): string | null {
+  const [, refreshAsset] = useState(0);
+  useEffect(() => {
+    const ready = () => refreshAsset(value => value + 1);
+    window.addEventListener(PREFERENCE_ASSET_READY, ready);
+    return () => window.removeEventListener(PREFERENCE_ASSET_READY, ready);
+  }, []);
   const light = useSyncExternalStore(
     subscribeScheme,
     isLightScheme,

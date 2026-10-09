@@ -1,3 +1,4 @@
+import { preferenceStorage } from "../../features/settings/model/sharedPreferences";
 import chinese from "./zh-CN.json";
 
 export type UiLanguage = "en" | "zh-CN";
@@ -16,7 +17,7 @@ export function resolveUiLanguage(value: unknown): UiLanguage {
 
 export function loadUiLanguage(): UiLanguage {
   try {
-    const saved = localStorage.getItem(UI_LANGUAGE_KEY);
+    const saved = preferenceStorage.getItem(UI_LANGUAGE_KEY);
     if (saved === "en" || saved === "zh-CN") return saved;
   } catch {
     // Storage can be unavailable in private windows.
@@ -40,7 +41,7 @@ function applyLanguage(next: UiLanguage) {
 export function setUiLanguage(next: UiLanguage) {
   if (next !== "en" && next !== "zh-CN") return;
   try {
-    localStorage.setItem(UI_LANGUAGE_KEY, next);
+    preferenceStorage.setItem(UI_LANGUAGE_KEY, next);
   } catch {
     // Keep the selection usable for this window even when saving fails.
   }

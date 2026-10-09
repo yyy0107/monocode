@@ -1,0 +1,21 @@
+import { projectPreferencePending, projectPreferenceErrors } from "../model/projectPreferenceRouting";
+import { useSyncExternalStore } from "react";
+import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { activePreferenceStore, SHARED_PREFERENCES_STATUS } from "../model/sharedPreferences";
+import { hostWorkspacePending, HOST_WORKSPACE_STATUS } from "../../connections/model/hostWorkspace";
+
+function subscribe(listener: () => void) {
+  window.addEventListener(SHARED_PREFERENCES_STATUS, listener);
+  window.addEventListener(HOST_WORKSPACE_STATUS, listener);
+  return () => { window.removeEventListener(SHARED_PREFERENCES_STATUS, listener); window.removeEventListener(HOST_WORKSPACE_STATUS, listener); };
+}
+function status(pending: () => boolean = hostWorkspacePending) {
+  const store = activePreferenceStore();
+  return store?.error || projectPreferenceErrors()[0] || (store?.pendingCount || projectPreferencePending() || pending() ? "Not yet synced" : "");
+}
+export function SharedStateStatus({ className, pending }: { className?: string; pending?: () => boolean }) {
+  const value = useSyncExternalStore(subscribe, () => status(pending), () => "");
+  const { t } = useTranslation();
+  if (!value) return null;
+  return <div className={className} role="status" title={t(value)} style={{ fontSize: 12, padding: "4px 10px", color: "var(--color-content-secondary)", background: "var(--color-background)" }}>{t("Not yet synced")}{value !== "Not yet synced" ? ` · ${t(value)}` : ""}</div>;
+}

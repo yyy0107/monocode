@@ -38,7 +38,7 @@ describe("provider accounts", () => {
     renameProviderAccount("codex", "default", "Primary");
     expect(providerAccounts("codex")[0]).toMatchObject({ label: "Primary", dataHome: "/data/codex" });
     restoreProviderAccounts({ codex: [{ id: "default", label: "Primary", dataHome: "/data/codex", resolvedDataHome: "/data/codex" }] });
-    expect(providerAccounts("codex")[0].resolvedDataHome).toBe("/data/codex");
+    expect(providerAccounts("codex")[0]).not.toHaveProperty("resolvedDataHome");
     expect(removeProviderAccount("codex", "default")).toBe(false);
     saveProviderAccount({ id: "default", provider: "codex", label: "Primary" });
     expect(providerAccounts("codex")[0]).not.toHaveProperty("dataHome");
@@ -131,19 +131,18 @@ describe("provider accounts", () => {
     ]);
   });
 
-  it("keeps custom Homes when saving, renaming and restoring native profiles", () => {
-    const account = newProviderAccount("codex", "Work", "  ~/.codex-work  ");
-    saveProviderAccount(account);
-    renameProviderAccount("codex", account.id, "Renamed");
-    expect(providerAccounts("codex")[1]).toMatchObject({ dataHome: "~/.codex-work", label: "Renamed" });
-    localStorage.clear();
-    restoreProviderAccounts({ codex: [{ ...account, label: "Disk profile" }], claude: [{ id: "work", label: "Claude", dataHome: "/data/claude" }] });
-    expect(providerAccounts("codex")[1]).toMatchObject({ dataHome: "~/.codex-work", label: "Disk profile" });
-    expect(providerAccounts("claude")[1]).toMatchObject({ dataHome: "/data/claude" });
-    renameProviderAccount("codex", account.id, "Local edit");
-    restoreProviderAccounts({ codex: [{ ...account, dataHome: "/expanded/codex-work" }] });
-    expect(providerAccounts("codex")[1]).toMatchObject({ label: "Local edit", dataHome: "/expanded/codex-work" });
-    expect(providerAccounts("codex")[0]).not.toHaveProperty("dataHome");
+  it("replaces stale account metadata with Host rows without persisting credential Home paths", () => {
+    saveProviderAccount({ id: "removed", provider: "codex", label: "Removed", dataHome: "/local" });
+    restoreProviderAccounts({ codex: [{ id: "work", label: "Host profile", dataHome: "/private" }] });
+    expect(providerAccounts("codex")).toEqual([
+      { id: "default", provider: "codex", label: "Default account", isDefault: true },
+      { id: "work", provider: "codex", label: "Host profile" },
+    ]);
+    renameProviderAccount("codex", "work", "Stale local label");
+    restoreProviderAccounts({ codex: [{ id: "work", label: "Host rename" }] });
+    expect(providerAccounts("codex")[1].label).toBe("Host rename");
+    restoreProviderAccounts({});
+    expect(providerAccounts("codex")).toHaveLength(1);
   });
 
   it("reports failed account storage instead of pretending the account was added", () => {
@@ -252,5 +251,13 @@ it("uses confirmed shared defaults for new selections, keeps explicit overrides 
   expect(selectedProviderAccountId("codex", "/repo")).toBe("work");
   expect(selectedProviderAccountId("codex", "/different")).toBe("removed");
   selectProviderAccount("codex", "/repo", "default");
+  expect(selectedProviderAccountId("codex", "/repo")).toBe("default");
+});
+
+it("clears selections even when Host hydration removed the account first", () => {
+  saveProviderAccount({ provider: "codex", id: "work", label: "Work" });
+  selectProviderAccount("codex", "/repo", "work");
+  restoreProviderAccounts({});
+  expect(removeProviderAccount("codex", "work")).toBe(false);
   expect(selectedProviderAccountId("codex", "/repo")).toBe("default");
 });

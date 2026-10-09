@@ -17,6 +17,10 @@ import {
   type RemoteProvider,
 } from "../src/features/connections/model/protocol";
 import { HostEngine } from "./engine";
+import { HostClientState } from "./client-state";
+import { HostPreferenceAssets } from "./preference-assets";
+import { HostAccountManagement } from "./account-management";
+import { HOST_CLIENT_STATE_CAPABILITY } from "../src/features/connections/model/hostState";
 import { pairingCode } from "./store";
 import { assistantErrorCode } from "./assistant/errors";
 import { writeAttachmentChunk, readAttachmentChunk } from "./attachments";
@@ -140,6 +144,9 @@ export function createHostServer(
   lifecycle?: (request: IncomingMessage, response: ServerResponse) => void,
   discoverProviders?: () => Promise<RemoteProvider[]>,
 ) {
+  const clientState = new HostClientState(engine.store);
+  const preferenceAssets = new HostPreferenceAssets(engine.store);
+  const accounts = new HostAccountManagement(dirname(engine.store.attachmentDir), (provider, accountId) => engine.stopProviderAccount(provider, accountId));
   const providerUsage = new HostProviderUsage(join(dirname(engine.store.attachmentDir), "desktop-owner.json"));
   let discovering: Promise<RemoteProvider[]> | undefined;
   const availableProviders = () => {
@@ -234,7 +241,7 @@ export function createHostServer(
       const release = claimCheckoutWrite(engine.store, `workspace:${randomUUID()}`, cwd);
       try { return await action(); } finally { release(); }
     });
-  return createServer(
+  const server = createServer(
     { requestTimeout: 20_000, headersTimeout: 10_000, maxHeaderSize: 8192 },
     async (request, response) => {
       if (request.url === "/lifecycle" && lifecycle) {
@@ -320,10 +327,20 @@ export function createHostServer(
                   : provider === "codex" || provider === "claude"
               ),
               capabilities: [
+                HOST_CLIENT_STATE_CAPABILITY,
+                "preferences.read",
+                "preferences.patch",
+                "preferences.assets.upload",
+                "preferences.assets.read",
+                "workspaces.read",
+                "workspaces.save",
+                "connections.list",
+                "connections.patch",
                 "sessions",
                 "projects.browse",
                 "models.list",
                 "providerAccounts.defaults",
+                "providerAccounts.manage.v1",
                 "providerAccounts.usage.v1",
                 "skills.list",
                 "notes.v1",
@@ -355,6 +372,7 @@ export function createHostServer(
                 "sessions.activity",
                 "sessions.nativeAccess",
                 "sessions.refreshNative",
+                "sessions.switchAccount",
                 "nativeSources.list",
                 "nativeSources.import",
                 "nativeSources.syncAll",
@@ -367,6 +385,30 @@ export function createHostServer(
                 "workflows.v1",
               ],
             };
+            break;
+          case "preferences.read":
+            result = clientState.preferencesRead(params);
+            break;
+          case "preferences.patch":
+            result = clientState.preferencesPatch(params);
+            break;
+          case "preferences.assets.upload":
+            result = preferenceAssets.upload(params);
+            break;
+          case "preferences.assets.read":
+            result = preferenceAssets.read(params);
+            break;
+          case "workspaces.read":
+            result = clientState.workspacesRead(params);
+            break;
+          case "workspaces.save":
+            result = clientState.workspacesSave(params);
+            break;
+          case "connections.list":
+            result = clientState.connectionsList(params);
+            break;
+          case "connections.patch":
+            result = clientState.connectionsPatch(params);
             break;
           case "projects.list":
             result = engine.store.projects();
@@ -381,7 +423,24 @@ export function createHostServer(
             result = await models(params.projectId);
             break;
           case "providerAccounts.list":
-            result = engine.providerAccounts();
+            result = accounts.read().accounts;
+            break;
+          case "providerAccounts.read":
+            result = accounts.read();
+            break;
+          case "providerAccounts.save":
+          case "providerAccounts.remove":
+          case "providerAccounts.setDefault":
+          case "providerAccounts.importCodex":
+          case "providerAccounts.loginStart":
+          case "providerAccounts.loginStatus":
+            if (!engine.store.adminToken(token)) throw new Error("Only this computer's desktop can manage provider accounts");
+            if (input.method === "providerAccounts.save") result = accounts.save(params);
+            else if (input.method === "providerAccounts.remove") result = await accounts.remove(params);
+            else if (input.method === "providerAccounts.setDefault") result = accounts.setDefault(params);
+            else if (input.method === "providerAccounts.importCodex") result = accounts.importCodex(params);
+            else if (input.method === "providerAccounts.loginStart") result = await accounts.loginStart(params);
+            else result = accounts.loginStatus(params);
             break;
           case "providerAccounts.usage":
             result = await providerUsage.read(params);
@@ -484,6 +543,15 @@ export function createHostServer(
             }
             if (Object.keys(patch).length === 0) throw new Error("No session changes supplied");
             result = engine.updateSession(sessionId, patch);
+            break;
+          }
+          case "sessions.switchAccount": {
+            const sessionId = String(params.sessionId ?? "");
+            const current = engine.store.session(sessionId);
+            if (current.projectId !== params.projectId)
+              throw new Error("Session does not belong to this project");
+            const saved = await engine.switchProviderAccount(sessionId, String(params.providerAccountId ?? ""));
+            result = { providerAccountId: saved.session.providerAccountId ?? "default", revision: saved.revision };
             break;
           }
           case "sessions.nativeAccess": {
@@ -860,4 +928,6 @@ export function createHostServer(
       }
     },
   );
+  server.on("close", () => accounts.close());
+  return server;
 }

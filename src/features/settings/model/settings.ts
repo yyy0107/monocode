@@ -1,3 +1,4 @@
+import { preferenceStorage } from "./sharedPreferences";
 import {
   ALT,
   IS_MAC,
@@ -666,7 +667,7 @@ export function settingsSectionDescription(id: SettingsSectionId): string {
 
 export function loadSettingsSection(): SettingsSectionId {
   try {
-    const raw = localStorage.getItem(SECTION_KEY);
+    const raw = preferenceStorage.getItem(SECTION_KEY);
     return isSettingsSectionId(raw) ? raw : SETTINGS_SECTION_DEFAULT;
   } catch {
     return SETTINGS_SECTION_DEFAULT;
@@ -675,7 +676,7 @@ export function loadSettingsSection(): SettingsSectionId {
 
 export function saveSettingsSection(id: SettingsSectionId) {
   try {
-    localStorage.setItem(SECTION_KEY, id);
+    preferenceStorage.setItem(SECTION_KEY, id);
   } catch {
     // private mode / quota
   }
@@ -699,7 +700,7 @@ export const FOLLOW_UP_BEHAVIOR_DEFAULT: FollowUpBehavior = "steer";
 
 export function loadFollowUpBehavior(): FollowUpBehavior {
   try {
-    const raw = localStorage.getItem(FOLLOW_UP_BEHAVIOR_KEY);
+    const raw = preferenceStorage.getItem(FOLLOW_UP_BEHAVIOR_KEY);
     return raw === "queue" || raw === "steer"
       ? raw
       : FOLLOW_UP_BEHAVIOR_DEFAULT;
@@ -710,7 +711,7 @@ export function loadFollowUpBehavior(): FollowUpBehavior {
 
 export function saveFollowUpBehavior(value: FollowUpBehavior) {
   try {
-    localStorage.setItem(FOLLOW_UP_BEHAVIOR_KEY, value);
+    preferenceStorage.setItem(FOLLOW_UP_BEHAVIOR_KEY, value);
   } catch {
     // private mode / quota
   }
@@ -723,7 +724,7 @@ export const FILE_TAB_MODE_DEFAULT: FileTabMode = "pane";
 /** Default conversation layout; legacy values remain compatible with saved preferences. */
 export function loadFileTabMode(): FileTabMode {
   try {
-    const raw = localStorage.getItem(FILE_TAB_MODE_KEY);
+    const raw = preferenceStorage.getItem(FILE_TAB_MODE_KEY);
     return raw === "pane" || raw === "workspace" ? raw : FILE_TAB_MODE_DEFAULT;
   } catch {
     return FILE_TAB_MODE_DEFAULT;
@@ -732,7 +733,7 @@ export function loadFileTabMode(): FileTabMode {
 
 export function saveFileTabMode(value: FileTabMode) {
   try {
-    localStorage.setItem(FILE_TAB_MODE_KEY, value);
+    preferenceStorage.setItem(FILE_TAB_MODE_KEY, value);
   } catch {
     // private mode / quota
   }
@@ -757,11 +758,11 @@ export const MODEL_CONTROLS_CHANGE_EVENT = "monocode:model-controls-change";
 
 export function loadModelControls(): ModelControls {
   try {
-    const raw = localStorage.getItem(MODEL_CONTROLS_KEY);
+    const raw = preferenceStorage.getItem(MODEL_CONTROLS_KEY);
     if (raw === "menu" || raw === "beside") return raw;
     if (raw == null) {
       // Migrate the previous effort-control toggle: on means beside the picker.
-      const legacy = localStorage.getItem(COMPOSER_EFFORT_VISIBLE_KEY);
+      const legacy = preferenceStorage.getItem(COMPOSER_EFFORT_VISIBLE_KEY);
       if (legacy === "1" || legacy === "true") return "beside";
     }
   } catch {
@@ -772,7 +773,7 @@ export function loadModelControls(): ModelControls {
 
 export function saveModelControls(value: ModelControls) {
   try {
-    localStorage.setItem(MODEL_CONTROLS_KEY, value);
+    preferenceStorage.setItem(MODEL_CONTROLS_KEY, value);
   } catch {
     // private mode / quota
   }
@@ -849,7 +850,7 @@ export function saveQuickComposerEnabled(value: boolean) {
 
 export function loadQuickComposerShortcut(): string {
   try {
-    const value = localStorage.getItem(QUICK_COMPOSER_SHORTCUT_KEY);
+    const value = preferenceStorage.getItem(QUICK_COMPOSER_SHORTCUT_KEY);
     return value && isGlobalShortcut(value)
       ? value
       : QUICK_COMPOSER_DEFAULT_SHORTCUT;
@@ -864,7 +865,7 @@ export function saveQuickComposerShortcut(value: string) {
   // Composer chord cannot claim a combination another command already owns.
   const shortcut = validateKeybindingShortcut(QUICK_COMPOSER_COMMAND, value);
   try {
-    localStorage.setItem(QUICK_COMPOSER_SHORTCUT_KEY, shortcut);
+    preferenceStorage.setItem(QUICK_COMPOSER_SHORTCUT_KEY, shortcut);
   } catch {
     // private mode / quota
   }
@@ -957,7 +958,7 @@ function isDiffViewer(value: unknown): value is DiffViewer {
 
 export function loadDiffViewer(): DiffViewer {
   try {
-    const raw = localStorage.getItem(DIFF_VIEWER_KEY);
+    const raw = preferenceStorage.getItem(DIFF_VIEWER_KEY);
     return isDiffViewer(raw) ? raw : DIFF_VIEWER_DEFAULT;
   } catch {
     return DIFF_VIEWER_DEFAULT;
@@ -967,7 +968,7 @@ export function loadDiffViewer(): DiffViewer {
 export function saveDiffViewer(value: DiffViewer) {
   const next = isDiffViewer(value) ? value : DIFF_VIEWER_DEFAULT;
   try {
-    localStorage.setItem(DIFF_VIEWER_KEY, next);
+    preferenceStorage.setItem(DIFF_VIEWER_KEY, next);
   } catch {
     // private mode / quota
   }
@@ -1294,7 +1295,7 @@ export function validateKeybindingShortcut(
   return canonical;
 }
 
-let cacheStorage: Storage | null = null;
+let cacheStorage: Pick<Storage, "getItem"> | null = null;
 let cacheRaw: string | null = null;
 let cacheValue: KeybindingOverrides = {};
 
@@ -1335,7 +1336,7 @@ function parseKeybindingOverrides(raw: string | null): KeybindingOverrides {
 /** Cached per raw value: this runs several times on every keydown. Returns a fresh object. */
 export function loadKeybindingOverrides(): KeybindingOverrides {
   try {
-    const storage = localStorage;
+    const storage = preferenceStorage;
     const raw = storage.getItem(KEYBINDING_OVERRIDES_KEY);
     if (cacheStorage === storage && cacheRaw === raw) return { ...cacheValue };
     const next = parseKeybindingOverrides(raw);
@@ -1360,9 +1361,9 @@ export function saveKeybindingOverride(
   } else delete next[command];
   try {
     if (Object.keys(next).length) {
-      localStorage.setItem(KEYBINDING_OVERRIDES_KEY, JSON.stringify(next));
+      preferenceStorage.setItem(KEYBINDING_OVERRIDES_KEY, JSON.stringify(next));
     } else {
-      localStorage.removeItem(KEYBINDING_OVERRIDES_KEY);
+      preferenceStorage.removeItem(KEYBINDING_OVERRIDES_KEY);
     }
   } catch {
     throw new Error("Could not save shortcuts");

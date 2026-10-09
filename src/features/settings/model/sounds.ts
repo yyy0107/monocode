@@ -1,3 +1,4 @@
+import { preferenceStorage } from "./sharedPreferences";
 import { play, setEnabled, setVolume, type SoundName } from "cuelume";
 import type { LinkedWorkItemUpdateCard } from "../../inbox/model/linkedWorkItemActivity";
 import {
@@ -35,7 +36,7 @@ const CUES: Record<SoundCue, SoundName> = {
 
 export function loadSoundsEnabled(): boolean {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = preferenceStorage.getItem(KEY);
     if (raw == null) return SOUNDS_DEFAULT;
     return raw === "1" || raw === "true";
   } catch {
@@ -46,8 +47,8 @@ export function loadSoundsEnabled(): boolean {
 export function saveSoundsEnabled(value: boolean) {
   const resuming = value && !loadSoundsEnabled();
   try {
-    localStorage.setItem(KEY, value ? "1" : "0");
-    if (resuming) localStorage.setItem(ENABLED_AT_KEY, String(Date.now()));
+    preferenceStorage.setItem(KEY, value ? "1" : "0");
+    if (resuming) preferenceStorage.setItem(ENABLED_AT_KEY, String(Date.now()));
   } catch {
     // private mode / quota
   }
@@ -81,7 +82,7 @@ export function playCue(cue: SoundCue, subject?: NotificationSubject): boolean {
   if (subject && !allowsProjectNotification(subject)) return false;
   if (subject?.occurredAt !== undefined) {
     try {
-      if (subject.occurredAt < Number(localStorage.getItem(ENABLED_AT_KEY)))
+      if (subject.occurredAt < Number(preferenceStorage.getItem(ENABLED_AT_KEY)))
         return false;
     } catch {
       /* Audio can still play when storage is unavailable. */

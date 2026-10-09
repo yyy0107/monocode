@@ -174,6 +174,7 @@ export function MobileSettings({
   onPageChange,
   connection,
   connections,
+  sharedConnections,
   hostStatus,
   busy,
   loading,
@@ -217,6 +218,7 @@ export function MobileSettings({
   connection?: SettingsConnection;
   /** Every paired connection, the active one included. */
   connections: SettingsConnection[];
+  sharedConnections?: ReactNode;
   hostStatus: HostConnectionStatus;
   busy: boolean;
   loading: boolean;
@@ -319,6 +321,7 @@ export function MobileSettings({
     return (
       <main className="mobile-content mobile-settings">
         {connectionList}
+        {sharedConnections}
       </main>
     );
 

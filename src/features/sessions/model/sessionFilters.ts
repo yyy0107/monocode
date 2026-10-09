@@ -1,3 +1,4 @@
+import { preferenceStorage } from "../../settings/model/sharedPreferences";
 import type { HarnessId } from "./session";
 import { HARNESSES } from "./session";
 import type { SessionSummary } from "../data/sessionStore";
@@ -40,10 +41,10 @@ export function harnessesInSessions(rows: SessionSummary[]): HarnessId[] {
 
 export function loadSessionSidebarFilters(): SessionSidebarFilters {
   try {
-    const raw = localStorage.getItem(FILTERS_KEY);
+    const raw = preferenceStorage.getItem(FILTERS_KEY);
     if (!raw) {
       const legacyArchived =
-        localStorage.getItem("monocode.sessionsShowArchived") === "1";
+        preferenceStorage.getItem("monocode.sessionsShowArchived") === "1";
       return legacyArchived
         ? { ...DEFAULT_SESSION_SIDEBAR_FILTERS, showArchived: true }
         : DEFAULT_SESSION_SIDEBAR_FILTERS;
@@ -68,7 +69,7 @@ export function loadSessionSidebarFilters(): SessionSidebarFilters {
 
 export function saveSessionSidebarFilters(filters: SessionSidebarFilters) {
   try {
-    localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
+    preferenceStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
   } catch {
     // private mode / quota
   }

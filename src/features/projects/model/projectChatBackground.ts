@@ -10,8 +10,13 @@ import {
   type ChatBackgroundScope,
   type NewThreadBackgroundEffect,
 } from "../../settings/model/appearance";
+import { activePreferenceStore, preferenceStorage, SHARED_PREFERENCES_CHANGED } from "../../settings/model/sharedPreferences";
+import { parsePreferenceAsset } from "../../settings/model/preferenceAssets";
+import { pathKey } from "../../../shared/lib/paths";
 
 const KEY = "monocode:project-chat-backgrounds";
+const SHARED_KEY = "monocode.projectBackgroundAssets";
+const projectKey = (project: string) => activePreferenceStore() ? pathKey(project) : project;
 
 export const PROJECT_CHAT_BACKGROUND_CHANGED =
   "monocode:project-chat-background-changed";
@@ -48,7 +53,7 @@ function clampOpacity(value: number): number {
 
 function read(): Record<string, StoredProjectChatBackground> {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = activePreferenceStore() ? preferenceStorage.getItem(SHARED_KEY) : localStorage.getItem(KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     return parsed && typeof parsed === "object"
@@ -61,7 +66,8 @@ function read(): Record<string, StoredProjectChatBackground> {
 
 function write(value: Record<string, StoredProjectChatBackground>) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(value));
+    if (activePreferenceStore()) preferenceStorage.setItem(SHARED_KEY, JSON.stringify(value));
+    else localStorage.setItem(KEY, JSON.stringify(value));
   } catch {
     // private mode / quota
   }
@@ -86,9 +92,10 @@ function storedOpacity(value: unknown, fallback: number): number {
 export function loadProjectChatBackgroundSettings(
   project: string,
 ): ProjectChatBackgroundSettings | null {
-  const stored = read()[project];
+  const stored = read()[projectKey(project)];
   const path = typeof stored?.path === "string" ? stored.path.trim() : "";
   if (!path) return null;
+  if (activePreferenceStore() && !parsePreferenceAsset(path)) return null;
   const legacyOpacity = storedOpacity(
     stored.opacity,
     loadChatBackgroundEmptyOpacity(),
@@ -123,8 +130,9 @@ export function saveProjectChatBackgroundSettings(
 ) {
   const path = value.path.trim();
   if (!project || !path) return;
+  if (activePreferenceStore() && !parsePreferenceAsset(path)) throw new Error("Upload the background to its Host before saving.");
   const next = read();
-  next[project] = {
+  next[projectKey(project)] = {
     path,
     emptyOpacity: clampOpacity(value.emptyOpacity),
     sessionOpacity: clampOpacity(value.sessionOpacity),
@@ -157,8 +165,9 @@ export function saveProjectChatBackground(
 ) {
   const path = value.path.trim();
   if (!project || !path) return;
+  if (activePreferenceStore() && !parsePreferenceAsset(path)) throw new Error("Upload the background to its Host before saving.");
   const next = read();
-  next[project] = {
+  next[projectKey(project)] = {
     path,
     opacity: clampOpacity(value.opacity),
     scope: validScope(value.scope)
@@ -170,6 +179,7 @@ export function saveProjectChatBackground(
 }
 
 export function clearProjectChatBackgroundSetting(project: string) {
+  project = projectKey(project);
   const next = read();
   if (!(project in next)) return;
   delete next[project];
@@ -178,6 +188,8 @@ export function clearProjectChatBackgroundSetting(project: string) {
 }
 
 export function rebaseProjectChatBackgroundSetting(from: string, to: string) {
+  from = projectKey(from);
+  to = projectKey(to);
   if (!from || !to || from === to) return;
   const next = read();
   if (!(from in next)) return;
@@ -202,7 +214,17 @@ export function projectChatBackgroundImageRevision(): number {
 }
 
 export function subscribeProjectChatBackground(listener: () => void) {
+  const shared = (event: Event) => {
+    const keys = (event as CustomEvent<string[]>).detail;
+    if (keys && !keys.includes(SHARED_KEY)) return;
+    revision += 1;
+    imageRevision += 1;
+    listener();
+  };
   window.addEventListener(PROJECT_CHAT_BACKGROUND_CHANGED, listener);
-  return () =>
+  window.addEventListener(SHARED_PREFERENCES_CHANGED, shared);
+  return () => {
     window.removeEventListener(PROJECT_CHAT_BACKGROUND_CHANGED, listener);
+    window.removeEventListener(SHARED_PREFERENCES_CHANGED, shared);
+  };
 }

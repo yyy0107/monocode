@@ -1,3 +1,4 @@
+import { usePreferenceState } from "../../features/settings/model/usePreferenceState";
 import { useSidebarListPreview } from "./useSidebarListPreview";
 import { delegateDesktopSession } from "../../features/assistant/model/delegateDesktopSession";
 import { SidebarEntryReorderContext } from "./SidebarEntryReorder";
@@ -444,10 +445,10 @@ function ProjectSessionSectionComponent({
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
     null,
   );
-  const [pinnedSessionsCollapsed, setPinnedSessionsCollapsed] = useState(() =>
+  const [pinnedSessionsCollapsed, setPinnedSessionsCollapsed] = usePreferenceState(() =>
     loadPinnedSessionsCollapsed(cwd),
   );
-  const [reminderSessionsCollapsed, setReminderSessionsCollapsed] = useState(
+  const [reminderSessionsCollapsed, setReminderSessionsCollapsed] = usePreferenceState(
     () => loadReminderSessionsCollapsed(cwd),
   );
   const [sessionListLimit, setSessionListLimit] = useState(LIST_PAGE_SIZE);

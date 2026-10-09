@@ -1,3 +1,6 @@
+import { activePreferenceStore, SHARED_PREFERENCES_CHANGED } from "./sharedPreferences";
+import { parsePreferenceAsset, preferenceAssetUrl, PREFERENCE_ASSET_READY } from "./preferenceAssets";
+import { preferenceStorage } from "./sharedPreferences";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { hslToRgb, isHexColor, type Rgb } from "../../../shared/lib/colorUtils";
 import { IS_LINUX, IS_MAC } from "../../../platform/tauri/platform";
@@ -175,7 +178,7 @@ function clamp(value: number, min: number, max: number) {
 
 function readNumber(key: string): number | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = preferenceStorage.getItem(key);
     if (raw == null) return null;
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? parsed : null;
@@ -186,7 +189,7 @@ function readNumber(key: string): number | null {
 
 function writeNumber(key: string, value: number) {
   try {
-    localStorage.setItem(key, String(value));
+    preferenceStorage.setItem(key, String(value));
   } catch {
     // private mode / quota
   }
@@ -212,7 +215,7 @@ function accentForeground(color: string): "#000000" | "#ffffff" {
 
 export function loadAccentColor(): string | null {
   try {
-    return normalizeAccentColor(localStorage.getItem(ACCENT_COLOR_KEY));
+    return normalizeAccentColor(preferenceStorage.getItem(ACCENT_COLOR_KEY));
   } catch {
     return ACCENT_COLOR_DEFAULT;
   }
@@ -221,8 +224,8 @@ export function loadAccentColor(): string | null {
 export function saveAccentColor(value: string | null) {
   try {
     const next = normalizeAccentColor(value);
-    if (next == null) localStorage.removeItem(ACCENT_COLOR_KEY);
-    else localStorage.setItem(ACCENT_COLOR_KEY, next);
+    if (next == null) preferenceStorage.removeItem(ACCENT_COLOR_KEY);
+    else preferenceStorage.setItem(ACCENT_COLOR_KEY, next);
   } catch {
     // private mode / quota
   }
@@ -345,7 +348,7 @@ function isThemePreference(value: unknown): value is ThemePreference {
 
 export function loadThemePreference(): ThemePreference {
   try {
-    const raw = localStorage.getItem(SCHEME_KEY);
+    const raw = preferenceStorage.getItem(SCHEME_KEY);
     return isThemePreference(raw) ? raw : THEME_PREFERENCE_DEFAULT;
   } catch {
     return THEME_PREFERENCE_DEFAULT;
@@ -354,7 +357,7 @@ export function loadThemePreference(): ThemePreference {
 
 export function saveThemePreference(value: ThemePreference) {
   try {
-    localStorage.setItem(SCHEME_KEY, value);
+    preferenceStorage.setItem(SCHEME_KEY, value);
   } catch {
     // private mode / quota
   }
@@ -462,9 +465,12 @@ export function activateWindowAppearance() {
 }
 
 /** Keeps the "system" preference in sync when the OS flips appearance. */
+let watchingSystemScheme = false;
 export function watchSystemColorScheme() {
+  if (watchingSystemScheme) return;
   const query = systemQuery();
   if (!query) return;
+  watchingSystemScheme = true;
   query.addEventListener("change", () => {
     const preference = loadThemePreference();
     if (preference === "system") applyThemePreference(preference);
@@ -554,7 +560,7 @@ export function applyBodyGlass(value: boolean) {
 
 export function loadChatBackgroundPath(): string | null {
   try {
-    return localStorage.getItem(CHAT_BACKGROUND_PATH_KEY)?.trim() || null;
+    return preferenceStorage.getItem(activePreferenceStore() ? "monocode.chatBackgroundAsset" : CHAT_BACKGROUND_PATH_KEY)?.trim() || null;
   } catch {
     return null;
   }
@@ -562,8 +568,11 @@ export function loadChatBackgroundPath(): string | null {
 
 export function saveChatBackgroundPath(value: string | null) {
   try {
-    if (value) localStorage.setItem(CHAT_BACKGROUND_PATH_KEY, value);
-    else localStorage.removeItem(CHAT_BACKGROUND_PATH_KEY);
+    const key = activePreferenceStore() ? "monocode.chatBackgroundAsset" : CHAT_BACKGROUND_PATH_KEY;
+    if (value) {
+      if (activePreferenceStore() && !parsePreferenceAsset(value)) throw new Error("Upload the background to its Host before saving.");
+      preferenceStorage.setItem(key, value);
+    } else preferenceStorage.removeItem(key);
   } catch {
     // private mode / quota
   }
@@ -574,16 +583,22 @@ export function saveChatBackgroundPath(value: string | null) {
 export function subscribeChatBackgroundPath(onStoreChange: () => void) {
   if (typeof window === "undefined") return () => {};
   window.addEventListener(CHAT_BACKGROUND_PATH_CHANGE_EVENT, onStoreChange);
-  return () =>
+  window.addEventListener(SHARED_PREFERENCES_CHANGED, onStoreChange);
+  return () => {
     window.removeEventListener(
       CHAT_BACKGROUND_PATH_CHANGE_EVENT,
       onStoreChange,
     );
+    window.removeEventListener(SHARED_PREFERENCES_CHANGED, onStoreChange);
+  };
 }
 
+let appliedBackgroundPath: string | null = null;
 export function applyChatBackground(path: string | null) {
   const root = document.documentElement;
   root.classList.toggle("has-chat-background", !!path);
+  if (path !== appliedBackgroundPath) clearPreparedNewThreadBackground();
+  appliedBackgroundPath = path;
   if (!path) {
     clearPreparedNewThreadBackground();
     return null;
@@ -594,7 +609,9 @@ export function applyChatBackground(path: string | null) {
 }
 
 export function chatBackgroundSrc(path: string | null): string | null {
-  return path ? `${convertFileSrc(path)}?v=${chatBackgroundRevision}` : null;
+  if (!path) return null;
+  if (parsePreferenceAsset(path)) return preferenceAssetUrl(path) ?? null;
+  return `${convertFileSrc(path)}?v=${chatBackgroundRevision}`;
 }
 
 function isNewThreadBackgroundEffect(
@@ -607,7 +624,7 @@ function isNewThreadBackgroundEffect(
 
 export function loadNewThreadBackgroundEffect(): NewThreadBackgroundEffect {
   try {
-    const raw = localStorage.getItem(NEW_THREAD_BACKGROUND_EFFECT_KEY);
+    const raw = preferenceStorage.getItem(NEW_THREAD_BACKGROUND_EFFECT_KEY);
     return isNewThreadBackgroundEffect(raw)
       ? raw
       : NEW_THREAD_BACKGROUND_EFFECT_DEFAULT;
@@ -620,7 +637,7 @@ export function saveNewThreadBackgroundEffect(
   effect: NewThreadBackgroundEffect,
 ) {
   try {
-    localStorage.setItem(NEW_THREAD_BACKGROUND_EFFECT_KEY, effect);
+    preferenceStorage.setItem(NEW_THREAD_BACKGROUND_EFFECT_KEY, effect);
   } catch {
     // private mode / quota
   }
@@ -741,7 +758,7 @@ function isChatBackgroundScope(value: unknown): value is ChatBackgroundScope {
 
 export function loadChatBackgroundScope(): ChatBackgroundScope {
   try {
-    const raw = localStorage.getItem(CHAT_BACKGROUND_SCOPE_KEY);
+    const raw = preferenceStorage.getItem(CHAT_BACKGROUND_SCOPE_KEY);
     return isChatBackgroundScope(raw) ? raw : CHAT_BACKGROUND_SCOPE_DEFAULT;
   } catch {
     return CHAT_BACKGROUND_SCOPE_DEFAULT;
@@ -750,7 +767,7 @@ export function loadChatBackgroundScope(): ChatBackgroundScope {
 
 export function saveChatBackgroundScope(value: ChatBackgroundScope) {
   try {
-    localStorage.setItem(CHAT_BACKGROUND_SCOPE_KEY, value);
+    preferenceStorage.setItem(CHAT_BACKGROUND_SCOPE_KEY, value);
   } catch {
     // private mode / quota
   }
@@ -790,7 +807,7 @@ export function saveSessionSidebarOpen(value: boolean) {
 
 export function loadSidebarTabOrder(): SidebarTabId[] {
   try {
-    const raw = localStorage.getItem(SIDEBAR_TAB_ORDER_KEY);
+    const raw = preferenceStorage.getItem(SIDEBAR_TAB_ORDER_KEY);
     if (!raw) return [...DEFAULT_SIDEBAR_TAB_ORDER];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [...DEFAULT_SIDEBAR_TAB_ORDER];
@@ -808,7 +825,7 @@ export function loadSidebarTabOrder(): SidebarTabId[] {
 
 export function saveSidebarTabOrder(order: SidebarTabId[]) {
   try {
-    localStorage.setItem(SIDEBAR_TAB_ORDER_KEY, JSON.stringify(order));
+    preferenceStorage.setItem(SIDEBAR_TAB_ORDER_KEY, JSON.stringify(order));
   } catch {
     // private mode / quota
   }
@@ -837,7 +854,7 @@ function isTranscriptLayout(value: unknown): value is TranscriptLayout {
 
 export function loadTranscriptLayout(): TranscriptLayout {
   try {
-    const raw = localStorage.getItem(TRANSCRIPT_LAYOUT_KEY);
+    const raw = preferenceStorage.getItem(TRANSCRIPT_LAYOUT_KEY);
     return isTranscriptLayout(raw) ? raw : TRANSCRIPT_LAYOUT_DEFAULT;
   } catch {
     return TRANSCRIPT_LAYOUT_DEFAULT;
@@ -847,7 +864,7 @@ export function loadTranscriptLayout(): TranscriptLayout {
 export function saveTranscriptLayout(value: TranscriptLayout) {
   const next = isTranscriptLayout(value) ? value : TRANSCRIPT_LAYOUT_DEFAULT;
   try {
-    localStorage.setItem(TRANSCRIPT_LAYOUT_KEY, next);
+    preferenceStorage.setItem(TRANSCRIPT_LAYOUT_KEY, next);
   } catch {
     // private mode / quota
   }
@@ -865,7 +882,7 @@ function isChangesView(value: unknown): value is ChangesView {
 
 export function loadChangesView(): ChangesView {
   try {
-    const raw = localStorage.getItem(CHANGES_VIEW_KEY);
+    const raw = preferenceStorage.getItem(CHANGES_VIEW_KEY);
     return isChangesView(raw) ? raw : CHANGES_VIEW_DEFAULT;
   } catch {
     return CHANGES_VIEW_DEFAULT;
@@ -874,7 +891,7 @@ export function loadChangesView(): ChangesView {
 
 export function saveChangesView(value: ChangesView) {
   try {
-    localStorage.setItem(CHANGES_VIEW_KEY, value);
+    preferenceStorage.setItem(CHANGES_VIEW_KEY, value);
   } catch {
     // private mode / quota
   }
@@ -914,3 +931,8 @@ export function subscribeShowExcludedFiles(onStoreChange: () => void) {
   return () =>
     window.removeEventListener(SHOW_EXCLUDED_FILES_CHANGE_EVENT, onStoreChange);
 }
+
+if (typeof window !== "undefined") window.addEventListener(PREFERENCE_ASSET_READY, () => {
+  applyChatBackground(loadChatBackgroundPath());
+  window.dispatchEvent(new Event(CHAT_BACKGROUND_PATH_CHANGE_EVENT));
+});

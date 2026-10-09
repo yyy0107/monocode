@@ -1,3 +1,4 @@
+import { preferenceStorage } from "./sharedPreferences";
 import {
   applyReducedMotion,
   type ReducedMotionPreference,
@@ -146,7 +147,7 @@ function clamp(value: number, min: number, max: number) {
 
 function readJson(key: string): unknown {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = preferenceStorage.getItem(key);
     return raw == null ? null : JSON.parse(raw);
   } catch {
     return null;
@@ -155,7 +156,7 @@ function readJson(key: string): unknown {
 
 function writeJson(key: string, value: unknown) {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    preferenceStorage.setItem(key, JSON.stringify(value));
   } catch {
     // private mode / quota
   }
@@ -241,7 +242,7 @@ export function normalizeProfile(value: unknown): AppearanceProfile {
 
 export function loadFontSize(kind: FontSizeKind): number {
   try {
-    return normalizeFontSize(kind, localStorage.getItem(FONT_SIZE_KEYS[kind]));
+    return normalizeFontSize(kind, preferenceStorage.getItem(FONT_SIZE_KEYS[kind]));
   } catch {
     return FONT_SIZE_LIMITS[kind].default;
   }
@@ -250,7 +251,7 @@ export function loadFontSize(kind: FontSizeKind): number {
 export function saveFontSize(kind: FontSizeKind, value: number): number {
   const next = normalizeFontSize(kind, value);
   try {
-    localStorage.setItem(FONT_SIZE_KEYS[kind], String(next));
+    preferenceStorage.setItem(FONT_SIZE_KEYS[kind], String(next));
   } catch {
     // private mode / quota
   }
@@ -275,7 +276,7 @@ function isReducedMotionPreference(
 
 export function loadReducedMotion(): ReducedMotionPreference {
   try {
-    const raw = localStorage.getItem(REDUCED_MOTION_KEY);
+    const raw = preferenceStorage.getItem(REDUCED_MOTION_KEY);
     return isReducedMotionPreference(raw) ? raw : REDUCED_MOTION_DEFAULT;
   } catch {
     return REDUCED_MOTION_DEFAULT;
@@ -284,7 +285,7 @@ export function loadReducedMotion(): ReducedMotionPreference {
 
 export function saveReducedMotion(value: ReducedMotionPreference) {
   try {
-    localStorage.setItem(REDUCED_MOTION_KEY, value);
+    preferenceStorage.setItem(REDUCED_MOTION_KEY, value);
   } catch {
     // private mode / quota
   }

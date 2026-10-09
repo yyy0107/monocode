@@ -1,3 +1,4 @@
+import { preferenceStorage } from "../../settings/model/sharedPreferences";
 import { pathKey } from "../../../shared/lib/paths";
 
 const KEY = "monocode.projectTreeExpanded.v1";
@@ -5,7 +6,7 @@ const CHANGED = "monocode:project-tree-expanded-changed";
 
 function readExpanded(): Set<string> | undefined {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = preferenceStorage.getItem(KEY);
     if (raw === null) return undefined;
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return undefined;
@@ -27,7 +28,7 @@ export function loadProjectTreeExpanded(cwd: string): ReadonlySet<string> {
 export function saveProjectTreeExpanded(paths: Iterable<string>): void {
   const next = new Set([...paths].filter(Boolean).map(pathKey));
   try {
-    localStorage.setItem(KEY, JSON.stringify([...next]));
+    preferenceStorage.setItem(KEY, JSON.stringify([...next]));
   } catch {
     // Storage can be unavailable in private mode.
   }

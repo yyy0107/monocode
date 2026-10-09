@@ -9,6 +9,8 @@ type RemoteActions = {
   compact: () => boolean;
   approve: (requestId: number, decision: ApprovalDecision) => void;
   answer: (requestId: number, reply: UserQuestionReply) => void;
+  /** Move the Host conversation to another account; false when it cannot. */
+  switchAccount: (providerAccountId: string) => boolean;
 };
 
 const actions = new Map<string, RemoteActions>();

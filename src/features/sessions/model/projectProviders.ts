@@ -1,3 +1,4 @@
+import { preferenceStorage } from "../../settings/model/sharedPreferences";
 import { pathKey } from "../../../shared/lib/paths";
 import type { HarnessId } from "./session";
 
@@ -143,7 +144,7 @@ function empty(value: ProjectProviderSettings): boolean {
 function readAll(): Stored {
   let raw: string | null = null;
   try {
-    raw = localStorage.getItem(KEY);
+    raw = preferenceStorage.getItem(KEY);
   } catch {
     raw = null;
   }
@@ -208,7 +209,7 @@ function writeAll(next: Stored): void {
   const serialized = JSON.stringify(next);
   cacheRaw = serialized;
   try {
-    localStorage.setItem(KEY, serialized);
+    preferenceStorage.setItem(KEY, serialized);
   } catch {
     // private mode / quota
   }

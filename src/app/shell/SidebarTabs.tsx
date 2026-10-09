@@ -1,8 +1,8 @@
+import { usePreferenceState } from "../../features/settings/model/usePreferenceState";
 import {
   memo,
   startTransition,
   useOptimistic,
-  useState,
   type CSSProperties,
 } from "react";
 import {
@@ -39,7 +39,7 @@ export const SidebarTabs = memo(function SidebarTabs({
 }: Props) {
   const { t } = useTranslation();
   const [selectedTab, selectTab] = useOptimistic(tab);
-  const [tabOrder, setTabOrder] = useState(loadSidebarTabOrder);
+  const [tabOrder, setTabOrder] = usePreferenceState(loadSidebarTabOrder);
   const sortable = useAnimatedReorder(tabOrder, (next) => {
     setTabOrder(next);
     saveSidebarTabOrder(next);

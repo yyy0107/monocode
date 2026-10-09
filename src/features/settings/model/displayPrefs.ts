@@ -15,7 +15,7 @@ export const MASK_EMAILS_CHANGE_EVENT = "monocode:maskemailschange";
 
 function flagStore(key: string, fallback: boolean, event: string) {
   // Holds a saved value only while storage failed to keep it, so the switch
-  // still flips for this window when localStorage is unavailable.
+  // still flips for this window when preferenceStorage is unavailable.
   let unsaved: boolean | null = null;
   const load = () => unsaved ?? readFlag(key) ?? fallback;
   const save = (value: boolean) => {
@@ -26,7 +26,7 @@ function flagStore(key: string, fallback: boolean, event: string) {
   };
   const subscribe = (onStoreChange: () => void) => {
     if (typeof window === "undefined") return () => {};
-    // Other windows write the same localStorage; `storage` reports their saves.
+    // Other windows write the same preferenceStorage; `storage` reports their saves.
     const onStorage = (storage: StorageEvent) => {
       if (storage.key !== key && storage.key !== null) return;
       unsaved = null;

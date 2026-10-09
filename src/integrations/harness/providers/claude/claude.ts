@@ -1973,7 +1973,7 @@ function settingsKeyFor(input: HarnessSessionInput): string {
     thinking: input.modelSettings?.thinking,
     context: input.modelSettings?.context,
     runtimeMode: input.runtimeMode,
-    hooks: loadClaudeHooks(),
+    hooks: input.claudeHooks ?? loadClaudeHooks(),
   })}`;
 }
 
@@ -2002,7 +2002,7 @@ function launchOptions(
   if (isClaudeUltracodeEffort(effortRaw)) {
     settings.ultracode = true;
   }
-  if (!loadClaudeHooks()) {
+  if (!(input.claudeHooks ?? loadClaudeHooks())) {
     settings.disableAllHooks = true;
   }
   return {

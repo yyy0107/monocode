@@ -32,6 +32,7 @@ export async function readProviderAccountIdentity(
           ?.identity ?? null
       );
     }
+    if (source === "host") return null;
     return (await invoke<ProviderAccountIdentity | null>(
       "provider_account_identity",
       { provider, accountId },

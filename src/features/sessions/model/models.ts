@@ -1,3 +1,5 @@
+import { loadSharedAgentDefaults, updateSharedAgentDefault } from "../../settings/model/agentPreferences";
+import { preferenceStorage } from "../../settings/model/sharedPreferences";
 import type { HarnessId } from "./session";
 import { HARNESSES } from "./session";
 import { loadProjectProviderSettings } from "./projectProviders";
@@ -674,12 +676,13 @@ export function preferredModelSettings(
   return mergeModelSettings(model, {
     ...current,
     ...loadLastModelSettings(),
+    ...loadSharedAgentDefaults().agents?.[model.harness]?.modelSettings,
   });
 }
 
 export function loadLastModelSettings(): Record<string, string> {
   try {
-    const raw = localStorage.getItem(LAST_MODEL_SETTINGS_KEY);
+    const raw = preferenceStorage.getItem(LAST_MODEL_SETTINGS_KEY);
     if (!raw) return {};
     return parseStringRecord(JSON.parse(raw));
   } catch {
@@ -696,7 +699,9 @@ export function saveLastModelSettings(
   const next =
     mode === "fill" ? { ...incoming, ...prev } : { ...prev, ...incoming };
   try {
-    localStorage.setItem(LAST_MODEL_SETTINGS_KEY, JSON.stringify(next));
+    preferenceStorage.setItem(LAST_MODEL_SETTINGS_KEY, JSON.stringify(next));
+    const harness = loadLastModelChoice()?.harness;
+    if (harness) updateSharedAgentDefault(harness, { modelSettings: next });
   } catch {
     // private mode / quota
   }
@@ -719,7 +724,7 @@ export function encodeModelLaunchId(
 
 export function loadFavoriteModels(): string[] {
   try {
-    const raw = localStorage.getItem(FAVORITES_KEY);
+    const raw = preferenceStorage.getItem(FAVORITES_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -731,7 +736,7 @@ export function loadFavoriteModels(): string[] {
 
 export function saveFavoriteModels(ids: string[]) {
   try {
-    localStorage.setItem(FAVORITES_KEY, JSON.stringify(ids));
+    preferenceStorage.setItem(FAVORITES_KEY, JSON.stringify(ids));
   } catch {
     // private mode / quota
   }
@@ -743,7 +748,7 @@ function isHarnessId(value: string): value is HarnessId {
 
 export function loadModelPickerTab(): ModelPickerTab {
   try {
-    const raw = localStorage.getItem(MODEL_PICKER_TAB_KEY);
+    const raw = preferenceStorage.getItem(MODEL_PICKER_TAB_KEY);
     if (!raw) return "favorites";
     if (raw === "favorites") return "favorites";
     if (isHarnessId(raw)) return raw;
@@ -755,7 +760,7 @@ export function loadModelPickerTab(): ModelPickerTab {
 
 export function saveModelPickerTab(tab: ModelPickerTab) {
   try {
-    localStorage.setItem(MODEL_PICKER_TAB_KEY, tab);
+    preferenceStorage.setItem(MODEL_PICKER_TAB_KEY, tab);
   } catch {
     // private mode / quota
   }
@@ -784,7 +789,7 @@ export function getPickerVisibilitySnapshot(): number {
 
 export function loadHiddenPickerProviders(): HarnessId[] {
   try {
-    const raw = localStorage.getItem(HIDDEN_PICKER_PROVIDERS_KEY);
+    const raw = preferenceStorage.getItem(HIDDEN_PICKER_PROVIDERS_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -805,7 +810,7 @@ export function savePickerProviderVisible(id: HarnessId, visible: boolean) {
   if (visible) hidden.delete(id);
   else hidden.add(id);
   try {
-    localStorage.setItem(
+    preferenceStorage.setItem(
       HIDDEN_PICKER_PROVIDERS_KEY,
       JSON.stringify([...hidden]),
     );
@@ -856,12 +861,13 @@ export function stepModelPickerTab(
 }
 
 export function loadDefaultModels(): Partial<Record<HarnessId, string>> {
+  const shared = Object.fromEntries(Object.entries(loadSharedAgentDefaults().agents ?? {}).flatMap(([harness, value]) => isHarnessId(harness) && value?.model ? [[harness, value.model]] : []));
   try {
-    const raw = localStorage.getItem(DEFAULT_MODELS_KEY);
-    if (!raw) return {};
+    const raw = preferenceStorage.getItem(DEFAULT_MODELS_KEY);
+    if (!raw) return shared;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
+      return shared;
     }
     const out: Partial<Record<HarnessId, string>> = {};
     for (const [key, value] of Object.entries(parsed)) {
@@ -869,16 +875,17 @@ export function loadDefaultModels(): Partial<Record<HarnessId, string>> {
         out[key] = value;
       }
     }
-    return out;
+    return { ...out, ...shared };
   } catch {
-    return {};
+    return shared;
   }
 }
 
 export function saveDefaultModel(harness: HarnessId, model: string) {
+  updateSharedAgentDefault(harness, { model });
   const next = { ...loadDefaultModels(), [harness]: model };
   try {
-    localStorage.setItem(DEFAULT_MODELS_KEY, JSON.stringify(next));
+    preferenceStorage.setItem(DEFAULT_MODELS_KEY, JSON.stringify(next));
   } catch {
     // private mode / quota
   }
@@ -930,8 +937,10 @@ export function defaultSessionChoice(cwd?: string): LastModelChoice {
 }
 
 export function loadLastModelChoice(): LastModelChoice | null {
+  const shared = loadSharedAgentDefaults();
+  if (shared.harness && isHarnessId(shared.harness) && shared.agents?.[shared.harness]?.model) return { harness: shared.harness, model: shared.agents[shared.harness]!.model! };
   try {
-    const raw = localStorage.getItem(LAST_MODEL_KEY);
+    const raw = preferenceStorage.getItem(LAST_MODEL_KEY);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (
@@ -953,8 +962,9 @@ export function loadLastModelChoice(): LastModelChoice | null {
 
 export function saveLastModelChoice(harness: HarnessId, model: string) {
   saveDefaultModel(harness, model);
+  updateSharedAgentDefault(harness, { model }, true);
   try {
-    localStorage.setItem(LAST_MODEL_KEY, JSON.stringify({ harness, model }));
+    preferenceStorage.setItem(LAST_MODEL_KEY, JSON.stringify({ harness, model }));
   } catch {
     // private mode / quota
   }
@@ -962,7 +972,7 @@ export function saveLastModelChoice(harness: HarnessId, model: string) {
 
 export function loadRecentModelChoices(): LastModelChoice[] {
   try {
-    const raw = localStorage.getItem(RECENT_MODELS_KEY);
+    const raw = preferenceStorage.getItem(RECENT_MODELS_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -1004,7 +1014,7 @@ export function saveRecentModelChoice(
     ),
   ].slice(0, RECENT_MODEL_LIMIT);
   try {
-    localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify(next));
+    preferenceStorage.setItem(RECENT_MODELS_KEY, JSON.stringify(next));
   } catch {
     // private mode / quota
   }

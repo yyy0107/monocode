@@ -1,3 +1,4 @@
+import { preferenceStorage, activePreferenceStore } from "../../settings/model/sharedPreferences";
 import { projectKey, projectName } from "../../../shared/lib/paths";
 import { knownProjectPaths, notifyProjectPathsChanged } from "../../projects/model/recents";
 
@@ -42,7 +43,7 @@ export function tabGroupLogoDisplayRevision(): number {
 function readRecord(key: string): Record<string, string> {
   migrateProjectAppearanceKeys();
   try {
-    const raw = localStorage.getItem(key);
+    const raw = preferenceStorage.getItem(key);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") return {};
@@ -59,7 +60,7 @@ function readRecord(key: string): Record<string, string> {
 
 function writeRecord(key: string, value: Record<string, string>): boolean {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    preferenceStorage.setItem(key, JSON.stringify(value));
     return true;
   } catch {
     return false;
@@ -100,15 +101,16 @@ function looksLikeFolderNameKey(key: string): boolean {
  */
 export function migrateProjectAppearanceKeys(): void {
   if (migrating) return;
-  let store: Storage;
+  let store: Pick<Storage, "getItem" | "setItem">;
   try {
-    store = localStorage;
+    store = preferenceStorage;
     if (store.getItem(KEY_VERSION_KEY) === KEY_VERSION) return;
   } catch {
     return;
   }
-  if (attemptedFor === store) return;
-  attemptedFor = store;
+  const storageIdentity = activePreferenceStore() ?? localStorage;
+  if (attemptedFor === storageIdentity) return;
+  attemptedFor = storageIdentity;
   migrating = true;
   try {
     if (migrateNow()) store.setItem(KEY_VERSION_KEY, KEY_VERSION);
@@ -652,7 +654,7 @@ const COLLAPSED_KEY = "monocode:tab-groups:collapsed";
 
 export function loadCollapsedTabGroups(): Set<string> {
   try {
-    const raw = localStorage.getItem(COLLAPSED_KEY);
+    const raw = preferenceStorage.getItem(COLLAPSED_KEY);
     if (!raw) return new Set();
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return new Set();
@@ -666,7 +668,7 @@ export function loadCollapsedTabGroups(): Set<string> {
 
 export function saveCollapsedTabGroups(collapsed: Set<string>): void {
   try {
-    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
+    preferenceStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
   } catch {
     /* ignore quota errors */
   }

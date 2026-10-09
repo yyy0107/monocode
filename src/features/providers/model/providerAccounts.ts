@@ -1,3 +1,5 @@
+import { loadSharedAgentDefaults, updateSharedAgentDefault } from "../../settings/model/agentPreferences";
+import { preferenceStorage } from "../../settings/model/sharedPreferences";
 import { pathKey } from "../../../shared/lib/paths";
 import type { HarnessId } from "../../sessions/model/session";
 
@@ -18,6 +20,25 @@ export function sameProviderAccountId(
     (left ?? DEFAULT_PROVIDER_ACCOUNT_ID) ===
     (right ?? DEFAULT_PROVIDER_ACCOUNT_ID)
   );
+}
+
+/**
+ * The account a conversation is pinned to. A started conversation without a
+ * stored id runs on the built-in profile (Host omits it for that profile);
+ * only an unstarted draft follows the new-conversation default (undefined).
+ */
+export function conversationProviderAccountId(session: {
+  providerAccountId?: string;
+  providerSessionId?: string;
+  nativeSession?: unknown;
+  blocks: readonly { role: string }[];
+}): string | undefined {
+  if (session.providerAccountId) return session.providerAccountId;
+  return session.providerSessionId ||
+    session.nativeSession ||
+    session.blocks.some((block) => block.role === "user")
+    ? DEFAULT_PROVIDER_ACCOUNT_ID
+    : undefined;
 }
 
 /** Providers whose CLIs support isolated, locally named account profiles. */
@@ -162,7 +183,9 @@ export function removeProviderAccount(
     return false;
   }
   const accounts = providerAccounts(provider);
-  if (!accounts.some((account) => account.id === accountId)) return false;
+  // Host hydration may already have removed the row before this device clears
+  // its shared project overrides. Always clear those stale selections too.
+  const existed = accounts.some((account) => account.id === accountId);
   const stored = readRecord<StoredAccounts>(ACCOUNTS_KEY);
   stored[provider] = serializeProviderAccounts(
     accounts.filter((account) => account.id !== accountId),
@@ -178,8 +201,9 @@ export function removeProviderAccount(
     else selections[key] = nextSelection;
   }
   writeJson(SELECTIONS_KEY, selections);
+  if (loadSharedAgentDefaults().agents?.[provider]?.accountId === accountId) updateSharedAgentDefault(provider, { accountId: undefined });
   announceChange();
-  return true;
+  return existed;
 }
 
 function serializeProviderAccounts(
@@ -248,7 +272,10 @@ export function requestedProviderAccountId(
     readRecord<StoredSelections>(SELECTIONS_KEY)[selectionKey(project)]?.[
       provider
     ];
-  return validAccountId(id) ? id : undefined;
+  const shared = loadSharedAgentDefaults().agents?.[provider]?.accountId;
+  const global = selectionKey(project) === "~";
+  if (global && validAccountId(shared)) return shared;
+  return validAccountId(id) ? id : validAccountId(shared) ? shared : undefined;
 }
 
 export function selectProviderAccount(
@@ -261,6 +288,7 @@ export function selectProviderAccount(
   }
   const selections = readRecord<StoredSelections>(SELECTIONS_KEY);
   const key = selectionKey(project);
+  if (key === "~") updateSharedAgentDefault(provider, { accountId });
   selections[key] = { ...selections[key], [provider]: accountId };
   writeJson(SELECTIONS_KEY, selections);
   announceChange();
@@ -294,29 +322,16 @@ export function subscribeProviderAccounts(listener: () => void): () => void {
   };
 }
 
-/** Recover native metadata without replacing newer local labels or selections. */
+/** Replace the device cache with the Host catalog; removed rows and old labels never win. */
 export function restoreProviderAccounts(value: unknown): void {
   if (!isRecord(value)) return;
-  const stored = readRecord<StoredAccounts>(ACCOUNTS_KEY);
+  const stored: StoredAccounts = {};
   for (const provider of PROVIDER_ACCOUNT_PROVIDERS) {
-    if (!Array.isArray(value[provider])) continue;
-    const existing = Array.isArray(stored[provider]) ? stored[provider]! : [];
-    const byId = new Map(existing
-      .filter(account => validAccountId(account?.id) && cleanLabel(account.label))
-      .map(account => [account.id, account]));
-    for (const entry of value[provider]) {
-      if (!isRecord(entry) || !validAccountId(entry.id) || !cleanLabel(entry.label)) continue;
-      const local = byId.get(entry.id);
-      // The native commit is authoritative for Home settings and resolution.
-      const dataHome = cleanDataHome(entry.dataHome);
-      const resolvedDataHome = cleanDataHome(entry.resolvedDataHome);
-      byId.set(entry.id, {
-        id: entry.id, provider, label: local?.label ?? cleanLabel(entry.label),
-        ...(dataHome ? { dataHome } : {}),
-        ...(resolvedDataHome ? { resolvedDataHome } : {}),
-      });
-    }
-    stored[provider] = serializeProviderAccounts([...byId.values()]);
+    const entries = value[provider];
+    stored[provider] = Array.isArray(entries) ? entries.flatMap(entry => {
+      if (!isRecord(entry) || !validAccountId(entry.id) || !cleanLabel(entry.label)) return [];
+      return [{ id: entry.id, provider, label: cleanLabel(entry.label) }];
+    }) : [];
   }
   writeAccounts(stored);
   announceChange();
@@ -328,7 +343,7 @@ function cleanDataHome(value: unknown): string | undefined {
 
 function writeAccounts(value: StoredAccounts): void {
   try {
-    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(value));
+    preferenceStorage.setItem(ACCOUNTS_KEY, JSON.stringify(value));
   } catch {
     throw new Error("Could not save provider accounts. Browser storage is unavailable.");
   }
@@ -364,7 +379,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readJson<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = preferenceStorage.getItem(key);
     return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
@@ -373,7 +388,7 @@ function readJson<T>(key: string, fallback: T): T {
 
 function writeJson(key: string, value: unknown): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    preferenceStorage.setItem(key, JSON.stringify(value));
   } catch {
     // A private or full storage area should not block the provider itself.
   }

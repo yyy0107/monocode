@@ -1,3 +1,4 @@
+import { preferenceStorage } from "./sharedPreferences";
 import { pathKey } from "../../../shared/lib/paths";
 import { loadSidebarTabOrder, type SidebarTabId } from "./appearance";
 
@@ -12,7 +13,7 @@ function isProjectSidebarTab(value: unknown): value is ProjectSidebarTab {
 
 function readAll(): StoredTabs {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = preferenceStorage.getItem(KEY);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
@@ -27,7 +28,7 @@ function readAll(): StoredTabs {
 
 function writeAll(tabs: StoredTabs): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(tabs));
+    preferenceStorage.setItem(KEY, JSON.stringify(tabs));
   } catch {
     // private mode / quota
   }

@@ -34,6 +34,7 @@ import {
 import type { MobilePreferencePanel } from "./MobileSettings";
 import type { MobileClient } from "./client";
 import { MobileAgentDefaultsStatus } from "./MobileAgentDefaultsStatus";
+import { usePreferenceState } from "../features/settings/model/usePreferenceState";
 
 /** Mounted in Settings only; discovery never holds up Home or a conversation. */
 export function MobileAgentDefaults({
@@ -50,7 +51,7 @@ export function MobileAgentDefaults({
   onPanelChange: (panel: MobilePreferencePanel) => void;
 }) {
   const { t } = useTranslation();
-  const [defaults, setDefaults] = useState<Defaults>(() =>
+  const [defaults, setDefaults] = usePreferenceState<Defaults>(() =>
     loadMobileAgentDefaults(hostId),
   );
   const [catalog, setCatalog] = useState<HostModelCatalog>();

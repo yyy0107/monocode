@@ -1,3 +1,4 @@
+import { preferenceStorage } from "./sharedPreferences";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 const UI_SCALE_KEY = "monocode.uiScale";
@@ -30,7 +31,7 @@ export function normalizeUiScale(value: unknown): number {
 
 export function loadUiScale(): number {
   try {
-    const raw = localStorage.getItem(UI_SCALE_KEY);
+    const raw = preferenceStorage.getItem(UI_SCALE_KEY);
     if (raw == null) return UI_SCALE_DEFAULT;
     return normalizeUiScale(Number(raw));
   } catch {
@@ -43,7 +44,7 @@ export function loadUiScale(): number {
 export function saveUiScale(value: number) {
   const next = normalizeUiScale(value);
   try {
-    localStorage.setItem(UI_SCALE_KEY, String(next));
+    preferenceStorage.setItem(UI_SCALE_KEY, String(next));
   } catch {
     // private mode / quota
   }

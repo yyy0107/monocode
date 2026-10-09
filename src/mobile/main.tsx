@@ -8,8 +8,26 @@ import { refreshUiLanguage } from "../shared/i18n/language";
 import {
   applyAccentColor,
   loadAccentColor,
+  applyThemePreference,
+  loadThemePreference,
+  applyThemeTint,
+  loadThemeHue,
+  loadThemeSaturation,
+  applyThemeDarkLightness,
+  loadThemeDarkLightness,
+  applyChatBackground,
+  loadChatBackgroundPath,
+  applyChatBackgroundEmptyOpacity,
+  loadChatBackgroundEmptyOpacity,
+  applyChatBackgroundSessionOpacity,
+  loadChatBackgroundSessionOpacity,
+  applyChatBackgroundScope,
+  loadChatBackgroundScope,
 } from "../features/settings/model/appearance";
 import { initSounds } from "../features/settings/model/sounds";
+import { initTypography } from "../features/settings/model/typography";
+import { subscribeSharedPreferences } from "../features/settings/model/sharedPreferences";
+import { parsePreferenceAsset } from "../features/settings/model/preferenceAssets";
 import "../styles/index.css";
 import "./mobile.css";
 import "./motion.css";
@@ -18,7 +36,26 @@ refreshUiLanguage();
 installKeyboardMotion();
 applyGlassSettings(readGlassSettings());
 applyAccentColor(loadAccentColor());
+applyThemePreference(loadThemePreference());
 initSounds();
+initTypography();
+const applyBackground = () => {
+  const path = loadChatBackgroundPath();
+  applyChatBackground(path && parsePreferenceAsset(path) ? path : null);
+  applyChatBackgroundEmptyOpacity(loadChatBackgroundEmptyOpacity());
+  applyChatBackgroundSessionOpacity(loadChatBackgroundSessionOpacity());
+  applyChatBackgroundScope(loadChatBackgroundScope());
+};
+applyBackground();
+subscribeSharedPreferences(() => {
+  refreshUiLanguage();
+  initTypography();
+  initSounds();
+  applyAccentColor(loadAccentColor());
+  applyThemeTint(loadThemeHue(), loadThemeSaturation());
+  applyThemeDarkLightness(loadThemeDarkLightness());
+  applyBackground();
+});
 
 createRoot(document.getElementById("root")!, {
   onRecoverableError(error) {

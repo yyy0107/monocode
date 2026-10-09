@@ -1,3 +1,4 @@
+import { usePreferenceState } from "../../features/settings/model/usePreferenceState";
 import {
   Fragment,
   memo,
@@ -114,12 +115,13 @@ function SidebarComponent(props: SidebarProps) {
   } = props;
   const toggleLabel = useShortcutLabel("Toggle Sidebar", "App: Toggle Sidebar");
   const quickOpenLabel = useShortcutLabel("Quick Open", "App: Go to File");
-  const [initialWidth] = useState(loadSidebarWidth);
+  const [initialWidth] = usePreferenceState(loadSidebarWidth);
   const resize = useDragResize({
     min: SIDEBAR_WIDTH_MIN,
     max: () => Math.min(SIDEBAR_WIDTH_MAX, Math.floor(window.innerWidth * 0.5)),
     defaultWidth: SIDEBAR_WIDTH_DEFAULT,
     initial: initialWidth,
+    value: initialWidth,
     onCommit: saveSidebarWidth,
   });
   const [expandedPaths, setExpandedPaths] = useState(() =>
@@ -144,11 +146,11 @@ function SidebarComponent(props: SidebarProps) {
   const [sessionProjectPath, setSessionProjectPath] = useState<string | null>(
     null,
   );
-  const [filters, setFilters] = useState(loadSessionSidebarFilters);
+  const [filters, setFilters] = usePreferenceState(loadSessionSidebarFilters);
   const [filterMenu, setFilterMenu] = useState<HTMLButtonElement | null>(
     null,
   );
-  const [labels, setLabels] = useState(loadTabGroupLabels);
+  const [labels, setLabels] = usePreferenceState(loadTabGroupLabels);
   const [remoteRevision, setRemoteRevision] = useState(0);
   const [searchRevision, setSearchRevision] = useState(0);
   const [searchFailed, setSearchFailed] = useState<Set<string>>(

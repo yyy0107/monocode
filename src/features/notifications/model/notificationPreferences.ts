@@ -1,3 +1,4 @@
+import { preferenceStorage } from "../../settings/model/sharedPreferences";
 export const NOTIFICATION_CATEGORIES = [
   { id: "pullRequests", label: "Pull requests / Merge requests" },
   { id: "issues", label: "Issues and Linear tasks" },
@@ -49,7 +50,7 @@ export function getProjectNotificationRule(
 
 export function loadNotificationPreferences(): Preferences {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    const parsed: unknown = JSON.parse(preferenceStorage.getItem(KEY) ?? "{}");
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
       return {};
     const entries = Object.entries(parsed).flatMap(([id, value]) => {
@@ -131,7 +132,7 @@ export function updateNotificationPreferences(
       ...(enabledAfter ? { enabledAfter } : {}),
     };
   }
-  localStorage.setItem(KEY, JSON.stringify(preferences));
+  preferenceStorage.setItem(KEY, JSON.stringify(preferences));
   if (typeof window !== "undefined") window.dispatchEvent(new Event(CHANGE));
 }
 

@@ -1,3 +1,4 @@
+import { usePreferenceState } from "../../settings/model/usePreferenceState";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import "./QuickModelSelector.css";
 import {
@@ -64,7 +65,7 @@ export function QuickModelSelector({
   const [tab, setTab] = useState<ModelPickerTab>(model.harness);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const [favorites, setFavorites] = useState(loadFavoriteModels);
+  const [favorites, setFavorites] = usePreferenceState(loadFavoriteModels);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();

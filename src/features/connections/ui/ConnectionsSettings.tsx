@@ -7,6 +7,7 @@ import { Internet, Loader } from "../../../shared/ui/icons";
 import { ConnectionStatusIcon, type ConnectionState } from "./ConnectionStatusDot";
 import { SshTargetInput } from "./SshTargetInput";
 import { isSharedHostMachine } from "../model/remoteProjects";
+import { publishHostConnection, removeHostConnection, useHostConnections } from "../model/hostConnections";
 import {
   connectMachine,
   disconnectMachine,
@@ -34,8 +35,11 @@ type MachineStatus = { state: ConnectionState; note: string };
 export function ConnectionsSettings() {
   const { t: uiT } = useTranslation();
   const { machines, loaded } = useRemoteMachines();
+  const directory = useHostConnections();
+  const unpaired = directory.connections.filter((entry) => !machines.some((machine) => machine.environmentId === entry.environmentId));
   const [adding, setAdding] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [urlOpen, setUrlOpen] = useState(false);
   const disclosureId = useId();
   const addTrigger = useRef<HTMLButtonElement>(null);
   const [name, setName] = useState("");
@@ -101,6 +105,7 @@ export function ConnectionsSettings() {
               [next.machine!.id]: { state: "online", note: "Connected" },
             }));
             refreshRemoteMachines();
+            void publishHostConnection(next.machine).catch((reason) => setError(String(reason)));
           }
           return;
         }
@@ -442,6 +447,28 @@ export function ConnectionsSettings() {
           })
         )}
       </div>
+      {directory.pending && <p role="status" className="text-ui-caption text-foreground-subtle">{uiT("Not yet synced")}</p>}
+      {directory.error && <p role="status" className="text-ui-caption text-foreground-subtle">{directory.error}</p>}
+      {unpaired.length > 0 && <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card" aria-label={uiT("Shared connections")}>
+        {unpaired.map((entry) => <div key={entry.id} className="flex items-center gap-3 px-4 py-3">
+          <Internet className="size-5 shrink-0 text-foreground-subtle" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-ui-base font-medium text-foreground">{entry.name}</div>
+            <div className="text-ui-caption text-foreground-subtle">{uiT("Not paired on this device")}</div>
+          </div>
+          <button type="button" className={button} disabled={busy} onClick={() => {
+            setName(entry.name);
+            setTarget(entry.kind === "ssh" ? entry.hostname ?? "" : "");
+            setPort(entry.port ? String(entry.port) : "");
+            setAdding(entry.kind === "ssh");
+            setUrlOpen(entry.kind === "http");
+            if (entry.kind === "http") setUrl(entry.hostname ? `http://${entry.hostname}:3774` : "");
+          }}>{uiT("Pair this device")}</button>
+          <button type="button" className={quietButton} disabled={busy} onClick={() => {
+            void removeHostConnection(entry.id).catch((reason) => setError(String(reason)));
+          }}>{uiT("Remove from shared directory")}</button>
+        </div>)}
+      </div>}
       </section>
       <AnimatedCollapse expanded={adding}>
         <form
@@ -627,18 +654,21 @@ export function ConnectionsSettings() {
           {notice}
         </p>
       )}
-      <details className="text-ui-caption text-foreground-subtle">
-        <summary className="cursor-pointer">
+      <div className="text-ui-caption text-foreground-subtle">
+        <button type="button" className="cursor-pointer" aria-expanded={urlOpen}
+          aria-controls={`${disclosureId}-url`} onClick={() => setUrlOpen((open) => !open)}>
           {uiT("Connect to an existing host by URL")}
-        </summary>
+        </button>
+        <AnimatedCollapse expanded={urlOpen}>
         <form
+          id={`${disclosureId}-url`}
           className="mt-4 flex flex-col gap-3"
           onSubmit={(event) => {
             event.preventDefault();
             if (busy) return;
             setBusy(true);
             setError("");
-            void withStatusToast(() => connectMachine("", url, token), {
+            void withStatusToast(() => connectMachine(name, url, token), {
               loading: uiT("Connecting to the machine…"),
               success: (machine) => uiT("Connected to {service}", { service: machine.name }),
               error: false,
@@ -674,7 +704,8 @@ export function ConnectionsSettings() {
             {uiT("Connect by URL")}
           </button>
         </form>
-      </details>
+        </AnimatedCollapse>
+      </div>
     </div>
   );
 }

@@ -11,7 +11,7 @@ export type SessionHeaderActions = {
   archive: (sessionId: string) => void;
   /** Start a new chat in a column to the right of this one. */
   splitRight: (sessionId: string) => void;
-  /** Switch the provider account a conversation (or its successor) uses. */
+  /** Switch the provider account a conversation uses, in place. */
   selectProviderAccount?: (
     sessionId: string,
     provider: ProviderAccountProvider,

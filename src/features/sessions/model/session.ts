@@ -1,3 +1,4 @@
+import { loadSharedAgentDefaults } from "../../settings/model/agentPreferences";
 import { translate } from "../../../shared/i18n/language";
 import { dropContextWindow, type ContextUsage } from "./contextUsage";
 import type { QuestionAnswer, UserQuestionPrompt, UserQuestionRecord } from "./userQuestion";
@@ -604,7 +605,7 @@ export function newSession(
 /** New conversation using the Providers defaults. */
 export function newDefaultSession(
   cwd = "~",
-  runtimeMode: RuntimeMode = DEFAULT_RUNTIME_MODE,
+  runtimeMode: RuntimeMode = loadSharedAgentDefaults().runtimeMode ?? DEFAULT_RUNTIME_MODE,
 ): Session {
   const choice = defaultSessionChoice(cwd);
   return newSession(choice.harness, cwd, choice.model, runtimeMode);

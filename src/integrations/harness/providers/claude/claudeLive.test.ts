@@ -82,6 +82,7 @@ async function startTurn(
     runtimeMode?: RuntimeMode;
     intent?: TurnIntent;
     providerAccountId?: string;
+    claudeHooks?: boolean;
   } = {},
 ) {
   const events: HarnessEvent[] = [];
@@ -93,6 +94,7 @@ async function startTurn(
     runtimeMode: options.runtimeMode ?? "supervised",
     intent: options.intent,
     providerAccountId: options.providerAccountId,
+    claudeHooks: options.claudeHooks,
     text: "explore the codebase",
     attachments: [],
     onEvent: (event) => events.push(event),
@@ -2145,5 +2147,20 @@ describe("claude manual compaction", () => {
       text: "Compacted context",
     });
     expect(events.some((event) => event.type === "message.delta")).toBe(false);
+  });
+});
+
+
+describe("execution Host hook preference", () => {
+  it.each([true, false])("uses the Host hooks=%s setting instead of the client's local setting", async enabled => {
+    vi.stubGlobal("localStorage", { getItem: () => enabled ? "0" : "1" });
+    try {
+      const { turn } = await startTurn("s1", { claudeHooks: enabled });
+      const args = spawned[0];
+      const settings = JSON.parse(args[args.indexOf("--settings") + 1]);
+      expect(settings.disableAllHooks).toBe(enabled ? undefined : true);
+      emit({ type: "result", subtype: "success", session_id: "sess_1" });
+      await turn;
+    } finally { vi.unstubAllGlobals(); }
   });
 });

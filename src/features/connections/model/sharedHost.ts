@@ -19,7 +19,10 @@ import {
   forgetDeletedRemoteBindings,
   forgetUnknownRemoteBindings,
   remoteSessionScopeFor,
+  cachedRemoteSessions,
+  hasCachedRemoteProjectSessions,
 } from "./connections";
+import { hostStateTransportUnavailable } from "./hostStateOffline";
 import {
   configureSharedHost,
   ensureSharedProject,
@@ -28,7 +31,6 @@ import {
 } from "./remoteProjects";
 import {
   normalizeProjectPath,
-  knownProjectPaths,
   rememberProject,
 } from "../../projects/model/recents";
 import {
@@ -51,6 +53,39 @@ type PreparedHost = {
   sessions: { id: string; cwd: string; deleted?: boolean }[];
   retiredSessionIds?: string[];
 };
+
+const BOOTSTRAP_POINTER = "monocode.shared-host-bootstrap.current";
+const bootstrapKey = (environmentId: string) => `monocode.shared-host-bootstrap.v1:${encodeURIComponent(environmentId)}`;
+
+/** Only successful native pairing can create this cache; it contains no credential. */
+async function prepareSharedHost(): Promise<{ prepared: PreparedHost; offline: boolean }> {
+  try {
+    const prepared = await invoke<PreparedHost>("shared_host_prepare");
+    try {
+      localStorage.setItem(bootstrapKey(prepared.machine.environmentId), JSON.stringify(prepared));
+      localStorage.setItem(BOOTSTRAP_POINTER, prepared.machine.environmentId);
+    } catch { /* A cache failure must not prevent a live verified startup. */ }
+    return { prepared, offline: false };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const startupUnavailable = /^Could not start shared conversation service(?::|$)/i.test(message)
+      && !/unauthori[sz]ed|forbidden|authentication|identity|revoked|\b401\b|\b403\b|unsupported/i.test(message);
+    if (!hostStateTransportUnavailable(error) && !startupUnavailable) throw error;
+    const environmentId = localStorage.getItem(BOOTSTRAP_POINTER);
+    if (!environmentId) throw error;
+    let cached: PreparedHost | null;
+    try { cached = JSON.parse(localStorage.getItem(bootstrapKey(environmentId)) ?? "null"); } catch { throw error; }
+    if (!cached || cached.machine?.environmentId !== environmentId || !Array.isArray(cached.projects) || !Array.isArray(cached.sessions)
+      || !cached.projects.every((entry) => entry && typeof entry.id === "string" && typeof entry.cwd === "string")
+      || !cached.sessions.every((entry) => entry && typeof entry.id === "string" && typeof entry.cwd === "string")) throw error;
+    const machines = await invoke<RemoteMachine[]>("remote_machines");
+    const saved = machines.find((machine) => machine.id === cached.machine.id && machine.environmentId === environmentId && machine.endpoint === cached.machine.endpoint);
+    // Removed credentials, changed endpoints and explicit authentication errors
+    // never become another native conversation backend.
+    if (!saved) throw error;
+    return { prepared: { ...cached, machine: saved }, offline: true };
+  }
+}
 
 export function clearRetiredHostOutbox(environmentId: string, retired: ReadonlySet<string>): void {
   const removals: string[] = [];
@@ -90,7 +125,7 @@ function pendingOutboxIds(): Set<string> {
 /** Awaited before workspace restore: there is no fallback to a second runtime. */
 export async function initializeSharedHost(): Promise<void> {
   await loadRemoteOutbox();
-  const prepared = await invoke<PreparedHost>("shared_host_prepare");
+  const { prepared, offline } = await prepareSharedHost();
   const projectByPath = new Map(prepared.projects.map(project => [normalizeProjectPath(project.cwd), project]));
   // Older bindings stored only a wire ID. A saved local workspace supplies
   // positive identity evidence; an unknown alias is kept for its own Host.
@@ -113,7 +148,7 @@ export async function initializeSharedHost(): Promise<void> {
   });
   // Without this, bindings to sessions the Host has dropped accumulate forever.
   try {
-    forgetUnknownRemoteBindings(
+    if (!offline) forgetUnknownRemoteBindings(
       {
         environmentId: prepared.machine.environmentId,
         projectIds: new Set(prepared.projects.map((project) => project.id)),
@@ -138,11 +173,6 @@ export async function initializeSharedHost(): Promise<void> {
     prepared.projects,
     prepared.machine.id,
   );
-  const known = new Set(knownProjectPaths().map(normalizeProjectPath));
-  for (const project of prepared.projects) {
-    if (!known.has(normalizeProjectPath(project.cwd)))
-      rememberProject(project.cwd);
-  }
   const paths = new Map(
     prepared.sessions.map((row) => [row.id, normalizeProjectPath(row.cwd)]),
   );
@@ -183,23 +213,29 @@ export async function initializeSharedHost(): Promise<void> {
     }
   };
   const list = async (cwd?: string): Promise<SessionSummary[]> => {
-    if (!cwd)
-      configureSharedHost(
-        prepared.machine.environmentId,
-        await remoteRequest<HostProject[]>(
+    if (!cwd) {
+      try {
+        configureSharedHost(
+          prepared.machine.environmentId,
+          await remoteRequest<HostProject[]>(prepared.machine.id, "projects.list"),
           prepared.machine.id,
-          "projects.list",
-        ),
-        prepared.machine.id,
-      );
+        );
+      } catch (error) {
+        if (!hostStateTransportUnavailable(error)) throw error;
+      }
+    }
     const projects = cwd ? [await ensureSharedProject(cwd)] : sharedProjects();
     const results = await Promise.all(
       projects.map(async (project) => {
-        const rows = await remoteRequest<HostSessionSummary[]>(
-          prepared.machine.id,
-          "sessions.list",
-          { projectId: project.projectId },
-        );
+        let rows: HostSessionSummary[];
+        try {
+          rows = await remoteRequest<HostSessionSummary[]>(
+            prepared.machine.id, "sessions.list", { projectId: project.projectId },
+          );
+        } catch (error) {
+          if (!hostStateTransportUnavailable(error) || !hasCachedRemoteProjectSessions(project.key)) throw error;
+          rows = cachedRemoteSessions(project.key);
+        }
         return rows.map((row) => {
           hostOrchestrationClient.accept({ machineId: prepared.machine.id, project }, row);
           paths.set(row.id, project.cwd);

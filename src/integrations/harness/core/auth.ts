@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { homeDir } from "../../../platform/tauri/fs";
+import { loginProviderAccount } from "../../../features/providers/model/providerAccountCredentials";
 import { supportsProviderAccounts } from "../../../features/providers/model/providerAccounts";
 import { HARNESS_TITLE, type HarnessId } from "../../../features/sessions/model/session";
 import * as child from "./child";
@@ -57,7 +58,10 @@ export function loginHarness(
   const current = inflight.get(key);
   if (current) return current;
 
-  const run = runHarnessLogin(harness, accountId).finally(() => {
+  const login = supportsProviderAccounts(harness)
+    ? loginProviderAccount(harness, accountId ?? "default")
+    : runHarnessLogin(harness, accountId);
+  const run = login.finally(() => {
     if (inflight.get(key) === run) inflight.delete(key);
   });
   inflight.set(key, run);

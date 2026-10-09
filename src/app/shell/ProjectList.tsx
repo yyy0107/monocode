@@ -1,3 +1,4 @@
+import { usePreferenceState } from "../../features/settings/model/usePreferenceState";
 import { useSidebarListPreview } from "./useSidebarListPreview";
 import { AnimatedCollapse } from "../../shared/ui/AnimatedCollapse";
 import {
@@ -218,25 +219,25 @@ export function ProjectList({
           needsApproval: new Set([...(needsApprovalPaths ?? [])].map(pathKey)),
         }
       : undefined;
-  const [railOrder, setRailOrder] = useState(loadProjectRailOrder);
-  const [pinnedPaths, setPinnedPaths] = useState(loadPinnedProjects);
-  const [pinnedOrder, setPinnedOrder] = useState(loadSidebarPinnedOrder);
+  const [railOrder, setRailOrder] = usePreferenceState(loadProjectRailOrder);
+  const [pinnedPaths, setPinnedPaths] = usePreferenceState(loadPinnedProjects);
+  const [pinnedOrder, setPinnedOrder] = usePreferenceState(loadSidebarPinnedOrder);
   useEffect(
     () =>
       subscribeSidebarPinnedOrder(() => setPinnedOrder(loadSidebarPinnedOrder())),
     [],
   );
-  const [groupLabels, setGroupLabels] = useState(loadTabGroupLabels);
-  const [groupColors, setGroupColors] = useState(loadTabGroupColors);
-  const [groupMascots, setGroupMascots] = useState(loadTabGroupMascots);
-  const [groupCustomColors, setGroupCustomColors] = useState(
+  const [groupLabels, setGroupLabels] = usePreferenceState(loadTabGroupLabels);
+  const [groupColors, setGroupColors] = usePreferenceState(loadTabGroupColors);
+  const [groupMascots, setGroupMascots] = usePreferenceState(loadTabGroupMascots);
+  const [groupCustomColors, setGroupCustomColors] = usePreferenceState(
     loadTabGroupCustomColors,
   );
-  const [projectGroups, setProjectGroups] = useState(loadProjectGroups);
-  const [projectGroupAssignments, setProjectGroupAssignments] = useState(
+  const [projectGroups, setProjectGroups] = usePreferenceState(loadProjectGroups);
+  const [projectGroupAssignments, setProjectGroupAssignments] = usePreferenceState(
     loadProjectGroupAssignments,
   );
-  const [collapsedSections, setCollapsedSections] = useState(
+  const [collapsedSections, setCollapsedSections] = usePreferenceState(
     loadSidebarSectionsCollapsed,
   );
   const [searchCollapsedSections, setSearchCollapsedSections] = useState<{

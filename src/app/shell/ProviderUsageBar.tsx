@@ -31,7 +31,7 @@ import {
   type ProviderSignInState,
 } from "../../features/sessions/ui/ProviderSignInPanel";
 import {
-  DEFAULT_PROVIDER_ACCOUNT_ID,
+  conversationProviderAccountId,
   newProviderAccount,
   saveProviderAccount,
   selectProviderAccount,
@@ -45,6 +45,7 @@ export type UsageSession = {
   model?: string;
   authRequired?: boolean;
   nativeSession?: boolean;
+  /** Pinned account of a started conversation; absent for a draft. */
   providerAccountId?: string;
 };
 
@@ -56,11 +57,7 @@ export function usageSessionFor(session: Session): UsageSession {
     model: session.model,
     authRequired: latestTurnNeedsHarnessLogin(session.blocks),
     nativeSession: !!session.nativeSession,
-    providerAccountId:
-      session.providerAccountId ??
-      (session.blocks.some((block) => block.role === "user")
-        ? DEFAULT_PROVIDER_ACCOUNT_ID
-        : undefined),
+    providerAccountId: conversationProviderAccountId(session),
   };
 }
 
@@ -243,10 +240,13 @@ export function ProviderUsageBar({
 
   const selectAccount = useCallback(
     (provider: ProviderAccountProvider, accountId: string) => {
-      selectProviderAccount(provider, project, accountId);
+      // A started conversation switches itself; only drafts and the footer
+      // change this project's default for new conversations.
+      if (!(session?.harness === provider && session.providerAccountId))
+        selectProviderAccount(provider, project, accountId);
       onSelectAccount?.(provider, accountId);
     },
-    [onSelectAccount, project],
+    [onSelectAccount, project, session?.harness, session?.providerAccountId],
   );
 
   const addAccount = useCallback(

@@ -1,3 +1,8 @@
+import { initializeHostPreferences, stopDesktopHostPreferences } from "./features/settings/model/hostPreferences";
+import { installSharedPreferenceEffects } from "./features/settings/model/sharedPreferenceEffects";
+import { SharedStateStatus } from "./features/settings/ui/SharedStateStatus";
+import { initializeHostWorkspaces } from "./features/connections/model/hostWorkspace";
+import { initializeHostConnections } from "./features/connections/model/hostConnections";
 import React, { useLayoutEffect } from "react";
 import ReactDOM from "react-dom/client";
 import { listen } from "@tauri-apps/api/event";
@@ -19,7 +24,7 @@ import { homeDir } from "./platform/tauri/fs";
 import { setHomeDir } from "./shared/lib/paths";
 import { consumeInstalledUpdate } from "./app/model/updateNotice";
 import { initializeProviderBinaryPaths } from "./features/providers/model/providerBinaryPaths";
-import { initProviderAccountPublishing, loadSharedProviderDefaults } from "./features/providers/model/providerAccountCredentials";
+import { initProviderAccountPublishing } from "./features/providers/model/providerAccountCredentials";
 // Lets file commands reach a connected machine for `remote://` paths.
 import "./features/connections/model/remoteCommands";
 import "./styles/index.css";
@@ -37,8 +42,7 @@ initUiLanguage();
 initAppearance();
 initTypography();
 initSounds();
-const providerAccountsPrimed = initProviderAccountPublishing().catch(() => undefined);
-const sharedDefaultsPrimed = loadSharedProviderDefaults().catch(() => undefined);
+installSharedPreferenceEffects();
 // Prime the real home directory before the first render so every `~/` file
 // reference resolves consistently. The IPC call is local and failures remain
 // best-effort, falling back to inference from a session's cwd.
@@ -79,6 +83,7 @@ function BootGate({ children }: { children: React.ReactNode }) {
   return (
     <>
       {children}
+      <div style={{ position: "fixed", bottom: 8, right: 8, zIndex: 10000, maxWidth: "70vw" }}><SharedStateStatus /></div>
       <WindowResizeHandles />
     </>
   );
@@ -123,11 +128,12 @@ function BootFailure({ error }: { error: unknown }) {
   );
 }
 async function boot() {
+  stopDesktopHostPreferences();
   try {
     await providerBinaryPathsPrimed;
-    await providerAccountsPrimed;
     await initializeSharedHost();
-    await sharedDefaultsPrimed;
+    await initializeHostPreferences();
+    await Promise.all([initProviderAccountPublishing(), initializeHostWorkspaces(), initializeHostConnections()]);
     const [
       ,
       ,

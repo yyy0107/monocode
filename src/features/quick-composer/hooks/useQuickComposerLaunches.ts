@@ -3,7 +3,8 @@ import { refreshHarnessCatalogs } from "../../../integrations/harness/core/regis
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type Event } from "@tauri-apps/api/event";
-import { loadQuickComposerEnabled } from "../../settings/model/settings";
+import { loadQuickComposerEnabled, loadQuickComposerShortcut } from "../../settings/model/settings";
+import { subscribeSharedPreferences } from "../../settings/model/sharedPreferences";
 import { launchReceiver } from "../model/launchDelivery";
 import { prepareQuickComposerWhenIdle } from "../model/prepareQuickComposer";
 import {
@@ -34,9 +35,18 @@ export function useQuickComposerLaunches(
   useEffect(() => {
     if (!quickComposerSupported()) return;
     const stopPreparing = prepareQuickComposerWhenIdle();
-    void setQuickComposerShortcut(loadQuickComposerEnabled()).catch(
-      () => undefined,
-    );
+    let shortcutConfiguration: string | undefined;
+    const applyShortcut = () => {
+      const enabled = loadQuickComposerEnabled(), shortcut = loadQuickComposerShortcut();
+      const configuration = JSON.stringify([enabled, shortcut]);
+      if (configuration === shortcutConfiguration) return;
+      shortcutConfiguration = configuration;
+      void setQuickComposerShortcut(enabled, shortcut).catch(() => {
+        if (shortcutConfiguration === configuration) shortcutConfiguration = undefined;
+      });
+    };
+    applyShortcut();
+    const stopShortcutSync = subscribeSharedPreferences(applyShortcut);
 
     let disposed = false;
     const receive = launchReceiver({
@@ -88,6 +98,7 @@ export function useQuickComposerLaunches(
       disposed = true;
       receive.dispose();
       stopPreparing();
+      stopShortcutSync();
       for (const stop of subscriptions) stop();
       window.removeEventListener("focus", onFocus);
     };
