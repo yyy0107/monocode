@@ -36,6 +36,7 @@ const reply = (id: string, revision: number, text = id): AssistantMessage => ({
   createdAt: revision,
 });
 let messages: Record<string, AssistantMessage[]>;
+let names: Record<string, string | null>;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.useFakeTimers();
@@ -55,10 +56,11 @@ beforeEach(() => {
     { id: "old", environmentId: "env-old", capabilities: [] },
   ];
   messages = { local: [], remote: [] };
+  names = { local: "Personal assistant", remote: "Remote helper" };
   mocks.rpc.mockReset().mockImplementation(async (id, method, params) => {
     if (method === "environment.describe")
       return { capabilities: id === "old" ? [] : ["assistant.v1"] };
-    if (method === "assistant.get") return { id: "assistant", name: "Personal assistant", chatRevision: Math.max(0, ...messages[id].map((m) => m.revision)) };
+    if (method === "assistant.get") return names[id] === null ? null : { id: "assistant", name: names[id], chatRevision: Math.max(0, ...messages[id].map((m) => m.revision)) };
     const entries = messages[id].filter(
       (entry) => entry.revision > params.afterRevision,
     );
@@ -95,7 +97,7 @@ it("shows unseen replies and opens the latest message's Host without polling uns
   messages.remote = [reply("remote-reply", 3, "Remote task finished")];
   await render();
   expect(button().getAttribute("aria-label")).toBe(
-    "Assistant, 2 unread messages",
+    "Remote helper, 2 unread messages",
   );
   expect(button().textContent).toBe("Remote task finished2");
   expect(
@@ -108,11 +110,11 @@ it("shows unseen replies and opens the latest message's Host without polling uns
   // Opening is not itself a read acknowledgement: the chat must load and show it.
   expect(button().getAttribute("aria-label")).toContain("2 unread");
   act(() => markAssistantRead("env-remote", messages.remote));
-  expect(button().getAttribute("aria-label")).toContain("1 unread");
+  expect(button().getAttribute("aria-label")).toBe("Personal assistant, 1 unread messages");
   expect(button().textContent).toContain("local-reply");
   act(() => markAssistantRead("env-local", messages.local));
-  expect(button().getAttribute("aria-label")).toBe("Assistant");
-  expect(button().textContent).toBe("Assistant");
+  expect(button().getAttribute("aria-label")).toBe("Personal assistant");
+  expect(button().textContent).toBe("Personal assistant");
   expect(localStorage.getItem("monocode.assistant-read:env-local")).toBe("2");
 });
 
@@ -142,7 +144,7 @@ it("restores read state and synchronizes acknowledgements from another window", 
       new StorageEvent("storage", { key: "monocode.assistant-read:env-local" }),
     );
   });
-  expect(button().getAttribute("aria-label")).toBe("Assistant");
+  expect(button().getAttribute("aria-label")).toBe("Personal assistant");
   act(() => button().click());
   expect(onOpen).toHaveBeenCalledWith(undefined);
 });
@@ -165,7 +167,7 @@ it("shows pending questions and removes the notification when they resolve", asy
   expect(button().textContent).toContain("Choose a project");
   messages.local = [{ ...question, revision: 2, resolved: true }];
   await act(async () => vi.advanceTimersByTimeAsync(2000));
-  expect(button().getAttribute("aria-label")).toBe("Assistant");
+  expect(button().getAttribute("aria-label")).toBe("Personal assistant");
 });
 
 it("notifies completed replies once and opens the matching Host from a system notification", async () => {
@@ -193,10 +195,26 @@ it("passes visibility only for the selected assistant Host", async () => {
   await act(async () => root.render(createElement(DesktopAssistantButton, {
     active: true, selectedMachineId: "remote", onOpen,
   })));
+  expect(button().textContent).toBe("Remote helper");
   messages.local = [reply("local", 1)];
   messages.remote = [reply("remote", 1)];
   await act(async () => vi.advanceTimersByTimeAsync(2000));
   expect(mocks.notify.mock.calls.map(([id, , visible]) => [id, visible])).toEqual([
     ['assistant:["env-local","main"]', false], ['assistant:["env-remote","main"]', true],
   ]);
+});
+
+it("refreshes the configured name and falls back when the assistant is removed", async () => {
+  await render();
+  expect(button().textContent).toBe("Personal assistant");
+  names.local = "我的助理";
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  expect(button().textContent).toBe("我的助理");
+  expect(button().title).toBe("我的助理");
+  expect(button().getAttribute("aria-label")).toBe("我的助理");
+  names.local = null;
+  act(() => setUiLanguage("zh-CN"));
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  expect(button().textContent).toBe("助理");
+  expect(button().title).toBe("助理");
 });

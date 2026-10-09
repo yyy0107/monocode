@@ -36,9 +36,8 @@ export function DesktopAssistantButton({
 }) {
   const { t } = useTranslation();
   const hosts = useDesktopAssistantHosts();
-  const visibleHost = active
-    ? (hosts.find((host) => host.id === (selectedMachineId ?? sharedHostMachineId())) ?? hosts[0])?.environmentId
-    : undefined;
+  const selectedHost = hosts.find((host) => host.id === (selectedMachineId ?? sharedHostMachineId())) ?? hosts[0];
+  const visibleHost = active ? selectedHost?.environmentId : undefined;
   const current = useRef({ hosts, visibleHost, onOpen });
   current.current = { hosts, visibleHost, onOpen };
   useEffect(() => {
@@ -59,6 +58,7 @@ export function DesktopAssistantButton({
   const [messages, setMessages] = useState<Record<string, AssistantMessage[]>>(
     {},
   );
+  const [names, setNames] = useState<Record<string, string | undefined>>({});
   const [, refreshRead] = useReducer((value: number) => value + 1, 0);
   useEffect(() => subscribeAssistantRead(refreshRead), []);
   useEffect(() => {
@@ -89,6 +89,10 @@ export function DesktopAssistantButton({
           if (disposed || !supported) return;
           const next = await client.sync();
           if (!disposed) {
+            setNames((current) => ({
+              ...current,
+              [machine.environmentId]: next.assistant?.name,
+            }));
             const activity = assistantNotificationActivity(next.assistant, next.messages);
             const notice = takeAssistantNotification(machine.environmentId, activity);
             if (notice && activity)
@@ -140,9 +144,13 @@ export function DesktopAssistantButton({
     latest && "text" in latest.message
       ? latest.message.text.replace(/\s+/g, " ").trim().slice(0, 120)
       : "";
+  const targetHost = latest
+    ? hosts.find((host) => host.id === latest.machineId)
+    : selectedHost;
+  const name = (targetHost && names[targetHost.environmentId]) || t("Assistant");
   const label = unread.length
-    ? t("Assistant, {count} unread messages", { count: unread.length })
-    : t("Assistant");
+    ? t("{name}, {count} unread messages", { name, count: unread.length })
+    : name;
   return (
     <button
       type="button"
@@ -155,7 +163,7 @@ export function DesktopAssistantButton({
       className={`mx-1 flex h-7 min-w-0 max-w-sm items-center gap-1.5 rounded-lg px-2 text-ui-sm transition-colors ${active ? "bg-selection text-content" : "text-foreground-subtle hover:bg-surface-hover hover:text-content"}`}
     >
       <Bot className="size-4 shrink-0" />
-      <span className="min-w-0 truncate">{preview || t("Assistant")}</span>
+      <span className="min-w-0 truncate">{preview || name}</span>
       {latest ? (
         <span
           aria-hidden
