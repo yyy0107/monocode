@@ -27,6 +27,7 @@ export async function createWindowsSnapshot(root, archive) {
         path,
       ) &&
       path !== "mobile/update-config.json" &&
+      path !== "mobile/update-config.release.json" &&
       !/^(?:package(?:-lock)?\.json|Cargo\.(?:toml|lock)|rust-toolchain(?:\.toml)?|(?:index|quick-composer)\.html|vite\.config\.ts|tsconfig(?:\.[\w-]+)?\.json|CHANGELOG\.md|LICENSE|NOTICE)$/.test(
         path,
       )
@@ -72,6 +73,7 @@ export async function buildWindowsDesktop(
     repository = process.env.MONOCODE_WINDOWS_REPOSITORY ||
       "C:\\Users\\wy777\\Documents\\ohmymonocode",
     checkOnly = false,
+    channel = "lan",
     assertUnchanged = async () => {},
     run = runBuildProcess,
   } = {},
@@ -80,8 +82,13 @@ export async function buildWindowsDesktop(
     throw new Error("Invalid Windows SSH host");
   if (!/^[A-Za-z]:[\\/]/.test(repository) || /[\r\n\0]/.test(repository))
     throw new Error("Expected an absolute Windows repository path");
-  if (!/^\d+\.\d+\.\d+-lan\.\d+$/.test(version))
-    throw new Error("Invalid Windows LAN version");
+  if (
+    !["lan", "release"].includes(channel) ||
+    !(
+      channel === "release" ? /^\d+\.\d+\.\d+$/ : /^\d+\.\d+\.\d+-lan\.\d+$/
+    ).test(version)
+  )
+    throw new Error("Invalid Windows build version/channel");
   const runId = randomUUID();
   const local = join(root, "build/desktop-publish/windows", runId);
   const archive = join(local, "source.tar.gz");
@@ -120,7 +127,14 @@ export async function buildWindowsDesktop(
     `${destination(remote)}/`,
   );
   const request = Buffer.from(
-    JSON.stringify({ repository, runId, version, archiveHash, checkOnly }),
+    JSON.stringify({
+      repository,
+      runId,
+      version,
+      archiveHash,
+      checkOnly,
+      channel,
+    }),
   ).toString("base64");
   await ssh(
     `& node ${psQuote(win32.join(remote, "desktop-windows-runner.mjs"))} ${psQuote(request)}; exit $LASTEXITCODE`,
@@ -135,7 +149,8 @@ export async function buildWindowsDesktop(
   if (
     receipt.version !== version ||
     receipt.archiveHash !== archiveHash ||
-    receipt.checked !== checkOnly
+    receipt.checked !== checkOnly ||
+    (receipt.channel ?? "lan") !== channel
   )
     throw new Error(
       "Windows build receipt does not match the requested source/version",

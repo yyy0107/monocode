@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -55,6 +55,7 @@ test("Windows snapshots contain current uncommitted inputs, exclude credentials/
   await write("mobile/android/source", "mobile");
   // The desktop tsc project also checks src/mobile/updates.ts.
   await write("mobile/update-config.json", "{}");
+  await write("mobile/update-config.release.json", "{}");
   await rm(join(root, "src/deleted.ts"));
   const archive = join(root, "build/source.tar.gz");
   assert.equal(
@@ -69,6 +70,7 @@ test("Windows snapshots contain current uncommitted inputs, exclude credentials/
     "Cargo.toml",
     "host/new.ts",
     "mobile/update-config.json",
+    "mobile/update-config.release.json",
     "src/main.ts",
   ]);
   assert.equal(
@@ -98,80 +100,113 @@ test("remote PowerShell commands transport literal paths without shell expansion
   );
 });
 
-test("remote builds use an isolated cache, remove stale source and release the lock on failure", async (t) => {
-  const { root, write } = await fixture(t);
-  const runId = randomUUID();
-  const state = "build/windows-lan";
-  const inbox = join(root, state, "inbox", runId);
-  await write(`${state}/inbox/${runId}/source.tar.gz`, "source archive");
-  await write(`${state}/workspace/.monocode-windows-builder`, "1");
-  await write(`${state}/workspace/src/stale.ts`, "stale");
-  await write(`${state}/workspace/target/cache`, "rust cache");
-  await write(`${state}/workspace/build/runtime-cache`, "runtime cache");
-  const options = {
-    repository: root,
-    runId,
-    version,
-    archiveHash: hash("source archive"),
-  };
-  const commands = [];
-  const npm = join(root, "build/npm/bin/npm-cli.js");
-  await write("build/npm/package.json", '{"version":"test"}');
-  const run = (command, args, settings) => {
-    commands.push([command, args]);
-    if (command === "tar.exe") {
-      const source = args.at(-1);
-      mkdirSync(source, { recursive: true });
-      writeFileSync(join(source, "package.json"), "{}");
-      writeFileSync(join(source, "package-lock.json"), "{}");
-    }
-    if (args.includes("ci")) {
-      for (const path of ["node_modules", "host/im/node_modules"]) {
-        mkdirSync(join(settings.cwd, path), { recursive: true });
-        writeFileSync(join(settings.cwd, path, ".package-lock.json"), "{}");
+for (const channel of ["lan", "release"]) {
+  const version = channel === "release" ? "0.7.0" : "0.7.1-lan.123";
+  test(`remote ${channel} builds use an isolated cache and release the lock on failure`, async (t) => {
+    const { root, write } = await fixture(t);
+    const runId = randomUUID();
+    const state = "build/windows-lan";
+    const inbox = join(root, state, "inbox", runId);
+    await write(`${state}/inbox/${runId}/source.tar.gz`, "source archive");
+    await write(`${state}/workspace/.monocode-windows-builder`, "1");
+    await write(`${state}/workspace/src/stale.ts`, "stale");
+    await write(`${state}/workspace/target/cache`, "rust cache");
+    await write(`${state}/workspace/build/runtime-cache`, "runtime cache");
+    const options = {
+      repository: root,
+      runId,
+      version,
+      channel,
+      archiveHash: hash("source archive"),
+    };
+    const commands = [];
+    const npm = join(root, "build/npm/bin/npm-cli.js");
+    await write("build/npm/package.json", '{"version":"test"}');
+    const run = (command, args, settings) => {
+      commands.push([command, args]);
+      if (command === "tar.exe") {
+        const source = args.at(-1);
+        mkdirSync(source, { recursive: true });
+        mkdirSync(join(source, "src-tauri"), { recursive: true });
+        writeFileSync(
+          join(source, "src-tauri/tauri.release.conf.json"),
+          JSON.stringify({
+            plugins: {
+              updater: {
+                endpoints: [
+                  "https://github.com/yyy0107/ohmymonocode/releases/latest/download/latest.json",
+                ],
+              },
+            },
+          }),
+        );
+        writeFileSync(join(source, "package.json"), "{}");
+        writeFileSync(join(source, "package-lock.json"), "{}");
       }
-    }
-    if (args.includes("build:windows")) {
-      assert.equal(settings.cwd, join(root, state, "workspace"));
-      assert.equal(settings.env.CARGO_TARGET_DIR, join(settings.cwd, "target"));
-      const output = join(
-        settings.cwd,
-        "target/release/bundle/nsis",
-        `MonoCode_${version}_x64-setup.exe`,
-      );
-      mkdirSync(dirname(output), { recursive: true });
-      writeFileSync(output, "MZ built exe");
-    }
-  };
-  const result = await runWindowsBuild(options, { run, npm });
-  assert.equal(result.sha256, hash("MZ built exe"));
-  assert.equal(
-    await readFile(join(inbox, result.filename), "utf8"),
-    "MZ built exe",
-  );
-  assert.equal(existsSync(join(root, state, "workspace/src/stale.ts")), false);
-  assert.equal(
-    await readFile(join(root, state, "workspace/target/cache"), "utf8"),
-    "rust cache",
-  );
-  assert.equal(await readFile(join(root, "src/main.ts"), "utf8"), "original");
-  assert.equal(existsSync(join(root, state, "build.lock")), false);
-  assert.equal(commands.filter(([, args]) => args.includes("ci")).length, 1);
-  assert.equal(
-    commands.filter(([, args]) => args.includes("build:windows")).length,
-    1,
-  );
-  await assert.rejects(
-    runWindowsBuild(options, {
-      npm,
-      run: () => {
-        throw new Error("tool failed");
-      },
-    }),
-    /tool failed/,
-  );
-  assert.equal(existsSync(join(root, state, "build.lock")), false);
-});
+      if (args.includes("ci")) {
+        for (const path of ["node_modules", "host/im/node_modules"]) {
+          mkdirSync(join(settings.cwd, path), { recursive: true });
+          writeFileSync(join(settings.cwd, path, ".package-lock.json"), "{}");
+        }
+      }
+      if (args.includes("build:windows")) {
+        const config = JSON.parse(
+          readFileSync(join(settings.cwd, "build/tauri.lan.conf.json"), "utf8"),
+        );
+        assert.equal(config.version, version);
+        assert.equal(
+          config.plugins?.updater.endpoints[0],
+          channel === "release"
+            ? "https://github.com/yyy0107/ohmymonocode/releases/latest/download/latest.json"
+            : undefined,
+        );
+        assert.equal(settings.cwd, join(root, state, "workspace"));
+        assert.equal(
+          settings.env.CARGO_TARGET_DIR,
+          join(settings.cwd, "target"),
+        );
+        const output = join(
+          settings.cwd,
+          "target/release/bundle/nsis",
+          `MonoCode_${version}_x64-setup.exe`,
+        );
+        mkdirSync(dirname(output), { recursive: true });
+        writeFileSync(output, "MZ built exe");
+      }
+    };
+    const result = await runWindowsBuild(options, { run, npm });
+    assert.equal(result.sha256, hash("MZ built exe"));
+    assert.equal(
+      await readFile(join(inbox, result.filename), "utf8"),
+      "MZ built exe",
+    );
+    assert.equal(
+      existsSync(join(root, state, "workspace/src/stale.ts")),
+      false,
+    );
+    assert.equal(
+      await readFile(join(root, state, "workspace/target/cache"), "utf8"),
+      "rust cache",
+    );
+    assert.equal(await readFile(join(root, "src/main.ts"), "utf8"), "original");
+    assert.equal(existsSync(join(root, state, "build.lock")), false);
+    assert.equal(commands.filter(([, args]) => args.includes("ci")).length, 1);
+    assert.equal(
+      commands.filter(([, args]) => args.includes("build:windows")).length,
+      1,
+    );
+    await assert.rejects(
+      runWindowsBuild(options, {
+        npm,
+        run: () => {
+          throw new Error("tool failed");
+        },
+      }),
+      /tool failed/,
+    );
+    assert.equal(existsSync(join(root, state, "build.lock")), false);
+  });
+}
 
 test("source synchronization preserves unchanged mtimes and nested dependency caches, but applies edits and deletions", async (t) => {
   const { root, write } = await fixture(t);

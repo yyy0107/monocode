@@ -118,7 +118,14 @@ export async function ensureWindowsDependencies(workspace, npm, options, run) {
 }
 
 export async function runWindowsBuild(
-  { repository, runId, version, archiveHash, checkOnly = false },
+  {
+    repository,
+    runId,
+    version,
+    archiveHash,
+    checkOnly = false,
+    channel = "lan",
+  },
   {
     run = (command, args, options) =>
       execFileSync(command, args, { stdio: "inherit", ...options }),
@@ -127,7 +134,10 @@ export async function runWindowsBuild(
 ) {
   if (
     !/^[a-f0-9-]{36}$/.test(runId) ||
-    !/^\d+\.\d+\.\d+-lan\.\d+$/.test(version)
+    !["lan", "release"].includes(channel) ||
+    !(
+      channel === "release" ? /^\d+\.\d+\.\d+$/ : /^\d+\.\d+\.\d+-lan\.\d+$/
+    ).test(version)
   )
     throw new Error("Invalid Windows build identity");
   const state = join(repository, "build/windows-lan");
@@ -185,8 +195,17 @@ export async function runWindowsBuild(
     run("rustc.exe", ["--version"], options);
     const config = join(workspace, "build/tauri.lan.conf.json");
     await mkdir(dirname(config), { recursive: true });
-    await writeFile(config, JSON.stringify({ version }));
-    const receipt = { version, archiveHash, checked: checkOnly };
+    const releaseConfig =
+      channel === "release"
+        ? JSON.parse(
+            await readFile(
+              join(workspace, "src-tauri/tauri.release.conf.json"),
+              "utf8",
+            ),
+          )
+        : {};
+    await writeFile(config, JSON.stringify({ ...releaseConfig, version }));
+    const receipt = { version, archiveHash, checked: checkOnly, channel };
     if (!checkOnly) {
       const installStarted = performance.now();
       await ensureWindowsDependencies(workspace, npm, options, run);
