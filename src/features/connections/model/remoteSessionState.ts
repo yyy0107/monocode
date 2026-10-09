@@ -1,4 +1,8 @@
 import type { Session } from "../../sessions/model/session";
+import {
+  DEFAULT_PROVIDER_ACCOUNT_ID,
+  supportsProviderAccounts,
+} from "../../providers/model/providerAccounts";
 import type { HostSession } from "./protocol";
 import { remotePath, type RemoteProject } from "./remoteProjects";
 
@@ -17,6 +21,11 @@ export function remoteSessionState(
     updatedAt: snapshot.updatedAt,
     id: shell.id,
     cwd: shell.cwd,
+    // The Host omits the built-in profile; never let the shell's stale or the
+    // new-conversation default stand in for the account the Host runs.
+    providerAccountId: supportsProviderAccounts(host.harness)
+      ? (host.providerAccountId ?? DEFAULT_PROVIDER_ACCOUNT_ID)
+      : undefined,
     nativeSyncStatus: snapshot.nativeStatus,
     worktreeCwd: host.cwd === project.cwd
       ? undefined

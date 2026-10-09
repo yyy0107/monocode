@@ -3516,5 +3516,9 @@
   "Cannot locate npm package directory": "找不到 npm 包目录",
   "Cannot locate npm prefix": "找不到 npm 安装前缀",
   "Cannot locate npm package parent": "找不到 npm 包的父目录",
-  "Cannot locate npm package name": "找不到 npm 包名称"
+  "Cannot locate npm package name": "找不到 npm 包名称",
+  "Wait for the current turn before switching accounts": "请等待当前回合结束后再切换账号",
+  "Wait for the account switch to finish": "请等待账号切换完成",
+  "This agent has no account profiles": "该智能体不支持账号配置",
+  "The assistant brain keeps its account": "助理主会话不能切换账号"
 }

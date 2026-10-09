@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -8,7 +9,7 @@ import {
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { request } from "node:http";
 import { DatabaseSync } from "node:sqlite";
@@ -225,6 +226,52 @@ describe("remote host API", () => {
     const removed = await s.call("commands.dispatch", { ...command, commandId: "removed-account-create" });
     expect(removed.status).toBe(400);
     expect(removed.value.error).toBe("This provider account is no longer available");
+  });
+  it("switches a started conversation's account in place, carrying its native thread", async () => {
+    const s = await setup();
+    await s.engine.ready;
+    writeFileSync(join(s.directory, "desktop-owner.json"), JSON.stringify({ desktopDirectory: s.directory }));
+    mkdirSync(join(s.directory, "provider-accounts"));
+    writeFileSync(join(s.directory, "provider-accounts", "accounts.json"),
+      JSON.stringify({ codex: [{ id: "work", label: "Work account" }] }));
+    const defaultHome = join(s.directory, "default-codex");
+    vi.stubEnv("HOME", s.directory);
+    vi.stubEnv("CODEX_HOME", defaultHome);
+    const threadId = "01a0bc2f-8817-7f30-ad5b-33b949fd0fe9";
+    const rollout = join("sessions", "2026", "10", "09", `rollout-2026-10-09T01-02-03-${threadId}.jsonl`);
+    mkdirSync(dirname(join(defaultHome, rollout)), { recursive: true });
+    writeFileSync(join(defaultHome, rollout),
+      `${JSON.stringify({ type: "session_meta", payload: { id: threadId, cwd: s.directory } })}\n`);
+    const started = (providerSessionId: string, commandId: string) => {
+      const id = s.engine.command({ type: "create", commandId, projectId: s.project.id,
+        harness: "codex", model: "codex:test", runtimeMode: "supervised" }).sessionId;
+      const value = s.store.session(id);
+      s.store.save({ ...value, revision: value.revision + 1, session: { ...value.session, providerSessionId,
+        blocks: [{ id: `${commandId}-user`, role: "user", text: "Fix the build" }] } }, { type: "test" });
+      return id;
+    };
+
+    const id = started(threadId, "account-switch");
+    const switched = await s.call("sessions.switchAccount", { projectId: s.project.id, sessionId: id, providerAccountId: "work" });
+    expect(switched.value.result).toMatchObject({ providerAccountId: "work" });
+    expect(existsSync(join(s.directory, "provider-accounts", "codex", "work", rollout))).toBe(true);
+    expect(s.store.session(id).session).toMatchObject({ providerAccountId: "work", providerSessionId: threadId });
+    await s.call("commands.dispatch", { type: "send", commandId: "account-switch-send", sessionId: id, text: "Continue" });
+    await vi.waitFor(() => expect(s.send).toHaveBeenCalledOnce());
+    expect(s.turn()).toMatchObject({ providerAccountId: "work" });
+    s.finish();
+    await vi.waitFor(() => expect(s.store.session(id).status).not.toBe("running"));
+    const back = await s.call("sessions.switchAccount", { projectId: s.project.id, sessionId: id, providerAccountId: "default" });
+    expect(back.value.result).toMatchObject({ providerAccountId: "default" });
+    expect(s.store.session(id).session.providerAccountId).toBeUndefined();
+
+    // Without native records the next turn starts a new thread from a recap.
+    const missing = started("01a0bc2f-0000-7000-8000-000000000000", "account-recap");
+    await s.call("sessions.switchAccount", { projectId: s.project.id, sessionId: missing, providerAccountId: "work" });
+    const recapped = s.store.session(missing).session;
+    expect(recapped.providerSessionId).toBeUndefined();
+    expect(recapped.providerAccountId).toBe("work");
+    expect(recapped.blocks.at(-1)).toMatchObject({ role: "handoff" });
   });
   it("serves unchanged session polling from the cache without reparsing snapshots or enumerating history", async () => {
     const s = await setup();

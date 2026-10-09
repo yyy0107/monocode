@@ -20,6 +20,25 @@ export function sameProviderAccountId(
   );
 }
 
+/**
+ * The account a conversation is pinned to. A started conversation without a
+ * stored id runs on the built-in profile (Host omits it for that profile);
+ * only an unstarted draft follows the new-conversation default (undefined).
+ */
+export function conversationProviderAccountId(session: {
+  providerAccountId?: string;
+  providerSessionId?: string;
+  nativeSession?: unknown;
+  blocks: readonly { role: string }[];
+}): string | undefined {
+  if (session.providerAccountId) return session.providerAccountId;
+  return session.providerSessionId ||
+    session.nativeSession ||
+    session.blocks.some((block) => block.role === "user")
+    ? DEFAULT_PROVIDER_ACCOUNT_ID
+    : undefined;
+}
+
 /** Providers whose CLIs support isolated, locally named account profiles. */
 export const PROVIDER_ACCOUNT_PROVIDERS = [
   "claude",

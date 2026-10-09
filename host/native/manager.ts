@@ -25,6 +25,7 @@ import {
 import type { HostStore } from "../store";
 import type { NativeLease, NativeSessionGuard } from "../native-access";
 import { NativeReader } from "./read";
+import { copyNativeConversation, type CopiedNativeConversation } from "./account-copy";
 import {
   OPENCODE_SESSIONS,
   findNativeSource,
@@ -202,6 +203,11 @@ export class NativeSessionManager {
     this.lookedUp.delete(id);
     this.touched.delete(id);
     this.managed = undefined;
+  }
+
+  /** Copy a conversation's native records into another account Home before it resumes there. */
+  copyToAccount(provider: "claude" | "codex", providerSessionId: string, fromAccountId: string | undefined, toHome: string): CopiedNativeConversation | null {
+    return copyNativeConversation({ provider, providerSessionId, fromAccountId, toHome, context: this.context() });
   }
 
   /** A managed session the cached ID list has not seen yet (saved by another writer). */

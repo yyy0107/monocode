@@ -322,6 +322,7 @@ import {
 import { supportsHarnessLogin } from "../integrations/harness/core/authSupport";
 import {
   appendPreparingHandoff,
+  appendReadyHandoff,
   buildDeterministicHandoff,
   buildHandoffComposerCard,
   chooseHandoffBrief,
@@ -445,9 +446,9 @@ import {
 import { createSessionRemover } from "../features/sessions/model/sessionRemoval";
 import { installNativeSessionSync } from "../features/sessions/data/nativeSessions";
 import {
-  DEFAULT_PROVIDER_ACCOUNT_ID,
   providerAccountExists,
   selectedProviderAccountId,
+  conversationProviderAccountId,
   supportsProviderAccounts,
   type ProviderAccountProvider,
 } from "../features/providers/model/providerAccounts";
@@ -2432,8 +2433,14 @@ function Workspace({
     ) => {
       const target = sessionsRef.current.find((item) => item.id === sessionId);
       if (!target || target.harness !== provider) return;
-      const currentId = target.providerAccountId ?? DEFAULT_PROVIDER_ACCOUNT_ID;
-      if (currentId === accountId) return;
+      if (conversationProviderAccountId(target) === accountId) return;
+
+      // The Host moves its conversation to the account in place.
+      if (
+        sessionUsesHost(target) &&
+        remoteSessionActions(sessionId)?.switchAccount(accountId)
+      )
+        return;
 
       if (target.blocks.length === 0 && !target.busy) {
         setSessions((current) =>
@@ -2446,25 +2453,44 @@ function Workspace({
         return;
       }
 
-      // Provider thread ids are account-owned. Keep the current conversation
-      // pinned to its account and open a clean one for the selected profile.
-      const session = {
-        ...newSession(
-          target.harness,
-          target.cwd,
-          target.model,
-          target.runtimeMode,
-          target.modelSettings,
-        ),
-        providerAccountId: accountId,
+      // Provider thread ids are account-owned. Without the Host to move the
+      // native records, the next turn starts a thread on the new account and
+      // continues this conversation from a recap.
+      if (target.busy || target.pendingSwitch || isPreparingHandoff(target))
+        return;
+      const history = {
+        ...target,
+        blocks: target.blocks.filter((block) => !block.draft),
       };
-      const tab = newTab(session.id);
-      setSessions((current) => [...current, session]);
-      appendTab(tab, target.cwd);
-      setActiveTabId(tab.id);
-      setComposerFocused(true);
+      const handedOff = history.blocks.some((block) => block.role === "user")
+        ? appendReadyHandoff(
+            history,
+            target.harness,
+            target.harness,
+            buildDeterministicHandoff(history),
+          )
+        : history;
+      void forgetHarnessSession(target.harness, target.id);
+      setSessions((current) =>
+        current.map((session) =>
+          session.id === target.id
+            ? {
+                ...session,
+                blocks: [
+                  ...handedOff.blocks,
+                  ...session.blocks.filter((block) => block.draft),
+                ],
+                providerAccountId: accountId,
+                providerSessionId: undefined,
+                nativeSession: undefined,
+                usageLimit: undefined,
+                context: undefined,
+              }
+            : session,
+        ),
+      );
     },
-    [appendTab],
+    [],
   );
 
   const onOpenWhatsNew = useCallback((version: string) => {
@@ -6485,12 +6511,8 @@ function Workspace({
         ? current.harness
         : undefined;
       const providerAccountId = accountProvider
-        ? (current.providerAccountId ??
-          (current.providerSessionId ||
-          current.nativeSession ||
-          current.blocks.some((block) => block.role === "user")
-            ? DEFAULT_PROVIDER_ACCOUNT_ID
-            : selectedProviderAccountId(accountProvider, current.cwd)))
+        ? (conversationProviderAccountId(current) ??
+          selectedProviderAccountId(accountProvider, current.cwd))
         : undefined;
       if (
         accountProvider &&
@@ -8963,12 +8985,8 @@ function Workspace({
             model: current.model,
             modelSettings: current.modelSettings,
             providerAccountId: supportsProviderAccounts(current.harness)
-              ? (current.providerAccountId ??
-                (current.providerSessionId ||
-                current.nativeSession ||
-                current.blocks.some((block) => block.role === "user")
-                  ? DEFAULT_PROVIDER_ACCOUNT_ID
-                  : selectedProviderAccountId(current.harness, current.cwd)))
+              ? (conversationProviderAccountId(current) ??
+                selectedProviderAccountId(current.harness, current.cwd))
               : undefined,
             runtimeMode: current.runtimeMode,
             onEvent: (event) => {
