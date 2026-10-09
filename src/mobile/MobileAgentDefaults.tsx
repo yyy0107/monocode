@@ -30,6 +30,7 @@ import {
   withDefaultAccount,
   withDefaultConfiguration,
   type MobileAgentDefaults as Defaults,
+  type MobileDefaultsHost,
 } from "./agentDefaults";
 import type { MobilePreferencePanel } from "./MobileSettings";
 import type { MobileClient } from "./client";
@@ -45,7 +46,7 @@ export function MobileAgentDefaults({
   onPanelChange,
 }: {
   client: MobileClient;
-  hostId?: string;
+  hostId?: MobileDefaultsHost;
   disabled: boolean;
   panel: MobilePreferencePanel;
   onPanelChange: (panel: MobilePreferencePanel) => void;
@@ -62,6 +63,9 @@ export function MobileAgentDefaults({
   const [accountsError, setAccountsError] = useState("");
   const [retry, setRetry] = useState(0);
   const trigger = useRef<HTMLButtonElement>(null);
+  const hostKey = typeof hostId === "object"
+    ? `${hostId.endpoint}\n${hostId.environmentId ?? ""}`
+    : hostId;
   useEffect(() => {
     let current = true;
     setDefaults(loadMobileAgentDefaults(hostId));
@@ -113,7 +117,8 @@ export function MobileAgentDefaults({
     return () => {
       current = false;
     };
-  }, [client, hostId, retry]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, hostKey, retry]);
   const change = (next: Defaults) => {
     if (!hostId || disabled) return;
     saveMobileAgentDefaults(hostId, next);

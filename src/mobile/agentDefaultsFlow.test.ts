@@ -297,16 +297,16 @@ describe("mobile Agent defaults settings and new conversations", () => {
     expect(dialog().querySelector('[aria-checked="true"]')?.textContent).toBe("Supervised");
     expect(dialog().querySelectorAll('[role="radio"]')).toHaveLength(4);
     await click("Full access", dialog());
-    expect(loadMobileAgentDefaults(COMPUTER).runtimeMode).toBe("full-access");
+    expect(loadMobileAgentDefaults(host.connection).runtimeMode).toBe("full-access");
     await click("Codex account");
     await click("Work account", dialog());
-    expect(loadMobileAgentDefaults(COMPUTER).agents?.codex).toEqual({
+    expect(loadMobileAgentDefaults(host.connection).agents?.codex).toEqual({
       model: "codex:chosen",
       modelSettings: { reasoningEffort: "high" },
       accountId: "work",
     });
     expect(
-      loadMobileAgentDefaults(COMPUTER).agents?.claude?.modelSettings,
+      loadMobileAgentDefaults(host.connection).agents?.claude?.modelSettings,
     ).toEqual({ effort: "high" });
     await act(async () => setUiLanguage("zh-CN"));
     expect(current('[aria-label="新会话"]')).not.toBeNull();
@@ -393,9 +393,9 @@ describe("mobile Agent defaults settings and new conversations", () => {
       }),
       { text: "Keep this draft" },
     );
-    expect(loadMobileAgentDefaults(COMPUTER).harness).toBe("claude");
-    expect(loadMobileAgentDefaults(COMPUTER).runtimeMode).toBe("supervised");
-    expect(loadMobileAgentDefaults(COMPUTER).agents?.codex?.model).toBe(
+    expect(loadMobileAgentDefaults(host.connection).harness).toBe("claude");
+    expect(loadMobileAgentDefaults(host.connection).runtimeMode).toBe("supervised");
+    expect(loadMobileAgentDefaults(host.connection).agents?.codex?.model).toBe(
       "codex:chosen",
     );
   });
@@ -524,7 +524,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     );
     expect(loadMobileAgentDefaults("http://second")).toEqual({});
     expect(
-      loadMobileAgentDefaults(COMPUTER).agents?.codex?.accountId,
+      loadMobileAgentDefaults(host.connection).agents?.codex?.accountId,
     ).toBe("work");
   });
 
@@ -543,7 +543,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     expect(current(".mobile-defaults-status [role=status]")).toBeNull();
     await click("Error details");
     expect(node.textContent).toContain("Codex is unavailable");
-    expect(loadMobileAgentDefaults(COMPUTER).harness).toBe("codex");
+    expect(loadMobileAgentDefaults(host.connection).harness).toBe("codex");
     host.models.mockResolvedValue(catalog);
     await click("Retry");
     expect(
@@ -583,7 +583,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     expect(status.querySelector<HTMLButtonElement>(".mobile-button")?.disabled).toBe(true);
     await act(async () => resolve(catalog));
     expect(current(".mobile-defaults-status")).toBeNull();
-    expect(loadMobileAgentDefaults(COMPUTER).harness).toBe("codex");
+    expect(loadMobileAgentDefaults(host.connection).harness).toBe("codex");
   });
 
   it("treats a failed Host default account as informational when a named account is selected", async () => {
@@ -629,7 +629,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
       }),
       { text: "Keep manual selection" },
     );
-    expect(loadMobileAgentDefaults(COMPUTER).agents?.codex?.model).toBe(
+    expect(loadMobileAgentDefaults(host.connection).agents?.codex?.model).toBe(
       "codex:chosen",
     );
   });

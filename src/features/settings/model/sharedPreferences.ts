@@ -190,7 +190,11 @@ export const preferenceStorage = {
   getItem(key: string): string | null {
     const routed = preferenceRouting?.get(key);
     if (routed !== undefined) return routed;
-    return active && own(SHARED_PREFERENCE_KINDS, key) ? active.getItem(key) : localStorage.getItem(key);
+    if (!active || !own(SHARED_PREFERENCE_KINDS, key)) return localStorage.getItem(key);
+    const value = active.getItem(key);
+    // A Host that never answered (older, or not reached yet) must not blank
+    // this device's own settings; edits made meanwhile are still journaled.
+    return value === null && active.revision < 0 ? localStorage.getItem(key) : value;
   },
   setItem(key: string, value: string) {
     if (preferenceRouting?.set(key, value)) return;
