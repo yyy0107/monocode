@@ -126,6 +126,7 @@ describe("mobile Git review from the progress capsule", () => {
     ).toContain("+2−1");
     await openReview();
     expect(page().textContent).toContain("1 file changed");
+    expect(page().querySelector('[aria-label="Refresh changes"]')).toBeNull();
     expect(page().textContent).not.toMatch(/Staged|Unstaged|feature/);
     expect(page().querySelectorAll(".mobile-git-file-row")).toHaveLength(1);
     const review = activeDialog();
@@ -185,7 +186,7 @@ describe("mobile Git review from the progress capsule", () => {
     },
   );
 
-  it("shows errors instead of an empty diff and retries expanded files from the list toolbar", async () => {
+  it("shows errors instead of an empty diff and retries files when reopened", async () => {
     const loadIndex = vi.fn(async () => index(false));
     loadIndex.mockRejectedValueOnce(new Error("Index read failed"));
     const loadDiff = vi.fn(async () => diff());
@@ -203,11 +204,9 @@ describe("mobile Git review from the progress capsule", () => {
       "File changed during read",
     );
     expect(page().textContent).not.toContain("No textual diff");
-    await click(
-      page().querySelector<HTMLButtonElement>(
-        '[aria-label="Refresh changes"]',
-      )!,
-    );
+    await click(fileButton());
+    await settle();
+    await click(fileButton());
     expect(page().querySelector('[role="alert"]')).toBeNull();
     expect(diffText()).toContain(
       "new",
@@ -216,7 +215,7 @@ describe("mobile Git review from the progress capsule", () => {
     expect(loadDiff).toHaveBeenCalledTimes(2);
   });
 
-  it("refreshes an emptied working copy without dismissing review or keeping stale capsule counts", async () => {
+  it("automatically refreshes an emptied working copy without dismissing review or keeping stale capsule counts", async () => {
     const loadIndex = vi.fn(async () => index(false));
     const loadDiff = vi.fn(async () => diff());
     await render({ loadIndex, loadDiff });
@@ -228,11 +227,7 @@ describe("mobile Git review from the progress capsule", () => {
       additions: 0,
       deletions: 0,
     });
-    await click(
-      page().querySelector<HTMLButtonElement>(
-        '[aria-label="Refresh changes"]',
-      )!,
-    );
+    await act(async () => vi.advanceTimersByTime(30_000));
     expect(page().textContent).toContain("No file changes");
     expect(page().querySelector(".mobile-git-file-row")).toBeNull();
     await click(
@@ -278,7 +273,7 @@ describe("mobile Git review from the progress capsule", () => {
     expect(loadDiff).toHaveBeenCalledTimes(3);
   });
 
-  it("refreshes only expanded diffs and lets an offline row collapse", async () => {
+  it("loads only expanded diffs and lets an offline row collapse", async () => {
     const files = index().files;
     const loadDiff = vi.fn(async () => diff());
     const { update } = await render({
@@ -290,17 +285,14 @@ describe("mobile Git review from the progress capsule", () => {
     });
     await openReview();
     await click(fileButton());
-    loadDiff.mockResolvedValue(diff("old\n", "Refreshed contents\n"));
-    await click(page().querySelector<HTMLButtonElement>('[aria-label="Refresh changes"]')!);
-    expect(loadDiff.mock.calls).toEqual([["src/app.ts"], ["src/app.ts"]]);
-    expect(diffText()).toContain("Refreshed contents");
+    expect(loadDiff.mock.calls).toEqual([["src/app.ts"]]);
     await update({ gitEnabled: false });
     expect(fileButton().disabled).toBe(false);
     expect(fileButton(1).disabled).toBe(true);
     await click(fileButton());
     await settle();
     expect(page().querySelector(".mobile-git-diff")).toBeNull();
-    expect(loadDiff).toHaveBeenCalledTimes(2);
+    expect(loadDiff).toHaveBeenCalledTimes(1);
   });
 
   it("keeps long diffs inline, with highlighted changes and localized context gaps", async () => {
@@ -324,5 +316,34 @@ describe("mobile Git review from the progress capsule", () => {
     expect(shadow.querySelector("[data-unmodified-lines]")?.textContent).toContain("unmodified lines");
     await act(async () => setUiLanguage("zh-CN"));
     expect(shadow.querySelector("[data-unmodified-lines]")?.textContent).toContain("行未改动");
+  });
+
+  it("switches all file diffs between horizontal scrolling and wrapping without reloading them", async () => {
+    const files = index().files;
+    const loadDiff = vi.fn(async () => diff("old\n", "const current = 'a long line to review';\n"));
+    await render({
+      loadIndex: vi.fn(async () => ({
+        ...index(),
+        files: [...files, { ...files[0], relative: "src/other.ts" }],
+      })),
+      loadDiff,
+    });
+    await openReview();
+    const toggle = page().querySelector<HTMLButtonElement>('.mobile-sheet-header [aria-label="Wrap lines"]')!;
+    const modes = () => [...page().querySelectorAll("diffs-container")]
+      .map((node) => node.shadowRoot?.querySelector("[data-overflow]")?.getAttribute("data-overflow"));
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    await click(fileButton());
+    expect(modes()).toEqual(["scroll"]);
+    await click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(modes()).toEqual(["wrap"]);
+    await click(fileButton(1));
+    expect(modes()).toEqual(["wrap", "wrap"]);
+    await click(toggle);
+    expect(modes()).toEqual(["scroll", "scroll"]);
+    expect(fileButton().getAttribute("aria-expanded")).toBe("true");
+    expect(fileButton(1).getAttribute("aria-expanded")).toBe("true");
+    expect(loadDiff).toHaveBeenCalledTimes(2);
   });
 });

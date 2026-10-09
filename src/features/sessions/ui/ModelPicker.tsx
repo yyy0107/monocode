@@ -49,6 +49,7 @@ import {
   getHarnessAvailabilitySnapshot,
 } from "../../../integrations/harness/core/availability";
 import { useModelSource, type ModelSource } from "./modelSource";
+import { modelGroups } from "../model/modelGroups";
 import { HARNESSES, HARNESS_TITLE, type HarnessId } from "../model/session";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { LAYER } from "../../../shared/lib/layers";
@@ -84,12 +85,6 @@ type MenuEntry = { kind: "setting"; setting: ModelSetting } | { kind: "model" };
 type Submenu = { kind: "setting"; setting: ModelSetting } | { kind: "models" };
 
 type RecentMenu = { models: AgentModel[] };
-
-type ModelGroup = {
-  id: string;
-  name: string;
-  models: Array<{ item: AgentModel; index: number }>;
-};
 
 const MENU_WIDTH = 250;
 const MODEL_MENU_WIDTH = 310;
@@ -244,26 +239,6 @@ function recentMenuModels(
   });
   if (!models.some((item) => item.id === current.id)) models.push(current);
   return models.slice(0, 6);
-}
-
-function modelGroups(models: AgentModel[]): ModelGroup[] {
-  const groups = new Map<string, ModelGroup>();
-  models.forEach((item, index) => {
-    const id = item.provider
-      ? `provider:${item.provider.id}`
-      : `harness:${item.harness}`;
-    let group = groups.get(id);
-    if (!group) {
-      group = {
-        id,
-        name: item.provider?.name ?? HARNESS_TITLE[item.harness],
-        models: [],
-      };
-      groups.set(id, group);
-    }
-    group.models.push({ item, index });
-  });
-  return [...groups.values()];
 }
 
 export function ModelPicker({
@@ -1530,9 +1505,7 @@ function ModelFlyout({
           ) : (
             groups.map((group) => (
               <div key={group.id} role="group" aria-label={group.name}>
-                {/* A lone group repeats the selected rail tab, so only label
-                    lists that mix providers or harnesses. */}
-                {groups.length > 1 ? (
+                {group.showLabel ? (
                   <div className="model-picker-group-label px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-content/40">
                     {group.name}
                   </div>
@@ -1575,7 +1548,7 @@ function ModelFlyout({
                         className={`flex min-w-0 flex-1 items-center gap-2 px-1.5 text-left text-[13px] disabled:cursor-not-allowed ${
                           // Scrolling a group's first row into view also
                           // reveals its label instead of clipping it.
-                          groups.length > 1 && position === 0
+                          group.showLabel && position === 0
                             ? "scroll-mt-9"
                             : ""
                         }`}

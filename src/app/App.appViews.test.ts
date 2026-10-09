@@ -3,6 +3,8 @@ import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import type { SessionPaneProps } from "../features/sessions/ui/SessionPane";
+import { sessionComposerConfiguration } from "../features/sessions/model/composerConfiguration";
 import { newSession, type Session } from "../features/sessions/model/session";
 import { beginComposerAttachmentRead, clearComposerDraft, getComposerDraft, setComposerAttachmentCount, setComposerDraft } from "../features/sessions/model/draftCache";
 import { ADD_TO_CHAT_EVENT, type AddToChatRequest } from "../features/sessions/model/quoteDraft";
@@ -31,6 +33,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
+  paneRendered: vi.fn(),
   viewMounted: vi.fn(),
   notificationFocus: vi.fn(),
   fileOpen: vi.fn(),
@@ -488,6 +491,10 @@ vi.mock("../features/sessions/ui/SessionPane", async () => {
       onClose,
       onOpenDiff,
       renderHeader,
+      onModelChange,
+      onModelSettingsChange,
+      onRuntimeModeChange,
+      onSubmit,
     }: {
       session: Session;
       composerFocused: boolean;
@@ -495,8 +502,13 @@ vi.mock("../features/sessions/ui/SessionPane", async () => {
       onClose: (sessionId: string) => void;
       onOpenDiff: (path: string, session: { sessionId: string; cwd: string }) => void;
       renderHeader?: (session: Session) => ReactNode;
-    }) =>
-      el(
+      onModelChange: SessionPaneProps["onModelChange"];
+      onModelSettingsChange: SessionPaneProps["onModelSettingsChange"];
+      onRuntimeModeChange: SessionPaneProps["onRuntimeModeChange"];
+      onSubmit: SessionPaneProps["onSubmit"];
+    }) => {
+      mocks.paneRendered({ session, onModelChange, onModelSettingsChange, onRuntimeModeChange, onSubmit });
+      return el(
         "div",
         {
           "data-session": session.id,
@@ -525,7 +537,8 @@ vi.mock("../features/sessions/ui/SessionPane", async () => {
           },
           "Close chat",
         ),
-      ),
+      );
+    },
   };
 });
 vi.mock("../features/files/ui/FileEditor", async () => {
@@ -761,6 +774,7 @@ beforeEach(() => {
     return [];
   });
   mocks.viewMounted.mockReset();
+  mocks.paneRendered.mockReset();
   mocks.fileOpen.mockReset().mockImplementation(async (_cwd, path) => path);
   mocks.diffOpen.mockReset().mockImplementation(async (_cwd, path) => path);
   mocks.windowMinimize.mockClear();
@@ -783,8 +797,8 @@ afterEach(async () => {
   localStorage.clear();
 });
 
-async function mount(onlyApp = false, side: DockSide = "bottom") {
-  const first = { ...newSession("codex", "/repo"), id: "first" };
+async function mount(onlyApp = false, side: DockSide = "bottom", seed?: Partial<Session>) {
+  const first = { ...newSession("codex", "/repo"), id: "first", ...seed };
   const recent = { ...newSession("codex", "/repo"), id: "recent" };
   const firstTab = newTab(first.id);
   const recentTab = newTab(recent.id);
@@ -858,6 +872,54 @@ async function pressKey(key: string, ctrlKey = false) {
     ),
   );
 }
+
+describe("local composer agent selection", () => {
+  beforeEach(() => {
+    const original = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async (command, args) => {
+      if (command === "resolve_project_location") return { path: args.path, identity: "repo" };
+      if (command === "session_upsert") return { ...args.session, archived: false, createdAt: 1, updatedAt: 2 };
+      return original(command, args);
+    });
+  });
+  const pane = () => mocks.paneRendered.mock.calls.map(([props]) => props as SessionPaneProps)
+    .filter(props => props.session.id === "first").at(-1)!;
+
+  it("keeps the existing agent until a non-empty message is submitted", async () => {
+    await mount(false, "bottom", { providerSessionId: "original-thread", title: "Existing work",
+      blocks: [{ id: "old-user", role: "user", text: "Earlier work" }] });
+    const before = pane().session;
+    await act(async () => pane().onModelChange("first", "claude", "claude:sonnet"));
+    expect(pane().session).toMatchObject({ harness: "codex", title: "Existing work", providerSessionId: "original-thread" });
+    expect(pane().session.blocks).toEqual(before.blocks);
+    expect(sessionComposerConfiguration(pane().session).harness).toBe("claude");
+    await act(async () => pane().onModelSettingsChange("first", { effort: "high" }));
+    await act(async () => pane().onRuntimeModeChange("first", "full-access"));
+    expect(pane().session.modelSettings).toEqual(before.modelSettings);
+    expect(pane().session.runtimeMode).toEqual(before.runtimeMode);
+    await act(async () => { expect(pane().onSubmit("first", " ", [])).toBe(false); });
+    expect(pane().session.harness).toBe("codex");
+    await act(async () => { pane().onSubmit("first", "Continue with Claude", []); });
+    await act(async () => vi.dynamicImportSettled());
+    expect(pane().session.harness).toBe("claude");
+    expect(pane().session.runtimeMode).toBe("full-access");
+    expect(pane().session.pendingConfiguration).toBeUndefined();
+    expect(pane().session.blocks.some(block => block.role === "user" && block.text === "Continue with Claude")).toBe(true);
+  });
+
+  it("cancels an unsent switch when the original agent is selected again", async () => {
+    await mount(false, "bottom", { providerSessionId: "original-thread",
+      blocks: [{ id: "old-user", role: "user", text: "Earlier work" }] });
+    const before = pane().session;
+    await act(async () => pane().onModelChange("first", "claude", "claude:sonnet"));
+    await act(async () => pane().onModelChange("first", "codex", before.model));
+    expect(pane().session.harness).toBe("codex");
+    expect(pane().session.providerSessionId).toBe("original-thread");
+    expect(pane().session.blocks).toEqual(before.blocks);
+    expect(pane().session.pendingConfiguration).toBeUndefined();
+    expect(pane().session.pendingSwitch).toBeUndefined();
+  });
+});
 
 describe("terminal dock disclosure motion", () => {
   const grid = () =>

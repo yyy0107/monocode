@@ -1620,7 +1620,7 @@ export function MobileApp() {
     (item) => item.id === sessionActionsTarget,
   ) ?? (homeActionSession?.id === sessionActionsTarget ? homeActionSession : undefined);
   const nativeReadOnly = nativeWriteBlocked(snapshot, nativeAccess);
-  const skillHarness = snapshot?.session.harness ?? configuration.harness;
+  const skillHarness = snapshot?.session.pendingConfiguration?.harness ?? snapshot?.session.harness ?? configuration.harness;
   const skillContextKey = `${client.connection?.endpoint ?? ""}\0${project?.id ?? ""}\0${skillHarness}\0${sessionId ?? ""}\0${snapshot?.session.worktreeCwd || snapshot?.session.cwd || project?.cwd || ""}`;
   const loadSkillCatalog = useCallback((refresh = false) => {
     if (!project) return Promise.reject(new Error("Open a project first."));
@@ -2307,12 +2307,12 @@ export function MobileApp() {
               busy ||
               !!pending ||
               (running && !snapshot?.supportsQueue) ||
-              readingAttachments ||
               loading ||
               (!!sessionId && !sessionConfirmed) ||
               (!!sessionId && !snapshot)
             }
             working={busy || readingAttachments}
+            readingAttachments={readingAttachments}
             running={running}
             canSend={
               !nativeReadOnly &&
@@ -2349,7 +2349,7 @@ export function MobileApp() {
                   type: "configure",
                   commandId: crypto.randomUUID(),
                   sessionId,
-                  ...(snapshot && next.harness !== snapshot.session.harness
+                  ...(snapshot && (snapshot.session.pendingConfiguration || next.harness !== snapshot.session.harness)
                     ? { harness: next.harness }
                     : {}),
                   model: next.model,

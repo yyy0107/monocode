@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import type { GitChangedFile, GitFileDiff } from "../platform/tauri/fs";
 import { useTranslation } from "../shared/i18n/useTranslation";
-import { ChevronRight, LoaderCircle, RefreshCw } from "../shared/ui/icons";
+import { ChevronRight, WrapText } from "../shared/ui/icons";
 import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import type { MobileGitSource } from "./mobileGit";
@@ -44,7 +44,7 @@ export function MobileGitReviewSheet({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const [revision, setRevision] = useState(0);
+  const [wrap, setWrap] = useState(false);
   const title = state.index
     ? t(state.index.files.length === 1 ? "{count} file changed" : "{count} files changed", {
         count: state.index.files.length,
@@ -55,7 +55,18 @@ export function MobileGitReviewSheet({
       open={open}
       onExited={onExited}
       title="Uncommitted changes"
-      header={{ title }}
+      header={{ title, action: (
+        <button
+          type="button"
+          className="mobile-sheet-header-button mobile-git-wrap"
+          aria-label={t("Wrap lines")}
+          title={t("Wrap lines")}
+          aria-pressed={wrap}
+          onClick={() => setWrap((value) => !value)}
+        >
+          <WrapText size={22} />
+        </button>
+      ) }}
       surface="solid"
       detents
       onBack={onBack}
@@ -71,14 +82,6 @@ export function MobileGitReviewSheet({
               />
             )}
           </span>
-          <RefreshButton
-            loading={state.loading}
-            disabled={!enabled}
-            onClick={() => {
-              state.refresh();
-              setRevision((value) => value + 1);
-            }}
-          />
         </div>
         {!enabled && (
           <p className="mobile-git-note">
@@ -105,7 +108,7 @@ export function MobileGitReviewSheet({
             source={source}
             entry={file}
             enabled={enabled}
-            revision={revision}
+            wrap={wrap}
           />
         ))}
       </div>
@@ -117,12 +120,12 @@ function MobileGitFileRow({
   source,
   entry,
   enabled,
-  revision,
+  wrap,
 }: {
   source: MobileGitSource;
   entry: GitChangedFile;
   enabled: boolean;
-  revision: number;
+  wrap: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const contentId = useId();
@@ -146,37 +149,10 @@ function MobileGitFileRow({
       </button>
       <AnimatedCollapse expanded={expanded} motion="height" animateContentResize>
         <div id={contentId} className="mobile-git-file">
-          <MobileGitFile source={source} entry={entry} enabled={enabled} revision={revision} />
+          <MobileGitFile source={source} entry={entry} enabled={enabled} wrap={wrap} />
         </div>
       </AnimatedCollapse>
     </div>
-  );
-}
-
-function RefreshButton({
-  loading,
-  disabled,
-  onClick,
-}: {
-  loading: boolean;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <button
-      type="button"
-      className="mobile-git-refresh"
-      disabled={disabled || loading}
-      aria-label={t("Refresh changes")}
-      onClick={onClick}
-    >
-      {loading ? (
-        <LoaderCircle size={20} className="mobile-spin" />
-      ) : (
-        <RefreshCw size={20} />
-      )}
-    </button>
   );
 }
 
@@ -184,12 +160,12 @@ function MobileGitFile({
   source,
   entry,
   enabled,
-  revision,
+  wrap,
 }: {
   source: MobileGitSource;
   entry: GitChangedFile;
   enabled: boolean;
-  revision: number;
+  wrap: boolean;
 }) {
   const { t } = useTranslation();
   const visible = useSurfaceVisibility();
@@ -223,7 +199,7 @@ function MobileGitFile({
     return () => {
       current = false;
     };
-  }, [source, entry.relative, revision, visible, enabled]);
+  }, [source, entry.relative, visible, enabled]);
   const diff = loaded.source === source ? loaded.diff : undefined;
   return (
     <>
@@ -238,7 +214,7 @@ function MobileGitFile({
           <p>{loaded.error}</p>
         </div>
       )}
-      {diff && <MobileGitDiff diff={diff} />}
+      {diff && <MobileGitDiff diff={diff} wrap={wrap} />}
     </>
   );
 }

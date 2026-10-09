@@ -84,15 +84,30 @@ export function useSheetDrag(
     let velocity = 0;
     let tracking = false;
     let dragging = false;
+    let dragPlaced = false;
     let closing = false;
     let closeTimer: number | undefined;
+    let moveFrame: number | undefined;
+    let resizeObserver: ResizeObserver | undefined;
+    let geometryDirty = true;
+    let height = 0;
+    let viewportHeight = 0;
+    let halfHeight = 0;
+    let halfTop = 0;
+    const viewport = window.visualViewport;
     // Two-stop sheets rest at the half stop until pulled up; the stylesheet
     // places that stop, so only a full or dragged position is written inline.
     let detent: SheetDetent = "half";
     if (detents) element.dataset.detent = detent;
-    const halfHeight = () => Math.round(window.innerHeight * SHEET_HALF_SHARE);
-    const halfTop = () => Math.max(0, element.offsetHeight - halfHeight());
-    const base = () => (detents && detent === "half" ? halfTop() : 0);
+    const measure = () => {
+      if (!geometryDirty) return;
+      height = element.offsetHeight;
+      viewportHeight = window.innerHeight;
+      halfHeight = Math.round(viewportHeight * SHEET_HALF_SHARE);
+      halfTop = Math.max(0, height - halfHeight);
+      geometryDirty = false;
+    };
+    const base = () => (detents && detent === "half" ? halfTop : 0);
 
     const place = (top: number) => {
       element.style.transform =
@@ -100,14 +115,69 @@ export function useSheetDrag(
       if (detents)
         element.style.setProperty(
           "--mobile-sheet-content-offset",
-          `${Math.max(0, Math.min(top, halfTop()))}px`,
+          `${Math.max(0, Math.min(top, halfTop))}px`,
         );
       // The backdrop only fades once the sheet sinks below its lowest stop.
-      const below = top - (detents ? halfTop() : 0);
+      const below = top - (detents ? halfTop : 0);
       if (backdrop)
         backdrop.style.opacity = below > 0
-          ? String(Math.max(0.35, 1 - below / (element.offsetHeight * 1.4)))
+          ? String(Math.max(0.35, 1 - below / (height * 1.4)))
           : "";
+    };
+    const cancelMove = () => {
+      if (moveFrame !== undefined) cancelAnimationFrame(moveFrame);
+      moveFrame = undefined;
+    };
+    const placeDrag = () => {
+      moveFrame = undefined;
+      if (!tracking || !dragging) return;
+      // Read once before writing, and only again after the observed geometry
+      // changes. The content margin must still follow the visible half sheet.
+      measure();
+      if (!dragPlaced) {
+        dragPlaced = true;
+        element.style.transition = "none";
+        if (backdrop) backdrop.style.transition = "none";
+      }
+      const top = origin + lastY - startY;
+      place(top > 0 ? top : top / 6);
+    };
+    const scheduleMove = () => {
+      if (tracking && dragging && moveFrame === undefined)
+        moveFrame = requestAnimationFrame(placeDrag);
+    };
+    const viewportChanged = () => {
+      if (window.innerHeight === viewportHeight) return;
+      geometryDirty = true;
+      scheduleMove();
+    };
+    const stopObserving = () => {
+      resizeObserver?.disconnect();
+      resizeObserver = undefined;
+      window.removeEventListener("resize", viewportChanged);
+      viewport?.removeEventListener("resize", viewportChanged);
+    };
+    const observeGeometry = () => {
+      if (typeof ResizeObserver !== "undefined") {
+        let contentHeight: number | undefined;
+        resizeObserver = new ResizeObserver((entries) => {
+          if (!tracking) return;
+          const entry = entries.find((entry) => entry.target === element);
+          if (!entry) return;
+          const borderHeight = entry.borderBoxSize?.[0]?.blockSize;
+          if (borderHeight !== undefined) {
+            if (Math.round(borderHeight) === height) return;
+          } else {
+            if (entry.contentRect.height === contentHeight) return;
+            contentHeight = entry.contentRect.height;
+          }
+          geometryDirty = true;
+          scheduleMove();
+        });
+        resizeObserver.observe(element, { box: "border-box" });
+      }
+      window.addEventListener("resize", viewportChanged);
+      viewport?.addEventListener("resize", viewportChanged);
     };
     const canStart = (target: EventTarget | null) => {
       if (closing || !(target instanceof Element)) return false;
@@ -131,44 +201,55 @@ export function useSheetDrag(
         : base();
     };
     const begin = (y: number) => {
+      cancelMove();
+      stopObserving();
+      geometryDirty = true;
+      measure();
       origin = drawnTop();
       startY = lastY = y;
       lastAt = performance.now();
       velocity = 0;
       tracking = true;
       dragging = false;
+      dragPlaced = false;
+      observeGeometry();
     };
     const move = (y: number, event: Event) => {
       if (!tracking) return;
       const offset = y - startY;
       const expandable = detents && detent === "half";
       if (!dragging) {
-        if (offset < -SLOP_PX && !expandable) tracking = false;
+        if (offset < -SLOP_PX && !expandable) {
+          tracking = false;
+          stopObserving();
+        }
         if (Math.abs(offset) <= SLOP_PX || (offset < 0 && !expandable)) return;
         dragging = true;
         if (closeTimer !== undefined) window.clearTimeout(closeTimer);
-        element.style.transition = "none";
-        if (backdrop) backdrop.style.transition = "none";
       }
       if (event.cancelable) event.preventDefault();
       const now = performance.now();
       velocity = (y - lastY) / Math.max(1, now - lastAt);
       lastY = y;
       lastAt = now;
-      // Pulling upward past the top stop only gives a little.
-      const top = origin + offset;
-      place(top > 0 ? top : top / 6);
+      scheduleMove();
     };
     const end = () => {
       if (!tracking) return;
+      // Commit the last input even when release arrives before the next frame.
+      cancelMove();
+      if (dragging) placeDrag();
+      stopObserving();
       tracking = false;
       if (!dragging) return;
       dragging = false;
-      const height = element.offsetHeight;
+      // Resolve the release position with transitions disabled before assigning
+      // the spring target. This is one style flush per release, never per move.
+      getComputedStyle(element).transform;
       const reducedMotion = reducedMotionQuery().matches;
       const released = origin + lastY - startY;
       const settled = detents
-        ? settleDetent(released, velocity, halfTop(), halfHeight(), detent)
+        ? settleDetent(released, velocity, halfTop, halfHeight, detent)
         : undefined;
       const dismiss = settled
         ? settled === "dismiss"
@@ -177,7 +258,7 @@ export function useSheetDrag(
       // keeps the short exit that the sheet's close lifetime expects.
       const target = dismiss
         ? height + 24
-        : settled === "full" || !detents ? 0 : halfTop();
+        : settled === "full" || !detents ? 0 : halfTop;
       const settle = dismiss
         ? undefined
         : springTransition(
@@ -259,6 +340,9 @@ export function useSheetDrag(
     element.addEventListener("pointerup", pointerUp);
     element.addEventListener("pointercancel", pointerUp);
     return () => {
+      tracking = false;
+      cancelMove();
+      stopObserving();
       if (closeTimer !== undefined) window.clearTimeout(closeTimer);
       element.removeEventListener("touchstart", touchStart);
       element.removeEventListener("touchmove", touchMove);

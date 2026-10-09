@@ -2357,13 +2357,6 @@ function UserMessageBlock({
         sentAt != null ||
         onEdit) ? (
           <div className="user-message-actions flex items-center gap-1 px-3 pt-1">
-            {text || block.attachments?.length ? (
-              <CopyTurnButton
-                text={text}
-                attachments={block.attachments}
-                label={uiT("Copy message")}
-              />
-            ) : null}
             {onEdit ? (
               <EditLastTurnButton onEdit={onEdit} editing={editing} />
             ) : null}
@@ -2378,6 +2371,13 @@ function UserMessageBlock({
               >
                 {formatClockTime(sentAt)}
               </time>
+            ) : null}
+            {text || block.attachments?.length ? (
+              <CopyTurnButton
+                text={text}
+                attachments={block.attachments}
+                label={uiT("Copy message")}
+              />
             ) : null}
           </div>
         ) : null}

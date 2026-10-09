@@ -31,6 +31,7 @@ import {
   type HarnessId,
 } from "../../sessions/model/session";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
+import { modelGroups } from "../../sessions/model/modelGroups";
 import {
   filterQuickModels,
   QUICK_COMPOSER_CATALOG_REQUEST_EVENT,
@@ -85,7 +86,8 @@ export function QuickModelSelector({
               !!item && providers.includes(item.harness),
           )
       : modelsFor(visibleTab);
-  const models = filterQuickModels(pool, query);
+  const groups = modelGroups(filterQuickModels(pool, query));
+  const models = groups.flatMap((group) => group.models.map(({ item }) => item));
   const effort =
     modelEffortSetting(model) ??
     model.settings?.find(
@@ -272,67 +274,81 @@ export function QuickModelSelector({
           className="h-60 min-h-0 overflow-y-auto overscroll-none p-2"
         >
           {models.length ? (
-            models.map((item, index) => (
-              <div
-                key={`${item.harness}:${item.id}`}
-                data-index={index}
-                className={`flex h-8 items-center rounded-lg ${index === active ? "bg-selection-emphasis" : "hover:bg-selection-hover"}`}
-                onMouseEnter={() => setActive(index)}
-              >
-                <button
-                  id={`${listId}-${index}`}
-                  type="button"
-                  role="option"
-                  aria-selected={item.id === model.id}
-                  disabled={!enabled(item)}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => pick(item)}
-                  className="flex min-w-0 flex-1 items-center gap-2 px-2 text-left text-[13px] text-content disabled:opacity-35"
-                >
-                  {visibleTab === "favorites" ? (
-                    <HarnessIcon
-                      harness={item.harness}
-                      className="size-3.5 shrink-0"
-                    />
-                  ) : null}
-                  <span className="truncate">{item.name}</span>
-                  {item.provider ? (
-                    <span className="ml-auto truncate text-[11px] text-content/40">
-                      {item.provider.name}
-                    </span>
-                  ) : null}
-                  {item.id === model.id ? (
-                    <Check className="ml-auto size-3.5 shrink-0 text-accent" />
-                  ) : null}
-                </button>
-                <button
-                  type="button"
-                  title={
-                    favorites.includes(item.id)
-                      ? uiT("Remove from favorites")
-                      : uiT("Add to favorites")
-                  }
-                  aria-label={uiT("{value0} {value1} {value2} favorites", {
-                    value0: String(
-                      favorites.includes(item.id) ? "Remove" : "Add",
-                    ),
-                    value1: String(item.name),
-                    value2: String(favorites.includes(item.id) ? "from" : "to"),
-                  })}
-                  onClick={() => {
-                    const next = favorites.includes(item.id)
-                      ? favorites.filter((id) => id !== item.id)
-                      : [...favorites, item.id];
-                    setFavorites(next);
-                    saveFavoriteModels(next);
-                  }}
-                  className="grid size-8 shrink-0 place-items-center text-content/35 hover:text-content"
-                >
-                  <Star
-                    className="size-3.5"
-                    fill={favorites.includes(item.id) ? "currentColor" : "none"}
-                  />
-                </button>
+            groups.map((group) => (
+              <div key={group.id} role="group" aria-label={group.name}>
+                {group.showLabel ? (
+                  <div className="px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-content/40">
+                    {group.name}
+                  </div>
+                ) : null}
+                {group.models.map(({ item, index }) => (
+                  <div
+                    key={`${item.harness}:${item.id}`}
+                    data-index={index}
+                    className={`flex h-8 items-center rounded-lg ${index === active ? "bg-selection-emphasis" : "hover:bg-selection-hover"}`}
+                    onMouseEnter={() => setActive(index)}
+                  >
+                    <button
+                      id={`${listId}-${index}`}
+                      type="button"
+                      role="option"
+                      aria-selected={item.id === model.id}
+                      aria-label={`${item.name}, ${item.provider?.name ?? HARNESS_TITLE[item.harness]}`}
+                      disabled={!enabled(item)}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => pick(item)}
+                      className="flex min-w-0 flex-1 items-center gap-2 px-2 text-left text-[13px] text-content disabled:opacity-35"
+                    >
+                      {visibleTab === "favorites" ? (
+                        <HarnessIcon
+                          harness={item.harness}
+                          className="size-3.5 shrink-0"
+                        />
+                      ) : null}
+                      <span className="truncate">{item.name}</span>
+                      {visibleTab === "favorites" && item.provider ? (
+                        <span className="ml-auto truncate text-[11px] text-content/40">
+                          {item.provider.name}
+                        </span>
+                      ) : null}
+                      {item.id === model.id ? (
+                        <Check className="ml-auto size-3.5 shrink-0 text-accent" />
+                      ) : null}
+                    </button>
+                    <button
+                      type="button"
+                      title={
+                        favorites.includes(item.id)
+                          ? uiT("Remove from favorites")
+                          : uiT("Add to favorites")
+                      }
+                      aria-label={uiT("{value0} {value1} {value2} favorites", {
+                        value0: String(
+                          favorites.includes(item.id) ? "Remove" : "Add",
+                        ),
+                        value1: String(item.name),
+                        value2: String(
+                          favorites.includes(item.id) ? "from" : "to",
+                        ),
+                      })}
+                      onClick={() => {
+                        const next = favorites.includes(item.id)
+                          ? favorites.filter((id) => id !== item.id)
+                          : [...favorites, item.id];
+                        setFavorites(next);
+                        saveFavoriteModels(next);
+                      }}
+                      className="grid size-8 shrink-0 place-items-center text-content/35 hover:text-content"
+                    >
+                      <Star
+                        className="size-3.5"
+                        fill={
+                          favorites.includes(item.id) ? "currentColor" : "none"
+                        }
+                      />
+                    </button>
+                  </div>
+                ))}
               </div>
             ))
           ) : (

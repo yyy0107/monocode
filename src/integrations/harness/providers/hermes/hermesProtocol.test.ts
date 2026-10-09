@@ -92,14 +92,34 @@ describe("Hermes ACP protocol", () => {
         harness: "hermes",
         name: "Nous · Hermes 4",
         nativeId: "nous:hermes-4",
+        provider: { id: "nous", name: "nous" },
       },
       {
         id: "hermes:openrouter:gpt-5",
         harness: "hermes",
         name: "OpenRouter · GPT-5",
         nativeId: "openrouter:gpt-5",
+        provider: { id: "openrouter", name: "openrouter" },
       },
     ]);
+  });
+
+  it("groups by configured provider without treating model namespaces as providers", () => {
+    const models = modelsFromHermesSession({
+      models: {
+        availableModels: [
+          { modelId: "custom" },
+          { modelId: "openrouter:anthropic/claude" },
+          { modelId: "anthropic/claude" },
+        ],
+      },
+    });
+    expect(models.map((model) => model.provider?.id)).toEqual([
+      undefined,
+      "openrouter",
+      undefined,
+    ]);
+    expect(models[1].nativeId).toBe("openrouter:anthropic/claude");
   });
 
   it("accepts snake-case ACP response fields", () => {

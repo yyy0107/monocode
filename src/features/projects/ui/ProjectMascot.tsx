@@ -1,4 +1,5 @@
 import { MASCOT_GRID, projectMascot } from "../model/projectMascots";
+import { usePauseOffscreenAnimation } from "../../../shared/hooks/usePauseOffscreenAnimation";
 
 type Props = {
   project: string;
@@ -20,8 +21,10 @@ export function ProjectMascot({
   active = false,
 }: Props) {
   const mascot = projectMascot(project, name);
+  const pauseOffscreen = usePauseOffscreenAnimation<SVGSVGElement>();
   return (
     <svg
+      ref={active ? pauseOffscreen : undefined}
       aria-hidden
       viewBox={`0 0 ${MASCOT_GRID} ${MASCOT_GRID}`}
       shapeRendering="crispEdges"

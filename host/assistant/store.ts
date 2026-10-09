@@ -12,6 +12,7 @@ import {
   type AssistantView,
 } from "../../src/features/assistant/model/assistant";
 import { memoryLines } from "./memory";
+import { PLAYBOOK_PREFIX, parsePlaybook, type Playbook } from "./playbooks";
 import type { RemoteAttachment } from "../../src/features/connections/model/protocol";
 
 export function signature(value: unknown): string {
@@ -126,6 +127,29 @@ export class AssistantStore {
       return current + 1;
     });
   }
+  /** Saved playbooks; a deleted one is kept as an empty document. */
+  playbooks(): Playbook[] {
+    return this.host.db
+      .prepare(
+        "SELECT name, text FROM assistant_memory WHERE name LIKE 'playbook:%' AND text<>'' ORDER BY name",
+      )
+      .all()
+      .map((row) =>
+        parsePlaybook(
+          String(row.name).slice(PLAYBOOK_PREFIX.length),
+          String(row.text),
+        ),
+      );
+  }
+  /** Rises with every playbook write, including deletions. */
+  playbookRevision(): number {
+    const row = this.host.db
+      .prepare(
+        "SELECT COALESCE(SUM(revision), 0) AS revision FROM assistant_memory WHERE name LIKE 'playbook:%'",
+      )
+      .get()!;
+    return Number(row.revision);
+  }
   memoryTopics(): string[] {
     return this.host.db
       .prepare(
@@ -175,6 +199,10 @@ export class AssistantStore {
       memory: {
         revision: memory.revision,
         lines: memoryLines(memory.text).filter((line) => !line.struck).length,
+      },
+      playbooks: {
+        revision: this.playbookRevision(),
+        count: this.playbooks().length,
       },
     };
   }

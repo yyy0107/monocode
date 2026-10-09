@@ -5,11 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MobileModelControls,
   configurationForModel,
+  configurationForSession,
   type MobileConfiguration,
 } from "./MobileModelControls";
 import type { HostModelCatalog } from "../features/connections/model/protocol";
+import type { AgentModel } from "../features/sessions/model/models";
 import { setUiLanguage } from "../shared/i18n/language";
-import { HARNESS_TITLE } from "../features/sessions/model/session";
+import { HARNESS_TITLE, newSession } from "../features/sessions/model/session";
 const catalog: HostModelCatalog = {
   models: {
     codex: [
@@ -142,6 +144,19 @@ function render(
   return { node, changes, change, row };
 }
 describe("mobile Agent, model and reasoning controls", () => {
+  it("shows the next-send choice while the session still belongs to the original agent", () => {
+    const pendingConfiguration = configurationForModel(catalog.models.claude![0]);
+    const snapshot = {
+      projectId: "project", revision: 1, status: "idle" as const, updatedAt: 0,
+      session: { ...newSession("codex", "/repo"), pendingConfiguration },
+    };
+    const { row, change, changes } = render(true, configurationForSession(snapshot), true);
+    expect(row("Agent").textContent).toContain("Claude");
+    change("Agent", "codex");
+    expect(changes.at(-1)?.harness).toBe("codex");
+    expect(snapshot.session.harness).toBe("codex");
+  });
+
   it("shows loading indicators until discovery completes, without treating failure as loading", () => {
     const node = document.createElement("div");
     document.body.append(node);
@@ -219,6 +234,75 @@ describe("mobile Agent, model and reasoning controls", () => {
         .querySelector("small")!.textContent,
     ).toBe("Claude model");
   });
+  it("groups models by upstream provider and selects the correct same-name model", () => {
+    const models: AgentModel[] = [
+      {
+        id: "opencode:a/first",
+        name: "Shared name",
+        harness: "opencode",
+        provider: { id: "a", name: "Cloud A" },
+      },
+      {
+        id: "opencode:b/first",
+        name: "Shared name",
+        harness: "opencode",
+        provider: { id: "b", name: "Cloud B" },
+      },
+      {
+        id: "opencode:a/second",
+        name: "Second model",
+        harness: "opencode",
+        provider: { id: "a", name: "Cloud A" },
+      },
+    ];
+    const node = document.createElement("div");
+    document.body.append(node);
+    root = createRoot(node);
+    const onChange = vi.fn();
+    act(() =>
+      root.render(
+        createElement(MobileModelControls, {
+          catalog: { models: { opencode: models }, errors: {} },
+          configuration: configurationForModel(models[0], {}, "full-access"),
+          disabled: false,
+          onClose: () => {},
+          onChange,
+        }),
+      ),
+    );
+    act(() =>
+      [...node.querySelectorAll<HTMLButtonElement>("button")]
+        .find(
+          (button) => button.querySelector("strong")?.textContent === "Model",
+        )!
+        .click(),
+    );
+    expect(
+      [...node.querySelectorAll('[role="group"] h3')].map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["Cloud A", "Cloud B"]);
+    expect(
+      [...node.querySelectorAll('[role="radio"]')].map((option) =>
+        option.getAttribute("aria-label"),
+      ),
+    ).toEqual([
+      "Shared name, Cloud A",
+      "Second model, Cloud A",
+      "Shared name, Cloud B",
+    ]);
+    act(() =>
+      node
+        .querySelector<HTMLButtonElement>(
+          '[role="radio"][aria-label="Shared name, Cloud B"]',
+        )!
+        .click(),
+    );
+    expect(onChange).toHaveBeenCalledWith(
+      configurationForModel(models[1], {}, "full-access"),
+    );
+  });
+
   it("sends a chosen thinking level and resets unsupported values after a model switch", () => {
     const { change, changes } = render();
     change("Reasoning effort", "low");

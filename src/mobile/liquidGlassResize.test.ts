@@ -107,7 +107,7 @@ it("coalesces other glass surface resizing and updates only the settled lens", (
 });
 
 
-it("gives the stacked composer cards separate lenses and defers input resizing", () => {
+it("suspends both unfocused composer lenses until an attachment animation settles", () => {
   const { composer, encode, callbacks } = fixture("mobile-composer mobile-composer-card");
   expect(document.querySelectorAll("filter")).toHaveLength(0);
   const context = document.createElement("div");
@@ -118,7 +118,7 @@ it("gives the stacked composer cards separate lenses and defers input resizing",
     element.style.borderRadius = "30px";
     vi.spyOn(element, "offsetWidth", "get").mockReturnValue(327);
   }
-  vi.spyOn(context, "offsetHeight", "get").mockReturnValue(70);
+  const contextHeight = vi.spyOn(context, "offsetHeight", "get").mockReturnValue(70);
   const height = vi.spyOn(input, "offsetHeight", "get").mockReturnValue(131);
   composer.append(context, input);
   dispose!();
@@ -127,12 +127,29 @@ it("gives the stacked composer cards separate lenses and defers input resizing",
   expect(context.style.getPropertyValue("--mobile-glass-refraction")).toContain("url(");
   expect(input.style.getPropertyValue("--mobile-glass-refraction")).not.toBe(context.style.getPropertyValue("--mobile-glass-refraction"));
   expect(composer.style.getPropertyValue("--mobile-glass-refraction")).toBe("");
+  let running = true;
+  composer.getAnimations = () =>
+    [{ playState: running ? "running" : "finished" }] as unknown as Animation[];
   const before = encode.mock.calls.length;
+  contextHeight.mockReturnValue(204);
   height.mockReturnValue(164);
-  callbacks.at(-1)!();
-  expect(encode).toHaveBeenCalledTimes(before);
+  callbacks.slice(-2).forEach(resize => resize());
+  vi.advanceTimersByTime(16);
+  for (const card of [context, input])
+    expect(card.style.getPropertyValue("--mobile-glass-refraction")).toBe("");
+  // No SVG resizing/rasterization while the field has no focus, and the rear
+  // card must wait for the attachment animation in its sibling input card.
+  expect([...document.querySelectorAll("feImage")].map(image => image.getAttribute("height")))
+    .toEqual(["70", "131"]);
   vi.advanceTimersByTime(120);
-  expect(encode).toHaveBeenCalledTimes(before + 1);
+  expect(encode).toHaveBeenCalledTimes(before);
+  running = false;
+  vi.advanceTimersByTime(120);
+  expect(encode).toHaveBeenCalledTimes(before + 2);
+  for (const card of [context, input])
+    expect(card.style.getPropertyValue("--mobile-glass-refraction")).toContain("url(");
+  expect([...document.querySelectorAll("feImage")].map(image => image.getAttribute("height")))
+    .toEqual(["204", "164"]);
 });
 
 

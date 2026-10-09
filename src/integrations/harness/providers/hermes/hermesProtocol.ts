@@ -147,11 +147,17 @@ export function modelsFromHermesSession(result: unknown): AgentModel[] {
     if (!nativeId || seen.has(nativeId)) continue;
     seen.add(nativeId);
     const name = String(model.name ?? model.title ?? nativeId).trim();
+    // Hermes qualifies model ids as provider:model; the model can contain '/'.
+    const separator = nativeId.indexOf(":");
+    const providerId = separator > 0 && separator < nativeId.length - 1
+      ? nativeId.slice(0, separator)
+      : undefined;
     models.push({
       id: `hermes:${nativeId}`,
       harness: "hermes",
       name: name || displayName(nativeId),
       nativeId,
+      provider: providerId ? { id: providerId, name: providerId } : undefined,
     });
   }
 

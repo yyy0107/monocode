@@ -1,3 +1,4 @@
+import { sessionComposerConfiguration } from "../../sessions/model/composerConfiguration";
 import { requestedProviderAccountId, supportsProviderAccounts } from "../../providers/model/providerAccounts";
 import { MessageQueue } from "../../sessions/ui/MessageQueue";
 import { titleStateFor } from "../../sessions/model/titlePolicy";
@@ -690,11 +691,12 @@ function ConnectedRemoteSession({
     });
   }, [online, catalog, providers, sessionId, draft.harness, draft.model]);
 
-  const saved: Configuration | undefined = hostSession && {
-    harness: hostSession.harness as RemoteProvider,
-    model: hostSession.model,
-    settings: hostSession.modelSettings ?? {},
-    mode: hostSession.runtimeMode,
+  const composerConfiguration = hostSession && sessionComposerConfiguration(hostSession);
+  const saved: Configuration | undefined = composerConfiguration && {
+    harness: composerConfiguration.harness as RemoteProvider,
+    model: composerConfiguration.model,
+    settings: composerConfiguration.modelSettings ?? {},
+    mode: composerConfiguration.runtimeMode,
   };
   const configuration = saved ? (changes ?? saved) : draft;
   const updateConfiguration = (
@@ -840,10 +842,10 @@ function ConnectedRemoteSession({
               : shell),
             id: command.sessionId,
             cwd: selectedCwd,
-            harness: configuration.harness,
-            model: configuration.model,
-            modelSettings: configuration.settings,
-            runtimeMode: configuration.mode,
+            harness: hostSession?.harness ?? configuration.harness,
+            model: hostSession?.model ?? configuration.model,
+            modelSettings: hostSession?.modelSettings ?? configuration.settings,
+            runtimeMode: hostSession?.runtimeMode ?? configuration.mode,
             busy: false,
             blocks: [
               ...(current?.session.id === command.sessionId
@@ -952,8 +954,8 @@ function ConnectedRemoteSession({
     setSessionId(id);
   };
 
-  // Provider, model, effort and permission changes apply directly, as locally. A
-  // running turn keeps its settings; the change is sent once it finishes.
+  // The Host stages cross-provider choices until send. A running turn keeps
+  // its settings; the choice is saved once it finishes.
   const applying = useRef(false);
   // The last change the host accepted, until a sync reflects it.
   const applied = useRef<Configuration>(undefined);
@@ -1219,8 +1221,8 @@ function ConnectedRemoteSession({
   const modelSource = useMemo<ModelSource>(() => {
     const models = (harness: HarnessId) =>
       catalog?.models[harness as RemoteProvider] ?? [];
-    const savedModel = hostSession?.model;
-    const savedSettings = hostSession?.modelSettings ?? {};
+    const savedModel = composerConfiguration?.model;
+    const savedSettings = composerConfiguration?.modelSettings ?? {};
     return {
       id: `remote:${machine.environmentId}`,
       modelsFor: models,
@@ -1228,7 +1230,7 @@ function ConnectedRemoteSession({
         const provider = harness as RemoteProvider;
         // Keep the saved model's effort visible even when the host catalog is
         // loading, failed, or no longer lists it.
-        const sameHarness = provider === hostSession?.harness;
+        const sameHarness = provider === composerConfiguration?.harness;
         const controls = remoteModelControls(
           catalog,
           provider,
@@ -1266,9 +1268,9 @@ function ConnectedRemoteSession({
     handoffEnabled,
     providers,
     machine.environmentId,
-    hostSession?.harness,
-    hostSession?.model,
-    hostSession?.modelSettings,
+    composerConfiguration?.harness,
+    composerConfiguration?.model,
+    composerConfiguration?.modelSettings,
   ]);
 
   // Show a message the host has not confirmed yet in the transcript.
@@ -1327,10 +1329,14 @@ function ConnectedRemoteSession({
     workspaceMode: hostSession ? undefined : draftWorkspaceMode,
     worktreeBase: hostSession ? undefined : draftWorktreeBase,
     branch: branches?.current ?? hostSession?.branch,
-    harness: configuration.harness,
-    model: configuration.model,
-    modelSettings: configuration.settings,
-    runtimeMode: configuration.mode,
+    harness: hostSession?.harness ?? configuration.harness,
+    model: hostSession?.model ?? configuration.model,
+    modelSettings: hostSession?.modelSettings ?? configuration.settings,
+    runtimeMode: hostSession?.runtimeMode ?? configuration.mode,
+    pendingConfiguration: hostSession && (hostSession.pendingConfiguration || changes) ? {
+      harness: configuration.harness, model: configuration.model,
+      modelSettings: configuration.settings, runtimeMode: configuration.mode,
+    } : undefined,
     busy,
     blocks: (unconfirmed ? [...blocks, unconfirmed] : blocks).map(block => {
       const edit = proposalEdits.get(block.id);

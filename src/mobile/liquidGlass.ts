@@ -112,8 +112,9 @@ function displacementMap(
   if (!context) return null;
   const image = context.createImageData(width, height);
   const data = image.data;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  const paintRow = (y: number, start: number, end: number) => {
+    for (let x = start; x < end; x++) {
       const [dx, dy] = bezelDisplacement(
         x + 0.5,
         y + 0.5,
@@ -128,6 +129,31 @@ function displacementMap(
       data[i + 2] = 128;
       data[i + 3] = 255;
     }
+  };
+  for (let y = 0; y < height; y++) {
+    const py = y + 0.5;
+    if (py < bezel || py > height - bezel) {
+      paintRow(y, 0, width);
+      continue;
+    }
+    // Stay inside a conservative flat cross: the corner rows keep the full
+    // radius inset. Their remaining curved pixels use the original formula,
+    // avoiding a second, rounded-off arc boundary calculation.
+    const inset = py >= r && py <= height - r ? bezel : Math.max(bezel, r);
+    const centerStart = Math.ceil(inset - 0.5);
+    const centerEnd = width - centerStart;
+    if (centerStart >= centerEnd) {
+      paintRow(y, 0, width);
+      continue;
+    }
+    // Seed only the flat span. Small circular lenses without one still take
+    // a single pass, while panels avoid distance math and tuples centrally.
+    const start = (y * width + centerStart) * 4;
+    const end = (y * width + centerEnd) * 4;
+    data.fill(128, start, end);
+    for (let i = start + 3; i < end; i += 4) data[i] = 255;
+    paintRow(y, 0, centerStart);
+    paintRow(y, centerEnd, width);
   }
   context.putImageData(image, 0, 0);
   return canvas.toDataURL();
@@ -223,7 +249,11 @@ export function installLiquidGlass(root: HTMLElement): () => void {
       if (width < 4 || height < 4) continue;
       const key = `${width}x${height}x${radius}`;
       const bezel = bezelWidth(width, height);
-      if (key !== surface.boxKey) {
+      // A file picker can return with the composer unfocused. Keep its CSS
+      // blur while attachments resize, without stretching two SVG backdrops
+      // on every animation frame. Restore the lenses at their settled size.
+      const deferComposer = surface.focusScope && surface.key && !settled && key !== surface.key;
+      if (!deferComposer && key !== surface.boxKey) {
         surface.boxKey = key;
         for (const node of [surface.filter, surface.image]) {
           node.setAttribute("width", String(width));
@@ -239,7 +269,8 @@ export function installLiquidGlass(root: HTMLElement): () => void {
           // sheets. Encode only the final size after layout motion settles.
           clearTimeout(surface.settleTimer);
           const settle = () => {
-            const moving = element.getAnimations?.({ subtree: true }).some(
+            // The rear card is a sibling of the animated attachment region.
+            const moving = (surface.focusScope ?? element).getAnimations?.({ subtree: true }).some(
               animation => animation.playState === "running" &&
                 animation.effect?.getComputedTiming().iterations !== Infinity,
             );
@@ -257,6 +288,10 @@ export function installLiquidGlass(root: HTMLElement): () => void {
           surface.key = key;
           surface.image.setAttribute("href", map);
         }
+      }
+      if (deferComposer) {
+        element.style.removeProperty(REFRACTION_VARIABLE);
+        continue;
       }
       const scale = bezel * 2 * refraction;
       if (scale !== surface.scale) {

@@ -1,3 +1,4 @@
+import { selectComposerConfiguration } from "../../sessions/model/composerConfiguration";
 import { rememberSharedProviderDefaults, saveProviderAccount, selectProviderAccount } from "../../providers/model/providerAccounts";
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
@@ -316,13 +317,12 @@ function dispatch(command: HostCommand) {
     host = {
       ...host,
       revision: host.revision + 1,
-      session: {
-        ...host.session,
+      session: selectComposerConfiguration(host.session, {
         harness: command.harness ?? host.session.harness,
         model: command.model,
         modelSettings: command.modelSettings,
         runtimeMode: command.runtimeMode,
-      },
+      }),
     };
   } else if (host && command.type === "queue") {
     const rows = host.session.queuedMessages ?? [];
@@ -334,6 +334,7 @@ function dispatch(command: HostCommand) {
     host = { ...host, revision: host.revision + 1, session: { ...host.session,
       queuedMessages: [...host.session.queuedMessages ?? [], { id: command.commandId, text: command.text, attachments: [] }], queueStatus: "active" } };
   } else if (host && command.type === "send") {
+    host = { ...host, session: { ...host.session, ...host.session.pendingConfiguration, pendingConfiguration: undefined } };
     host = {
       ...host,
       revision: host.revision + 1,
@@ -648,11 +649,14 @@ async function chooseEffort(label: string) {
 }
 
 async function chooseModel(provider: string, model: string) {
-  await act(async () => container.querySelector<HTMLButtonElement>("[data-model-picker-trigger]")!.click());
-  const tab = document.body.querySelector<HTMLButtonElement>(`[role="tab"][aria-label="${provider}"]`);
-  expect(tab).not.toBeNull();
+  const trigger = container.querySelector<HTMLButtonElement>("[data-model-picker-trigger]")!;
+  if (trigger.getAttribute("aria-expanded") !== "true") await act(async () => trigger.click());
+  const tab = [...document.body.querySelectorAll<HTMLButtonElement>(`[role="tab"][aria-label="${provider}"]`)]
+    .find(button => !button.closest("[inert]"));
+  expect(tab).toBeDefined();
   await act(async () => tab!.click());
-  const option = document.body.querySelector<HTMLButtonElement>(`[role="option"][aria-label="${model}, ${provider}"]`);
+  const option = [...document.body.querySelectorAll<HTMLButtonElement>(`[role="option"][aria-label="${model}, ${provider}"]`)]
+    .find(button => !button.closest("[inert]"));
   expect(option?.disabled).toBe(false);
   await act(async () => option!.click());
   await settle();
@@ -1308,7 +1312,7 @@ it("applies effort changes directly and uses them on the next turn", async () =>
   );
 });
 
-it("switches an existing Host conversation to another available provider before its next turn", async () => {
+it("stages an existing Host conversation provider choice until its next send", async () => {
   providers = ["codex", "cursor"];
   catalog = { models: { codex: [gpt], cursor: [cursor] }, errors: {} };
   await render();
@@ -1318,14 +1322,42 @@ it("switches an existing Host conversation to another available provider before 
     type: "configure", sessionId: "host-session", harness: "cursor",
     model: cursor.id, modelSettings: {}, runtimeMode: "supervised",
   });
-  expect(host?.session.harness).toBe("cursor");
+  expect(host?.session.harness).toBe("codex");
+  expect(host?.session.pendingConfiguration?.harness).toBe("cursor");
   expect(container.textContent).toContain("Earlier work");
   expect(byLabel("Cursor Composer Test")).not.toBeNull();
   expect(byLabel("Reasoning:")).toBeNull();
   await send("Continue with Cursor");
+  expect(host?.session.harness).toBe("cursor");
+  expect(host?.session.pendingConfiguration).toBeUndefined();
   expect(commands.at(-1)).toMatchObject({ type: "send", sessionId: "host-session", text: "Continue with Cursor" });
   expect(commands.filter(command => command.type === "create")).toHaveLength(1);
   expect(commands.filter(command => command.type === "configure")).toHaveLength(1);
+});
+
+it("keeps a saved draft on the original agent and restores the pending choice when reopened", async () => {
+  providers = ["codex", "cursor"];
+  catalog = { models: { codex: [gpt], cursor: [cursor] }, errors: {} };
+  const onRemoteSnapshot = vi.fn();
+  await render(shell(), { onRemoteSnapshot });
+  await send("Earlier work");
+  await chooseModel("Cursor", cursor.name);
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  await render(shell(), { onRemoteSnapshot });
+  expect(byLabel("Cursor Composer Test")).not.toBeNull();
+  let release!: () => void;
+  syncDelay = new Promise<void>(resolve => { release = resolve; });
+  await saveDraft("Send this later");
+  expect(host?.session.harness).toBe("codex");
+  expect(onRemoteSnapshot.mock.calls.at(-1)?.[1].session.harness).toBe("codex");
+  expect(onRemoteSnapshot.mock.calls.at(-1)?.[1].session.pendingConfiguration?.harness).toBe("cursor");
+  await act(async () => { release(); syncDelay = undefined; });
+  await settle();
+  await act(async () => byLabel("Send remote draft")!.click());
+  await settle();
+  expect(host?.session.harness).toBe("cursor");
+  expect(host?.session.pendingConfiguration).toBeUndefined();
 });
 
 it("keeps existing sessions on their provider when an older Host does not support handoff", async () => {

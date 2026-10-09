@@ -54,10 +54,34 @@ export const SHEET_WIDTH = {
 
 export type MobileSheetPoint = { x: number; y: number };
 
-export function MobileSheetHeader({ title, subtitle, className, onBack, onClose }: {
+const paintOnlyProperties = new Set([
+  "opacity", "color", "background", "background-color", "background-image",
+  "background-position", "background-position-x", "background-position-y", "background-size",
+  "background-repeat", "background-clip", "background-origin", "background-attachment",
+  "border-color", "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
+  "box-shadow", "text-shadow", "outline-color", "text-decoration-color",
+  // This registered, non-inherited property only controls the button's tint.
+  "--mobile-press-spread",
+]);
+const keyframeMetadata = new Set(["offset", "computedOffset", "easing", "composite"]);
+function isPaintOnlyProperty(property: string) {
+  return paintOnlyProperties.has(property.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`));
+}
+function canMoveAnchor(animation: Animation) {
+  const transitionProperty = (animation as CSSTransition).transitionProperty;
+  if (transitionProperty) return !isPaintOnlyProperty(transitionProperty);
+  const keyframes = (animation.effect as KeyframeEffect | null)?.getKeyframes?.();
+  const properties = keyframes?.flatMap(keyframe => Object.keys(keyframe).filter(key => !keyframeMetadata.has(key)));
+  // Unknown/custom effects remain tracked; only known paint-only effects can
+  // safely be ignored. A mixed opacity + transform animation still moves.
+  return !properties?.length || properties.some(property => !isPaintOnlyProperty(property));
+}
+
+export function MobileSheetHeader({ title, subtitle, className, action, onBack, onClose }: {
   title: ReactNode;
   subtitle?: string;
   className?: string;
+  action?: ReactNode;
   onBack?: () => void;
   onClose: () => void;
 }) {
@@ -72,6 +96,7 @@ export function MobileSheetHeader({ title, subtitle, className, onBack, onClose 
         <strong>{title}</strong>
         {subtitle ? <small>{subtitle}</small> : null}
       </div>
+      {action}
     </header>
   );
 }
@@ -121,8 +146,9 @@ export function MobileSheet({
   /** Opaque forms avoid filtering the entire viewport while scrolling. */
   surface?: "glass" | "solid";
   /** A centred title row with a close button, or Back when `onBack` is set. */
-  header?: { title: ReactNode; subtitle?: string; className?: string };
-  children: ReactNode;
+  header?: { title: ReactNode; subtitle?: string; className?: string; action?: ReactNode };
+  /** Defer large menu trees until opening, retaining them through closing. */
+  children: ReactNode | (() => ReactNode);
 }) {
   const { t } = useTranslation();
   const visible = useSurfaceVisibility();
@@ -301,18 +327,34 @@ export function MobileSheet({
     let settlingKeyboard = false;
     let settleTimer: ReturnType<typeof setTimeout> | undefined;
     let settleFrame: number | undefined;
-    const animationRemaining = () => {
+    let refreshAnimations = true;
+    let anchorAnimations: Animation[] = [];
+    const animationRemaining = (): number => {
       let remaining = 0;
-      // Only transforms/layout on the anchor or its ancestors move its box;
-      // child spinners and other infinite animations do not keep this awake.
-      for (let node: HTMLElement | null = trigger ?? null; node; node = node.parentElement) {
-        for (const animation of node.getAnimations?.() ?? []) {
-          if (animation.playState !== "running" && !animation.pending) continue;
-          const end = animation.effect?.getComputedTiming().endTime;
-          const time = animation.currentTime;
-          if (typeof end === "number" && Number.isFinite(end) && typeof time === "number")
-            remaining = Math.max(remaining, (end - time) / Math.abs(animation.playbackRate || 1));
+      const usingCachedAnimations = !refreshAnimations;
+      if (refreshAnimations) {
+        refreshAnimations = false;
+        anchorAnimations = [];
+        // Discover effects once per external change, not once per animation
+        // frame. Child spinners and known paint-only effects never move the box.
+        for (let node: HTMLElement | null = trigger ?? null; node; node = node.parentElement) {
+          for (const animation of node.getAnimations?.() ?? []) {
+            if (canMoveAnchor(animation)) anchorAnimations.push(animation);
+          }
         }
+      }
+      for (const animation of anchorAnimations) {
+        if (animation.playState !== "running" && !animation.pending) continue;
+        const end = animation.effect?.getComputedTiming().endTime;
+        const time = animation.currentTime;
+        if (typeof end === "number" && Number.isFinite(end) && typeof time === "number")
+          remaining = Math.max(remaining, (end - time) / Math.abs(animation.playbackRate || 1));
+      }
+      if (remaining <= 0 && usingCachedAnimations && anchorAnimations.length) {
+        // WAAPI replacements emit no CSS motion events. Check once at the end
+        // of this lifecycle before sleeping, so a successor keeps being followed.
+        refreshAnimations = true;
+        return animationRemaining();
       }
       return remaining;
     };
@@ -327,6 +369,7 @@ export function MobileSheet({
         frame = requestAnimationFrame(tick);
     };
     const schedule = () => {
+      refreshAnimations = true;
       if (!settlingKeyboard) frame ??= requestAnimationFrame(tick);
     };
     const cancelSettle = () => {
@@ -337,6 +380,7 @@ export function MobileSheet({
       cancelSettle();
       if (frame !== undefined) cancelAnimationFrame(frame);
       frame = undefined;
+      refreshAnimations = true;
       settlingKeyboard = true;
       settleTimer = setTimeout(() => {
         settleFrame = requestAnimationFrame(() => {
@@ -358,7 +402,9 @@ export function MobileSheet({
       if (!(event.target instanceof Node && element.contains(event.target))) schedule();
     };
     const motion = (event: Event) => {
-      if (trigger && event.target instanceof Element && event.target.contains(trigger)) schedule();
+      if (anchorPoint || !trigger || !(event.target instanceof Element) || !event.target.contains(trigger)) return;
+      if (event.type.startsWith("transition") && isPaintOnlyProperty((event as TransitionEvent).propertyName ?? "")) return;
+      schedule();
     };
     const unsubscribe = onKeyboardMotion(motion => {
       settleKeyboard(motion.duration);
@@ -368,7 +414,7 @@ export function MobileSheet({
     place();
     const remaining = keyboardMotionRemaining();
     if (remaining) settleKeyboard(remaining);
-    else if (trigger && !anchorPoint && animationRemaining() > 0) schedule();
+    else if (trigger && !anchorPoint && animationRemaining() > 0) frame = requestAnimationFrame(tick);
     const observer = new ResizeObserver(schedule);
     observer.observe(element);
     if (trigger) observer.observe(trigger);
@@ -578,7 +624,7 @@ export function MobileSheet({
               <span>{t("Back")}</span>
             </button>
           )}
-          {children}
+          {typeof children === "function" ? children() : children}
         </div>
       </section>
     </div>

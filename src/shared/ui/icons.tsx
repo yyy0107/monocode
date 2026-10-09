@@ -92,6 +92,7 @@ import {
   Play as PlayIcon,
   Plus as PlusIcon,
   RefreshCw as RefreshCwIcon,
+  WrapText as WrapTextIcon,
   Regex as RegexIcon,
   Replace as ReplaceIcon,
   RectangleEllipsis as RectangleEllipsisIcon,
@@ -277,6 +278,7 @@ export const Play = wrap(PlayIcon, "Play");
 export const Pipette = wrap(PipetteIcon, "Pipette");
 export const Plus = wrap(PlusIcon, "Plus");
 export const RefreshCw = wrap(RefreshCwIcon, "RefreshCw");
+export const WrapText = wrap(WrapTextIcon, "WrapText");
 export const Regex = wrap(RegexIcon, "Regex");
 export const Replace = wrap(ReplaceIcon, "Replace");
 export const RotateCcw = wrap(RotateCcwIcon, "RotateCcw");

@@ -9,6 +9,11 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import {
+  reducedMotionQuery,
+  type ReducedMotionQuery,
+} from "../../../shared/lib/reducedMotion";
+import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 import type { TextRevealSequence } from "./textRevealQueue";
 
 /*
@@ -121,6 +126,50 @@ function isSpace(code: number): boolean {
 const subscribeUnsequenced = () => () => {};
 const unblocked = () => false;
 
+// Only live reveals/fades subscribe, and all of them share one pair of native
+// listeners. Completed history needs neither visibility nor media listeners.
+const motionListeners = new Set<() => void>();
+let motionQuery: ReducedMotionQuery | undefined;
+let stopMotionObservation: (() => void) | undefined;
+function textMotionAllowed() {
+  return (
+    (typeof document === "undefined" || !document.hidden) &&
+    !(motionQuery ??= reducedMotionQuery()).matches
+  );
+}
+function notifyTextMotion() {
+  for (const listener of motionListeners) listener();
+}
+function subscribeTextMotion(listener: () => void) {
+  motionListeners.add(listener);
+  if (!stopMotionObservation) {
+    const query = (motionQuery ??= reducedMotionQuery());
+    document.addEventListener("visibilitychange", notifyTextMotion);
+    query.addEventListener("change", notifyTextMotion);
+    stopMotionObservation = () => {
+      document.removeEventListener("visibilitychange", notifyTextMotion);
+      query.removeEventListener("change", notifyTextMotion);
+      motionQuery = undefined;
+    };
+  }
+  return () => {
+    motionListeners.delete(listener);
+    if (!motionListeners.size) {
+      stopMotionObservation?.();
+      stopMotionObservation = undefined;
+    }
+  };
+}
+function useTextMotion(active: boolean) {
+  const surfaceVisible = useSurfaceVisibility();
+  const observe = active && surfaceVisible;
+  return useSyncExternalStore(
+    observe ? subscribeTextMotion : subscribeUnsequenced,
+    observe ? textMotionAllowed : unblocked,
+    unblocked,
+  );
+}
+
 /**
  * The part of `text` to show right now. Text that is already there when the
  * component mounts, or that changes while nothing is streaming, shows at
@@ -150,6 +199,9 @@ export function usePacedText(
   const lastStep = useRef(0);
   const stepRequested = useRef(0);
   const stepCost = useRef(0);
+  const motionAllowed = useTextMotion(
+    streaming || (pacing.current && shown.current < text.length),
+  );
   const step = () => {
     lastStep.current = stepRequested.current = performance.now();
     rerender();
@@ -161,6 +213,12 @@ export function usePacedText(
   });
 
   if (streaming) pacing.current = true;
+  if (!motionAllowed) {
+    // Hidden/reduced-motion replies catch up even while a previous sequence
+    // entry is pending. Otherwise an invisible reply can hold the queue open.
+    shown.current = position.current = text.length;
+    pacing.current = streaming;
+  }
   if (!pacing.current) shown.current = text.length;
   shown.current = Math.min(shown.current, text.length);
   const behind = shown.current < text.length;
@@ -170,14 +228,14 @@ export function usePacedText(
   useLayoutEffect(() => () => sequence?.setPending(false), [sequence]);
   const boundaries = useMemo(
     () =>
-      unit === "character" && (behind || streaming)
+      motionAllowed && unit === "character" && (behind || streaming)
         ? characterBoundaries(text)
         : [],
-    [unit, text, behind, streaming],
+    [unit, text, behind, streaming, motionAllowed],
   );
 
   useEffect(() => {
-    if (!pacing.current || blocked) return;
+    if (!motionAllowed || !pacing.current || blocked) return;
     if (!behind) {
       if (!streaming) pacing.current = false;
       return;
@@ -220,7 +278,7 @@ export function usePacedText(
       cancelAnimationFrame(frame);
       window.clearTimeout(hold);
     };
-  }, [text, streaming, behind, unit, boundaries, blocked]);
+  }, [text, streaming, behind, unit, boundaries, blocked, motionAllowed]);
 
   return {
     text: behind ? text.slice(0, shown.current) : text,
@@ -236,17 +294,22 @@ export function usePacedText(
  */
 export function useWordFading(active: boolean): boolean {
   const [lingering, setLingering] = useState(false);
+  const motionAllowed = useTextMotion(active || lingering);
 
   useEffect(() => {
+    if (!motionAllowed) {
+      setLingering(false);
+      return;
+    }
     if (active) {
       setLingering(true);
       return;
     }
     const timer = window.setTimeout(() => setLingering(false), WORD_FADE_MS);
     return () => window.clearTimeout(timer);
-  }, [active]);
+  }, [active, motionAllowed]);
 
-  return active || lingering;
+  return motionAllowed && (active || lingering);
 }
 
 /*

@@ -253,6 +253,7 @@ export function filterQuickModels(models: AgentModel[], query: string) {
       model.name,
       model.id,
       model.provider?.name ?? "",
+      model.provider?.id ?? "",
       HARNESS_TITLE[model.harness],
     ]
       .join(" ")

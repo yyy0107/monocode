@@ -115,7 +115,7 @@ import {
 import { AccessPicker } from "./AccessPicker";
 import { ComposerRunner } from "./ComposerRunner";
 import { ContextMeter } from "./ContextMeter";
-import { AttachmentList } from "./AttachmentList";
+import { ComposerAttachments } from "./ComposerAttachments";
 import { BranchPicker } from "../../source-control/ui/BranchPicker";
 import { WorktreePicker } from "../../source-control/ui/WorktreePicker";
 import {
@@ -975,7 +975,7 @@ export function Composer({
     draftRevisionRef.current += 1;
     if (ref.current) {
       ref.current.value = "";
-      ref.current.style.height = "auto";
+      resizeComposer(ref.current);
     }
     setDraft("");
     onDraftChange?.("");
@@ -1345,7 +1345,7 @@ export function Composer({
     pasteGenerationRef.current += 1;
     if (ref.current) {
       ref.current.value = "";
-      ref.current.style.height = "auto";
+      resizeComposer(ref.current);
     }
     setDraft("");
     onDraftChange?.("");
@@ -1429,7 +1429,7 @@ export function Composer({
       mcpInsertAt.current = 0;
       if (ref.current) {
         ref.current.value = "";
-        ref.current.style.height = "auto";
+        resizeComposer(ref.current);
       }
       setDraft("");
       onDraftChange?.("");
@@ -1452,7 +1452,7 @@ export function Composer({
       if (accepted === false || !ref.current) return;
       pasteGenerationRef.current += 1;
       ref.current.value = "";
-      ref.current.style.height = "auto";
+      resizeComposer(ref.current);
       setDraft("");
       onDraftChange?.("");
       setAttachments([]);
@@ -1480,7 +1480,7 @@ export function Composer({
       pasteGenerationRef.current += 1;
       if (ref.current) {
         ref.current.value = "";
-        ref.current.style.height = "auto";
+        resizeComposer(ref.current);
       }
       setDraft("");
       onDraftChange?.("");
@@ -1498,7 +1498,7 @@ export function Composer({
       if (!ref.current) return;
       pasteGenerationRef.current += 1;
       ref.current.value = "";
-      ref.current.style.height = "auto";
+      resizeComposer(ref.current);
       setDraft("");
       onDraftChange?.("");
       setPlusOpen(false);
@@ -1571,7 +1571,7 @@ export function Composer({
     pasteGenerationRef.current += 1;
     if (ref.current) {
       ref.current.value = "";
-      ref.current.style.height = "auto";
+      resizeComposer(ref.current);
     }
     setDraft("");
     onDraftChange?.("");
@@ -2262,13 +2262,11 @@ export function Composer({
               </div>
             ) : null}
 
-            {attachments.length > 0 ? (
-              <AttachmentList
-                className="composer-attachments flex flex-wrap gap-1.5 px-3 pt-2"
-                attachments={attachments}
-                onRemove={removeAttachment}
-              />
-            ) : null}
+            <ComposerAttachments
+              className="composer-attachments flex flex-wrap gap-1.5 px-3 pt-2"
+              attachments={attachments}
+              onRemove={removeAttachment}
+            />
 
             {pasteError ? (
               <p

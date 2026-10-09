@@ -1,4 +1,6 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Capacitor } from "@capacitor/core";
+import { Keyboard } from "@capacitor/keyboard";
 import {
   ArrowUp,
   AiIdea,
@@ -16,6 +18,8 @@ import { useTranslation } from "../shared/i18n/useTranslation";
 import { AnimatedCollapse, useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
 import { AttachmentList } from "../features/sessions/ui/AttachmentList";
+import { prefersReducedMotion } from "../shared/lib/reducedMotion";
+import { ATTACHMENT_RESIZE_MS, useComposerResizeMotion } from "./composerResizeMotion";
 import { RuntimeModeIcon } from "../features/sessions/ui/RuntimeModeIcon";
 import { MODE_COMMAND_STYLES } from "../features/sessions/ui/modeCommands";
 import { PLAN_COMMAND } from "../features/sessions/model/plan";
@@ -44,6 +48,7 @@ import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 import { preserveInputFocus, usePreserveInputFocusOnTouch } from "./inputFocus";
 import { useMobileTextareaAutosize } from "./useMobileTextareaAutosize";
 import { lightImpact } from "./haptics";
+import { keyboardHeight, keyboardTracked } from "./keyboardMotion";
 
 export type MobileComposerPanel =
   | "actions"
@@ -70,6 +75,7 @@ type Props = {
   canSend: boolean;
   canStop: boolean;
   working: boolean;
+  readingAttachments?: boolean;
   onSend: () => void;
   onStop: () => void;
   panel: MobileComposerPanel;
@@ -91,18 +97,37 @@ type Props = {
   onExpand?: () => void;
 };
 
-function MobileComposerAttachments({ attachments, disabled, onRemoveAttachment }: Pick<Props, "attachments" | "disabled" | "onRemoveAttachment">) {
-  const [rendered, setRendered] = useState(attachments);
-  useLayoutEffect(() => {
-    if (attachments.length) setRendered(attachments);
-  }, [attachments]);
-  // Keep the last chips during closing. AnimatedCollapse unmounts this child
-  // when finished, releasing their data without a separate removal timer.
-  return <AttachmentList
-    className="mobile-composer-attachments"
-    attachments={rendered}
-    onRemove={disabled || !attachments.length ? undefined : onRemoveAttachment}
-  />;
+/**
+ * The row leaves layout at once when the last file goes. It stays visible out
+ * of flow while the card's top edge (useComposerResizeMotion) covers it.
+ */
+function MobileComposerAttachments({ attachments, onRemove }: {
+  attachments: Attachment[];
+  onRemove?: (id: string) => void;
+}) {
+  const [retained, setRetained] = useState(attachments);
+  if (attachments.length && retained !== attachments) setRetained(attachments);
+  // Reduced motion drops the row with the last file.
+  const shown = attachments.length ? attachments : prefersReducedMotion() ? [] : retained;
+  const closing = !attachments.length && shown.length > 0;
+  useEffect(() => {
+    if (!closing) return;
+    const timer = window.setTimeout(() => setRetained([]), prefersReducedMotion() ? 0 : ATTACHMENT_RESIZE_MS);
+    return () => window.clearTimeout(timer);
+  }, [closing]);
+  return <div
+    className="mobile-composer-attachment-region"
+    data-closing={closing || undefined}
+    inert={closing || undefined}
+    aria-hidden={closing || undefined}
+  >
+    {shown.length ? <AttachmentList
+      animated
+      className="mobile-composer-attachments"
+      attachments={shown}
+      onRemove={closing ? undefined : onRemove}
+    /> : null}
+  </div>;
 }
 
 export function MobileComposer(props: Props) {
@@ -113,6 +138,11 @@ export function MobileComposer(props: Props) {
   usePreserveInputFocusOnTouch(form, area, true);
   const photos = useRef<HTMLInputElement>(null);
   const files = useRef<HTMLInputElement>(null);
+  const pickerFocus = useRef<{
+    field: HTMLTextAreaElement;
+    selection: [number, number, "forward" | "backward" | "none"];
+    keyboardOpen: boolean;
+  } | undefined>(undefined);
   const panelAnchor = useRef<HTMLButtonElement>(null);
   const skillListId = useId();
   const [slash, setSlash] = useState<SlashToken | null>(null);
@@ -130,7 +160,7 @@ export function MobileComposer(props: Props) {
       (skill.kind === "native" || !["plan", "compact", "orchestrator", "draft", "btw", "mcp", "add-to-folder"].includes(skill.name))),
   ], [props.canCompact, skillsState.catalog]);
   const options = rankSkills(commands, props.panel === "actions" ? "" : slash?.query ?? "");
-  useEffect(() => { setSlash(null); setSkillActive(0); }, [skillsKey]);
+  useEffect(() => { setSlash(null); setSkillActive(0); pickerFocus.current = undefined; }, [skillsKey]);
   useEffect(() => { setSkillActive(0); }, [slash?.query]);
   useEffect(() => {
     if (props.disabled) setSlash(null);
@@ -166,7 +196,8 @@ export function MobileComposer(props: Props) {
     props.configuration,
     props.lockedAgent ? props.configuration.model : undefined,
   );
-  const close = () => props.onPanelChange(null);
+  const close = useCallback(() => props.onPanelChange(null), [props.onPanelChange]);
+  const hasQueue = !!props.queue;
   // The dock floats over the transcript; publish its height so content can
   // scroll past it without hiding the last message.
   useLayoutEffect(() => {
@@ -177,11 +208,34 @@ export function MobileComposer(props: Props) {
     // composer rather than behind the queue. Measure the composer's own top:
     // the queue's height omits its collapsed margin and the dock padding,
     // which left a blurred strip showing in the gap.
-    const publish = () => {
-      const height = `calc(${element.offsetHeight}px + max(0px, var(--mobile-safe-bottom) - 8px))`;
-      const queue = element.querySelector<HTMLElement>(":scope > .mobile-message-queue");
-      const composer = element.querySelector<HTMLElement>(":scope > .mobile-composer");
-      const queueHeight = `${queue && composer ? composer.offsetTop : 0}px`;
+    const queue = element.querySelector<HTMLElement>(":scope > .mobile-message-queue");
+    const composer = form.current;
+    let queueTop = 0;
+    let width: number | undefined;
+    let dockHeight = 0;
+    let composerHeight = 0;
+    let queueSpace: number | undefined;
+    const publish = (entries: ResizeObserverEntry[] = []) => {
+      const entry = entries.find(({ target }) => target === element);
+      const composerEntry = entries.find(({ target }) => target === composer);
+      // The observer already measured padding and borders. Reading offsetHeight
+      // again can force layout after another observer has updated the transcript.
+      if (entry || !entries.length)
+        dockHeight = entry?.borderBoxSize?.[0]?.blockSize ?? element.offsetHeight;
+      if (queue && composer && (composerEntry || !entries.length))
+        composerHeight = composerEntry?.borderBoxSize?.[0]?.blockSize ?? composer.offsetHeight;
+      const height = `calc(${Math.round(dockHeight)}px + max(0px, var(--mobile-safe-bottom) - 8px))`;
+      const widthChanged = entry !== undefined && entry.contentRect.width !== width;
+      if (entry) width = entry.contentRect.width;
+      // The queue precedes the composer inside fixed dock padding. Textarea
+      // height changes leave their size difference unchanged. The difference
+      // also catches collapsed margins disappearing after a queue child unmounts,
+      // even when the queue's own border box was already zero-sized.
+      const nextQueueSpace = dockHeight - composerHeight;
+      if (!entries.length || widthChanged || queueSpace === undefined || Math.abs(nextQueueSpace - queueSpace) > 0.001)
+        queueTop = queue && composer ? composer.offsetTop : 0;
+      queueSpace = nextQueueSpace;
+      const queueHeight = `${queueTop}px`;
       // Complete layout reads before publishing anything to the transcript.
       if (host.style.getPropertyValue("--mobile-dock-height") !== height)
         host.style.setProperty("--mobile-dock-height", height);
@@ -192,14 +246,16 @@ export function MobileComposer(props: Props) {
     };
     publish();
     const observer = new ResizeObserver(publish);
-    observer.observe(element);
+    observer.observe(element, { box: "border-box" });
+    if (queue && composer) observer.observe(composer, { box: "border-box" });
     return () => {
       observer.disconnect();
       host.style.removeProperty("--mobile-dock-height");
     };
-  }, []);
+  }, [hasQueue]);
+  useComposerResizeMotion(form, !!props.compact, props.attachments.length);
   useMobileTextareaAutosize(area, props.value, {
-    minHeight: 36,
+    minHeight: 32,
     widthSource: dock,
     measureWidth: () => {
       const container = form.current;
@@ -298,9 +354,44 @@ export function MobileComposer(props: Props) {
       </button>
     )
   );
+  const openFilePicker = (input: HTMLInputElement | null) => {
+    const field = area.current;
+    pickerFocus.current = field && document.activeElement === field ? {
+      field,
+      selection: [field.selectionStart, field.selectionEnd, field.selectionDirection],
+      keyboardOpen: !keyboardTracked() || keyboardHeight() > 0,
+    } : undefined;
+    close();
+    input?.click();
+  };
+  const restorePickerFocus = useCallback(() => {
+    const saved = pickerFocus.current;
+    pickerFocus.current = undefined;
+    if (!saved || saved.field !== area.current || !saved.field.isConnected ||
+      saved.field.disabled || saved.field.closest('[inert], [aria-hidden="true"]')) return;
+    const active = document.activeElement;
+    if (active !== saved.field && active?.matches('input:not([type="file"]), textarea, select, [contenteditable]')) return;
+    saved.field.focus({ preventScroll: true });
+    saved.field.setSelectionRange(...saved.selection);
+    // Android may retain DOM focus while its native picker dismisses the IME.
+    if (saved.keyboardOpen && !keyboardHeight() && Capacitor.getPlatform() === "android")
+      void Keyboard.show().catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    // React's cancel handler is specific to dialogs; file pickers emit their
+    // own native cancel event, including when the same file is reselected.
+    const inputs = [photos.current, files.current];
+    for (const input of inputs) input?.addEventListener("cancel", restorePickerFocus);
+    return () => {
+      for (const input of inputs) input?.removeEventListener("cancel", restorePickerFocus);
+      pickerFocus.current = undefined;
+    };
+  }, [restorePickerFocus]);
   const selectFiles = (input: HTMLInputElement) => {
-    if (input.files?.length) props.onFiles(Array.from(input.files));
+    const selected = Array.from(input.files ?? []);
     input.value = "";
+    restorePickerFocus();
+    if (selected.length) props.onFiles(selected);
   };
   return (
     <>
@@ -370,15 +461,10 @@ export function MobileComposer(props: Props) {
             {props.progressSlot && <div ref={props.progressSlot} className="mobile-composer-progress" />}
           </div>
           <div className="mobile-composer-input">
-            <div className="mobile-composer-attachment-region">
-              <AnimatedCollapse expanded={props.attachments.length > 0}>
-                <MobileComposerAttachments
-                attachments={props.attachments}
-                disabled={props.disabled}
-                onRemoveAttachment={props.onRemoveAttachment}
-              />
-            </AnimatedCollapse>
-            </div>
+            <MobileComposerAttachments
+              attachments={props.attachments}
+              onRemove={props.disabled ? undefined : props.onRemoveAttachment}
+            />
             <div className="mobile-composer-line">
             <textarea
               ref={area}
@@ -446,7 +532,7 @@ export function MobileComposer(props: Props) {
                 aria-label={t("Add to message")}
                 aria-haspopup="dialog"
                 aria-expanded={props.panel === "actions"}
-                disabled={props.disabled}
+                disabled={props.disabled || props.readingAttachments}
                 onClick={(event) => {
                   panelAnchor.current = event.currentTarget;
                   setSkillActive(0);
@@ -513,6 +599,7 @@ export function MobileComposer(props: Props) {
             accept="image/*"
             multiple
             aria-label={t("Upload photos")}
+            disabled={props.disabled || props.readingAttachments}
             onChange={(event) => selectFiles(event.currentTarget)}
           />
           <input
@@ -521,6 +608,7 @@ export function MobileComposer(props: Props) {
             hidden
             multiple
             aria-label={t("Upload files")}
+            disabled={props.disabled || props.readingAttachments}
             onChange={(event) => selectFiles(event.currentTarget)}
           />
         </form>
@@ -548,6 +636,7 @@ export function MobileComposer(props: Props) {
         side="top"
         onClose={close}
       >
+        {() => (
         <button
           type="button"
           className="mobile-sheet-row"
@@ -561,6 +650,7 @@ export function MobileComposer(props: Props) {
           <X size={18} />
           <span>{t("Turn off")}</span>
         </button>
+        )}
       </MobileSheet>
       <MobileSheet
         open={props.panel === "permissions"}
@@ -571,6 +661,7 @@ export function MobileComposer(props: Props) {
         width={SHEET_WIDTH.list}
         onClose={close}
       >
+        {() => (
         <div role="radiogroup" aria-label={t("Permissions")}>
           {RUNTIME_MODES.map((mode) => (
             <button
@@ -607,6 +698,7 @@ export function MobileComposer(props: Props) {
             </button>
           ))}
         </div>
+        )}
       </MobileSheet>
       <MobileSheet
         open={props.panel === "actions"}
@@ -618,14 +710,12 @@ export function MobileComposer(props: Props) {
         side="top"
         onClose={close}
       >
+        {() => <>
         <button
           type="button"
           className="mobile-sheet-row"
-          disabled={props.disabled}
-          onClick={() => {
-            close();
-            photos.current?.click();
-          }}
+          disabled={props.disabled || props.readingAttachments}
+          onClick={() => openFilePicker(photos.current)}
         >
           <ImagePlus size={22} />
           <span>{t("Upload photos")}</span>
@@ -633,11 +723,8 @@ export function MobileComposer(props: Props) {
         <button
           type="button"
           className="mobile-sheet-row"
-          disabled={props.disabled}
-          onClick={() => {
-            close();
-            files.current?.click();
-          }}
+          disabled={props.disabled || props.readingAttachments}
+          onClick={() => openFilePicker(files.current)}
         >
           <FilePlus size={22} />
           <span>{t("Upload files")}</span>
@@ -672,6 +759,7 @@ export function MobileComposer(props: Props) {
               active={skillActive} id={skillListId} onPick={pickSkill} onActive={setSkillActive} onRetry={() => void skillsState.reload(true)} />
           </div>
         </>}
+        </>}
       </MobileSheet>
       <MobileSheet
         open={props.panel === "projects" && !props.lockedAgent}
@@ -683,6 +771,7 @@ export function MobileComposer(props: Props) {
         side="top"
         onClose={close}
       >
+        {() => (
         <div
           className="mobile-project-options"
           role="radiogroup"
@@ -711,6 +800,7 @@ export function MobileComposer(props: Props) {
             </button>
           ))}
         </div>
+        )}
       </MobileSheet>
     </>
   );

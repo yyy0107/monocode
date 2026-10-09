@@ -136,6 +136,23 @@ export type AssistantView = {
   backlog?: boolean;
   /** Resident memory version; absent on Hosts without assistant memory. */
   memory?: { revision: number; lines: number };
+  /** Playbook version and count; absent on Hosts without playbooks. */
+  playbooks?: { revision: number; count: number };
+};
+/** A procedure the assistant keeps, in SKILL.md form. */
+export type AssistantPlaybook = {
+  name: string;
+  /** When to use it. */
+  description: string;
+  updated: string;
+  /** Date of the last run that followed it successfully. */
+  verified?: string;
+  body: string;
+};
+/** Playbooks as `assistant.playbooks` returns them. */
+export type AssistantPlaybooks = {
+  revision: number;
+  playbooks: AssistantPlaybook[];
 };
 /** Resident memory as `assistant.memory` returns it. */
 export type AssistantMemory = {

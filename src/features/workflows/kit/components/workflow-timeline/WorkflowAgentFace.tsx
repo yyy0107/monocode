@@ -1,4 +1,5 @@
 import { faceState } from "./workflow-face-motion.js";
+import { usePauseOffscreenAnimation } from "../../../../../shared/hooks/usePauseOffscreenAnimation";
 export { faceState } from "./workflow-face-motion.js";
 import {
   MASCOT_GRID,
@@ -66,8 +67,10 @@ export function WorkflowAgentFace({
   const state = faceState(status);
   const mascot = agentMascot(avatarIndex, name);
   const active = state === "scanning";
+  const pauseOffscreen = usePauseOffscreenAnimation<SVGSVGElement>();
   return (
     <svg
+      ref={active ? pauseOffscreen : undefined}
       aria-hidden
       className={cn(
         "wf-mascot overflow-visible",

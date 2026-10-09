@@ -1,3 +1,4 @@
+import { selectComposerConfiguration, sessionComposerConfiguration } from "../features/sessions/model/composerConfiguration";
 import { DesktopAssistantButton } from "../features/assistant/ui/DesktopAssistantButton";
 import { translate } from "../shared/i18n/language";
 import {
@@ -876,6 +877,7 @@ function withHarnessChoice(
 ): Session {
   return {
     ...session,
+    pendingConfiguration: undefined,
     harness,
     model,
     modelSettings,
@@ -6227,12 +6229,11 @@ function Workspace({
       if (isPreparingHandoff(current)) return;
       const resolved = resolveModel(harness, model);
       saveRecentModelChoice(resolved.harness, resolved.id);
-      if (current.modelSettings) {
-        saveLastModelSettings(current.modelSettings, "fill");
-      }
+      const configuration = sessionComposerConfiguration(current);
+      saveLastModelSettings(configuration.modelSettings, "fill");
       const modelSettings = preferredModelSettings(
         resolved,
-        current.modelSettings,
+        configuration.modelSettings,
       );
       const plan = planComposerSwitch(current, harness);
       if (plan.kind === "empty") {
@@ -6241,8 +6242,13 @@ function Workspace({
       setSessions((prev) =>
         prev.map((s) => {
           if (s.id !== sessionId) return s;
+          const selected = selectComposerConfiguration(s, {
+            harness, model: resolved.id, modelSettings,
+            runtimeMode: configuration.runtimeMode,
+          });
+          if (selected.pendingConfiguration) return selected;
           const next = withHarnessChoice(
-            s,
+            { ...s, runtimeMode: configuration.runtimeMode },
             harness,
             resolved.id,
             modelSettings,
@@ -6276,7 +6282,9 @@ function Workspace({
     (sessionId: string, modelSettings: Record<string, string>) => {
       saveLastModelSettings(modelSettings);
       setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, modelSettings } : s)),
+        prev.map((s) => s.id === sessionId
+          ? selectComposerConfiguration(s, { ...sessionComposerConfiguration(s), modelSettings })
+          : s),
       );
     },
     [],
@@ -6285,7 +6293,9 @@ function Workspace({
   const onRuntimeModeChange = useCallback(
     (sessionId: string, runtimeMode: RuntimeMode) => {
       setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, runtimeMode } : s)),
+        prev.map((s) => s.id === sessionId
+          ? selectComposerConfiguration(s, { ...sessionComposerConfiguration(s), runtimeMode })
+          : s),
       );
     },
     [],
@@ -6443,6 +6453,7 @@ function Workspace({
         storedCurrent &&
         (storedCurrent.busy ||
           storedCurrent.pendingSwitch ||
+          storedCurrent.pendingConfiguration ||
           isPreparingHandoff(storedCurrent))
       )
         return false;
@@ -6471,8 +6482,12 @@ function Workspace({
             ),
           }
         : storedCurrent;
-      let current = options?.buildTarget
-        ? withPlanBuildTarget(draftCleared, options.buildTarget)
+      const turnTarget = options?.buildTarget ?? draftCleared.pendingConfiguration;
+      let current = turnTarget
+        ? withPlanBuildTarget({
+            ...draftCleared,
+            runtimeMode: draftCleared.pendingConfiguration?.runtimeMode ?? draftCleared.runtimeMode,
+          }, turnTarget)
         : draftCleared;
       const editedResend = options?.resendEdited
         ? createEditedResendAttempt(current, options.onResendRejected)
@@ -6855,8 +6870,8 @@ function Workspace({
                   ),
                 }
               : s;
-            const selected = options?.buildTarget
-              ? withPlanBuildTarget(draftRemoved, options.buildTarget)
+            const selected = turnTarget
+              ? withPlanBuildTarget({ ...draftRemoved, runtimeMode: current.runtimeMode }, turnTarget)
               : draftRemoved;
             const titled = isFirstTurn ? titleSeed : selected.title;
             let next: Session = {

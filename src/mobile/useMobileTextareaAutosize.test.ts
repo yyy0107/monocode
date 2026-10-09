@@ -8,7 +8,7 @@ import { installKeyboardMotion, KEYBOARD_EVENT } from "./keyboardMotion";
 
 let root: Root;
 let node: HTMLDivElement;
-const observers: { notify: () => void; disconnect: ReturnType<typeof vi.fn> }[] = [];
+const observers: { notify: (contentWidth?: number) => void; disconnect: ReturnType<typeof vi.fn> }[] = [];
 let width = 320;
 function Field({ value }: { value: string }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -33,7 +33,9 @@ beforeEach(() => {
   });
   vi.spyOn(globalThis, "ResizeObserver").mockImplementation(function (callback) {
     const observer = {
-      notify: () => callback([], {} as ResizeObserver),
+      notify: (contentWidth?: number) => callback(contentWidth === undefined ? [] : [
+        { contentRect: { width: contentWidth } } as ResizeObserverEntry,
+      ], {} as ResizeObserver),
       disconnect: vi.fn(), observe: vi.fn(), unobserve: vi.fn(),
     };
     observers.push(observer);
@@ -62,7 +64,10 @@ it("grows and shrinks using one measuring node without resetting focus or rebuil
   expect(field.style.height).toBe("28px");
   expect(clone).toHaveBeenCalledTimes(1);
   expect(observers).toHaveLength(1);
-  expect(node.querySelectorAll("textarea")).toHaveLength(1);
+  expect(node.querySelectorAll("textarea:not([data-autosize-measure])")).toHaveLength(1);
+  const mirror = node.querySelector<HTMLTextAreaElement>("[data-autosize-measure]")!;
+  expect(mirror.inert).toBe(true);
+  expect(mirror.getAttribute("aria-hidden")).toBe("true");
   expect(field.style.height).not.toBe("0px");
 });
 
@@ -84,6 +89,71 @@ it("ignores height-only observations, rewraps width changes and suspends while t
   render("A changed draft while hidden");
   expect(observers).toHaveLength(2);
   expect(field.style.height).toBe("120px");
+});
+
+it("clears a capped draft without measuring layout and can immediately restore the same text", () => {
+  const reads = vi.spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get").mockReturnValue(1200);
+  const widths = vi.spyOn(HTMLTextAreaElement.prototype, "clientWidth", "get");
+  const draft = "A long draft\n".repeat(100);
+  const field = render(draft);
+  expect(field.style.height).toBe("168px");
+  act(() => field.focus());
+  field.scrollTop = 1032;
+  field.setSelectionRange(0, draft.length);
+  // Mirror the browser's select-all/delete before React commits the value.
+  field.value = "";
+  field.setSelectionRange(0, 0);
+  reads.mockClear();
+  widths.mockClear();
+  render("");
+  expect(field.style.height).toBe("28px");
+  expect(document.activeElement).toBe(field);
+  expect(field.selectionStart).toBe(0);
+  expect(reads).not.toHaveBeenCalled();
+  expect(widths).not.toHaveBeenCalled();
+  render(draft);
+  expect(field.style.height).toBe("168px");
+  expect(reads).toHaveBeenCalledOnce();
+});
+
+it("uses observed widths without synchronous reads during height animations", () => {
+  const reads = vi.spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get");
+  const widths = vi.spyOn(HTMLTextAreaElement.prototype, "clientWidth", "get");
+  const field = render("A multiline draft to measure");
+  act(() => observers[0].notify(320));
+  reads.mockClear();
+  widths.mockClear();
+  for (let frame = 0; frame < 12; frame++) act(() => observers[0].notify(320));
+  expect(reads).not.toHaveBeenCalled();
+  expect(widths).not.toHaveBeenCalled();
+  width = 240;
+  act(() => observers[0].notify(240));
+  expect(field.style.height).toBe("120px");
+  expect(reads).toHaveBeenCalledOnce();
+});
+
+it("reuses the attached mirror and cached width across edits, but rewraps after viewport resizing", () => {
+  const widths = vi.spyOn(HTMLTextAreaElement.prototype, "clientWidth", "get");
+  const field = render("A multiline draft to measure");
+  act(() => observers[0].notify(320));
+  const mirror = node.querySelector<HTMLTextAreaElement>("[data-autosize-measure]")!;
+  const insert = vi.spyOn(field, "after");
+  const remove = vi.spyOn(mirror, "remove");
+  widths.mockClear();
+  render("An edited multiline draft");
+  render("");
+  render("The next multiline draft");
+  expect(widths).not.toHaveBeenCalled();
+  expect(insert).not.toHaveBeenCalled();
+  expect(remove).not.toHaveBeenCalled();
+  expect(node.querySelector("[data-autosize-measure]")).toBe(mirror);
+  expect(mirror.value).toBe("The next multiline draft");
+  width = 240;
+  act(() => window.dispatchEvent(new Event("resize")));
+  expect(field.style.height).toBe("120px");
+  expect(mirror.style.width).toBe("240px");
+  render("The next multiline draft", false);
+  expect(mirror.isConnected).toBe(false);
 });
 
 it("reuses wrapping measurements when the keyboard changes the height limit", () => {

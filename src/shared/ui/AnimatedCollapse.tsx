@@ -158,9 +158,7 @@ export function AnimatedCollapse({
     // A display:none ancestor (e.g. the closed sidebar) reports zero height.
     // That is not a content change; folding to it would replay on reopening.
     const rendered = () => content.getClientRects().length > 0;
-    const retarget = () => {
-      if (expanded && !rendered()) return;
-      const nextHeight = expanded ? content.getBoundingClientRect().height : 0;
+    const retarget = (nextHeight: number) => {
       if (
         settled &&
         (reducedMotionQuery().matches ||
@@ -212,13 +210,12 @@ export function AnimatedCollapse({
       // Late content gets a complete transition, not the last few milliseconds.
       if (!settled && animateContentResize) restart(remaining);
       animation.onfinish = () => {
-        if (
-          expanded &&
-          rendered() &&
-          content.getBoundingClientRect().height !== targetHeight
-        ) {
-          retarget();
-          return;
+        if (expanded && rendered()) {
+          const nextHeight = content.getBoundingClientRect().height;
+          if (nextHeight !== targetHeight) {
+            retarget(nextHeight);
+            return;
+          }
         }
         if (settled) {
           visibleHeight.current = targetHeight;
@@ -226,25 +223,61 @@ export function AnimatedCollapse({
         } else finish();
       };
     };
-    retarget();
+    const remeasure = () => {
+      if (expanded && !rendered()) return;
+      retarget(expanded ? content.getBoundingClientRect().height : 0);
+    };
+    remeasure();
     // React's DOM changes arrive before layout/ResizeObserver delivery. Freeze
     // late content here so it cannot flash or feed back through layout observers.
     const mutations =
       expanded &&
       animateContentResize &&
       typeof MutationObserver !== "undefined"
-        ? new MutationObserver(retarget)
+        ? new MutationObserver(remeasure)
         : undefined;
     mutations?.observe(content, {
       childList: true,
       characterData: true,
       subtree: true,
     });
+    const contentStyle = getComputedStyle(content);
     const observer =
       expanded && typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(retarget)
+        ? new ResizeObserver((entries) => {
+            const entry = entries?.find((entry) => entry.target === content);
+            // Older observers may expose one object instead of an array. A
+            // fragmented box cannot describe the full physical height reliably.
+            const sizes = entry?.borderBoxSize as
+              readonly ResizeObserverSize[] | ResizeObserverSize | undefined;
+            const size =
+              sizes &&
+              ("blockSize" in sizes
+                ? sizes
+                : sizes.length === 1
+                  ? sizes[0]
+                  : undefined);
+            const height =
+              size &&
+              (/^(vertical|sideways)-/.test(contentStyle.writingMode)
+                ? size.inlineSize
+                : size.blockSize);
+            if (
+              height === undefined ||
+              !Number.isFinite(height) ||
+              height < 0
+            ) {
+              remeasure();
+              return;
+            }
+            // Positive delivered sizes already imply a rendered box. Only an
+            // actual change to zero needs the hidden-ancestor check; duplicate
+            // reports can return without forcing any geometry measurement.
+            if (height === 0 && height !== targetHeight && !rendered()) return;
+            retarget(height);
+          })
         : undefined;
-    observer?.observe(content);
+    observer?.observe(content, { box: "border-box" });
     return () => {
       mutations?.disconnect();
       observer?.disconnect();

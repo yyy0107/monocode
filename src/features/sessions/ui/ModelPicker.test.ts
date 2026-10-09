@@ -517,6 +517,9 @@ describe("model picker", () => {
       ),
     ).toEqual(["OpenAI"]);
     expect(container.querySelectorAll('[role="option"]')).toHaveLength(2);
+    expect(container.querySelector(".model-picker-group-label")?.textContent).toBe(
+      "OpenAI",
+    );
   });
 
   it.each([PI_FLAVOR, OMP_FLAVOR])(

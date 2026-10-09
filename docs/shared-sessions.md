@@ -119,6 +119,19 @@ operation cards and necessary questions/approvals. Cards navigate to an exact
 conversation; orchestration workers remain read-only. Each Host's chat and drafts
 are independent. Missing capabilities display an upgrade notice.
 
+The assistant can save reusable procedures with `playbooks.save` and inspect
+exact names with `playbooks.list` / `playbooks.read`. To assign them to an agent,
+`sessions.send` accepts `playbooks: "release"` or an ordered list such as
+`playbooks: ["release", "verify"]`, alongside the task `text`. The same field is
+supported by `sessions.steer`, queue edits (`sessions.queue`, `action: "edit"`),
+and `orchestration.worker` actions `message`, `steer` and `retry` (outside the
+nested `input`). Selection applies to that message, not to the session forever.
+The Host resolves names, deduplicates them in order and includes the complete
+procedures in the persisted task text. Unknown names and oversized combined
+messages fail rather than silently omitting steps. Later playbook edits or
+deletions do not change accepted/queued messages; normal project permissions,
+queue revocation and stable request-ID replay still apply.
+
 **Pause** stops the assistant's current brain rather than delegated conversations.
 **Continue** explicitly resumes interrupted reasoning and inspects durable action
 receipts. Changing the brain's provider creates a separate native conversation

@@ -39,7 +39,8 @@ export function useMobileTextareaAutosize(
       whiteSpace: "pre-wrap", overflow: "hidden",
     });
     let previous = "";
-    let width = source.clientWidth;
+    let width: number | undefined;
+    let availableWidth: number | undefined;
     let naturalHeight = minHeight;
     const applyHeight = () => {
       const cap = viewportHeightRatio === undefined
@@ -47,36 +48,55 @@ export function useMobileTextareaAutosize(
       const height = `${Math.max(minHeight, Math.min(naturalHeight, cap))}px`;
       if (element.style.height !== height) element.style.height = height;
     };
-    const resize = () => {
-      const availableWidth = Math.max(0, widthReader.current?.() ?? element.clientWidth);
+    const resize = (widthChanged = false) => {
+      if (widthChanged) availableWidth = undefined;
+      // Clearing a capped, internally scrolled draft already has a known
+      // target. Do not flush layout twice (width + hidden measurement) before
+      // the browser can start shrinking the focused field.
+      if (!element.value) {
+        previous = "";
+        measure.value = "";
+        naturalHeight = minHeight;
+        applyHeight();
+        return;
+      }
+      // Width stays fixed while typing, including during height transitions.
+      // Read it only on mount or an actual width/viewport change.
+      availableWidth ??= Math.max(0, widthReader.current?.() ?? element.clientWidth);
       const key = `${availableWidth}\0${element.value}`;
       if (key !== previous) {
         previous = key;
         measure.value = element.value;
-        measure.style.width = `${availableWidth}px`;
-        element.after(measure);
+        const measureWidth = `${availableWidth}px`;
+        if (measure.style.width !== measureWidth) measure.style.width = measureWidth;
+        // Keep the inert mirror attached: inserting/removing it on every key
+        // invalidates the composer and wakes the shell's mutation observers.
+        if (!measure.isConnected) element.after(measure);
         naturalHeight = measure.scrollHeight;
-        measure.remove();
       }
       applyHeight();
     };
     resizeRef.current = resize;
     resize();
-    const observer = new ResizeObserver(() => {
-      const next = source.clientWidth;
-      if (Math.abs(next - width) < 0.5) return;
+    const observer = new ResizeObserver((entries) => {
+      // The dock observer has just published transcript padding. A fresh
+      // clientWidth read here would synchronously lay that transcript out
+      // again on every height-animation frame. Use the delivered geometry.
+      const next = entries[0]?.contentRect.width ?? source.clientWidth;
+      if (width !== undefined && Math.abs(next - width) < 0.5) return;
       width = next;
-      resize();
+      resize(true);
     });
     observer.observe(source);
-    window.addEventListener("resize", resize);
+    const viewportResize = () => resize(true);
+    window.addEventListener("resize", viewportResize);
     // A keyboard event changes the height limit, not wrapping. Reuse the last
     // measurement instead of forcing layout after the shell's motion writes.
     const unsubscribe = onKeyboardMotion(applyHeight);
     return () => {
       resizeRef.current = undefined;
       observer.disconnect();
-      window.removeEventListener("resize", resize);
+      window.removeEventListener("resize", viewportResize);
       unsubscribe();
       measure.remove();
     };

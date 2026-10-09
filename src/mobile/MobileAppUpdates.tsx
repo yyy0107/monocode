@@ -14,6 +14,10 @@ import {
   type MobileUpdate,
 } from "./updates";
 
+// Keep the loading indicator and duplicate-action guard active together.
+const minimumLoading = () =>
+  new Promise<void>((resolve) => setTimeout(resolve, 2_000));
+
 export function useMobileAppUpdates() {
   const [installed, setInstalled] = useState<InstalledBuild>();
   const [latest, setLatest] = useState<MobileUpdate>();
@@ -30,6 +34,7 @@ export function useMobileAppUpdates() {
   const check = useCallback(async () => {
     if (busy.current || ios) return;
     busy.current = true;
+    const loading = minimumLoading();
     setChecking(true);
     setError("");
     try {
@@ -43,6 +48,7 @@ export function useMobileAppUpdates() {
           problem instanceof Error ? problem.message : "Update check failed.",
         );
     } finally {
+      await loading;
       busy.current = false;
       if (live.current) setChecking(false);
     }
@@ -64,17 +70,18 @@ export function useMobileAppUpdates() {
 
   const install = async () => {
     if (!latest || installing || !available || busy.current) return;
+    busy.current = true;
+    const loading = minimumLoading();
     setError("");
     setNotice("");
-    if (Capacitor.getPlatform() !== "android") {
-      window.location.assign(`${updateBaseUrl}${latest.downloadPath}`);
-      return;
-    }
     setInstalling(true);
     setProgress(0);
-    busy.current = true;
     let listener;
     try {
+      if (Capacitor.getPlatform() !== "android") {
+        window.location.assign(`${updateBaseUrl}${latest.downloadPath}`);
+        return;
+      }
       const permission = await Updates.installPermission({ request: true });
       if (!permission.allowed) {
         setNotice(
@@ -103,9 +110,13 @@ export function useMobileAppUpdates() {
             : "Update installation failed.",
         );
     } finally {
-      await listener?.remove();
-      busy.current = false;
-      if (live.current) setInstalling(false);
+      try {
+        await listener?.remove();
+      } finally {
+        await loading;
+        busy.current = false;
+        if (live.current) setInstalling(false);
+      }
     }
   };
 
@@ -188,6 +199,7 @@ export function MobileAppUpdates({
             <button
               className="mobile-button"
               disabled={checking || installing}
+              aria-busy={checking}
               onClick={() => void check()}
             >
               <MobileSwap swapKey={checking ? "busy" : "idle"}>
@@ -203,10 +215,15 @@ export function MobileAppUpdates({
               <button
                 className="mobile-button mobile-primary"
                 disabled={installing || checking}
+                aria-busy={installing}
                 onClick={() => void install()}
               >
                 <MobileSwap swapKey={installing ? "busy" : "idle"}>
-                  <ArrowDownCircle size={16} />
+                  {installing ? (
+                    <LoaderCircle size={16} className="mobile-spin" />
+                  ) : (
+                    <ArrowDownCircle size={16} />
+                  )}
                   {installing
                     ? t("Downloading… {percent}%", { percent: progress })
                     : t("Download and install")}

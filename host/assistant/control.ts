@@ -26,6 +26,14 @@ import {
   object,
   workspacePermission,
 } from "./policy";
+import { searchChat } from "./chatSearch";
+import {
+  MAX_PLAYBOOKS,
+  PLAYBOOK_PREFIX,
+  assignedPlaybookPrompt,
+  playbookDocument,
+  playbookName,
+} from "./playbooks";
 import { WorkspaceCommands } from "../workspace-commands";
 import { hostWorktrees } from "../git-worktrees";
 import { summary } from "../store";
@@ -81,6 +89,11 @@ export const ASSISTANT_ACTIONS = [
   "memory.add",
   "memory.replace",
   "memory.remove",
+  "chat.search",
+  "playbooks.list",
+  "playbooks.read",
+  "playbooks.save",
+  "playbooks.delete",
   "habits.list",
   "habits.create",
   "habits.update",
@@ -103,8 +116,8 @@ const aliases: Record<string, string> = {
 };
 const mutationFields: Record<string, string[]> = {
   "sessions.create": ["harness", "model", "modelSettings", "runtimeMode"],
-  "sessions.send": ["text", "attachments", "intent"],
-  "sessions.steer": ["text", "runId"],
+  "sessions.send": ["text", "attachments", "intent", "playbooks"],
+  "sessions.steer": ["text", "runId", "playbooks"],
   "sessions.configure": ["model", "modelSettings", "runtimeMode"],
   "sessions.compact": [],
   "sessions.cancel": ["runId"],
@@ -117,6 +130,7 @@ const mutationFields: Record<string, string[]> = {
     "text",
     "editor",
     "runId",
+    "playbooks",
   ],
   "sessions.update": ["title", "archived", "pinned", "linkedWorkItem"],
   "sessions.delete": [],
@@ -134,6 +148,7 @@ const mutationFields: Record<string, string[]> = {
     "orchestrationId",
     "action",
     "input",
+    "playbooks",
   ],
 };
 const inRoot = (path: string, root: string) => {
@@ -469,6 +484,74 @@ function memoryAction(
     },
   );
 }
+/** Procedures the assistant keeps, governed like memory by assistant control. */
+function playbookAction(
+  assistant: HostAssistant,
+  requestId: string,
+  action: string,
+  input: Record<string, unknown>,
+): unknown {
+  const store = assistant.store,
+    config = store.get()!;
+  if (action === "playbooks.list") {
+    fields(input, []);
+    return store.playbooks().map(({ body: _body, ...summary }) => summary);
+  }
+  if (action === "playbooks.read") {
+    fields(input, ["name"]);
+    const name = playbookName(input.name);
+    const found = store.playbooks().find((p) => p.name === name);
+    if (!found) throw new Error("No playbook with that name");
+    return found;
+  }
+  const sig = signature({ action, input, assistantId: config.id });
+  const replay = replayed(assistant, requestId, sig);
+  if (replay) return replay.result;
+  const today = memoryDate(new Date(), config.timezone ?? "UTC");
+  let text: string, name: string, result: Record<string, unknown>;
+  if (action === "playbooks.save") {
+    fields(input, ["name", "description", "body", "verified"]);
+    name = playbookName(input.name);
+    const existing = store.playbooks();
+    const previous = existing.find((p) => p.name === name);
+    if (!previous && existing.length >= MAX_PLAYBOOKS)
+      throw new Error("Too many playbooks; merge or delete old ones first");
+    if (input.verified !== undefined && typeof input.verified !== "boolean")
+      throw new Error("verified must be true or false");
+    text = playbookDocument(
+      {
+        name,
+        description: input.description,
+        body: input.body,
+        verified: input.verified as boolean | undefined,
+      },
+      previous,
+      today,
+    );
+    result = { name, created: !previous };
+  } else if (action === "playbooks.delete") {
+    fields(input, ["name"]);
+    name = playbookName(input.name);
+    text = "";
+    result = { deleted: store.playbooks().some((p) => p.name === name) };
+  } else throw new Error("Unsupported assistant action");
+  return recordOwnAction(
+    assistant,
+    requestId,
+    sig,
+    action,
+    Object.fromEntries(
+      Object.entries(input).map(([key, value]) => [
+        key,
+        typeof value === "string" ? redactSecrets(value) : value,
+      ]),
+    ),
+    result,
+    () => {
+      store.writeMemoryDoc(`${PLAYBOOK_PREFIX}${name}`, text);
+    },
+  );
+}
 /**
  * Recurring calendar tasks the assistant keeps for the user, governed like
  * reminders by the scheduled-check trigger.
@@ -560,6 +643,33 @@ export async function executeAssistantAction(
   } else if (action.startsWith("memory.")) {
     if (!authorized()) throw new Error("Assistant control was revoked");
     return memoryAction(assistant, requestId, action, input);
+  } else if (action === "chat.search") {
+    if (!authorized()) throw new Error("Assistant control was revoked");
+    fields(input, ["query", "since", "limit"]);
+    const timeZone = store.get()!.timezone ?? "UTC";
+    const limit = input.limit === undefined ? 20 : Number(input.limit);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50)
+      throw new Error("limit must be between 1 and 50");
+    return searchChat(
+      store.latestMessages(),
+      input.query === undefined ? "" : id(input.query, "query", 500),
+      {
+        timeZone,
+        limit,
+        ...(input.since === undefined
+          ? {}
+          : {
+              since: sinceDate(
+                id(input.since, "since", 20),
+                new Date(),
+                timeZone,
+              ),
+            }),
+      },
+    );
+  } else if (action.startsWith("playbooks.")) {
+    if (!authorized()) throw new Error("Assistant control was revoked");
+    return playbookAction(assistant, requestId, action, input);
   } else if (action.startsWith("habits.")) {
     if (!authorized()) throw new Error("Assistant control was revoked");
     return habitAction(assistant, requestId, action, input);
@@ -876,12 +986,27 @@ export async function executeAssistantAction(
       const params = object(input.input ?? {});
       if ("taskId" in params && params.taskId !== input.taskId)
         throw new Error("Worker identity mismatch");
+      if (
+        input.playbooks !== undefined &&
+        !["message", "steer", "retry"].includes(workerAction)
+      )
+        throw new Error("Only worker message, steer and retry accept playbooks");
+      const workerInput =
+        input.playbooks === undefined
+          ? params
+          : {
+              ...params,
+              // Worker text has a smaller scheduler limit than session sends.
+              text: assignedPlaybookPrompt(
+                params.text, input.playbooks, store.playbooks(), 30_000,
+              ),
+            };
       external = true;
       result = await engine.orchestration.scheduler.handle(
         lead.session.id,
         `assistant:${record.id}`,
         workerAction,
-        { ...params, ...(input.taskId ? { taskId: input.taskId } : {}) },
+        { ...workerInput, ...(input.taskId ? { taskId: input.taskId } : {}) },
         () => {
           try {
             requireAccess();
@@ -905,11 +1030,16 @@ export async function executeAssistantAction(
       }
     } else if (action === "sessions.steer") {
       if (!session) throw new Error("Choose a session");
+      const text = id(input.text, "message", 1000000);
+      const prompt =
+        input.playbooks === undefined
+          ? text
+          : assignedPlaybookPrompt(text, input.playbooks, store.playbooks());
       external = true;
       result = await engine.assistantSteer(
         session.session.id,
         id(input.runId),
-        id(input.text, "message", 1000000),
+        prompt,
         record.origin,
         authorized,
       );
@@ -919,8 +1049,19 @@ export async function executeAssistantAction(
         action === "orchestration.command"
           ? "orchestration"
           : action.slice("sessions.".length);
+      const { playbooks, ...commandInput } = input;
+      if (playbooks !== undefined) {
+        if (
+          action !== "sessions.send" &&
+          !(action === "sessions.queue" && input.action === "edit")
+        )
+          throw new Error("Only sends and queue edits accept playbooks");
+        commandInput.text = assignedPlaybookPrompt(
+          input.text, playbooks, store.playbooks(),
+        );
+      }
       const command = {
-        ...input,
+        ...commandInput,
         type,
         commandId: `assistant:${record.id}`,
       } as unknown as HostCommand;

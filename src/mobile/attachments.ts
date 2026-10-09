@@ -1,3 +1,4 @@
+import { createAttachmentThumbnail } from "../features/sessions/model/attachmentThumbnails";
 import type { Attachment } from "../features/sessions/model/session";
 
 export const MOBILE_ATTACHMENT_LIMIT = 20;
@@ -58,7 +59,11 @@ export async function readMobileAttachments(
   for (const file of files) {
     const data = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+      // Slicing shares the encoded photo instead of copying it like split().
+      reader.onload = () => {
+        const result = String(reader.result);
+        resolve(result.slice(result.indexOf(",") + 1));
+      };
       reader.onerror = () =>
         reject(new Error("Unable to read the selected file."));
       reader.onabort = () =>
@@ -66,8 +71,11 @@ export async function readMobileAttachments(
       reader.readAsDataURL(file);
     });
     const mimeType = file.type || "application/octet-stream";
+    const id = crypto.randomUUID();
+    // The chip mounts with a small thumbnail instead of decoding the full photo.
+    if (mimeType.startsWith("image/")) await createAttachmentThumbnail(id, file);
     output.push({
-      id: crypto.randomUUID(),
+      id,
       name: file.name,
       size: file.size,
       mimeType,

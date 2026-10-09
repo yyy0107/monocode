@@ -9,8 +9,8 @@ import type { GitFileDiff } from "../platform/tauri/fs";
 import { useColorScheme } from "../shared/hooks/useColorScheme";
 import { useTranslation } from "../shared/i18n/useTranslation";
 
-/** A continuous, wrapping diff in the file list, with no nested editor viewport. */
-export function MobileGitDiff({ diff }: { diff: GitFileDiff }) {
+/** An inline diff with horizontal code scrolling and a fixed line-number gutter. */
+export function MobileGitDiff({ diff, wrap }: { diff: GitFileDiff; wrap: boolean }) {
   const { t } = useTranslation();
   const themeType = useColorScheme();
   const prepared = useMemo(
@@ -31,7 +31,7 @@ export function MobileGitDiff({ diff }: { diff: GitFileDiff }) {
       diffStyle: "unified",
       diffIndicators: "bars",
       disableFileHeader: true,
-      overflow: "wrap",
+      overflow: wrap ? "wrap" : "scroll",
       hunkSeparators: fileDiff?.isPartial ? "simple" : "line-info",
       lineDiffType: "word-alt",
       maxLineDiffLength: 1000,
@@ -41,8 +41,9 @@ export function MobileGitDiff({ diff }: { diff: GitFileDiff }) {
       preferredHighlighter: "shiki-wasm",
       unsafeCSS: `
       :host { border: 0; border-radius: 0; }
-      [data-code] { touch-action: pan-y; }
-      [data-line] { overflow-wrap: anywhere; }
+      [data-code] { touch-action: pan-x pan-y pinch-zoom; }
+      [data-column-number] { padding-inline-start: 6px; }
+      [data-overflow="wrap"] [data-line] { overflow-wrap: anywhere; }
       [data-line][data-line-type="change-addition"] {
         background-color: var(--mobile-diff-addition, var(--diffs-line-bg));
       }
@@ -78,7 +79,7 @@ export function MobileGitDiff({ diff }: { diff: GitFileDiff }) {
         }
       },
     }),
-    [themeType, fileDiff?.isPartial, t],
+    [themeType, fileDiff?.isPartial, t, wrap],
   );
 
   if (prepared.binary)

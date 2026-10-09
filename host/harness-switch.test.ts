@@ -131,6 +131,15 @@ describe("Host cross-harness handoff", () => {
       const brief = buildDeterministicHandoff(before);
       const receipt = configure(target);
       expect(configure(target)).toEqual(receipt);
+      const selected = store.session(id);
+      expect(selected.session).toEqual({ ...before, pendingConfiguration: {
+        harness: target, model: `${target}:new`,
+        modelSettings: { reasoningEffort: "high" }, runtimeMode: "full-access",
+      } });
+      expect(selected.nativeBinding).toBeDefined();
+      expect(providers[source]!.stop).not.toHaveBeenCalled();
+      expect(pendingHandoff(selected.session)).toBeNull();
+      send("Finish keyboard navigation");
       const switched = store.session(id);
       expect(switched.session).toMatchObject({
         id, title: "Existing work", harness: target, model: `${target}:new`,
@@ -149,7 +158,7 @@ describe("Host cross-harness handoff", () => {
       expect(switched.nativeStatus).toBeUndefined();
       expect(pendingHandoff(switched.session)).toEqual({ from: source, to: target, text: brief });
       expect(switched.session.blocks.filter(block => block.role === "handoff")).toHaveLength(1);
-      send("Finish keyboard navigation");
+      expect(switched.session.pendingConfiguration).toBeUndefined();
       await vi.waitFor(() => expect(turns[target]).toHaveLength(1));
       expect(providers[source]!.stop).toHaveBeenCalledOnce();
       expect(providers[target]!.bind).not.toHaveBeenCalled();
@@ -171,7 +180,7 @@ describe("Host cross-harness handoff", () => {
   );
 
   it.each(["native", "manual"] as const)("preserves %s title ownership when switching agents", async (source) => {
-    const { store, id, configure, seedHistory } = await setup();
+    const { store, id, configure, seedHistory, send } = await setup();
     seedHistory();
     const current = store.session(id);
     store.save({ ...current, revision: current.revision + 1, session: {
@@ -179,8 +188,46 @@ describe("Host cross-harness handoff", () => {
       titleState: { source, epoch: 2, purpose: "initial", fallbackAttempted: false },
     } }, { type: "test" });
     configure("pi");
+    expect(store.session(id).session.title).toBe("codex · Keyboard navigation");
+    send("Continue");
     expect(store.session(id).session.title).toBe(source === "manual"
       ? "codex · Keyboard navigation" : "pi · Keyboard navigation");
+  });
+
+  it("retargets and cancels a selection without touching the original conversation", async () => {
+    const { store, providers, turns, id, configure, send, seedHistory } = await setup();
+    const before = seedHistory(true);
+    configure("claude");
+    configure("omp", "retarget");
+    expect(store.session(id).session).toEqual({ ...before, pendingConfiguration: {
+      harness: "omp", model: "omp:new", modelSettings: { reasoningEffort: "high" }, runtimeMode: "full-access",
+    } });
+    configure("codex", "revert");
+    expect(store.session(id).session).toMatchObject({
+      harness: "codex", providerSessionId: before.providerSessionId,
+      providerAccountId: before.providerAccountId, blocks: before.blocks,
+      nativeSession: before.nativeSession, context: before.context,
+    });
+    expect(store.session(id).session.pendingConfiguration).toBeUndefined();
+    for (const provider of Object.values(providers)) expect(provider.stop).not.toHaveBeenCalled();
+    send("Keep going");
+    await vi.waitFor(() => expect(turns.codex).toHaveLength(1));
+    expect(turns.codex![0].input.text).toBe("Keep going");
+    expect(pendingHandoff(store.session(id).session)).toBeNull();
+  });
+
+  it("keeps the selection pending when the send is rejected", async () => {
+    const { engine, store, providers, id, configure, seedHistory } = await setup();
+    const before = seedHistory();
+    configure("claude");
+    expect(() => engine.command({ type: "send", commandId: "invalid-send", sessionId: id,
+      text: "Continue", draftBlockId: "missing-draft" })).toThrow("Draft not found");
+    expect(store.session(id).session).toMatchObject({
+      harness: "codex", providerSessionId: before.providerSessionId, blocks: before.blocks,
+      pendingConfiguration: { harness: "claude" },
+    });
+    expect(providers.codex!.stop).not.toHaveBeenCalled();
+    expect(providers.claude!.send).not.toHaveBeenCalled();
   });
 
   it("changes an empty session without fabricating a handoff", async () => {
@@ -222,13 +269,13 @@ describe("Host cross-harness handoff", () => {
       },
     }, { type: "test.oldSkill" });
     configure("claude");
-    const handoff = pendingHandoff(store.session(id).session)!;
-    expect(handoff.text).toContain("/skill old-layout");
     const request = "/skill keyboard-navigation Finish the settings page";
     const prepared = "Current keyboard-navigation skill instructions\n\n" + request;
     const prepare = vi.spyOn(HostSkills.prototype, "prepare").mockResolvedValue(prepared);
     try {
       send(request);
+      const handoff = pendingHandoff(store.session(id).session)!;
+      expect(handoff.text).toContain("/skill old-layout");
       await vi.waitFor(() => expect(turns.claude).toHaveLength(1));
       expect(prepare).toHaveBeenCalledExactlyOnceWith(
         request,
@@ -251,8 +298,8 @@ describe("Host cross-harness handoff", () => {
       const { engine, store, turns, id, configure, send, seedHistory } = await setup();
       seedHistory();
       configure("claude");
-      const handoff = pendingHandoff(store.session(id).session)!;
       send("Try keyboard navigation");
+      const handoff = pendingHandoff(store.session(id).session)!;
       await vi.waitFor(() => expect(turns.claude).toHaveLength(1));
       const first = turns.claude![0];
       if (outcome === "failed") first.fail(new Error("Delivery failed"));
@@ -278,8 +325,8 @@ describe("Host cross-harness handoff", () => {
     providers[target]!.commands = { rawSlashCommands: true, discover: async () => [] };
     seedHistory();
     configure(target);
-    const handoff = pendingHandoff(store.session(id).session)!;
     send("/reload");
+    const handoff = pendingHandoff(store.session(id).session)!;
     await vi.waitFor(() => expect(turns[target]).toHaveLength(1));
     expect(turns[target]![0].input.text).toBe("/reload");
     turns[target]![0].finish();
@@ -305,8 +352,8 @@ describe("Host cross-harness handoff", () => {
     gates.push(rejectStop);
     providers.codex!.stop = vi.fn().mockImplementationOnce(() => stopped).mockResolvedValue(undefined);
     configure("claude");
-    const handoff = pendingHandoff(store.session(id).session)!;
     send("First attempt");
+    const handoff = pendingHandoff(store.session(id).session)!;
     await vi.waitFor(() => expect(providers.codex!.stop).toHaveBeenCalledOnce());
     expect(providers.claude!.send).not.toHaveBeenCalled();
     rejectStop();
@@ -356,6 +403,9 @@ describe("Host cross-harness handoff", () => {
     release();
     await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
     configure("claude", "after-settlement");
+    expect(store.session(id).session.harness).toBe("codex");
+    expect(store.session(id).session.pendingConfiguration?.harness).toBe("claude");
+    send("Continue with Claude", "after-switch");
     expect(store.session(id).session.harness).toBe("claude");
   });
 });

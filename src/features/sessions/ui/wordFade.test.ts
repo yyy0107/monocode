@@ -3,8 +3,22 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentMarkdown } from "./AgentMarkdown";
-import { revealEnd, WORD_FADE_MS, characterBoundaries } from "./wordFade";
+import {
+  revealEnd,
+  WORD_FADE_MS,
+  characterBoundaries,
+  usePacedText,
+  useWordFading,
+  type TextRevealOptions,
+} from "./wordFade";
 import { TranscriptPlatformContext } from "./TranscriptPlatform";
+import { SurfaceVisibilityContext } from "../../../shared/ui/SurfaceVisibility";
+import {
+  applyReducedMotion,
+  REDUCED_MOTION_CHANGE_EVENT,
+} from "../../../shared/lib/reducedMotion";
+import { TextRevealQueue } from "./textRevealQueue";
+import { AfterTextReveal } from "./useTranscriptRenderingPlatform";
 
 describe("revealEnd", () => {
   it("keeps emoji, combining marks, and flags together for character reveal", () => {
@@ -23,6 +37,297 @@ describe("revealEnd", () => {
 
   it("lets the last word out once the stream has ended", () => {
     expect(revealEnd("Hello the", 7, false)).toBe(9);
+  });
+});
+
+describe("text reveal activity", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let hidden = false;
+
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "requestAnimationFrame",
+        "cancelAnimationFrame",
+        "performance",
+      ],
+    });
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    hidden = false;
+    vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
+    applyReducedMotion("off");
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    applyReducedMotion("system");
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function Probe({
+    id = "reply",
+    text,
+    streaming = true,
+    options = { unit: "character", initialLength: 0 },
+  }: {
+    id?: string;
+    text: string;
+    streaming?: boolean;
+    options?: TextRevealOptions;
+  }) {
+    const paced = usePacedText(text, streaming, options);
+    return createElement(
+      "span",
+      { id, "data-revealing": paced.revealing },
+      paced.text,
+    );
+  }
+
+  function render(text: string, visible = true) {
+    act(() =>
+      root.render(
+        createElement(
+          SurfaceVisibilityContext.Provider,
+          { value: visible },
+          createElement(Probe, { text }),
+        ),
+      ),
+    );
+  }
+
+  function changeDocumentVisibility(value: boolean) {
+    act(() => {
+      hidden = value;
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+  }
+
+  const reply = "一段需要逐字呈现的文本，其中也包含👩‍💻以及额外的文字。";
+
+  it.each(["surface", "document", "reduced motion"])(
+    "catches up when its %s hides and resumes pacing only new text",
+    (kind) => {
+      render(reply);
+      act(() => vi.advanceTimersByTime(100));
+      expect(container.textContent!.length).toBeGreaterThan(0);
+      expect(container.textContent!.length).toBeLessThan(reply.length);
+
+      if (kind === "surface") render(reply, false);
+      else if (kind === "document") changeDocumentVisibility(true);
+      else act(() => applyReducedMotion("on"));
+      expect(container.textContent).toBe(reply);
+      expect(vi.getTimerCount()).toBe(0);
+
+      const receivedWhileHidden = reply + reply;
+      render(receivedWhileHidden, kind !== "surface");
+      expect(container.textContent).toBe(receivedWhileHidden);
+      expect(vi.getTimerCount()).toBe(0);
+
+      if (kind === "surface") render(receivedWhileHidden);
+      else if (kind === "document") changeDocumentVisibility(false);
+      else act(() => applyReducedMotion("off"));
+      expect(container.textContent).toBe(receivedWhileHidden);
+      expect(vi.getTimerCount()).toBe(0);
+
+      render(receivedWhileHidden + reply);
+      expect(container.textContent).toBe(receivedWhileHidden);
+      act(() => vi.advanceTimersByTime(100));
+      expect(container.textContent!.length).toBeGreaterThan(
+        receivedWhileHidden.length,
+      );
+      expect(container.textContent!.length).toBeLessThan(
+        receivedWhileHidden.length + reply.length,
+      );
+    },
+  );
+
+  it("cancels a held incomplete word when the document hides", () => {
+    act(() =>
+      root.render(
+        createElement(Probe, {
+          text: "Hello wor",
+          options: { unit: "word", initialLength: 0 },
+        }),
+      ),
+    );
+    act(() => vi.advanceTimersByTime(112));
+    expect(container.textContent).toBe("Hello ");
+    expect(vi.getTimerCount()).toBe(1);
+    changeDocumentVisibility(true);
+    expect(container.textContent).toBe("Hello wor");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["surface", "document", "reduced motion"])(
+    "finishes queued stream tails on %s suspension and releases AfterTextReveal",
+    (kind) => {
+      const queue = new TextRevealQueue();
+      queue.setOrder(["first", "second"]);
+      const entries = [{ id: "first" }, { id: "second" }];
+      let streaming = true;
+      function renderReplies(visible = true) {
+        act(() =>
+          root.render(
+            createElement(
+              SurfaceVisibilityContext.Provider,
+              { value: visible },
+              createElement(
+                TranscriptPlatformContext.Provider,
+                {
+                  value: {
+                    copyText: async () => {},
+                    copyMessage: async () => {},
+                    openExternal: async () => {},
+                    readBinaryFile: async () => new Uint8Array(),
+                    localFiles: false,
+                    textRevealQueue: queue,
+                  },
+                },
+                ...entries.map(({ id }) =>
+                  createElement(Probe, {
+                    key: id,
+                    id,
+                    text: reply,
+                    streaming,
+                    options: {
+                      unit: "character",
+                      initialLength: 0,
+                      sequence: queue.forEntry(id),
+                    },
+                  }),
+                ),
+                createElement(AfterTextReveal, {
+                  entries: entries.map((entry) => ({ ...entry, streaming })),
+                  children: createElement("span", { id: "after" }, "Done"),
+                }),
+              ),
+            ),
+          ),
+        );
+      }
+      renderReplies();
+      act(() => vi.advanceTimersByTime(100));
+      expect(
+        container.querySelector("#first")!.textContent!.length,
+      ).toBeGreaterThan(0);
+      expect(container.querySelector("#second")!.textContent).toBe("");
+      expect(queue.isPending("first")).toBe(true);
+      expect(queue.isPending("second")).toBe(true);
+      expect(container.querySelector("#after")).toBeNull();
+      streaming = false;
+      renderReplies();
+      expect(container.querySelector("#after")).toBeNull();
+
+      if (kind === "surface") renderReplies(false);
+      else if (kind === "document") changeDocumentVisibility(true);
+      else act(() => applyReducedMotion("on"));
+      expect(container.querySelector("#first")!.textContent).toBe(reply);
+      expect(container.querySelector("#second")!.textContent).toBe(reply);
+      expect(queue.isPending("first")).toBe(false);
+      expect(queue.isPending("second")).toBe(false);
+      expect(container.querySelector("#after")!.textContent).toBe("Done");
+      expect(vi.getTimerCount()).toBe(0);
+
+      if (kind === "surface") renderReplies();
+      else if (kind === "document") changeDocumentVisibility(false);
+      else act(() => applyReducedMotion("off"));
+      expect(container.querySelector("#first")!.textContent).toBe(reply);
+      expect(container.querySelector("#second")!.textContent).toBe(reply);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("shares activity listeners while streaming and removes them for completed history", () => {
+    const addDocument = vi.spyOn(document, "addEventListener");
+    const removeDocument = vi.spyOn(document, "removeEventListener");
+    const addWindow = vi.spyOn(window, "addEventListener");
+    const removeWindow = vi.spyOn(window, "removeEventListener");
+    function renderReplies(streaming: boolean) {
+      act(() =>
+        root.render(
+          createElement(
+            "div",
+            null,
+            ...["first", "second"].map((id) =>
+              createElement(Probe, {
+                key: id,
+                text: reply,
+                streaming,
+                options: { unit: "character", initialLength: reply.length },
+              }),
+            ),
+          ),
+        ),
+      );
+    }
+    renderReplies(false);
+    expect(
+      addDocument.mock.calls.filter(([type]) => type === "visibilitychange"),
+    ).toHaveLength(0);
+    renderReplies(true);
+    expect(
+      addDocument.mock.calls.filter(([type]) => type === "visibilitychange"),
+    ).toHaveLength(1);
+    expect(
+      addWindow.mock.calls.filter(
+        ([type]) => type === REDUCED_MOTION_CHANGE_EVENT,
+      ),
+    ).toHaveLength(1);
+    renderReplies(false);
+    expect(
+      removeDocument.mock.calls.filter(([type]) => type === "visibilitychange"),
+    ).toHaveLength(1);
+    expect(
+      removeWindow.mock.calls.filter(
+        ([type]) => type === REDUCED_MOTION_CHANGE_EVENT,
+      ),
+    ).toHaveLength(1);
+    renderReplies(true);
+    act(() => root.render(null));
+    expect(
+      removeDocument.mock.calls.filter(([type]) => type === "visibilitychange"),
+    ).toHaveLength(2);
+    expect(
+      removeWindow.mock.calls.filter(
+        ([type]) => type === REDUCED_MOTION_CHANGE_EVENT,
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("does not keep a fade-tail timer running on a hidden surface", () => {
+    function Fade({ active }: { active: boolean }) {
+      return createElement("span", null, String(useWordFading(active)));
+    }
+    function renderFade(active: boolean, visible = true) {
+      act(() =>
+        root.render(
+          createElement(
+            SurfaceVisibilityContext.Provider,
+            { value: visible },
+            createElement(Fade, { active }),
+          ),
+        ),
+      );
+    }
+    renderFade(true);
+    renderFade(false);
+    expect(container.textContent).toBe("true");
+    expect(vi.getTimerCount()).toBe(1);
+    renderFade(false, false);
+    expect(container.textContent).toBe("false");
+    expect(vi.getTimerCount()).toBe(0);
+    renderFade(false);
+    expect(container.textContent).toBe("false");
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

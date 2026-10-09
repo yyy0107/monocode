@@ -1,3 +1,4 @@
+import { sessionComposerConfiguration } from "../model/composerConfiguration";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { ChevronDown, GripVertical, X } from "../../../shared/ui/icons";
 import {
@@ -628,11 +629,8 @@ const LocalSessionPane = memo(function LocalSessionPane({
       focusToken={composerFocusToken}
       hotkeys={focused && !btw.open}
       shell={!dockComposer}
-      harness={session.harness}
-      model={session.model}
-      modelSettings={session.modelSettings}
-      modelSettingOptions={session.modelSettingOptions}
-      runtimeMode={session.runtimeMode}
+      {...sessionComposerConfiguration(session)}
+      modelSettingOptions={session.pendingConfiguration ? undefined : session.modelSettingOptions}
       cwd={session.cwd}
       executionCwd={workCwd}
       sessionId={session.id}

@@ -164,12 +164,14 @@ describe("fx protocol", () => {
         harness: "fx",
         name: "zai/glm-5.2-fast",
         nativeId: "zai/glm-5.2-fast",
+        provider: { id: "zai", name: "zai" },
       },
       {
         id: "fx:openai/gpt-5.2",
         harness: "fx",
         name: "openai/gpt-5.2",
         nativeId: "openai/gpt-5.2",
+        provider: { id: "openai", name: "openai" },
       },
     ]);
   });
@@ -192,6 +194,7 @@ describe("fx protocol", () => {
         harness: "fx",
         name: "GLM 5.2 Fast",
         nativeId: "zai/glm-5.2-fast",
+        provider: { id: "zai", name: "zai" },
         contextWindow: 202752,
       },
     ]);
@@ -205,6 +208,7 @@ describe("fx protocol", () => {
       "zai/glm-5.2-fast",
       "openai/gpt-5.4",
     ]);
+    expect(models.map((model) => model.provider?.id)).toEqual(["zai", "openai"]);
   });
 
   it("adds the TUI-selected status model when the list command omits it", () => {
@@ -214,9 +218,21 @@ describe("fx protocol", () => {
     const active = modelFromFxStatusOutput(
       JSON.stringify({ kind: "status", model: "zai/glm-5.2" }),
     );
+    expect(active?.provider).toEqual({ id: "zai", name: "zai" });
     expect(
       mergeFxCatalogModels(listed, active).map((model) => model.nativeId),
     ).toEqual(["zai/glm-4.7", "openai/gpt-5.2", "zai/glm-5.2"]);
+  });
+
+  it("leaves unqualified models ungrouped and preserves nested model ids", () => {
+    const models = modelsFromFxOutput(
+      JSON.stringify({ ids: ["custom", "openrouter/anthropic/claude"] }),
+    );
+    expect(models[0].provider).toBeUndefined();
+    expect(models[1]).toMatchObject({
+      nativeId: "openrouter/anthropic/claude",
+      provider: { id: "openrouter", name: "openrouter" },
+    });
   });
 
   it("reads a session id from ACP setup results", () => {

@@ -33,6 +33,10 @@ export function assistantActivityLabel(
   if (action.startsWith("orchestration."))
     return { key: "Coordinating the agents…" };
   if (action === "reminders.create") return { key: "Noting a follow-up…" };
+  if (action === "chat.search")
+    return { key: "Looking back through our chat…" };
+  if (action.startsWith("playbooks."))
+    return { key: "Going through my playbooks…" };
   if (action.startsWith("memory.")) return { key: "Updating my notes…" };
   return { key: "Working…" };
 }

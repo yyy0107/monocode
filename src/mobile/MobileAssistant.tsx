@@ -313,14 +313,17 @@ function MobileAssistantComposer({
     const element = dock.current;
     const conversation = element?.parentElement;
     if (!element || !conversation) return;
-    const publish = () => {
-      const height = `calc(${element.offsetHeight}px + max(0px, var(--mobile-safe-bottom) - 14px))`;
+    const publish = (entries: ResizeObserverEntry[] = []) => {
+      const entry = entries.find(({ target }) => target === element);
+      // Use delivered border-box geometry during height transitions; the
+      // initial measurement and older observers still include dock padding.
+      const height = `calc(${Math.round(entry?.borderBoxSize?.[0]?.blockSize ?? element.offsetHeight)}px + max(0px, var(--mobile-safe-bottom) - 14px))`;
       if (conversation.style.getPropertyValue("--mobile-assistant-dock-height") !== height)
         conversation.style.setProperty("--mobile-assistant-dock-height", height);
     };
     publish();
     const observer = new ResizeObserver(publish);
-    observer.observe(element);
+    observer.observe(element, { box: "border-box" });
     return () => {
       observer.disconnect();
       conversation.style.removeProperty("--mobile-assistant-dock-height");

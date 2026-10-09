@@ -8,14 +8,19 @@ import { setUiLanguage } from "../shared/i18n/language";
 import { readMobileAttachments } from "./attachments";
 import { KEYBOARD_EVENT, installKeyboardMotion } from "./keyboardMotion";
 import { lightImpact } from "./haptics";
+import { COMPOSER_MOTION_MS } from "../features/sessions/model/composerResize";
+import { Capacitor } from "@capacitor/core";
+import { Keyboard } from "@capacitor/keyboard";
 
 vi.mock("./haptics", () => ({ lightImpact: vi.fn() }));
+vi.mock("@capacitor/keyboard", () => ({ Keyboard: { show: vi.fn(async () => {}) } }));
 
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 let root: Root | undefined;
 beforeEach(() => {
   setUiLanguage("en");
   vi.mocked(lightImpact).mockClear();
+  vi.mocked(Keyboard.show).mockClear();
 });
 afterEach(() => {
   act(() => root?.unmount());
@@ -142,6 +147,76 @@ function tapKeepingFocus(target: HTMLElement) {
   });
 }
 describe("mobile composer popup focus", () => {
+  it.each(["Upload photos", "Upload files"])("restores typing and the selection after %s without disabling the field during reading", (label) => {
+    const { node, button, rerender, onFiles } = render();
+    const area = node.querySelector("textarea")!;
+    const input = node.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+    const picker = vi.spyOn(input, "click").mockImplementation(() => {});
+    act(() => { area.focus(); area.setSelectionRange(3, 7, "backward"); });
+    tapKeepingFocus(button("Add to message"));
+    const row = [...node.querySelectorAll<HTMLButtonElement>(".mobile-sheet-row")]
+      .find(element => element.textContent === label)!;
+    tapKeepingFocus(row);
+    expect(picker).toHaveBeenCalledOnce();
+    act(() => area.blur());
+    const file = new File(["image"], "photo.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    act(() => input.dispatchEvent(new Event("change", { bubbles: true })));
+    expect(onFiles).toHaveBeenCalledWith([file]);
+    expect(document.activeElement).toBe(area);
+    expect([area.selectionStart, area.selectionEnd, area.selectionDirection]).toEqual([3, 7, "backward"]);
+    rerender({ readingAttachments: true, working: true, canSend: false });
+    expect(area.disabled).toBe(false);
+    expect(document.activeElement).toBe(area);
+    expect(button("Add to message").disabled).toBe(true);
+    expect(input.disabled).toBe(true);
+    expect(button("Send message").disabled).toBe(true);
+    rerender({ readingAttachments: false, working: false, canSend: true });
+    expect(document.activeElement).toBe(area);
+    expect(button("Add to message").disabled).toBe(false);
+  });
+
+  it.each([0, 300])("restores only a previously open Android keyboard on picker cancellation (height: %s)", (height) => {
+    vi.spyOn(Capacitor, "getPlatform").mockReturnValue("android");
+    const uninstall = installKeyboardMotion();
+    try {
+      keyboard(height, 0);
+      const { node, button, onFiles } = render();
+      const area = node.querySelector("textarea")!;
+      const input = node.querySelector<HTMLInputElement>('input[aria-label="Upload photos"]')!;
+      vi.spyOn(input, "click").mockImplementation(() => {});
+      act(() => { area.focus(); area.setSelectionRange(2, 4); });
+      tapKeepingFocus(button("Add to message"));
+      tapKeepingFocus([...node.querySelectorAll<HTMLButtonElement>(".mobile-sheet-row")]
+        .find(element => element.textContent === "Upload photos")!);
+      // The native picker hides the keyboard without clearing DOM focus.
+      keyboard(0, 0);
+      act(() => input.dispatchEvent(new Event("cancel", { bubbles: true })));
+      expect(document.activeElement).toBe(area);
+      expect([area.selectionStart, area.selectionEnd]).toEqual([2, 4]);
+      expect(Keyboard.show).toHaveBeenCalledTimes(height ? 1 : 0);
+      expect(onFiles).not.toHaveBeenCalled();
+      act(() => area.blur());
+      act(() => input.dispatchEvent(new Event("cancel", { bubbles: true })));
+      expect(document.activeElement).not.toBe(area);
+    } finally {
+      uninstall();
+    }
+  });
+
+  it("does not focus the composer after a picker opened without typing focus", () => {
+    const { node, click } = render();
+    const area = node.querySelector("textarea")!;
+    const input = node.querySelector<HTMLInputElement>('input[aria-label="Upload files"]')!;
+    vi.spyOn(input, "click").mockImplementation(() => {});
+    click("Add to message");
+    act(() => [...node.querySelectorAll<HTMLButtonElement>(".mobile-sheet-row")]
+      .find(element => element.textContent === "Upload files")!.click());
+    act(() => input.dispatchEvent(new Event("cancel", { bubbles: true })));
+    expect(document.activeElement).not.toBe(area);
+    expect(Keyboard.show).not.toHaveBeenCalled();
+  });
+
   it("sends an image-only message while keeping the preview until acceptance", () => {
     const { node, click, onSend } = render({
       value: "",
@@ -375,6 +450,73 @@ describe("mobile composer popup focus", () => {
   });
 });
 describe("mobile composer card", () => {
+  it("uses delivered dock geometry while retaining queue gaps across resizing and queue changes", () => {
+    const observers: { notify: (entries: ResizeObserverEntry[]) => void; observe: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[] = [];
+    vi.spyOn(globalThis, "ResizeObserver").mockImplementation(function (callback) {
+      const observer = {
+        notify: (entries: ResizeObserverEntry[]) => callback(entries, {} as ResizeObserver),
+        observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn(),
+      };
+      observers.push(observer);
+      return observer;
+    });
+    const { node, rerender } = render();
+    const dock = node.querySelector<HTMLElement>(".mobile-composer-dock")!;
+    const form = node.querySelector("form")!;
+    const dockHeight = vi.spyOn(dock, "offsetHeight", "get").mockReturnValue(196);
+    const formHeight = vi.spyOn(form, "offsetHeight", "get").mockReturnValue(112);
+    const top = vi.spyOn(form, "offsetTop", "get").mockReturnValue(66);
+    const activeObserver = () => observers.filter(({ observe }) =>
+      observe.mock.calls.some(([target, options]) => target === dock && options?.box === "border-box"),
+    ).at(-1)!;
+    const initialObserver = activeObserver();
+    const entry = (target: Element, height: number, width = 400) => ({
+      target,
+      // Deliberately smaller than the border box: padding must be included.
+      contentRect: { width, height: height - 26 },
+      borderBoxSize: [{ blockSize: height, inlineSize: width }],
+    }) as ResizeObserverEntry;
+    expect(dock.style.getPropertyValue("--mobile-dock-queue-height")).toBe("0px");
+
+    rerender({ queue: createElement("div", null, "Queued message") });
+    expect(initialObserver.disconnect).toHaveBeenCalledOnce();
+    expect(dock.style.getPropertyValue("--mobile-dock-queue-height")).toBe("66px");
+    const observer = activeObserver();
+    expect(observer.observe).toHaveBeenCalledWith(form, { box: "border-box" });
+    const resize = (...entries: ResizeObserverEntry[]) => act(() => observer.notify(entries));
+    resize(entry(dock, 196.25), entry(form, 112.25));
+    dockHeight.mockClear();
+    formHeight.mockClear();
+    top.mockClear();
+
+    // The textarea grows, while queue height and collapsed margins stay fixed.
+    resize(entry(dock, 228.75), entry(form, 144.75));
+    expect(node.style.getPropertyValue("--mobile-dock-height")).toBe("calc(229px + max(0px, var(--mobile-safe-bottom) - 8px))");
+    expect(dockHeight).not.toHaveBeenCalled();
+    expect(formHeight).not.toHaveBeenCalled();
+    expect(top).not.toHaveBeenCalled();
+    expect(dock.style.getPropertyValue("--mobile-dock-queue-height")).toBe("66px");
+
+    // A closing queue can lose only its collapsed margin after its height has
+    // already reached zero. No queue border-box resize is required to catch it.
+    top.mockReturnValue(58);
+    resize(entry(dock, 220.75));
+    expect(dock.style.getPropertyValue("--mobile-dock-queue-height")).toBe("58px");
+    expect(top).toHaveBeenCalledOnce();
+    top.mockReturnValue(62);
+    resize(entry(dock, 220.75, 360));
+    expect(dock.style.getPropertyValue("--mobile-dock-queue-height")).toBe("62px");
+    expect(top).toHaveBeenCalledTimes(2);
+
+    rerender({ queue: undefined });
+    expect(observer.disconnect).toHaveBeenCalledOnce();
+    expect(dock.style.getPropertyValue("--mobile-dock-queue-height")).toBe("0px");
+    top.mockReturnValue(80);
+    rerender({ queue: createElement("div", null, "New queue") });
+    expect(dock.style.getPropertyValue("--mobile-dock-queue-height")).toBe("80px");
+    expect(activeObserver()).not.toBe(observer);
+  });
+
   it("preserves multiline drafts, visible controls and attachments when focus or keyboard state changes", () => {
     const uninstall = installKeyboardMotion();
     try {
@@ -437,7 +579,7 @@ describe("mobile composer card", () => {
     notifyResize();
     expect(measuredWidths).toEqual(["0px", "324px", "264px"]);
     expect(area.style.height).toBe("120px");
-    expect(node.querySelectorAll("textarea")).toHaveLength(1);
+    expect(node.querySelectorAll("textarea:not([data-autosize-measure])")).toHaveLength(1);
   });
 
   it("lets sent attachments exit inertly and reverses closing when new files arrive", () => {
@@ -446,19 +588,19 @@ describe("mobile composer card", () => {
       const attachment = { id: "one", name: "notes.txt", mimeType: "text/plain", kind: "file", size: 4 };
       const { node, rerender } = render({ attachments: [attachment] });
       rerender({ value: "", attachments: [] });
-      const fold = node.querySelector<HTMLElement>(".mobile-composer-attachment-region .zen-fold-item")!;
-      expect(fold.dataset.foldState).toBe("closing");
-      expect(fold.inert).toBe(true);
-      expect(fold.textContent).toContain("notes.txt");
-      act(() => vi.advanceTimersByTime(140));
+      const region = node.querySelector<HTMLElement>(".mobile-composer-attachment-region")!;
+      expect(region.dataset.closing).toBe("true");
+      expect(region.inert).toBe(true);
+      expect(region.textContent).toContain("notes.txt");
+      act(() => vi.advanceTimersByTime(60));
       rerender({ attachments: [{ ...attachment, id: "two", name: "new.txt" }] });
-      expect(fold.dataset.foldState).toBe("opening");
-      expect(fold.inert).toBe(false);
-      expect(fold.textContent).toContain("new.txt");
-      act(() => vi.advanceTimersByTime(350));
-      expect(fold.dataset.foldState).toBe("open");
+      expect(region.dataset.closing).toBeUndefined();
+      expect(region.inert).toBe(false);
+      expect(region.textContent).toContain("new.txt");
+      act(() => vi.advanceTimersByTime(COMPOSER_MOTION_MS + 20));
+      expect(region.textContent).toContain("new.txt");
       rerender({ attachments: [] });
-      act(() => vi.advanceTimersByTime(350));
+      act(() => vi.advanceTimersByTime(COMPOSER_MOTION_MS + 20));
       expect(node.querySelector(".mobile-composer-attachments")).toBeNull();
     } finally {
       vi.useRealTimers();

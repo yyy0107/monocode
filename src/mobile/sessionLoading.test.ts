@@ -6,6 +6,8 @@ import type { HostSession, HostSessionSummary, HostModelCatalog } from "../featu
 import { MobileApp } from "./MobileApp";
 import { setUiLanguage } from "../shared/i18n/language";
 import { NATIVE_SESSION_PROVIDERS, type NativeSessionAccess, type NativeSessionProvider } from "../integrations/harness/core/nativeSessions";
+import * as attachmentFiles from "./attachments";
+import type { Attachment } from "../features/sessions/model/session";
 
 const host = vi.hoisted(() => ({
   connection: { endpoint: "http://computer:3774", environmentId: "host", name: "Computer" },
@@ -61,14 +63,17 @@ vi.mock("./MobileTranscript", () => ({
     createElement("button", { "data-transcript": true, disabled }, snapshot.session.blocks[0]?.text),
 }));
 vi.mock("./MobileComposer", () => ({
-  MobileComposer: ({ disabled, catalogLoading, configuration, value, onChange, onSend, canSend, canStop, onStop }: {
+  MobileComposer: ({ disabled, catalogLoading, configuration, value, onChange, onSend, canSend, canStop, onStop, onFiles, readingAttachments }: {
     catalogLoading?: boolean;
     disabled: boolean; configuration: { model: string }; value: string; onChange: (value: string) => void;
     onSend: () => void; canSend: boolean; canStop: boolean; onStop: () => void;
+    onFiles: (files: File[]) => void; readingAttachments?: boolean;
   }) => createElement("div", {},
     createElement("textarea", { disabled, "data-model": configuration.model, "data-catalog-loading": catalogLoading, value,
       onChange: (event: { target: { value: string } }) => onChange(event.target.value) }),
     createElement("button", { "data-send": true, disabled: !canSend, onClick: onSend }, "Send"),
+    createElement("button", { "data-attach": true, disabled: disabled || readingAttachments,
+      onClick: () => onFiles([new File(["image"], "photo.png", { type: "image/png" })]) }, "Attach"),
     createElement("button", { "data-stop": true, disabled: !canStop, onClick: onStop }, "Stop")),
 }));
 
@@ -153,6 +158,34 @@ async function open(id: string) {
 }
 
 describe("mobile conversation loading UI", () => {
+  it("keeps the focused draft editable while attachments are read, but blocks sending and another picker", async () => {
+    const reading = deferred<Attachment[]>();
+    vi.spyOn(attachmentFiles, "readMobileAttachments").mockReturnValueOnce(reading.promise);
+    await mount();
+    await open("one");
+    const field = composer();
+    act(() => {
+      field.focus();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "Keep typing");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      activePage().querySelector<HTMLButtonElement>("[data-attach]")!.click();
+    });
+    expect(composer()).toBe(field);
+    expect(field.disabled).toBe(false);
+    expect(document.activeElement).toBe(field);
+    expect(activePage().querySelector<HTMLButtonElement>("[data-send]")!.disabled).toBe(true);
+    expect(activePage().querySelector<HTMLButtonElement>("[data-attach]")!.disabled).toBe(true);
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "Keep typing while reading");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => reading.resolve([{ id: "photo", name: "photo.png", mimeType: "image/png", kind: "image", data: "aGVsbG8=", size: 5 }]));
+    expect(document.activeElement).toBe(field);
+    expect(field.value).toBe("Keep typing while reading");
+    expect(activePage().querySelector<HTMLButtonElement>("[data-send]")!.disabled).toBe(false);
+    expect(activePage().querySelector<HTMLButtonElement>("[data-attach]")!.disabled).toBe(false);
+  });
+
   it("opens the assistant from a system notification without requesting a worker session", async () => {
     await mount();
     host.session.mockClear();

@@ -9,8 +9,9 @@ export function MobileListSkeleton({
   rows?: number;
 }) {
   const projects = kind === "projects";
+  const pauseOffscreen = usePauseOffscreenAnimation<HTMLDivElement>();
   return (
-    <div className="mobile-list-skeleton" role="status" aria-label={label}>
+    <div ref={pauseOffscreen} className="mobile-list-skeleton" role="status" aria-label={label}>
       <span className="sr-only">{label}</span>
       <div aria-hidden="true">
         {Array.from({ length: rows }, (_, index) => (
@@ -36,3 +37,4 @@ export function MobileListSkeleton({
     </div>
   );
 }
+import { usePauseOffscreenAnimation } from "../shared/hooks/usePauseOffscreenAnimation";

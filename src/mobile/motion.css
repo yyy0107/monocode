@@ -25,10 +25,22 @@
   }
 }
 
-/* Segmented control: one indicator travels between options instead of each
-   option fading its own background. The edge on the side of travel uses the
-   snappier spring, so the capsule stretches slightly and then catches up.
-   CSS transitions retarget from the current position on rapid taps. */
+/* Keep the two spring positions local to the indicator. Updating these
+   registered values still resolves its style each frame, but no longer changes
+   layout through animated insets or invalidates descendants through inheritance. */
+@property --mobile-segment-start {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+@property --mobile-segment-end {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+/* One indicator travels between options. Its leading spring runs ahead of
+   the trailing spring, stretching the painted capsule over a stable layout
+   box. Both positions retarget from their current value on rapid taps. */
 .mobile-segmented {
   --segment-pad: 4px;
   --segment-gap: 4px;
@@ -40,32 +52,37 @@
   isolation: isolate;
 }
 .mobile-segmented-indicator {
+  --mobile-segment-start: var(--segment-index);
+  --mobile-segment-end: var(--segment-index);
+  --mobile-segment-sign: 1;
   position: absolute;
   z-index: -1;
   inset-block: var(--segment-pad);
-  inset-inline-start: calc(
-    var(--segment-pad) + var(--segment-index) * (var(--segment-cell) + var(--segment-gap))
-  );
-  inset-inline-end: calc(
-    var(--segment-pad) +
-      (var(--segment-count) - 1 - var(--segment-index)) *
-      (var(--segment-cell) + var(--segment-gap))
-  );
+  inset-inline-start: var(--segment-pad);
+  width: var(--segment-cell);
+  transform-origin: left center;
+  transform:
+    translateX(calc(var(--mobile-segment-sign) * var(--mobile-segment-start) * (100% + var(--segment-gap))))
+    scaleX(calc(1 + var(--mobile-segment-end) - var(--mobile-segment-start)));
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-content) 14%, var(--color-background-base));
   box-shadow: 0 1px 4px color-mix(in srgb, #000 12%, transparent);
   pointer-events: none;
   transition:
-    inset-inline-start var(--mobile-spring-smooth-duration) var(--mobile-spring-smooth),
-    inset-inline-end var(--mobile-spring-smooth-duration) var(--mobile-spring-smooth);
+    --mobile-segment-start var(--mobile-spring-smooth-duration) var(--mobile-spring-smooth),
+    --mobile-segment-end var(--mobile-spring-smooth-duration) var(--mobile-spring-smooth);
+}
+.mobile-segmented:dir(rtl) > .mobile-segmented-indicator {
+  --mobile-segment-sign: -1;
+  transform-origin: right center;
 }
 .mobile-segmented[data-direction="forward"] > .mobile-segmented-indicator {
-  transition-property: inset-inline-start, inset-inline-end;
+  transition-property: --mobile-segment-start, --mobile-segment-end;
   transition-duration: var(--mobile-spring-smooth-duration), var(--mobile-spring-snappy-duration);
   transition-timing-function: var(--mobile-spring-smooth), var(--mobile-spring-snappy);
 }
 .mobile-segmented[data-direction="back"] > .mobile-segmented-indicator {
-  transition-property: inset-inline-start, inset-inline-end;
+  transition-property: --mobile-segment-start, --mobile-segment-end;
   transition-duration: var(--mobile-spring-snappy-duration), var(--mobile-spring-smooth-duration);
   transition-timing-function: var(--mobile-spring-snappy), var(--mobile-spring-smooth);
 }

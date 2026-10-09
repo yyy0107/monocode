@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { usePauseOffscreenAnimation } from "../../../../../shared/hooks/usePauseOffscreenAnimation";
 import { MessageCircleQuestion as MessageCircleQuestionIcon, RotateCcw as RotateCcwIcon, SlidersHorizontal as SlidersHorizontalIcon, Square as SquareIcon } from "../../../../../shared/ui/icons";
 import { TID_CHAT_WORKFLOW_RUN_DIGEST, testId } from "../../_shims/shared.js";
 import type { WorkflowRunState } from "../../_shims/protocol.js";
@@ -88,6 +89,7 @@ export function WorkflowRunDigest({
   const { intl } = useWorkflowIntl();
   const run = summary?.run;
   const [expanded, setExpanded] = useState(true);
+  const pauseOffscreen = usePauseOffscreenAnimation<HTMLElement>();
 
   // 阶段线只在有活投影且有图时画：没有投影的图全是 pending 灯，会把一条已完成的 run 画成没跑过。
   const model = useMemo(
@@ -188,6 +190,7 @@ export function WorkflowRunDigest({
 
   return (
     <section
+      ref={pauseOffscreen}
       aria-label={kind}
       className={cn(
         "wf-motion wf-arrive flex w-full min-w-0 flex-col gap-1 rounded-xl border border-border/70 bg-card/70 px-3.5 pb-2 pt-1.5 outline-none",

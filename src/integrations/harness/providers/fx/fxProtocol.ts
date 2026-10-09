@@ -408,6 +408,7 @@ function modelFromJson(item: unknown): AgentModel | null {
         harness: "fx",
         name: nativeId,
         nativeId,
+        provider: fxModelProvider(nativeId),
       };
     }
     return null;
@@ -426,6 +427,7 @@ function modelFromJson(item: unknown): AgentModel | null {
     harness: "fx",
     name: name || displayName(nativeId),
     nativeId,
+    provider: fxModelProvider(nativeId),
     ...(settings.length > 0 ? { settings } : {}),
     ...(window ? { contextWindow: window } : {}),
   };
@@ -492,9 +494,18 @@ function modelsFromFxText(stdout: string): AgentModel[] {
       harness: "fx",
       name,
       nativeId,
+      provider: fxModelProvider(nativeId),
     });
   }
   return models;
+}
+
+/** Fx qualifies catalog ids with the configured provider, e.g. zai/glm-5.2. */
+function fxModelProvider(nativeId: string): AgentModel["provider"] {
+  const separator = nativeId.indexOf("/");
+  if (separator <= 0 || separator === nativeId.length - 1) return undefined;
+  const id = nativeId.slice(0, separator);
+  return { id, name: id };
 }
 
 function uniqueFxModels(models: AgentModel[]): AgentModel[] {

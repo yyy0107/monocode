@@ -886,6 +886,37 @@ it("does not pull a reader to the bottom on polling, and follows messages once b
   expect(log.scrollTo).toHaveBeenCalledWith({ top: 700 });
 });
 
+it("reserves the assistant dock border box without repeated height reads during animation", async () => {
+  const observers: { notify: (entries: ResizeObserverEntry[]) => void; observe: ReturnType<typeof vi.fn> }[] = [];
+  vi.spyOn(globalThis, "ResizeObserver").mockImplementation(function (callback) {
+    const observer = {
+      notify: (entries: ResizeObserverEntry[]) => callback(entries, {} as ResizeObserver),
+      observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn(),
+    };
+    observers.push(observer);
+    return observer;
+  });
+  await mount();
+  const dock = node.querySelector<HTMLElement>(".mobile-assistant-compose-dock")!;
+  const conversation = dock.parentElement!;
+  const observer = observers.find(({ observe }) =>
+    observe.mock.calls.some(([target, options]) => target === dock && options?.box === "border-box"),
+  )!;
+  const height = vi.spyOn(dock, "offsetHeight", "get").mockReturnValue(142);
+  const delivered = {
+    target: dock,
+    contentRect: { width: 360, height: 100 },
+    borderBoxSize: [{ blockSize: 122.75, inlineSize: 400 }],
+  } as ResizeObserverEntry;
+  act(() => observer.notify([delivered]));
+  expect(conversation.style.getPropertyValue("--mobile-assistant-dock-height")).toBe("calc(123px + max(0px, var(--mobile-safe-bottom) - 14px))");
+  expect(height).not.toHaveBeenCalled();
+  // Older observers without borderBoxSize must still reserve padding/borders.
+  act(() => observer.notify([{ target: dock, contentRect: delivered.contentRect } as ResizeObserverEntry]));
+  expect(conversation.style.getPropertyValue("--mobile-assistant-dock-height")).toBe("calc(142px + max(0px, var(--mobile-safe-bottom) - 14px))");
+  expect(height).toHaveBeenCalledOnce();
+});
+
 it("keeps new bubbles below the floating header as replies grow and the viewport shrinks", async () => {
   const observers: Array<{ targets: Element[]; resize: () => void }> = [];
   vi.stubGlobal("ResizeObserver", class {

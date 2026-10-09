@@ -93,6 +93,26 @@ describe("mobile prompt anchoring", () => {
   });
 });
 
+describe("mobile transcript behind the drawer", () => {
+  it("keeps live work unfolded while covered", () => {
+    const blocks: Block[] = [
+      { id: "user", role: "user", text: "Work" },
+      { id: "think", role: "thinking", text: "Planning the change" },
+      { id: "tool", role: "tool", text: "npm test", tool: { title: "Run npm test" } },
+    ];
+    const { node, update } = render({ blocks });
+    const live = () => [...node.querySelectorAll(".transcript-turn-live *")]
+      .map((element) => `${element.className}|${element.getAttribute("data-fold-state") ?? ""}`)
+      .join("\n");
+    const before = live();
+    expect(before).not.toBe("");
+    update({ active: false });
+    expect(live()).toBe(before);
+    update({ active: true });
+    expect(live()).toBe(before);
+  });
+});
+
 describe("mobile approval interaction", () => {
   it("renders approvals attached to real Host tool blocks and sends the active run identity", () => {
     const { node, commands } = render({ runId: "active-run" });

@@ -1,3 +1,4 @@
+import { selectComposerConfiguration } from "../src/features/sessions/model/composerConfiguration";
 import { createHash, randomUUID } from "node:crypto";
 import { HostOrchestration, type HostOrchestrationOptions } from "./orchestration";
 import { HostAssistant } from "./assistant";
@@ -935,6 +936,57 @@ export class HostEngine {
     return { steered: true };
   }
 
+  private switchSessionHarness(value: HostSession, harness: RemoteProvider): HostSession {
+    const incoming = this.provider(harness);
+    const outgoing = value.session.harness as RemoteProvider;
+    const providerAccountId = resolveDefaultAccount(
+      join(dirname(this.store.attachmentDir), "desktop-owner.json"), harness,
+    );
+    const previous = value.session;
+    const history = { ...previous, blocks: previous.blocks.filter((block) => !block.draft) };
+    const handedOff = history.blocks.some((block) => block.role === "user")
+      ? appendReadyHandoff(history, outgoing, harness, buildDeterministicHandoff(history))
+      : history;
+    return {
+      ...value,
+      canSteer: !!incoming.steer,
+      nativeBinding: undefined,
+      nativeStatus: undefined,
+      session: {
+        ...handedOff,
+        blocks: [...handedOff.blocks, ...previous.blocks.filter((block) => block.draft)],
+        harness,
+        title: titleStateFor(previous).source !== "manual" && previous.title.startsWith(`${HARNESS_LABEL[outgoing]} · `)
+          ? formatSessionTitle(harness, sessionDisplayTitle(previous.title, outgoing))
+          : previous.title,
+        providerSessionId: undefined,
+        providerAccountId,
+        nativeSession: undefined,
+        nativeSyncStatus: undefined,
+        pendingSwitch: undefined,
+        pendingQuestion: undefined,
+        modelSettingOptions: undefined,
+        context: undefined,
+        usageLimit: undefined,
+        backgroundTasks: undefined,
+        titleState: { ...titleStateFor(previous), epoch: titleStateFor(previous).epoch + 1 },
+      },
+    };
+  }
+
+  private finishHarnessSwitch(sessionId: string, outgoing: RemoteProvider): void {
+    this.titles.cancel(sessionId);
+    this.nativeSessions.detach(sessionId);
+    this.native.forget(sessionId);
+    this.boundSessions.delete(sessionId);
+    const parked = this.parked.get(sessionId);
+    if (parked) { clearTimeout(parked.timer); this.parked.delete(sessionId); }
+    const stops = this.providerStops.get(sessionId) ?? new Set<RemoteProvider>();
+    stops.add(outgoing);
+    this.providerStops.set(sessionId, stops);
+    void this.cleanPreviousProviders(sessionId).catch(() => undefined);
+  }
+
   private applyCommand(raw: unknown, managed: boolean, controlReceipt?: ControlReceiptContext, origin?: import("../src/features/sessions/model/session").TurnOrigin): CommandReceipt {
     if (this.closing) throw new Error("Host is stopping");
     const command = parseCommand(raw);
@@ -953,6 +1005,7 @@ export class HostEngine {
     // Commands apply to the latest state, including batched stream output.
     if (command.type !== "create") this.flush(command.sessionId);
     let effect: ((saved: HostSession) => void) | undefined;
+    let switchFrom: RemoteProvider | undefined;
     const { receipt, saved } = this.store.transaction(() => {
       let value: HostSession;
       if (command.type === "create") {
@@ -1014,6 +1067,14 @@ export class HostEngine {
           this.switchingProjects.has(value.projectId)
         )
           throw new Error("Wait for the branch switch to finish");
+        if (command.type === "send" && value.status !== "running" && value.session.pendingConfiguration) {
+          if (this.running.has(command.sessionId))
+            throw new Error("Wait for the current turn before changing settings");
+          const configuration = value.session.pendingConfiguration;
+          switchFrom = value.session.harness as RemoteProvider;
+          value = this.switchSessionHarness(value, configuration.harness as RemoteProvider);
+          value = { ...value, session: { ...value.session, ...configuration, pendingConfiguration: undefined } };
+        }
         const provider = this.provider(value.session.harness);
         if (command.type === "send" && command.questionAnswer) {
           const prompt = questionFollowUp(value.session, command.questionAnswer);
@@ -1027,64 +1088,21 @@ export class HostEngine {
               "Wait for the current turn before changing settings",
             );
           const harness = command.harness ?? value.session.harness;
-          if (harness !== value.session.harness) {
-            const incoming = this.provider(harness);
-            const outgoing = value.session.harness as RemoteProvider;
-            const providerAccountId = resolveDefaultAccount(
-              join(dirname(this.store.attachmentDir), "desktop-owner.json"), harness,
-            );
-            const previous = value.session;
-            const history = { ...previous, blocks: previous.blocks.filter((block) => !block.draft) };
-            const handedOff = history.blocks.some((block) => block.role === "user")
-              ? appendReadyHandoff(history, outgoing, harness, buildDeterministicHandoff(history))
-              : history;
-            value = {
-              ...value,
-              canSteer: !!incoming.steer,
-              nativeBinding: undefined,
-              nativeStatus: undefined,
-              session: {
-                ...handedOff,
-                blocks: [...handedOff.blocks, ...previous.blocks.filter((block) => block.draft)],
-                harness,
-                title: titleStateFor(previous).source !== "manual" && previous.title.startsWith(`${HARNESS_LABEL[outgoing]} · `)
-                  ? formatSessionTitle(harness, sessionDisplayTitle(previous.title, outgoing))
-                  : previous.title,
-                providerSessionId: undefined,
-                providerAccountId,
-                nativeSession: undefined,
-                nativeSyncStatus: undefined,
-                pendingSwitch: undefined,
-                pendingQuestion: undefined,
-                modelSettingOptions: undefined,
-                context: undefined,
-                usageLimit: undefined,
-                backgroundTasks: undefined,
-                titleState: { ...titleStateFor(previous), epoch: titleStateFor(previous).epoch + 1 },
-              },
-            };
-            effect = () => {
-              this.titles.cancel(command.sessionId);
-              this.nativeSessions.detach(command.sessionId);
-              this.native.forget(command.sessionId);
-              this.boundSessions.delete(command.sessionId);
-              const parked = this.parked.get(command.sessionId);
-              if (parked) { clearTimeout(parked.timer); this.parked.delete(command.sessionId); }
-              const stops = this.providerStops.get(command.sessionId) ?? new Set<RemoteProvider>();
-              stops.add(outgoing);
-              this.providerStops.set(command.sessionId, stops);
-              void this.cleanPreviousProviders(command.sessionId).catch(() => undefined);
-            };
-          }
-          value = {
-            ...value,
-            session: {
-              ...value.session,
-              model: command.model,
-              modelSettings: command.modelSettings,
-              runtimeMode: command.runtimeMode,
-            },
+          const configuration = {
+            harness, model: command.model, modelSettings: command.modelSettings,
+            runtimeMode: command.runtimeMode,
           };
+          const selected = selectComposerConfiguration(value.session, configuration);
+          if (selected.pendingConfiguration) {
+            this.provider(harness);
+            value = { ...value, session: selected };
+          } else {
+            if (harness !== value.session.harness) {
+              switchFrom = value.session.harness as RemoteProvider;
+              value = this.switchSessionHarness(value, harness as RemoteProvider);
+            }
+            value = { ...value, session: { ...value.session, ...configuration, pendingConfiguration: undefined } };
+          }
         } else if (command.type === "queue") {
           value = this.queueCommand(value, command, origin);
           effect = (saved) => {
@@ -1413,6 +1431,8 @@ export class HostEngine {
     });
     const live = this.live.get(saved.session.id);
     if (live) live.value = saved;
+    // Switch cleanup only runs after the send and its handoff commit atomically.
+    if (switchFrom) this.finishHarnessSwitch(saved.session.id, switchFrom);
     // A receipt means durable host acceptance, not provider completion.
     effect?.(saved);
     return receipt;

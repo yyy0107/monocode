@@ -33,6 +33,9 @@ import {
 } from "../../src/features/assistant/model/assistant";
 import { parseRemoteAttachments, resolveAttachments } from "../attachments";
 import { rotationReason } from "./rotation";
+import { searchChat, type ChatHit } from "./chatSearch";
+import { matchPlaybook } from "./playbooks";
+import { DIARY_TOPIC, diaryBrief, dueDiaryDays, enqueueDiaries } from "./diary";
 import {
   createHabit,
   deleteHabit,
@@ -59,6 +62,9 @@ import {
   splitReply,
 } from "./prompt";
 
+/** A fresh brief quotes the last two exchanges word for word. */
+const RECALL_VERBATIM = 4;
+const RECALL_LIMIT = 3;
 const STOP_COMMANDS = new Set(["停止", "停", "stop", "/stop"]);
 /** A message that is only a stop word ends the turn instead of starting one. */
 export function isStopCommand(text: string): boolean {
@@ -74,6 +80,7 @@ export class HostAssistant {
   private tickingWakeupId?: string;
   /** The memory version shown to the brain in the running turn, if any. */
   private injectedMemory?: { generation: number; revision: number };
+  private diaryCheckedFor?: string;
   private closing = false;
   private ticking = false;
   private epoch = 0;
@@ -919,6 +926,10 @@ export class HostAssistant {
         config = this.store.get()!;
       }
       enqueueSchedules(this.store);
+      // Finished days are checked once per day, not on every tick.
+      const diaryDay = dueDiaryDays(Date.now(), config.timezone ?? "UTC").at(-1);
+      if (diaryDay !== this.diaryCheckedFor && enqueueDiaries(this.store))
+        this.diaryCheckedFor = diaryDay;
       config = this.store.get()!;
       if (config.triggers.event)
         this.engine.store.transaction(() => {
@@ -1086,16 +1097,30 @@ export class HostAssistant {
       this.injectedMemory = showMemory
         ? { generation: config.brainGeneration, revision: memory.revision }
         : undefined;
+      const messages = this.store.latestMessages();
+      const playbooks = this.store.playbooks();
       const prompt = buildBrainPrompt({
         config,
         launcher,
         actions: ASSISTANT_ACTIONS,
         // The claimed wakeup also carries queued messages merged into it.
         wakeup: this.active,
-        messages: this.store.latestMessages(),
+        messages,
         ledger,
         now: Date.now(),
         fresh,
+        ...(fresh
+          ? { diary: diaryBrief(this.store.memoryDoc(`topic:${DIARY_TOPIC}`).text) }
+          : {}),
+        playbooks: playbooks.map(({ body: _body, ...summary }) => summary),
+        ...(this.active.kind === "user"
+          ? { playbook: matchPlaybook(playbooks, this.active.text) }
+          : {}),
+        recall: this.recall(
+          messages,
+          fresh,
+          this.engine.store.session(brainId).createdAt,
+        ),
         ...(showMemory
           ? {
               memory: {
@@ -1114,6 +1139,36 @@ export class HostAssistant {
       });
     } finally {
       this.ticking = false;
+    }
+  }
+  /**
+   * Earlier chat that matches the user's input but is outside the brain's
+   * context: before this brain started, or older than a fresh brief's verbatim
+   * exchanges. Requires two shared words so ordinary turns stay quiet.
+   */
+  private recall(
+    messages: AssistantMessage[],
+    fresh: boolean,
+    brainCreatedAt: number | undefined,
+  ): ChatHit[] {
+    const wakeup = this.active;
+    if (wakeup?.kind !== "user") return [];
+    const chat = messages.filter(
+      (m) =>
+        (m.kind === "user" || m.kind === "assistant") &&
+        !(m.kind === "user" && m.wakeupId === wakeup.id),
+    );
+    const before = fresh ? chat.at(-RECALL_VERBATIM)?.createdAt : brainCreatedAt;
+    if (before === undefined) return [];
+    try {
+      return searchChat(messages, wakeup.text, {
+        timeZone: this.store.get()?.timezone ?? "UTC",
+        before,
+        limit: RECALL_LIMIT,
+        minWords: 2,
+      });
+    } catch {
+      return [];
     }
   }
   private observe(

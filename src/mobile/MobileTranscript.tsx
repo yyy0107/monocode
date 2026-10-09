@@ -292,7 +292,9 @@ export const MobileTranscript = memo(function MobileTranscript({
       >
         <AgentTranscript
           clockOffsetMs={snapshot.clockOffsetMs}
-          visible={visible}
+          // The drawer and overlays only cover the transcript. Treating that
+          // as hidden would fold live work behind them and unfold it after.
+          visible={parentVisible}
           touchScroll
           promptMotion="mobile"
           animateFrom={animateFrom}

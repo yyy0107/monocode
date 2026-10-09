@@ -506,6 +506,8 @@ export type Session = {
    * Handoff runs on the next send, not on picker change.
    */
   pendingSwitch?: PendingHarnessSwitch;
+  /** Composer choice for the next send; the conversation still belongs to its current agent. */
+  pendingConfiguration?: ModelTarget & { runtimeMode: RuntimeMode };
   /** Last known branch in the session's working copy. */
   branch?: string;
   /** Selected working copy; cwd remains the project identity. */

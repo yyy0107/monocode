@@ -7,7 +7,8 @@ import type { Session } from "../../src/features/sessions/model/session";
  * user returns after a long break, the next wakeup starts a fresh brain
  * generation. Its first turn gets a brief of the chat: the latest exchanges
  * word for word and one line for each earlier one. Nothing is summarized by a
- * model, so rotation costs nothing and the full chat stays in the Host store.
+ * model, so rotation costs nothing and the full chat stays in the Host store;
+ * the brain's own daily diary (diary.ts) carries the gist of earlier days.
  * Adapted from upstream Mono's `monoRotation`.
  */
 

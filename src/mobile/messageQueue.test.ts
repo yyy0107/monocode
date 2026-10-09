@@ -58,7 +58,7 @@ it("requires a long press, previews the new order and saves the dragged row rela
   expect(node.querySelector('.mobile-queue-drag-preview')).toBeNull();
   act(() => vi.advanceTimersByTime(1));
   expect(node.querySelector('.mobile-queue-drag-preview')).not.toBeNull();
-  act(() => pointer("pointermove", 175, window));
+  act(() => { pointer("pointermove", 175, window); vi.advanceTimersByTime(16); });
   expect([...node.querySelectorAll<HTMLElement>('.mobile-queue-pills > button')].map(row => row.dataset.queueId)).toEqual(['second','queued','third']);
   await act(async () => pointer("pointerup", 175, window));
   expect(onReorder).toHaveBeenCalledWith('queued','third');

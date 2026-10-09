@@ -77,6 +77,35 @@ function render(
   );
   return node.querySelector<HTMLElement>(".mobile-sheet")!;
 }
+
+it("defers menu creation while closed and retains it through a reversible close", () => {
+  vi.useFakeTimers();
+  const content = vi.fn(() => createElement("button", null, "Deferred action"));
+  const show = (open: boolean) => act(() => root.render(createElement(MobileSheet, {
+    title: "Actions", open, onClose: () => {}, children: content,
+  })));
+  show(false);
+  show(false);
+  expect(content).not.toHaveBeenCalled();
+  show(true);
+  frame();
+  const button = node.querySelector(".mobile-sheet-content button");
+  expect(button?.textContent).toBe("Deferred action");
+  show(false);
+  expect(node.querySelector(".mobile-sheet-content button")).toBe(button);
+  expect(node.querySelector<HTMLElement>(".mobile-sheet-backdrop")!.inert).toBe(true);
+  show(true);
+  frame();
+  expect(node.querySelector(".mobile-sheet-content button")).toBe(button);
+  expect(node.querySelector<HTMLElement>(".mobile-sheet-backdrop")!.inert).toBe(false);
+  show(false);
+  act(() => vi.advanceTimersByTime(1000));
+  expect(node.querySelector(".mobile-sheet")).toBeNull();
+  content.mockClear();
+  show(false);
+  expect(content).not.toHaveBeenCalled();
+});
+
 describe("mobile popover position", () => {
   it("opens at the long-press coordinates instead of the conversation row edge", () => {
     const sheet = render({ x: 72, y: 180 });
@@ -478,5 +507,175 @@ it("tracks finite ancestor motion while ignoring perpetual decorative animations
   remaining = Infinity;
   act(() => trigger.dispatchEvent(new Event("animationstart", { bubbles: true })));
   frame();
+  expect(frames.size).toBe(0);
+});
+
+function ancestorMotion(keyframes: Keyframe[], transitionProperty?: string) {
+  return {
+    transitionProperty, playState: "running", currentTime: 0, playbackRate: 1,
+    effect: {
+      getKeyframes: vi.fn(() => keyframes),
+      getComputedTiming: () => ({ endTime: 80 }),
+    },
+  };
+}
+
+it.each(["opacity", "background-color", "--mobile-press-spread"])(
+  "does not wake anchor placement for a %s transition",
+  propertyName => {
+    const animation = ancestorMotion([], propertyName);
+    trigger.getAnimations = () => [animation] as unknown as Animation[];
+    render();
+    expect(frames.size).toBe(0);
+    const bounds = vi.spyOn(trigger, "getBoundingClientRect");
+    bounds.mockClear();
+    for (const type of ["transitionrun", "transitionend", "transitioncancel"]) {
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperty(event, "propertyName", { value: propertyName });
+      act(() => trigger.dispatchEvent(event));
+      frame();
+    }
+    expect(bounds).not.toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+  },
+);
+
+it("ignores paint-only keyframes while continuing to respond to scrolling and resizing", () => {
+  const animation = ancestorMotion([
+    { opacity: 0, backgroundColor: "red", offset: 0, easing: "linear" },
+    { opacity: 1, backgroundColor: "blue", offset: 1, composite: "replace" },
+  ]);
+  trigger.getAnimations = () => [animation] as unknown as Animation[];
+  const sheet = render();
+  expect(frames.size).toBe(0);
+  const bounds = vi.spyOn(trigger, "getBoundingClientRect");
+  bounds.mockReturnValue(new DOMRect(40, 220, 260, 44));
+  act(() => window.dispatchEvent(new Event("scroll")));
+  frame();
+  expect(sheet.style.top).toBe("272px");
+  expect(frames.size).toBe(0);
+  bounds.mockReturnValue(new DOMRect(40, 240, 260, 44));
+  act(() => window.dispatchEvent(new Event("resize")));
+  frame();
+  expect(sheet.style.top).toBe("292px");
+  expect(frames.size).toBe(0);
+});
+
+it.each(["transform", "translate", "scale", "rotate", "height", "marginLeft", "--unknown-motion"])(
+  "keeps following %s keyframes even when they also animate opacity",
+  property => {
+    const animation = ancestorMotion([{ opacity: 0, [property]: "0" }, { opacity: 1, [property]: "1" }]);
+    trigger.getAnimations = () => [animation] as unknown as Animation[];
+    const sheet = render();
+    expect(frames.size).toBe(1);
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(new DOMRect(40, 220, 260, 44));
+    frame();
+    expect(sheet.style.top).toBe("272px");
+    expect(frames.size).toBe(1);
+    animation.playState = "finished";
+    frame();
+    expect(frames.size).toBe(0);
+  },
+);
+
+it("caches ancestor discovery during motion and discovers a replacement on reversal", () => {
+  const parent = document.createElement("div");
+  document.body.appendChild(parent);
+  parent.appendChild(trigger);
+  try {
+    const first = ancestorMotion([{ translate: "0 0" }, { translate: "0 20px" }]);
+    const reverse = ancestorMotion([{ translate: "0 10px" }, { translate: "0 0" }]);
+    let current = first;
+    const getAnimations = vi.fn(() => [current] as unknown as Animation[]);
+    parent.getAnimations = getAnimations;
+    const sheet = render();
+    const bounds = vi.spyOn(trigger, "getBoundingClientRect");
+    for (const top of [210, 220, 230]) {
+      bounds.mockReturnValue(new DOMRect(40, top, 260, 44));
+      frame();
+      expect(sheet.style.top).toBe(`${top + 52}px`);
+    }
+    expect(getAnimations).toHaveBeenCalledOnce();
+    expect(first.effect.getKeyframes).toHaveBeenCalledOnce();
+    first.playState = "finished";
+    current = reverse;
+    act(() => parent.dispatchEvent(new Event("animationstart", { bubbles: true })));
+    bounds.mockReturnValue(new DOMRect(40, 215, 260, 44));
+    frame();
+    expect(sheet.style.top).toBe("267px");
+    expect(getAnimations).toHaveBeenCalledTimes(2);
+    expect(reverse.effect.getKeyframes).toHaveBeenCalledOnce();
+    expect(frames.size).toBe(1);
+    reverse.playState = "finished";
+    bounds.mockReturnValue(new DOMRect(40, 200, 260, 44));
+    frame();
+    expect(sheet.style.top).toBe("252px");
+    expect(frames.size).toBe(0);
+  } finally {
+    document.body.appendChild(trigger);
+    parent.remove();
+  }
+});
+
+it("stops anchor tracking when the surface closes or becomes hidden and resumes on reopening", () => {
+  const animation = ancestorMotion([], "transform");
+  trigger.getAnimations = () => [animation] as unknown as Animation[];
+  const bounds = vi.spyOn(trigger, "getBoundingClientRect");
+  const anchor = { current: trigger };
+  const show = (open: boolean, visible = true) => act(() => root.render(
+    createElement(SurfaceVisibilityContext.Provider, { value: visible }, createElement(MobileSheet, {
+      title: "Actions", placement: "anchor", anchor, open, onClose: () => {},
+    }, "Actions")),
+  ));
+  show(true);
+  expect(frames.size).toBe(1);
+  show(false);
+  bounds.mockClear();
+  frame();
+  expect(bounds).not.toHaveBeenCalled();
+  expect(frames.size).toBe(0);
+  expect(node.querySelector<HTMLElement>(".mobile-sheet-backdrop")!.inert).toBe(true);
+  show(true);
+  expect(frames.size).toBe(1);
+  show(true, false);
+  bounds.mockClear();
+  frame();
+  expect(bounds).not.toHaveBeenCalled();
+  expect(frames.size).toBe(0);
+});
+
+it("discovers a WAAPI successor without CSS motion events before tracking stops", () => {
+  const first = ancestorMotion([{ transform: "translateY(0)" }, { transform: "translateY(20px)" }]);
+  const successor = ancestorMotion([{ translate: "0 10px" }, { translate: "0 0" }]);
+  let current = first;
+  const getAnimations = vi.fn(() => [current] as unknown as Animation[]);
+  trigger.getAnimations = getAnimations;
+  const sheet = render();
+  const bounds = vi.spyOn(trigger, "getBoundingClientRect");
+  frame();
+  expect(getAnimations).toHaveBeenCalledOnce();
+  first.playState = "idle";
+  current = successor;
+  bounds.mockReturnValue(new DOMRect(40, 215, 260, 44));
+  frame();
+  expect(getAnimations).toHaveBeenCalledTimes(2);
+  expect(sheet.style.top).toBe("267px");
+  expect(frames.size).toBe(1);
+  bounds.mockReturnValue(new DOMRect(40, 210, 260, 44));
+  frame();
+  expect(getAnimations).toHaveBeenCalledTimes(2);
+  expect(sheet.style.top).toBe("262px");
+  successor.playState = "finished";
+  frame();
+  expect(getAnimations).toHaveBeenCalledTimes(3);
+  expect(frames.size).toBe(0);
+});
+
+it("never discovers ancestor effects for a point anchor", () => {
+  trigger.getAnimations = vi.fn(() => [ancestorMotion([], "transform")] as unknown as Animation[]);
+  render({ x: 72, y: 180 });
+  act(() => trigger.dispatchEvent(new Event("animationstart", { bubbles: true })));
+  frame();
+  expect(trigger.getAnimations).not.toHaveBeenCalled();
   expect(frames.size).toBe(0);
 });

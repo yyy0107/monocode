@@ -18,6 +18,7 @@ import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
 import { useQueueDrag } from "./useQueueDrag";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import { MobileSheetPresence } from "./MobileSheetPresence";
+import { useListReorderMotion } from "../shared/hooks/useListReorderMotion";
 
 type Props = Omit<ComponentProps<typeof MessageQueue>, "renderQueue"> & {
   onRestore: (message: QueuedMessage) => void | Promise<void>;
@@ -68,6 +69,7 @@ function MobileQueueView({
   const visible = useSurfaceVisibility();
   const [menuId, setMenuId] = useState<string>();
   const anchor = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
   const menuMessage = view.messages.find((message) => message.id === menuId);
   const blocked = !visible || view.disabled || view.working;
   const sortable =
@@ -88,6 +90,7 @@ function MobileQueueView({
   const messages = sorting.order
     .map((id) => view.messages.find((message) => message.id === id)!)
     .filter(Boolean);
+  useListReorderMotion(list, sorting.order, "data-queue-id", visible);
   const dragged = view.messages.find(
     (message) => message.id === sorting.drag?.id,
   );
@@ -119,7 +122,7 @@ function MobileQueueView({
             </button>
           </div>
         )}
-        <div className="mobile-queue-pills">
+        <div ref={list} className="mobile-queue-pills">
           {messages.map((message) => {
             const label =
               message.text.trim() ||
@@ -169,6 +172,7 @@ function MobileQueueView({
       </div>
       {sorting.drag && dragged && (
         <div
+          ref={sorting.previewRef}
           className="mobile-queue-pill mobile-queue-drag-preview"
           aria-hidden="true"
           // The pill follows the finger on the compositor: moving `top` would

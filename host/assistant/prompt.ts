@@ -8,7 +8,10 @@ import type { AssistantRecord, Wakeup } from "./store";
 import type { AssistantHabit } from "../../src/features/assistant/model/assistantHabits";
 import { conversationBrief } from "./rotation";
 import { MEMORY_MAX_LINES } from "./memory";
+import type { ChatHit } from "./chatSearch";
+import { playbookIndex, type Playbook, type PlaybookSummary } from "./playbooks";
 
+const PLAYBOOK_PROMPT_CHARS = 8_000;
 export const QUIET_MARKER = "<assistant_quiet/>";
 export const MESSAGE_BREAK = "<msg_break/>";
 
@@ -117,6 +120,14 @@ export type BrainPromptInput = {
   fresh?: boolean;
   /** Resident memory, when this brain has not seen its current version. */
   memory?: { text: string; droppedLines: number; topics: string[] };
+  /** Every saved playbook's name and when-to-use description. */
+  playbooks?: PlaybookSummary[];
+  /** The playbook the current input clearly asks for, in full. */
+  playbook?: Playbook;
+  /** Newest diary entries about earlier days, for a fresh generation. */
+  diary?: string;
+  /** Earlier chat matching the current input that this brain has not seen. */
+  recall?: ChatHit[];
 };
 
 export function buildBrainPrompt({
@@ -129,6 +140,10 @@ export function buildBrainPrompt({
   now,
   fresh = false,
   memory,
+  playbooks = [],
+  playbook,
+  diary,
+  recall = [],
 }: BrainPromptInput): string {
   const timeZone = config.timezone ?? "UTC";
   const chat = messages.filter(
@@ -192,7 +207,16 @@ How to talk:
 Memory:
 - You have a memory that outlasts this conversation and model changes. Its first ${MEMORY_MAX_LINES} lines are shown to you whenever it changes, so keep it to facts that stay useful later: decisions, the user's preferences, how their projects work, people and where things live. Save them as you learn them; do not wait to be asked, and do not announce it.
 - memory.add {fact,until?} adds one dated entry (until is YYYY-MM-DD for facts that expire); memory.replace {find,fact} supersedes the one entry containing find; memory.remove {find} drops one that was wrong. Pass topic to keep longer notes on one subject; memory.read {topic?} reads one. Before answering about something you may have learned earlier that is not shown below, use memory.search {query,since?}; it also covers topic notes and the archive. Never save secrets, tokens or credentials.
-Use the control CLI: ${JSON.stringify(launcher)} assistant ACTION --input FILE|- --request-id ID. Actions: ${actions.join(", ")}. Discover exact IDs with agents.list, models.list, projects.list and sessions.list. Inputs for session actions include projectId and sessionId. Use sessions.create {projectId,harness,model,runtimeMode?}; sessions.send {projectId,sessionId,text}; workspace.run {projectId,command,args}; reminders.create {delayMinutes,prompt}; reminders.cancel {reminderId}; actions.get {requestId}. The Host generates real cards and provenance. If a call times out, retry the same ID and input; never replay unknown-outcome actions under a fresh ID. Use current runId/requestId for cancel/approve/answer. Do not expose tools, reasoning, credentials or internal paths. For event/schedule checks with no meaningful result, reply exactly ${QUIET_MARKER}. While you work, the user may add messages to this turn; take them into account.
+- The conversation shown below is only its recent part. For anything said earlier in your chat with the user (what they asked for, told you or you replied), use chat.search {query?,since?,limit?}; space-separated terms also match literally, so try exact names and short words, or since alone to list a period. Search before answering and quote what you find; do not guess, and never delegate reading your own chat to an agent.
+Playbooks:
+- Playbooks are how you remember to do things: multi-step procedures the user taught you or you worked out, each with a when-to-use description. When the user walks you through a procedure, corrects how you did one, or says to do it this way from now on, save it with playbooks.save {name,description,body,verified?}: name is lowercase-with-dashes, description says when to use it, body holds the goal, inputs to ask for, numbered steps with exact commands, projects, paths and agents, checks that prove it worked, and pitfalls. Write it so a fresh agent could follow it without this chat.
+- Before a task that matches a playbook below, read it with playbooks.read {name} and follow it. When delegating, select one with sessions.send {projectId,sessionId,text,playbooks:"name"}, or an ordered list with playbooks:["name","other-name"]. The Host includes the complete selected procedures in the task message; do not copy them yourself. Selection applies to that message, not every future turn of the session. sessions.steer and sessions.queue (action:"edit") also accept playbooks. For orchestration.worker actions message, steer or retry, put playbooks alongside action and input (the task text stays in input.text). Missing names are rejected before dispatch; playbooks.list gives the exact names. Updates do not change already accepted or queued messages. If the user corrects you or a step changed, update the playbook right away; pass verified:true when a run following it succeeded. playbooks.delete {name} removes one that is obsolete. Keep one playbook per procedure; update instead of duplicating.
+${
+  playbooks.length
+    ? `Your playbooks:\n${playbookIndex(playbooks)}`
+    : "You have no playbooks yet."
+}
+Use the control CLI: ${JSON.stringify(launcher)} assistant ACTION --input FILE|- --request-id ID. Actions: ${actions.join(", ")}. Discover exact IDs with agents.list, models.list, projects.list and sessions.list. Inputs for session actions include projectId and sessionId. Use sessions.create {projectId,harness,model,runtimeMode?}; sessions.send {projectId,sessionId,text,playbooks?}; workspace.run {projectId,command,args}; reminders.create {delayMinutes,prompt}; reminders.cancel {reminderId}; actions.get {requestId}. The Host generates real cards and provenance. If a call times out, retry the same ID and input; never replay unknown-outcome actions under a fresh ID. Use current runId/requestId for cancel/approve/answer. Do not expose tools, reasoning, credentials or internal paths. For event/schedule checks with no meaningful result, reply exactly ${QUIET_MARKER}. While you work, the user may add messages to this turn; take them into account.
 Current permissions: ${JSON.stringify(config.policy)}. Existing actions for this task (inspect these stable request IDs before recovery): ${JSON.stringify(ledger)}.
 ${
   memory
@@ -204,9 +228,40 @@ ${memory.text || "(Empty. Nothing has been remembered yet.)"}${
       }${memory.topics.length ? `\nTopic notes: ${memory.topics.join(", ")}` : ""}
 `
     : ""
+}${
+  diary
+    ? `Your diary of earlier days (newest last; memory.search finds older ones):
+${diary}
+`
+    : ""
+}${
+  playbook
+    ? `The current input looks like your playbook "${playbook.name}"${playbook.verified ? ` (last worked ${playbook.verified})` : ""}; follow it if it applies:
+${
+  playbook.body.length > PLAYBOOK_PROMPT_CHARS
+    ? `${playbook.body.slice(0, PLAYBOOK_PROMPT_CHARS)}\n[… read the rest with playbooks.read]`
+    : playbook.body
+}
+`
+    : ""
 }Situation:
 ${situation}
-Recent public conversation:
+${
+  recall.length
+    ? `Possibly related earlier chat (found automatically; ignore it if unrelated):
+${recall
+  .map(
+    (hit) =>
+      `- ${hit.at} ${hit.from === "user" ? "User" : "You"}: ${hit.text}${
+        hit.context
+          ? `\n  ${hit.context.from === "user" ? "User had said" : "You replied"}: ${hit.context.text}`
+          : ""
+      }`,
+  )
+  .join("\n")}
+`
+    : ""
+}Recent public conversation:
 ${recent}
 Current input (${wakeup.kind}):
 ${wakeup.text}`;

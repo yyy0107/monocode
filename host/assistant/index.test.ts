@@ -6,6 +6,7 @@ import { HostStore } from "../store";
 import { HostEngine } from "../engine";
 import { executeAssistantAction } from "./control";
 import { MEMORY_MAX_LINES } from "./memory";
+import { enqueueDiaries } from "./diary";
 import type { HostProvider } from "../providers";
 import type { SendTurnInput } from "../../src/integrations/harness/core/types";
 import { fullAssistantPolicy } from "../../src/features/assistant/model/assistant";
@@ -478,10 +479,12 @@ it("denies every declared action before effects when its permission is off", asy
     policy.permissions[key as keyof typeof policy.permissions] = false;
   engine.assistant.store.update({ policy });
   // Reminders and habits are governed by the scheduled-check trigger and
-  // memory is the assistant's own notebook; none reaches project data.
+  // memory and chat are the assistant's own records; none reaches project data.
   for (const action of ASSISTANT_ACTIONS.filter(
     (a) =>
       a !== "actions.get" &&
+      a !== "chat.search" &&
+      !a.startsWith("playbooks.") &&
       !a.startsWith("reminders.") &&
       !a.startsWith("habits.") &&
       !a.startsWith("memory."),
@@ -1419,4 +1422,209 @@ it("treats a lone stop word as a stop that also drops queued messages", async ()
   const later = (await engine.assistant.rpc("assistant.send", { commandId: "stop-idle", text: "stop" })) as { wakeupId?: string };
   expect(later.wakeupId).toEqual(expect.any(String));
   await vi.waitFor(() => expect(turns).toHaveLength(2));
+});
+it("searches the chat and writes each finished day into the diary once", async () => {
+  const { engine } = await setup();
+  const assistant = engine.assistant;
+  assistant.store.update({ timezone: "UTC", triggers: { user: true, event: false, schedule: true } });
+  const at = Date.UTC(2026, 9, 7, 21);
+  assistant.store.message({ id: "u1", kind: "user", text: "放一首读心术", createdAt: at });
+  assistant.store.message({ id: "a1", kind: "assistant", text: "好，正在播放。", createdAt: at + 60_000 });
+  expect(
+    await executeAssistantAction(assistant, "chat", "chat.search", { query: "读心术" }, () => true),
+  ).toEqual([
+    {
+      at: "2026-10-07 21:00",
+      from: "user",
+      text: "放一首读心术",
+      context: { from: "assistant", text: "好，正在播放。" },
+    },
+  ]);
+  const diaries = () =>
+    assistant.store.wakeups().filter((w) => w.rootCauseId === "diary:2026-10-07");
+  // Not before the next local day is a few hours old.
+  expect(enqueueDiaries(assistant.store, Date.UTC(2026, 9, 8, 3))).toBe(true);
+  expect(diaries()).toEqual([]);
+  enqueueDiaries(assistant.store, Date.UTC(2026, 9, 8, 5));
+  enqueueDiaries(assistant.store, Date.UTC(2026, 9, 8, 6));
+  expect(diaries()).toHaveLength(1);
+  expect(diaries()[0].text).toContain("21:00 User: 放一首读心术\n21:01 You: 好，正在播放。");
+  expect(
+    assistant.store.wakeups().filter((w) => w.rootCauseId.startsWith("diary:")),
+  ).toHaveLength(1);
+  assistant.store.message({ id: "u2", kind: "user", text: "关闭显示器", createdAt: at + 86_400_000 });
+  await executeAssistantAction(
+    assistant,
+    "diary-8",
+    "memory.add",
+    { topic: "chat-days", fact: "2026-10-08: 用户让我关闭显示器。" },
+    () => true,
+  );
+  enqueueDiaries(assistant.store, Date.UTC(2026, 9, 9, 5));
+  expect(
+    assistant.store.wakeups().filter((w) => w.rootCauseId === "diary:2026-10-08"),
+  ).toEqual([]);
+  assistant.store.update({ triggers: { user: true, event: false, schedule: false } });
+  expect(enqueueDiaries(assistant.store, Date.UTC(2026, 9, 10, 5))).toBe(false);
+});
+it("keeps playbooks the brain can list, follow and refine", async () => {
+  const { engine, turns } = await setup();
+  const assistant = engine.assistant;
+  const act = (requestId: string, action: string, input: Record<string, unknown>) =>
+    executeAssistantAction(assistant, requestId, action, input, () => true);
+  const save = {
+    name: "mobile-release",
+    description: "发布手机端 APK 到局域网时使用",
+    body: "1. 运行 npm run mobile:publish\n2. 确认更新源版本号",
+    verified: true,
+  };
+  expect(await act("pb1", "playbooks.save", save)).toEqual({ name: "mobile-release", created: true });
+  expect(await act("pb1", "playbooks.save", save)).toEqual({ name: "mobile-release", created: true });
+  const [listed] = (await act("pb-list", "playbooks.list", {})) as { verified?: string }[];
+  expect(listed).toEqual(expect.objectContaining({ name: "mobile-release", verified: expect.any(String) }));
+  // A later correction keeps the last verified run.
+  await act("pb2", "playbooks.save", { ...save, body: "1. 先拉取最新代码\n2. 运行 npm run mobile:publish", verified: undefined });
+  expect(await act("pb-read", "playbooks.read", { name: "mobile-release" })).toEqual(
+    expect.objectContaining({ body: "1. 先拉取最新代码\n2. 运行 npm run mobile:publish", verified: listed.verified }),
+  );
+  await expect(act("pb-bad", "playbooks.save", { ...save, name: "Mobile Release" })).rejects.toThrow("lowercase");
+  turns[0].finish();
+  await assistant.rpc("assistant.send", { commandId: "release", text: "帮我把手机端发布一下" });
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  expect(turns[1].input.text).toContain("- mobile-release: 发布手机端 APK 到局域网时使用 (last worked");
+  expect(turns[1].input.text).toContain('looks like your playbook "mobile-release"');
+  expect(turns[1].input.text).toContain("1. 先拉取最新代码");
+  expect(await act("pb-del", "playbooks.delete", { name: "mobile-release" })).toEqual({ deleted: true });
+  expect(await act("pb-list2", "playbooks.list", {})).toEqual([]);
+});
+
+it("dispatches a single playbook and snapshots ordered playbooks in the queue across edits and retries", async () => {
+  const { engine, project, store, turns } = await setup();
+  const act = (requestId: string, action: string, input: Record<string, unknown>) =>
+    executeAssistantAction(engine.assistant, requestId, action, input, () => true);
+  const release = { name: "release", description: "Ship a release", body: "Run the release checks" };
+  const verify = { name: "verify", description: "Verify a release", body: "Check the installed version" };
+  await act("save-release", "playbooks.save", release);
+  await act("save-verify", "playbooks.save", verify);
+  await act("save-private", "playbooks.save", { name: "private", description: "Unrelated", body: "Unrelated private procedure" });
+  const target = await act("target", "sessions.create", {
+    projectId: project.id, harness: "codex", model: "test",
+  }) as { sessionId: string };
+  const ref = { projectId: project.id, sessionId: target.sessionId };
+  await act("single", "sessions.send", { ...ref, text: "Ship it", playbooks: "release" });
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  expect(turns[1].input.text).toContain(release.body);
+  expect(turns[1].input.text).not.toContain(verify.body);
+  expect(turns[1].input.text).not.toContain("Unrelated private procedure");
+  const queuedInput = { ...ref, text: "Ship and verify", playbooks: ["release", "verify", "release"] };
+  const accepted = await act("queued-playbooks", "sessions.send", queuedInput);
+  const queued = store.session(target.sessionId).session.queuedMessages!;
+  expect(queued).toHaveLength(1);
+  expect(queued[0].text.indexOf(release.body)).toBeLessThan(queued[0].text.indexOf(verify.body));
+  expect(queued[0].text.split(release.body)).toHaveLength(2);
+  expect(queued[0].origin?.kind).toBe("assistant");
+  expect(engine.assistant.store.action("queued-playbooks")!.input).toEqual(queuedInput);
+  await act("revise", "playbooks.save", { ...release, body: "Different release steps" });
+  await act("delete", "playbooks.delete", { name: "verify" });
+  expect(await act("queued-playbooks", "sessions.send", queuedInput)).toEqual(accepted);
+  expect(store.session(target.sessionId).session.queuedMessages).toHaveLength(1);
+  turns[1].finish();
+  await vi.waitFor(() => expect(turns).toHaveLength(3));
+  expect(turns[2].input.text).toBe(queued[0].text);
+  expect(turns[2].input.text).not.toContain("Different release steps");
+});
+
+it("rejects invalid playbook assignments and enforces dispatch permissions before resolving names", async () => {
+  const { engine, project, store, turns } = await setup();
+  const act = (requestId: string, action: string, input: Record<string, unknown>, authorized = true) =>
+    executeAssistantAction(engine.assistant, requestId, action, input, () => authorized);
+  await act("save", "playbooks.save", { name: "release", description: "Release", body: "Run checks" });
+  const target = await act("target", "sessions.create", {
+    projectId: project.id, harness: "codex", model: "test",
+  }) as { sessionId: string };
+  const input = { projectId: project.id, sessionId: target.sessionId, text: "Ship it" };
+  for (const [index, playbooks] of ["missing", ["release", "missing"], null, [42]].entries()) {
+    await expect(act(`invalid-${index}`, "sessions.send", { ...input, playbooks })).rejects.toThrow();
+    expect(engine.assistant.store.action(`invalid-${index}`)?.state).toBe("failed");
+  }
+  await expect(act("too-long", "sessions.send", { ...input, text: "a".repeat(256_000), playbooks: "release" })).rejects.toThrow("too long");
+  await expect(act("revoked", "sessions.send", { ...input, playbooks: "release" }, false)).rejects.toThrow("revoked");
+  const policy = fullAssistantPolicy();
+  policy.permissions["sessions.send"] = false;
+  engine.assistant.store.update({ policy });
+  await expect(act("denied", "sessions.send", { ...input, playbooks: "missing" })).rejects.toThrow("Permission denied: sessions.send");
+  expect(store.session(target.sessionId).session.blocks).toHaveLength(0);
+  expect(store.session(target.sessionId).session.queuedMessages ?? []).toHaveLength(0);
+  expect(turns).toHaveLength(1);
+});
+
+it("attaches playbooks to steering and queue edits without changing ordinary messages", async () => {
+  const { engine, project, store, provider, turns } = await setup({ steer: true });
+  const act = (requestId: string, action: string, input: Record<string, unknown>) =>
+    executeAssistantAction(engine.assistant, requestId, action, input, () => true);
+  const playbook = { name: "review", description: "Review work", body: "Inspect the failing test first" };
+  await act("save", "playbooks.save", playbook);
+  const target = await act("target", "sessions.create", {
+    projectId: project.id, harness: "codex", model: "test",
+  }) as { sessionId: string };
+  const ref = { projectId: project.id, sessionId: target.sessionId };
+  await act("start", "sessions.send", { ...ref, text: "Work" });
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  expect(turns[1].input.text).toBe("Work");
+  const steerInput = { ...ref, text: "Focus here", runId: store.session(target.sessionId).runId, playbooks: [playbook.name] };
+  await act("steer", "sessions.steer", steerInput);
+  await act("steer", "sessions.steer", steerInput);
+  expect(provider.steer).toHaveBeenCalledTimes(1);
+  expect(provider.steer).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining(playbook.body) }));
+  expect(store.session(target.sessionId).session.blocks.at(-1)).toMatchObject({ text: expect.stringContaining(playbook.body), origin: { kind: "assistant" } });
+  await act("enqueue", "sessions.send", { ...ref, text: "Next task" });
+  const messageId = store.session(target.sessionId).session.queuedMessages![0].id;
+  const queueRef = { ...ref, messageId, editor: "assistant-editor" };
+  await expect(act("invalid-hold", "sessions.queue", { ...queueRef, action: "hold", playbooks: "review" })).rejects.toThrow("queue edits");
+  await act("hold", "sessions.queue", { ...queueRef, action: "hold" });
+  await act("edit", "sessions.queue", { ...queueRef, action: "edit", text: "Review next", playbooks: "review" });
+  const queued = store.session(target.sessionId).session.queuedMessages![0];
+  expect(queued.text).toContain(playbook.body);
+  expect(queued.origin?.kind).toBe("assistant");
+  turns[1].finish();
+  await vi.waitFor(() => expect(turns).toHaveLength(3));
+  expect(turns[2].input.text).toBe(queued.text);
+});
+
+it("routes assigned playbooks to worker messages, steering and retries after checking permissions", async () => {
+  const { engine, project, store } = await setup();
+  const act = (requestId: string, action: string, input: Record<string, unknown>) =>
+    executeAssistantAction(engine.assistant, requestId, action, input, () => true);
+  const playbook = { name: "review", description: "Review work", body: "Inspect the failing test first" };
+  await act("save", "playbooks.save", playbook);
+  const lead = await act("lead", "sessions.create", { projectId: project.id, harness: "codex", model: "test" }) as { sessionId: string };
+  // Test the assistant boundary; the scheduler owns worker state validation.
+  const run = vi.spyOn(engine.orchestration.scheduler, "run").mockReturnValue({ tasks: [] } as never);
+  const generation = vi.spyOn(store, "orchestration").mockReturnValue({ id: "generation" } as never);
+  const handle = vi.spyOn(engine.orchestration.scheduler, "handle").mockResolvedValue({ accepted: true });
+  try {
+    const input = { projectId: project.id, leadId: lead.sessionId, orchestrationId: "generation", taskId: "worker", input: { text: "Review now", files: ["src"] }, playbooks: "review" };
+    for (const action of ["message", "steer", "retry"]) {
+      await act(action, "orchestration.worker", { ...input, action });
+      expect(handle).toHaveBeenLastCalledWith(
+        lead.sessionId, expect.any(String), action,
+        expect.objectContaining({ taskId: "worker", files: ["src"], text: expect.stringContaining(playbook.body) }),
+        expect.any(Function), expect.objectContaining({ kind: "assistant" }),
+      );
+    }
+    await expect(act("cancel", "orchestration.worker", { ...input, action: "cancel" })).rejects.toThrow("accept playbooks");
+    await expect(act("oversized-worker", "orchestration.worker", {
+      ...input, action: "message", input: { text: "a".repeat(30_000) },
+    })).rejects.toThrow("too long");
+    expect(engine.assistant.store.action("oversized-worker")?.state).toBe("failed");
+    const policy = fullAssistantPolicy();
+    policy.permissions["sessions.send"] = false;
+    engine.assistant.store.update({ policy });
+    await expect(act("denied-worker", "orchestration.worker", { ...input, action: "message", playbooks: "missing" })).rejects.toThrow("Permission denied: sessions.send");
+    expect(handle).toHaveBeenCalledTimes(3);
+  } finally {
+    handle.mockRestore();
+    generation.mockRestore();
+    run.mockRestore();
+  }
 });

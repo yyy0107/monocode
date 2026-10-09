@@ -2000,6 +2000,15 @@ html.has-user-accent
   padding: 0;
 }
 
+/* The shell's flex gap belongs to the folding row, so it opens from zero. */
+[data-composer-layout="desktop"] .composer-attachments-collapse {
+  margin-bottom: -12px;
+}
+
+[data-composer-layout="desktop"] .composer-attachments {
+  padding-bottom: 12px;
+}
+
 [data-composer-layout="desktop"]
   .composer-attachments
   .attachment-chip-thumbnail,
@@ -3278,10 +3287,14 @@ html.theme-light .drag-ghost-card {
   animation: shimmer-text var(--shimmer-duration, 2s) linear infinite;
 }
 
-/* usePauseOffscreenAnimation: loops out of view or in a hidden window stop
-   ticking instead of restyling every frame. */
+/* usePauseOffscreenAnimation: hidden/reduced-motion loops stop ticking.
+   Include pseudo-elements so transform-based skeleton sweeps pause too. */
 [data-animation-paused],
-[data-animation-paused] * {
+[data-animation-paused]::before,
+[data-animation-paused]::after,
+[data-animation-paused] *,
+[data-animation-paused] *::before,
+[data-animation-paused] *::after {
   animation-play-state: paused !important;
 }
 
@@ -3716,6 +3729,20 @@ html.theme-light .drag-ghost-card {
 }
 
 /* Respond on the first frame instead of slowly accelerating after a click. */
+.zen-fold-item.composer-attachments-collapse {
+  --collapse-easing: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Leaving chips are positioned against the list while they fade. */
+.attachment-list-animated {
+  position: relative;
+}
+
+.attachment-presence {
+  display: flex;
+  min-width: 0;
+}
+
 .zen-fold-item.project-tree-collapse {
   --collapse-easing: cubic-bezier(0.2, 0.65, 0.3, 1);
 }

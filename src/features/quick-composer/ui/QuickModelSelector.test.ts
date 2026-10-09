@@ -153,6 +153,90 @@ it("shows saved favorites across provider tabs", () => {
   );
 });
 
+it("groups upstream providers and keeps search and keyboard selection in display order", () => {
+  const models: AgentModel[] = [
+    {
+      id: "pi:a/first",
+      name: "Shared name",
+      harness: "pi",
+      provider: { id: "a", name: "Cloud A" },
+    },
+    {
+      id: "pi:b/first",
+      name: "Shared name",
+      harness: "pi",
+      provider: { id: "b", name: "Cloud B" },
+    },
+    {
+      id: "pi:a/second",
+      name: "Second model",
+      harness: "pi",
+      provider: { id: "a", name: "Cloud A" },
+    },
+  ];
+  act(() => {
+    setHarnessModels("pi", models);
+    root.render(
+      createElement(QuickModelSelector, {
+        key: "grouped",
+        model: models[0],
+        values: {},
+        availableHarnesses: ["pi"],
+        onChange,
+        onSettingsChange,
+        onClose,
+      }),
+    );
+  });
+  const list = container.querySelector('[role="listbox"]')!;
+  expect(
+    [...list.querySelectorAll('[role="group"]')].map((group) =>
+      group.getAttribute("aria-label"),
+    ),
+  ).toEqual(["Cloud A", "Cloud B"]);
+  expect(
+    [...list.querySelectorAll('[role="option"]')].map((option) =>
+      option.getAttribute("aria-label"),
+    ),
+  ).toEqual([
+    "Shared name, Cloud A",
+    "Second model, Cloud A",
+    "Shared name, Cloud B",
+  ]);
+  const search =
+    container.querySelector<HTMLInputElement>('[role="combobox"]')!;
+  act(() =>
+    search.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+    ),
+  );
+  act(() =>
+    search.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    ),
+  );
+  expect(onChange).toHaveBeenLastCalledWith(models[2]);
+
+  act(() => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(search, "Cloud B");
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(list.querySelectorAll('[role="option"]')).toHaveLength(1);
+  // Keep the provider heading even when filtering leaves just one provider.
+  expect(
+    list.querySelector('[role="group"]')?.firstElementChild?.textContent,
+  ).toBe("Cloud B");
+  act(() =>
+    search.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    ),
+  );
+  expect(onChange).toHaveBeenLastCalledWith(models[1]);
+});
+
 it("toggles fast mode from the lightning button", () => {
   const fast = container.querySelector<HTMLButtonElement>(
     '[aria-label="Fast mode"]',

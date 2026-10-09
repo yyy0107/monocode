@@ -2,6 +2,7 @@ import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useState } from "react";
 import { X } from "../../../shared/ui/icons";
 import { attachmentPreviewSrc, isAttachmentFolder } from "../model/attachments";
+import { attachmentThumbnail } from "../model/attachmentThumbnails";
 import type { Attachment } from "../model/session";
 import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
 import { ImageLightbox } from "../../../shared/ui/ImageLightbox";
@@ -18,7 +19,9 @@ type Props = {
 export function AttachmentChip({ attachment, onRemove, tile = false, onOpen }: Props) {
   const { t: uiT } = useTranslation();
   const [previewOpen, setPreviewOpen] = useState(false);
-  const preview = attachmentPreviewSrc(attachment);
+  // A cached thumbnail spares the chip from decoding the full photo.
+  const thumbnail = attachment.kind === "image" ? attachmentThumbnail(attachment.id) : undefined;
+  const preview = thumbnail ?? attachmentPreviewSrc(attachment);
   const image = attachment.kind === "image" && preview;
   const fileTile = tile && !image;
   const openLabel = uiT("Open {value0}", { value0: String(attachment.name) });
@@ -57,6 +60,7 @@ export function AttachmentChip({ attachment, onRemove, tile = false, onOpen }: P
             <img
               src={preview}
               alt=""
+              decoding="async"
               draggable={false}
               className="attachment-chip-thumbnail size-9 rounded-lg object-cover"
             />
@@ -118,7 +122,7 @@ export function AttachmentChip({ attachment, onRemove, tile = false, onOpen }: P
       </div>
       {image && previewOpen ? (
         <ImageLightbox
-          src={preview}
+          src={thumbnail ? (attachmentPreviewSrc(attachment) ?? thumbnail) : preview}
           alt={attachment.name}
           onClose={() => setPreviewOpen(false)}
         />

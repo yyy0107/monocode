@@ -139,10 +139,18 @@
   :is([data-lifecycle="failed"], [data-lifecycle="interrupted"])::before {
   background: #ff453a;
 }
+/* Only the scroll container consumes the animated dock height. Message text
+   must not inherit a new custom-property value on every resize frame. */
+@property --mobile-assistant-dock-height {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 76px;
+}
 .assistant-chat[data-layout="mobile"] .assistant-conversation {
   position: relative;
 }
 .assistant-chat[data-layout="mobile"] .assistant-messages {
+  --mobile-assistant-dock-height: inherit;
   /* Match the scroll that the local layout will apply, without resizing the
      conversation and running its ResizeObserver on every keyboard frame. */
   transform: translateY(calc(var(--mobile-keyboard-offset) * var(--mobile-assistant-keyboard-follow, 0) * -1));

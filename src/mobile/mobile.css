@@ -304,6 +304,9 @@ html .popover-backdrop.popover-backdrop {
     inset 0 -14px 20px -16px var(--mobile-glass-edge-shade),
     var(--mobile-glass-shadow);
 }
+.mobile-progress-capsule {
+  box-shadow: none;
+}
 /* Panels hold rows of text, so they close part of the remaining fill and
    blur harder than the floating controls. */
 .mobile-drawer,
@@ -1469,16 +1472,24 @@ html[data-mobile-glass="solid"] :is(
   pointer-events: none;
 }
 .mobile-skeleton-bar {
+  position: relative;
   display: inline-block;
   height: 12px;
   max-width: 100%;
   border-radius: 6px;
   vertical-align: middle;
+  overflow: hidden;
+  background: var(--mobile-fill);
+}
+.mobile-skeleton-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 200%;
   background: linear-gradient(90deg,
-    var(--mobile-fill) 25%,
+    transparent 25%,
     color-mix(in srgb, var(--color-content) 15%, transparent) 50%,
-    var(--mobile-fill) 75%);
-  background-size: 200% 100%;
+    transparent 75%);
   animation: mobile-skeleton-shimmer 1.6s ease-in-out infinite;
 }
 .mobile-skeleton-bar.mobile-skeleton-icon {
@@ -1505,13 +1516,13 @@ html[data-mobile-glass="solid"] :is(
   width: 42px;
 }
 @keyframes mobile-skeleton-shimmer {
-  from { background-position: 200% 0; }
-  to { background-position: -200% 0; }
+  from { transform: translateX(-100%); }
+  to { transform: translateX(50%); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .mobile-skeleton-bar {
+  .mobile-skeleton-bar::before {
+    display: none;
     animation: none;
-    background: var(--mobile-fill);
   }
 }
 /* Home keeps one compact, high-contrast action at the thumb's corner. */
@@ -1677,13 +1688,21 @@ html[data-mobile-glass="solid"] :is(
   inherits: false;
   initial-value: 0px;
 }
+/* The form sheet alone consumes its backdrop's animated lift. Do not carry
+   each keyboard frame through the sheet's fields and scrollable content. */
+@property --mobile-sheet-keyboard-lift {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 @property --mobile-dock-inset {
   syntax: "<length>";
   inherits: false;
   initial-value: 0px;
 }
-/* Autosizing publishes this every animation frame. Only the dock's layout
-   consumers inherit it; transcript text must not be restyled with each frame. */
+/* Composer motion publishes its target once; other resizes publish per frame.
+   Only the dock's layout consumers inherit it; transcript text must not be
+   restyled with each change. */
 @property --mobile-dock-height {
   syntax: "<length>";
   inherits: false;
@@ -1720,7 +1739,7 @@ html[data-mobile-glass="solid"] :is(
   inset-inline: 0;
   z-index: 10;
   bottom: calc(0px - var(--mobile-keyboard-layout));
-  padding: 8px;
+  padding: 8px 8px 18px;
   transform: translateY(calc(0px - var(--mobile-keyboard-offset) - var(--mobile-dock-inset) + 8px));
   pointer-events: none;
   /* Move the safe-area gap with the capsule. Animating padding would resize
@@ -1904,10 +1923,10 @@ html.theme-light .mobile-composer-card {
   user-select: text;
   overflow-y: auto;
   touch-action: pan-y;
-  transition: height 180ms ease;
+  /* Height changes at once; useComposerResizeMotion glides on the compositor. */
 }
 .mobile-composer-card textarea {
-  min-height: 36px;
+  min-height: 32px;
 }
 .mobile-composer textarea.mobile-composer-measure {
   white-space: pre-wrap;
@@ -1985,7 +2004,18 @@ html.has-user-accent .mobile-send:not(:disabled) {
   color: var(--color-background-base);
 }
 .mobile-composer-attachment-region {
+  position: relative;
   min-width: 0;
+}
+/* A closing row has already left layout; the descending card edge covers it. */
+.mobile-composer-attachment-region[data-closing] > .mobile-composer-attachments {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+}
+/* The scaled card clips content its top edge has not revealed yet. */
+.mobile-composer-card[data-resize-motion] > .mobile-composer-input {
+  overflow: clip;
 }
 /* While a question holds the bottom the composer folds to a single line: the
    model row slides under the input and the toolbar collapses, leaving the
@@ -2019,7 +2049,7 @@ html.has-user-accent .mobile-send:not(:disabled) {
   align-items: center;
 }
 .mobile-composer-card[data-compact] textarea {
-  max-height: 36px;
+  max-height: 32px;
   overflow: hidden;
 }
 .mobile-composer-toolbar-collapse {
@@ -2186,10 +2216,10 @@ html.has-user-accent .mobile-send:not(:disabled) {
    Input-free menus keep their existing motion. */
 .mobile-sheet-backdrop[data-placement="bottom"]:has(> .mobile-sheet :is(input, textarea, select, [contenteditable])) {
   bottom: var(--mobile-keyboard-layout);
-  /* Unregistered, so the sheet inherits the substituted per-frame value. */
   --mobile-sheet-keyboard-lift: max(0px, var(--mobile-keyboard) - var(--mobile-keyboard-layout));
 }
 .mobile-sheet-backdrop[data-placement="bottom"]:has(> .mobile-sheet :is(input, textarea, select, [contenteditable])) > .mobile-sheet {
+  --mobile-sheet-keyboard-lift: inherit;
   translate: 0 calc(-1 * var(--mobile-sheet-keyboard-lift, 0px));
 }
 .mobile-sheet-backdrop[data-placement="bottom"] .mobile-sheet {
@@ -3679,6 +3709,8 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   gap: 7px;
   max-height: min(160px, 20dvh);
   overflow-y: auto;
+  /* Reordering owns the scroll position while the rows slide into place. */
+  overflow-anchor: none;
 }
 .mobile-queue-pill {
   display: flex;
@@ -3754,8 +3786,8 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 }
 
 /* Drawer: projects and conversation history slide over the chat. */
-/* Written on every frame of a drawer drag. Not inherited, so each frame
-   restyles the backdrop alone instead of every row in the drawer. */
+/* Written on every frame of a drawer drag. Only the dimming layer explicitly
+   inherits it, so moving the drawer does not restyle every session row. */
 @property --mobile-drawer-progress {
   syntax: "<number>";
   inherits: false;
@@ -3769,23 +3801,32 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
   position: fixed;
   inset: 0;
   z-index: 25;
-  background: rgb(0 0 0 / calc(var(--mobile-drawer-progress, 0) * 0.4));
   /* Horizontal pushes reach JavaScript to close the drawer. */
   touch-action: pan-y;
-  transition:
-    background var(--mobile-drawer-duration) var(--mobile-drawer-easing),
-    visibility 0s;
+  transition: visibility 0s;
+}
+/* Fade a separate layer: animating the full-screen background color rerasterizes
+   the backdrop throughout both opening and closing, underneath the glass. */
+.mobile-drawer-backdrop::before {
+  --mobile-drawer-progress: inherit;
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.4);
+  opacity: var(--mobile-drawer-progress, 0);
+  pointer-events: none;
+  transition: opacity var(--mobile-drawer-duration) var(--mobile-drawer-easing);
+  will-change: opacity;
 }
 /* Closed and settled: invisible and untouchable, but kept mounted so a
    finger can pull it out from the conversation. */
 .mobile-drawer-backdrop[data-open="false"]:not([data-dragging]) {
   visibility: hidden;
   pointer-events: none;
-  transition:
-    background var(--mobile-drawer-duration) var(--mobile-drawer-easing),
-    visibility 0s var(--mobile-drawer-duration);
+  transition: visibility 0s var(--mobile-drawer-duration);
 }
-.mobile-drawer-backdrop[data-dragging] {
+.mobile-drawer-backdrop[data-dragging],
+.mobile-drawer-backdrop[data-dragging]::before {
   transition: none;
 }
 .mobile-drawer {
@@ -3818,7 +3859,8 @@ html.has-user-accent .mobile-desktop-transcript .user-message-bubble:not([data-d
 }
 @media (prefers-reduced-motion: reduce) {
   .mobile-drawer,
-  .mobile-drawer-backdrop {
+  .mobile-drawer-backdrop,
+  .mobile-drawer-backdrop::before {
     transition: none;
   }
 }
@@ -4433,25 +4475,29 @@ button.mobile-settings-row:active {
   box-shadow:
     0 3px 8px #00000026,
     0 1px 1px #00000029;
+  transform-origin: left center;
+  translate: 0;
+  scale: 1;
   transition:
-    transform var(--mobile-spring-snappy-duration) var(--mobile-spring-snappy),
-    width var(--mobile-spring-release-duration) var(--mobile-spring-release);
+    translate var(--mobile-spring-snappy-duration) var(--mobile-spring-snappy),
+    scale var(--mobile-spring-release-duration) var(--mobile-spring-release);
 }
 .mobile-app input.mobile-switch:checked {
   background: #34c759;
 }
 .mobile-app input.mobile-switch:checked::after {
-  transform: translateX(20px);
+  translate: 20px;
 }
 .mobile-app input.mobile-switch:active:not(:disabled)::after {
-  width: 33px;
+  /* Keep the 27px layout box stable while the painted thumb stretches. */
+  scale: calc(33 / 27) 1;
   transition:
-    transform var(--mobile-motion-press) var(--mobile-ease-out),
-    width var(--mobile-motion-press) var(--mobile-ease-out);
+    translate var(--mobile-motion-press) var(--mobile-ease-out),
+    scale var(--mobile-motion-press) var(--mobile-ease-out);
 }
 /* A checked thumb stretches leftward, keeping its trailing edge in place. */
 .mobile-app input.mobile-switch:checked:active:not(:disabled)::after {
-  transform: translateX(14px);
+  translate: 14px;
 }
 @media (prefers-reduced-motion: reduce) {
   .mobile-app input.mobile-switch,
@@ -4756,6 +4802,27 @@ button.mobile-settings-row:active {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* File previews share one reading surface from the header to the safe area. */
+.mobile-sheet:has(> .mobile-sheet-content > .mobile-file-sheet) {
+  padding-inline: 0;
+  padding-bottom: var(--mobile-safe-bottom);
+  border: 0;
+}
+.mobile-sheet:has(> .mobile-sheet-content > .mobile-file-sheet),
+.mobile-sheet-pages .mobile-page-layer:has(> .mobile-sheet-page-scroll > .mobile-file-sheet) {
+  --mobile-popup-font-step: 0px;
+  background: var(--color-background-base);
+}
+.mobile-file-sheet-header {
+  padding-inline: 12px;
+  border-bottom: 1px solid var(--color-stroke);
+}
+.mobile-sheet-content:has(> .mobile-file-sheet),
+.mobile-sheet-page-scroll:has(> .mobile-file-sheet) {
+  flex: 1;
+  padding: 0;
+  background: var(--color-background-base);
+}
 .mobile-sheet[data-detents] .mobile-tool-sheet,
 .mobile-sheet[data-detents] .mobile-activity-sheet,
 .mobile-sheet[data-detents] .mobile-file-sheet {
@@ -4804,7 +4871,35 @@ button.mobile-settings-row:active {
 }
 /* Source previews read edge to edge like the tool sheet's diff, not as a card. */
 .mobile-sheet[data-detents] .mobile-file-sheet[data-view="source"] {
+  min-height: 100%;
   padding: 0;
+}
+/* The virtual editor owns scrolling and fills either sheet detent. Markdown
+   and short highlighted files keep the outer reading surface's scrolling. */
+:is(.mobile-sheet-content, .mobile-sheet-page-scroll):has(> .mobile-file-sheet > .readonly-text-view) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.mobile-sheet[data-detents] .mobile-file-sheet:has(> .readonly-text-view),
+.mobile-file-sheet > .readonly-text-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.mobile-file-sheet > .readonly-text-view {
+  border: 0;
+  border-radius: 0;
+}
+.mobile-file-sheet > .readonly-text-view > .readonly-text-toolbar {
+  flex-shrink: 0;
+}
+.mobile-file-sheet > .readonly-text-view > .readonly-text-viewport,
+.mobile-file-sheet > .readonly-text-view.readonly-text-viewport {
+  flex: 1;
+  height: 0;
+  min-height: 0;
 }
 .mobile-sheet[data-detents] .mobile-file-sheet[data-view="source"] .mobile-file-plain {
   margin-top: 0;

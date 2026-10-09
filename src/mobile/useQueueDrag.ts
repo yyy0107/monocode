@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -18,6 +19,13 @@ export function useQueueDrag(
 ) {
   const [drag, setDrag] = useState<Drag>();
   const [preview, setPreview] = useState<string[]>();
+  const previewElement = useRef<HTMLDivElement | null>(null);
+  const previewTop = useRef(0);
+  const previewRef = useCallback((element: HTMLDivElement | null) => {
+    previewElement.current = element;
+    if (element)
+      element.style.transform = `translateY(${previewTop.current}px) scale(1.03)`;
+  }, []);
   const cleanup = useRef<(() => void) | undefined>(undefined);
   const suppressUntil = useRef(0);
   const latest = useRef({ ids, enabled, onDrop });
@@ -43,10 +51,13 @@ export function useQueueDrag(
     const handle = event.currentTarget;
     const list = handle.parentElement!;
     const nodes = [...list.querySelectorAll<HTMLElement>("[data-queue-id]")];
-    const rects = nodes.map((node) => node.getBoundingClientRect());
     const from = ids.indexOf(id);
     if (from < 0 || nodes.length !== ids.length) return;
-    const rect = rects[from];
+    let rect = handle.getBoundingClientRect();
+    let bounds = list.getBoundingClientRect();
+    let centers: number[] = [];
+    let maxScroll = 0;
+    let geometryDirty = true;
     const startX = event.clientX,
       startY = event.clientY,
       scrollStart = list.scrollTop;
@@ -57,13 +68,36 @@ export function useQueueDrag(
       y = startY,
       order = ids;
     let frame = 0;
+    let publishedDrag: Drag | undefined;
+    const measure = () => {
+      bounds = list.getBoundingClientRect();
+      rect = handle.getBoundingClientRect();
+      const scrollTop = list.scrollTop;
+      centers = [...list.querySelectorAll<HTMLElement>("[data-queue-id]")].map(
+        (node) => {
+          const slot = node.getBoundingClientRect();
+          // Reorder slides translate the rows without moving their layout slots.
+          const transform = getComputedStyle(node).transform;
+          const translation =
+            transform && transform !== "none"
+              ? new DOMMatrixReadOnly(transform).m42
+              : 0;
+          return (
+            slot.top - translation - bounds.top + scrollTop + slot.height / 2
+          );
+        },
+      );
+      maxScroll = Math.max(0, list.scrollHeight - list.clientHeight);
+      geometryDirty = false;
+    };
     const place = () => {
+      if (geometryDirty) measure();
       const center =
-        y - grabOffset + rect.height / 2 + list.scrollTop - scrollStart;
+        y - grabOffset + rect.height / 2 - bounds.top + list.scrollTop;
       let to = from,
         distance = Infinity;
-      rects.forEach((slot, index) => {
-        const nextDistance = Math.abs(center - slot.top - slot.height / 2);
+      centers.forEach((slot, index) => {
+        const nextDistance = Math.abs(center - slot);
         if (nextDistance < distance) {
           to = index;
           distance = nextDistance;
@@ -75,24 +109,46 @@ export function useQueueDrag(
         order = next;
         setPreview(order);
       }
-      setDrag({ id, left: rect.left, top: y - grabOffset, width: rect.width });
+      const top = y - grabOffset;
+      previewTop.current = top;
+      if (previewElement.current) {
+        previewElement.current.style.transform = `translateY(${top}px) scale(1.03)`;
+      }
+      // Finger movement stays outside React; only geometry and order changes
+      // need a render of the queue and its glass preview.
+      if (
+        publishedDrag?.left !== rect.left ||
+        publishedDrag.width !== rect.width
+      ) {
+        publishedDrag = { id, left: rect.left, top, width: rect.width };
+        setDrag(publishedDrag);
+      }
+    };
+    const schedule = () => {
+      if (active && !frame) frame = requestAnimationFrame(tick);
     };
     const tick = () => {
+      frame = 0;
       if (!active) return;
-      const bounds = list.getBoundingClientRect();
+      if (geometryDirty) measure();
       const speed = y < bounds.top + 24 ? -7 : y > bounds.bottom - 24 ? 7 : 0;
-      if (speed) {
-        list.scrollTop += speed;
-        place();
+      const before = list.scrollTop;
+      const next = Math.max(0, Math.min(maxScroll, before + speed));
+      if (next !== before) {
+        list.scrollTop = next;
       }
-      frame = requestAnimationFrame(tick);
+      place();
+      // A stationary finger only needs more frames while it can scroll.
+      const after = list.scrollTop;
+      if (after !== before && (speed < 0 ? after > 0 : after < maxScroll))
+        schedule();
     };
     const timer = setTimeout(() => {
       if (moved || !latest.current.enabled) return;
       active = true;
       suppressUntil.current = Infinity;
       place();
-      frame = requestAnimationFrame(tick);
+      schedule();
     }, HOLD_MS);
     const move = (next: PointerEvent) => {
       if (next.pointerId !== pointerId) return;
@@ -106,11 +162,16 @@ export function useQueueDrag(
         }
         return;
       }
-      place();
+      schedule();
     };
     const stop = (next?: PointerEvent, commit = false) => {
       if (next && next.pointerId !== pointerId) return;
       const wasActive = active;
+      // A release can arrive before the coalesced move frame.
+      if (commit && wasActive && latest.current.enabled) {
+        if (next) y = next.clientY;
+        place();
+      }
       active = false;
       clearTimeout(timer);
       cancelAnimationFrame(frame);
@@ -119,6 +180,11 @@ export function useQueueDrag(
       window.removeEventListener("pointercancel", aborted);
       window.removeEventListener("blur", blur);
       window.removeEventListener("keydown", keydown);
+      window.removeEventListener("resize", invalidate);
+      window.removeEventListener("scroll", scrolled, true);
+      window.visualViewport?.removeEventListener("resize", invalidate);
+      window.visualViewport?.removeEventListener("scroll", invalidate);
+      observer?.disconnect();
       if (handle.hasPointerCapture?.(pointerId))
         handle.releasePointerCapture(pointerId);
       cleanup.current = undefined;
@@ -142,6 +208,20 @@ export function useQueueDrag(
         stop();
       }
     };
+    const invalidate = () => {
+      geometryDirty = true;
+      schedule();
+    };
+    const scrolled = (next: Event) => {
+      if (next.target === list) schedule();
+      else invalidate();
+    };
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(invalidate);
+    observer?.observe(list);
+    for (const node of nodes) observer?.observe(node);
     cleanup.current = () => stop();
     handle.setPointerCapture?.(pointerId);
     window.addEventListener("pointermove", move, { passive: false });
@@ -149,9 +229,14 @@ export function useQueueDrag(
     window.addEventListener("pointercancel", aborted);
     window.addEventListener("blur", blur);
     window.addEventListener("keydown", keydown);
+    window.addEventListener("resize", invalidate);
+    window.addEventListener("scroll", scrolled, true);
+    window.visualViewport?.addEventListener("resize", invalidate);
+    window.visualViewport?.addEventListener("scroll", invalidate);
   };
   return {
     drag,
+    previewRef,
     order: preview ?? ids,
     start,
     cancel,

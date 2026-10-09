@@ -226,7 +226,7 @@ export function MobileFileSheet({
   if (embedded) return <><MobileSheetHeader {...header} onBack={onBack} onClose={onClose} />
     <div className="mobile-sheet-page-scroll" data-mobile-page-scroll>{content}</div></>;
   return <MobileSheet open={open} onExited={onExited} title="File preview" onClose={onClose} onBack={onBack}
-    detents header={header}>{content}</MobileSheet>;
+    detents surface="solid" header={header}>{content}</MobileSheet>;
 }
 
 /** Only short cited files reach this path; long sources use the virtual viewport. */

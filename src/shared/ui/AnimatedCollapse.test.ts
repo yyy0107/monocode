@@ -285,7 +285,7 @@ describe("measured-height motion", () => {
   let itemHeight: number;
   let contentHeight: number;
   let now: number;
-  let resize: () => void;
+  let resize: (entries?: ResizeObserverEntry[]) => void;
   let observe: ReturnType<typeof vi.fn>;
   let disconnect: ReturnType<typeof vi.fn>;
   let animations: {
@@ -297,6 +297,16 @@ describe("measured-height motion", () => {
     expanded: boolean,
     options: Partial<ComponentProps<typeof AnimatedCollapse>> = {},
   ) => render(expanded, true, 220, "height", options);
+  const reportHeight = (height: number, legacyBox = false) => {
+    const size = { blockSize: height, inlineSize: 400 };
+    resize([
+      {
+        target: fold()!.firstElementChild!,
+        borderBoxSize: legacyBox ? size : [size],
+        contentRect: { height: height - 20 },
+      } as unknown as ResizeObserverEntry,
+    ]);
+  };
 
   beforeEach(() => {
     itemHeight = 0;
@@ -327,7 +337,7 @@ describe("measured-height motion", () => {
     vi.stubGlobal(
       "ResizeObserver",
       class {
-        constructor(callback: () => void) {
+        constructor(callback: (entries?: ResizeObserverEntry[]) => void) {
           resize = callback;
         }
         observe = observe;
@@ -356,7 +366,9 @@ describe("measured-height motion", () => {
       [{ height: "0px" }, { height: "160px" }],
       expect.objectContaining({ duration: 220 }),
     );
-    expect(observe).toHaveBeenCalledWith(fold()?.firstElementChild);
+    expect(observe).toHaveBeenCalledWith(fold()?.firstElementChild, {
+      box: "border-box",
+    });
     itemHeight = 160;
     act(() => animations[1].onfinish?.());
     expect(fold()?.dataset.foldState).toBe("open");
@@ -449,6 +461,72 @@ describe("measured-height motion", () => {
     expect(disconnect).toHaveBeenCalledOnce();
   });
 
+  it.each([false, true])(
+    "uses delivered border-box sizes and only measures an animation being retargeted (legacy box: %s)",
+    (legacyBox) => {
+      renderHeight(true, { animateContentResize: true });
+      const content = fold()!.firstElementChild!;
+      const contentRect = vi.spyOn(content, "getBoundingClientRect");
+      const clientRects = vi.spyOn(content, "getClientRects");
+      const itemRect = vi.spyOn(fold()!, "getBoundingClientRect");
+      act(() => reportHeight(160, legacyBox));
+      expect(animate).not.toHaveBeenCalled();
+      contentHeight = 320;
+      act(() => reportHeight(320, legacyBox));
+      expect(animate).toHaveBeenLastCalledWith(
+        [{ height: "160px" }, { height: "320px" }],
+        expect.anything(),
+      );
+      expect(itemRect).not.toHaveBeenCalled();
+      itemHeight = 240;
+      contentHeight = 400;
+      act(() => reportHeight(400, legacyBox));
+      expect(animate).toHaveBeenLastCalledWith(
+        [{ height: "240px" }, { height: "400px" }],
+        expect.anything(),
+      );
+      act(() => reportHeight(400, legacyBox));
+      expect(animate).toHaveBeenCalledTimes(2);
+      expect(itemRect).toHaveBeenCalledOnce();
+      expect(contentRect).not.toHaveBeenCalled();
+      expect(clientRects).not.toHaveBeenCalled();
+    },
+  );
+
+  it("measures the full content when an observer supplies no usable border box", () => {
+    renderHeight(true, { animateContentResize: true });
+    const content = fold()!.firstElementChild!;
+    const contentRect = vi.spyOn(content, "getBoundingClientRect");
+    contentHeight = 320;
+    act(() =>
+      resize([
+        { target: content, contentRect: { height: 300 } } as ResizeObserverEntry,
+      ]),
+    );
+    expect(animate).toHaveBeenLastCalledWith(
+      [{ height: "160px" }, { height: "320px" }],
+      expect.anything(),
+    );
+    itemHeight = 240;
+    contentHeight = 400;
+    act(() =>
+      resize([
+        {
+          target: content,
+          borderBoxSize: [
+            { blockSize: 200, inlineSize: 400 },
+            { blockSize: 200, inlineSize: 400 },
+          ],
+        } as unknown as ResizeObserverEntry,
+      ]),
+    );
+    expect(animate).toHaveBeenLastCalledWith(
+      [{ height: "240px" }, { height: "400px" }],
+      expect.anything(),
+    );
+    expect(contentRect).toHaveBeenCalled();
+  });
+
   it("gives late content a full transition and extends its completion fallback", () => {
     const onEntered = vi.fn();
     const options = { animateContentResize: true, onEntered };
@@ -519,6 +597,26 @@ describe("measured-height motion", () => {
     expect(fold()?.style.height).toBe("");
   });
 
+  it("distinguishes hidden zero-size reports from content becoming empty", () => {
+    renderHeight(true, { keepMounted: true, animateContentResize: true });
+    const rects = vi
+      .spyOn(fold()!.firstElementChild!, "getClientRects")
+      .mockReturnValue([] as unknown as DOMRectList);
+    itemHeight = contentHeight = 0;
+    act(() => reportHeight(0));
+    expect(animate).not.toHaveBeenCalled();
+    rects.mockRestore();
+    itemHeight = contentHeight = 160;
+    act(() => reportHeight(160));
+    expect(animate).not.toHaveBeenCalled();
+    itemHeight = contentHeight = 0;
+    act(() => reportHeight(0));
+    expect(animate).toHaveBeenLastCalledWith(
+      [{ height: "160px" }, { height: "0px" }],
+      expect.anything(),
+    );
+  });
+
   it("prepares late DOM content before waiting for layout-observer delivery", () => {
     let mutate: () => void = () => {};
     const disconnectMutations = vi.fn();
@@ -533,12 +631,21 @@ describe("measured-height motion", () => {
       },
     );
     renderHeight(true, { animateContentResize: true });
+    const contentRect = vi.spyOn(
+      fold()!.firstElementChild!,
+      "getBoundingClientRect",
+    );
     itemHeight = contentHeight = 320;
     act(() => mutate());
     expect(animate).toHaveBeenLastCalledWith(
       [{ height: "160px" }, { height: "320px" }],
       expect.objectContaining({ duration: 220 }),
     );
+    expect(contentRect).toHaveBeenCalled();
+    contentRect.mockClear();
+    act(() => reportHeight(320));
+    expect(contentRect).not.toHaveBeenCalled();
+    expect(animate).toHaveBeenCalledOnce();
     renderHeight(false, { animateContentResize: true });
     expect(disconnectMutations).toHaveBeenCalledOnce();
   });
@@ -553,6 +660,37 @@ describe("measured-height motion", () => {
     act(() => resize());
     expect(animate).not.toHaveBeenCalled();
     expect(fold()?.style.height).toBe("");
+  });
+
+  it("releases an active resize for nested motion without measuring each delivered frame", () => {
+    renderHeight(true, { animateContentResize: true });
+    contentHeight = 240;
+    act(() => reportHeight(240));
+    expect(animate).toHaveBeenCalledOnce();
+    const content = fold()!.firstElementChild!;
+    const nested = document.createElement("div");
+    nested.className = "zen-fold-item";
+    nested.dataset.foldState = "opening";
+    content.append(nested);
+    const contentRect = vi.spyOn(content, "getBoundingClientRect");
+    const itemRect = vi.spyOn(fold()!, "getBoundingClientRect");
+    act(() => reportHeight(240));
+    expect(animations[0].cancel).toHaveBeenCalledOnce();
+    expect(fold()?.style.height).toBe("");
+    contentHeight = 320;
+    act(() => reportHeight(320));
+    expect(animate).toHaveBeenCalledOnce();
+    expect(contentRect).not.toHaveBeenCalled();
+    expect(itemRect).not.toHaveBeenCalled();
+    nested.dataset.foldState = "open";
+    act(() => reportHeight(320));
+    expect(animate).toHaveBeenCalledOnce();
+    contentHeight = 400;
+    act(() => reportHeight(400));
+    expect(animate).toHaveBeenLastCalledWith(
+      [{ height: "320px" }, { height: "400px" }],
+      expect.anything(),
+    );
   });
 
   it("skips height animations and observers with reduced motion", () => {
