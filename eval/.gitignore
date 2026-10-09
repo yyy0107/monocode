@@ -1,0 +1,4 @@
+# External datasets remain private/large optional assets; never add protected data.
+external/
+.cache/
+__pycache__/
