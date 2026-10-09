@@ -83,20 +83,8 @@ function currentPanel() {
   return container.querySelector("[data-current-panel]")?.textContent;
 }
 
-async function paintFrame() {
-  await act(async () => {
-    const callbacks = [...frames.values()];
-    frames.clear();
-    callbacks.forEach((callback) => callback(performance.now()));
-  });
-}
-
-async function click(label: string, paint = true) {
+async function click(label: string) {
   await act(async () => button(label).click());
-  if (paint) {
-    await paintFrame();
-    await paintFrame();
-  }
 }
 
 function pointer(target: EventTarget, type: string, clientX: number) {
@@ -138,58 +126,40 @@ afterEach(() => {
 });
 
 describe("sidebar tab selection feedback", () => {
-  it("paints the selection before starting a ready Changes panel", async () => {
+  it("opens a ready panel with the selection without waiting for animation frames", async () => {
     const { onTabChange, panelRender } = await renderHarness();
 
-    await click("Changes", false);
+    await click("Changes");
     expect(selectedLabel()).toBe("Changes");
-    expect(currentPanel()).toBe("sessions");
-    expect(onTabChange).not.toHaveBeenCalled();
-    expect(panelRender).not.toHaveBeenCalledWith("changes");
-
-    await paintFrame();
-    expect(onTabChange).not.toHaveBeenCalled();
-    await paintFrame();
     expect(onTabChange).toHaveBeenCalledExactlyOnceWith("changes");
+    expect(panelRender).toHaveBeenCalledWith("changes");
     expect(currentPanel()).toBe("changes");
-  });
-
-  it("only opens the latest tab when clicks arrive before the first paint", async () => {
-    const { onTabChange } = await renderHarness();
-    await click("Changes", false);
-    await paintFrame();
-    await click("Explorer", false);
-    expect(selectedLabel()).toBe("Explorer");
-
-    await paintFrame();
-    await paintFrame();
-    expect(onTabChange).toHaveBeenCalledExactlyOnceWith("files");
-    expect(currentPanel()).toBe("files");
-  });
-
-  it("cancels a queued click when the controlled tab changes", async () => {
-    const { onTabChange, setExternalTab } = await renderHarness();
-    await click("Changes", false);
-    await act(async () => setExternalTab("files"));
-    await paintFrame();
-    await paintFrame();
-    expect(onTabChange).not.toHaveBeenCalled();
-    expect(selectedLabel()).toBe("Explorer");
-    expect(currentPanel()).toBe("files");
-  });
-
-  it("cancels a queued click when the strip unmounts", async () => {
-    const { onTabChange } = await renderHarness();
-    await click("Changes", false);
-    await act(async () => root.render(null));
     expect(frames.size).toBe(0);
-    expect(onTabChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps ready panels in step with rapid clicks in both directions", async () => {
+    const { onTabChange } = await renderHarness();
+    await click("Changes");
+    expect(selectedLabel()).toBe("Changes");
+    expect(currentPanel()).toBe("changes");
+    await click("Explorer");
+    expect(selectedLabel()).toBe("Explorer");
+    expect(currentPanel()).toBe("files");
+    await click("Sessions");
+    expect(selectedLabel()).toBe("Sessions");
+    expect(currentPanel()).toBe("sessions");
+    expect(onTabChange.mock.calls).toEqual([
+      ["changes"],
+      ["files"],
+      ["sessions"],
+    ]);
+    expect(frames.size).toBe(0);
   });
 
   it("opens the panel immediately when motion is reduced", async () => {
     document.documentElement.dataset.reducedMotion = "on";
     const { onTabChange } = await renderHarness();
-    await click("Changes", false);
+    await click("Changes");
     expect(frames.size).toBe(0);
     expect(onTabChange).toHaveBeenCalledExactlyOnceWith("changes");
     expect(currentPanel()).toBe("changes");

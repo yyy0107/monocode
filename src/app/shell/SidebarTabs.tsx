@@ -2,9 +2,7 @@ import { usePreferenceState } from "../../features/settings/model/usePreferenceS
 import {
   memo,
   startTransition,
-  useLayoutEffect,
   useOptimistic,
-  useRef,
   type CSSProperties,
 } from "react";
 import {
@@ -15,7 +13,6 @@ import {
 import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import { formatInteger } from "../../shared/lib/numbers";
-import { prefersReducedMotion } from "../../shared/lib/reducedMotion";
 
 const TAB_LABELS: Record<SidebarTabId, string> = {
   sessions: "Sessions",
@@ -42,9 +39,6 @@ export const SidebarTabs = memo(function SidebarTabs({
 }: Props) {
   const { t } = useTranslation();
   const [selectedTab, selectTab] = useOptimistic(tab);
-  const cancelPendingPaint = useRef<(() => void) | null>(null);
-  const segmentRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => () => cancelPendingPaint.current?.(), [tab]);
   const [tabOrder, setTabOrder] = usePreferenceState(loadSidebarTabOrder);
   const sortable = useAnimatedReorder(tabOrder, (next) => {
     setTabOrder(next);
@@ -53,7 +47,6 @@ export const SidebarTabs = memo(function SidebarTabs({
 
   return (
     <div
-      ref={segmentRef}
       role="tablist"
       aria-label={t("Workspace")}
       data-reordering={sortable.draggingId ? "" : undefined}
@@ -85,37 +78,11 @@ export const SidebarTabs = memo(function SidebarTabs({
             }
             onClick={() => {
               if (sortable.consumeClick()) return;
-              cancelPendingPaint.current?.();
-              startTransition(async () => {
+              startTransition(() => {
                 selectTab(id);
-                if (!prefersReducedMotion()) {
-                  // Mounting a panel (notably Changes) blocks the main thread
-                  // and freezes the thumb mid-slide. Let it finish sliding
-                  // (and paint at least twice) before switching panels.
-                  const slide = thumbSlideMs(segmentRef.current);
-                  const painted = await new Promise<boolean>((resolve) => {
-                    let start: number | undefined;
-                    let frames = 0;
-                    const tick = (now: number) => {
-                      start ??= now;
-                      if (++frames < 2 || now - start < slide) {
-                        frame = requestAnimationFrame(tick);
-                        return;
-                      }
-                      cancelPendingPaint.current = null;
-                      resolve(true);
-                    };
-                    let frame = requestAnimationFrame(tick);
-                    cancelPendingPaint.current = () => {
-                      cancelAnimationFrame(frame);
-                      cancelPendingPaint.current = null;
-                      resolve(false);
-                    };
-                  });
-                  if (!painted) return;
-                }
-                // Updates after an await need their own transition scope.
-                startTransition(() => onTabChange(id));
+                // Start the panel update with the selection. The CSS thumb
+                // animates independently; waiting for it makes content lag.
+                onTabChange(id);
               });
             }}
             className="surface-tab flex h-6 min-w-0 flex-1 items-center justify-center self-center px-2 text-ui-sm leading-none"
@@ -133,20 +100,6 @@ export const SidebarTabs = memo(function SidebarTabs({
     </div>
   );
 });
-
-/** Longest transition duration of the sliding thumb, in milliseconds. */
-function thumbSlideMs(segment: HTMLElement | null) {
-  if (!segment) return 0;
-  const { transitionDuration } = getComputedStyle(segment, "::before");
-  return Math.max(
-    0,
-    ...transitionDuration.split(",").map((part) => {
-      const value = Number.parseFloat(part);
-      if (!Number.isFinite(value)) return 0;
-      return part.trim().endsWith("ms") ? value : value * 1000;
-    }),
-  );
-}
 
 function DiffStat({
   additions,
