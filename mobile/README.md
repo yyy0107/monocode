@@ -224,6 +224,26 @@ The debug APK is `mobile/android/app/build/outputs/apk/debug/app-debug.apk`.
 `mobile/android/local.properties` is machine-specific and ignored by Git;
 configure `sdk.dir` or your normal Android SDK environment before using Gradle.
 
+## GitHub Release builds
+
+`npm run mobile:apk:release` builds the web assets in Vite `release` mode and
+assembles the Android Release variant. Both layers use
+`mobile/update-config.release.json`: updates come from this repository's GitHub
+Releases, using `releases/latest/download/mobile-latest.json` and a flat
+`monocode-N.apk` asset. The manifest uses the existing mobile schema, with
+`downloadPath` set to `/monocode-N.apk`. Release builds never publish to LAN.
+The APK must be signed with the same certificate as the installed app before
+distributing it; Gradle does not configure a Release signing key by default.
+Upload the signed APK and its matching size/SHA-256 manifest to the same GitHub
+Release. Building does not upload assets or publish a Release.
+
+For desktop GitHub builds, use `npm run build:linux:release` or, on Windows,
+`npm run build:windows:release`. These merge `src-tauri/tauri.release.conf.json`,
+which points the Tauri updater at `releases/latest/download/latest.json` in
+`yyy0107/ohmymonocode`. That asset must contain the version, platform package URLs
+and updater signatures, signed with the existing desktop updater key. Remote
+Windows snapshot builds accept `channel: "release"` and the stable app version.
+
 ## LAN app updates
 
 The phone's Connections screen includes App updates. It checks at startup and
@@ -236,14 +256,14 @@ HTTP is supported. The computer must be online on the same LAN.
 npm run mobile:apk
 ```
 
-Every signed APK assembled through Gradle (including Android Studio and direct
+Every LAN APK assembled through Gradle (including Android Studio and direct
 `assembleDebug`) receives a new versionCode. The versionName is the build date
 in `MM-dd-HHmm` format (for example `10-07-0840`), using `America/Los_Angeles`
 to match desktop LAN builds. Multiple builds within the same minute can share the
 same versionName while their versionCodes continue to increase.
 Successful assembly publishes the APK and atomically updates
-`latest.json`, then starts the LAN update server if necessary. Unsigned release
-APKs are not published. `mobile:build` alone builds web assets, not an APK.
+`latest.json`, then starts the LAN update server if necessary. Release APKs are
+not published to LAN. `mobile:build` alone builds web assets, not an APK.
 Version counters and packages are shared between worktrees in
 `~/.local/share/monocode/mobile-updates` (or under `XDG_DATA_HOME`). For isolated
 builds, override `MONOCODE_MOBILE_UPDATE_DIR`. Versioned APK URLs remain immutable,

@@ -8,6 +8,7 @@ import java.time.format.DateTimeFormatter
 
 def mobileRoot = rootProject.projectDir.parentFile
 def updateConfig = new JsonSlurper().parse(new File(mobileRoot, 'update-config.json'))
+def releaseUpdateConfig = new JsonSlurper().parse(new File(mobileRoot, 'update-config.release.json'))
 def buildVersionName = DateTimeFormatter.ofPattern('MM-dd-HHmm')
     .withZone(ZoneId.of('America/Los_Angeles')).format(Instant.now())
 def updateRoot = new File(System.getenv('MONOCODE_MOBILE_UPDATE_DIR') ?: new File(
@@ -43,12 +44,22 @@ android {
         def updateSources = ([updateConfig.baseUrl] + (updateConfig.baseUrls ?: [])).unique()
         buildConfigField 'String[]', 'MONOCODE_UPDATE_BASE_URLS',
             'new String[]{' + updateSources.collect { JsonOutput.toJson(it) }.join(',') + '}'
+        buildConfigField 'String', 'MONOCODE_UPDATE_DOWNLOAD_PREFIX', '"/apk/"'
+    }
+    buildTypes {
+        release {
+            def updateSources = ([releaseUpdateConfig.baseUrl] + releaseUpdateConfig.baseUrls).unique()
+            buildConfigField 'String[]', 'MONOCODE_UPDATE_BASE_URLS',
+                'new String[]{' + updateSources.collect { JsonOutput.toJson(it) }.join(',') + '}'
+            buildConfigField 'String', 'MONOCODE_UPDATE_DOWNLOAD_PREFIX',
+                JsonOutput.toJson(releaseUpdateConfig.downloadPrefix)
+        }
     }
 }
 
 android.applicationVariants.all { variant ->
-    // Unsigned release artifacts cannot be installed as app updates.
-    if (variant.signingConfig != null && System.getenv('MONOCODE_MOBILE_DEFER_PUBLISH') != '1') {
+    // GitHub Release builds never advance the LAN feed, even when signed.
+    if (variant.buildType.name != 'release' && variant.signingConfig != null && System.getenv('MONOCODE_MOBILE_DEFER_PUBLISH') != '1') {
         variant.packageApplicationProvider.configure {
             doLast {
                 exec {

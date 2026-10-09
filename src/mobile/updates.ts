@@ -5,7 +5,13 @@ import {
   registerPlugin,
   type PluginListenerHandle,
 } from "@capacitor/core";
-import config from "../../mobile/update-config.json";
+import lanConfig from "../../mobile/update-config.json";
+import releaseConfig from "../../mobile/update-config.release.json";
+
+const release = import.meta.env.MODE === "release";
+const config = release ? releaseConfig : lanConfig;
+const manifestPath = release ? releaseConfig.manifestPath : "/latest.json";
+const downloadPrefix = release ? releaseConfig.downloadPrefix : "/apk/";
 
 export const updateBaseUrl = config.baseUrl;
 export const updateBaseUrls = [
@@ -49,7 +55,8 @@ export function parseMobileUpdate(value: unknown): MobileUpdate {
     !Number.isInteger(update.versionCode) ||
     update.versionCode! < 1 ||
     update.versionCode! > 2100000000 ||
-    update.downloadPath !== `/apk/monocode-${update.versionCode}.apk` ||
+    update.downloadPath !==
+      `${downloadPrefix}monocode-${update.versionCode}.apk` ||
     typeof update.versionName !== "string" ||
     !update.versionName ||
     typeof update.sha256 !== "string" ||
@@ -87,7 +94,7 @@ export function updateDownloadUrl(update: MobileUpdate): string {
 }
 
 async function checkUpdateSource(source: string): Promise<MobileUpdate> {
-  const url = `${source}/latest.json`;
+  const url = `${source}${manifestPath}`;
   let data: unknown;
   if (Capacitor.isNativePlatform()) {
     const response = await CapacitorHttp.get({

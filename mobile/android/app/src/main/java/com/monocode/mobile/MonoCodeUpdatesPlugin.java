@@ -50,7 +50,7 @@ public class MonoCodeUpdatesPlugin extends Plugin {
         try {
             URI requested = URI.create(url);
             boolean trusted = Arrays.stream(BuildConfig.MONOCODE_UPDATE_BASE_URLS).anyMatch(source ->
-                URI.create(source + "/apk/monocode-" + code + ".apk").equals(requested));
+                URI.create(source + BuildConfig.MONOCODE_UPDATE_DOWNLOAD_PREFIX + "monocode-" + code + ".apk").equals(requested));
             if (!trusted || code == null || code < 1 ||
                 size == null || size <= 0 || size > 512L * 1024 * 1024 || !checksum.matches("[a-f0-9]{64}"))
                 throw new IllegalArgumentException("Invalid update package.");
@@ -68,10 +68,19 @@ public class MonoCodeUpdatesPlugin extends Plugin {
             File directory = new File(getContext().getCacheDir(), "updates");
             if (!directory.isDirectory() && !directory.mkdirs()) throw new Exception("Cannot create update cache.");
             temporary = new File(directory, "download.partial");
-            connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
-            connection.setInstanceFollowRedirects(false);
-            connection.setConnectTimeout(15000);
-            connection.setReadTimeout(30000);
+            URI target = URI.create(url);
+            for (int redirects = 0; ; redirects++) {
+                connection = (HttpURLConnection) target.toURL().openConnection();
+                connection.setInstanceFollowRedirects(false);
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(30000);
+                int status = connection.getResponseCode();
+                if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308) break;
+                String location = connection.getHeaderField("Location");
+                connection.disconnect();
+                if (redirects >= 5 || location == null) throw new Exception("Unable to download update.");
+                target = UpdateDownloadRedirect.resolve(URI.create(url), target, location);
+            }
             if (connection.getResponseCode() != 200) throw new Exception("Unable to download update.");
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             long received = 0;
