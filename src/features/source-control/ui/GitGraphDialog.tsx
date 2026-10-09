@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { MENU_BAR_HEIGHT } from "../../../app/shell/MenuBar";
+import { WINDOW_DRAG_BAR_HEIGHT } from "../../../app/shell/WindowChrome";
+import { startWindowDrag } from "../../../app/shell/startWindowDrag";
 import {
   gitHistory,
   subscribeGitChanged,
@@ -6,8 +16,13 @@ import {
 } from "../../../platform/tauri/fs";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { prettyCwd } from "../../../shared/lib/paths";
-import { Modal } from "../../../shared/ui/Modal";
+import { IS_MAC } from "../../../platform/tauri/platform";
 import { FolderTree, GitBranch, RefreshCw } from "../../../shared/ui/icons";
+import {
+  loadMenuBarVisible,
+  subscribeMenuBarVisible,
+} from "../../settings/model/settings";
+import { AppViewDialog } from "../../workspace/ui/AppViewDialog";
 import { useProjectWorktrees } from "../hooks/useProjectWorktrees";
 import { historyItemGraph, layoutGitGraph } from "../model/gitGraph";
 import "./GitGraphDialog.css";
@@ -28,6 +43,9 @@ export function GitGraphDialog({
   onOpenCommit: (commit: GitHistoryCommit) => void;
 }) {
   const { t, language } = useTranslation();
+  const menuBarPinned =
+    useSyncExternalStore(subscribeMenuBarVisible, loadMenuBarVisible) &&
+    !IS_MAC;
   const { commits, loading, error, reload } = useGraphHistory(cwd);
   const worktrees = useProjectWorktrees(cwd);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -81,6 +99,18 @@ export function GitGraphDialog({
     return () => panel.removeEventListener("keydown", trapFocus);
   }, []);
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    // Match Settings: controls and popovers get to handle Escape first.
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const refresh = async () => {
     setRefreshing(true);
     try {
@@ -91,18 +121,22 @@ export function GitGraphDialog({
   };
 
   return (
-    <Modal
+    <AppViewDialog
       title={t("Git graph")}
-      size="lg"
-      minimalHeader
-      fitViewport
       onClose={onClose}
-      className="h-[min(820px,90dvh)]"
+      topInset={menuBarPinned ? MENU_BAR_HEIGHT : WINDOW_DRAG_BAR_HEIGHT}
     >
-      <div ref={contentRef} className="flex h-full min-h-0 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-stroke pl-4 pr-12">
+      <div
+        ref={contentRef}
+        className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
+      >
+        <header
+          data-tauri-drag-region="deep"
+          onMouseDownCapture={startWindowDrag}
+          className="flex h-10 shrink-0 select-none items-center gap-2 border-b border-stroke px-3"
+        >
           <GitBranch className="size-4 shrink-0 text-content/65" />
-          <span className="shrink-0 text-ui-lg font-medium">
+          <span className="shrink-0 text-[13px] font-medium">
             {t("Git graph")}
           </span>
           <span
@@ -309,7 +343,7 @@ export function GitGraphDialog({
           </p>
         ) : null}
       </div>
-    </Modal>
+    </AppViewDialog>
   );
 }
 

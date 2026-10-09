@@ -5,10 +5,25 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { GitHistoryGraph } from "./GitHistoryGraph";
 import { gitHistory, type GitHistoryCommit } from "../../../platform/tauri/fs";
 import { setUiLanguage } from "../../../shared/i18n/language";
+import { saveMenuBarVisible } from "../../settings/model/settings";
 
-const { refreshTrees, listeners } = vi.hoisted(() => ({
+const { refreshTrees, listeners, startDragging } = vi.hoisted(() => ({
   refreshTrees: vi.fn(async () => true),
   listeners: new Set<() => void>(),
+  startDragging: vi.fn(async () => {}),
+}));
+vi.mock("@tauri-apps/api/core", async (original) => ({
+  ...(await original<typeof import("@tauri-apps/api/core")>()),
+  isTauri: () => true,
+}));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ startDragging }),
+}));
+vi.mock("../../../platform/tauri/platform", async (original) => ({
+  ...(await original<typeof import("../../../platform/tauri/platform")>()),
+  IS_LINUX: true,
+  IS_WIN: false,
+  IS_MAC: false,
 }));
 vi.mock("../../../platform/tauri/fs", () => ({
   gitHistory: vi.fn(),
@@ -50,6 +65,8 @@ beforeEach(() => {
   onToggleExpanded.mockClear();
   onOpenCommit.mockClear();
   refreshTrees.mockClear();
+  startDragging.mockClear();
+  saveMenuBarVisible(false);
   vi.mocked(gitHistory)
     .mockReset()
     .mockResolvedValue({ head: commit.sha, commits: [commit] });
@@ -61,6 +78,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   setUiLanguage("en");
+  saveMenuBarVisible(false);
   vi.unstubAllGlobals();
 });
 async function render(cwd = "/repo", enabled = true) {
@@ -85,6 +103,41 @@ async function open() {
   await render();
   await act(async () => button("Open Git graph").click());
 }
+
+it("uses the Settings dialog shell and drags from its header without stealing button or table interaction", async () => {
+  await open();
+  const shell = document.querySelector<HTMLElement>("[data-app-view-dialog]")!;
+  const dialog = shell.querySelector('[role="dialog"]')!;
+  expect(shell.style.top).toBe("40px");
+  await act(async () => saveMenuBarVisible(true));
+  expect(shell.style.top).toBe("36px");
+  const header = dialog.querySelector('[data-tauri-drag-region="deep"]')!;
+  const press = (target: Element) => {
+    const event = new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      detail: 1,
+    });
+    act(() => target.dispatchEvent(event));
+    return event;
+  };
+  expect(press(header.querySelector("span")!).defaultPrevented).toBe(true);
+  expect(startDragging).toHaveBeenCalledOnce();
+  startDragging.mockClear();
+  for (const target of [
+    button("Refresh Git graph").querySelector("svg")!,
+    button("Close").querySelector("svg")!,
+    dialog.querySelector("tbody td")!,
+  ]) {
+    expect(press(target).defaultPrevented).toBe(false);
+  }
+  expect(startDragging).not.toHaveBeenCalled();
+  await act(async () => button("Refresh Git graph").click());
+  expect(refreshTrees).toHaveBeenCalledOnce();
+  await act(async () => button("Close").click());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
 
 it("opens the complete graph from a collapsed sidebar, localizes labels, and opens commit details", async () => {
   await open();
