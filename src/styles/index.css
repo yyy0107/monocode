@@ -1815,13 +1815,17 @@ html.theme-light .explorer-file-drag-preview {
     var(--motion-ease-out);
 }
 
-.resize-handle:hover::after,
-.resize-handle[data-dragging]::after {
+.resize-handle:hover::after {
   background: color-mix(
     in srgb,
     var(--color-foreground-subtlest) 50%,
     transparent
   );
+}
+
+.resize-handle:active::after,
+.resize-handle[data-dragging]::after {
+  background: var(--color-foreground-subtlest);
 }
 
 .resize-handle[data-resize-edge="left"],
@@ -1842,10 +1846,11 @@ html.theme-light .explorer-file-drag-preview {
 
 .resize-handle[data-resize-edge="left"]::after,
 .resize-handle[data-resize-edge="right"]::after {
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 2px;
+  top: 50%;
+  left: -1px;
+  width: 4px;
+  height: 56px;
+  transform: translateY(-50%);
 }
 
 .resize-handle[data-resize-edge="top"],
@@ -1866,14 +1871,15 @@ html.theme-light .explorer-file-drag-preview {
 
 .resize-handle[data-resize-edge="top"]::after,
 .resize-handle[data-resize-edge="bottom"]::after {
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
+  top: -1px;
+  left: 50%;
+  width: 56px;
+  height: 4px;
+  transform: translateX(-50%);
 }
 
 .resize-handle.resize-handle-centered::after {
-  top: 7px;
+  top: 6px;
 }
 
 /* Raise only the pills: the row's top clearance remains a continuous resize strip. */
@@ -3141,7 +3147,7 @@ header[data-tauri-drag-region] button {
 .project-terminal-card-gutter > .resize-handle::after {
   inset: 0;
   margin: auto;
-  border-radius: 9999px;
+  transform: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

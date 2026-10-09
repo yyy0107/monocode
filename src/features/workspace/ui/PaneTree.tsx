@@ -1272,7 +1272,7 @@ function Sash({
       aria-valuemax={100}
       aria-valuenow={Math.round(boundary * 100)}
       aria-hidden={!visible || undefined}
-      className={`absolute z-10 bg-stroke transition-opacity duration-150 motion-reduce:transition-none ${
+      className={`absolute z-10 transition-opacity duration-150 motion-reduce:transition-none ${
         row ? "w-px" : "h-px"
       } ${visible ? "" : "pointer-events-none opacity-0"}`}
       style={sashStyle(sash)}
