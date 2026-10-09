@@ -104,7 +104,7 @@ export const GitReviewChangeCard = memo(function GitReviewChangeCard({
   return (
     <section
       data-review-file={file.relative}
-      className="min-w-0 border-b border-content/8"
+      className="min-w-0"
     >
       <header
         className={`sticky top-0 z-10 flex h-9 items-center gap-1 bg-background-base px-2 ${focused ? "ring-1 ring-inset ring-accent/30" : ""}`}
