@@ -39,7 +39,7 @@ import { useStableCallback } from "./useStableCallback";
 
 type Detail =
   | { kind: "progress" }
-  | { kind: "changes" }
+  | { kind: "changes"; path?: string; from?: Extract<Detail, { kind: "tool" }> }
   | { kind: "agent"; blockId: string; fromActivity?: Block[] }
   | { kind: "question"; blockId: string }
   | { kind: "plan"; blockId: string }
@@ -174,6 +174,17 @@ export const MobileTranscript = memo(function MobileTranscript({
   );
   const { session, runId } = snapshot;
   const git = useMobileGitIndex(gitSource, visible && gitEnabled, snapshot.status === "running");
+  const openDiff = useCallback((path: string) => {
+    git.refresh();
+    setDetail((current) => ({
+      ...current,
+      active: "changes",
+      changes: {
+        kind: "changes", path,
+        from: current.active === "tool" ? current.tool : undefined,
+      },
+    }));
+  }, [git.refresh]);
   const statusGit = useMemo(() => git.index ? {
     additions: git.index.additions, deletions: git.index.deletions,
     branch: git.index.branch ?? undefined, files: git.index.files.length,
@@ -220,7 +231,15 @@ export const MobileTranscript = memo(function MobileTranscript({
   const releasePlan = useCallback(() => setDetail((current) =>
     current.active === "plan" ? current : { ...current, plan: undefined }), []);
   const closeDetail = useCallback(() => setDetail((current) => ({ ...current, active: undefined })), []);
-  const backChanges = useCallback(() => setDetail((current) => ({ ...current, active: "progress" })), []);
+  const backChanges = useCallback(() => setDetail((current) => {
+    const from = current.changes?.from;
+    return {
+      ...current,
+      active: current.changes?.path ? from?.kind : "progress",
+      tool: from ?? current.tool,
+      activity: from?.fromActivity ? { kind: "activity", steps: from.fromActivity } : current.activity,
+    };
+  }), []);
   const releaseChanges = useCallback(() => setDetail((current) => current.active === "changes" ? current : { ...current, changes: undefined }), []);
   useEffect(() => {
     onOverlayChange?.(visible && detail.active ? detail.active === "changes" ? backChanges : closeDetail : undefined);
@@ -309,7 +328,7 @@ export const MobileTranscript = memo(function MobileTranscript({
           pendingQuestionHistoryId={session.pendingQuestion?.historyId}
           onQuestionFollowUp={session.harness !== "codex" ? undefined : onQuestionFollowUp}
           onOpenFile={readBinaryFile ? openFile : undefined}
-          onOpenDiff={readBinaryFile ? openFile : undefined}
+          onOpenDiff={gitSource ? openDiff : readBinaryFile ? openFile : undefined}
           onJumpToBottomChange={setShowJump}
           onJumpToBottomReady={onJumpReady}
           onApproval={onApproval}
@@ -409,7 +428,8 @@ export const MobileTranscript = memo(function MobileTranscript({
             {detail.changes && gitSource && <MobileGitReviewSheet
               open={visible && detail.active === "changes"} onExited={releaseChanges}
               source={gitSource} state={git} enabled={gitEnabled}
-              onBack={backChanges} onClose={closeDetail} />}
+              path={detail.changes.path} cwd={session.cwd}
+              onBack={!detail.changes.path || detail.changes.from ? backChanges : undefined} onClose={closeDetail} />}
             {detail.question && savedQuestion && (
               <MobileSheet
                 open={visible && detail.active === "question" && canAnswerSavedQuestion}
@@ -474,6 +494,7 @@ export const MobileTranscript = memo(function MobileTranscript({
                   : undefined}
                 onBack={() => setDetail((current) => ({ ...current, active: "activity", tool: undefined, agent: undefined }))}
                 onOpenFile={readBinaryFile ? openFile : undefined}
+                onOpenDiff={gitSource ? openDiff : undefined}
                 onClose={closeDetail}
               />
             )}
@@ -489,6 +510,7 @@ export const MobileTranscript = memo(function MobileTranscript({
                 }
                 cwd={session.cwd}
                 onOpenFile={readBinaryFile ? openFile : undefined}
+                onOpenDiff={gitSource ? openDiff : undefined}
                 onClose={closeDetail}
               />
             )}

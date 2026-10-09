@@ -64,6 +64,7 @@ export function MobileActivitySheet({
   readBinaryFile,
   onBack,
   onOpenFile,
+  onOpenDiff,
 }: {
   open?: boolean;
   onExited?: () => void;
@@ -78,6 +79,7 @@ export function MobileActivitySheet({
   readBinaryFile?: (path: string) => Promise<Uint8Array>;
   onBack: () => void;
   onOpenFile?: (path: string) => void;
+  onOpenDiff?: (path: string) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -107,6 +109,7 @@ export function MobileActivitySheet({
               block={selectedStep}
               cwd={cwd}
               onOpenFile={onOpenFile}
+              onOpenDiff={onOpenDiff}
               onBack={onBack}
               onClose={onClose}
             />

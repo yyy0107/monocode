@@ -10,10 +10,11 @@ import {
   toolCategory,
 } from "../features/sessions/model/transcriptActivity";
 import type { Block } from "../features/sessions/model/session";
-import { resolveWorkspacePath } from "../shared/lib/paths";
+import { displayPath, resolveWorkspacePath } from "../shared/lib/paths";
 import { useTranslation } from "../shared/i18n/useTranslation";
-import { Check, Copy, File as FileIcon } from "../shared/ui/icons";
+import { Check, ChevronRight, Copy, File as FileIcon } from "../shared/ui/icons";
 import { MobileSheet, MobileSheetHeader } from "./MobileSheet";
+import { MobileDiffCounts } from "./MobileGitReviewSheet";
 
 type ReadOutput = { count: number; start?: number; end?: number };
 
@@ -87,6 +88,7 @@ export function MobileToolSheet({
   block,
   cwd,
   onOpenFile,
+  onOpenDiff,
   onBack,
   onClose,
   embedded = false,
@@ -96,6 +98,7 @@ export function MobileToolSheet({
   block: Block;
   cwd?: string;
   onOpenFile?: (path: string) => void;
+  onOpenDiff?: (path: string) => void;
   /** Returns to the step list this call was opened from. */
   onBack?: () => void;
   onClose: () => void;
@@ -179,13 +182,25 @@ export function MobileToolSheet({
           : null}
         {preview ? (
           <div className="mobile-detail-section mobile-tool-diff">
-            <FilePreview
+            {path && onOpenDiff && state === "accepted" ? (
+              <button
+                type="button"
+                className="mobile-git-file-row"
+                aria-label={t("Review changes")}
+                title={path}
+                onClick={() => onOpenDiff(path)}
+              >
+                <ChevronRight size={16} />
+                <span className="mobile-git-file-path"><bdi dir="ltr">{displayPath(path, cwd)}</bdi></span>
+                <MobileDiffCounts additions={preview.additions ?? 0} deletions={preview.deletions ?? 0} />
+              </button>
+            ) : <FilePreview
               key={path ?? block.id}
               preview={preview}
               status={state}
               cwd={cwd}
               variant="list"
-            />
+            />}
           </div>
         ) : null}
         {input ? section("input", "Input", input) : null}

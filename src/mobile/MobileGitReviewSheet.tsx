@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import type { GitChangedFile, GitFileDiff } from "../platform/tauri/fs";
 import { useTranslation } from "../shared/i18n/useTranslation";
+import { pathKey, resolveWorkspacePath } from "../shared/lib/paths";
 import { ChevronRight, WrapText } from "../shared/ui/icons";
 import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
@@ -32,6 +33,8 @@ export function MobileGitReviewSheet({
   source,
   state,
   enabled,
+  path,
+  cwd,
   onBack,
   onClose,
 }: {
@@ -40,14 +43,28 @@ export function MobileGitReviewSheet({
   source: MobileGitSource;
   state: MobileGitIndexState;
   enabled: boolean;
-  onBack: () => void;
+  /** Limit a file-specific review to this path and open its diff immediately. */
+  path?: string;
+  cwd?: string;
+  onBack?: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const [wrap, setWrap] = useState(false);
+  const selectedPath = path ? pathKey(resolveWorkspacePath(path, cwd) ?? path) : undefined;
+  const files = selectedPath
+    ? state.index?.files.filter((file) =>
+        pathKey(resolveWorkspacePath(file.path, cwd) ?? file.path) === selectedPath)
+    : state.index?.files;
+  const counts = path
+    ? files?.reduce((total, file) => ({
+        additions: total.additions + file.additions,
+        deletions: total.deletions + file.deletions,
+      }), { additions: 0, deletions: 0 })
+    : state.index;
   const title = state.index
-    ? t(state.index.files.length === 1 ? "{count} file changed" : "{count} files changed", {
-        count: state.index.files.length,
+    ? t(files?.length === 1 ? "{count} file changed" : "{count} files changed", {
+        count: files?.length ?? 0,
       })
     : t("Uncommitted changes");
   return (
@@ -75,10 +92,10 @@ export function MobileGitReviewSheet({
       <div className="mobile-git-review">
         <div className="mobile-git-toolbar">
           <span>
-            {state.index && (
+            {counts && (
               <MobileDiffCounts
-                additions={state.index.additions}
-                deletions={state.index.deletions}
+                additions={counts.additions}
+                deletions={counts.deletions}
               />
             )}
           </span>
@@ -99,16 +116,17 @@ export function MobileGitReviewSheet({
             {t("Loading changes…")}
           </p>
         )}
-        {state.index?.files.length === 0 && (
+        {files?.length === 0 && (
           <p className="mobile-git-note">{t("No file changes")}</p>
         )}
-        {state.index?.files.map((file) => (
+        {files?.map((file) => (
           <MobileGitFileRow
-            key={file.relative}
+            key={`${path ?? ""}:${file.relative}`}
             source={source}
             entry={file}
             enabled={enabled}
             wrap={wrap}
+            initiallyExpanded={!!path}
           />
         ))}
       </div>
@@ -121,13 +139,15 @@ function MobileGitFileRow({
   entry,
   enabled,
   wrap,
+  initiallyExpanded,
 }: {
   source: MobileGitSource;
   entry: GitChangedFile;
   enabled: boolean;
   wrap: boolean;
+  initiallyExpanded: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const contentId = useId();
   return (
     <div className="mobile-git-file-entry">

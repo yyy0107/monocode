@@ -3,7 +3,7 @@ import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostSession } from "../features/connections/model/protocol";
-import { newSession } from "../features/sessions/model/session";
+import { newSession, type Block } from "../features/sessions/model/session";
 import type { GitDiffIndex, GitFileDiff } from "../platform/tauri/fs";
 import { setUiLanguage } from "../shared/i18n/language";
 import type { MobileGitSource } from "./mobileGit";
@@ -60,16 +60,16 @@ const diff = (original = "old\n", current = "new\n"): GitFileDiff => ({
   binary: false,
   tooLarge: false,
 });
-async function render(source: MobileGitSource) {
+async function render(source: MobileGitSource, blocks: Block[] = [], cwd = "/repo") {
   const snapshot: HostSession = {
     projectId: "project",
     revision: 1,
     status: "idle",
     updatedAt: 1,
     session: {
-      ...newSession("codex", "/repo"),
+      ...newSession("codex", cwd),
       id: "session",
-      blocks: [{ id: "user", role: "user", text: "Change the file" }],
+      blocks: [{ id: "user", role: "user", text: "Change the file" }, ...blocks],
     },
   };
   const onOverlayChange = vi.fn();
@@ -113,8 +113,105 @@ async function openReview() {
 }
 const fileButton = (position = 0) =>
   page().querySelectorAll<HTMLButtonElement>(".mobile-git-file-row")[position];
+const editBlock = (path = "src/app.ts"): Block => ({
+  id: "edit", role: "tool", text: `Edit ${path}`,
+  tool: {
+    kind: "edit", status: "completed",
+    preview: {
+      kind: "write", path, additions: 1, deletions: 1,
+      lines: [
+        { number: 1, kind: "del", text: "before" },
+        { number: 1, kind: "add", text: "after" },
+      ],
+    },
+  },
+});
 
 describe("mobile Git review from the progress capsule", () => {
+  it.each([
+    ["/repo", "src/app.ts", "/repo/src/app.ts"],
+    ["/repo", "/repo/src/app.ts", "/repo/src/app.ts"],
+    ["C:\\repo", "c:\\REPO\\src\\app.ts", "C:/repo/src/app.ts"],
+  ])("opens a single-file link in the shared review for %s / %s", async (cwd, path, indexPath) => {
+    const loadDiff = vi.fn(async () => diff());
+    const { update, onOverlayChange } = await render({
+      loadIndex: vi.fn(async () => ({
+        ...index(), additions: 22, deletions: 11,
+        files: [
+          { ...index().files[0], path: indexPath },
+          { ...index().files[0], path: "src/other.ts", relative: "src/other.ts", additions: 20, deletions: 10 },
+        ],
+      })),
+      loadDiff,
+    }, [editBlock(path)], cwd);
+    const readBinaryFile = vi.fn(async () => new TextEncoder().encode("file contents"));
+    await update({ readBinaryFile });
+    await click(app.querySelector<HTMLButtonElement>('[data-tool-open-row] button[aria-label^="Open "]')!);
+    await settle();
+    expect(activeDialog().getAttribute("aria-label")).toBe("Uncommitted changes");
+    expect(page().querySelectorAll(".mobile-git-file-row")).toHaveLength(1);
+    expect(fileButton().getAttribute("aria-expanded")).toBe("true");
+    expect(page().querySelector(".mobile-git-toolbar")?.textContent).toBe("+2−1");
+    expect(loadDiff.mock.calls).toEqual([["src/app.ts"]]);
+    expect(readBinaryFile).not.toHaveBeenCalled();
+    expect(page().querySelector('[aria-label="Wrap lines"]')).not.toBeNull();
+    await act(async () => onOverlayChange.mock.calls.at(-1)![0]());
+    await settle();
+    expect(activeDialog()).toBeNull();
+  });
+
+  it("opens the tool's review entry and returns to the same tool with native Back", async () => {
+    const { onOverlayChange } = await render({
+      loadIndex: vi.fn(async () => index()),
+      loadDiff: vi.fn(async () => diff()),
+    }, [editBlock()]);
+    await click(app.querySelector<HTMLElement>("[data-tool-open-row]")!);
+    await settle();
+    expect(page().querySelector(".file-preview-list")).toBeNull();
+    await click(page().querySelector<HTMLButtonElement>('[aria-label="Review changes"]')!);
+    await settle();
+    expect(fileButton().getAttribute("aria-expanded")).toBe("true");
+    await act(async () => onOverlayChange.mock.calls.at(-1)![0]());
+    await settle();
+    expect(page().querySelector(".mobile-tool-sheet")).not.toBeNull();
+    expect(page().querySelector('[aria-label="Review changes"]')).not.toBeNull();
+  });
+
+  it("shows the empty state when a single file no longer has changes", async () => {
+    const loadDiff = vi.fn(async () => diff());
+    await render({
+      loadIndex: vi.fn(async () => ({ ...index(), files: [], additions: 0, deletions: 0 })),
+      loadDiff,
+    }, [editBlock()]);
+    await click(app.querySelector<HTMLButtonElement>('[data-tool-open-row] button[aria-label^="Open "]')!);
+    await settle();
+    expect(page().textContent).toContain("No file changes");
+    expect(loadDiff).not.toHaveBeenCalled();
+  });
+
+  it("returns through the originating activity after a single-file review", async () => {
+    const { onOverlayChange } = await render({
+      loadIndex: vi.fn(async () => index()),
+      loadDiff: vi.fn(async () => diff()),
+    }, [editBlock(), {
+      id: "shell", role: "tool", text: "bash npm test",
+      tool: { kind: "shell", status: "completed", preview: { kind: "shell", output: "ok" } },
+    }, { id: "answer", role: "assistant", text: "Done." }]);
+    await click(app.querySelector<HTMLButtonElement>("[data-activity-sheet]")!);
+    await settle();
+    await click(page().querySelector<HTMLButtonElement>(".mobile-activity-step button")!);
+    await settle();
+    await click(page().querySelector<HTMLButtonElement>('[aria-label="Review changes"]')!);
+    await settle();
+    expect(fileButton().getAttribute("aria-expanded")).toBe("true");
+    await act(async () => onOverlayChange.mock.calls.at(-1)![0]());
+    await settle();
+    expect(page().querySelector(".mobile-tool-sheet")).not.toBeNull();
+    await click(page().querySelector<HTMLButtonElement>('[aria-label="Back"]')!);
+    await settle();
+    expect(page().querySelectorAll(".mobile-activity-step")).toHaveLength(2);
+  });
+
   it("expands the combined diff in its file row and returns directly to progress with native Back", async () => {
     const source: MobileGitSource = {
       loadIndex: vi.fn(async () => index()),
