@@ -63,7 +63,7 @@ import {
   type ComposerTurnOptions,
 } from "../../sessions/model/session";
 import { FilePane } from "../../files/ui/FilePane";
-import { SessionPane } from "../../sessions/ui/SessionPane";
+import { SessionPane, type SessionPaneProps } from "../../sessions/ui/SessionPane";
 import type { TranscriptPool } from "../../sessions/ui/TranscriptPool";
 import type { Worktree } from "../../source-control/model/worktrees";
 import {
@@ -104,6 +104,8 @@ type Shared = {
   onCwdChange: (sessionId: string, cwd: string) => void;
   onBranchChange: (sessionId: string) => void;
   onWorktreeChange?: (sessionId: string, tree: Worktree) => Promise<void>;
+  /** Keeps the App's shell (header, usage, accounts) in step with its Host conversation. */
+  onRemoteSnapshot?: SessionPaneProps["onRemoteSnapshot"];
   onWorkspaceModeChange: (
     sessionId: string,
     mode: WorkspaceMode,
@@ -253,6 +255,7 @@ function PaneTreeComponent({
   onCwdChange,
   onBranchChange,
   onWorktreeChange,
+  onRemoteSnapshot,
   onWorkspaceModeChange,
   onWorktreeBaseChange,
   onManageWorktrees,
@@ -996,6 +999,7 @@ function PaneTreeComponent({
                     onCwdChange={onCwdChange}
                     onBranchChange={onBranchChange}
                     onWorktreeChange={onWorktreeChange}
+                    onRemoteSnapshot={onRemoteSnapshot}
                     onWorkspaceModeChange={onWorkspaceModeChange}
                     onWorktreeBaseChange={onWorktreeBaseChange}
                     onManageWorktrees={onManageWorktrees}

@@ -449,6 +449,11 @@ function ConnectedRemoteSession({
   useEffect(() => {
     if (hostSession) rememberRemotePendingWorktree(shell.id);
   }, [hostSession?.id, shell.id]);
+  // The tab's header and account controls read the App's shell, so every
+  // snapshot shown here (cached, polled, pushed or hydrated) reaches it too.
+  useEffect(() => {
+    if (snapshot && hostSession) onSnapshot?.(shell.id, snapshot);
+  }, [snapshot, hostSession, shell.id, onSnapshot]);
   const executionCwd = hostSession?.cwd ?? selectedCwd;
   const { branches } = useProjectBranchesState(
     project.local ? executionCwd : remotePath(machine.environmentId, executionCwd),
@@ -609,7 +614,6 @@ function ConnectedRemoteSession({
           hostOrchestrationClient.bindShell(source, next.session.id, shell.id);
           hostOrchestrationClient.accept(source, next);
         }
-        if (next) onSnapshot?.(shell.id, next);
         active = !!next?.session.busy || next?.orchestration?.status === "active";
       } catch (reason) {
         if (stale()) return;
@@ -1614,7 +1618,6 @@ function ConnectedRemoteSession({
     snapshotRef.current = next;
     setSnapshot(next);
     hostOrchestrationClient.accept(source, next);
-    onSnapshot?.(shell.id, next);
   };
   const controlRun = async (action: "resume" | "stop" | "cancelTask", taskId?: string) => {
     const view = snapshotRef.current?.orchestration;

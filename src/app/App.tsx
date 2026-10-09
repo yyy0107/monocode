@@ -613,6 +613,7 @@ import {
   OPEN_CONNECTIONS_EVENT,
   OPEN_REMOTE_PROJECT_EVENT,
   REMOTE_HISTORY_UPDATED,
+  cachedRemoteSessionSummary,
   knownRemoteMachine,
   prefetchRemoteProjectSessions,
   rememberRemotePendingWorktree,
@@ -2680,7 +2681,18 @@ function Workspace({
         );
       // Reserve a dedicated tab immediately. An apparently blank remote tab
       // may hold composer text or a create/upload that the host has not accepted.
-      const session = newDefaultSession(project, newSessionRuntimeMode);
+      // Until the transcript arrives, the listed conversation names its own
+      // agent instead of the new-conversation default.
+      const listed = cachedRemoteSessionSummary(project, remoteSessionId);
+      const shell = newDefaultSession(project, newSessionRuntimeMode);
+      const session: Session = listed
+        ? {
+            ...shell,
+            harness: listed.harness,
+            ...(listed.model ? { model: listed.model } : {}),
+            title: listed.title,
+          }
+        : shell;
       const tab = newTab(session.id);
       rememberRemoteSession(session.id, remoteSessionId, remoteProject);
       setSessions((prev) => [...prev, session]);

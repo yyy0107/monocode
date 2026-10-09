@@ -840,6 +840,18 @@ it("shows a preloaded conversation's transcript on its first render", async () =
   expect(container.textContent).not.toContain("What should we work on?");
 });
 
+it("reports a preloaded conversation to the App before any sync returns", async () => {
+  hostConversation("cached-session", [{ id: "old-message", role: "user", text: "Earlier message" }]);
+  await preloadRemoteSession(machine.id, "cached-session");
+  // Hold every later sync: the header must not keep the shell's default agent.
+  syncDelay = new Promise<void>(() => {});
+  const onRemoteSnapshot = vi.fn();
+  await render(shell(), { onRemoteSnapshot });
+  expect(onRemoteSnapshot).toHaveBeenCalledWith("shell", expect.objectContaining({
+    session: expect.objectContaining({ id: "cached-session", harness: "codex" }),
+  }));
+});
+
 function hostConversation(id: string, blocks: HostSession["session"]["blocks"]) {
   dispatch({
     type: "create",
