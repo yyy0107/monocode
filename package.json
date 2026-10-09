@@ -7,6 +7,7 @@
     "dev": "node src/integrations/workflow/generate-libs.mjs && vite",
     "postinstall": "npm ci --prefix host/im --no-audit --no-fund && node src/integrations/workflow/generate-libs.mjs",
     "dev:stable": "vite --mode stable",
+    "dev:refresh": "bash scripts/dev-refresh.sh",
     "build": "node src/integrations/workflow/generate-libs.mjs && tsc && vite build",
     "preview": "vite preview",
     "test": "node src/integrations/workflow/generate-libs.mjs && vitest run",
