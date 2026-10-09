@@ -13,7 +13,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { prepareDesktopUpdate } from "./publish-desktop-update.mjs";
+import { prepareDesktopUpdate, readDesktopLanConfig } from "./publish-desktop-update.mjs";
 import { buildWindowsDesktop } from "./desktop-windows-build.mjs";
 import { runBuildProcess } from "./desktop-build-process.mjs";
 import { isEvaluationInput } from "./production-inputs.mjs";
@@ -123,7 +123,11 @@ export function nextLanVersion(base, previous, now = Date.now()) {
 export async function buildDesktop(root, version) {
   const config = join(root, "build/desktop-publish/tauri.lan.conf.json");
   await mkdir(dirname(config), { recursive: true });
-  await writeFile(config, JSON.stringify({ version }));
+  const lan = await readDesktopLanConfig(root);
+  await writeFile(
+    config,
+    JSON.stringify({ version, plugins: { updater: lan.plugins.updater } }),
+  );
   await runBuildProcess(
     "npm",
     ["run", "build:linux", "--", "--config", config, "--ci"],
@@ -197,7 +201,7 @@ export async function deployDesktopUpdate({ output, directory, beforeCommit }) {
 }
 
 export async function verifyDeployment({ root, directory, manifest }) {
-  const config = await readJson(join(root, "src-tauri/tauri.conf.json"));
+  const config = await readDesktopLanConfig(root);
   const endpoint = config.plugins.updater.endpoints[0];
   const response = await fetch(endpoint, {
     signal: AbortSignal.timeout(10_000),

@@ -15,6 +15,23 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { formatBuildVersion } from "../src/shared/lib/buildVersion.ts";
 
+// Manual LAN publication has its own endpoint; ordinary builds use GitHub.
+export async function readDesktopLanConfig(root) {
+  const config = JSON.parse(
+    await readFile(join(root, "src-tauri/tauri.conf.json"), "utf8"),
+  );
+  const lan = JSON.parse(
+    await readFile(join(root, "src-tauri/tauri.lan.conf.json"), "utf8"),
+  );
+  return {
+    ...config,
+    plugins: {
+      ...config.plugins,
+      updater: { ...config.plugins.updater, ...lan.plugins.updater },
+    },
+  };
+}
+
 // Prepare a static Tauri feed. Deploy the packages before replacing latest.json.
 export async function publishDesktopUpdate({
   version,
@@ -89,9 +106,7 @@ export async function prepareDesktopUpdate({
   output = join(root, "build/desktop-update-site"),
   key = join(homedir(), ".local/share/monocode/desktop-updates/signing.key"),
 } = {}) {
-  const config = JSON.parse(
-    await readFile(join(root, "src-tauri/tauri.conf.json")),
-  );
+  const config = await readDesktopLanConfig(root);
   const publicKey = (await readFile(`${key}.pub`, "utf8")).trim();
   if (publicKey !== config.plugins.updater.pubkey) {
     throw new Error(

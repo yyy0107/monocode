@@ -195,15 +195,12 @@ export async function runWindowsBuild(
     run("rustc.exe", ["--version"], options);
     const config = join(workspace, "build/tauri.lan.conf.json");
     await mkdir(dirname(config), { recursive: true });
-    const releaseConfig =
-      channel === "release"
-        ? JSON.parse(
-            await readFile(
-              join(workspace, "src-tauri/tauri.release.conf.json"),
-              "utf8",
-            ),
-          )
-        : {};
+    const releaseConfig = JSON.parse(
+      await readFile(
+        join(workspace, `src-tauri/tauri.${channel}.conf.json`),
+        "utf8",
+      ),
+    );
     await writeFile(config, JSON.stringify({ ...releaseConfig, version }));
     const receipt = { version, archiveHash, checked: checkOnly, channel };
     if (!checkOnly) {

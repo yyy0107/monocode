@@ -221,73 +221,67 @@ cd mobile/android
 ```
 
 The debug APK is `mobile/android/app/build/outputs/apk/debug/app-debug.apk`.
+To build locally with an explicit version name and without LAN publication:
+
+```sh
+MONOCODE_MOBILE_DEFER_PUBLISH=1 ORG_GRADLE_PROJECT_monocodeVersionName=0.10.0 npm run mobile:apk
+```
+
+The Android versionCode still increases; omitting the version-name override uses
+the project version for ordinary builds and the date label for explicit LAN builds.
+
 `mobile/android/local.properties` is machine-specific and ignored by Git;
 configure `sdk.dir` or your normal Android SDK environment before using Gradle.
 
-## GitHub Release builds
+## GitHub updates (default)
 
-`npm run mobile:apk:release` builds the web assets in Vite `release` mode and
-assembles the Android Release variant. Both layers use
-`mobile/update-config.release.json`: updates come from this repository's GitHub
-Releases, using `releases/latest/download/mobile-latest.json` and a flat
-`monocode-N.apk` asset. The manifest uses the existing mobile schema, with
-`downloadPath` set to `/monocode-N.apk`. Release builds never publish to LAN.
-The APK must be signed with the same certificate as the installed app before
-distributing it; Gradle does not configure a Release signing key by default.
-Upload the signed APK and its matching size/SHA-256 manifest to the same GitHub
-Release. Building does not upload assets or publish a Release.
+Ordinary desktop and mobile builds check this repository's GitHub Releases:
 
-For desktop GitHub builds, use `npm run build:linux:release` or, on Windows,
-`npm run build:windows:release`. These merge `src-tauri/tauri.release.conf.json`,
-which points the Tauri updater at `releases/latest/download/latest.json` in
-`yyy0107/ohmymonocode`. That asset must contain the version, platform package URLs
-and updater signatures, signed with the existing desktop updater key. Remote
-Windows snapshot builds accept `channel: "release"` and the stable app version.
+- Desktop: `https://github.com/yyy0107/ohmymonocode/releases/latest/download/latest.json`
+- Android: `https://github.com/yyy0107/ohmymonocode/releases/latest/download/mobile-latest.json`
 
-## LAN app updates
+`npm run mobile:apk` produces a debug-signed APK with the project version and
+GitHub updates; it does not publish to LAN. The frontend and Android download
+allowlist both use `mobile/update-config.release.json`. The manifest uses the
+existing mobile schema with a flat `/monocode-N.apk` download path. Upload the
+APK under that name and its matching size/SHA-256 manifest to the same Release.
+Use the same signing certificate as the installed app for compatible updates.
 
-The phone's Connections screen includes App updates. It checks at startup and
-when returning to the foreground, including when a Host connection is saved.
-The update source is currently fixed to `http://192.168.0.206:3780` in
-`mobile/update-config.json`, independently of the Host URL and device token.
-HTTP is supported. The computer must be online on the same LAN.
+`npm run mobile:apk:release` selects the Release variant and always uses GitHub,
+even if a LAN channel is configured in the environment. Gradle does not configure
+a Release signing key by default, so this APK needs signing before distribution.
+Neither build command uploads files or publishes a GitHub Release.
 
-```sh
-npm run mobile:apk
-```
+Ordinary desktop builds use the HTTPS endpoint in `src-tauri/tauri.conf.json`.
+The explicit `build:linux:release` and `build:windows:release` commands remain
+available and use the same GitHub endpoint. The desktop manifest must include
+package URLs and updater signatures made with the configured signing key.
 
-Every LAN APK assembled through Gradle (including Android Studio and direct
-`assembleDebug`) receives a new versionCode. The versionName is the build date
-in `MM-dd-HHmm` format (for example `10-07-0840`), using `America/Los_Angeles`
-to match desktop LAN builds. Multiple builds within the same minute can share the
-same versionName while their versionCodes continue to increase.
-Successful assembly publishes the APK and atomically updates
-`latest.json`, then starts the LAN update server if necessary. Release APKs are
-not published to LAN. `mobile:build` alone builds web assets, not an APK.
-Version counters and packages are shared between worktrees in
-`~/.local/share/monocode/mobile-updates` (or under `XDG_DATA_HOME`). For isolated
-builds, override `MONOCODE_MOBILE_UPDATE_DIR`. Versioned APK URLs remain immutable,
-and a slower older build cannot replace the latest version. Keep the Android
-signing key unchanged for compatible updates.
+Changing the update source requires installing a newly built app once; existing
+installed binaries retain the address they were built with.
 
-To restart the server after reboot, use `npm run mobile:updates`; another
-successful APK build also starts it. The server exposes only `/latest.json`,
-versioned `/apk/monocode-N.apk` packages, and `/health` on the fixed LAN address.
-Published packages do not require the Host token.
+## LAN app updates (explicit publication)
 
-`mobile/update-config.json` keeps `baseUrl` as the LAN publication/server address
-and lists update sources in `baseUrls`. The app tries LAN first, then the
-Tailscale HTTPS source if the first request fails, and downloads from the source
-that returned valid metadata. Android allows downloads only from these configured
-sources. Both addresses are shown under Update source.
-The Tailscale entry requires a tailnet connection and proxies the same packages:
+`npm run mobile:publish` explicitly selects `MONOCODE_UPDATE_CHANNEL=lan` for
+both the web assets and Android's download allowlist. It uses the addresses in
+`mobile/update-config.json`, trying LAN first and then Tailscale HTTPS. Normal
+GitHub builds do not fall back to these addresses.
+
+LAN builds retain the `MM-dd-HHmm` date label in `America/Los_Angeles`.
+Every assembled APK receives an increasing versionCode. Version counters and
+packages are shared in `~/.local/share/monocode/mobile-updates` (or under
+`XDG_DATA_HOME`); `MONOCODE_MOBILE_UPDATE_DIR` selects an isolated directory.
+
+The LAN server exposes `/latest.json`, immutable `/apk/monocode-N.apk` downloads,
+and `/health`. It can be started with `npm run mobile:updates`. The optional
+Tailscale source proxies that same server:
 
 ```sh
 tailscale serve --bg --https=8444 http://192.168.0.206:3780
 ```
 
-The resulting source is `https://wy-ubuntu.tail03a41a.ts.net:8444`.
-Changing app update sources requires installing an APK built with that config.
+Desktop LAN publication uses `src-tauri/tauri.lan.conf.json` explicitly on Linux
+and Windows, so its build, signing and deployment checks retain the LAN endpoint.
 
 ### Publish manually
 

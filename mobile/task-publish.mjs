@@ -146,7 +146,11 @@ function buildApk(root) {
   const result = spawnSync("npm", ["run", "mobile:apk"], {
     cwd: root,
     stdio: "inherit",
-    env: { ...process.env, MONOCODE_MOBILE_DEFER_PUBLISH: "1" },
+    env: {
+      ...process.env,
+      MONOCODE_UPDATE_CHANNEL: "lan",
+      MONOCODE_MOBILE_DEFER_PUBLISH: "1",
+    },
   });
   if (result.error) throw result.error;
   if (result.status !== 0)

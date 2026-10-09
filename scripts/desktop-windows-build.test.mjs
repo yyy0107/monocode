@@ -147,6 +147,9 @@ for (const channel of ["lan", "release"]) {
             },
           }),
         );
+        writeFileSync(join(source, "src-tauri/tauri.lan.conf.json"), JSON.stringify({
+          plugins: { updater: { endpoints: ["http://192.168.0.206/latest.json"] } },
+        }));
         writeFileSync(join(source, "package.json"), "{}");
         writeFileSync(join(source, "package-lock.json"), "{}");
       }
@@ -165,7 +168,7 @@ for (const channel of ["lan", "release"]) {
           config.plugins?.updater.endpoints[0],
           channel === "release"
             ? "https://github.com/yyy0107/ohmymonocode/releases/latest/download/latest.json"
-            : undefined,
+            : "http://192.168.0.206/latest.json",
         );
         assert.equal(settings.cwd, join(root, state, "workspace"));
         assert.equal(

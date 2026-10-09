@@ -24,7 +24,7 @@ import {
   verifyDeployment,
 } from "./desktop-task-publish.mjs";
 import { runBuildProcess } from "./desktop-build-process.mjs";
-import { publishDesktopUpdate } from "./publish-desktop-update.mjs";
+import { publishDesktopUpdate, readDesktopLanConfig } from "./publish-desktop-update.mjs";
 import { handleTurn } from "./desktop-turn-publish.mjs";
 import { handleTurn as dispatch } from "./turn-publish.mjs";
 
@@ -116,10 +116,13 @@ async function fixture(t) {
     JSON.stringify({
       version: "0.7.0",
       plugins: {
-        updater: { endpoints: ["http://192.168.0.206/latest.json"] },
+        updater: { endpoints: ["https://github.com/yyy0107/ohmymonocode/releases/latest/download/latest.json"] },
       },
     }),
   );
+  await write("src-tauri/tauri.lan.conf.json", JSON.stringify({
+    plugins: { updater: { endpoints: ["http://192.168.0.206/latest.json"], dangerousInsecureTransportProtocol: true } },
+  }));
   execFileSync("git", ["add", "."], { cwd: root });
   const directory = join(root, "build/www");
   await mkdir(directory, { recursive: true });
@@ -130,9 +133,7 @@ async function fixture(t) {
     await write("build/package.AppImage", `appimage ${builds}`);
   };
   const prepare = async ({ version, output }) => {
-    const config = JSON.parse(
-      await readFile(join(root, "src-tauri/tauri.conf.json")),
-    );
+    const config = await readDesktopLanConfig(root);
     return publishDesktopUpdate({
       version,
       output,
@@ -454,9 +455,8 @@ test("live verification rejects a missing feed or incorrect package length", asy
   t.after(() => new Promise((r) => server.close(r)));
   const endpoint = `http://127.0.0.1:${server.address().port}/latest.json`;
   await write(
-    "src-tauri/tauri.conf.json",
+    "src-tauri/tauri.lan.conf.json",
     JSON.stringify({
-      version: "0.7.0",
       plugins: { updater: { endpoints: [endpoint] } },
     }),
   );
@@ -510,6 +510,12 @@ test("the build uses an ignored version override without modifying source versio
   assert.deepEqual(args.slice(0, 4), ["run", "build:linux", "--", "--config"]);
   assert.deepEqual(JSON.parse(await readFile(args[4])), {
     version: "0.7.1-lan.123",
+    plugins: {
+      updater: {
+        endpoints: ["http://192.168.0.206/latest.json"],
+        dangerousInsecureTransportProtocol: true,
+      },
+    },
   });
   assert.equal(
     JSON.parse(await readFile(join(root, "src-tauri/tauri.conf.json"))).version,

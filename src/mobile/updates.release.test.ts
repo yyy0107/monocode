@@ -22,12 +22,16 @@ const manifest = {
 
 beforeEach(() => {
   vi.resetModules();
-  vi.stubEnv("MODE", "release");
+  vi.stubEnv("MONOCODE_UPDATE_CHANNEL", undefined);
   http.mockReset().mockResolvedValue({ status: 200, data: manifest });
 });
 afterEach(() => vi.unstubAllEnvs());
 
-describe("GitHub release mobile updates", () => {
+describe.each(["production", "development", "release"])("GitHub mobile updates in %s mode", (mode) => {
+  beforeEach(() => {
+    vi.stubEnv("MODE", mode);
+    if (mode === "release") vi.stubEnv("MONOCODE_UPDATE_CHANNEL", "lan");
+  });
   it("uses the mobile manifest and a flat GitHub APK asset", async () => {
     const updates = await import("./updates");
     expect(updates.updateBaseUrls).toEqual([source]);

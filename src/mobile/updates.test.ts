@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 import { createElement, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.hoisted(() => vi.stubEnv("MONOCODE_UPDATE_CHANNEL", "lan"));
+afterAll(() => vi.unstubAllEnvs());
 
 const native = vi.hoisted(() => ({
   platform: "android",

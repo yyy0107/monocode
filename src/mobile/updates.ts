@@ -8,7 +8,9 @@ import {
 import lanConfig from "../../mobile/update-config.json";
 import releaseConfig from "../../mobile/update-config.release.json";
 
-const release = import.meta.env.MODE === "release";
+const release =
+  import.meta.env.MODE === "release" ||
+  import.meta.env.MONOCODE_UPDATE_CHANNEL !== "lan";
 const config = release ? releaseConfig : lanConfig;
 const manifestPath = release ? releaseConfig.manifestPath : "/latest.json";
 const downloadPrefix = release ? releaseConfig.downloadPrefix : "/apk/";
