@@ -43,6 +43,7 @@ export const SidebarTabs = memo(function SidebarTabs({
   const { t } = useTranslation();
   const [selectedTab, selectTab] = useOptimistic(tab);
   const cancelPendingPaint = useRef<(() => void) | null>(null);
+  const segmentRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => () => cancelPendingPaint.current?.(), [tab]);
   const [tabOrder, setTabOrder] = usePreferenceState(loadSidebarTabOrder);
   const sortable = useAnimatedReorder(tabOrder, (next) => {
@@ -52,6 +53,7 @@ export const SidebarTabs = memo(function SidebarTabs({
 
   return (
     <div
+      ref={segmentRef}
       role="tablist"
       aria-label={t("Workspace")}
       data-reordering={sortable.draggingId ? "" : undefined}
@@ -87,15 +89,23 @@ export const SidebarTabs = memo(function SidebarTabs({
               startTransition(async () => {
                 selectTab(id);
                 if (!prefersReducedMotion()) {
-                  // Transitions can still commit a cached Changes panel before
-                  // the browser paints. Give the thumb a frame to start first.
+                  // Mounting a panel (notably Changes) blocks the main thread
+                  // and freezes the thumb mid-slide. Let it finish sliding
+                  // (and paint at least twice) before switching panels.
+                  const slide = thumbSlideMs(segmentRef.current);
                   const painted = await new Promise<boolean>((resolve) => {
-                    let frame = requestAnimationFrame(() => {
-                      frame = requestAnimationFrame(() => {
-                        cancelPendingPaint.current = null;
-                        resolve(true);
-                      });
-                    });
+                    let start: number | undefined;
+                    let frames = 0;
+                    const tick = (now: number) => {
+                      start ??= now;
+                      if (++frames < 2 || now - start < slide) {
+                        frame = requestAnimationFrame(tick);
+                        return;
+                      }
+                      cancelPendingPaint.current = null;
+                      resolve(true);
+                    };
+                    let frame = requestAnimationFrame(tick);
                     cancelPendingPaint.current = () => {
                       cancelAnimationFrame(frame);
                       cancelPendingPaint.current = null;
@@ -123,6 +133,20 @@ export const SidebarTabs = memo(function SidebarTabs({
     </div>
   );
 });
+
+/** Longest transition duration of the sliding thumb, in milliseconds. */
+function thumbSlideMs(segment: HTMLElement | null) {
+  if (!segment) return 0;
+  const { transitionDuration } = getComputedStyle(segment, "::before");
+  return Math.max(
+    0,
+    ...transitionDuration.split(",").map((part) => {
+      const value = Number.parseFloat(part);
+      if (!Number.isFinite(value)) return 0;
+      return part.trim().endsWith("ms") ? value : value * 1000;
+    }),
+  );
+}
 
 function DiffStat({
   additions,
