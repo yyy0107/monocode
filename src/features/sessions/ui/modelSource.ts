@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import {
   findModel,
+  isCatalogLoading,
   modelsFor,
   resolveModel,
   type AgentModel,
@@ -23,6 +24,8 @@ export type ModelSource = {
   find(id: string): AgentModel | undefined;
   available(harness: HarnessId): boolean;
   probed(): boolean;
+  /** True while this source is still reading the harness's model list. */
+  loading?(harness: HarnessId): boolean;
   /** Refresh availability and catalogs, when the source supports it. */
   refresh(harnesses: HarnessId[]): void;
 };
@@ -33,6 +36,7 @@ export const LOCAL_MODEL_SOURCE: ModelSource = {
   find: findModel,
   available: isHarnessAvailable,
   probed: hasProbedHarnessAvailability,
+  loading: isCatalogLoading,
   refresh: (harnesses) => {
     void probeHarnessAvailability();
     void refreshHarnessCatalogs(harnesses);

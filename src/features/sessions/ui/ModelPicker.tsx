@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   Gauge,
+  Loader,
   Search,
   Star,
   Zap,
@@ -25,6 +26,7 @@ import {
   coerceModelPickerTab,
   getModelSnapshot,
   getPickerVisibilitySnapshot,
+  hasLiveCatalog,
   isEffortSettingId,
   loadFavoriteModels,
   loadRecentModelChoices,
@@ -264,6 +266,11 @@ export function ModelPicker({
     getModelSnapshot,
     getModelSnapshot,
   );
+  // Until a real list arrives the trigger shows a fallback model, so say it
+  // is still loading. A cached list refreshing in the background is not.
+  const triggerLoading =
+    source.loading?.(harness) === true &&
+    (source.id != null || !hasLiveCatalog(harness));
   const availabilityVersion = useSyncExternalStore(
     subscribeHarnessAvailability,
     getHarnessAvailabilitySnapshot,
@@ -706,9 +713,16 @@ export function ModelPicker({
             {triggerEffortLabel}
           </span>
         ) : null}
-        <ChevronDown
-          className={`size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
-        />
+        {triggerLoading ? (
+          <Loader
+            className="size-3 shrink-0 text-content/50 motion-safe:animate-spin"
+            aria-label={uiT("Loading models…")}
+          />
+        ) : (
+          <ChevronDown
+            className={`size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
+          />
+        )}
       </button>
 
       {hideSettings ? (
@@ -1348,6 +1362,8 @@ function ModelFlyout({
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLButtonElement>(null);
   const groups = modelGroups(models);
+  const tabLoading =
+    tab !== "favorites" && source.loading?.(tab) === true;
 
   useEffect(() => {
     if (open) activeRef.current?.scrollIntoView({ block: "nearest" });
@@ -1484,6 +1500,12 @@ function ModelFlyout({
             onChange={(event) => onQuery(event.target.value)}
             onKeyDown={onSearchKey}
           />
+          {tabLoading ? (
+            <Loader
+              className="size-3.5 shrink-0 motion-safe:animate-spin"
+              aria-label={uiT("Loading models…")}
+            />
+          ) : null}
         </label>
 
         <div
@@ -1498,7 +1520,14 @@ function ModelFlyout({
                 ? uiT("No favorite models")
                 : tab !== "favorites" && !source.available(tab)
                   ? harnessUnavailableHint(tab)
-                  : tab === "codex" && !query.trim()
+                  : tabLoading && !query.trim()
+                    ? (
+                        <span className="flex items-center gap-2">
+                          <Loader className="size-3.5 shrink-0 motion-safe:animate-spin" />
+                          {uiT("Loading models…")}
+                        </span>
+                      )
+                    : tab === "codex" && !query.trim()
                     ? uiT("Loading Codex models…")
                     : uiT("No matching models")}
             </div>

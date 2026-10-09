@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  hydrateCachedModelCatalogs,
   resetHarnessModelOverlays,
   setHarnessModels,
 } from "../../../features/sessions/model/models";
@@ -265,6 +266,32 @@ describe("harness registry", () => {
     await refreshHarnessCatalogs(["pi"]);
 
     expect(pi).toHaveBeenCalledOnce();
+  });
+
+  it("re-reads a catalog cached by an earlier run once", async () => {
+    const pi = vi.fn(async () => {
+      setHarnessModels("pi", [
+        { id: "pi:opus", harness: "pi", name: "Opus", nativeId: "anthropic/opus" },
+      ]);
+    });
+    registerHarness(stub("pi", { refreshCatalog: pi }));
+    const store = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+    });
+    store.set(
+      "monocode.liveModelCatalogs",
+      JSON.stringify({ pi: [{ id: "pi:old", harness: "pi", name: "Old" }] }),
+    );
+    hydrateCachedModelCatalogs();
+
+    await refreshHarnessCatalogs(["pi"]);
+    await refreshHarnessCatalogs(["pi"]);
+
+    expect(pi).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
   });
 
   it("skips catalog refresh when no harness is in use", async () => {

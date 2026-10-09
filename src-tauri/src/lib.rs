@@ -237,6 +237,7 @@ pub fn run() {
         .manage(window_transfer::WindowTransferState::new())
         .setup(|app| {
             harness::reap_orphaned_harness_processes();
+            harness::prewarm_login_shell_env();
             session_store::init(app.handle())?;
             control::init(app.handle())?;
             reminders::init(app.handle());

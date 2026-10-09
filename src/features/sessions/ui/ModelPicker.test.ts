@@ -103,6 +103,7 @@ import {
   OMP_FLAVOR,
 } from "../../../integrations/harness/providers/pi/piFlavor";
 import {
+  beginCatalogLoad,
   resetHarnessModelOverlays,
   saveRecentModelChoice,
   setHarnessModels,
@@ -403,6 +404,32 @@ describe("model picker", () => {
 
     expect(onSettingsChange).toHaveBeenCalledWith({ effort: "xhigh" });
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("spins on the trigger until a loading catalog arrives", () => {
+    const done = beginCatalogLoad("grok");
+    const render = () =>
+      root.render(
+        createElement(ModelPicker, {
+          harness: "grok",
+          model: "grok:grok-4.6",
+          values: { effort: "high" },
+          onChange: vi.fn(),
+          onSettingsChange: vi.fn(),
+        }),
+      );
+    act(render);
+    const spinner = () =>
+      container.querySelector('[data-model-picker-trigger] [aria-label="Loading models…"]');
+    expect(spinner()).not.toBeNull();
+
+    act(() => {
+      setHarnessModels("grok", [{ id: "grok:grok-4.6", name: "Grok 4.6", harness: "grok" }]);
+    });
+    // A live list is showing, so a refresh still in flight is quiet.
+    expect(spinner()).toBeNull();
+    act(() => done());
+    expect(spinner()).toBeNull();
   });
 
   it("lists Claude Opus 5.5 after Opus 5 in the built-in Claude catalog", () => {

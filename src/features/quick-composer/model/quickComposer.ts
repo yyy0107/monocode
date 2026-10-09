@@ -18,6 +18,7 @@ import {
   modelsFor,
   resolveModel,
   setHarnessModels,
+  validCatalogModels,
   type AgentModel,
 } from "../../sessions/model/models";
 import {
@@ -184,15 +185,7 @@ export function applyQuickCatalog(value: unknown): HarnessId[] | null {
     return null;
   for (const [harness, models] of Object.entries(raw.models)) {
     if (!isHarnessId(harness) || !Array.isArray(models)) continue;
-    const valid = models.filter(
-      (model): model is AgentModel =>
-        !!model &&
-        typeof model === "object" &&
-        typeof (model as AgentModel).id === "string" &&
-        typeof (model as AgentModel).name === "string" &&
-        (model as AgentModel).harness === harness,
-    );
-    setHarnessModels(harness, valid);
+    setHarnessModels(harness, validCatalogModels(harness, models));
   }
   return raw.availableHarnesses.filter(isHarnessId);
 }
