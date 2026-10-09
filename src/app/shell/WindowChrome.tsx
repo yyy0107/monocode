@@ -125,7 +125,7 @@ export function TabVisitNav({
           src="/monocode.png"
           alt="MonoCode"
           draggable={false}
-          className="size-6"
+          className="size-6 invert dark:invert-0"
         />
       </div>
       {onTogglePanel ? (
