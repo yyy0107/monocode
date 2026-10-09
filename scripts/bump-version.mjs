@@ -52,7 +52,13 @@ replaceFirst(
 );
 replaceFirst(
   join(root, "Cargo.lock"),
-  /(name = "monocode"\nversion = ")[^"]+(")/,
+  /(name = "monocode(?:-host-supervisor|-process-tree)?"\nversion = ")[^"]+(")/g,
+  `$1${version}$2`,
+);
+
+replaceFirst(
+  join(root, "mobile/android/app/build.gradle"),
+  /(versionName ")[^"]+(")/,
   `$1${version}$2`,
 );
 

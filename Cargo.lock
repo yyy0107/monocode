@@ -2392,7 +2392,7 @@ dependencies = [
 
 [[package]]
 name = "monocode"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "arboard",
  "base64 0.22.1",
@@ -2434,7 +2434,7 @@ dependencies = [
 
 [[package]]
 name = "monocode-host-supervisor"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "libc",
  "monocode-process-tree",
@@ -2444,7 +2444,7 @@ dependencies = [
 
 [[package]]
 name = "monocode-process-tree"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
