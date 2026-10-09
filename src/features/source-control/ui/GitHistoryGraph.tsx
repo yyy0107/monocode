@@ -85,15 +85,15 @@ export function GitHistoryGraph({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-      <div className="flex h-7 shrink-0 items-center">
+      <div className="relative flex h-7 shrink-0 items-center hover:bg-content/5">
         <button
           type="button"
           onClick={onToggleExpanded}
           aria-expanded={expanded}
           aria-label={expanded ? uiT("Collapse graph") : uiT("Expand graph")}
-          className="flex h-full min-w-0 flex-1 items-center gap-1 pl-3 pr-1 text-left leading-none hover:bg-content/5"
+          className="flex h-full min-w-0 w-full items-center gap-1 px-3 text-left leading-none"
         >
-          <span className="text-[10px] font-semibold tracking-[0.04em] text-content/55 uppercase">
+          <span className="min-w-0 truncate pr-8 text-[10px] font-semibold tracking-[0.04em] text-content/55 uppercase">
             {uiT("Graph")}
           </span>
           {expanded ? (
@@ -111,7 +111,7 @@ export function GitHistoryGraph({
           aria-expanded={dialogOpen}
           disabled={!enabled || !cwd || cwd === "~"}
           onClick={() => setDialogCwd(cwd)}
-          className="mr-1 grid size-6 shrink-0 place-items-center rounded text-content/50 hover:bg-content/5 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-hover disabled:opacity-40"
+          className="absolute inset-y-0 right-8 grid w-6 place-items-center text-content/50 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-hover disabled:opacity-40"
         >
           <Maximize2 className="size-3" />
         </button>
