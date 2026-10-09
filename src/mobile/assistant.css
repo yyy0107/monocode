@@ -446,7 +446,7 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
 }
 .assistant-chat[data-layout="mobile"]
   .assistant-error
-  .assistant-error-dismiss {
+  .composer-notice-dismiss {
   width: 44px;
   height: 44px;
 }

@@ -1,6 +1,7 @@
 import { sessionComposerConfiguration } from "../../sessions/model/composerConfiguration";
 import { requestedProviderAccountId, supportsProviderAccounts } from "../../providers/model/providerAccounts";
 import { MessageQueue } from "../../sessions/ui/MessageQueue";
+import { CONTINUE_PROMPT } from "../../sessions/model/inFlight";
 import { titleStateFor } from "../../sessions/model/titlePolicy";
 import { useHostQueue } from "./useHostQueue";
 import {
@@ -486,6 +487,14 @@ function ConnectedRemoteSession({
     [snapshot, hostSession, outgoing?.id, outgoing?.placement, outgoing?.text],
   );
   const viewSession = hostSession && hostView?.session;
+  // The Host keeps its limit until the next turn; dismissal is local to this view.
+  const usageLimitKey = viewSession?.usageLimit
+    ? `${hostSession?.id}:${viewSession.usageLimit.resetsAt ?? ""}`
+    : undefined;
+  const [dismissedUsageLimit, setDismissedUsageLimit] = useState<string>();
+  useEffect(() => {
+    if (!usageLimitKey) setDismissedUsageLimit(undefined);
+  }, [usageLimitKey]);
   // An accepted turn stays on screen until a sync shows the host's copy, so
   // the transcript never drops it for a moment in between.
   useEffect(() => {
@@ -1321,6 +1330,10 @@ function ConnectedRemoteSession({
       blocks: [],
     }),
     id: shell.id,
+    usageLimit:
+      usageLimitKey && usageLimitKey !== dismissedUsageLimit
+        ? viewSession?.usageLimit
+        : undefined,
     cwd: project.local ? project.cwd : remotePath(machine.environmentId, project.cwd),
     worktreeCwd:
       executionCwd === project.cwd
@@ -1694,9 +1707,13 @@ function ConnectedRemoteSession({
     onQueuedMessageEditingChange: (_, id) => queue.onEditingChange(id),
     onSteerQueuedMessage: (_, id) => queue.onSteer(id),
     onResumeQueue: () => queue.onResume(),
-    onUsageLimitResume: noop,
-    onUsageLimitResumeAtReset: noop,
-    onUsageLimitDismiss: noop,
+    onUsageLimitResume: () => {
+      if (busy || !submit(CONTINUE_PROMPT)) return;
+      setDismissedUsageLimit(usageLimitKey);
+    },
+    // The Host has no scheduler for resuming at reset; hide the action.
+    onUsageLimitResumeAtReset: undefined,
+    onUsageLimitDismiss: () => setDismissedUsageLimit(usageLimitKey),
     onOpenPlan: (_, blockId) => onOpenPlan(shell.id, blockId),
     onBuildPlan: (_, blockId, target) => buildPlan(blockId, target),
     onSecondOpinion: undefined,

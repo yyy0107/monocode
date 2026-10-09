@@ -159,6 +159,7 @@ import { resolveTabGroupLogo } from "../../workspace/model/tabGroups";
 import { useComposerSkills } from "./useComposerSkills";
 import { ComposerPopover } from "./ComposerPopover";
 import { UsageLimitNotice } from "./UsageLimitNotice";
+import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { consumePlanCommand, PLAN_COMMAND } from "../model/plan";
 import {
   consumeOperatorCommand,
@@ -2028,6 +2029,10 @@ export function Composer({
     ],
   );
 
+  // The notice keeps its last limit while it collapses away.
+  const [shownUsageLimit, setShownUsageLimit] = useState(usageLimit);
+  if (usageLimit && usageLimit !== shownUsageLimit) setShownUsageLimit(usageLimit);
+
   const leadingSurfaces = useMemo(
     () => (
       <>
@@ -2047,14 +2052,16 @@ export function Composer({
           />
         ) : null}
         {children}
-        {usageLimit ? (
-          <UsageLimitNotice
-            limit={usageLimit}
-            onResume={onUsageLimitResume}
-            onResumeAtReset={onUsageLimitResumeAtReset}
-            onDismiss={onUsageLimitDismiss}
-          />
-        ) : null}
+        <AnimatedCollapse expanded={!!usageLimit}>
+          {shownUsageLimit ? (
+            <UsageLimitNotice
+              limit={shownUsageLimit}
+              onResume={onUsageLimitResume}
+              onResumeAtReset={onUsageLimitResumeAtReset}
+              onDismiss={onUsageLimitDismiss}
+            />
+          ) : null}
+        </AnimatedCollapse>
         {messageQueue ?? (
           <MessageQueue
             messages={queuedMessages}
@@ -2092,6 +2099,7 @@ export function Composer({
       queuedMessages,
       readOnlyReason,
       remote,
+      shownUsageLimit,
       usageLimit,
     ],
   );

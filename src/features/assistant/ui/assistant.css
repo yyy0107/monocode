@@ -246,11 +246,9 @@
     .assistant-send,
     .assistant-link-button,
     .assistant-settings-disclosure,
-    .assistant-error > button,
     .assistant-availability-actions > button,
     .assistant-card > button,
     .assistant-input-actions > button,
-    .assistant-retry > button,
     .assistant-message-meta > button,
     .assistant-settings-footer > button,
     .assistant-worker > header > button,
@@ -273,11 +271,9 @@
     .assistant-send,
     .assistant-link-button,
     .assistant-settings-disclosure,
-    .assistant-error > button,
     .assistant-availability-actions > button,
     .assistant-card > button,
     .assistant-input-actions > button,
-    .assistant-retry > button,
     .assistant-message-meta > button,
     .assistant-settings-footer > button,
     .assistant-worker > header > button,
@@ -294,11 +290,9 @@
     .assistant-send,
     .assistant-link-button,
     .assistant-settings-disclosure,
-    .assistant-error > button,
     .assistant-availability-actions > button,
     .assistant-card > button,
     .assistant-input-actions > button,
-    .assistant-retry > button,
     .assistant-message-meta > button,
     .assistant-settings-footer > button,
     .assistant-worker > header > button,
@@ -316,11 +310,9 @@
     .assistant-send,
     .assistant-link-button,
     .assistant-settings-disclosure,
-    .assistant-error > button,
     .assistant-availability-actions > button,
     .assistant-card > button,
     .assistant-input-actions > button,
-    .assistant-retry > button,
     .assistant-message-meta > button,
     .assistant-settings-footer > button,
     .assistant-worker > header > button,
@@ -474,37 +466,7 @@
   opacity: 0.75;
 }
 .assistant-error {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   margin: 10px 14px 0;
-  padding: 10px 10px 10px 14px;
-  border: 1px solid #e0484433;
-  border-radius: 12px;
-  background: #e0484414;
-  color: #d75555;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-.assistant-error > span {
-  flex: 1;
-  min-width: 0;
-}
-.assistant-chat .assistant-error button {
-  flex-shrink: 0;
-  color: inherit;
-  background: #e0484424;
-}
-.assistant-chat .assistant-error button:not(:disabled):hover {
-  background: #e0484438;
-}
-.assistant-chat .assistant-error .assistant-error-dismiss {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  background: transparent;
 }
 /* Conversation */
 .assistant-body {
@@ -838,20 +800,7 @@
   overflow: auto;
 }
 .assistant-retry {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   margin-bottom: 8px;
-  padding: 8px 8px 8px 12px;
-  border-radius: 10px;
-  font-size: var(--text-ui-sm);
-  color: #d75555;
-  background: #e3343414;
-}
-.assistant-retry button {
-  margin-left: auto;
-  flex-shrink: 0;
-  color: inherit;
 }
 .assistant-compose {
   display: grid;

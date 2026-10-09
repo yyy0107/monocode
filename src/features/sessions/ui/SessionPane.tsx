@@ -171,7 +171,8 @@ export type SessionPaneProps = {
   onSteerQueuedMessage: (sessionId: string, messageId: string) => void;
   onResumeQueue: (sessionId: string) => void;
   onUsageLimitResume: (sessionId: string) => void;
-  onUsageLimitResumeAtReset: (sessionId: string, enabled: boolean) => void;
+  /** Omitted where nothing can resume the session once the limit resets. */
+  onUsageLimitResumeAtReset?: (sessionId: string, enabled: boolean) => void;
   onUsageLimitDismiss: (sessionId: string) => void;
   onInboxCardDismiss?: (sessionId: string) => void;
   onLinkedWorkItemUpdateCardDismiss?: (sessionId: string) => void;
@@ -757,8 +758,9 @@ const LocalSessionPane = memo(function LocalSessionPane({
       onResumeQueue={() => onResumeQueue(session.id)}
       usageLimit={session.usageLimit}
       onUsageLimitResume={() => onUsageLimitResume(session.id)}
-      onUsageLimitResumeAtReset={(enabled) =>
-        onUsageLimitResumeAtReset(session.id, enabled)
+      onUsageLimitResumeAtReset={
+        onUsageLimitResumeAtReset &&
+        ((enabled) => onUsageLimitResumeAtReset(session.id, enabled))
       }
       onUsageLimitDismiss={() => onUsageLimitDismiss(session.id)}
       onOpenFile={onOpenFile}

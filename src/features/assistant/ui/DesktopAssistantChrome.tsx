@@ -26,6 +26,7 @@ import {
   Square,
   X,
 } from "../../../shared/ui/icons";
+import { ComposerNotice, ComposerNoticeButton } from "../../../shared/ui/ComposerNotice";
 import { ExplorerMenu } from "../../files/ui/ExplorerMenu";
 import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 
@@ -253,12 +254,17 @@ function DesktopAssistantComposer({
     <div className="assistant-compose-dock">
       {errorNotice}
       <AnimatedCollapse expanded={retry}>
-        <div className="assistant-retry" role="alert">
-          <span>{t("Your last message was not delivered.")}</span>
-          <button type="button" disabled={busy} onClick={onRetry}>
-            {t("Retry message")}
-          </button>
-        </div>
+        <ComposerNotice
+          className="assistant-retry"
+          size="compact"
+          actions={
+            <ComposerNoticeButton disabled={busy} onClick={onRetry}>
+              {t("Retry message")}
+            </ComposerNoticeButton>
+          }
+        >
+          {t("Your last message was not delivered.")}
+        </ComposerNotice>
       </AnimatedCollapse>
       <form
         className="assistant-compose"
