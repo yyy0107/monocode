@@ -1,15 +1,9 @@
 import { spawn } from "node:child_process";
-import { Socket } from "node:net";
-import { createReadStream } from "node:fs";
 import { join } from "node:path";
 
-// fd 3 belongs only to the host. EOF means it exited, even after a hard crash.
-// Unix stdio pipes are sockets: destroying one cancels its pending read.
-// A filesystem read can otherwise keep a worker blocked during guard exit.
-const parent = process.platform === "win32"
-  ? createReadStream("/dev/null", { fd: 3, autoClose: false })
-  : new Socket({ fd: 3, readable: true, writable: false });
-parent.resume();
+// The IPC channel belongs only to the host. Disconnect detects even a hard
+// crash without a blocking Windows filesystem read that can hang process.exit.
+if (!process.connected) throw new Error("Missing host IPC channel");
 const [command, ...args] = process.argv.slice(2);
 if (!command) throw new Error("Missing provider command");
 const child = spawn(command, args, {
@@ -32,7 +26,7 @@ function finish() {
   if (finished) return;
   finished = true;
   clearTimeout(escalation);
-  parent.destroy();
+  if (process.connected) process.disconnect();
   // The watchdog/stdin pipes can remain open after the provider exits.
   // Ownership is finished; do not make the host kill an otherwise idle guard.
   process.stdout.write("", () => {
@@ -72,8 +66,7 @@ function stopTree() {
     }, 1_000);
   }
 }
-parent.on("end", stopTree);
-parent.on("error", stopTree);
+process.on("disconnect", stopTree);
 process.on("SIGTERM", stopTree);
 process.on("SIGINT", stopTree);
 child.on("error", (error) => {

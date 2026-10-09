@@ -34,6 +34,7 @@ import {
   type HarnessUpdate,
 } from "../model/harnessUpdates";
 import { useHarnessRefreshSync } from "../model/harnessRefreshSync";
+import { harnessUpdateError } from "../model/harnessUpdateErrors";
 
 /**
  * Shared by every mount in this window: a StrictMode remount must reuse the
@@ -101,7 +102,7 @@ export async function runHarnessUpdate(
   } catch (error) {
     return {
       status: "failed",
-      error: error instanceof Error ? error.message : String(error),
+      error: harnessUpdateError(error),
     };
   }
 }

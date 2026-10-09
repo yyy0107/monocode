@@ -429,6 +429,8 @@ export class HostChildBackend implements ChildBackend {
       }
       return pid;
     }
+    // Node's spawn overload does not infer the three piped streams when an
+    // additional IPC channel is present.
     const child = spawn(
       process.execPath,
       [
@@ -438,12 +440,12 @@ export class HostChildBackend implements ChildBackend {
       ],
       {
         cwd: String(args.cwd),
-        stdio: ["pipe", "pipe", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe", "ipc"],
         detached: process.platform !== "win32",
         windowsHide: true,
         env,
       },
-    );
+    ) as ChildProcessWithoutNullStreams;
     this.children.set(id, child);
     child.stdin.on("error", () => {
       /* write callbacks report failures */

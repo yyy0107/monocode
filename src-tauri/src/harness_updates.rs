@@ -7,8 +7,11 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::harness::{
-    binaries_on_search_path, exec_output, is_resolved_harness_binary, resolve_harness_binary,
+    binaries_on_search_path, exec_output, exec_update_output, is_resolved_harness_binary,
+    resolve_harness_binary,
 };
+
+mod npm;
 
 const REGISTRY_URL: &str = "https://registry.npmjs.org";
 const USER_AGENT: &str = "MonoCode";
@@ -126,6 +129,9 @@ fn copy_version(path: &Path) -> Option<String> {
         VERSION_TIMEOUT,
     )
     .ok()?;
+    if !output.status.success() {
+        return None;
+    }
     let text = String::from_utf8_lossy(&output.stdout);
     semver_in(&text)
 }
@@ -154,7 +160,10 @@ pub async fn harness_install_info(
     tauri::async_runtime::spawn_blocking(move || {
         let path = resolve_harness_binary(&provider, binary_path.as_deref())?;
         let real = canonical(&path);
-        let (source, bundled_by) = install_source(&real);
+        let (mut source, bundled_by) = install_source(&real);
+        if npm::Installation::find(&path, npm_package(&provider).unwrap())?.is_some() {
+            source = InstallSource::Npm;
+        }
         let mut seen = HashSet::from([real.clone()]);
         let alternatives = binaries_on_search_path(&provider)
             .into_iter()
@@ -242,11 +251,28 @@ pub async fn harness_update(
                 real.display()
             ));
         }
-        let output = exec_output(&command, &args, None, UPDATE_TIMEOUT)?;
-        if output.status.success() {
-            return Ok(());
+        let update = || {
+            let output = exec_update_output(&command, &args, UPDATE_TIMEOUT)?;
+            if output.status.success() {
+                Ok(())
+            } else {
+                Err(update_failure(&output.stdout, &output.stderr))
+            }
+        };
+        let verify = || {
+            copy_version(Path::new(&command))
+                .ok_or_else(|| "Updated CLI failed its --version check".to_string())
+        };
+        if let Some(installation) =
+            npm::Installation::find(Path::new(&command), npm_package(&binary_provider).unwrap())?
+        {
+            return installation.update(update, verify);
         }
-        Err(update_failure(&output.stdout, &output.stderr))
+        if install_source(&real).0 == InstallSource::Npm {
+            return Err("Cannot safely back up this npm installation".into());
+        }
+        update()?;
+        verify().map(|_| ())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -353,5 +379,26 @@ mod tests {
         );
         assert_eq!(latest_version(&json!({ "version": " " })), None);
         assert_eq!(latest_version(&json!({})), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn timed_out_updater_cannot_write_after_rollback_starts() {
+        let marker =
+            std::env::temp_dir().join(format!("monocode-update-timeout-{}", uuid::Uuid::new_v4()));
+        let error = exec_update_output(
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "(sleep 0.2; printf late > \"$1\") & wait".into(),
+                "update-test".into(),
+                marker.to_string_lossy().into_owned(),
+            ],
+            Duration::from_millis(50),
+        )
+        .unwrap_err();
+        assert!(error.contains("timed out"));
+        std::thread::sleep(Duration::from_millis(250));
+        assert!(!marker.exists());
     }
 }

@@ -308,7 +308,34 @@ setInterval(() => {}, 1000);
   15_000,
 );
 
-it("stops a provider tree when its host pipe closes unexpectedly", async () => {
+it.each([0, 1])("reports provider exit %s while the host stays alive", async (code) => {
+  vi.stubEnv("MONOCODE_PROVIDER_SUPERVISOR", "node");
+  const directory = mkdtempSync(join(tmpdir(), "monocode-provider-exit-"));
+  const file = join(directory, "provider.cjs");
+  writeFileSync(file, `console.log('provider output'); console.error('provider diagnostic'); process.exitCode = ${code};`);
+  const backend = new HostChildBackend();
+  const output: string[] = [];
+  const diagnostics: string[] = [];
+  let exit: { sessionId: string; code: number | null } | undefined;
+  const releases = await Promise.all([
+    backend.listen<{ line: string }>("harness-stdout", ({ payload }) => output.push(payload.line)),
+    backend.listen<{ line: string }>("harness-stderr", ({ payload }) => diagnostics.push(payload.line)),
+    backend.listen<{ sessionId: string; code: number | null }>("harness-exit", ({ payload }) => { exit = payload; }),
+  ]);
+  try {
+    await backend.invoke("harness_spawn", { sessionId: "natural-exit", command: file, args: [], cwd: directory });
+    await vi.waitFor(() => expect(exit).toMatchObject({ sessionId: "natural-exit", code }), { timeout: 5_000 });
+    expect(output).toEqual(["provider output"]);
+    expect(diagnostics).toEqual(["provider diagnostic"]);
+  } finally {
+    releases.forEach((release) => release());
+    await backend.close();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it("stops a provider tree when its host IPC disconnects unexpectedly", async () => {
   const directory = mkdtempSync(join(tmpdir(), "monocode-provider-crash-"));
   const treeFile = join(directory, "tree.json");
   const providerFile = join(directory, "provider.cjs");
@@ -323,23 +350,23 @@ setInterval(() => {}, 1000);
   );
   const guard = spawn(
     process.execPath,
-    [resolve("build/host/provider-guard.mjs"), process.execPath, providerFile],
+    [resolve("host/provider-guard.mjs"), process.execPath, providerFile],
     {
       cwd: directory,
-      stdio: ["pipe", "ignore", "ignore", "pipe"],
+      stdio: ["pipe", "ignore", "ignore", "ipc"],
       detached: process.platform !== "win32",
       windowsHide: true,
     },
   );
-  let guardClosed = false;
-  guard.once("close", () => {
-    guardClosed = true;
+  let guardExited = false;
+  guard.once("exit", () => {
+    guardExited = true;
   });
   let tree: { provider: number; descendant: number } | undefined;
   try {
     await vi.waitFor(() => expect(existsSync(treeFile)).toBe(true));
     tree = JSON.parse(readFileSync(treeFile, "utf8"));
-    guard.stdio[3]?.destroy();
+    guard.disconnect();
     await vi.waitFor(
       () => {
         expect(() => process.kill(tree!.provider, 0)).toThrow();
@@ -348,9 +375,9 @@ setInterval(() => {}, 1000);
       { timeout: 5_000 },
     );
     // The guard's cwd keeps this directory locked on Windows until it exits.
-    await vi.waitFor(() => expect(guardClosed).toBe(true), { timeout: 5_000 });
+    await vi.waitFor(() => expect(guardExited).toBe(true), { timeout: 5_000 });
   } finally {
-    guard.stdio[3]?.destroy();
+    if (guard.connected) guard.disconnect();
     guard.kill("SIGKILL");
     for (const pid of [tree?.provider, tree?.descendant]) {
       if (pid)
@@ -360,7 +387,7 @@ setInterval(() => {}, 1000);
           /* gone */
         }
     }
-    await vi.waitFor(() => expect(guardClosed).toBe(true), { timeout: 5_000 });
+    await vi.waitFor(() => expect(guardExited).toBe(true), { timeout: 5_000 });
     rmSync(directory, {
       recursive: true,
       force: true,

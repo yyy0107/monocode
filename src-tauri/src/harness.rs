@@ -1603,6 +1603,25 @@ pub(crate) fn exec_output(
     cwd: Option<&str>,
     timeout: Duration,
 ) -> Result<std::process::Output, String> {
+    exec_output_inner(command, args, cwd, timeout, false)
+}
+
+/// An updater must stop writing before its installation can be rolled back.
+pub(crate) fn exec_update_output(
+    command: &str,
+    args: &[String],
+    timeout: Duration,
+) -> Result<std::process::Output, String> {
+    exec_output_inner(command, args, None, timeout, true)
+}
+
+fn exec_output_inner(
+    command: &str,
+    args: &[String],
+    cwd: Option<&str>,
+    timeout: Duration,
+    wait_for_stop: bool,
+) -> Result<std::process::Output, String> {
     let mut cmd = Command::new(command);
     cmd.args(args)
         .stdin(Stdio::null())
@@ -1627,7 +1646,14 @@ pub(crate) fn exec_output(
         Ok(Ok(output)) => Ok(output),
         Ok(Err(e)) => Err(format!("Failed to run {command}: {e}")),
         Err(_) => {
-            terminate(pid);
+            if wait_for_stop {
+                signal_tree(pid, TreeSignal::Kill);
+                // Reap the updater and drain its tree's output before allowing
+                // restoration to touch any paths the updater could still write.
+                let _ = rx.recv();
+            } else {
+                terminate(pid);
+            }
             Err(format!("{command} timed out"))
         }
     }

@@ -3500,5 +3500,20 @@
   "Automatically following all conversations": "自动关注所有会话",
   "Automatically following: {projects}": "自动关注项目：{projects}",
   "Remove scope follow": "取消范围关注",
-  "Other conversations are read-only. Followed conversations use the permissions enabled in assistant settings. Assistant-created conversations are followed by default and remain manageable if removed.": "其他会话默认只读，已关注会话按助理设置中的权限操作。助理自建会话默认已关注，即使移除仍可按设置中的权限管理。"
+  "Other conversations are read-only. Followed conversations use the permissions enabled in assistant settings. Assistant-created conversations are followed by default and remain manageable if removed.": "其他会话默认只读，已关注会话按助理设置中的权限操作。助理自建会话默认已关注，即使移除仍可按设置中的权限管理。",
+  "Previous CLI installation restored ({version}).": "已恢复原来的 CLI 安装（{version}）。",
+  "Cannot verify the installed CLI before updating: {error}": "更新前无法验证已安装的 CLI：{error}",
+  "Could not back up CLI; update was not started: {error}": "无法备份 CLI，未开始更新：{error}",
+  "Rollback failed: {error}": "回滚失败：{error}",
+  "Recovery files retained at {path}": "恢复文件已保留在 {path}",
+  "Updated CLI failed its --version check": "更新后的 CLI 未通过 --version 检查",
+  "Another update is using this npm installation": "另一个更新正在使用此 npm 安装",
+  "Cannot safely back up this npm installation": "无法安全备份此 npm 安装",
+  "Cannot safely back up a non-global npm installation": "无法安全备份非全局 npm 安装",
+  "npm package has no launchers to back up": "npm 包没有可备份的启动入口",
+  "npm package has an invalid launcher name": "npm 包的启动入口名称无效",
+  "Cannot locate npm package directory": "找不到 npm 包目录",
+  "Cannot locate npm prefix": "找不到 npm 安装前缀",
+  "Cannot locate npm package parent": "找不到 npm 包的父目录",
+  "Cannot locate npm package name": "找不到 npm 包名称"
 }
