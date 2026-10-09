@@ -10,8 +10,7 @@ pub struct SystemFonts {
     monospace: Vec<String>,
 }
 
-/// Installed family names, deduplicated and sorted. Localized names (e.g. CJK
-/// families) are included so the picker shows what users know.
+/// Installed family names in English, deduplicated and sorted.
 #[tauri::command]
 pub async fn list_system_fonts() -> Result<SystemFonts, String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -20,7 +19,8 @@ pub async fn list_system_fonts() -> Result<SystemFonts, String> {
         let mut names = BTreeSet::new();
         let mut monospace = BTreeSet::new();
         for face in db.faces() {
-            for (name, _) in &face.families {
+            // fontdb lists the English (US) family first; localized aliases follow.
+            if let Some((name, _)) = face.families.first() {
                 let name = name.trim();
                 if !name.is_empty() && !name.starts_with('.') {
                     names.insert(name.to_string());
