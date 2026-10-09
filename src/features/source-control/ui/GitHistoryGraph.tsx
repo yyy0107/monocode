@@ -405,7 +405,7 @@ function RefPill({ refInfo }: { refInfo: GraphRef }) {
   const local = refInfo.kind === "local";
   return (
     <span
-      className={`ml-1 flex h-3.5 min-w-0 max-w-[6.5rem] shrink-0 self-center items-center gap-0.5 truncate rounded-full px-1.5 text-[10px] leading-none ${
+      className={`ml-1 flex min-h-3.5 min-w-0 max-w-[6.5rem] shrink-0 self-center items-center gap-0.5 rounded-full px-1.5 text-[10px] leading-label ${
         refInfo.color ? "" : "bg-content/10 text-content/55"
       }`}
       style={
