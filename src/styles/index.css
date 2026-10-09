@@ -4677,46 +4677,46 @@ html.theme-light .btw-burst {
   }
 }
 
-/* Graph node cutouts so lane strokes do not show through the circles. */
+/* Scope node cutouts to graph SVGs; badge icons keep their own strokes. */
 .is-resizing .git-history-panel {
   transition: none;
 }
 
-.git-history-item svg {
+.git-history-item .git-history-graph {
   display: block;
   overflow: visible;
 }
-.git-history-item svg circle {
+.git-history-item .git-history-graph circle {
   stroke: var(--color-background-base);
 }
-.git-history-item:hover svg circle:first-of-type {
+.git-history-item:hover .git-history-graph circle:first-of-type {
   stroke: transparent;
 }
-.git-history-item:hover svg circle:nth-of-type(2) {
+.git-history-item:hover .git-history-graph circle:nth-of-type(2) {
   stroke: color-mix(
     in srgb,
     var(--color-content) 5%,
     var(--color-background-base)
   );
 }
-.git-history-item.is-selected svg circle:nth-of-type(2) {
+.git-history-item.is-selected .git-history-graph circle:nth-of-type(2) {
   stroke: color-mix(
     in srgb,
     var(--color-content) 10%,
     var(--color-background-base)
   );
 }
-.git-history-item.is-head svg circle:last-child {
+.git-history-item.is-head .git-history-graph circle:last-child {
   fill: var(--color-background-base);
 }
-.git-history-item.is-head:hover svg circle:last-child {
+.git-history-item.is-head:hover .git-history-graph circle:last-child {
   fill: color-mix(
     in srgb,
     var(--color-content) 5%,
     var(--color-background-base)
   );
 }
-.git-history-item.is-head.is-selected svg circle:last-child {
+.git-history-item.is-head.is-selected .git-history-graph circle:last-child {
   fill: color-mix(
     in srgb,
     var(--color-content) 10%,

@@ -227,7 +227,7 @@ export function GitGraphDialog({
                         aria-hidden
                         width={graph.width * LANE_SCALE}
                         height={ROW_HEIGHT}
-                        className="pointer-events-none"
+                        className="git-history-graph pointer-events-none"
                       >
                         <g
                           transform={`scale(${LANE_SCALE},${ROW_HEIGHT / graph.height})`}
