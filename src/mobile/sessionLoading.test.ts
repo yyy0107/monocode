@@ -259,7 +259,7 @@ describe("mobile conversation loading UI", () => {
   };
   const goBack = () => act(async () => node.querySelector<HTMLButtonElement>('header [aria-label="Back"]')!.click());
 
-  it("opens Home and the drawer in cached activity order while network histories are pending", async () => {
+  it("opens Home, the project menu and the drawer in cached activity order while network histories are pending", async () => {
     host.projects.mockResolvedValue([
       { id: "project", cwd: "/project", name: "Project" },
       { id: "newer", cwd: "/newer", name: "Newer project" },
@@ -274,6 +274,11 @@ describe("mobile conversation loading UI", () => {
     expect([...activePage().querySelectorAll('.mobile-home-recent [data-session-id]')].map((row) => row.getAttribute("data-session-id")))
       .toEqual(["newer", "project"]);
     expect(activePage().querySelector('.mobile-home .mobile-loading')).toBeNull();
+    const projectMenu = node.querySelector<HTMLButtonElement>('header [aria-label="Projects"]')!;
+    await act(async () => projectMenu.click());
+    expect([...node.querySelectorAll('.mobile-project-options strong')].map((row) => row.textContent))
+      .toEqual(["Newer project", "Project"]);
+    await act(async () => projectMenu.click());
     await act(async () => node.querySelector<HTMLButtonElement>('[aria-label="Menu"]')!.click());
     expect([...node.querySelectorAll('.mobile-drawer [data-session-id]')].map((row) => row.getAttribute("data-session-id")))
       .toEqual(["newer", "project"]);

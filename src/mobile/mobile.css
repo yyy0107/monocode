@@ -2638,6 +2638,18 @@ html.has-user-accent .mobile-send:not(:disabled) {
 .mobile-project-options .mobile-sheet-row-text {
   gap: 0;
 }
+.mobile-project-options .mobile-sheet-row-text strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mobile-project-options .mobile-sheet-row-text small {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
 .mobile-sheet-row-text strong {
   font-weight: 500;
 }

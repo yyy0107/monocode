@@ -2510,11 +2510,15 @@ export function MobileApp() {
         </button>
       </MobileSheet>
       <MobileHomeMenu
+        key={client.connection?.endpoint}
         open={homeMenuOpen && view === "home" && !drawerOpen}
         anchor={homeMenuTrigger}
         projects={hostScopeReady ? projects : []}
         projectsPending={projectsPending}
         projectsUnavailable={projectsUnavailable}
+        foreground={connected && hostStatus.state === "connected" && foreground && !pageOverlayOpen && !hostPickerOpen}
+        loadSessions={onDrawerLoadSessions}
+        cachedSessions={onCachedSessions}
         onClose={() => setHomeMenuOpen(false)}
         onProject={onDrawerProject}
       />
