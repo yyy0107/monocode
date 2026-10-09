@@ -7,6 +7,7 @@ import { SidebarTabs } from "./SidebarTabs";
 
 let container: HTMLDivElement;
 let root: Root;
+let frames: Map<number, FrameRequestCallback>;
 
 function deferredPanel() {
   let resolve!: () => void;
@@ -82,8 +83,20 @@ function currentPanel() {
   return container.querySelector("[data-current-panel]")?.textContent;
 }
 
-async function click(label: string) {
+async function paintFrame() {
+  await act(async () => {
+    const callbacks = [...frames.values()];
+    frames.clear();
+    callbacks.forEach((callback) => callback(performance.now()));
+  });
+}
+
+async function click(label: string, paint = true) {
   await act(async () => button(label).click());
+  if (paint) {
+    await paintFrame();
+    await paintFrame();
+  }
 }
 
 function pointer(target: EventTarget, type: string, clientX: number) {
@@ -102,6 +115,13 @@ function pointer(target: EventTarget, type: string, clientX: number) {
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  frames = new Map();
+  let nextFrame = 0;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++nextFrame, callback);
+    return nextFrame;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
   localStorage.clear();
   container = document.createElement("div");
   document.body.append(container);
@@ -113,10 +133,68 @@ afterEach(() => {
   container.remove();
   localStorage.clear();
   document.documentElement.style.removeProperty("--motion-reorder-duration");
+  delete document.documentElement.dataset.reducedMotion;
   vi.unstubAllGlobals();
 });
 
 describe("sidebar tab selection feedback", () => {
+  it("paints the selection before starting a ready Changes panel", async () => {
+    const { onTabChange, panelRender } = await renderHarness();
+
+    await click("Changes", false);
+    expect(selectedLabel()).toBe("Changes");
+    expect(currentPanel()).toBe("sessions");
+    expect(onTabChange).not.toHaveBeenCalled();
+    expect(panelRender).not.toHaveBeenCalledWith("changes");
+
+    await paintFrame();
+    expect(onTabChange).not.toHaveBeenCalled();
+    await paintFrame();
+    expect(onTabChange).toHaveBeenCalledExactlyOnceWith("changes");
+    expect(currentPanel()).toBe("changes");
+  });
+
+  it("only opens the latest tab when clicks arrive before the first paint", async () => {
+    const { onTabChange } = await renderHarness();
+    await click("Changes", false);
+    await paintFrame();
+    await click("Explorer", false);
+    expect(selectedLabel()).toBe("Explorer");
+
+    await paintFrame();
+    await paintFrame();
+    expect(onTabChange).toHaveBeenCalledExactlyOnceWith("files");
+    expect(currentPanel()).toBe("files");
+  });
+
+  it("cancels a queued click when the controlled tab changes", async () => {
+    const { onTabChange, setExternalTab } = await renderHarness();
+    await click("Changes", false);
+    await act(async () => setExternalTab("files"));
+    await paintFrame();
+    await paintFrame();
+    expect(onTabChange).not.toHaveBeenCalled();
+    expect(selectedLabel()).toBe("Explorer");
+    expect(currentPanel()).toBe("files");
+  });
+
+  it("cancels a queued click when the strip unmounts", async () => {
+    const { onTabChange } = await renderHarness();
+    await click("Changes", false);
+    await act(async () => root.render(null));
+    expect(frames.size).toBe(0);
+    expect(onTabChange).not.toHaveBeenCalled();
+  });
+
+  it("opens the panel immediately when motion is reduced", async () => {
+    document.documentElement.dataset.reducedMotion = "on";
+    const { onTabChange } = await renderHarness();
+    await click("Changes", false);
+    expect(frames.size).toBe(0);
+    expect(onTabChange).toHaveBeenCalledExactlyOnceWith("changes");
+    expect(currentPanel()).toBe("changes");
+  });
+
   it("selects the requested tab before its suspended parent update commits", async () => {
     const files = deferredPanel();
     const { onTabChange, panelRender } = await renderHarness({ files });

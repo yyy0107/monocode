@@ -417,6 +417,7 @@ html.has-native-glass:not(.theme-light) #root {
   background: var(--color-background-base);
   pointer-events: none;
   transform: translateX(calc(var(--sidebar-active-tab) * (100% + 1px)));
+  will-change: transform;
   transition: transform 220ms var(--motion-ease-out);
 }
 

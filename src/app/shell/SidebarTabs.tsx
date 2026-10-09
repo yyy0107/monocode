@@ -2,7 +2,9 @@ import { usePreferenceState } from "../../features/settings/model/usePreferenceS
 import {
   memo,
   startTransition,
+  useLayoutEffect,
   useOptimistic,
+  useRef,
   type CSSProperties,
 } from "react";
 import {
@@ -13,6 +15,7 @@ import {
 import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import { formatInteger } from "../../shared/lib/numbers";
+import { prefersReducedMotion } from "../../shared/lib/reducedMotion";
 
 const TAB_LABELS: Record<SidebarTabId, string> = {
   sessions: "Sessions",
@@ -39,6 +42,8 @@ export const SidebarTabs = memo(function SidebarTabs({
 }: Props) {
   const { t } = useTranslation();
   const [selectedTab, selectTab] = useOptimistic(tab);
+  const cancelPendingPaint = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => () => cancelPendingPaint.current?.(), [tab]);
   const [tabOrder, setTabOrder] = usePreferenceState(loadSidebarTabOrder);
   const sortable = useAnimatedReorder(tabOrder, (next) => {
     setTabOrder(next);
@@ -78,11 +83,29 @@ export const SidebarTabs = memo(function SidebarTabs({
             }
             onClick={() => {
               if (sortable.consumeClick()) return;
-              // Only this small strip renders urgently; panel/App work can yield
-              // without holding up the selection feedback or its first frame.
-              startTransition(() => {
+              cancelPendingPaint.current?.();
+              startTransition(async () => {
                 selectTab(id);
-                onTabChange(id);
+                if (!prefersReducedMotion()) {
+                  // Transitions can still commit a cached Changes panel before
+                  // the browser paints. Give the thumb a frame to start first.
+                  const painted = await new Promise<boolean>((resolve) => {
+                    let frame = requestAnimationFrame(() => {
+                      frame = requestAnimationFrame(() => {
+                        cancelPendingPaint.current = null;
+                        resolve(true);
+                      });
+                    });
+                    cancelPendingPaint.current = () => {
+                      cancelAnimationFrame(frame);
+                      cancelPendingPaint.current = null;
+                      resolve(false);
+                    };
+                  });
+                  if (!painted) return;
+                }
+                // Updates after an await need their own transition scope.
+                startTransition(() => onTabChange(id));
               });
             }}
             className="surface-tab flex h-6 min-w-0 flex-1 items-center justify-center self-center px-2 text-ui-sm leading-none"

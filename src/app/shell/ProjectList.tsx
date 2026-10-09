@@ -970,19 +970,22 @@ function ProjectSectionHeader({
 }) {
   const { t: uiT } = useTranslation();
   return (
-    <div className="flex items-center gap-1 px-3 py-0.5">
+    <div className="group/section flex items-center gap-1 px-3 py-0.5">
       <button
         type="button"
         data-sidebar-section-toggle
         aria-expanded={expanded}
         aria-controls={contentId}
         onClick={onToggleExpanded}
-        className="flex min-w-0 flex-1 items-center gap-1 rounded-lg px-1 py-0.5 text-left text-xs text-foreground-subtle hover:bg-surface-hover hover:text-content"
+        className="flex min-w-0 flex-1 items-center gap-1 px-1 py-0.5 text-left text-ui-base text-foreground-subtle hover:text-content"
       >
-        <ChevronRight
-          className="project-tree-chevron size-3 shrink-0"
-        />
-        <span className="truncate">{label}</span>
+        <span className="min-w-0 truncate">{label}</span>
+        <span className="flex size-4 shrink-0 items-center justify-center opacity-0 group-hover/section:opacity-100">
+          <ChevronRight
+            aria-hidden="true"
+            className="project-tree-chevron size-4"
+          />
+        </span>
       </button>
       {onAddGroup ? (
         <button
