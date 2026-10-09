@@ -1,0 +1,54 @@
+{
+  "capturedAt": "2026-10-09T10:36:11.824517+00:00",
+  "repositoryHead": "e5090d47726202d1281d3baddd6c185a5263415d",
+  "desktop": {
+    "file": "desktop-settings.png",
+    "capture": "scrot X11 rectangle of verified native MonoCode General settings panel",
+    "windowClass": "monocode.Monocode",
+    "pixels": [
+      1348,
+      878
+    ],
+    "nativeBinary": "target/debug/monocode",
+    "nativeBinarySha256": "70d71ff2205e05b9ad34770f05363902919d380afa4103f2355b52a8ffc30ee3",
+    "nativeBinaryMtimeUtc": "2026-10-08T19:05:13.394369+00:00",
+    "frontend": "running Vite at localhost:1420 from this checkout",
+    "note": "Existing native development binary; frontend from current checkout. No new native build or release validation claimed.",
+    "sha256": "94e17f59f698a3abeb6a179f29704c3d86ee2cb5e6af3b501b9ab702ef63b832"
+  },
+  "mobile": {
+    "file": "mobile-settings.png",
+    "capture": "Chrome headless screenshot of actual mobile.html in new temporary profile",
+    "url": "http://127.0.0.1:1425/mobile.html",
+    "viewport": [
+      390,
+      844
+    ],
+    "deviceScaleFactor": 1,
+    "physicalDevice": false,
+    "note": "Unpaired browser preview; no device token, account, or model session.",
+    "sha256": "c1e9d9d6b0ac5fde7c732b9030512aa92c486bde94044471403522decab03bce"
+  },
+  "privacy": "Settings capture excludes underlying private conversation/project sidebar. Conversation capture uses a separate window with an empty demo project and unsent draft; no private conversation/account data is visible. Mobile uses an unpaired fresh profile. No post-capture image edits or generated mockups.",
+  "publication": "Repository assets updated locally; no git commit/push or GitHub attachment upload performed. Library delivery is recorded separately.",
+  "desktopConversation": {
+    "file": "desktop-conversation.png",
+    "capturedAt": "2026-10-09T12:03:29.171324+00:00",
+    "capture": "scrot X11 whole window of verified native MonoCode conversation page",
+    "windowClass": "monocode.Monocode",
+    "pixels": [
+      1280,
+      800
+    ],
+    "scene": "unsent_demo_draft",
+    "demoProject": "/tmp/monocode-documentation-demo",
+    "modelRequests": 0,
+    "nativeBinary": "target/debug/monocode",
+    "nativeBinarySha256": "70d71ff2205e05b9ad34770f05363902919d380afa4103f2355b52a8ffc30ee3",
+    "nativeBinaryMtimeUtc": "2026-10-08T19:05:13.394369+00:00",
+    "frontend": "running Vite at localhost:1420 from this checkout",
+    "note": "Actual conversation UI, no generated transcript or image editing. New window with empty demo project and unsent draft. Existing native development binary; no new native build or release validation.",
+    "sha256": "16bf372f8e38ff96371c81e6580e09997bb275e6db02c656b906d6ef6ac70658",
+    "privateDataVisible": false
+  }
+}

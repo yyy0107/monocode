@@ -5,12 +5,22 @@
 <h1 align="center">MonoCode</h1>
 
 <p align="center">
-  <strong>A desktop UI for your coding agents.</strong>
+  <strong>A desktop and mobile workspace for your coding agents and personal assistant.</strong>
 </p>
 
 <p align="center">
-  <img width="1680" height="1050" alt="Screenshot 2026-09-04 at 06 34 00" src="https://github.com/user-attachments/assets/2cd4a6ec-eb1e-4b45-8627-a76442ea3874" />
+  <img width="1280" height="800" alt="MonoCode native Linux conversation page — unsent demo draft, captured 2026-10-09" src="docs/screenshots/desktop-conversation.png" />
 </p>
+
+[English](README.md) · [简体中文](README.zh-CN.md)
+
+Actual native Linux conversation page in an isolated demo project. The visible draft is **unsent**; no model was called and no private conversation or account data is visible. [Capture details and version limits](docs/screenshots/README.md).
+
+<p align="center">
+  <img width="1348" height="878" alt="MonoCode native Linux app — General settings, captured 2026-10-09" src="docs/screenshots/desktop-settings.png" />
+</p>
+
+General settings in the native Linux app; captured separately without private conversation or account information.
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, Antigravity, Pi, omp, fx, and Hermes Agent. If they’re installed and logged in, MonoCode can run them. Tabs are sessions. The composer is the input. MonoCode does not sell tokens.
 
@@ -40,6 +50,45 @@ Windows (x86_64): download the NSIS installer from [GitHub Releases](https://git
 ## Mobile client (development)
 
 Desktop and mobile share ordinary project conversations through the same MonoCode Host. Desktop starts and connects to the local Host automatically and imports existing history; iOS and Android connect using the Host URL and their device token. See [shared conversations](docs/shared-sessions.md) and [mobile setup and build instructions](mobile/README.md).
+
+
+<p align="center">
+  <img width="390" height="844" alt="MonoCode mobile frontend — unpaired 390×844 browser preview, captured 2026-10-09" src="docs/screenshots/mobile-settings.png" />
+</p>
+
+Actual mobile frontend in a fresh **390 × 844 browser viewport**, not a physical-device screenshot. The preview is unpaired and contains no chat or account data. These screenshots are repository assets; updating them locally does not publish a GitHub release or push the repository.
+
+## Assistant evaluation
+
+The assistant uses the shared Host to coordinate agent work, reminders, and memory. Its evaluation lives in [`host/assistant/eval/`](host/assistant/eval/README.md): **176 original cases across 16 dimensions**, plus **200 executable public-subset variants from 176 distinct public problems**. One additional original prompt variant makes 377 executable entries without increasing independent problem count. Public subsets are BFCL, LongMemEval, tau-bench, API-Bank, HotpotQA, and BIPIA. Adaptations, source revisions, licenses, and capability boundaries are documented per source; these are not official leaderboard scores.
+
+Existing real-agent results (2026-10-09; no additional inference used to generate this report):
+
+| Suite | Passed / evaluated | Real-run coverage / catalog variants |
+|---|---:|---:|
+| Original MonoCode scenarios | 23 / 32 | 32 / 176 |
+| BFCL adapted subset | 2 / 2 | 2 / 30 |
+| LongMemEval oracle subset | 2 / 2 | 2 / 18 |
+| tau-bench adapted subset | 2 / 2 | 2 / 24 |
+| API-Bank adapted subset | 2 / 2 | 2 / 32 |
+| HotpotQA adapted subset | 0 / 2 | 2 / 48 |
+| BIPIA paired subset | 2 / 4 | 4 / 48 |
+
+These runs use **real Pi inference + the product brain prompt + isolated tools**, not full Host/UI end-to-end execution. The public sample is 14 variants from 12 distinct problems; BIPIA clean/attack pairs are not counted as independent problems. Original and public results remain separate. Unrun cases are **N/A**. Judge calibration failed, so raw judge opinions are **untrusted** and formal judge/composite scores are **N/A**. Reference replay (176/176 original, 200/200 public) validates the harness only.
+
+Every case, hard check, failure reason, run configuration, and evidence path is available in the [per-case Markdown report](host/assistant/eval/reports/scores-2026-10-09/scores.md), [mobile-friendly HTML](host/assistant/eval/reports/scores-2026-10-09/scores.html), [CSV](host/assistant/eval/reports/scores-2026-10-09/cases.csv), and [all attempts](host/assistant/eval/reports/scores-2026-10-09/attempts.csv). BIPIA answer accuracy and attack success, HotpotQA source metrics and local format gates, and LongMemEval retrieval and answer metrics stay separate.
+
+The [evidence-based optimization plan (Chinese)](host/assistant/eval/docs/OPTIMIZATION_PLAN.zh-CN.md) separates protocol, scoring, environment and product issues, with acceptance checks and a proposed budget for future same-model Pi comparisons. Versioned harness fixes and bounded comparison execution are tracked in the [implementation record](host/assistant/eval/docs/OPTIMIZATION_EXECUTION.zh-CN.md). Human adjudication/judge calibration and full production lifecycle parity remain pending; historical scores above are unchanged. The new bounded run stopped after 25 HTTP requests because one provider usage record was unavailable: original P prompt-control results were 4/6 for MonoCode and 3/5 for control; one HotpotQA case scored 1/1 and 0/1, with one additional environment failure. Native N and expansion have not run. See the [new scorecard](host/assistant/eval/reports/optimization-sdk-final-2026-10-09/scores.html). Known cost is $0.0095182; total cost is unknown.
+
+From the repository root, without model calls:
+
+```bash
+node host/assistant/eval/bin/eval.mjs validate
+python3 host/assistant/eval/bin/verify_public.py
+python3 host/assistant/eval/bin/scoring_report.py --out /tmp/assistant-scores-NEW
+```
+
+Use a new output directory. See the [eval guide](host/assistant/eval/README.md) for bounded real-agent runs and [migration notes](host/assistant/eval/docs/MIGRATION.md) for tests and alternate working directories. Historical evidence remains byte-for-byte unchanged.
 
 ## Some notes
 
@@ -251,7 +300,7 @@ Thanks to everyone who contributes to MonoCode!
 
 ## License
 
-[MIT](LICENSE). Provider names and logos are trademarks of their owners - see [NOTICE](NOTICE).
+[MIT](LICENSE). Provider names and logos are trademarks of their owners - see [NOTICE](NOTICE). Public evaluation data retains its source-specific data license; the code license does not relicense all datasets.
 
 ## Acknowledgments
 
