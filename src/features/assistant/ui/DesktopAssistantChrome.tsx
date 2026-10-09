@@ -217,6 +217,7 @@ function DesktopAssistantSettingsPanel({
 
 function DesktopAssistantComposer({
   draft,
+  errorNotice,
   onDraftChange,
   onSend,
   onStop,
@@ -250,6 +251,7 @@ function DesktopAssistantComposer({
   }, [draft]);
   return (
     <div className="assistant-compose-dock">
+      {errorNotice}
       <AnimatedCollapse expanded={retry}>
         <div className="assistant-retry" role="alert">
           <span>{t("Your last message was not delivered.")}</span>

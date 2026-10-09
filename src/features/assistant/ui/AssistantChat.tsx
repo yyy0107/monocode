@@ -820,7 +820,9 @@ export function AssistantChat({
             )}
           </AnimatedCollapse>
         </div>
-        {!settingsCovering && errorNotice}
+        {!settingsCovering &&
+          (connectError || supported !== true || !assistant || !controls) &&
+          errorNotice}
         {connectError ? (
           <div className="assistant-availability" role="alert">
             <p>{t(connectError)}</p>
@@ -1019,6 +1021,7 @@ export function AssistantChat({
                 )}
                 <Composer
                   draft={draft}
+                  errorNotice={!settingsCovering ? errorNotice : undefined}
                   replyText={mobile ? replyText : undefined}
                   onCancelReply={cancelReply}
                   onDraftChange={setDraft}

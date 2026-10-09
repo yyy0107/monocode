@@ -829,6 +829,11 @@
   flex-shrink: 0;
   padding: 0 14px 14px;
 }
+.assistant-compose-dock > .assistant-error {
+  margin: 0 0 12px;
+  max-height: 25vh;
+  overflow: auto;
+}
 .assistant-retry {
   display: flex;
   align-items: center;

@@ -273,6 +273,7 @@ function MobileAssistantControls({
 
 function MobileAssistantComposer({
   draft,
+  errorNotice,
   replyText,
   onCancelReply,
   onDraftChange,
@@ -332,6 +333,7 @@ function MobileAssistantComposer({
   useMobileTextareaAutosize(input, draft, { minHeight: 28, viewportHeightRatio: 0.25 });
   return (
     <div ref={dock} className="mobile-assistant-compose-dock">
+      {errorNotice}
       <AnimatedCollapse expanded={replyText !== undefined} className="mobile-assistant-reply-collapse">
         <div className="mobile-assistant-reply-preview" aria-label={t("Replying to")}>
           <blockquote>{replyText ?? lastReply.current}</blockquote>

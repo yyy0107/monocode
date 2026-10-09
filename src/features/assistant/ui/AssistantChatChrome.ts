@@ -39,6 +39,7 @@ export type AssistantDraftAttachment = RemoteAttachment & { previewFile?: File }
 
 export type AssistantComposerProps = {
   draft: string;
+  errorNotice?: ReactNode;
   replyText?: string;
   onCancelReply?: () => void;
   onDraftChange: (draft: string) => void;

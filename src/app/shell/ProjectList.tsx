@@ -1257,6 +1257,7 @@ function ProjectCard({
     ? machines.find((entry) => entry.environmentId === remote.environmentId)
     : undefined;
   const online = useRemoteMachineOnline(machine?.id);
+  const disconnected = !!remote && (!machine || online === false);
   const connection = !remote
     ? ""
     : !machine
@@ -1471,7 +1472,7 @@ function ProjectCard({
               <span role="img" aria-label={uiT("Working...")}>
                 <TerminalSpinner className="inline-block w-3 shrink-0 select-none text-center text-ui-sm leading-none text-brand" />
               </span>
-            ) : summary?.historyState === "error" ? (
+            ) : summary?.historyState === "error" && !disconnected ? (
               <span
                 role="img"
                 aria-label={uiT("Couldn’t load sessions")}
@@ -1503,7 +1504,11 @@ function ProjectCard({
             <span
               aria-hidden="true"
               className={`absolute right-0 bottom-0 size-1.5 rounded-full ring-1 ring-background-base ${
-                online ? "bg-emerald-400" : "bg-content/35"
+                online
+                  ? "bg-emerald-400"
+                  : disconnected
+                    ? "bg-destructive"
+                    : "bg-content/35"
               }`}
             />
           </span>

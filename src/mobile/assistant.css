@@ -468,6 +468,11 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
 .mobile-assistant-compose-dock > * {
   pointer-events: auto;
 }
+.assistant-chat[data-layout="mobile"] .mobile-assistant-compose-dock > .assistant-error {
+  margin: 0 0 12px;
+  max-height: 25dvh;
+  background: color-mix(in srgb, #e04844 8%, var(--color-background-base));
+}
 .assistant-chat[data-layout="mobile"] .mobile-assistant-reply-backdrop {
   position: absolute;
   inset: 0;
