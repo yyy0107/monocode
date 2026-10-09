@@ -979,7 +979,9 @@ function ProjectSectionHeader({
         onClick={onToggleExpanded}
         className="flex min-w-0 flex-1 items-center gap-1 px-1 py-0.5 text-left text-ui-base text-foreground-subtle hover:text-content"
       >
-        <span className="min-w-0 truncate">{label}</span>
+        <span className="min-w-0 truncate text-foreground-subtle transition-colors duration-150 group-hover/section:text-content motion-reduce:transition-none">
+          {label}
+        </span>
         <span className="flex size-4 shrink-0 items-center justify-center opacity-0 group-hover/section:opacity-100">
           <ChevronRight
             aria-hidden="true"
