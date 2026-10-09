@@ -16,6 +16,7 @@ import { isDeepStrictEqual } from "node:util";
 import { prepareDesktopUpdate } from "./publish-desktop-update.mjs";
 import { buildWindowsDesktop } from "./desktop-windows-build.mjs";
 import { runBuildProcess } from "./desktop-build-process.mjs";
+import { isEvaluationInput } from "./production-inputs.mjs";
 
 const rootInputs = new Set([
   "index.html",
@@ -31,9 +32,11 @@ const rootInputs = new Set([
   "rust-toolchain.toml",
   "LICENSE",
   "NOTICE",
+  "scripts/production-inputs.mjs",
 ]);
 
 function isBuildInput(path) {
+  if (isEvaluationInput(path)) return false;
   if (/(^|\/)(?:__tests__|tests?|node_modules|target|build|gen)\//.test(path))
     return false;
   if (/\.(?:test|spec)\.[^/]+$/.test(path)) return false;

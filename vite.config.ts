@@ -1,18 +1,18 @@
-import { defineConfig } from "vite";
+import { defineConfig, type UserConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import fontScale from "./scripts/postcss-font-scale.mjs";
+import { excludeEvaluationVite } from "./scripts/production-inputs.mjs";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
-export default defineConfig(async ({ mode }) => {
+export default defineConfig(async ({ mode }): Promise<UserConfig> => {
   const stable = mode === "stable";
 
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [excludeEvaluationVite(), react(), tailwindcss()],
     // Pierre's highlighting worker imports Shiki's WASM engine dynamically.
-    worker: { format: "es" },
+    worker: { format: "es", plugins: () => [excludeEvaluationVite()] },
     // Settings → Appearance font sizes and reduced-motion override.
     css: { postcss: { plugins: [fontScale()] } },
     clearScreen: false,

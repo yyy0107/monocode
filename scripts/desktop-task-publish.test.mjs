@@ -166,6 +166,7 @@ test("desktop fingerprints track UI, native, bundled Host and assets, excluding 
     "public/icon.svg",
     "scripts/desktop-task-publish.sh",
     "host/workflows/skill/SKILL.md",
+    "scripts/production-inputs.mjs",
   ]) {
     await write(path, "new input");
     const added = await sourceFingerprint(root);
@@ -183,6 +184,9 @@ test("desktop fingerprints track UI, native, bundled Host and assets, excluding 
     "mobile/android/MainActivity.java",
     "src/main.test.ts",
     "host/service.test.ts",
+    "host/assistant/eval/datasets/cases.jsonl",
+    "host/assistant/eval/run.ts",
+    "eval/legacy.json",
     "README.md",
     "host/README.md",
     "src-tauri/gen/schema.json",

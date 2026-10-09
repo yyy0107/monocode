@@ -81,9 +81,14 @@ test("fingerprints additions, edits and deletions in mobile/shared inputs, ignor
     "mobile/android/app/src/main/assets/public/index.html",
     "dist-mobile/index.html",
     "src/features/desktop/OnlyDesktop.tsx",
+    "host/assistant/eval/datasets/cases.jsonl",
+    "eval/legacy.json",
   ])
     await write(path, "generated or unrelated");
   assert.equal(await sourceFingerprint(root), original);
+  await write("scripts/production-inputs.mjs", "bundler input policy");
+  assert.notEqual(await sourceFingerprint(root), original);
+  await rm(join(root, "scripts/production-inputs.mjs"));
   await write("mobile/android/app/src/main/java/MainActivity.java", "native");
   assert.notEqual(await sourceFingerprint(root), original);
 });

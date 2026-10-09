@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import fontScale from "./scripts/postcss-font-scale.mjs";
+import { excludeEvaluationVite } from "./scripts/production-inputs.mjs";
 import { resolve } from "node:path";
 import { renameSync } from "node:fs";
 
@@ -71,6 +72,7 @@ export default defineConfig({
   // cache invalidates lazy chunks (notably Streamdown's highlighted body).
   cacheDir: "node_modules/.vite-mobile",
   plugins: [
+    excludeEvaluationVite(),
     react(),
     tailwindcss(),
     hostProxy(),
@@ -101,7 +103,7 @@ export default defineConfig({
   css: { postcss: { plugins: [fontScale()] } },
   // Code highlighting runs in a worker that loads grammars on demand, which
   // the default iife worker format cannot code-split.
-  worker: { format: "es" },
+  worker: { format: "es", plugins: () => [excludeEvaluationVite()] },
   build: { outDir: "dist-mobile", rollupOptions: { input: "mobile.html" } },
   // Capacitor loads index.html. Keep mobile.html separate from the desktop entry.
   resolve: { alias: { "@mobile": resolve("src/mobile") } },

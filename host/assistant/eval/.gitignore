@@ -1,0 +1,22 @@
+# Optional/protected imports and local tool caches.
+external/
+.cache/
+__pycache__/
+
+# Reproducible payloads are fetched/generated in the external user cache.
+/data/cases.jsonl
+/data/references.jsonl
+/data/upstream/bfcl-v4-sample/BFCL*.jsonl
+/data/upstream/bfcl-v4-sample/possible_answer/
+/data/upstream/longmemeval-oracle-sample/records.json
+/public/*/cases.jsonl
+/public/api_bank/fixtures/
+/public/api_bank/raw/level-*-api.json
+/public/api_bank/raw/dialogues/
+/public/tau_bench/private/original_records.jsonl
+/public/tau_bench/private/upstream/tau_bench/envs/*/data/*.json
+/public/tau_bench/private/upstream/tau_bench/envs/*/tasks_test.py
+/public/hotpotqa/original/hf_records.json
+/public/hotpotqa/original/records.json
+/public/bipia/upstream/benchmark/email/test.jsonl
+/public/bipia/upstream/benchmark/text_attack_test.json

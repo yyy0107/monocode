@@ -4,6 +4,7 @@ import { lstat, mkdir, readFile, rm } from "node:fs/promises";
 import { join, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runBuildProcess } from "./desktop-build-process.mjs";
+import { isEvaluationInput } from "./production-inputs.mjs";
 
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const psQuote = (value) => `'${value.replaceAll("'", "''")}'`;
@@ -22,6 +23,7 @@ export async function createWindowsSnapshot(root, archive) {
   );
   const files = [];
   for (const path of [...new Set(candidates.split("\0"))].sort()) {
+    if (isEvaluationInput(path, root)) continue;
     if (
       !/^(?:src\/|src-tauri\/|crates\/|host\/|public\/|vendor\/|scripts\/|\.cargo\/)/.test(
         path,

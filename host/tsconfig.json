@@ -7,6 +7,6 @@
     "composite": false
   },
   "include": ["./**/*.ts", "../src/vite-env.d.ts"],
-  "exclude": ["./**/*.test.ts"],
+  "exclude": ["./**/*.test.ts", "./assistant/eval/**"],
   "references": []
 }

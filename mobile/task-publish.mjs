@@ -20,6 +20,7 @@ const configFiles = new Set([
   "tsconfig.mobile-tools.json",
   "package.json",
   "package-lock.json",
+  "scripts/production-inputs.mjs",
 ]);
 const generatedFiles = new Set([
   "src/integrations/workflow/dynamic-workflow/compiler/libs.generated.ts",
