@@ -124,6 +124,10 @@ export type ProjectListProps = {
   scrollRef?: Ref<HTMLDivElement>;
   matchedProjectPaths?: ReadonlySet<string>;
   searchActive?: boolean;
+  /** Lists every row instead of the paged preview; defaults to `searchActive`. */
+  previewAll?: boolean;
+  /** Restarts the paged preview when the listed scope changes. */
+  previewKey?: string;
   /** Full project counts, independent of the current sidebar filter/preview. */
   projectSummaries?: ReadonlyMap<string, ProjectHoverSummary>;
   pinnedEntries?: ProjectListEntry[];
@@ -184,6 +188,8 @@ export function ProjectList({
   scrollRef: externalScrollRef,
   matchedProjectPaths,
   searchActive: searchActiveProp,
+  previewAll: previewAllProp,
+  previewKey = "",
   projectSummaries,
   pinnedEntries = [],
   recentEntries,
@@ -193,6 +199,7 @@ export function ProjectList({
 }: ProjectListProps) {
   const { t: uiT } = useTranslation();
   const searchActive = searchActiveProp ?? !active;
+  const previewAll = previewAllProp ?? searchActive;
   const pendingActivation = useRef<string | undefined>(undefined);
   useEffect(() => {
     // An external project selection supersedes any disclosure still entering.
@@ -518,6 +525,8 @@ export function ProjectList({
               onReorder={onReorderPins}
               pinned
               searchActive={searchActive}
+              previewAll={previewAll}
+              previewKey={previewKey}
               onSelect={onSelectProject}
               onTogglePin={toggleProjectPin}
               onContextMenu={onProjectContextMenu}
@@ -556,6 +565,8 @@ export function ProjectList({
               onReorder={onReorderProjects}
               pinned={false}
               searchActive={searchActive}
+              previewAll={previewAll}
+              previewKey={previewKey}
               onSelect={onSelectProject}
               onTogglePin={toggleProjectPin}
               onContextMenu={onProjectContextMenu}
@@ -679,6 +690,8 @@ export function ProjectList({
             onReorder={onReorderProjects}
             pinned={false}
             searchActive={searchActive}
+            previewAll={previewAll}
+            previewKey={previewKey}
             onSelect={onSelectProject}
             onTogglePin={toggleProjectPin}
             onContextMenu={onProjectContextMenu}
@@ -728,6 +741,8 @@ function ProjectSection({
   onReorder,
   pinned,
   searchActive,
+  previewAll,
+  previewKey,
   onSelect,
   onTogglePin,
   onContextMenu,
@@ -757,6 +772,8 @@ function ProjectSection({
   onReorder: (ids: string[]) => void;
   pinned: boolean;
   searchActive: boolean;
+  previewAll: boolean;
+  previewKey: string;
   onSelect: (path: string) => void;
   onTogglePin: (path: string) => void;
   onContextMenu: (path: string, event: MouseEvent<HTMLElement>) => void;
@@ -776,8 +793,8 @@ function ProjectSection({
   const contentId = useId();
   const preview = useSidebarListPreview(
     items.length + leadingEntries.length,
-    String(searchActive),
-    searchActive,
+    `${previewAll}\0${previewKey}`,
+    previewAll,
   );
   const rows = orderByIds<{
     id: string;

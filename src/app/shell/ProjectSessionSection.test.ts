@@ -2663,6 +2663,24 @@ describe("recent sidebar conversations", () => {
     expect(recentIds()).toEqual(["new", "middle", "older"]);
   });
 
+  it("keeps paging recent conversations for a chosen project and restarts it per project", () => {
+    props.projectHistory = Array.from({ length: 12 }, (_, index) => ({
+      ...summary(`recent-${index}`, index % 2 ? A : B),
+      updatedAt: 100 - index,
+    }));
+    saveProjectTreeExpanded([]);
+    act(() => render());
+    const toggle = () =>
+      recent().querySelector<HTMLButtonElement>("[data-sidebar-list-toggle]")!;
+    pickScope(B);
+    expect(recentIds()).toEqual([0, 2, 4, 6, 8].map((n) => `recent-${n}`));
+    act(() => toggle().click());
+    expect(recentIds()).toHaveLength(6);
+    pickScope(A);
+    expect(recentIds()).toHaveLength(5);
+    expect(toggle()).not.toBeNull();
+  });
+
   it("keeps an independent five-row preview with animated closing and rapid reversal", () => {
     props.projectHistory = Array.from({ length: 12 }, (_, index) => ({
       ...summary(`recent-${index}`, index % 2 ? A : B),

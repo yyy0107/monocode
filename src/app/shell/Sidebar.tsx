@@ -1275,6 +1275,9 @@ function SidebarComponent(props: SidebarProps) {
               onOpenNotificationSettings={props.onOpenNotificationSettings}
               statsEnabled={false}
               searchActive={searchActive || !!sessionProjectPath}
+              // A chosen project keeps "Show more" paging; only a query lists every match.
+              previewAll={searchActive}
+              previewKey={sessionProjectPath ?? ""}
               matchedProjectPaths={
                 searchActive
                   ? matchInfo.matched
