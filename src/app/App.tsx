@@ -34,6 +34,8 @@ import {
 import { persistManualSessionTitle } from "../features/sessions/data/sessionStore";
 import { acceptQuickLaunch } from "./model/quickLaunchSession";
 import { useWorkspaceNavigation } from "./hooks/useWorkspaceNavigation";
+import { usePageNavigation, type PageDestination } from "./hooks/usePageNavigation";
+import { useMouseHistoryNavigation } from "./hooks/useMouseHistoryNavigation";
 import { useIdleSessionDetach } from "./hooks/useIdleSessionDetach";
 import { useEmptySessionCleanup } from "./hooks/useEmptySessionCleanup";
 import {
@@ -545,16 +547,6 @@ import {
   tabCommandForKeybinding,
   tabCommandKeybinding,
 } from "../features/workspace/model/tabKeys";
-import {
-  canTabVisitBack,
-  canTabVisitForward,
-  emptyTabVisitHistory,
-  pruneTabVisitHistory,
-  recordTabVisit,
-  tabVisitBack,
-  tabVisitForward,
-  type TabVisitHistory,
-} from "../features/workspace/model/tabVisitHistory";
 import { preparePrompt } from "../features/sessions/model/promptPreparation";
 import {
   consumeOperatorCommand,
@@ -1060,7 +1052,7 @@ function Workspace({
   const [sessionSidebarOpen, setSessionSidebarOpen] = useState(
     loadSessionSidebarOpen,
   );
-  const [navigationExpanded, setNavigationExpanded] = useState(true);
+  const [navigationExpanded, setNavigationExpanded] = useState(false);
   const onToggleNavigation = useCallback(
     () => setNavigationExpanded((expanded) => !expanded),
     [],
@@ -1506,15 +1498,17 @@ function Workspace({
     readProjectReturnMemory();
   }, [activeTabId, tabs, sessions, readProjectReturnMemory]);
 
-  const tabVisitRef = useRef(emptyTabVisitHistory(activeTabId));
-  const tabVisitFromHistoryRef = useRef(false);
-  const selectHistorySessionRef = useRef<
-    ((sessionId: string) => Promise<void>) | undefined
-  >(undefined);
-  const [tabVisitNav, setTabVisitNav] = useState({
-    canBack: false,
-    canForward: false,
+  const navigateHistoryRef = useRef<(destination: PageDestination) => void>(() => {});
+  const tabVisitNav = usePageNavigation({
+    tabs,
+    activeTabId,
+    page: appPage,
+    dialog: appDialog,
+    notesEnabled,
+    navigate: (destination) => navigateHistoryRef.current(destination),
   });
+  const { back: onVisitBack, forward: onVisitForward, previousTabs } = tabVisitNav;
+  useMouseHistoryNavigation(onVisitBack, onVisitForward);
   const turnGen = useRef(new Map<string, number>());
   const editedResends = useRef(createEditedResendCoordinator()).current;
   const lastPersisted = useRef(new Map<string, string>());
@@ -2374,17 +2368,6 @@ function Workspace({
     [],
   );
 
-  const commitTabVisit = useCallback((history: TabVisitHistory) => {
-    tabVisitRef.current = history;
-    const canBack = canTabVisitBack(history);
-    const canForward = canTabVisitForward(history);
-    setTabVisitNav((prev) =>
-      prev.canBack === canBack && prev.canForward === canForward
-        ? prev
-        : { canBack, canForward },
-    );
-  }, []);
-
   const discardEmptySessionReferences = useCallback(
     (ids: ReadonlySet<string>) => {
       for (const id of ids) {
@@ -2400,18 +2383,8 @@ function Workspace({
       projectReturnRef.current = new Map(
         [...projectReturnRef.current].filter(([, id]) => !ids.has(id)),
       );
-      const currentTab = tabsRef.current.find(
-        (tab) => tab.id === activeTabIdRef.current,
-      );
-      commitTabVisit(pruneTabVisitHistory(
-        tabVisitRef.current,
-        new Set(sessionsRef.current
-          .filter((session) => !ids.has(session.id))
-          .map((session) => session.id)),
-        currentTab ? (anchorSessionId(currentTab) ?? "") : "",
-      ));
     },
-    [commitTabVisit],
+    [],
   );
 
   useEmptySessionCleanup({
@@ -2423,25 +2396,6 @@ function Workspace({
     setTabs,
     onDiscard: discardEmptySessionReferences,
   });
-
-  // Back/forward walk the chats shown in the focused column (one workspace
-  // per window, so tab visits no longer move).
-  const visitedSessionId = useMemo(() => {
-    const tab = tabs.find((entry) => entry.id === activeTabId) ?? tabs[0];
-    return tab ? (anchorSessionId(tab) ?? "") : "";
-  }, [tabs, activeTabId]);
-  const sessionIdsKey = sessions.map((session) => session.id).join("\n");
-  useEffect(() => {
-    const openIds = new Set(sessionsRef.current.map((session) => session.id));
-    const current = visitedSessionId;
-    let next = pruneTabVisitHistory(tabVisitRef.current, openIds, current);
-    if (tabVisitFromHistoryRef.current) {
-      tabVisitFromHistoryRef.current = false;
-    } else if (current && next.current !== current) {
-      next = recordTabVisit(next, current);
-    }
-    commitTabVisit(pruneTabVisitHistory(next, openIds, current));
-  }, [visitedSessionId, sessionIdsKey, commitTabVisit]);
 
   /** `cwd` scopes group inheritance: a tab from another project starts alone. */
   const insertBeside = useCallback(
@@ -2611,7 +2565,7 @@ function Workspace({
         sessionsRef.current,
         activeTabIdRef.current,
         cwd,
-        tabVisitRef.current.back,
+        previousTabs(),
       );
       if (target) {
         activateTab(target.id);
@@ -2624,7 +2578,7 @@ function Workspace({
       activateTab(id);
       return tabsRef.current.find((tab) => tab.id === id)!;
     },
-    [activateTab, createWorkspaceTab],
+    [activateTab, createWorkspaceTab, previousTabs],
   );
 
   const onSelectRemoteSession = useCallback(
@@ -3817,32 +3771,6 @@ function Workspace({
     }
   }, [activateTab, activeTabId, deckProjectTabs]);
 
-  const visitSession = useCallback(
-    (step: typeof tabVisitBack) => {
-      const openIds = new Set(sessionsRef.current.map((session) => session.id));
-      const pruned = pruneTabVisitHistory(
-        tabVisitRef.current,
-        openIds,
-        tabVisitRef.current.current,
-      );
-      const next = step(pruned);
-      if (!next || !openIds.has(next.current)) return;
-      tabVisitFromHistoryRef.current = true;
-      commitTabVisit(next);
-      void selectHistorySessionRef.current?.(next.current);
-    },
-    [commitTabVisit],
-  );
-  const onVisitBack = useCallback(
-    () => visitSession(tabVisitBack),
-    [visitSession],
-  );
-
-  const onVisitForward = useCallback(
-    () => visitSession(tabVisitForward),
-    [visitSession],
-  );
-
   const onActivate = useCallback(
     (slot: number) => {
       const tab =
@@ -4587,8 +4515,6 @@ function Workspace({
       setSidebarTab,
     ],
   );
-
-  selectHistorySessionRef.current = onSelectHistorySession;
 
   const openReminderSession = useCallback(
     async (sessionId: string) => {
@@ -10521,6 +10447,16 @@ function Workspace({
 
   const onRailBack = onVisitBack;
   const onRailForward = onVisitForward;
+  navigateHistoryRef.current = (destination) => {
+    setPaletteOpen(false);
+    activateTab(destination.tabId, destination.paneId);
+    if (destination.fileId)
+      onSelectFileSurface(destination.paneId, destination.fileId);
+    setAppPage(destination.page);
+    setAppDialog(destination.dialog);
+    setProjectTerminalFocused(false);
+    if (destination.page || destination.dialog) setComposerFocused(false);
+  };
 
   useEffect(() => {
     if (!dockVisible) setProjectTerminalFocused(false);

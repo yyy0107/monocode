@@ -873,6 +873,125 @@ async function pressKey(key: string, ctrlKey = false) {
   );
 }
 
+describe("window page navigation", () => {
+  const navButton = (direction: "Back" | "Forward") =>
+    container.querySelector<HTMLButtonElement>(
+      `[data-window-navigation] button[aria-label^="${direction}"]`,
+    )!;
+  const pageVisible = (kind: string) =>
+    container.querySelector(`[data-app-page="${kind}"]`)?.getAttribute("aria-hidden") === "false";
+  const mouse = async (button: number) => {
+    await act(async () => {
+      for (const type of ["mousedown", "mouseup", "auxclick"]) {
+        const event = new MouseEvent(type, { button, bubbles: true, cancelable: true });
+        container.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(true);
+      }
+    });
+    await act(async () => vi.dynamicImportSettled());
+  };
+
+  beforeEach(() => saveMenuBarVisible(false));
+
+  it("shares visits between the arrows and side buttons, including pages and new branches", async () => {
+    await mount(false, "bottom", { blocks: [{ id: "prompt", role: "user", text: "Keep chat" }] });
+    setComposerDraft("recent", "Keep this chat too");
+    expect(navButton("Back").getAttribute("aria-disabled")).toBe("true");
+    await mouse(3);
+    expect(activeTabId()).toBe(firstId);
+    await selectSession("recent");
+    await click('[data-command="View: Notes"]');
+    await click('[data-command="View: Inbox"]');
+    await mouse(3);
+    expect(pageVisible("notes")).toBe(true);
+    await act(async () => navButton("Back").click());
+    expect(pageVisible("notes")).toBe(false);
+    expect(activeTabId()).toBe(recentId);
+    await mouse(3);
+    expect(activeTabId()).toBe(firstId);
+    expect(navButton("Back").getAttribute("aria-disabled")).toBe("true");
+    await mouse(4);
+    expect(activeTabId()).toBe(recentId);
+    await act(async () => navButton("Forward").click());
+    expect(pageVisible("notes")).toBe(true);
+    await click('[data-command="View: Automations"]');
+    expect(navButton("Forward").getAttribute("aria-disabled")).toBe("true");
+    await mouse(4);
+    expect(pageVisible("automations")).toBe(true);
+    await mouse(3);
+    expect(pageVisible("notes")).toBe(true);
+  });
+
+  it("restores a settings dialog together with the page beneath it", async () => {
+    await mount();
+    await click('[data-command="View: Notes"]');
+    await click('[data-command="App: Settings"]');
+    await click('[data-command="View: Inbox"]');
+    expect(document.querySelector("[data-app-view-dialog]")).toBeNull();
+    await mouse(3);
+    expect(document.querySelector('[data-app-view-dialog] [data-app-view="settings"]')).not.toBeNull();
+    // Closing the restored dialog reveals the original Notes page.
+    await mouse(3);
+    expect(document.querySelector("[data-app-view-dialog]")).toBeNull();
+    expect(pageVisible("notes")).toBe(true);
+    await mouse(4);
+    expect(document.querySelector('[data-app-view-dialog] [data-app-view="settings"]')).not.toBeNull();
+    await mouse(4);
+    expect(pageVisible("inbox")).toBe(true);
+  });
+
+  it("returns to the focused Assistant document and skips it once closed", async () => {
+    await mount(false, "bottom", { blocks: [{ id: "prompt", role: "user", text: "Keep chat" }] });
+    setComposerDraft("recent", "Keep the fallback chat");
+    await click("[data-open-assistant]");
+    const assistantTab = activeTabId();
+    const assistant = () => container.querySelector(`[data-workspace-tab="${assistantTab}"] [data-app-view="assistant"]`);
+    await click('[data-command="View: Notes"]');
+    await mouse(3);
+    expect(pageVisible("notes")).toBe(false);
+    expect(assistant()).not.toBeNull();
+    await pressKey("w", true);
+    expect(assistant()).toBeNull();
+    expect(activeTabId()).toBe(recentId);
+    await mouse(3);
+    expect(activeTabId()).toBe(firstId);
+    expect(navButton("Back").getAttribute("aria-disabled")).toBe("true");
+    await mouse(4);
+    expect(activeTabId()).toBe(recentId);
+    expect(assistant()).toBeNull();
+  });
+
+  it("uses the same history for keyboard navigation and restores document focus", async () => {
+    await mount();
+    await click("[data-open-file]");
+    const editor = () => workspace().querySelector('[data-file-editor="/repo/file.ts"]')!;
+    expect(editor().getAttribute("data-file-active")).toBe("true");
+    await click('[data-command="View: Notes"]');
+    await pressKey("[", true);
+    expect(pageVisible("notes")).toBe(false);
+    expect(editor().getAttribute("data-file-active")).toBe("true");
+    await mouse(3);
+    expect(workspace().querySelector('[data-session="first"]')?.getAttribute("data-composer-focused")).toBe("true");
+    await mouse(4);
+    expect(editor().getAttribute("data-file-active")).toBe("true");
+    expect(workspace().querySelector('[data-session="first"]')?.getAttribute("data-composer-focused")).toBe("false");
+  });
+
+  it("skips disabled Notes entries on both sides of the current page", async () => {
+    await mount();
+    await click('[data-command="View: Notes"]');
+    await click('[data-command="View: Inbox"]');
+    await click('[data-command="View: Notes"]');
+    await mouse(3);
+    await act(async () => saveNotesEnabled(false));
+    expect(navButton("Forward").getAttribute("aria-disabled")).toBe("true");
+    await mouse(3);
+    expect(pageVisible("inbox")).toBe(false);
+    expect(activeTabId()).toBe(firstId);
+    expect(navButton("Back").getAttribute("aria-disabled")).toBe("true");
+  });
+});
+
 describe("local composer agent selection", () => {
   beforeEach(() => {
     const original = mocks.invoke.getMockImplementation()!;
@@ -1133,7 +1252,7 @@ describe("App workspace app views", () => {
     }
   });
 
-  it("folds only the navigation menu and supports reversing before the animation ends", async () => {
+  it("defaults to horizontal navigation and supports reversing the menu animation", async () => {
     saveMenuBarVisible(false);
     await mount();
     const toggle = container.querySelector<HTMLButtonElement>(
@@ -1141,6 +1260,14 @@ describe("App workspace app views", () => {
     )!;
     const fold = () => container.querySelector<HTMLElement>("#sidebar-navigation-menu .zen-fold-item");
     const horizontal = () => container.querySelector<HTMLElement>("[data-titlebar-navigation]")!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(horizontal().dataset.foldState).toBe("open");
+    expect(horizontal().inert).toBe(false);
+    expect(horizontal().querySelector('[data-activity-bar="titlebar"]')).not.toBeNull();
+    expect(fold()).toBeNull();
+    await act(async () => toggle.click());
+    expect(fold()?.dataset.foldState).toBe("opening");
+    expect(horizontal().dataset.foldState).toBe("closing");
     expect(horizontal().inert).toBe(true);
     const menu = container.querySelector('[data-activity-bar="sidebar-top"]');
     const footer = container.querySelector('[data-activity-bar="sidebar-footer"]');
