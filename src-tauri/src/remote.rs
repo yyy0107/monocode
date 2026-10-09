@@ -397,6 +397,7 @@ fn supported_remote_method(method: &str) -> bool {
             | "sessions.list"
             | "sessions.get"
             | "sessions.update"
+            | "sessions.switchAccount"
             | "sessions.delete"
             | "sessions.sync"
             | "sessions.syncChunk"
@@ -746,6 +747,7 @@ mod tests {
             "providerAccounts.importCodex",
             "providerAccounts.loginStart",
             "providerAccounts.loginStatus",
+            "sessions.switchAccount",
             "git.branches",
             "git.switch",
             "git.createBranch",
