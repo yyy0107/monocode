@@ -4,6 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   gitDiffFiles,
+  gitBaseDiffFiles,
+  gitBaseFileDiff,
+  gitCommitFiles,
+  gitCommitFileDiff,
   gitFileDiff,
   gitDiscardFile,
   gitStageFile,
@@ -21,10 +25,15 @@ import {
 import type { ReviewLoadedDiff } from "../model/reviewDiff";
 import { GitReviewPane, type GitReviewPaneProps } from "./GitReviewPane";
 import { WorkingTreeDiff } from "./WorkingTreeDiff";
+import { CommitDiff } from "./CommitDiff";
 
 vi.mock("../../../platform/tauri/fs", () => ({
   basename: (path: string) => path.split("/").pop()!,
   gitDiffFiles: vi.fn(),
+  gitBaseDiffFiles: vi.fn(),
+  gitBaseFileDiff: vi.fn(),
+  gitCommitFiles: vi.fn(),
+  gitCommitFileDiff: vi.fn(),
   gitFileDiff: vi.fn(),
   gitDiscardFile: vi.fn(async () => {}),
   gitStageFile: vi.fn(async () => {}),
@@ -33,6 +42,9 @@ vi.mock("../../../platform/tauri/fs", () => ({
   revealPath: vi.fn(async () => {}),
   notifyGitChanged: vi.fn(),
   subscribeGitChanged: () => () => {},
+}));
+vi.mock("../hooks/useProjectWorktrees", () => ({
+  useProjectWorktrees: () => ({}),
 }));
 vi.mock("../../../platform/tauri/clipboard", () => ({
   copyText: vi.fn(async () => {}),
@@ -108,7 +120,7 @@ class TestResizeObserver {
     );
   }
 }
-/** Diffs mount after the open animation completes. */
+/** Diffs mount a couple of frames into the open animation. */
 async function settle() {
   await act(async () => vi.advanceTimersByTimeAsync(350));
 }
@@ -147,9 +159,41 @@ const card = (index: number) =>
 async function click(title: string, within: ParentNode = container) {
   await act(async () =>
     within
-      .querySelector<HTMLButtonElement>(`button[title="${title}"]`)!
+      .querySelector<HTMLButtonElement>(
+        `button[title="${title}"], button[aria-label^="${title}:"]`,
+      )!
       .click(),
   );
+}
+async function openFileMenu(index: number, keyboard = false) {
+  await act(async () => {
+    const button =
+      card(index).querySelector<HTMLButtonElement>("header button")!;
+    button.focus();
+    button.dispatchEvent(
+      keyboard
+        ? new KeyboardEvent("keydown", {
+            key: "F10",
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true,
+          })
+        : new MouseEvent("contextmenu", {
+            clientX: 10,
+            clientY: 20,
+            bubbles: true,
+            cancelable: true,
+          }),
+    );
+  });
+}
+async function fileAction(title: string, index = 0) {
+  await openFileMenu(index);
+  await click(
+    title,
+    document.querySelector('[role="menu"][aria-label="File actions"]')!,
+  );
+  await act(async () => vi.advanceTimersByTimeAsync(200));
 }
 async function select(source: string) {
   await act(async () =>
@@ -185,9 +229,9 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(800);
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
     function (this: HTMLElement) {
-      if (this.classList.contains("overscroll-contain")) return 74;
+      if (this.classList.contains("overscroll-contain")) return 64;
       if (this.hasAttribute("data-index"))
-        return this.querySelector(".zen-fold-item") ? 337 : 37;
+        return this.querySelector(".zen-fold-item") ? 332 : 32;
       return 0;
     },
   );
@@ -221,7 +265,7 @@ it("virtualizes cards, supports multiple expansions, and removes offscreen expan
   await measure();
   expect(card(0).querySelector("[data-diff-content]")).not.toBeNull();
   expect(card(1).querySelector("[data-diff-content]")).not.toBeNull();
-  expect(listHeight()).toBe(37 * files.length + 600);
+  expect(listHeight()).toBe(32 * files.length + 600);
   await act(async () => {
     scroller().scrollTop = 1200;
     scroller().dispatchEvent(new Event("scroll"));
@@ -229,7 +273,7 @@ it("virtualizes cards, supports multiple expansions, and removes offscreen expan
   expect(card(0)).toBeNull();
   expect(card(1)).toBeNull();
   await click("Collapse all");
-  expect(listHeight()).toBe(37 * files.length);
+  expect(listHeight()).toBe(32 * files.length);
   await act(async () => {
     scroller().scrollTop = 0;
     scroller().dispatchEvent(new Event("scroll"));
@@ -238,7 +282,7 @@ it("virtualizes cards, supports multiple expansions, and removes offscreen expan
   await click("Expand all");
   // Rows are re-estimated at their expanded size in the same render, so only the
   // cards near the viewport mount and load instead of every collapsed row in view.
-  expect(listHeight()).toBeGreaterThan(37 * files.length * 2);
+  expect(listHeight()).toBeGreaterThan(32 * files.length * 2);
   expect(
     container.querySelectorAll("[data-review-file]").length,
   ).toBeLessThanOrEqual(3);
@@ -255,7 +299,7 @@ it("virtualizes cards, supports multiple expansions, and removes offscreen expan
   await act(async () => vi.advanceTimersByTimeAsync(350));
   await measure();
   expect(container.querySelector("[data-diff-content]")).toBeNull();
-  expect(listHeight()).toBe(37 * files.length);
+  expect(listHeight()).toBe(32 * files.length);
 });
 
 it("retains the card and scroll position during refresh and reloads its invalidated diff", async () => {
@@ -285,9 +329,9 @@ it("retains the card and scroll position during refresh and reloads its invalida
 
 it("uses Monocode file operations and stages the chunk's document position", async () => {
   await render();
-  await click("Stage file", card(0));
+  await fileAction("Stage file");
   expect(gitStageFile).toHaveBeenCalledWith("/repo", files[0].relative);
-  await click("Discard changes", card(0));
+  await fileAction("Discard changes");
   expect(gitDiscardFile).toHaveBeenCalledWith("/repo", files[0].relative);
   await click("Expand file", card(0));
   await settle();
@@ -298,7 +342,7 @@ it("uses Monocode file operations and stages the chunk's document position", asy
     comparison.current,
   );
   await select("Staged");
-  await click("Unstage file", card(0));
+  await fileAction("Unstage file");
   expect(gitUnstageFile).toHaveBeenCalledWith("/repo", files[0].relative);
   expect(card(0).querySelector('[title="Stage hunk"]')).toBeNull();
   expect(card(0).querySelector('[title="Discard changes"]')).toBeNull();
@@ -307,12 +351,13 @@ it("uses Monocode file operations and stages the chunk's document position", asy
     ["Copy relative path", copyText, files[0].relative],
     ["Reveal in file manager", revealPath, files[0].path],
   ] as const) {
-    await click("File actions", card(0));
+    await openFileMenu(0);
     const item = [
       ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
     ].find((node) => node.textContent === label)!;
     await act(async () => item.click());
     expect(operation).toHaveBeenLastCalledWith(expected);
+    await act(async () => vi.advanceTimersByTimeAsync(200));
   }
 });
 
@@ -362,4 +407,107 @@ it("offers session checkpoints only on a session tab and keeps Undo/Keep outside
   expect(sessionCheckpointStatus).toHaveBeenLastCalledWith("s1", "/repo");
   expect(card(0).querySelector('[title="Stage file"]')).toBeNull();
   expect(container.textContent).not.toMatch(/Undo|Keep/);
+});
+
+it("opens file actions from the keyboard without expanding and restores focus on Escape", async () => {
+  await render();
+  await openFileMenu(0, true);
+  expect(
+    document.querySelector('[role="menu"][aria-label="File actions"]'),
+  ).not.toBeNull();
+  expect(
+    card(0).querySelector("header button")?.getAttribute("aria-expanded"),
+  ).toBe("false");
+  expect(gitFileDiff).not.toHaveBeenCalled();
+  const menu = document.querySelector<HTMLElement>(
+    '[role="menu"][aria-label="File actions"]',
+  )!;
+  await act(async () =>
+    menu.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+    ),
+  );
+  expect(document.activeElement?.textContent).toBe("Stage file");
+  await act(async () =>
+    menu.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "End", bubbles: true }),
+    ),
+  );
+  expect(document.activeElement?.textContent).toBe("Reveal in file manager");
+  await act(async () =>
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    ),
+  );
+  expect(document.activeElement).toBe(card(0).querySelector("header button"));
+  expect(
+    document
+      .querySelector('[role="menu"][aria-label="File actions"]')
+      ?.closest("[inert]"),
+  ).not.toBeNull();
+  await act(async () => vi.advanceTimersByTimeAsync(200));
+  expect(
+    document.querySelector('[role="menu"][aria-label="File actions"]'),
+  ).toBeNull();
+});
+
+it("shows uncommitted totals from the file list before any diff is expanded", async () => {
+  vi.mocked(gitBaseDiffFiles).mockResolvedValue({
+    base: "HEAD",
+    files: [
+      { ...files[0], additions: 8, deletions: 3 },
+      { ...files[1], additions: 5, deletions: 2 },
+    ],
+  });
+  await render({ initialSource: "uncommitted" });
+  const totals = container.querySelector('button[aria-haspopup="listbox"]')!;
+  expect(totals.textContent).toBe("Uncommitted+13-5");
+  expect(gitBaseDiffFiles).toHaveBeenCalledWith("/repo", "head");
+  expect(gitBaseFileDiff).not.toHaveBeenCalled();
+});
+
+it("renders a fixed commit with the shared diff, preserves folding on refresh, and switches snapshots", async () => {
+  vi.mocked(gitCommitFiles).mockResolvedValue([files[0]]);
+  vi.mocked(gitCommitFileDiff).mockImplementation(async (_cwd, sha) => ({
+    ...comparison,
+    current: `${sha}\n`,
+  }));
+  const openCommit = async (sha: string) => {
+    await act(async () =>
+      root.render(createElement(CommitDiff, { cwd: "/repo", sha })),
+    );
+    await settle();
+    await measure();
+  };
+  await openCommit("abc1234");
+  expect(gitCommitFiles).toHaveBeenCalledWith("/repo", "abc1234");
+  expect(gitCommitFileDiff).toHaveBeenCalledWith("/repo", "abc1234", files[0].relative);
+  expect(card(0).querySelector("[data-diff-content]")?.textContent).toBe("abc1234\n");
+  expect(container.querySelector('[aria-haspopup="listbox"]')).toBeNull();
+  expect(gitFileDiff).not.toHaveBeenCalled();
+  await openFileMenu(0);
+  expect(document.querySelector('[role="menu"]')?.textContent).not.toMatch(/Stage|Unstage|Discard/);
+  await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+  await click("Collapse all");
+  await settle();
+  await click("Refresh changes");
+  expect(card(0).querySelector("header button")?.getAttribute("aria-expanded")).toBe("false");
+  expect(card(0).querySelector("[data-diff-content]")).toBeNull();
+  await openCommit("def5678");
+  expect(gitCommitFileDiff).toHaveBeenLastCalledWith("/repo", "def5678", files[0].relative);
+  expect(card(0).querySelector("[data-diff-content]")?.textContent).toBe("def5678\n");
+});
+
+it("loads only mounted commit diffs while opening a large commit", async () => {
+  vi.mocked(gitCommitFiles).mockResolvedValue(files);
+  vi.mocked(gitCommitFileDiff).mockResolvedValue(comparison);
+  await act(async () =>
+    root.render(createElement(CommitDiff, { cwd: "/repo", sha: "large-commit" })),
+  );
+  await settle();
+  await measure();
+  expect(card(0).querySelector("[data-diff-content]")).not.toBeNull();
+  expect(vi.mocked(gitCommitFileDiff).mock.calls.length).toBeGreaterThan(0);
+  expect(vi.mocked(gitCommitFileDiff).mock.calls.length).toBeLessThan(files.length);
+  expect(container.querySelectorAll("[data-review-file]").length).toBeLessThan(files.length);
 });

@@ -13,6 +13,7 @@ import {
   type Virtualizer,
 } from "@tanstack/react-virtual";
 import {
+  basename,
   gitDiscardFile,
   gitStageContents,
   gitStageFile,
@@ -20,18 +21,22 @@ import {
   notifyGitChanged,
 } from "../../../platform/tauri/fs";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { isEqualOrInside } from "../../../shared/lib/paths";
 import {
   AlertCircle,
   FileDiff,
   FoldVertical,
+  FolderTree,
   Loader,
   RefreshCw,
   UnfoldVertical,
   X,
 } from "../../../shared/ui/icons";
+import { useProjectWorktrees } from "../hooks/useProjectWorktrees";
 import { useReviewSource } from "../model/useReviewSource";
 import {
   estimateReviewBodyHeight,
+  reviewCommit,
   type ReviewDiffState,
   type ReviewFile,
   type ReviewSource,
@@ -41,15 +46,18 @@ import { LINE_DIFF_CONFIG } from "../model/lineDiff";
 import { GitReviewChangeCard, ReviewIconButton } from "./GitReviewChangeCard";
 import { ReviewDiffsWorkerPool } from "./ReviewDiffsWorkerPool";
 import { ReviewSourceSelect } from "./ReviewSourceSelect";
+import "./GitReviewPane.css";
 
 export type GitReviewPaneProps = {
   cwd: string;
   sessionId?: string;
   initialSource?: ReviewSource;
+  /** Commit tabs keep their comparison fixed to the commit named in the tab. */
+  commit?: string;
   focusPath?: string;
 };
 
-const COLLAPSED_ROW_HEIGHT = 37;
+const COLLAPSED_ROW_HEIGHT = 32;
 /** Loading placeholders reserve at most this much, enough to fill a viewport. */
 const MAX_PLACEHOLDER_HEIGHT = 640;
 /** Covers the open animation plus the first diff loads after Expand all. */
@@ -59,10 +67,20 @@ export function GitReviewPane({
   cwd,
   sessionId,
   initialSource = "unstaged",
+  commit,
   focusPath,
 }: GitReviewPaneProps) {
   const { t } = useTranslation();
-  const [source, setSource] = useState<ReviewSource>(initialSource);
+  const { data: worktrees } = useProjectWorktrees(cwd);
+  // A linked worktree can live inside the main checkout; match the deepest root.
+  const worktree = useMemo(
+    () => worktrees?.worktrees
+      .filter((tree) => isEqualOrInside(cwd, tree.path))
+      .sort((a, b) => b.path.length - a.path.length)[0],
+    [cwd, worktrees],
+  );
+  const [selectedSource, setSource] = useState<ReviewSource>(initialSource);
+  const source: ReviewSource = commit ? `commit:${commit}` : selectedSource;
   const { scopeKey, files, error, loading, loadDiff, getDiff, refresh } =
     useReviewSource(cwd, source, sessionId);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -74,6 +92,7 @@ export function GitReviewPane({
   const rows = files ?? [];
   const bulkExpandUntil = useRef(0);
   const bulkAnchor = useRef<number | undefined>(undefined);
+  const expandedCommits = useRef(new Set<string>());
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: rows.length,
     getItemKey: (index: number) => `${scopeKey}:${rows[index].relative}`,
@@ -111,6 +130,22 @@ export function GitReviewPane({
     },
     useAnimationFrameWithResizeObserver: true,
   });
+  useLayoutEffect(() => {
+    // Historical reviews open their files by default. Mounting and content
+    // loading remain virtualized, and refresh must preserve manual folding.
+    if (
+      !reviewCommit(source) ||
+      !files?.length ||
+      expandedCommits.current.has(scopeKey)
+    )
+      return;
+    expandedCommits.current.add(scopeKey);
+    bulkExpandUntil.current = performance.now() + BULK_EXPAND_MS;
+    virtualizer.measure();
+    setExpanded((current) =>
+      new Set([...current, ...files.map((file) => `${scopeKey}:${file.relative}`)]),
+    );
+  }, [files, scopeKey, source, virtualizer]);
   const virtualRows = virtualizer.getVirtualItems();
   useLayoutEffect(() => {
     const mounted = new Set(virtualRows.map((row) => row.index));
@@ -230,79 +265,114 @@ export function GitReviewPane({
     [rows, getDiff],
   );
 
+  const counts = (
+    <span className="ml-1 flex shrink-0 gap-2 text-ui-base tabular-nums">
+      <span className="text-[var(--review-added)]">
+        +{totals.additions.toLocaleString()}
+      </span>
+      <span className="text-[var(--review-removed)]">
+        -{totals.deletions.toLocaleString()}
+      </span>
+    </span>
+  );
+
   return (
     <ReviewDiffsWorkerPool>
       <section
-        className="flex h-full min-h-0 min-w-0 flex-col bg-background-base"
+        className="git-review-pane flex h-full min-h-0 min-w-0 flex-col bg-background-base"
         data-git-review-pane
       >
-        <div className="flex shrink-0 items-center gap-2 border-b border-content/8 px-3 py-2">
-          <ReviewSourceSelect
-            cwd={cwd}
-            value={source}
-            sessionId={sessionId}
-            onChange={(next) => {
-              setSource(next);
-              setActionError(undefined);
-            }}
-            trailing={
-              <span className="ml-1 flex shrink-0 gap-1.5 text-[13px] tabular-nums">
-                <span className="text-emerald-500">
-                  +{totals.additions.toLocaleString()}
-                </span>
-                <span className="text-rose-500">
-                  -{totals.deletions.toLocaleString()}
-                </span>
-              </span>
-            }
-          />
-          <div className="min-w-0 flex-1" />
-          <ReviewIconButton
-            title={t("Expand all")}
-            disabled={!rows.length}
-            onClick={() => {
-              const scroller = scrollerRef.current;
-              const offset = scroller?.scrollTop ?? 0;
-              bulkAnchor.current = virtualizer
-                .getVirtualItems()
-                .find((row) => row.end > offset)?.index;
-              bulkExpandUntil.current = performance.now() + BULK_EXPAND_MS;
-              // One cache reset re-estimates every row as expanded, so only the
-              // cards that fit the viewport mount, load and render.
-              virtualizer.measure();
-              setExpanded(
-                (current) =>
-                  new Set([
-                    ...current,
-                    ...rows.map((file) => `${scopeKey}:${file.relative}`),
-                  ]),
-              );
-            }}
-          >
-            <UnfoldVertical className="size-3.5" />
-          </ReviewIconButton>
-          <ReviewIconButton
-            title={t("Collapse all")}
-            disabled={!rows.length}
-            onClick={() =>
-              setExpanded(
-                (current) =>
-                  new Set(
-                    [...current].filter((id) => !id.startsWith(`${scopeKey}:`)),
-                  ),
-              )
-            }
-          >
-            <FoldVertical className="size-3.5" />
-          </ReviewIconButton>
-          <ReviewIconButton
-            title={t("Refresh changes")}
-            onClick={() => refresh()}
-          >
-            <RefreshCw
-              className={`size-3.5 ${loading ? "animate-spin" : ""}`}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 p-3">
+          {worktree && !worktree.isMain ? (
+            <span
+              className="git-review-worktree flex h-8 min-w-0 max-w-48 items-center gap-1.5 text-ui-base text-foreground-subtle"
+              title={t("Worktree: {path}", { path: worktree.path })}
+            >
+              <FolderTree className="size-3.5 shrink-0" />
+              <span className="truncate">{basename(worktree.path)}</span>
+            </span>
+          ) : null}
+          {commit ? (
+            <div
+              className="flex h-8 min-w-0 items-center gap-2 text-ui-base"
+              title={commit}
+            >
+              <span className="text-foreground-subtle">{t("Committed")}</span>
+              <span className="font-mono text-content">{commit.slice(0, 7)}</span>
+              {counts}
+            </div>
+          ) : (
+            <ReviewSourceSelect
+              cwd={cwd}
+              value={source}
+              sessionId={sessionId}
+              onChange={(next) => {
+                setSource(next);
+                setActionError(undefined);
+              }}
+              trailing={counts}
             />
-          </ReviewIconButton>
+          )}
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              className="grid size-8 shrink-0 place-items-center rounded-lg text-foreground-subtle outline-none hover:bg-surface-hover focus-visible:bg-surface-hover disabled:opacity-40"
+              title={t("Expand all")}
+              aria-label={t("Expand all")}
+              disabled={!rows.length}
+              onClick={() => {
+                const scroller = scrollerRef.current;
+                const offset = scroller?.scrollTop ?? 0;
+                bulkAnchor.current = virtualizer
+                  .getVirtualItems()
+                  .find((row) => row.end > offset)?.index;
+                bulkExpandUntil.current = performance.now() + BULK_EXPAND_MS;
+                // One cache reset re-estimates every row as expanded, so only the
+                // cards that fit the viewport mount, load and render.
+                virtualizer.measure();
+                setExpanded(
+                  (current) =>
+                    new Set([
+                      ...current,
+                      ...rows.map((file) => `${scopeKey}:${file.relative}`),
+                    ]),
+                );
+              }}
+            >
+              <UnfoldVertical className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              className="grid size-8 shrink-0 place-items-center rounded-lg text-foreground-subtle outline-none hover:bg-surface-hover focus-visible:bg-surface-hover disabled:opacity-40"
+              title={t("Collapse all")}
+              aria-label={t("Collapse all")}
+              disabled={!rows.length}
+              onClick={() => {
+                setExpanded(
+                  (current) =>
+                    new Set(
+                      [...current].filter(
+                        (id) => !id.startsWith(`${scopeKey}:`),
+                      ),
+                    ),
+                );
+              }}
+            >
+              <FoldVertical className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              title={t("Refresh changes")}
+              disabled={loading}
+              onClick={() => refresh()}
+              className="flex h-8 items-center gap-2 rounded-lg px-3 text-ui-base text-content transition-colors hover:bg-surface-hover disabled:opacity-40 motion-reduce:transition-none"
+            >
+              <RefreshCw
+                className={`size-3.5 ${loading ? "animate-spin" : ""}`}
+              />
+              {t("Refresh")}
+            </button>
+          </div>
         </div>
         {actionError ? (
           <div
@@ -400,7 +470,7 @@ function Empty({
   icon?: React.ReactNode;
 }) {
   return (
-    <div className="flex h-full min-h-32 flex-col items-center justify-center gap-2 px-6 text-center text-[13px] text-content/50">
+    <div className="flex h-full min-h-32 flex-col items-center justify-center gap-2 px-6 text-center text-ui-base text-foreground-subtle">
       {icon}
       {children}
     </div>

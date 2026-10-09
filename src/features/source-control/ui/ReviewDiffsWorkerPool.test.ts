@@ -3,13 +3,19 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { useWorkerPool } from "@pierre/diffs/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { ReviewDiffsWorkerPool } from "./ReviewDiffsWorkerPool";
+import {
+  REVIEW_POOL_IDLE_MS,
+  ReviewDiffsWorkerPool,
+} from "./ReviewDiffsWorkerPool";
 
 const state = vi.hoisted(() => ({
   initialize: () => Promise.resolve(),
   factoryFails: false,
   managers: [] as { terminate: ReturnType<typeof vi.fn> }[],
   workers: [] as (EventTarget & { terminate: ReturnType<typeof vi.fn> })[],
+}));
+vi.mock("@pierre/diffs", () => ({
+  preloadHighlighter: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@pierre/diffs/worker", () => ({
   WorkerPoolManager: class {
@@ -65,12 +71,14 @@ beforeEach(() => {
 });
 afterEach(() => {
   act(() => root.unmount());
+  // Release the shared pool so each test starts cold.
+  act(() => vi.advanceTimersByTime(REVIEW_POOL_IDLE_MS));
   container.remove();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
-it("provides the pool only after successful initialization and terminates it on unmount", async () => {
+it("provides the pool only after successful initialization and keeps it warm until idle", async () => {
   let ready!: () => void;
   state.initialize = () =>
     new Promise<void>((resolve) => {
@@ -84,6 +92,14 @@ it("provides the pool only after successful initialization and terminates it on 
   expect(mode()).toBe("worker");
   act(() => root.unmount());
   root = createRoot(container);
+  // Reopening within the idle window reuses the initialized pool.
+  await render();
+  expect(mode()).toBe("worker");
+  expect(state.managers).toHaveLength(1);
+  act(() => root.unmount());
+  root = createRoot(container);
+  expect(state.managers[0].terminate).not.toHaveBeenCalled();
+  act(() => vi.advanceTimersByTime(REVIEW_POOL_IDLE_MS));
   expect(state.managers[0].terminate).toHaveBeenCalled();
   expect(
     state.workers.every((worker) => worker.terminate.mock.calls.length),

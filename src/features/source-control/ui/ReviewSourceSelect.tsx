@@ -50,7 +50,7 @@ export function ReviewSourceSelect({
   value: ReviewSource;
   sessionId?: string;
   onChange: (value: ReviewSource) => void;
-  /** Rendered inside the pill after the chevron, e.g. the diff totals. */
+  /** Optional content after the chevron. */
   trailing?: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -193,7 +193,7 @@ export function ReviewSourceSelect({
           event.preventDefault();
           if (!open) openMenu(true);
         }}
-        className="review-source-select flex h-8 min-w-0 shrink items-center gap-1.5 rounded-full border px-3.5 text-left text-ui-caption outline-none focus-visible:ring-2 focus-visible:ring-content/25"
+        className="review-source-select flex h-8 min-w-0 shrink items-center gap-1.5 rounded-lg border pr-2 pl-3 text-left text-ui-base outline-none focus-visible:ring-2 focus-visible:ring-content/25"
       >
         <span className="min-w-0 truncate" title={selectedLabel}>
           {selectedLabel}

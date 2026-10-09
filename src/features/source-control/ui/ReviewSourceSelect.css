@@ -1,19 +1,20 @@
-/* Pill trigger and floating card menu, matching the desktop session pickers. */
+/* ZCode's large input trigger and floating source menu. */
 .review-source-select,
 .review-source-menu {
   background: var(--color-menu);
   border-color: var(--color-stroke);
-  font-size: var(--text-ui-caption);
+  font-size: var(--text-ui-base);
 }
 
 .review-source-select {
-  background: var(--color-surface);
-  transition: background-color 120ms var(--motion-ease-out);
+  background: var(--color-input);
+  border-color: var(--color-input-border);
+  transition: border-color 120ms var(--motion-ease-out);
 }
 
 .review-source-select:hover,
 .review-source-select[aria-expanded="true"] {
-  background: var(--color-surface-hover);
+  border-color: var(--color-input-border-hover);
 }
 
 .review-source-menu {

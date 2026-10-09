@@ -1,0 +1,18 @@
+/* ZCode's Zai diff counts. Keep them scoped to review. */
+.git-review-pane {
+  container: git-review / inline-size;
+  --review-added: #46bf72;
+  --review-removed: #ff5c5c;
+}
+
+.theme-light .git-review-pane {
+  --review-added: #1e8a3e;
+  --review-removed: #e03131;
+}
+
+/* Keep the comparison and actions visible when the review pane is narrow. */
+@container git-review (max-width: 36rem) {
+  .git-review-worktree {
+    display: none;
+  }
+}
