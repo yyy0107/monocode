@@ -372,10 +372,11 @@ export function ProjectTerminalDock({
             <div
               key={file.id}
               aria-hidden={file.id !== dock.pane.activeFileId}
+              inert={file.id !== dock.pane.activeFileId}
               className={
                 file.id === dock.pane.activeFileId
                   ? "absolute inset-0 h-full"
-                  : "hidden"
+                  : "absolute inset-0 h-full invisible pointer-events-none"
               }
             >
               <TerminalView

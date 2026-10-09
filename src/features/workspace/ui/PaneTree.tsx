@@ -535,7 +535,15 @@ function PaneTreeComponent({
       reserveWindowNavigationSpace,
     ],
   );
-  const gridStyle = surfaceGrid?.style;
+  const gridStyle = surfaceGrid
+    ? {
+        ...surfaceGrid.style,
+        // The unified strip selects a surface in place. Animating these tracks
+        // exposes both terminals mid-switch and slides/reflows their contents.
+        // Split/full-view entry still animates before `unified` becomes true.
+        transitionProperty: unified ? "none" : undefined,
+      }
+    : undefined;
   const resizeConfig = useRef({
     grid: !!surfaceGrid,
     selectedId: unified ? selectedId : maximized,

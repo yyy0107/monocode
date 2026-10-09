@@ -91,6 +91,30 @@ it("keeps running content mounted, suppresses focus and hides the move menu duri
   expect(lifetime.unmount).not.toHaveBeenCalled();
 });
 
+it("keeps inactive terminal tabs laid out but inert when switching the shared strip", async () => {
+  const first = props.dock.pane.files[0];
+  const second = newTerminalFile("/repo");
+  props.dock.pane.files = [first, second];
+  props.dock.pane.activeFileId = first.id;
+  await render(true);
+  const terminals = [...container.querySelectorAll<HTMLElement>("[data-terminal-active]")];
+  const panels = terminals.map((terminal) => terminal.parentElement!);
+  expect(panels[1].classList.contains("hidden")).toBe(false);
+  expect(panels[1].classList.contains("invisible")).toBe(true);
+  expect(panels[1].hasAttribute("inert")).toBe(true);
+
+  props.dock = { ...props.dock, pane: { ...props.dock.pane, activeFileId: second.id } };
+  await render(true);
+  expect(panels[0].classList.contains("hidden")).toBe(false);
+  expect(panels[0].classList.contains("invisible")).toBe(true);
+  expect(panels[0].hasAttribute("inert")).toBe(true);
+  expect(panels[1].hasAttribute("inert")).toBe(false);
+  expect(panels[1].classList.contains("invisible")).toBe(false);
+  expect(terminals[1].dataset.terminalActive).toBe("true");
+  expect(lifetime.mount).toHaveBeenCalledTimes(2);
+  expect(lifetime.unmount).not.toHaveBeenCalled();
+});
+
 it("commits and releases an active resize before closing, cancelling queued paint", async () => {
   vi.stubGlobal(
     "requestAnimationFrame",

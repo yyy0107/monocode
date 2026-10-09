@@ -354,6 +354,54 @@ describe("session surface layout", () => {
     ).toBe("Chat");
   });
 
+  it.each(["right", "down"] as const)("switches shared terminal tabs without interpolating %s grid tracks", (dir) => {
+    const terminalPane = (id: string): EditorPane => ({
+      id,
+      activeFileId: `${id}-terminal`,
+      files: [{ id: `${id}-terminal`, path: "Terminal", cwd: "/project", terminal: true }],
+    });
+    render({
+      surfaceMode: "unified",
+      focusedId: "first",
+      layout: {
+        type: "split",
+        id: "split",
+        dir,
+        children: [
+          { type: "leaf", id: "chat" },
+          { type: "leaf", id: "first" },
+          { type: "leaf", id: "second" },
+        ],
+        sizes: [0.4, 0.3, 0.3],
+      },
+      editorPanes: [terminalPane("first"), terminalPane("second")],
+    });
+    const inputs = [...container.querySelectorAll("input")];
+    // A non-zero duration must not turn a tab selection into a pane resize.
+    layout().style.transitionDuration = "0.34s";
+    for (const id of ["second", "first", "second"]) {
+      render({ focusedId: id });
+      expect(layout().style.transitionProperty).toBe("none");
+      expect(isPaneResizing()).toBe(false);
+      const tracks = dir === "right"
+        ? layout().style.gridTemplateColumns
+        : layout().style.gridTemplateRows;
+      expect(tracks).toBe(id === "first"
+        ? "minmax(0, 0fr) minmax(0, 1fr) minmax(0, 0fr)"
+        : "minmax(0, 0fr) minmax(0, 0fr) minmax(0, 1fr)");
+      expect(pane(id).inert).toBe(false);
+      expect(pane(id === "first" ? "second" : "first").inert).toBe(true);
+    }
+    expect([...container.querySelectorAll("input")]).toEqual(inputs);
+    expect(lifetime).toEqual({ mounts: 2, unmounts: 0 });
+
+    render({ surfaceMode: "split" });
+    expect(layout().style.transitionProperty).toBe("");
+    expect(isPaneResizing()).toBe(true);
+    settleGrid();
+    expect(isPaneResizing()).toBe(false);
+  });
+
   it("animates both directions with zero tracks and keeps hidden surfaces mounted and inert", () => {
     render();
     const editorInput = container.querySelector<HTMLInputElement>("input")!;

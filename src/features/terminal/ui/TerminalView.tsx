@@ -198,7 +198,7 @@ type LiveTerminal = {
   term: Terminal;
   spawned: boolean;
   runningProcess: string | null;
-  applySize: (remeasure?: boolean) => void;
+  applySize: () => void;
   attach: (outer: HTMLElement, host: HTMLElement, meta: MetaRef) => object;
   release: (owner: object) => void;
 };
@@ -386,9 +386,8 @@ function createLiveTerminal(
     schedule();
   };
 
-  const applySize = (remeasure = false) => {
+  const applySize = () => {
     if (closed || !host) return;
-    needsMeasurement ||= remeasure;
     if (!host.isConnected || host.clientWidth < 8 || host.clientHeight < 8) {
       needsMeasurement = true;
       return;
@@ -596,7 +595,9 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
 
   useEffect(() => {
     if (!active) return;
-    liveRef.current?.applySize(true);
+    // Tab hosts keep their layout while inactive. Only hidden/reattached hosts
+    // and font loads invalidate measurements; focus alone must not reset them.
+    liveRef.current?.applySize();
     liveRef.current?.term.focus();
   }, [active]);
 

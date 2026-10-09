@@ -219,6 +219,36 @@ it("remeasures a revealed terminal even when its rows and columns stay the same"
   }
 });
 
+it("keeps glyph measurements and PTY dimensions stable when switching laid-out terminal tabs", async () => {
+  const { host, root } = setup();
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(480);
+  layout.fitTerminal.mockReturnValue({ cols: 80, rows: 24 });
+  const view = (selected: string) => createElement("div", null,
+    ...["first", "second"].map((id) => createElement(TerminalView, {
+      key: id, id, cwd: "/tmp", active: id === selected,
+    })),
+  );
+  try {
+    await act(async () => root.render(view("first")));
+    await act(async () => root.render(view("second")));
+    const measurements = layout.refreshTerminalMeasurements.mock.calls.length;
+    const resizes = pty.resizePty.mock.calls.length;
+    expect(measurements).toBe(2);
+
+    await act(async () => root.render(view("first")));
+    await act(async () => root.render(view("second")));
+    expect(layout.refreshTerminalMeasurements).toHaveBeenCalledTimes(measurements);
+    expect(pty.resizePty).toHaveBeenCalledTimes(resizes);
+    expect(pty.spawnPty).toHaveBeenCalledTimes(2);
+    expect(pty.killPty).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+    await lapseHandoff();
+    host.remove();
+  }
+});
+
 it("does not let StrictMode cleanup kill the replacement shell", async () => {
   const { host, root } = setup();
   try {

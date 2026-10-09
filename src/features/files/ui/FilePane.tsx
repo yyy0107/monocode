@@ -193,10 +193,13 @@ function FilePaneComponent({
             <div
               key={file.id}
               aria-hidden={file.id !== pane.activeFileId}
+              inert={file.id !== pane.activeFileId}
               className={
                 file.id === pane.activeFileId
                   ? "absolute inset-0 h-full"
-                  : "hidden"
+                  : isTerminalTab(file)
+                    ? "absolute inset-0 h-full invisible pointer-events-none"
+                    : "hidden"
               }
             >
               {isAppViewTab(file) ? (
