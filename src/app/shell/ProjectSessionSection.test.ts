@@ -556,7 +556,7 @@ describe("named project/session tree", () => {
     ).toBeNull();
   });
 
-  it("marks unopened Host replies beside titles and clears only the focused project's reply", () => {
+  it("marks unopened Host replies at the row's far right and clears only the focused project's reply", () => {
     configureSharedHost("machine", [
       { id: "alpha-host", cwd: A, name: "alpha" },
       { id: "beta-host", cwd: B, name: "beta" },
@@ -576,7 +576,9 @@ describe("named project/session tree", () => {
     act(() => window.dispatchEvent(new Event(REMOTE_HISTORY_UPDATED)));
     expect(dot(A)).toBeNull();
     expect(dot(B)).not.toBeNull();
-    expect(dot(B)?.parentElement?.textContent).toContain("same");
+    const replyCard = dot(B)!.closest("[data-session-card]")!;
+    expect(replyCard.lastElementChild).toBe(dot(B));
+    expect(replyCard.querySelector("[data-session-select]")?.contains(dot(B))).toBe(false);
     expect(project(B).querySelector('[aria-label="Working..."]')).not.toBeNull();
 
     // A folded project's replies survive the row disappearing and returning.

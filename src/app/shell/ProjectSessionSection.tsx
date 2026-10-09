@@ -1497,7 +1497,7 @@ function SessionGroupRow({
         {!expanded && needsApproval ? (
           <CircleAlert className="size-3 text-amber-400" />
         ) : !expanded && busy ? (
-          <TerminalSpinner className="inline-block w-3 select-none text-center text-[11px] leading-none text-accent" />
+          <TerminalSpinner className="inline-flex size-4 shrink-0 select-none items-center justify-center text-[16px] leading-none text-accent" />
         ) : !expanded && done ? (
           <span className="size-1.5 rounded-full bg-sky-500" />
         ) : null}
@@ -1766,7 +1766,7 @@ const SessionCard = memo(function SessionCard({
         </>
       ) : busy ? (
         <>
-          <TerminalSpinner className="inline-block w-3 select-none text-center text-[11px] leading-none text-accent" />
+          <TerminalSpinner className="inline-flex size-4 shrink-0 select-none items-center justify-center text-[16px] leading-none text-accent" />
           <span>{uiT("Working...")}</span>
         </>
       ) : failed ? (
@@ -1804,8 +1804,8 @@ const SessionCard = memo(function SessionCard({
       className="size-3 shrink-0 text-amber-400"
     />
   ) : busy ? (
-    <span role="img" aria-label={uiT("Working...")}>
-      <TerminalSpinner className="w-3 shrink-0 text-center text-[11px] leading-none text-accent" />
+    <span role="img" aria-label={uiT("Working...")} className="flex shrink-0">
+      <TerminalSpinner className="inline-flex size-4 shrink-0 select-none items-center justify-center text-[16px] leading-none text-accent" />
     </span>
   ) : failed ? (
     <span
@@ -1820,6 +1820,14 @@ const SessionCard = memo(function SessionCard({
     />
   ) : null;
   const linkedWorkItem = session.linkedWorkItem;
+  const unreadDot = unread ? (
+    <span
+      role="img"
+      aria-label={uiT("Unread reply")}
+      title={uiT("Unread reply")}
+      className="size-1.5 shrink-0 rounded-full bg-sky-500"
+    />
+  ) : null;
   const linkedUpdateDot = linkedUpdate ? (
     <span
       title={uiT("Linked {value0} updated since this session", {
@@ -2196,14 +2204,6 @@ const SessionCard = memo(function SessionCard({
                 />
               </span>
               <SessionWorktreeIcon session={session} />
-              {unread ? (
-                <span
-                  role="img"
-                  aria-label={uiT("Unread reply")}
-                  title={uiT("Unread reply")}
-                  className="size-1.5 shrink-0 rounded-full bg-sky-500"
-                />
-              ) : null}
             </span>
             {dense || (compact && !orchestrationExpanded) ? (
               <span className="flex shrink-0 items-center gap-1.5">
@@ -2211,6 +2211,7 @@ const SessionCard = memo(function SessionCard({
                 {dense ? denseStatus : status}
               </span>
             ) : null}
+            {!dense ? unreadDot : null}
           </span>
         </div>
         {orchestrationExpanded ? (
@@ -2315,6 +2316,7 @@ const SessionCard = memo(function SessionCard({
             ) : null}
           </span>
         </span>
+        {dense ? unreadDot : null}
       </div>
       <HoverSummary hover={metadataHover} role="tooltip">
         <div className="flex items-start gap-3">
