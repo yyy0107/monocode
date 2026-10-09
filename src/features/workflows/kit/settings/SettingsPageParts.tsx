@@ -1,6 +1,5 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Card, CardContent } from "../components/ui/card.js";
-import { Input } from "../components/ui/input.js";
 import { cn } from "../components/lib/utils.js";
 
 // Ported from ZCode `packages/ui/src/settings/SettingsPageParts.tsx`; the
@@ -56,65 +55,3 @@ export function SettingsGroupCard({ children }: { children: ReactNode }) {
   );
 }
 
-/** ZCode's px font-size field: commits on blur/Enter, Escape reverts. */
-export function FontSizeInput({
-  value,
-  min,
-  max,
-  ariaLabel,
-  onChange,
-}: {
-  value: number;
-  min: number;
-  max: number;
-  ariaLabel: string;
-  onChange: (value: number) => void;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  const [synced, setSynced] = useState(value);
-  if (synced !== value) {
-    setSynced(value);
-    setDraft(String(value));
-  }
-
-  const commit = () => {
-    const parsed = draft.trim() === "" ? Number.NaN : Number(draft);
-    const nextValue = Number.isFinite(parsed)
-      ? Math.min(max, Math.max(min, Math.round(parsed)))
-      : value;
-    setDraft(String(nextValue));
-    if (nextValue !== value) {
-      onChange(nextValue);
-    }
-  };
-
-  return (
-    <div className="flex items-center gap-2.5">
-      <Input
-        type="number"
-        inputMode="numeric"
-        size="lg"
-        min={min}
-        max={max}
-        step={1}
-        value={draft}
-        aria-label={ariaLabel}
-        onChange={(event) => setDraft(event.currentTarget.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.currentTarget.blur();
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
-            setDraft(String(value));
-          }
-        }}
-        className="h-9 w-20 rounded-lg px-3 tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-      />
-      <span aria-hidden className="text-ui-base text-foreground-subtle">
-        px
-      </span>
-    </div>
-  );
-}
