@@ -1,4 +1,5 @@
 import { sessionComposerConfiguration } from "../model/composerConfiguration";
+import { SessionWorktreeIcon } from "./SessionWorktreeIcon";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { ChevronDown, GripVertical, X } from "../../../shared/ui/icons";
 import {
@@ -821,10 +822,11 @@ const LocalSessionPane = memo(function LocalSessionPane({
             className={`size-2 shrink-0 rounded-full ${focused ? "bg-accent" : "bg-transparent"}`}
           />
           <span
-            className="min-w-0 flex-1 truncate text-xs text-content"
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-content"
             title={title}
           >
-            {title}
+            <span className="truncate">{title}</span>
+            <SessionWorktreeIcon session={session} />
           </span>
           <button
             type="button"

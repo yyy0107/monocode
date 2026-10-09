@@ -1436,6 +1436,9 @@ html[data-mobile-glass="solid"] :is(
   height: 20px;
 }
 .mobile-home-session > strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -4670,6 +4673,9 @@ button.mobile-settings-row:active {
   border-radius: 50%;
 }
 .mobile-archive-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

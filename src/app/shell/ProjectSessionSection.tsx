@@ -103,6 +103,7 @@ import {
   type ExplorerMenuItem,
 } from "../../features/files/ui/ExplorerMenu";
 import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
+import { SessionWorktreeIcon } from "../../features/sessions/ui/SessionWorktreeIcon";
 import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
 import { Popover } from "../../shared/ui/Popover";
 import {
@@ -2190,10 +2191,15 @@ const SessionCard = memo(function SessionCard({
                 className="size-3 shrink-0 text-content/45"
               />
             ) : null}
-            <ParticleText
-              text={title}
-              className={`min-w-0 flex-1 line-clamp-1 text-ui-caption leading-snug text-content ${dense ? "font-normal" : "font-semibold"}`}
-            />
+            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+              <span className="min-w-0">
+                <ParticleText
+                  text={title}
+                  className={`min-w-0 line-clamp-1 text-ui-caption leading-snug text-content ${dense ? "font-normal" : "font-semibold"}`}
+                />
+              </span>
+              <SessionWorktreeIcon session={session} />
+            </span>
             {dense || (compact && !orchestrationExpanded) ? (
               <span className="flex shrink-0 items-center gap-1.5">
                 {linkedUpdateDot}

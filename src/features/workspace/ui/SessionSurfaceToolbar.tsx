@@ -25,6 +25,7 @@ import { projectName } from "../../../shared/lib/paths";
 import { SessionRenamePopover } from "./SessionTitleMenu";
 import { SessionOverflowMenu } from "./SessionOverflowMenu";
 import { useSessionHeaderActions } from "./SessionHeaderActions";
+import { SessionWorktreeIcon } from "../../sessions/ui/SessionWorktreeIcon";
 
 export type SessionSurfaceMode = "split" | "unified";
 
@@ -163,6 +164,7 @@ export function SessionSurfaceToolbar({
                   />
                 ) : null}
                 <span className="truncate">{title || t("Chat")}</span>
+                <SessionWorktreeIcon session={session} />
               </button>
               {onClosePane ? (
                 <button

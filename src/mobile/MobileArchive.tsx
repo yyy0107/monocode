@@ -5,6 +5,7 @@ import type {
 } from "../features/connections/model/protocol";
 import { sessionDisplayTitle } from "../features/sessions/model/session";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
+import { SessionWorktreeIcon } from "../features/sessions/ui/SessionWorktreeIcon";
 import { translate } from "../shared/i18n/language";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { formatMobileRelativeTime } from "./relativeTime";
@@ -104,8 +105,11 @@ export function MobileArchive({
                 </span>
                 <span className="mobile-settings-label">
                   <span className="mobile-archive-title">
-                    {sessionDisplayTitle(session.title, session.harness) ||
-                      t("Untitled")}
+                    <span className="min-w-0 truncate">
+                      {sessionDisplayTitle(session.title, session.harness) ||
+                        t("Untitled")}
+                    </span>
+                    <SessionWorktreeIcon session={session} />
                   </span>
                   <small>
                     {formatMobileRelativeTime(session.updatedAt, now, language)}

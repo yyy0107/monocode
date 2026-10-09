@@ -70,6 +70,7 @@ import {
   LoaderCircle as LoaderCircleIcon,
   Lock as LockIcon,
   Smartphone as SmartphoneIcon,
+  Split as SplitIcon,
   Maximize2 as Maximize2Icon,
   MessageSquare as MessageSquareIcon,
   MessageSquarePlus as MessageSquarePlusIcon,
@@ -230,6 +231,7 @@ export const ChartBreakoutSquare = wrap(
   "ChartBreakoutSquare",
 );
 export const GitBranch = wrap(GitBranchIcon, "GitBranch");
+export const Split = wrap(SplitIcon, "Split");
 export const GitCompare = wrap(GitCompareIcon, "GitCompare");
 export const GitMerge = wrap(GitMergeIcon, "GitMerge");
 export const GitPullRequest = wrap(GitPullRequestIcon, "GitPullRequest");

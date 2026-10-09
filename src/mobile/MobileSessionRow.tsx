@@ -3,6 +3,7 @@ import type { HostSessionSummary } from "../features/connections/model/protocol"
 import { sessionDisplayTitle } from "../features/sessions/model/session";
 import { sessionRecencyAt } from "../features/sessions/model/sessionActivity";
 import { HarnessIcon } from "../features/sessions/ui/HarnessIcon";
+import { SessionWorktreeIcon } from "../features/sessions/ui/SessionWorktreeIcon";
 import { useTranslation } from "../shared/i18n/useTranslation";
 import { LoaderCircle, Pin, TriangleAlert } from "../shared/ui/icons";
 import { formatMobileRelativeTime } from "./relativeTime";
@@ -37,8 +38,11 @@ export function MobileSessionRow({
         className="mobile-home-session-icon"
       />
       <strong>
-        {sessionDisplayTitle(session.title, session.harness) ||
-          t("Untitled conversation")}
+        <span className="min-w-0 truncate">
+          {sessionDisplayTitle(session.title, session.harness) ||
+            t("Untitled conversation")}
+        </span>
+        <SessionWorktreeIcon session={session} />
       </strong>
       {session.pinned && (
         <Pin size={14} className="mobile-home-session-pin" aria-label={t("Pinned")} />
