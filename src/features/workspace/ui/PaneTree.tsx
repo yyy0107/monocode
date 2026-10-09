@@ -1,4 +1,5 @@
 import { beginPaneResize } from "../../../shared/lib/paneResize";
+import { prefersReducedMotion } from "../../../shared/lib/reducedMotion";
 import {
   memo,
   useCallback,
@@ -454,7 +455,14 @@ function PaneTreeComponent({
       ? sessions.find((session) => session.id === sessionLeaves[0].id)
       : undefined;
   const hasOwnerSession = !!ownerSession;
-  const unified = hasOwnerSession && surfaceMode === "unified";
+  const requestedUnified = hasOwnerSession && surfaceMode === "unified";
+  // Full view grows the selected card the way Maximize does and only then swaps
+  // to its own chrome. Its tracks equal that maximized card's, so leaving
+  // restores the cards like Restore does.
+  const [shownUnified, setShownUnified] = useState(requestedUnified);
+  if (!requestedUnified && shownUnified) setShownUnified(false);
+  const unified = requestedUnified && shownUnified;
+  const fullViewMotion = requestedUnified && !shownUnified;
   // A lone chat, or full view, owns a full-width top bar (title, tools,
   // window controls). With documents beside it in split view, each column
   // carries its own header on the same top row.
@@ -478,9 +486,17 @@ function PaneTreeComponent({
     ? focusedId
     : (ownerSession?.id ?? leaves[0]?.id);
   const maximized =
-    !unified && ownerSession && leaves.some((leaf) => leaf.id === maximizedId)
-      ? (maximizedId ?? undefined)
-      : undefined;
+    unified || !ownerSession
+      ? undefined
+      : fullViewMotion
+        ? selectedId
+        : leaves.some((leaf) => leaf.id === maximizedId)
+          ? (maximizedId ?? undefined)
+          : undefined;
+  // The card that was maximized before full view was requested, if any.
+  const fullViewTarget = useRef<string | undefined>(undefined);
+  if (!fullViewMotion) fullViewTarget.current = maximized;
+  const gridMoving = useRef(false);
   // A maximized card fills the area, so it takes over both window corners.
   const chromeLeftId = maximized ?? topLeftId;
   const chromeRightId = maximized ?? topRightId;
@@ -540,6 +556,81 @@ function PaneTreeComponent({
   useLayoutEffect(() => {
     if (draft.current) paintLayout(draft.current);
   });
+
+  useEffect(() => {
+    if (!fullViewMotion) return;
+    const element = treeRef.current;
+    const seconds = element ? transitionSeconds(element) : 0;
+    // Already maximized, or nothing to animate: swap the chrome right away.
+    if (
+      seconds === 0 ||
+      !element ||
+      !inSplit ||
+      (fullViewTarget.current === selectedId && !gridMoving.current)
+    ) {
+      setShownUnified(true);
+      return;
+    }
+    const done = () => setShownUnified(true);
+    const onEnd = (event: TransitionEvent) => {
+      if (
+        event.target === element &&
+        event.propertyName.startsWith("grid-template")
+      )
+        done();
+    };
+    element.addEventListener("transitionend", onEnd);
+    const timer = window.setTimeout(done, seconds * 1000 + 100);
+    return () => {
+      element.removeEventListener("transitionend", onEnd);
+      window.clearTimeout(timer);
+    };
+  }, [fullViewMotion, selectedId, inSplit]);
+
+  // Maximizing a card or switching surface modes moves the grid tracks for one
+  // transition. Terminals refit once it ends instead of re-wrapping each frame.
+  // Keyed by the grid's selection alone: full view swaps its chrome over the
+  // same tracks the maximized card already has.
+  const gridTarget =
+    surfaceGrid && inSplit
+      ? ((unified ? selectedId : maximized) ?? "")
+      : null;
+  const previousGridTarget = useRef(gridTarget);
+  useLayoutEffect(() => {
+    const previous = previousGridTarget.current;
+    previousGridTarget.current = gridTarget;
+    const element = treeRef.current;
+    if (
+      previous === gridTarget ||
+      previous === null ||
+      gridTarget === null ||
+      !element
+    )
+      return;
+    const seconds = transitionSeconds(element);
+    if (seconds === 0) return;
+    const release = beginPaneResize();
+    gridMoving.current = true;
+    const end = () => {
+      gridMoving.current = false;
+      release();
+    };
+    const onEnd = (event: TransitionEvent) => {
+      if (
+        event.target === element &&
+        event.propertyName.startsWith("grid-template")
+      )
+        end();
+    };
+    element.addEventListener("transitionend", onEnd);
+    // A reversed or interrupted transition may never report its end.
+    const timer = window.setTimeout(end, seconds * 1000 + 100);
+    return () => {
+      element.removeEventListener("transitionend", onEnd);
+      window.clearTimeout(timer);
+      end();
+    };
+  }, [gridTarget]);
 
   // A pane split into an existing layout slides in from the edge it was added
   // on, like the linked work item panel. The neighbours reflow once up front;
@@ -1272,6 +1363,20 @@ function Sash({
         }}
       />
     </div>
+  );
+}
+
+/** The longest transition on an element, in seconds; 0 under reduced motion. */
+function transitionSeconds(element: HTMLElement): number {
+  if (prefersReducedMotion()) return 0;
+  const style = getComputedStyle(element);
+  if (style.transitionProperty === "none") return 0;
+  return Math.max(
+    0,
+    ...style.transitionDuration.split(",").map((value) => {
+      const duration = parseFloat(value) || 0;
+      return value.trim().endsWith("ms") ? duration / 1000 : duration;
+    }),
   );
 }
 

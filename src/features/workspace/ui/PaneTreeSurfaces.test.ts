@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../../sessions/model/session";
 import type { EditorPane } from "../model/layout";
 import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
+import { isPaneResizing } from "../../../shared/lib/paneResize";
 import { PaneTree } from "./PaneTree";
 import {
   SessionHeaderActionsContext,
@@ -208,6 +209,13 @@ const pane = (id: string) =>
   container.querySelector<HTMLElement>(`[data-pane-id="${id}"]`)!;
 const click = (element: Element) =>
   act(() => element.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+const settleGrid = () => {
+  const event = new Event("transitionend");
+  Object.defineProperty(event, "propertyName", {
+    value: "grid-template-columns",
+  });
+  act(() => layout().dispatchEvent(event));
+};
 
 describe("session surface layout", () => {
   const headerActions = (): SessionHeaderActions => ({
@@ -542,6 +550,151 @@ describe("session surface layout", () => {
     pointer("pointerup", 650);
     expect(layout().style.transitionProperty).toBe("");
     expect(props.onRatio).toHaveBeenCalledWith("split", 0, 0.65);
+  });
+
+  it("grows the card before switching full-view chrome and restores split tracks on exit", () => {
+    render();
+    const editorInput = container.querySelector("input");
+    layout().style.transitionDuration = "0.34s";
+    render({ surfaceMode: "unified" });
+    expect(layout().dataset.surfaceMode).toBe("split");
+    expect(layout().style.gridTemplateColumns).toBe(
+      "minmax(0, 0fr) minmax(0, 1fr)",
+    );
+    expect(pane("tools").querySelector("[data-card-maximize]")).not.toBeNull();
+    expect(isPaneResizing()).toBe(true);
+
+    settleGrid();
+    expect(layout().dataset.surfaceMode).toBe("unified");
+    expect(layout().style.gridTemplateColumns).toBe(
+      "minmax(0, 0fr) minmax(0, 1fr)",
+    );
+    expect(isPaneResizing()).toBe(false);
+    expect(container.querySelector("input")).toBe(editorInput);
+
+    render({ surfaceMode: "split" });
+    expect(layout().dataset.surfaceMode).toBe("split");
+    expect(layout().style.gridTemplateColumns).toBe(
+      "minmax(0, 0.6fr) minmax(0, 0.4fr)",
+    );
+    expect(isPaneResizing()).toBe(true);
+    settleGrid();
+    expect(isPaneResizing()).toBe(false);
+    expect(lifetime).toEqual({ mounts: 1, unmounts: 0 });
+  });
+
+  it("skips full-view motion for a settled maximized card and restores that card on exit", () => {
+    render();
+    layout().style.transitionDuration = "0.34s";
+    click(pane("tools").querySelector("[data-card-maximize]")!);
+    settleGrid();
+    render({ surfaceMode: "unified" });
+    expect(layout().dataset.surfaceMode).toBe("unified");
+    expect(isPaneResizing()).toBe(false);
+    render({ surfaceMode: "split" });
+    expect(layout().style.gridTemplateColumns).toBe(
+      "minmax(0, 0fr) minmax(0, 1fr)",
+    );
+    expect(isPaneResizing()).toBe(false);
+  });
+
+  it("waits for an in-flight maximize before switching full-view chrome", () => {
+    render();
+    layout().style.transitionDuration = "0.34s";
+    click(pane("tools").querySelector("[data-card-maximize]")!);
+    render({ surfaceMode: "unified" });
+    expect(layout().dataset.surfaceMode).toBe("split");
+    expect(isPaneResizing()).toBe(true);
+    settleGrid();
+    expect(layout().dataset.surfaceMode).toBe("unified");
+    expect(isPaneResizing()).toBe(false);
+  });
+
+  it("cancels pending full-view chrome on reversal and completes re-entry without an end event", () => {
+    render();
+    layout().style.transitionDuration = "340ms";
+    render({ surfaceMode: "unified" });
+    act(() => vi.advanceTimersByTime(100));
+    render({ surfaceMode: "split" });
+    act(() => vi.advanceTimersByTime(440));
+    expect(layout().dataset.surfaceMode).toBe("split");
+    expect(isPaneResizing()).toBe(false);
+    render({ surfaceMode: "unified" });
+    expect(layout().dataset.surfaceMode).toBe("split");
+    act(() => vi.advanceTimersByTime(440));
+    expect(layout().dataset.surfaceMode).toBe("unified");
+    expect(isPaneResizing()).toBe(false);
+  });
+
+  it("switches full-view chrome immediately when grid transitions are disabled", () => {
+    render();
+    layout().style.transitionDuration = "0.34s";
+    layout().style.transitionProperty = "none";
+    render({ surfaceMode: "unified" });
+    expect(layout().dataset.surfaceMode).toBe("unified");
+    expect(isPaneResizing()).toBe(false);
+  });
+
+  it("honors reduced motion without holding terminal refits", () => {
+    render();
+    layout().style.transitionDuration = "0.34s";
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query) =>
+        ({
+          matches: query === "(prefers-reduced-motion: reduce)",
+        }) as MediaQueryList,
+    );
+    render({ surfaceMode: "unified" });
+    expect(layout().dataset.surfaceMode).toBe("unified");
+    expect(pane("chat").dataset.foldState).toBe("closed");
+    expect(isPaneResizing()).toBe(false);
+    render({ surfaceMode: "split" });
+    expect(pane("chat").dataset.foldState).toBe("open");
+    expect(isPaneResizing()).toBe(false);
+  });
+
+  it("does not wait for grid motion when only the chat exists", () => {
+    render({
+      layout: { type: "leaf", id: "chat" },
+      editorPanes: [],
+      focusedId: "chat",
+    });
+    layout().style.transitionDuration = "0.34s";
+    render({ surfaceMode: "unified" });
+    expect(layout().dataset.surfaceMode).toBe("unified");
+    expect(isPaneResizing()).toBe(false);
+  });
+
+  it("restarts the chrome fallback when selection changes during full-view entry", () => {
+    render();
+    layout().style.transitionDuration = "0.34s";
+    render({ surfaceMode: "unified" });
+    act(() => vi.advanceTimersByTime(300));
+    render({ focusedId: "chat" });
+    act(() => vi.advanceTimersByTime(140));
+    expect(layout().dataset.surfaceMode).toBe("split");
+    expect(isPaneResizing()).toBe(true);
+    expect(layout().style.gridTemplateColumns).toBe(
+      "minmax(0, 1fr) minmax(0, 0fr)",
+    );
+    act(() => vi.advanceTimersByTime(300));
+    expect(layout().dataset.surfaceMode).toBe("unified");
+    expect(isPaneResizing()).toBe(false);
+  });
+
+  it("holds terminal refits while a card maximize moves the grid tracks", () => {
+    render();
+    layout().style.transitionDuration = "0.34s";
+    click(pane("tools").querySelector("[data-card-maximize]")!);
+    expect(isPaneResizing()).toBe(true);
+    settleGrid();
+    expect(isPaneResizing()).toBe(false);
+    // Reversing mid-motion keeps holding until the restore settles.
+    click(pane("tools").querySelector("[data-card-maximize]")!);
+    click(pane("tools").querySelector("[data-card-maximize]")!);
+    expect(isPaneResizing()).toBe(true);
+    settleGrid();
+    expect(isPaneResizing()).toBe(false);
   });
 
   it("puts each column's header on the top row and hands window chrome to the corner panes", () => {
