@@ -27,7 +27,7 @@ import { useProjectWorktrees } from "../hooks/useProjectWorktrees";
 import { historyItemGraph, layoutGitGraph } from "../model/gitGraph";
 import "./GitGraphDialog.css";
 
-const HISTORY_LIMIT = 500;
+const HISTORY_PAGE_SIZE = 50;
 const ROW_HEIGHT = 44;
 const LANE_SCALE = 1.5;
 
@@ -46,7 +46,8 @@ export function GitGraphDialog({
   const menuBarPinned =
     useSyncExternalStore(subscribeMenuBarVisible, loadMenuBarVisible) &&
     !IS_MAC;
-  const { commits, loading, error, reload } = useGraphHistory(cwd);
+  const { commits, loading, loadingMore, hasMore, error, reload, loadMore } =
+    useGraphHistory(cwd);
   const worktrees = useProjectWorktrees(cwd);
   const contentRef = useRef<HTMLDivElement>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -171,7 +172,14 @@ export function GitGraphDialog({
         ) : null}
         <div
           className="min-h-0 flex-1 overflow-auto overscroll-contain"
-          aria-busy={loading}
+          aria-busy={loading || loadingMore}
+          onScroll={({ currentTarget }) => {
+            const remaining =
+              currentTarget.scrollHeight -
+              currentTarget.scrollTop -
+              currentTarget.clientHeight;
+            if (!error && remaining <= ROW_HEIGHT * 4) void loadMore();
+          }}
         >
           <table
             className="git-graph-table w-full table-fixed border-collapse text-left text-ui-sm"
@@ -336,46 +344,148 @@ export function GitGraphDialog({
                   : t("No commits yet")}
             </p>
           ) : null}
+          {hasMore ? (
+            <button
+              type="button"
+              onClick={() => void loadMore()}
+              disabled={loading || loadingMore}
+              className="h-10 w-full text-center text-ui-sm text-content/45 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-hover disabled:opacity-50"
+            >
+              {loadingMore ? t("Loading…") : t("Load more commits")}
+            </button>
+          ) : null}
         </div>
-        {commits.length >= HISTORY_LIMIT ? (
-          <p className="shrink-0 border-t border-stroke px-4 py-2 text-ui-xs text-content/45">
-            {t("Showing the latest {count} commits", { count: HISTORY_LIMIT })}
-          </p>
-        ) : null}
       </div>
     </AppViewDialog>
   );
 }
 
-/** Keep the last successful graph during refresh and ignore old requests. */
+/** Keep loaded rows during requests; refresh the same depth in 50-row pages. */
 function useGraphHistory(cwd: string) {
   const [state, setState] = useState<{
     cwd: string;
+    head: string | null;
     commits: GitHistoryCommit[];
+    offset: number;
+    hasMore: boolean;
     loading: boolean;
+    loadingMore: boolean;
     error?: string;
-  }>({ cwd, commits: [], loading: true });
+  }>({
+    cwd,
+    head: null,
+    commits: [],
+    offset: 0,
+    hasMore: false,
+    loading: true,
+    loadingMore: false,
+  });
+  const current = useRef(state);
   const request = useRef(0);
+  const publish = useCallback((next: typeof state) => {
+    current.current = next;
+    setState(next);
+  }, []);
   const reload = useCallback(async () => {
     const id = ++request.current;
-    setState((previous) => ({
+    const previous = current.current;
+    const sameRepository = previous.cwd === cwd;
+    const depth = sameRepository ? previous.offset : 0;
+    publish({
+      ...previous,
       cwd,
-      commits: previous.cwd === cwd ? previous.commits : [],
+      commits: sameRepository ? previous.commits : [],
+      offset: depth,
+      hasMore: sameRepository && previous.hasMore,
       loading: true,
-    }));
+      loadingMore: false,
+      error: undefined,
+    });
     try {
-      const result = await gitHistory(cwd, HISTORY_LIMIT, true);
-      if (id === request.current)
-        setState({ cwd, commits: result.commits, loading: false });
+      const commits: GitHistoryCommit[] = [];
+      const seen = new Set<string>();
+      let offset = 0;
+      let head: string | null = null;
+      let hasMore = true;
+      do {
+        const result = await gitHistory(cwd, HISTORY_PAGE_SIZE, true, offset);
+        if (id !== request.current) return;
+        // Do not splice pages from different HEADs if Git changes mid-refresh.
+        // The next load will refresh again from the new tip.
+        if (offset > 0 && result.head !== head) break;
+        head = result.head;
+        const added = result.commits.filter((commit) => {
+          if (seen.has(commit.sha)) return false;
+          seen.add(commit.sha);
+          return true;
+        });
+        commits.push(...added);
+        offset += result.commits.length;
+        hasMore =
+          result.commits.length === HISTORY_PAGE_SIZE && added.length > 0;
+      } while (hasMore && offset < depth);
+      publish({
+        cwd,
+        head,
+        commits,
+        offset,
+        hasMore,
+        loading: false,
+        loadingMore: false,
+      });
     } catch (error) {
       if (id === request.current)
-        setState((previous) => ({
-          ...previous,
+        publish({
+          ...current.current,
           loading: false,
           error: String(error),
-        }));
+        });
     }
-  }, [cwd]);
+  }, [cwd, publish]);
+  const loadMore = useCallback(async () => {
+    const previous = current.current;
+    // The ref prevents repeated scroll events from starting duplicate pages.
+    if (
+      previous.cwd !== cwd ||
+      previous.loading ||
+      previous.loadingMore ||
+      !previous.hasMore
+    )
+      return;
+    const id = ++request.current;
+    publish({ ...previous, loadingMore: true, error: undefined });
+    try {
+      const result = await gitHistory(
+        cwd,
+        HISTORY_PAGE_SIZE,
+        true,
+        previous.offset,
+      );
+      if (id !== request.current) return;
+      if (result.head !== previous.head) {
+        await reload();
+        return;
+      }
+      const seen = new Set(previous.commits.map((commit) => commit.sha));
+      const added = result.commits.filter((commit) => {
+        if (seen.has(commit.sha)) return false;
+        seen.add(commit.sha);
+        return true;
+      });
+      publish({
+        ...previous,
+        commits: [...previous.commits, ...added],
+        offset: previous.offset + result.commits.length,
+        hasMore:
+          result.commits.length === HISTORY_PAGE_SIZE && added.length > 0,
+        loadingMore: false,
+        error: undefined,
+      });
+    } catch (error) {
+      if (id === request.current)
+        publish({ ...previous, loadingMore: false, error: String(error) });
+    }
+  }, [cwd, publish, reload]);
   useEffect(() => {
     void reload();
     const resume = () => {
@@ -391,5 +501,10 @@ function useGraphHistory(cwd: string) {
       document.removeEventListener("visibilitychange", resume);
     };
   }, [reload]);
-  return { ...state, commits: state.cwd === cwd ? state.commits : [], reload };
+  return {
+    ...state,
+    commits: state.cwd === cwd ? state.commits : [],
+    reload,
+    loadMore,
+  };
 }

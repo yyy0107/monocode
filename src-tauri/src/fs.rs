@@ -956,9 +956,10 @@ pub async fn git_history(
     cwd: String,
     limit: Option<u32>,
     all_refs: Option<bool>,
+    skip: Option<u32>,
 ) -> Result<GitHistory, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        git_history_for(&expand_home(&cwd), limit, all_refs.unwrap_or(false))
+        git_history_for(&expand_home(&cwd), limit, all_refs.unwrap_or(false), skip)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2244,7 +2245,12 @@ fn git_history_tips(root: &Path) -> Vec<String> {
     tips
 }
 
-fn git_history_for(root: &Path, limit: Option<u32>, all_refs: bool) -> Result<GitHistory, String> {
+fn git_history_for(
+    root: &Path,
+    limit: Option<u32>,
+    all_refs: bool,
+    skip: Option<u32>,
+) -> Result<GitHistory, String> {
     if !git_is_work_tree(root) {
         return Ok(GitHistory::default());
     }
@@ -2276,6 +2282,7 @@ fn git_history_for(root: &Path, limit: Option<u32>, all_refs: bool) -> Result<Gi
         "--decorate=short".to_string(),
         "--max-count".to_string(),
         count,
+        format!("--skip={}", skip.unwrap_or(0)),
         "--format=%H%x00%h%x00%P%x00%an%x00%at%x00%D%x00%s%x00%b%x00%ae%x1e".to_string(),
     ];
     args.extend(tips);
@@ -7330,7 +7337,7 @@ mod tests {
         assert!(git(&dir.0, &["add", "."]));
         assert!(git(&dir.0, &["commit", "-m", "second"]));
 
-        let history = git_history_for(&dir.0, Some(10), false).unwrap();
+        let history = git_history_for(&dir.0, Some(10), false, None).unwrap();
         assert_eq!(history.commits.len(), 2);
         assert_eq!(history.commits[0].subject, "second");
         assert_eq!(history.commits[0].author_email, "monocode@test");
@@ -7351,7 +7358,7 @@ mod tests {
     fn git_history_empty_outside_a_repo() {
         let dir = tmp("git-history-none");
         assert_eq!(
-            git_history_for(&dir.0, None, false).unwrap(),
+            git_history_for(&dir.0, None, false, None).unwrap(),
             GitHistory::default()
         );
     }
@@ -7365,7 +7372,7 @@ mod tests {
         std::fs::write(dir.0.join("a.txt"), "beta\n").unwrap();
         assert!(git(&dir.0, &["add", "."]));
         assert!(git(&dir.0, &["commit", "-m", "update a"]));
-        let history = git_history_for(&dir.0, Some(1), false).unwrap();
+        let history = git_history_for(&dir.0, Some(1), false, None).unwrap();
         let sha = &history.commits[0].sha;
 
         let files = git_commit_files_for(&dir.0, sha).unwrap();
@@ -7387,7 +7394,7 @@ mod tests {
         if !init_git_commit(&dir.0, &[("a.txt", "alpha\n")]) {
             return;
         }
-        let history = git_history_for(&dir.0, Some(1), false).unwrap();
+        let history = git_history_for(&dir.0, Some(1), false, None).unwrap();
         let sha = &history.commits[0].sha;
         let files = git_commit_files_for(&dir.0, sha).unwrap();
         assert_eq!(files[0].status, "added");
@@ -7405,7 +7412,7 @@ mod tests {
         }
         assert!(git_commit_files_for(&dir.0, "../oops").is_err());
         assert!(git_commit_files_for(&dir.0, "not-hex!").is_err());
-        let history = git_history_for(&dir.0, Some(1), false).unwrap();
+        let history = git_history_for(&dir.0, Some(1), false, None).unwrap();
         let sha = &history.commits[0].sha;
         assert!(git_commit_file_diff_for(&dir.0, sha, "../secret.txt").is_err());
     }
@@ -7429,7 +7436,7 @@ mod tests {
             &["merge", "feature", "--no-ff", "-m", "Merge feature"]
         ));
 
-        let history = git_history_for(&dir.0, Some(20), false).unwrap();
+        let history = git_history_for(&dir.0, Some(20), false, None).unwrap();
         let merge = history
             .commits
             .iter()
@@ -7455,7 +7462,7 @@ mod tests {
         assert!(git(&dir.0, &["add", "."]));
         assert!(git(&dir.0, &["commit", "-m", "main only"]));
 
-        let history = git_history_for(&dir.0, Some(20), false).unwrap();
+        let history = git_history_for(&dir.0, Some(20), false, None).unwrap();
         let subjects: Vec<&str> = history
             .commits
             .iter()
@@ -7497,7 +7504,7 @@ mod tests {
             &dir.0,
             &["update-ref", "refs/codex/snapshots/test", &snapshot]
         ));
-        let all = git_history_for(&dir.0, Some(20), true).unwrap();
+        let all = git_history_for(&dir.0, Some(20), true, None).unwrap();
         let subjects: Vec<&str> = all.commits.iter().map(|c| c.subject.as_str()).collect();
         assert!(subjects.contains(&"feature only"));
         assert!(subjects.contains(&"detached work"));
@@ -7506,11 +7513,23 @@ mod tests {
         assert!(!subjects.contains(&"internal snapshot"));
         assert_eq!(all.commits.iter().filter(|c| c.head).count(), 1);
         assert_eq!(
-            git_history_for(&dir.0, Some(1), true)
+            git_history_for(&dir.0, Some(1), true, None)
                 .unwrap()
                 .commits
                 .len(),
             1
+        );
+        assert_eq!(
+            git_history_for(&dir.0, Some(2), true, Some(2))
+                .unwrap()
+                .commits,
+            all.commits[2..4]
+        );
+        assert!(
+            git_history_for(&dir.0, Some(2), true, Some(all.commits.len() as u32))
+                .unwrap()
+                .commits
+                .is_empty()
         );
     }
 

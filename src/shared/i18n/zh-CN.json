@@ -3568,5 +3568,6 @@
   "Could not load Git graph": "无法加载 Git 图谱",
   "Could not load worktrees": "无法加载工作树",
   "Showing the latest {count} commits": "显示最近 {count} 条提交",
+  "Load more commits": "加载更多提交",
   "Worktree: {path}": "工作树：{path}"
 }

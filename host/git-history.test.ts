@@ -46,11 +46,12 @@ it("includes all branches and detached worktrees only when requested, excluding 
     const commands = new WorkspaceCommands(store, async (_id, action) =>
       action(),
     );
-    const read = (allRefs?: boolean, limit = 20) =>
+    const read = (allRefs?: boolean, limit = 20, skip?: number) =>
       commands.run("git_history", {
         cwd,
         limit,
         allRefs,
+        skip,
       }) as Promise<GitHistory>;
     const sidebar = await read();
     expect(sidebar.commits.map((commit) => commit.subject)).toEqual([
@@ -73,6 +74,10 @@ it("includes all branches and detached worktrees only when requested, excluding 
       all.commits.find((commit) => commit.subject === "feature only")?.refs,
     ).toContainEqual({ name: "feature", kind: "local" });
     expect((await read(true, 1)).commits).toHaveLength(1);
+    expect((await read(true, 2, 2)).commits).toEqual(all.commits.slice(2, 4));
+    expect((await read(true, 2, all.commits.length)).commits).toEqual([]);
+    expect((await read(false, 1, 1)).commits).toEqual(sidebar.commits.slice(1));
+    expect((await read(true, 1, -1)).commits).toEqual(all.commits.slice(0, 1));
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });

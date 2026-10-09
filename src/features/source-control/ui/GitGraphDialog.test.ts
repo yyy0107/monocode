@@ -142,7 +142,7 @@ it("uses the Settings dialog shell and drags from its header without stealing bu
 it("opens the complete graph from a collapsed sidebar, localizes labels, and opens commit details", async () => {
   await open();
   expect(onToggleExpanded).not.toHaveBeenCalled();
-  expect(gitHistory).toHaveBeenCalledExactlyOnceWith("/repo", 500, true);
+  expect(gitHistory).toHaveBeenCalledExactlyOnceWith("/repo", 50, true, 0);
   const dialog = document.querySelector('[role="dialog"]')!;
   expect(dialog.textContent).toContain("origin/feature/raw-name");
   expect(dialog.textContent).toContain("HEAD");
@@ -217,4 +217,151 @@ it("ignores an older refresh response and dismisses on Escape or repository chan
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   await render("/repo", false);
   expect(button("Open Git graph").disabled).toBe(true);
+});
+
+function history(count: number, prefix = "page") {
+  return Array.from({ length: count }, (_, index): GitHistoryCommit => ({
+    ...commit,
+    sha: `${prefix}-${index}`,
+    shortSha: `${prefix}-${index}`,
+    subject: `${prefix} commit ${index}`,
+    head: index === 0,
+    refs: index === 0 ? commit.refs : [],
+    parents: index + 1 < count ? [`${prefix}-${index + 1}`] : [],
+  }));
+}
+
+async function scrollHistory(remaining = 0, times = 1) {
+  const scroller = document.querySelector<HTMLElement>("[aria-busy]")!;
+  Object.defineProperties(scroller, {
+    clientHeight: { configurable: true, value: 500 },
+    scrollHeight: { configurable: true, value: 5000 },
+    scrollTop: { configurable: true, value: 4500 - remaining },
+  });
+  await act(async () => {
+    for (let index = 0; index < times; index++) {
+      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+    }
+  });
+}
+
+it("loads 50 commits at a time, coalesces scroll events, and continues past 500 until history ends", async () => {
+  const commits = history(521);
+  vi.mocked(gitHistory).mockImplementation(
+    async (_cwd, limit, _allRefs, skip = 0) => ({
+      head: commits[0].sha,
+      commits: commits.slice(skip, skip + limit!),
+    }),
+  );
+  await open();
+  expect(document.querySelectorAll("tbody tr")).toHaveLength(50);
+  expect(gitHistory).toHaveBeenCalledExactlyOnceWith("/repo", 50, true, 0);
+  await scrollHistory(1000);
+  expect(gitHistory).toHaveBeenCalledTimes(1);
+  await scrollHistory(100, 3);
+  expect(document.querySelectorAll("tbody tr")).toHaveLength(100);
+  expect(gitHistory).toHaveBeenCalledTimes(2);
+  for (let offset = 100; offset <= 500; offset += 50) {
+    await scrollHistory();
+    expect(gitHistory).toHaveBeenLastCalledWith("/repo", 50, true, offset);
+    expect(document.querySelectorAll("tbody tr")).toHaveLength(
+      Math.min(offset + 50, 521),
+    );
+  }
+  const subjects = Array.from(document.querySelectorAll("tbody button")).map(
+    (button) => button.textContent,
+  );
+  expect(subjects).toEqual(commits.map((commit) => commit.subject));
+  expect(document.querySelector("tbody")?.textContent).toContain(
+    "page commit 520",
+  );
+  await scrollHistory();
+  expect(gitHistory).toHaveBeenCalledTimes(11);
+  expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+});
+
+it("retains rows after a page failure and retries the same offset without duplicates", async () => {
+  const commits = history(60);
+  vi.mocked(gitHistory)
+    .mockResolvedValueOnce({
+      head: commits[0].sha,
+      commits: commits.slice(0, 50),
+    })
+    .mockRejectedValueOnce(new Error("offline"))
+    .mockResolvedValueOnce({
+      head: commits[0].sha,
+      commits: commits.slice(50),
+    });
+  await open();
+  await scrollHistory();
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+    "offline",
+  );
+  expect(document.querySelectorAll("tbody tr")).toHaveLength(50);
+  await scrollHistory();
+  expect(gitHistory).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "Load more commits")!
+      .click();
+  });
+  expect(gitHistory).toHaveBeenLastCalledWith("/repo", 50, true, 50);
+  expect(document.querySelectorAll("tbody tr")).toHaveLength(60);
+  expect(document.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("refreshes the loaded depth and ignores a page that completes after the refresh", async () => {
+  const commits = history(150);
+  vi.mocked(gitHistory).mockImplementation(
+    async (_cwd, limit, _allRefs, skip = 0) => ({
+      head: commits[0].sha,
+      commits: commits.slice(skip, skip + limit!),
+    }),
+  );
+  await open();
+  await scrollHistory();
+  let resolvePage!: (value: Awaited<ReturnType<typeof gitHistory>>) => void;
+  vi.mocked(gitHistory).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolvePage = resolve;
+      }),
+  );
+  await scrollHistory();
+  expect(document.querySelector('[aria-busy="true"]')).not.toBeNull();
+  await act(async () => button("Refresh Git graph").click());
+  expect(gitHistory).toHaveBeenNthCalledWith(4, "/repo", 50, true, 0);
+  expect(gitHistory).toHaveBeenNthCalledWith(5, "/repo", 50, true, 50);
+  await act(async () =>
+    resolvePage({ head: commits[0].sha, commits: commits.slice(100) }),
+  );
+  expect(document.querySelectorAll("tbody tr")).toHaveLength(100);
+  expect(document.querySelector("tbody")?.textContent).not.toContain(
+    "page commit 100",
+  );
+  expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+});
+
+it("restarts pagination when HEAD changes and stops if an older host repeats a page", async () => {
+  const initial = history(50, "initial");
+  const next = history(60, "new");
+  vi.mocked(gitHistory)
+    .mockResolvedValueOnce({ head: initial[0].sha, commits: initial })
+    .mockResolvedValueOnce({ head: next[0].sha, commits: next.slice(50) })
+    .mockResolvedValue({ head: next[0].sha, commits: next.slice(0, 50) });
+  await open();
+  await scrollHistory();
+  expect(gitHistory).toHaveBeenLastCalledWith("/repo", 50, true, 0);
+  expect(document.querySelectorAll("tbody tr")).toHaveLength(50);
+  expect(document.querySelector("tbody")?.textContent).toContain(
+    "new commit 0",
+  );
+  expect(document.querySelector("tbody")?.textContent).not.toContain(
+    "initial commit",
+  );
+  await scrollHistory();
+  expect(document.querySelectorAll("tbody tr")).toHaveLength(50);
+  const calls = vi.mocked(gitHistory).mock.calls.length;
+  await scrollHistory();
+  expect(gitHistory).toHaveBeenCalledTimes(calls);
 });

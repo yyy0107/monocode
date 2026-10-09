@@ -234,7 +234,7 @@ export class WorkspaceCommands {
       case "git_pr_create":
         return this.gitPrCreate(input.cwd, input.title, input.body, input.base, input.head);
       case "git_history":
-        return this.gitHistory(input.cwd, input.limit, input.allRefs);
+        return this.gitHistory(input.cwd, input.limit, input.allRefs, input.skip);
       case "git_commit_files":
         return this.gitCommitFiles(input.cwd, input.sha);
       case "git_commit_file_diff":
@@ -618,8 +618,9 @@ export class WorkspaceCommands {
     return resolved.trim();
   }
 
-  private async gitHistory(cwd: unknown, limit: unknown, allRefs: unknown) {
+  private async gitHistory(cwd: unknown, limit: unknown, allRefs: unknown, skip: unknown) {
     const count = Number.isSafeInteger(limit) ? Math.min(500, Math.max(1, Number(limit))) : 200;
+    const offset = Number.isSafeInteger(skip) ? Math.max(0, Number(skip)) : 0;
     const [head, upstream, index, remoteNames] = await Promise.all([
       this.gitCommand(cwd, ["rev-parse", "--verify", "HEAD"]).catch(() => ""),
       this.gitCommand(cwd, ["rev-parse", "--abbrev-ref", "@{upstream}"]).catch(() => ""),
@@ -641,7 +642,7 @@ export class WorkspaceCommands {
       if (exists) tips.push(`origin/${index.defaultBranch}`);
     }
     const output = await this.gitCommand(cwd, [
-      "log", "--topo-order", "--decorate=short", `--max-count=${count}`,
+      "log", "--topo-order", "--decorate=short", `--max-count=${count}`, `--skip=${offset}`,
       "--format=%H%x00%h%x00%P%x00%an%x00%at%x00%D%x00%s%x00%b%x00%ae%x1e", ...tips,
     ]).catch(() => "");
     const remotes = remoteNames.split("\n").map((name) => name.trim()).filter(Boolean);
