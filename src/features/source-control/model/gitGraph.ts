@@ -208,21 +208,18 @@ export function layoutGitGraph(commits: GraphCommit[]): HistoryItemViewModel[] {
     const parentIds = commit.parents.filter(Boolean);
     let firstParentAdded = false;
 
-    if (parentIds.length > 0) {
-      for (const node of inputSwimlanes) {
-        if (node.id === commit.sha) {
-          if (!firstParentAdded) {
-            outputSwimlanes.push({
-              id: parentIds[0] ?? node.id,
-              color:
-                getLabelColorIdentifier(commit.refs, colorMap) ?? node.color,
-            });
-            firstParentAdded = true;
-          }
-          continue;
+    for (const node of inputSwimlanes) {
+      if (node.id === commit.sha) {
+        if (parentIds.length > 0 && !firstParentAdded) {
+          outputSwimlanes.push({
+            id: parentIds[0] ?? node.id,
+            color: getLabelColorIdentifier(commit.refs, colorMap) ?? node.color,
+          });
+          firstParentAdded = true;
         }
-        outputSwimlanes.push({ ...node });
+        continue;
       }
+      outputSwimlanes.push({ ...node });
     }
 
     for (let i = firstParentAdded ? 1 : 0; i < parentIds.length; i += 1) {
@@ -433,7 +430,7 @@ export function historyItemGraph(
   return {
     width:
       SWIMLANE_WIDTH *
-      (Math.max(inputSwimlanes.length, outputSwimlanes.length, 1) + 1),
+      (Math.max(inputSwimlanes.length, outputSwimlanes.length, circleIndex + 1, 1) + 1),
     height: SWIMLANE_HEIGHT,
     paths,
     circles,

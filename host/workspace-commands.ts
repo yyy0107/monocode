@@ -234,7 +234,7 @@ export class WorkspaceCommands {
       case "git_pr_create":
         return this.gitPrCreate(input.cwd, input.title, input.body, input.base, input.head);
       case "git_history":
-        return this.gitHistory(input.cwd, input.limit);
+        return this.gitHistory(input.cwd, input.limit, input.allRefs);
       case "git_commit_files":
         return this.gitCommitFiles(input.cwd, input.sha);
       case "git_commit_file_diff":
@@ -618,7 +618,7 @@ export class WorkspaceCommands {
     return resolved.trim();
   }
 
-  private async gitHistory(cwd: unknown, limit: unknown) {
+  private async gitHistory(cwd: unknown, limit: unknown, allRefs: unknown) {
     const count = Number.isSafeInteger(limit) ? Math.min(500, Math.max(1, Number(limit))) : 200;
     const [head, upstream, index, remoteNames] = await Promise.all([
       this.gitCommand(cwd, ["rev-parse", "--verify", "HEAD"]).catch(() => ""),
@@ -627,10 +627,14 @@ export class WorkspaceCommands {
       this.gitCommand(cwd, ["remote"]).catch(() => ""),
     ]);
     const headSha = head.trim() || null;
-    if (!headSha) return { head: null, commits: [] };
-    const tips = ["HEAD"];
-    if (upstream.trim()) tips.push("@{upstream}");
-    if (index.defaultBranch && index.remote) {
+    if (!headSha && allRefs !== true) return { head: null, commits: [] };
+    // Visit every worktree HEAD, then opt in to public refs. This keeps stash,
+    // notes and application snapshot refs out of the graph.
+    const tips = allRefs === true
+      ? ["--exclude=refs/*", "--all", "--branches", "--remotes", "--tags"]
+      : ["HEAD"];
+    if (allRefs !== true && upstream.trim()) tips.push("@{upstream}");
+    if (allRefs !== true && index.defaultBranch && index.remote) {
       const defaultRef = `refs/remotes/origin/${index.defaultBranch}`;
       const exists = await this.gitCommand(cwd, ["rev-parse", "--verify", defaultRef])
         .then(() => true, () => false);

@@ -1,6 +1,12 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
-import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
-import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
+import {
+  AnimatedCollapse,
+  useCollapseMotion,
+} from "../../../shared/ui/AnimatedCollapse";
+import {
+  SurfaceVisibilityContext,
+  useSurfaceVisibility,
+} from "../../../shared/ui/SurfaceVisibility";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -32,6 +38,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type CSSProperties,
 } from "react";
 import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
 import {
@@ -146,6 +153,8 @@ export function GitChangesPanel({
   const [status, setStatus] = useState<string | null>(null);
   const [graphHeight, setGraphHeight] = useState(loadGraphPanelHeight);
   const [graphExpanded, setGraphExpanded] = useState(graphOpen);
+  const graphMotion = useCollapseMotion(graphExpanded);
+  const visible = useSurfaceVisibility();
 
   useEffect(() => {
     if (!status) return;
@@ -271,9 +280,7 @@ export function GitChangesPanel({
                   className="flex h-7 w-full items-center gap-2 px-3 text-left text-[12px] text-content hover:bg-content/10 disabled:opacity-40"
                 >
                   {busy === "pull" ? (
-                    <Loader
-                      className="size-3.5 animate-spin"
-                    />
+                    <Loader className="size-3.5 animate-spin" />
                   ) : (
                     <RefreshCw className="size-3.5" />
                   )}
@@ -306,41 +313,67 @@ export function GitChangesPanel({
           window.setTimeout(() => invalidateWatchedFiles(paths), 150);
         }}
       />
-      {graphExpanded ? (
-        <GraphResizeSash
-          height={graphHeight}
-          onHeightPaint={(next) => {
-            if (graphPaneRef.current) graphPaneRef.current.style.height = `${next}px`;
-          }}
-          onHeightCommit={(next) => {
-            setGraphHeight(next);
-            saveGraphPanelHeight(next);
-          }}
-          maxHeight={() => {
-            const pane = paneRef.current;
-            if (!pane) return GRAPH_PANEL_DEFAULT * 2;
-            return Math.max(GRAPH_PANEL_MIN, pane.clientHeight - 160);
-          }}
-        />
-      ) : null}
       <div
         ref={graphPaneRef}
-        className={`shrink-0 overflow-hidden border-t border-stroke ${
-          graphExpanded ? "min-h-0" : "h-7"
-        }`}
-        style={graphExpanded ? { height: graphHeight } : undefined}
+        className="git-history-panel animated-collapse-size grid shrink-0 overflow-hidden"
+        style={
+          {
+            "--git-graph-height": `${graphHeight}px`,
+            gridTemplateRows: graphExpanded
+              ? "minmax(0, 16px) minmax(0, var(--git-graph-height))"
+              : "minmax(0, 0px) minmax(0, 28px)",
+          } as CSSProperties
+        }
+        data-fold-state={graphMotion.foldState}
+        onTransitionEnd={(event) => {
+          if (
+            event.target === event.currentTarget &&
+            event.propertyName === "grid-template-rows"
+          )
+            graphMotion.finish();
+        }}
       >
-        <GitHistoryGraph
-          cwd={cwd}
-          enabled={enabled}
-          expanded={graphExpanded}
-          selectedSha={selectedSha}
-          onToggleExpanded={() => {
-            graphOpen = !graphExpanded;
-            setGraphExpanded(graphOpen);
-          }}
-          onOpenCommit={onOpenCommit}
-        />
+        <div
+          className="min-h-0 overflow-hidden"
+          inert={!graphExpanded}
+          aria-hidden={!graphExpanded || undefined}
+        >
+          <SurfaceVisibilityContext.Provider value={visible && graphExpanded}>
+            {graphExpanded || graphMotion.foldState !== "closed" ? (
+              <GraphResizeSash
+                height={graphHeight}
+                onHeightPaint={(next) => {
+                  graphPaneRef.current?.style.setProperty(
+                    "--git-graph-height",
+                    `${next}px`,
+                  );
+                }}
+                onHeightCommit={(next) => {
+                  setGraphHeight(next);
+                  saveGraphPanelHeight(next);
+                }}
+                maxHeight={() => {
+                  const pane = paneRef.current;
+                  if (!pane) return GRAPH_PANEL_DEFAULT * 2;
+                  return Math.max(GRAPH_PANEL_MIN, pane.clientHeight - 160);
+                }}
+              />
+            ) : null}
+          </SurfaceVisibilityContext.Provider>
+        </div>
+        <div className="min-h-0 overflow-hidden border-t border-stroke">
+          <GitHistoryGraph
+            cwd={cwd}
+            enabled={enabled}
+            expanded={graphExpanded}
+            selectedSha={selectedSha}
+            onToggleExpanded={() => {
+              graphOpen = !graphExpanded;
+              setGraphExpanded(graphOpen);
+            }}
+            onOpenCommit={onOpenCommit}
+          />
+        </div>
       </div>
     </div>
   );

@@ -9,6 +9,21 @@ import {
 } from "./gitGraph";
 
 describe("layoutGitGraph", () => {
+  it("keeps other branches connected past an unrelated root commit", () => {
+    const rows = layoutGitGraph([
+      { sha: "tip", parents: ["base"] },
+      { sha: "orphan", parents: [] },
+      { sha: "base", parents: [] },
+    ]);
+    expect(rows[1]?.outputSwimlanes).toEqual(rows[1]?.inputSwimlanes);
+    expect(rows[2]?.inputSwimlanes.map((lane) => lane.id)).toEqual(["base"]);
+    expect(historyItemGraph(rows[1]!).paths.map((path) => path.d)).toContain(
+      `M ${SWIMLANE_WIDTH} 0 V ${SWIMLANE_HEIGHT}`,
+    );
+    const root = historyItemGraph(rows[1]!);
+    expect(root.width).toBeGreaterThan(root.circles[0]!.cx + root.circles[0]!.r);
+  });
+
   it("keeps a linear history on a single swimlane", () => {
     const rows = layoutGitGraph([
       { sha: "c", parents: ["b"] },

@@ -265,8 +265,8 @@ export type GitHistory = {
   commits: GitHistoryCommit[];
 };
 
-export function gitHistory(cwd: string, limit = 200): Promise<GitHistory> {
-  return invoke<GitHistory>("git_history", { cwd, limit });
+export function gitHistory(cwd: string, limit = 200, allRefs = false): Promise<GitHistory> {
+  return invoke<GitHistory>("git_history", { cwd, limit, allRefs });
 }
 
 export function gitCommitFiles(

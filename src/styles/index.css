@@ -4678,6 +4678,10 @@ html.theme-light .btw-burst {
 }
 
 /* Graph node cutouts so lane strokes do not show through the circles. */
+.is-resizing .git-history-panel {
+  transition: none;
+}
+
 .git-history-item svg {
   display: block;
   overflow: visible;

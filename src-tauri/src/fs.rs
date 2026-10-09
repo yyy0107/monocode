@@ -950,12 +950,18 @@ pub struct GitHistory {
 }
 
 /// Recent commits for the Graph view: HEAD, upstream, and the default
-/// branch. Newest first, with parent SHAs for the graph.
+/// branch, or all branches and worktrees when requested. Newest first.
 #[tauri::command]
-pub async fn git_history(cwd: String, limit: Option<u32>) -> Result<GitHistory, String> {
-    tauri::async_runtime::spawn_blocking(move || git_history_for(&expand_home(&cwd), limit))
-        .await
-        .map_err(|e| e.to_string())?
+pub async fn git_history(
+    cwd: String,
+    limit: Option<u32>,
+    all_refs: Option<bool>,
+) -> Result<GitHistory, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        git_history_for(&expand_home(&cwd), limit, all_refs.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Files changed in one commit (first parent / root).
@@ -2238,7 +2244,7 @@ fn git_history_tips(root: &Path) -> Vec<String> {
     tips
 }
 
-fn git_history_for(root: &Path, limit: Option<u32>) -> Result<GitHistory, String> {
+fn git_history_for(root: &Path, limit: Option<u32>, all_refs: bool) -> Result<GitHistory, String> {
     if !git_is_work_tree(root) {
         return Ok(GitHistory::default());
     }
@@ -2248,7 +2254,22 @@ fn git_history_for(root: &Path, limit: Option<u32>) -> Result<GitHistory, String
     let count = n.to_string();
     let head = git_stdout(root, &["rev-parse", "HEAD"]);
     let remotes = git_remote_names(root);
-    let tips = git_history_tips(root);
+    let tips = if all_refs {
+        // Visit every worktree HEAD, then opt in to public refs. Exclusions
+        // reset after --all, keeping stash/notes/application snapshots out.
+        [
+            "--exclude=refs/*",
+            "--all",
+            "--branches",
+            "--remotes",
+            "--tags",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect()
+    } else {
+        git_history_tips(root)
+    };
     let mut args = vec![
         "log".to_string(),
         "--topo-order".to_string(),
@@ -7309,7 +7330,7 @@ mod tests {
         assert!(git(&dir.0, &["add", "."]));
         assert!(git(&dir.0, &["commit", "-m", "second"]));
 
-        let history = git_history_for(&dir.0, Some(10)).unwrap();
+        let history = git_history_for(&dir.0, Some(10), false).unwrap();
         assert_eq!(history.commits.len(), 2);
         assert_eq!(history.commits[0].subject, "second");
         assert_eq!(history.commits[0].author_email, "monocode@test");
@@ -7330,7 +7351,7 @@ mod tests {
     fn git_history_empty_outside_a_repo() {
         let dir = tmp("git-history-none");
         assert_eq!(
-            git_history_for(&dir.0, None).unwrap(),
+            git_history_for(&dir.0, None, false).unwrap(),
             GitHistory::default()
         );
     }
@@ -7344,7 +7365,7 @@ mod tests {
         std::fs::write(dir.0.join("a.txt"), "beta\n").unwrap();
         assert!(git(&dir.0, &["add", "."]));
         assert!(git(&dir.0, &["commit", "-m", "update a"]));
-        let history = git_history_for(&dir.0, Some(1)).unwrap();
+        let history = git_history_for(&dir.0, Some(1), false).unwrap();
         let sha = &history.commits[0].sha;
 
         let files = git_commit_files_for(&dir.0, sha).unwrap();
@@ -7366,7 +7387,7 @@ mod tests {
         if !init_git_commit(&dir.0, &[("a.txt", "alpha\n")]) {
             return;
         }
-        let history = git_history_for(&dir.0, Some(1)).unwrap();
+        let history = git_history_for(&dir.0, Some(1), false).unwrap();
         let sha = &history.commits[0].sha;
         let files = git_commit_files_for(&dir.0, sha).unwrap();
         assert_eq!(files[0].status, "added");
@@ -7384,7 +7405,7 @@ mod tests {
         }
         assert!(git_commit_files_for(&dir.0, "../oops").is_err());
         assert!(git_commit_files_for(&dir.0, "not-hex!").is_err());
-        let history = git_history_for(&dir.0, Some(1)).unwrap();
+        let history = git_history_for(&dir.0, Some(1), false).unwrap();
         let sha = &history.commits[0].sha;
         assert!(git_commit_file_diff_for(&dir.0, sha, "../secret.txt").is_err());
     }
@@ -7408,7 +7429,7 @@ mod tests {
             &["merge", "feature", "--no-ff", "-m", "Merge feature"]
         ));
 
-        let history = git_history_for(&dir.0, Some(20)).unwrap();
+        let history = git_history_for(&dir.0, Some(20), false).unwrap();
         let merge = history
             .commits
             .iter()
@@ -7434,7 +7455,7 @@ mod tests {
         assert!(git(&dir.0, &["add", "."]));
         assert!(git(&dir.0, &["commit", "-m", "main only"]));
 
-        let history = git_history_for(&dir.0, Some(20)).unwrap();
+        let history = git_history_for(&dir.0, Some(20), false).unwrap();
         let subjects: Vec<&str> = history
             .commits
             .iter()
@@ -7450,6 +7471,47 @@ mod tests {
             .commits
             .iter()
             .any(|commit| commit.refs.iter().any(|r| r.name.contains("stash"))));
+
+        let detached = tmp("git-history-detached");
+        assert!(git(
+            &dir.0,
+            &["worktree", "add", "--detach", detached.0.to_str().unwrap()]
+        ));
+        assert!(git(
+            &detached.0,
+            &["commit", "--allow-empty", "-m", "detached work"]
+        ));
+        let snapshot = git_stdout(
+            &dir.0,
+            &[
+                "commit-tree",
+                "HEAD^{tree}",
+                "-p",
+                "HEAD",
+                "-m",
+                "internal snapshot",
+            ],
+        )
+        .unwrap();
+        assert!(git(
+            &dir.0,
+            &["update-ref", "refs/codex/snapshots/test", &snapshot]
+        ));
+        let all = git_history_for(&dir.0, Some(20), true).unwrap();
+        let subjects: Vec<&str> = all.commits.iter().map(|c| c.subject.as_str()).collect();
+        assert!(subjects.contains(&"feature only"));
+        assert!(subjects.contains(&"detached work"));
+        assert!(subjects.contains(&"main only"));
+        assert!(!subjects.iter().any(|s| s.contains("stash")));
+        assert!(!subjects.contains(&"internal snapshot"));
+        assert_eq!(all.commits.iter().filter(|c| c.head).count(), 1);
+        assert_eq!(
+            git_history_for(&dir.0, Some(1), true)
+                .unwrap()
+                .commits
+                .len(),
+            1
+        );
     }
 
     #[test]

@@ -7,14 +7,22 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ChevronDown, ChevronRight, GitBranch } from "../../../shared/ui/icons";
+import {
+  ChevronDown,
+  ChevronRight,
+  GitBranch,
+  Maximize2,
+} from "../../../shared/ui/icons";
+import { useCollapseMotion } from "../../../shared/ui/AnimatedCollapse";
+import {
+  SurfaceVisibilityContext,
+  useSurfaceVisibility,
+} from "../../../shared/ui/SurfaceVisibility";
+import { GitGraphDialog } from "./GitGraphDialog";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { suppressTextSelection } from "../../../shared/lib/drag";
 import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
-import {
-  HoverSummary,
-  useHoverSummary,
-} from "../../../shared/ui/HoverSummary";
+import { HoverSummary, useHoverSummary } from "../../../shared/ui/HoverSummary";
 import {
   gitCommitFiles,
   gitHistory,
@@ -28,7 +36,10 @@ import {
   type GraphRef,
   type HistoryItemViewModel,
 } from "../model/gitGraph";
-import { commitCoAuthors, contributorAvatarUrl } from "../model/gitContributors";
+import {
+  commitCoAuthors,
+  contributorAvatarUrl,
+} from "../model/gitContributors";
 
 type Props = {
   cwd: string;
@@ -53,66 +64,105 @@ export function GitHistoryGraph({
   onOpenCommit,
 }: Props) {
   const { t: uiT } = useTranslation();
+  const visible = useSurfaceVisibility();
+  const { foldState } = useCollapseMotion(expanded);
+  const [dialogCwd, setDialogCwd] = useState<string>();
+  const expandButton = useRef<HTMLButtonElement>(null);
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
-  const { commits } = useGitHistory(cwd, enabled && expanded);
+  const { commits } = useGitHistory(
+    cwd,
+    enabled && visible && foldState !== "closed",
+  );
   const rows = useMemo(() => layoutGitGraph(commits), [commits]);
+  const dialogOpen = dialogCwd === cwd && enabled && visible;
+  useEffect(() => {
+    setDialogCwd(undefined);
+  }, [cwd, enabled, visible]);
+  const closeDialog = () => {
+    setDialogCwd(undefined);
+    expandButton.current?.focus();
+  };
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-      <button
-        type="button"
-        onClick={onToggleExpanded}
-        aria-expanded={expanded}
-        aria-label={expanded ? uiT("Collapse graph") : uiT("Expand graph")}
-        className={`flex w-full shrink-0 items-center gap-1 px-3 text-left leading-none hover:bg-content/5 ${
-          expanded ? "h-7" : "h-full"
-        }`}
-      >
-        <span className="text-[10px] font-semibold tracking-[0.04em] text-content/55 uppercase">
-          {uiT("Graph")}
-        </span>
-        {expanded ? (
-          <ChevronDown
-            className="ml-auto size-3.5 shrink-0 text-content/50"
-          />
-        ) : (
-          <ChevronRight
-            className="ml-auto size-3.5 shrink-0 text-content/50"
-          />
-        )}
-      </button>
-      {expanded ? (
-        <div
-          ref={lockOverscroll}
-          className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-none"
+      <div className="flex h-7 shrink-0 items-center">
+        <button
+          type="button"
+          onClick={onToggleExpanded}
+          aria-expanded={expanded}
+          aria-label={expanded ? uiT("Collapse graph") : uiT("Expand graph")}
+          className="flex h-full min-w-0 flex-1 items-center gap-1 pl-3 pr-1 text-left leading-none hover:bg-content/5"
         >
-          {!cwd || cwd === "~" ? (
-            <p className="px-3 py-2 text-[12px] text-content/45">
-              {uiT("No project folder")}
-            </p>
-          ) : commits.length === 0 ? (
-            <p className="px-3 py-2 text-[12px] text-content/45">
-              {uiT("No commits yet")}
-            </p>
+          <span className="text-[10px] font-semibold tracking-[0.04em] text-content/55 uppercase">
+            {uiT("Graph")}
+          </span>
+          {expanded ? (
+            <ChevronDown className="ml-auto size-3.5 shrink-0 text-content/50" />
           ) : (
-            <ul className="min-w-0 max-w-full">
-              {commits.map((commit, index) => {
-                const row = rows[index];
-                if (!row) return null;
-                return (
-                  <HistoryRow
-                    key={commit.sha}
-                    cwd={cwd}
-                    commit={commit}
-                    row={row}
-                    active={selectedSha === commit.sha}
-                    onOpen={(pin) => onOpenCommit(commit, pin)}
-                  />
-                );
-              })}
-            </ul>
+            <ChevronRight className="ml-auto size-3.5 shrink-0 text-content/50" />
           )}
-        </div>
+        </button>
+        <button
+          ref={expandButton}
+          type="button"
+          title={uiT("Open Git graph")}
+          aria-label={uiT("Open Git graph")}
+          aria-haspopup="dialog"
+          aria-expanded={dialogOpen}
+          disabled={!enabled || !cwd || cwd === "~"}
+          onClick={() => setDialogCwd(cwd)}
+          className="mr-1 grid size-6 shrink-0 place-items-center rounded text-content/50 hover:bg-content/5 hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-hover disabled:opacity-40"
+        >
+          <Maximize2 className="size-3" />
+        </button>
+      </div>
+      {expanded || foldState !== "closed" ? (
+        <SurfaceVisibilityContext.Provider value={visible && expanded}>
+          <div
+            ref={lockOverscroll}
+            inert={!expanded}
+            aria-hidden={!expanded || undefined}
+            className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-none"
+          >
+            {!cwd || cwd === "~" ? (
+              <p className="px-3 py-2 text-[12px] text-content/45">
+                {uiT("No project folder")}
+              </p>
+            ) : commits.length === 0 ? (
+              <p className="px-3 py-2 text-[12px] text-content/45">
+                {uiT("No commits yet")}
+              </p>
+            ) : (
+              <ul className="min-w-0 max-w-full">
+                {commits.map((commit, index) => {
+                  const row = rows[index];
+                  if (!row) return null;
+                  return (
+                    <HistoryRow
+                      key={commit.sha}
+                      cwd={cwd}
+                      commit={commit}
+                      row={row}
+                      active={selectedSha === commit.sha}
+                      onOpen={(pin) => onOpenCommit(commit, pin)}
+                    />
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </SurfaceVisibilityContext.Provider>
+      ) : null}
+      {dialogOpen ? (
+        <GitGraphDialog
+          cwd={cwd}
+          selectedSha={selectedSha}
+          onClose={closeDialog}
+          onOpenCommit={(commit) => {
+            closeDialog();
+            onOpenCommit(commit, true);
+          }}
+        />
       ) : null}
     </div>
   );

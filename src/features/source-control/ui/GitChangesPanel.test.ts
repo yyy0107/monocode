@@ -13,7 +13,7 @@ const { invalidateWatchedFiles } = vi.hoisted(() => ({
 
 vi.mock("../../../platform/tauri/fs", () => ({
   gitDiffIndex: vi.fn(),
-  gitHistory: vi.fn(async () => []),
+  gitHistory: vi.fn(async () => ({ head: null, commits: [] })),
   gitPrStatus: vi.fn(async () => null),
   gitPull: vi.fn(async () => {}),
   gitPush: vi.fn(async () => {}),
@@ -243,7 +243,7 @@ it("paints graph height without React commits or persistence during a drag", asy
   )!;
   handle.setPointerCapture = vi.fn();
   handle.releasePointerCapture = vi.fn();
-  const pane = handle.parentElement!.nextElementSibling as HTMLElement;
+  const pane = container.querySelector<HTMLElement>(".git-history-panel")!;
   const initial = loadGraphPanelHeight();
   const pointer = (type: string, clientY: number) =>
     act(() => {
@@ -260,11 +260,11 @@ it("paints graph height without React commits or persistence during a drag", asy
   pointer("pointermove", 280);
   pointer("pointermove", 260);
   act(() => frame?.(0));
-  expect(pane.style.height).toBe(`${initial + 40}px`);
+  expect(pane.style.getPropertyValue("--git-graph-height")).toBe(`${initial + 40}px`);
   expect(commits).not.toHaveBeenCalled();
   expect(loadGraphPanelHeight()).toBe(initial);
   pointer("pointerup", 230);
-  expect(pane.style.height).toBe(`${initial + 70}px`);
+  expect(pane.style.getPropertyValue("--git-graph-height")).toBe(`${initial + 70}px`);
   expect(loadGraphPanelHeight()).toBe(initial + 70);
   saveGraphPanelHeight(initial);
 });

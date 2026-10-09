@@ -3559,5 +3559,14 @@
   "Wait for the current turn before switching accounts": "请等待当前回合结束后再切换账号",
   "Wait for the account switch to finish": "请等待账号切换完成",
   "This agent has no account profiles": "该智能体不支持账号配置",
-  "The assistant brain keeps its account": "助理主会话不能切换账号"
+  "The assistant brain keeps its account": "助理主会话不能切换账号",
+  "Git graph": "Git 图谱",
+  "Open Git graph": "打开 Git 图谱",
+  "Refresh Git graph": "刷新 Git 图谱",
+  "Date": "日期",
+  "Author": "作者",
+  "Could not load Git graph": "无法加载 Git 图谱",
+  "Could not load worktrees": "无法加载工作树",
+  "Showing the latest {count} commits": "显示最近 {count} 条提交",
+  "Worktree: {path}": "工作树：{path}"
 }
