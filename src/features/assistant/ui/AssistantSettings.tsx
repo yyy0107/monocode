@@ -9,7 +9,10 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
-import type { AssistantSelectProps } from "./AssistantChatChrome";
+import type {
+  AssistantMemoryDetailProps,
+  AssistantSelectProps,
+} from "./AssistantChatChrome";
 import {
   ASSISTANT_PERMISSIONS,
   ASSISTANT_PERSONA_PRESETS,
@@ -37,6 +40,7 @@ import {
 } from "../../sessions/model/session";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { AssistantMemoryEditor } from "./AssistantMemory";
+import { AssistantMemoryDialog } from "./AssistantMemoryDialog";
 import { AssistantImSettings } from "./AssistantImSettings";
 import { AssistantHabits, type HabitControl } from "./AssistantHabits";
 import type { AssistantHabit } from "../model/assistantHabits";
@@ -140,12 +144,16 @@ const INTERVAL_PRESETS = [
 ];
 // The assistant overlay sits at z-index 100, above the shared dialog layers.
 const OVERLAY_POPOVER_LAYER = 101;
+/** Hosts can hold thousands of conversations; rows mount a page at a time. */
+const WATCHED_PAGE = 50;
 
 export type AssistantSessionOption = {
   id: string;
   harness?: RemoteProvider;
   title: string;
   projectId: string;
+  /** Latest activity, used to list recent conversations first. */
+  activityAt?: number | null;
 };
 
 function validTimeZone(zone: string) {
@@ -329,6 +337,7 @@ export function AssistantSettings({
   personaSupported = true,
   mobile = false,
   Select,
+  MemoryDetail = AssistantMemoryDialog,
   Actions = Fragment,
 }: {
   /** Live follow-ups; kept outside the draft so cancelling never resets edits. */
@@ -349,6 +358,8 @@ export function AssistantSettings({
   onCancelReminder?: (reminderId: string) => Promise<void>;
   /** Platform picker; omitted on desktop, which uses the searchable select. */
   Select?: ComponentType<AssistantSelectProps>;
+  /** Platform panel for one remembered fact; desktop uses a dialog. */
+  MemoryDetail?: ComponentType<AssistantMemoryDetailProps>;
   Actions?: ComponentType<{ children: ReactNode }>;
   value: AssistantView | null;
   catalog: HostModelCatalog;
@@ -377,7 +388,6 @@ export function AssistantSettings({
   );
   const [draft, setDraft] = useState<AssistantPatch>(initialDraft);
   // Permissions and wakeups default sensibly, so they stay folded away.
-  const [moreOpen, setMoreOpen] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [eventsOpen, setEventsOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -544,7 +554,6 @@ export function AssistantSettings({
   const revealErrors = () => {
     const advanced = !!(errors.maxAutoTurns || errors.chainWindow);
     if (errors.interval || errors.timezone || advanced) {
-      setMoreOpen(true);
       setEventsOpen(true);
     }
     if (advanced) setAdvancedOpen(true);
@@ -594,6 +603,12 @@ export function AssistantSettings({
       : [schedule.timezone, ...list];
   }, [schedule.timezone]);
 
+  const modes = {
+    runtimeMode: (draft.runtimeMode ?? "full-access") as RuntimeMode,
+    targetRuntimeMode: (draft.targetRuntimeMode ??
+      "full-access") as RuntimeMode,
+  };
+  const sameMode = modes.runtimeMode === modes.targetRuntimeMode;
   const permissionsSection = (
     <CollapsibleSection
       title={t("Assistant permissions")}
@@ -608,6 +623,35 @@ export function AssistantSettings({
       open={permissionsOpen}
       onToggle={() => setPermissionsOpen((v) => !v)}
     >
+      <div className="assistant-settings-row">
+        {(["runtimeMode", "targetRuntimeMode"] as const).map((key) => (
+          <Picker
+            key={key}
+            mobile={mobile}
+            label={t(
+              key === "runtimeMode"
+                ? "Assistant execution permissions"
+                : "Delegated agent permissions",
+            )}
+            value={modes[key]}
+            placeholder=""
+            options={RUNTIME_MODES.map((option) => ({
+              value: option,
+              label: t(RUNTIME_MODE_LABEL[option]),
+            }))}
+            onChange={(mode) => patch({ [key]: mode })}
+            hint={sameMode ? undefined : t(RUNTIME_MODE_HINT[modes[key]])}
+          />
+        ))}
+      </div>
+      {sameMode && (
+        <small className="assistant-settings-hint">
+          {t(RUNTIME_MODE_HINT[modes.runtimeMode])}
+        </small>
+      )}
+      <small className="assistant-settings-hint">
+        {t("These permissions control the assistant's MonoCode actions. Agent execution permissions control commands and file access through the selected provider.")}
+      </small>
       <p>{t("Conversation actions apply only to followed conversations and conversations created by the assistant. Other conversations are read-only.")}</p>
       <div className="assistant-settings-group-list">
         {permissionGroups.map((group) => {
@@ -696,48 +740,6 @@ export function AssistantSettings({
         </div>
       </div>
     </CollapsibleSection>
-  );
-
-  const modes = {
-    runtimeMode: (draft.runtimeMode ?? "full-access") as RuntimeMode,
-    targetRuntimeMode: (draft.targetRuntimeMode ??
-      "full-access") as RuntimeMode,
-  };
-  const sameMode = modes.runtimeMode === modes.targetRuntimeMode;
-  const executionSection = (
-    <Section
-      title={t("Execution")}
-      hint={t(
-        "These permissions control the assistant's MonoCode actions. Agent execution permissions control commands and file access through the selected provider.",
-      )}
-    >
-      <div className="assistant-settings-row">
-        {(["runtimeMode", "targetRuntimeMode"] as const).map((key) => (
-          <Picker
-            key={key}
-            mobile={mobile}
-            label={t(
-              key === "runtimeMode"
-                ? "Assistant execution permissions"
-                : "Delegated agent permissions",
-            )}
-            value={modes[key]}
-            placeholder=""
-            options={RUNTIME_MODES.map((option) => ({
-              value: option,
-              label: t(RUNTIME_MODE_LABEL[option]),
-            }))}
-            onChange={(mode) => patch({ [key]: mode })}
-            hint={sameMode ? undefined : t(RUNTIME_MODE_HINT[modes[key]])}
-          />
-        ))}
-      </div>
-      {sameMode && (
-        <small className="assistant-settings-hint">
-          {t(RUNTIME_MODE_HINT[modes.runtimeMode])}
-        </small>
-      )}
-    </Section>
   );
 
   const wakeupsSection = (
@@ -1057,7 +1059,7 @@ export function AssistantSettings({
         }}
       >
         <div className="assistant-settings-body">
-          <Section title={t("Basics")}>
+          <Section title={t("Assistant")}>
             <label>
               {t("Assistant name")}
               <input
@@ -1069,6 +1071,18 @@ export function AssistantSettings({
             </label>
             {personaSupported && (
               <>
+                <label>
+                  {t("What should it call you?")}
+                  <input
+                    value={persona.userName ?? ""}
+                    maxLength={100}
+                    onChange={(e) =>
+                      patch({
+                        persona: { ...persona, userName: e.target.value },
+                      })
+                    }
+                  />
+                </label>
                 <div className="assistant-field">
                   <span className="assistant-field-label">
                     {t("Personality")}
@@ -1109,20 +1123,10 @@ export function AssistantSettings({
                   />
                   {fieldError(errors.persona)}
                 </label>
-                <label>
-                  {t("What should it call you?")}
-                  <input
-                    value={persona.userName ?? ""}
-                    maxLength={100}
-                    onChange={(e) =>
-                      patch({
-                        persona: { ...persona, userName: e.target.value },
-                      })
-                    }
-                  />
-                </label>
               </>
             )}
+          </Section>
+          <Section title={t("Model")}>
             <div className="assistant-settings-row">
               <Picker
                 mobile={mobile}
@@ -1207,7 +1211,8 @@ export function AssistantSettings({
               <small className="assistant-field-error">{harnessError}</small>
             ) : null}
           </Section>
-          {executionSection}
+          {permissionsSection}
+          {wakeupsSection}
           {memory && (
             <CollapsibleSection
               title={t("Memory")}
@@ -1222,6 +1227,7 @@ export function AssistantSettings({
                   rpc={memory.rpc}
                   revision={memory.revision}
                   disabled={busy}
+                  Detail={MemoryDetail}
                 />
               )}
             </CollapsibleSection>
@@ -1243,18 +1249,7 @@ export function AssistantSettings({
               )}
             </CollapsibleSection>
           )}
-          {im && <AssistantImSettings {...im} disabled={busy} />}
-          <CollapsibleSection
-            title={t("Advanced")}
-            summary={t("Permissions and wakeups")}
-            open={moreOpen}
-            onToggle={() => setMoreOpen((v) => !v)}
-          >
-            <div className="assistant-settings-nested">
-              {permissionsSection}
-              {wakeupsSection}
-            </div>
-          </CollapsibleSection>
+          {im && !mobile && <AssistantImSettings {...im} disabled={busy} />}
         </div>
         <Actions>
           <footer className="assistant-settings-footer">
@@ -1319,7 +1314,7 @@ export function WatchedSessions({
   policy: AssistantPolicy;
   watches: AssistantWatch[];
   projectIds: string[];
-  projects?: Pick<HostProject, "id" | "name">[];
+  projects?: (Pick<HostProject, "id" | "name"> & { cwd?: string })[];
   loadSessions?: (projectIds: string[]) => Promise<AssistantSessionOption[]>;
   onRemove: (sessionId: string) => void;
   onFollowScope?: (
@@ -1332,7 +1327,9 @@ export function WatchedSessions({
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(WATCHED_PAGE);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [projectQuery, setProjectQuery] = useState("");
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const projectKey = projectIds.join("\n");
   useEffect(() => {
@@ -1361,28 +1358,68 @@ export function WatchedSessions({
     for (const id of watch.sessionIds)
       if (watch.enabled && !known.has(id))
         known.set(id, { id, title: id, projectId: watch.projectIds[0] ?? "" });
-  const options = [...known.values()].filter((s) =>
-    isWatchedSession(policy, watches, s.projectId, s.id),
-  );
+  const options = [...known.values()]
+    .filter((s) => isWatchedSession(policy, watches, s.projectId, s.id))
+    .sort((a, b) => (b.activityAt ?? 0) - (a.activityAt ?? 0));
   const title = (session: AssistantSessionOption) =>
     session.harness
       ? sessionDisplayTitle(session.title, session.harness) ||
         t("Untitled conversation")
       : session.title;
+  const projectNames = new Map(projects.map((p) => [p.id, p.name]));
+  const projectName = (id: string) => projectNames.get(id);
   const needle = query.trim().toLocaleLowerCase();
-  const visible = options.filter(
-    (s) => !needle || title(s).toLocaleLowerCase().includes(needle),
-  );
+  const matches = needle
+    ? options.filter((s) =>
+        `${title(s)}\n${projectName(s.projectId) ?? ""}`
+          .toLocaleLowerCase()
+          .includes(needle),
+      )
+    : options;
+  const visible = matches.slice(0, limit);
+  // Project rows show their conversation count, most recently active first.
+  const projectStats = new Map<string, { count: number; latest: number }>();
+  for (const session of sessions ?? []) {
+    const stat = projectStats.get(session.projectId) ?? { count: 0, latest: 0 };
+    stat.count++;
+    stat.latest = Math.max(stat.latest, session.activityAt ?? 0);
+    projectStats.set(session.projectId, stat);
+  }
+  const projectNeedle = projectQuery.trim().toLocaleLowerCase();
+  const pickerProjects = projects
+    .filter(
+      (project) =>
+        !projectNeedle ||
+        `${project.name}\n${project.cwd ?? ""}`
+          .toLocaleLowerCase()
+          .includes(projectNeedle),
+    )
+    .sort(
+      (a, b) =>
+        (projectStats.get(b.id)?.latest ?? 0) -
+        (projectStats.get(a.id)?.latest ?? 0),
+    );
+  const allPickerSelected =
+    pickerProjects.length > 0 &&
+    pickerProjects.every((project) => selectedProjects.includes(project.id));
+  // Rows name their project only when sessions can come from several.
+  const showProjects = projects.length > 1;
   return (
-    <div className="assistant-field">
-      <span className="assistant-field-label">
-        {t("Watched conversations")}
-      </span>
-      {onFollowScope && (
-        <>
+    <div className="assistant-field assistant-watch">
+      <div className="assistant-watch-header">
+        <span className="assistant-field-label">
+          {t("Watched conversations")}
+          {options.length > 0 && (
+            <small className="assistant-settings-group-count">
+              {options.length}
+            </small>
+          )}
+        </span>
+        {onFollowScope && (
           <div className="assistant-watch-bulk-actions">
             <button
               type="button"
+              disabled={policy.followedProjects === "all"}
               onClick={() => onFollowScope("all", sessions ?? [])}
             >
               {t("Follow all conversations")}
@@ -1404,16 +1441,48 @@ export function WatchedSessions({
               {t("Follow by project")}
             </button>
           </div>
-          <small>
-            {t(
-              "Scope follows include existing and future conversations. Individually removed conversations stay excluded.",
-            )}
-          </small>
+        )}
+      </div>
+      {onFollowScope && (
+        <>
           <AnimatedCollapse expanded={projectPickerOpen}>
             <div className="assistant-watch-project-picker">
-              <div className="assistant-chips">
-                {projects.map((project) => (
-                  <label key={project.id} className="assistant-chip">
+              <div className="assistant-watch-project-toolbar">
+                {projects.length > 10 && (
+                  <input
+                    type="search"
+                    aria-label={t("Search projects")}
+                    placeholder={t("Search projects")}
+                    value={projectQuery}
+                    onChange={(e) => setProjectQuery(e.target.value)}
+                  />
+                )}
+                <small>
+                  {t("{count} selected", { count: selectedProjects.length })}
+                </small>
+                <button
+                  type="button"
+                  className="assistant-link-button"
+                  disabled={!pickerProjects.length}
+                  onClick={() => {
+                    const ids = new Set(pickerProjects.map((p) => p.id));
+                    setSelectedProjects((current) =>
+                      allPickerSelected
+                        ? current.filter((id) => !ids.has(id))
+                        : [...new Set([...current, ...ids])],
+                    );
+                  }}
+                >
+                  {t(allPickerSelected ? "Clear" : "Select all")}
+                </button>
+              </div>
+              <div
+                className="assistant-watch-project-list"
+                role="group"
+                aria-label={t("Follow by project")}
+              >
+                {pickerProjects.map((project) => (
+                  <label key={project.id} className="assistant-watch-project">
                     <input
                       type="checkbox"
                       checked={selectedProjects.includes(project.id)}
@@ -1425,9 +1494,24 @@ export function WatchedSessions({
                         )
                       }
                     />
-                    <span>{project.name}</span>
+                    <span className="assistant-watch-project-name">
+                      <span>{project.name}</span>
+                      {project.cwd && (
+                        <small title={project.cwd}>{project.cwd}</small>
+                      )}
+                    </span>
+                    {sessions && (
+                      <small className="assistant-watch-project-count">
+                        {projectStats.get(project.id)?.count ?? 0}
+                      </small>
+                    )}
                   </label>
                 ))}
+                {!pickerProjects.length && (
+                  <small className="assistant-watch-project-empty">
+                    {t("No matching projects")}
+                  </small>
+                )}
               </div>
               <button
                 type="button"
@@ -1445,17 +1529,15 @@ export function WatchedSessions({
               </button>
             </div>
           </AnimatedCollapse>
-          {(policy.followedProjects === "all" ||
-            !!policy.followedProjects?.length) && (
+          {policy.followedProjects === "all" ||
+          !!policy.followedProjects?.length ? (
             <div className="assistant-watch-scope">
               <small>
                 {policy.followedProjects === "all"
                   ? t("Automatically following all conversations")
                   : t("Automatically following: {projects}", {
                       projects: policy
-                        .followedProjects!.map(
-                          (id) => projects.find((p) => p.id === id)?.name ?? id,
-                        )
+                        .followedProjects!.map((id) => projectName(id) ?? id)
                         .join(", "),
                     })}
               </small>
@@ -1467,7 +1549,7 @@ export function WatchedSessions({
                 {t("Remove scope follow")}
               </button>
             </div>
-          )}
+          ) : null}
         </>
       )}
       {(options.length > 10 || query) && (
@@ -1476,7 +1558,10 @@ export function WatchedSessions({
           aria-label={t("Search conversations…")}
           placeholder={t("Search conversations…")}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setLimit(WATCHED_PAGE);
+          }}
         />
       )}
       {failed ? (
@@ -1494,8 +1579,10 @@ export function WatchedSessions({
         <small>{t("Loading conversations…")}</small>
       ) : !options.length ? (
         <small>{t("No watched conversations.")}</small>
+      ) : !matches.length ? (
+        <small>{t("No matching conversations")}</small>
       ) : null}
-      <div className="assistant-watched-sessions">
+      <div className="assistant-watched-sessions" hidden={!visible.length}>
         {visible.map((session) => (
           <div className="assistant-watched-session" key={session.id}>
             {session.harness && (
@@ -1505,6 +1592,11 @@ export function WatchedSessions({
               />
             )}
             <span title={title(session)}>{title(session)}</span>
+            {showProjects && projectName(session.projectId) && (
+              <small className="assistant-watched-project">
+                {projectName(session.projectId)}
+              </small>
+            )}
             {isExplicitlyWatchedSession(
               policy,
               session.projectId,
@@ -1518,12 +1610,27 @@ export function WatchedSessions({
               })}
               onClick={() => onRemove(session.id)}
             >
-              <X size={16} aria-hidden="true" />
+              <X size={14} aria-hidden="true" />
             </button>
           </div>
         ))}
+        {matches.length > visible.length && (
+          <button
+            type="button"
+            className="assistant-watched-more"
+            onClick={() => setLimit((n) => n + WATCHED_PAGE)}
+          >
+            {t("Show more ({count} remaining)", {
+              count: matches.length - visible.length,
+            })}
+          </button>
+        )}
       </div>
-      <small>
+      <small className="assistant-watch-note">
+        {onFollowScope &&
+          `${t(
+            "Scope follows include existing and future conversations. Individually removed conversations stay excluded.",
+          )} `}
         {t(
           "Other conversations are read-only. Followed conversations use the permissions enabled in assistant settings. Assistant-created conversations are followed by default and remain manageable if removed.",
         )}

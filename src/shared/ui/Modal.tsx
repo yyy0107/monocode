@@ -31,6 +31,8 @@ type Props = {
   className?: string;
   /** Keep taller dialogs inside the viewport, scrolling their content. */
   fitViewport?: boolean;
+  /** Raises the dialog above an overlay that already sits over `LAYER.dialog`. */
+  layer?: number;
   children: ReactNode;
 };
 
@@ -148,7 +150,7 @@ export function Modal(props: Props) {
   if (!visible) return null;
   if (host) return createPortal(<ModalPanel {...props} />, host);
   return createPortal(
-    <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>
+    <div className="fixed inset-0" style={{ zIndex: props.layer ?? LAYER.dialog }}>
       <div
         className="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-xs"
         onMouseDown={props.onClose}

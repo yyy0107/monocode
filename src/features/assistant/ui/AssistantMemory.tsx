@@ -1,7 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type KeyboardEvent,
+} from "react";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
+import { ChevronRight } from "../../../shared/ui/icons";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import type { AssistantMemory } from "../model/assistant";
 import type { AssistantRpc } from "../model/assistantClient";
+import type { AssistantMemoryDetailProps } from "./AssistantChatChrome";
 
 type MemoryControl =
   | { action: "addMemory"; fact: string }
@@ -9,7 +19,8 @@ type MemoryControl =
   | { action: "forgetMemory"; index: number };
 
 /**
- * The assistant's resident memory, editable in place. Edits apply at once,
+ * The assistant's resident memory. Each fact opens in a platform panel for
+ * editing or forgetting; edits apply at once,
  * like cancelling a reminder, and never touch the settings draft. Each edit
  * carries the version it was made against, so one written meanwhile by the
  * assistant or another device is reloaded instead of overwritten.
@@ -18,18 +29,27 @@ export function AssistantMemoryEditor({
   rpc,
   revision,
   disabled,
+  Detail,
 }: {
   rpc: AssistantRpc;
   /** The Host's current memory version; a change reloads the list. */
   revision: number;
   disabled?: boolean;
+  /** Platform panel; facts list on one line and open in it. */
+  Detail: ComponentType<AssistantMemoryDetailProps>;
 }) {
   const { t } = useTranslation();
   const [memory, setMemory] = useState<AssistantMemory>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
-  const [editing, setEditing] = useState<{ index: number; text: string }>();
   const [adding, setAdding] = useState("");
+  // The opened fact is retained while its panel animates closed.
+  const [detail, setDetail] = useState<{
+    index: number;
+    text: string;
+    meta?: string;
+    open: boolean;
+  }>();
   const loads = useRef(0);
   const load = useCallback(async () => {
     const load = ++loads.current;
@@ -44,16 +64,27 @@ export function AssistantMemoryEditor({
   useEffect(() => {
     void load();
   }, [load, revision]);
+  const notices: Record<MemoryControl["action"], [string, string]> = {
+    addMemory: ["Adding memory…", "Memory added"],
+    editMemory: ["Updating memory…", "Memory updated"],
+    forgetMemory: ["Forgetting memory…", "Memory forgotten"],
+  };
   const control = async (input: MemoryControl) => {
     if (!memory) return false;
     setPending(true);
     setError(undefined);
     try {
-      await rpc("assistant.control", {
-        commandId: crypto.randomUUID(),
-        expectedRevision: memory.revision,
-        ...input,
-      });
+      const [loading, success] = notices[input.action];
+      // Failures stay inline next to the fact they concern.
+      await withStatusToast(
+        () =>
+          rpc("assistant.control", {
+            commandId: crypto.randomUUID(),
+            expectedRevision: memory.revision,
+            ...input,
+          }),
+        { loading: t(loading), success: t(success), error: false },
+      );
       return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -65,17 +96,12 @@ export function AssistantMemoryEditor({
   };
   const busy = disabled || pending || !memory;
   const facts = memory?.facts.filter((fact) => !fact.struck) ?? [];
-  const saveEdit = async () => {
-    if (!editing?.text.trim()) return;
-    if (
-      await control({
-        action: "editMemory",
-        index: editing.index,
-        fact: editing.text,
-      })
-    )
-      setEditing(undefined);
-  };
+  const factMeta = (fact: (typeof facts)[number]) =>
+    [fact.date, fact.until && t("until {date}", { date: fact.until })]
+      .filter(Boolean)
+      .join(" · ") || undefined;
+  const closeDetail = () =>
+    setDetail((current) => current && { ...current, open: false });
   const add = async () => {
     if (!adding.trim()) return;
     if (await control({ action: "addMemory", fact: adding })) setAdding("");
@@ -98,76 +124,30 @@ export function AssistantMemoryEditor({
         <ul className="assistant-memory-list" aria-label={t("Remembered facts")}>
           {facts.map((fact) => (
             <li key={`${fact.index}:${fact.text}`}>
-              {editing?.index === fact.index ? (
-                <>
-                  <input
-                    aria-label={t("Edit fact")}
-                    value={editing.text}
-                    maxLength={1000}
-                    disabled={busy}
-                    autoFocus
-                    onChange={(e) =>
-                      setEditing({ index: fact.index, text: e.target.value })
-                    }
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") setEditing(undefined);
-                      else onEnter(saveEdit)(event);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="assistant-link-button"
-                    disabled={busy || !editing.text.trim()}
-                    onClick={() => void saveEdit()}
-                  >
-                    {t("Save")}
-                  </button>
-                  <button
-                    type="button"
-                    className="assistant-link-button"
-                    disabled={pending}
-                    onClick={() => setEditing(undefined)}
-                  >
-                    {t("Cancel")}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="assistant-memory-fact">
-                    {fact.text}
-                    {(fact.date || fact.until) && (
-                      <small>
-                        {[
-                          fact.date,
-                          fact.until && t("until {date}", { date: fact.until }),
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </small>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    className="assistant-link-button"
-                    disabled={busy}
-                    onClick={() =>
-                      setEditing({ index: fact.index, text: fact.text })
-                    }
-                  >
-                    {t("Edit")}
-                  </button>
-                  <button
-                    type="button"
-                    className="assistant-link-button"
-                    disabled={busy}
-                    onClick={() =>
-                      void control({ action: "forgetMemory", index: fact.index })
-                    }
-                  >
-                    {t("Forget")}
-                  </button>
-                </>
-              )}
+              <button
+                type="button"
+                className="assistant-memory-row"
+                aria-haspopup="dialog"
+                disabled={busy}
+                onClick={() => {
+                  setError(undefined);
+                  setDetail({
+                    index: fact.index,
+                    text: fact.text,
+                    meta: factMeta(fact),
+                    open: true,
+                  });
+                }}
+              >
+                <time
+                  className="assistant-memory-row-date"
+                  dateTime={fact.date || undefined}
+                >
+                  {fact.date ?? ""}
+                </time>
+                <span className="assistant-memory-row-text">{fact.text}</span>
+                <ChevronRight size={16} aria-hidden="true" />
+              </button>
             </li>
           ))}
         </ul>
@@ -195,10 +175,29 @@ export function AssistantMemoryEditor({
           {t("Topic notes: {topics}", { topics: memory.topics.join(", ") })}
         </small>
       )}
-      {error && (
+      {error && !detail?.open && (
         <small className="assistant-field-error" role="alert">
           {error}
         </small>
+      )}
+      {detail && (
+        <Detail
+          open={detail.open}
+          text={detail.text}
+          meta={detail.meta}
+          busy={busy}
+          error={error}
+          onClose={closeDetail}
+          onSave={async (text) => {
+            if (!text.trim() || text === detail.text) return;
+            if (await control({ action: "editMemory", index: detail.index, fact: text }))
+              closeDetail();
+          }}
+          onForget={async () => {
+            if (await control({ action: "forgetMemory", index: detail.index }))
+              closeDetail();
+          }}
+        />
       )}
     </div>
   );

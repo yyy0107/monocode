@@ -670,6 +670,16 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   border: 0;
   gap: 10px;
 }
+/* Collapsible sections keep their spacing inside the fold (see assistant.css). */
+.assistant-settings[data-layout="mobile"] .assistant-settings-section[data-open] {
+  gap: 0;
+}
+.assistant-settings[data-layout="mobile"]
+  .assistant-settings-section
+  > .zen-fold-item
+  > *::before {
+  height: 22px;
+}
 .assistant-settings[data-layout="mobile"] .assistant-settings-section > header {
   padding-inline: 4px;
 }
@@ -986,4 +996,53 @@ html.theme-light:not(.has-user-accent) .assistant-chat[data-layout="mobile"] .as
   .mobile-assistant-select-trigger {
     transition: none;
   }
+}
+
+.mobile-assistant-memory-detail {
+  display: grid;
+  gap: 12px;
+  padding: 4px 16px calc(16px + var(--mobile-safe-bottom));
+}
+.mobile-assistant-memory-detail textarea {
+  min-height: 140px;
+  max-height: 50vh;
+  padding: 12px;
+  border: 1px solid var(--mobile-separator);
+  border-radius: 12px;
+  background: var(--mobile-card);
+  color: inherit;
+  font-size: var(--mobile-font-lg);
+  line-height: 1.5;
+  resize: none;
+  overflow-wrap: anywhere;
+}
+.mobile-assistant-memory-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.mobile-assistant-memory-forget {
+  color: #d54a4a;
+}
+.mobile-assistant-memory-actions .mobile-button:disabled {
+  opacity: 0.45;
+}
+
+/* Watched conversations keep touch-sized rows and controls on phones. */
+.assistant-settings[data-layout="mobile"] .assistant-watched-session {
+  min-height: 44px;
+  font-size: var(--mobile-font-md);
+}
+.assistant-settings[data-layout="mobile"] .assistant-watched-session > button {
+  width: 36px;
+  height: 36px;
+}
+.assistant-settings[data-layout="mobile"]
+  :is(.assistant-watch-bulk-actions, .assistant-watch-project-picker)
+  > button {
+  min-height: 36px;
+  padding-inline: 12px;
+}
+.assistant-settings[data-layout="mobile"] .assistant-watch-project {
+  min-height: 44px;
 }

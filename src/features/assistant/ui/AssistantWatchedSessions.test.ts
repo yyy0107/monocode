@@ -126,8 +126,12 @@ it("follows multiple project scopes or all conversations and keeps individual re
   expect(button("按项目关注").getAttribute("aria-expanded")).toBe("true");
   for (const name of ["项目甲", "项目乙"])
     await act(async () =>
-      [...node.querySelectorAll("label")]
-        .find((label) => label.textContent === name)!
+      [...node.querySelectorAll(".assistant-watch-project")]
+        .find(
+          (row) =>
+            row.querySelector(".assistant-watch-project-name > span")
+              ?.textContent === name,
+        )!
         .querySelector("input")!
         .click(),
     );
@@ -152,4 +156,53 @@ it("follows multiple project scopes or all conversations and keeps individual re
   expect(node.querySelectorAll(".assistant-watched-session")).toHaveLength(2);
   await act(async () => button("取消范围关注").click());
   expect(node.querySelectorAll(".assistant-watched-session")).toHaveLength(0);
+});
+
+it("lists recent conversations first and mounts large follow scopes a page at a time", async () => {
+  const sessions = Array.from({ length: 120 }, (_, i) => ({
+    id: `s${i}`,
+    title: `会话 ${i}`,
+    projectId: i % 2 ? "b" : "a",
+    harness: "codex" as const,
+    activityAt: i,
+  }));
+  const loadSessions = vi.fn(async () => sessions);
+  await act(async () =>
+    root.render(
+      createElement(WatchedSessions, {
+        active: true,
+        policy: { ...fullAssistantPolicy(), followedProjects: "all" },
+        watches: [],
+        projectIds: ["a", "b"],
+        projects: [
+          { id: "a", name: "Alpha" },
+          { id: "b", name: "Beta" },
+        ],
+        loadSessions,
+        onRemove: () => {},
+        onFollowScope: () => {},
+      }),
+    ),
+  );
+  const rows = () => node.querySelectorAll(".assistant-watched-session");
+  expect(rows()).toHaveLength(50);
+  expect(rows()[0].textContent).toContain("会话 119");
+  const more = () =>
+    node.querySelector<HTMLButtonElement>(".assistant-watched-more");
+  expect(more()?.textContent).toContain("70");
+  act(() => more()!.click());
+  expect(rows()).toHaveLength(100);
+  act(() => more()!.click());
+  expect(rows()).toHaveLength(120);
+  expect(more()).toBeNull();
+
+  const search = node.querySelector<HTMLInputElement>('input[type="search"]')!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "beta");
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  // Matching a project name finds its conversations; paging restarts.
+  expect(rows()).toHaveLength(50);
+  expect([...rows()].every((row) => row.textContent?.includes("Beta"))).toBe(true);
+  expect(more()?.textContent).toContain("10");
 });

@@ -140,11 +140,11 @@ const advance = (milliseconds: number) =>
     await vi.advanceTimersByTimeAsync(milliseconds);
   });
 
-it.each([false, true])(
-  "saves Feishu independently on mobile=%s and never fills or persists the secret",
-  async (mobile) => {
+it(
+  "saves Feishu independently on desktop and never fills or persists the secret",
+  async () => {
     const host = fakeHost();
-    const { save } = render(host, { mobile });
+    const { save } = render(host);
     expect(host.rpc).not.toHaveBeenCalled();
     await click("Feishu");
     expect(field("App ID").value).toBe("cli_saved");
@@ -182,6 +182,18 @@ it.each([false, true])(
     ).toBe(3);
   },
 );
+
+it("does not render Feishu or call IM methods on the mobile settings page", async () => {
+  const host = fakeHost();
+  render(host, { mobile: true });
+  expect(
+    node.querySelector('.assistant-settings[data-layout="mobile"]'),
+  ).not.toBeNull();
+  expect(button("Feishu")).toBeUndefined();
+  expect(node.querySelector(".assistant-im")).toBeNull();
+  await advance(6000);
+  expect(host.rpc).not.toHaveBeenCalled();
+});
 
 it("polls only while visible and keeps unsaved fields through status updates and collapse", async () => {
   const host = fakeHost();

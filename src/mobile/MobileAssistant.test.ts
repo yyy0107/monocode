@@ -788,7 +788,6 @@ it("retains the settings revision during polling and saves phone project switche
       .expectedRevision,
   ).toBe(1);
   act(() => button("Reload settings").click());
-  act(() => button("Advanced").click());
   act(() => button("Assistant wakeups").click());
   expect(node.querySelector("select[multiple]")).toBeNull();
   const all = node.querySelector<HTMLInputElement>(
@@ -1022,6 +1021,7 @@ it("picks settings values from a sheet and closes it with back", async () => {
   const data = await mount();
   act(() => button("Assistant options").click());
   act(() => button("Settings").click());
+  act(() => button("Assistant permissions").click());
   expect(node.querySelector(".assistant-settings select")).toBeNull();
   const trigger = () =>
     [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
@@ -1053,6 +1053,7 @@ it("closes only the nested settings picker on Escape", async () => {
   const data = await mount();
   act(() => button("Assistant options").click());
   act(() => button("Settings").click());
+  act(() => button("Assistant permissions").click());
   await flush();
   act(() => vi.advanceTimersByTime(211));
   const page = node.querySelector<HTMLElement>(

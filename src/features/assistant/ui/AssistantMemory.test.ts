@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AssistantSettings } from "./AssistantSettings";
 import type { AssistantMemory } from "../model/assistant";
+import type { AssistantMemoryDetailProps } from "./AssistantChatChrome";
 import { setUiLanguage } from "../../../shared/i18n/language";
 
 let root: Root, node: HTMLDivElement;
@@ -41,7 +42,7 @@ function fakeHost() {
   return { memory, rpc: rpc as never as <T>(method: string, params?: object) => Promise<T>, calls: rpc };
 }
 
-const render = (host: ReturnType<typeof fakeHost>) => {
+const render = (host: ReturnType<typeof fakeHost>, extra: object = {}) => {
   const save = vi.fn(async () => {});
   act(() =>
     root.render(
@@ -52,17 +53,19 @@ const render = (host: ReturnType<typeof fakeHost>) => {
         busy: false,
         onSave: save,
         memory: { rpc: host.rpc, revision: host.memory.revision, lines: host.memory.facts.length },
+        ...extra,
       }),
     ),
   );
   return save;
 };
+// The desktop memory dialog renders in a portal outside the settings node.
 const button = (text: string) =>
-  [...node.querySelectorAll("button")].find((b) => b.textContent?.includes(text))!;
+  [...document.body.querySelectorAll("button")].find((b) => b.textContent?.includes(text))!;
 const settle = () => act(async () => {});
-function type(field: HTMLInputElement, value: string) {
+function type(field: HTMLInputElement | HTMLTextAreaElement, value: string) {
   act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, value);
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!.call(field, value);
     field.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
@@ -88,11 +91,15 @@ it("loads memory only when opened and edits it without submitting the settings f
   expect(add.value).toBe("");
   expect(node.querySelector(".assistant-memory-list")?.textContent).toContain("Deploys on Fridays are off");
 
-  act(() => button("Edit").click());
-  const edit = node.querySelector<HTMLInputElement>('.assistant-memory-list input')!;
+  act(() => node.querySelector<HTMLButtonElement>(".assistant-memory-row")!.click());
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog.textContent).toContain("2026-10-01");
+  const edit = dialog.querySelector("textarea")!;
+  expect(edit.value).toBe("Prefers pnpm");
   type(edit, "Prefers bun");
-  await enter(edit);
+  await act(async () => button("Save").click());
   await settle();
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(host.calls).toHaveBeenCalledWith(
     "assistant.control",
     expect.objectContaining({ action: "editMemory", index: 0, fact: "Prefers bun", expectedRevision: 2 }),
@@ -108,8 +115,44 @@ it("shows a conflict and reloads instead of overwriting a newer memory", async (
   await settle();
   host.memory.revision = 5; // The assistant wrote meanwhile.
   host.memory.facts[0].text = "Prefers yarn";
-  act(() => button("Forget").click());
+  act(() => node.querySelector<HTMLButtonElement>(".assistant-memory-row")!.click());
+  await act(async () => button("Forget").click());
   await settle();
-  expect(node.querySelector('[role="alert"]')?.textContent).toMatch(/changed elsewhere/);
+  // The conflict stays in the open dialog next to the fact it concerns.
+  expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toMatch(/changed elsewhere/);
   expect(node.querySelector(".assistant-memory-list")?.textContent).toContain("Prefers yarn");
+});
+
+it("lists facts on one line and edits them in the platform panel", async () => {
+  const host = fakeHost();
+  const MemoryDetail = (props: AssistantMemoryDetailProps) =>
+    createElement(
+      "div",
+      { className: "memory-detail", "data-open": props.open },
+      createElement("p", null, props.text),
+      createElement("small", null, props.meta),
+      createElement("button", { type: "button", onClick: () => props.onSave("Prefers bun") }, "Save fact"),
+    );
+  render(host, { MemoryDetail });
+  act(() => button("Memory").click());
+  await settle();
+  const row = node.querySelector<HTMLButtonElement>(".assistant-memory-row")!;
+  expect(row.querySelector("time")?.textContent).toBe("2026-10-01");
+  expect(row.querySelector(".assistant-memory-row-text")?.textContent).toBe("Prefers pnpm");
+  expect(node.querySelector(".assistant-memory-list")?.textContent).not.toContain("Forget");
+  expect(node.querySelector(".memory-detail")).toBeNull();
+
+  act(() => row.click());
+  const detail = node.querySelector(".memory-detail")!;
+  expect(detail.getAttribute("data-open")).toBe("true");
+  expect(detail.textContent).toContain("2026-10-01");
+  await act(async () => button("Save fact").click());
+  await settle();
+  expect(host.calls).toHaveBeenCalledWith(
+    "assistant.control",
+    expect.objectContaining({ action: "editMemory", index: 0, fact: "Prefers bun" }),
+  );
+  expect(node.querySelector(".memory-detail")?.getAttribute("data-open")).toBe("false");
+  expect(node.querySelector(".assistant-memory-row-text")?.textContent).toBe("Prefers bun");
+  expect(document.querySelector("[data-status-toast-host]")?.textContent).toContain("Memory updated");
 });

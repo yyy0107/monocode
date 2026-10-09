@@ -21,6 +21,7 @@ import type {
   AssistantComposerProps,
   AssistantControlsProps,
   AssistantHeaderProps,
+  AssistantMemoryDetailProps,
   AssistantMessageMenuProps,
   AssistantSelectProps,
   AssistantSettingsPanelProps,
@@ -520,6 +521,68 @@ function MobileAssistantMessageMenu({
   );
 }
 
+/** One remembered fact in full, editable and forgettable from a bottom sheet. */
+function MobileAssistantMemoryDetail({
+  open,
+  text,
+  meta,
+  busy,
+  error,
+  onClose,
+  onSave,
+  onForget,
+}: AssistantMemoryDetailProps) {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState(text);
+  useLayoutEffect(() => {
+    if (open) setDraft(text);
+  }, [open, text]);
+  useAssistantBack(3, open, onClose);
+  const changed = !!draft.trim() && draft !== text;
+  return (
+    <MobileSheet
+      open={open}
+      title="Memory"
+      header={{ title: t("Memory"), subtitle: meta }}
+      surface="solid"
+      onClose={onClose}
+    >
+      <div className="mobile-assistant-memory-detail">
+        <textarea
+          aria-label={t("Edit fact")}
+          value={draft}
+          maxLength={1000}
+          disabled={busy || !open}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        {error && (
+          <small className="assistant-field-error" role="alert">
+            {error}
+          </small>
+        )}
+        <div className="mobile-assistant-memory-actions">
+          <button
+            type="button"
+            className="mobile-button mobile-assistant-memory-forget"
+            disabled={busy || !open}
+            onClick={onForget}
+          >
+            {t("Forget")}
+          </button>
+          <button
+            type="button"
+            className="mobile-button mobile-primary"
+            disabled={busy || !open || !changed}
+            onClick={() => onSave(draft)}
+          >
+            {t("Save")}
+          </button>
+        </div>
+      </div>
+    </MobileSheet>
+  );
+}
+
 /** A settings row that opens a bottom sheet instead of the native picker. */
 function MobileAssistantSelect({
   label,
@@ -633,6 +696,7 @@ const chrome: AssistantChatChrome = {
   Composer: MobileAssistantComposer,
   MessageMenu: MobileAssistantMessageMenu,
   Select: MobileAssistantSelect,
+  MemoryDetail: MobileAssistantMemoryDetail,
 };
 export type MobileAssistantHandle = { back: () => void };
 export function MobileAssistant({

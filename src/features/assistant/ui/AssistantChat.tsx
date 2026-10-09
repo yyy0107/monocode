@@ -58,6 +58,7 @@ import {
   useTranscriptRenderingPlatform,
 } from "../../sessions/ui/useTranscriptRenderingPlatform";
 import { Shimmer } from "../../../shared/ui/Shimmer";
+import { withStatusToast } from "../../../shared/ui/StatusToast";
 import { usePauseOffscreenAnimation } from "../../../shared/hooks/usePauseOffscreenAnimation";
 import { reducedMotionQuery } from "../../../shared/lib/reducedMotion";
 import { slidePromptIn } from "../../sessions/ui/promptLaunch";
@@ -424,6 +425,8 @@ export function AssistantChat({
                 title: row.title || row.id,
                 harness: row.harness,
                 projectId,
+                activityAt:
+                  row.activityAt ?? row.lastUserMessageAt ?? row.createdAt,
               })),
           ),
         ),
@@ -582,11 +585,22 @@ export function AssistantChat({
     });
   const save = async (patch: AssistantPatch) =>
     operation(async () => {
-      await rpc("assistant.configure", {
-        commandId: crypto.randomUUID(),
-        expectedRevision: settingsBase?.revision ?? 0,
-        patch,
-      });
+      // Failures stay inline in the settings panel, beside Reload settings.
+      await withStatusToast(
+        () =>
+          rpc("assistant.configure", {
+            commandId: crypto.randomUUID(),
+            expectedRevision: settingsBase?.revision ?? 0,
+            patch,
+          }),
+        {
+          loading: t("Saving assistant settings…"),
+          success: t(
+            settingsBase ? "Assistant settings saved" : "Assistant enabled",
+          ),
+          error: false,
+        },
+      );
       setSettingsOpen(false);
     });
   const open = useCallback(async (ref: SessionReference) => {
@@ -876,6 +890,7 @@ export function AssistantChat({
                 }
                 mobile={mobile}
                 Select={ui.Select}
+                MemoryDetail={ui.MemoryDetail}
                 Actions={ui.SettingsActions}
                 personaSupported={personaSupported}
                 im={{

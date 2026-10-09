@@ -271,9 +271,8 @@ it("defaults to all permissions and animates permission disclosure in both direc
       }),
     ),
   );
-  expect(disclosure("Assistant permissions")).toBeUndefined();
-  act(() => disclosure("Advanced").click());
   const button = disclosure("Assistant permissions");
+  expect(button.getAttribute("aria-expanded")).toBe("false");
   const fold = () =>
     button.closest("section")!.querySelector(":scope > .zen-fold-item");
   act(() => button.click());
@@ -315,8 +314,10 @@ it("localizes settings and honors reduced motion", () => {
       }),
     ),
   );
-  expect(node.textContent).toContain("权限与唤醒");
-  act(() => disclosure("高级").click());
+  expect(
+    [...node.querySelectorAll("h3")].map((heading) => heading.textContent),
+  ).toEqual(["助理", "模型"]);
+  expect(disclosure("助理唤醒").getAttribute("aria-expanded")).toBe("false");
   const button = disclosure("助理权限");
   const fold = () =>
     button.closest("section")!.querySelector(":scope > .zen-fold-item");
@@ -415,6 +416,9 @@ it("keeps the edited settings revision until an explicit reload after a competin
   expect(node.querySelector('[role="alert"]')?.textContent).toContain(
     "settings changed",
   );
+  const toasts = () =>
+    document.querySelector("[data-status-toast-host]")?.textContent ?? "";
+  expect(toasts()).not.toContain("Assistant settings saved");
   expect(
     rpc.mock.calls.find(([method]) => method === "assistant.configure")?.[1]
       ?.expectedRevision,
@@ -431,6 +435,7 @@ it("keeps the edited settings revision until an explicit reload after a competin
       .filter(([method]) => method === "assistant.configure")
       .at(-1)?.[1]?.expectedRevision,
   ).toBe(2);
+  expect(toasts()).toContain("Assistant settings saved");
 });
 it("sends necessary input with its exact run and generation rather than a chat prompt", async () => {
   const input: AssistantMessage = {
@@ -838,7 +843,6 @@ it("enables saving only for changed, valid settings", () => {
   expect(save.disabled).toBe(true);
   act(() => rename("Helper"));
   expect(save.disabled).toBe(false);
-  act(() => disclosure("Advanced").click());
   act(() => disclosure("Assistant wakeups").click());
   const interval = node.querySelector<HTMLInputElement>(
     'input[aria-label="Interval"]',
@@ -868,6 +872,35 @@ it("enables saving only for changed, valid settings", () => {
     }),
   );
 });
+it.each(["maxAutoTurns", "chainWindowMinutes"] as const)(
+  "reveals wakeups and More options for invalid %s before focusing the field",
+  (key) => {
+    const onSave = vi.fn(async () => {});
+    act(() =>
+      root.render(
+        createElement(AssistantSettings, {
+          value: { ...configuredView(), [key]: 0 },
+          catalog: {
+            models: { codex: [{ id: "test", name: "Test" }] },
+            errors: {},
+          },
+          projects: [],
+          busy: false,
+          onSave,
+        }),
+      ),
+    );
+    expect(disclosure("Assistant wakeups").getAttribute("aria-expanded")).toBe("false");
+    expect(disclosure("More options")).toBeUndefined();
+    act(() => rename("Helper"));
+    act(() => disclosure("Save settings").click());
+    expect(onSave).not.toHaveBeenCalled();
+    expect(disclosure("Assistant wakeups").getAttribute("aria-expanded")).toBe("true");
+    expect(disclosure("More options").getAttribute("aria-expanded")).toBe("true");
+    act(() => vi.runOnlyPendingTimers());
+    expect(document.activeElement).toBe(node.querySelector('[aria-invalid="true"]'));
+  },
+);
 it("offers Continue inside an interruption notice", async () => {
   const rpc = chatRpc({
     ...configuredView(),

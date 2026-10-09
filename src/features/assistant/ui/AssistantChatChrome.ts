@@ -69,6 +69,19 @@ export type AssistantChatChrome = {
   MessageMenu?: ComponentType<AssistantMessageMenuProps>;
   /** Settings picker; desktop falls back to the shared searchable select. */
   Select?: ComponentType<AssistantSelectProps>;
+  /** Opens one remembered fact in a panel; desktop falls back to a dialog. */
+  MemoryDetail?: ComponentType<AssistantMemoryDetailProps>;
+};
+export type AssistantMemoryDetailProps = {
+  open: boolean;
+  text: string;
+  /** Saved and expiry dates, already localized. */
+  meta?: string;
+  busy: boolean;
+  error?: string;
+  onClose: () => void;
+  onSave: (text: string) => void;
+  onForget: () => void;
 };
 export type AssistantSelectOption = { value: string; label: string; icon?: ReactNode };
 export type AssistantSelectProps = {
