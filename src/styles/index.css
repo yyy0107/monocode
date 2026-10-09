@@ -816,6 +816,27 @@ html.has-chat-background.chat-background-effect-ready.chat-background-gradient-b
   }
 }
 
+/*
+ * While a project switch renders, the previous project stays on screen. Dim it
+ * after a short delay so quick switches never flash; restore immediately.
+ */
+.project-switch-surface {
+  transition: opacity 120ms ease;
+}
+
+.project-switch-surface[data-project-switching] {
+  opacity: 0.55;
+  cursor: progress;
+  transition: opacity 180ms ease 120ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .project-switch-surface,
+  .project-switch-surface[data-project-switching] {
+    transition-duration: 0ms;
+  }
+}
+
 /* History is paged by turn. Lay out each loaded page at its real height:
    estimated offscreen heights change the scroll range during a gesture and
    require scrollTop corrections as the reader moves back through history. */

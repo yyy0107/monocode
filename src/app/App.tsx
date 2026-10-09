@@ -105,6 +105,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  useTransition,
   type CSSProperties,
 } from "react";
 import { Sidebar } from "./shell/Sidebar";
@@ -5753,14 +5754,21 @@ function Workspace({
     [activateTab, insertBeside, onCwdChange, readProjectReturnMemory],
   );
 
+  // The caller's own feedback (a closing picker, the sidebar's project header)
+  // paints first; rebuilding the workspace can be interrupted. Until it lands,
+  // the previous project's content stays on screen marked as switching.
+  const [projectSwitchPending, startProjectSwitch] = useTransition();
   const onSelectProject = useCallback(
     (path: string) => {
-      workspaceNavigation.cancel();
-      openProjects([path]);
-      workspaceNavigation.selectProject(path);
+      startProjectSwitch(() => {
+        workspaceNavigation.cancel();
+        openProjects([path]);
+        workspaceNavigation.selectProject(path);
+      });
     },
     [
       openProjects,
+      startProjectSwitch,
       workspaceNavigation.cancel,
       workspaceNavigation.selectProject,
     ],
@@ -11452,7 +11460,11 @@ function Workspace({
 
                 <SidebarMain open={sessionSidebarOpen}>
                   <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <main className="relative flex min-h-0 min-w-0 flex-1">
+                    <main
+                      data-project-switching={projectSwitchPending || undefined}
+                      aria-busy={projectSwitchPending || undefined}
+                      className="project-switch-surface relative flex min-h-0 min-w-0 flex-1"
+                    >
                       {APP_PAGE_KINDS.filter(
                         (kind) => kind !== "notes" || notesEnabled,
                       ).map((kind) => (
