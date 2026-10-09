@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { assistantNotificationActivity } from "../../src/features/assistant/model/assistantNotifications";
+import { followSession } from "../../src/features/assistant/model/assistantSessions";
 import type { HostStore } from "../store";
 import {
   defaultAssistantPersona,
@@ -31,6 +32,7 @@ export function signature(value: unknown): string {
     .digest("hex");
 }
 export type AssistantRecord = AssistantView & {
+  createdSessionWatchesMigrated?: boolean;
   brainSessionId?: string;
   /** Context a fresh brain of this generation used on its first turn. */
   brainBaseline?: number;
@@ -182,6 +184,7 @@ export class AssistantStore {
       brainBaseline: _baseline,
       brainMemory: _memory,
       sourceCursor: _cursor,
+      createdSessionWatchesMigrated: _createdSessionWatchesMigrated,
       ...publicValue
     } = value;
     const sources = this.host.db
@@ -231,6 +234,7 @@ export class AssistantStore {
       triggers: { user: true, event: true, schedule: true },
       brainGeneration: 1,
       sourceCursor: 0,
+      createdSessionWatchesMigrated: true,
       maxAutoTurns: 8,
       chainWindowMinutes: 15,
       schedules: [
@@ -541,6 +545,26 @@ export class AssistantStore {
       .all()
       .map((r) => JSON.parse(String(r.payload)));
   }
+  /** Committed in the same transaction as conversation creation and its ledger. */
+  followCreatedSession(projectId: string, sessionId: string): void {
+    const config = this.get()!;
+    this.update({
+      policy: followSession(config.policy, projectId, sessionId),
+      policyVersion: config.policyVersion + 1,
+    }, true);
+  }
+  /** Creation provenance comes from the Host ledger, never client-supplied metadata. */
+  createdSession(sessionId: string): boolean {
+    const assistantId = this.get()?.id;
+    return !!assistantId && !!this.host.db.prepare(`
+      SELECT 1 FROM assistant_actions
+      WHERE json_extract(payload, '$.action') = 'sessions.create'
+        AND json_extract(payload, '$.origin.assistantId') = ?
+        AND json_extract(payload, '$.targetRef.sessionId') = ?
+        AND json_extract(payload, '$.state') IN ('accepted', 'completed')
+      LIMIT 1
+    `).get(assistantId, sessionId);
+  }
   putAction(action: AssistantAction): void {
     this.host.db
       .prepare(
@@ -660,6 +684,9 @@ export class AssistantStore {
               result: receipt,
               targetRef: ref,
             });
+            if (action.action === "sessions.create" && target &&
+                !this.get()?.policy.excludedSessionIds?.includes(target.session.id))
+              this.followCreatedSession(target.projectId, target.session.id);
             if (
               target &&
               ref &&
@@ -686,6 +713,23 @@ export class AssistantStore {
                 "Host restarted before the operation result was recorded. Inspect its effects before continuing.",
             });
         }
+      const config = this.get();
+      if (config && !config.createdSessionWatchesMigrated) {
+        let policy = config.policy;
+        for (const action of this.actions()) {
+          if (action.action !== "sessions.create" || action.origin.assistantId !== config.id ||
+              !["accepted", "completed"].includes(action.state) || !action.targetRef ||
+              policy.excludedSessionIds?.includes(action.targetRef.sessionId)) continue;
+          try {
+            const target = this.host.session(action.targetRef.sessionId);
+            if (!target.session.assistantOwnerId && !this.host.project(target.projectId).kind)
+              policy = followSession(policy, target.projectId, target.session.id);
+          } catch { /* Deleted conversations do not need to be followed. */ }
+        }
+        const changed = signature(policy) !== signature(config.policy);
+        this.update({ policy, createdSessionWatchesMigrated: true,
+          policyVersion: config.policyVersion + (changed ? 1 : 0) }, changed);
+      }
       if (this.get() && (interrupted || this.get()!.lifecycle === "running"))
         this.update({
           lifecycle: "interrupted",

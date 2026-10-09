@@ -30,3 +30,13 @@ it("rejects unknown policy fields and disabled missing permissions", () => {
   const policy = validatePolicy({ permissions: {}, allowedProjects: [] });
   expect(policy.permissions["sessions.send"]).toBe(false);
 });
+
+it("validates ongoing project follows and individual exclusions without enabling permissions", () => {
+  const policy = validatePolicy({ permissions: {}, allowedProjects: [], followedProjects: ["p1", "p2"], excludedSessionIds: ["s"] });
+  expect(policy.followedProjects).toEqual(["p1", "p2"]);
+  expect(policy.excludedSessionIds).toEqual(["s"]);
+  expect(() => checkPolicy(policy, "sessions.send", "p1")).toThrow(/Permission/);
+  expect(validatePolicy({ ...fullAssistantPolicy(), followedProjects: "all" }).followedProjects).toBe("all");
+  for (const patch of [{ followedProjects: true }, { followedProjects: [""] }, { excludedSessionIds: "all" }, { excludedSessionIds: [false] }])
+    expect(() => validatePolicy({ ...fullAssistantPolicy(), ...patch })).toThrow();
+});

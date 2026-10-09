@@ -4,6 +4,7 @@ import {
   Copy,
   ChevronRight,
   CircleDot,
+  Bot,
   GitBranch,
   Pencil,
   Pin,
@@ -30,6 +31,7 @@ export function MobileSessionActions({
   onUpdate,
   onDelete,
   onMarkUnread,
+  onDelegate,
   onClose,
 }: {
   open?: boolean;
@@ -42,6 +44,7 @@ export function MobileSessionActions({
   onUpdate: (patch: MobileSessionPatch) => Promise<void>;
   onDelete?: () => Promise<void>;
   onMarkUnread?: () => Promise<void>;
+  onDelegate?: () => Promise<void>;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -76,7 +79,7 @@ export function MobileSessionActions({
     } catch (problem) {
       setError(
         problem instanceof Error
-          ? problem.message
+          ? t(problem.message)
           : t("Unable to update this conversation."),
       );
     } finally {
@@ -125,6 +128,15 @@ export function MobileSessionActions({
             {summary && <p className="mobile-session-menu-title">{sessionDisplayTitle(summary.title, summary.harness) || t("Untitled conversation")}</p>}
             {session && (
               <>
+                {onDelegate && (
+                  <button className="mobile-sheet-row" disabled={blocked} onClick={() => void run(onDelegate)}>
+                    <Bot size={20} />
+                    <span className="mobile-sheet-row-text">
+                      <span>{t("Hand over to assistant")}</span>
+                      <small>{t("Follow this conversation and allow configured assistant actions")}</small>
+                    </span>
+                  </button>
+                )}
                 {branch && (
                   <button
                     className="mobile-sheet-row"

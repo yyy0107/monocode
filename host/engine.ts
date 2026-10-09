@@ -313,7 +313,7 @@ export class HostEngine {
   readonly assistant: HostAssistant;
   readonly im: HostImService;
   readonly workflows: HostWorkflows;
-  authorizeAssistantQueued?: (origin: import("../src/features/sessions/model/session").TurnOrigin, projectId: string) => boolean;
+  authorizeAssistantQueued?: (origin: import("../src/features/sessions/model/session").TurnOrigin, projectId: string, sessionId: string) => boolean;
   readonly orchestration: HostOrchestration;
   readonly ready: Promise<void>;
   private managedCompletions = new Map<string, (outcome: ControlOutcome) => void>();
@@ -604,7 +604,7 @@ export class HostEngine {
     try {
       if (this.managedCompletions.has(id)) throw new Error("The managed worker already has a pending turn");
       const value = this.store.session(id);
-      if (origin && !this.authorizeAssistantQueued?.(origin, value.projectId)) throw new Error("Assistant message blocked because its permission was revoked.");
+      if (origin && !this.authorizeAssistantQueued?.(origin, value.projectId, value.session.id)) throw new Error("Assistant message blocked because its permission was revoked.");
       this.applyCommand({ type: "send", commandId: `managed:${randomUUID()}`, sessionId: id, text: prompt }, true, undefined, origin);
       this.managedCompletions.set(id, done);
     } catch (error) { done({ status: "failed", text: "", error: error instanceof Error ? error.message : String(error) }); }
@@ -627,7 +627,7 @@ export class HostEngine {
     this.flush(id);
     const value = this.store.session(id), active = this.running.get(id), provider = this.provider(value.session.harness);
     if (!active || active.finishing || active.cancelled || !provider.steer) throw new Error("This worker cannot receive guidance during its current turn");
-    if (receipt?.origin && !this.authorizeAssistantQueued?.(receipt.origin, value.projectId)) throw new Error("Assistant message permission was revoked.");
+    if (receipt?.origin && !this.authorizeAssistantQueued?.(receipt.origin, value.projectId, value.session.id)) throw new Error("Assistant message permission was revoked.");
     const saved = this.store.transaction(() => {
       const steered = appendSteerUser(value.session, prompt);
       if (receipt?.origin) steered.blocks[steered.blocks.length - 1] = { ...steered.blocks.at(-1)!, origin: receipt.origin };
@@ -927,7 +927,7 @@ export class HostEngine {
     this.orchestration.assertSessionWrite(id, "send");
     if (!active || active.runId !== runId || active.finishing || active.cancelled || !provider.steer || !authorize()) throw new Error("This turn cannot receive guidance");
     const prepared = await this.skills.prepare(prompt, { harness: value.session.harness as RemoteProvider, cwd: value.session.cwd, sessionId: id }, provider);
-    if (!authorize() || active.finishing || active.cancelled || !this.authorizeAssistantQueued?.(origin, value.projectId)) throw new Error("Assistant permission was revoked");
+    if (!authorize() || active.finishing || active.cancelled || !this.authorizeAssistantQueued?.(origin, value.projectId, value.session.id)) throw new Error("Assistant permission was revoked");
     const next = appendSteerUser(this.store.session(id).session, prompt);
     next.blocks[next.blocks.length - 1] = { ...next.blocks[next.blocks.length - 1], origin };
     const saved = this.save({ ...this.store.session(id), session: next }, { type: "assistant.steer", origin });
@@ -1588,7 +1588,7 @@ export class HostEngine {
     )
       return;
     const row = queuedHead(value.session)!;
-    if (row.origin && !this.authorizeAssistantQueued?.(row.origin, value.projectId)) {
+    if (row.origin && !this.authorizeAssistantQueued?.(row.origin, value.projectId, value.session.id)) {
       const remaining = value.session.queuedMessages!.map(q => q.id === row.id ? { ...q, blocked: "Assistant message blocked because its permission was revoked." } : q);
       this.save({ ...value, session: { ...value.session, queuedMessages: remaining,
         blocks: [...value.session.blocks, { id: `blocked:${row.id}`, role: "system", text: "Assistant message blocked because its permission was revoked." }],
@@ -1632,7 +1632,7 @@ export class HostEngine {
         const provider = this.provider(session.harness);
         const prepared = await this.skills.prepare(row.text, { harness: session.harness as RemoteProvider, cwd: session.worktreeCwd || session.cwd, sessionId: session.id }, provider);
         if (active.cancelled || active.finishing || this.closing) throw new Error("Turn stopped before the queued message could be steered");
-        if (row.origin && !this.authorizeAssistantQueued?.(row.origin, value.projectId)) throw new Error("Assistant permission was revoked");
+        if (row.origin && !this.authorizeAssistantQueued?.(row.origin, value.projectId, value.session.id)) throw new Error("Assistant permission was revoked");
         await provider.steer!({
           sessionId: session.id,
           cwd: session.cwd,

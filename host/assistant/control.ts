@@ -697,9 +697,11 @@ export async function executeAssistantAction(
   const additional = new Set<AssistantPermission>();
   const requireAccess = () => {
     if (!authorized()) throw new Error("Assistant control was revoked");
-    checkPolicy(store.get()!.policy, permission, projectId);
+    const targetId = session?.session.id ?? (action === "orchestration.worker" && typeof input.leadId === "string" ? id(input.leadId) : undefined);
+    const accessPermission = action === "orchestration.worker" && ["get", "list"].includes(String(input.action)) ? "sessions.read" : permission;
+    assistant.checkSessionAccess(accessPermission, projectId, targetId);
     for (const extra of additional)
-      checkPolicy(store.get()!.policy, extra, projectId);
+      assistant.checkSessionAccess(extra, projectId, targetId);
   };
   requireAccess();
   if (
@@ -929,6 +931,7 @@ export async function executeAssistantAction(
           projectId: session.projectId,
           sessionId: session.session.id,
         };
+        store.followCreatedSession(session.projectId, session.session.id);
         return persistResult(accepted);
       });
     } else if (action === "sessions.update") {

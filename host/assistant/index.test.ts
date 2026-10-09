@@ -9,6 +9,7 @@ import { MEMORY_MAX_LINES } from "./memory";
 import { enqueueDiaries } from "./diary";
 import type { HostProvider } from "../providers";
 import type { SendTurnInput } from "../../src/integrations/harness/core/types";
+import { removeWatchedSession } from "../../src/features/assistant/model/assistantSessions";
 import { fullAssistantPolicy } from "../../src/features/assistant/model/assistant";
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -120,6 +121,7 @@ it("creates real target cards and sends trusted messages idempotently", async ()
       },
       () => true,
     );
+  expect(engine.assistant.store.get()!.policy.followedSessions).toEqual([{ projectId: project.id, sessionId: receipt.sessionId }]);
   expect(
     store
       .session(receipt.sessionId)
@@ -173,6 +175,7 @@ it("retains trusted assistant provenance when steering a running target", async 
     model: "test",
     runtimeMode: "supervised",
   });
+  follow(engine, project.id, target.sessionId);
   engine.command({
     type: "send",
     commandId: "human-start-steer",
@@ -213,6 +216,7 @@ it("revokes queued assistant sends without holding later human messages", async 
     model: "test",
     runtimeMode: "supervised",
   });
+  follow(engine, project.id, created.sessionId);
   engine.command({
     type: "send",
     commandId: "human-start",
@@ -546,6 +550,7 @@ it("rolls back pure database effects when the assistant acceptance or card canno
     model: "test",
     runtimeMode: "supervised",
   });
+  follow(engine, project.id, target.sessionId);
   const original = store.session(target.sessionId);
   store.db.exec(
     "CREATE TRIGGER fail_acceptance BEFORE UPDATE ON assistant_actions WHEN json_extract(NEW.payload, '$.state')='completed' BEGIN SELECT RAISE(ABORT, 'acceptance failure'); END",
@@ -586,6 +591,7 @@ it("respects an external native owner and rejects stale target approvals already
     model: "test",
     runtimeMode: "supervised",
   });
+  follow(engine, project.id, target.sessionId);
   let saved = store.session(target.sessionId);
   const nativeSession = {
     provider: "codex" as const,
@@ -770,6 +776,9 @@ it("recovers more than 100 sources durably with bounded, coalesced summaries", a
   );
   await engine.assistant.tick();
   engine.assistant.store.update({
+    watches: engine.assistant.store.get()!.watches.map((watch) => ({ ...watch,
+      sessionIds: Array.from({ length: 125 }, (_, i) => `target-${i}`),
+    })),
     triggers: { user: true, event: true, schedule: false },
   });
   for (let i = 0; i < 125; i++)
@@ -919,6 +928,7 @@ it("keeps a durably accepted target queue running when only the brain is paused"
     model: "test",
     runtimeMode: "supervised",
   });
+  follow(engine, project.id, target.sessionId);
   engine.command({
     type: "send",
     commandId: "first-human",
@@ -1627,4 +1637,189 @@ it("routes assigned playbooks to worker messages, steering and retries after che
     generation.mockRestore();
     run.mockRestore();
   }
+});
+
+function follow(engine: HostEngine, projectId: string, sessionId: string) {
+  const config = engine.assistant.store.get()!;
+  engine.assistant.store.update({ policy: { ...config.policy,
+    followedSessions: [...(config.policy.followedSessions ?? []), { projectId, sessionId }],
+  } });
+}
+
+it("keeps ordinary conversations read-only even with every permission enabled", async () => {
+  const { engine, project, store } = await setup();
+  const target = engine.command({ type: "create", commandId: "human-read-only", projectId: project.id,
+    harness: "codex", model: "test", runtimeMode: "supervised" });
+  const input = { projectId: project.id, sessionId: target.sessionId };
+  expect(await executeAssistantAction(engine.assistant, "read-ordinary", "sessions.get", input, () => true)).toBeTruthy();
+  const original = store.session(target.sessionId);
+  for (const action of ["send", "steer", "configure", "compact", "cancel", "approve", "answer", "queue", "update", "delete"])
+    await expect(executeAssistantAction(engine.assistant, `deny-unfollowed-${action}`, `sessions.${action}`, input, () => true)).rejects.toThrow(/read-only/);
+  expect(store.session(target.sessionId)).toEqual(original);
+  expect(engine.assistant.store.get()!.policy.followedSessions).toBeUndefined();
+});
+
+it("hands over only the chosen conversation idempotently and preserves permission switches", async () => {
+  const { engine, project, store } = await setup();
+  const create = (commandId: string) => engine.command({ type: "create", commandId, projectId: project.id,
+    harness: "codex", model: "test", runtimeMode: "supervised" });
+  const target = create("human-handoff"), sibling = create("human-sibling");
+  const policy = fullAssistantPolicy();
+  policy.permissions["sessions.send"] = false;
+  engine.assistant.store.update({ policy });
+  const command = { action: "delegateSession", commandId: "handoff", environmentId: store.environmentId,
+    projectId: project.id, sessionId: target.sessionId };
+  const before = engine.assistant.store.wakeups().length;
+  const receipt = await engine.assistant.rpc("assistant.control", command);
+  expect(await engine.assistant.rpc("assistant.control", command)).toEqual(receipt);
+  expect(engine.assistant.store.wakeups()).toHaveLength(before + 1);
+  expect(engine.assistant.store.get()!.policy).toEqual({ ...policy, followedSessions: [{ projectId: project.id, sessionId: target.sessionId }] });
+  await expect(executeAssistantAction(engine.assistant, "still-denied", "sessions.send", {
+    projectId: project.id, sessionId: target.sessionId, text: "Work",
+  }, () => true)).rejects.toThrow(/Permission denied/);
+  await executeAssistantAction(engine.assistant, "allowed-rename", "sessions.update", {
+    projectId: project.id, sessionId: target.sessionId, title: "Followed task",
+  }, () => true);
+  await expect(executeAssistantAction(engine.assistant, "sibling-rename", "sessions.update", {
+    projectId: project.id, sessionId: sibling.sessionId, title: "Must not change",
+  }, () => true)).rejects.toThrow(/read-only/);
+  expect(store.session(target.sessionId).session.title).toBe("Followed task");
+  const config = engine.assistant.store.get()!;
+  await engine.assistant.rpc("assistant.configure", { commandId: "remove-follow", expectedRevision: config.revision,
+    patch: removeWatchedSession(config.policy, config.watches, target.sessionId) });
+  await expect(executeAssistantAction(engine.assistant, "removed-rename", "sessions.update", {
+    projectId: project.id, sessionId: target.sessionId, title: "Must not change",
+  }, () => true)).rejects.toThrow(/read-only/);
+  expect(await executeAssistantAction(engine.assistant, "read-removed", "sessions.get", {
+    projectId: project.id, sessionId: target.sessionId,
+  }, () => true)).toBeTruthy();
+});
+
+it("exempts assistant-created conversations using durable creation provenance", async () => {
+  const { engine, project } = await setup();
+  const created = await executeAssistantAction(engine.assistant, "assistant-owned", "sessions.create", {
+    projectId: project.id, harness: "codex", model: "test",
+  }, () => true) as { sessionId: string };
+  const config = engine.assistant.store.get()!;
+  await engine.assistant.rpc("assistant.configure", { commandId: "remove-owned-watch", expectedRevision: config.revision,
+    patch: removeWatchedSession(config.policy, config.watches, created.sessionId) });
+  expect(engine.assistant.store.createdSession(created.sessionId)).toBe(true);
+  expect(engine.assistant.store.get()!.policy.followedSessions ?? []).toEqual([]);
+  await executeAssistantAction(engine.assistant, "owned-rename", "sessions.update", {
+    projectId: project.id, sessionId: created.sessionId, title: "Still manageable",
+  }, () => true);
+  const policy = fullAssistantPolicy();
+  policy.permissions["sessions.metadata"] = false;
+  engine.assistant.store.update({ policy });
+  await expect(executeAssistantAction(engine.assistant, "owned-denied", "sessions.update", {
+    projectId: project.id, sessionId: created.sessionId, title: "Forbidden",
+  }, () => true)).rejects.toThrow(/Permission denied/);
+});
+
+it("blocks queued assistant messages after unfollowing while letting human messages proceed", async () => {
+  const { engine, project, store, turns } = await setup();
+  const target = engine.command({ type: "create", commandId: "human-queue", projectId: project.id,
+    harness: "codex", model: "test", runtimeMode: "supervised" });
+  follow(engine, project.id, target.sessionId);
+  engine.command({ type: "send", commandId: "begin-human", sessionId: target.sessionId, text: "Human first" });
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  await executeAssistantAction(engine.assistant, "pending-assistant", "sessions.send", {
+    projectId: project.id, sessionId: target.sessionId, text: "Assistant queued",
+  }, () => true);
+  engine.command({ type: "send", commandId: "later-human", sessionId: target.sessionId, text: "Human next" });
+  const config = engine.assistant.store.get()!;
+  engine.assistant.store.update(removeWatchedSession(config.policy, config.watches, target.sessionId));
+  turns[1].finish();
+  await vi.waitFor(() => expect(turns).toHaveLength(3));
+  expect(turns[2].input.text).toBe("Human next");
+  expect(store.session(target.sessionId).session.blocks.some((b) => b.role === "user" && b.text === "Assistant queued")).toBe(false);
+});
+
+it("rejects handoffs for wrong Hosts, projects and private brains before granting access", async () => {
+  const { engine, project, store } = await setup();
+  const target = engine.command({ type: "create", commandId: "handoff-validation", projectId: project.id,
+    harness: "codex", model: "test", runtimeMode: "supervised" });
+  const brain = engine.assistant.store.get()!.brainSessionId!;
+  const command = { action: "delegateSession", commandId: "invalid-handoff", environmentId: store.environmentId,
+    projectId: project.id, sessionId: target.sessionId };
+  for (const patch of [{ environmentId: "wrong-host" }, { projectId: "wrong-project" },
+    { sessionId: brain, projectId: store.session(brain).projectId }])
+    await expect(engine.assistant.rpc("assistant.control", { ...command, ...patch })).rejects.toThrow();
+  expect(engine.assistant.store.get()!.policy.followedSessions).toBeUndefined();
+});
+
+it("observes only managed conversations and respects configured event kinds", async () => {
+  const { engine, project, turns } = await setup();
+  const human = (commandId: string) => engine.command({ type: "create", commandId, projectId: project.id,
+    harness: "codex", model: "test", runtimeMode: "supervised" });
+  const ordinary = human("ordinary-event"), watched = human("watched-event");
+  follow(engine, project.id, watched.sessionId);
+  const owned = await executeAssistantAction(engine.assistant, "owned-event", "sessions.create", {
+    projectId: project.id, harness: "codex", model: "test",
+  }, () => true) as { sessionId: string };
+  turns[0].finish();
+  await vi.waitFor(() => expect(engine.store.session(engine.assistant.store.get()!.brainSessionId!).status).toBe("idle"));
+  await engine.assistant.tick();
+  const config = engine.assistant.store.get()!;
+  engine.assistant.store.update({ triggers: { user: true, event: true, schedule: false },
+    watches: config.watches.map((watch) => ({ ...watch, eventKinds: ["completed"] })),
+  });
+  const sources = [
+    { sessionId: ordinary.sessionId, kind: "completed" },
+    { sessionId: watched.sessionId, kind: "approval" },
+    { sessionId: watched.sessionId, kind: "completed" },
+    { sessionId: owned.sessionId, kind: "completed" },
+  ];
+  sources.forEach((source, index) => engine.assistant.store.source({ ...source, eventKey: `scope-${index}`,
+    projectId: project.id, rootCauseId: "event-scope", createdAt: Date.now() - 3000,
+  }));
+  await engine.assistant.tick();
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  const wakeup = engine.assistant.store.wakeups().find((w) => w.kind === "event")!;
+  expect(wakeup.refs).toEqual([watched.sessionId, owned.sessionId]);
+  expect(wakeup.text).not.toContain("approval:");
+  expect(engine.assistant.store.get()!.sourceCursor).toBe(4);
+});
+
+it("applies ongoing project follows to future conversations without changing configured permissions", async () => {
+  const { engine, project, store } = await setup();
+  const other = store.addProject(join(project.cwd, "other"), "Other");
+  const policy = { ...fullAssistantPolicy(), followedProjects: [project.id] };
+  policy.permissions["sessions.send"] = false;
+  await engine.assistant.rpc("assistant.configure", { commandId: "follow-project", expectedRevision: engine.assistant.store.get()!.revision, patch: { policy } });
+  const create = (commandId: string, projectId: string) => engine.command({ type: "create", commandId, projectId,
+    harness: "codex", model: "test", runtimeMode: "supervised" });
+  const followed = create("future-followed", project.id), unfollowed = create("future-unfollowed", other.id);
+  await executeAssistantAction(engine.assistant, "future-rename", "sessions.update", { projectId: project.id, sessionId: followed.sessionId, title: "Allowed" }, () => true);
+  await expect(executeAssistantAction(engine.assistant, "future-send", "sessions.send", { projectId: project.id, sessionId: followed.sessionId, text: "Still disabled" }, () => true)).rejects.toThrow(/Permission/);
+  await expect(executeAssistantAction(engine.assistant, "outside-rename", "sessions.update", { projectId: other.id, sessionId: unfollowed.sessionId, title: "Denied" }, () => true)).rejects.toThrow(/read-only/);
+  let config = engine.assistant.store.get()!;
+  await engine.assistant.rpc("assistant.configure", { commandId: "exclude-followed", expectedRevision: config.revision,
+    patch: removeWatchedSession(config.policy, config.watches, followed.sessionId) });
+  await expect(executeAssistantAction(engine.assistant, "excluded-rename", "sessions.update", { projectId: project.id, sessionId: followed.sessionId, title: "Denied" }, () => true)).rejects.toThrow(/read-only/);
+  config = engine.assistant.store.get()!;
+  await engine.assistant.rpc("assistant.configure", { commandId: "follow-all", expectedRevision: config.revision,
+    patch: { policy: { ...config.policy, followedProjects: "all" } } });
+  await executeAssistantAction(engine.assistant, "all-rename", "sessions.update", { projectId: other.id, sessionId: unfollowed.sessionId, title: "Allowed now" }, () => true);
+  await expect(executeAssistantAction(engine.assistant, "still-excluded", "sessions.update", { projectId: project.id, sessionId: followed.sessionId, title: "Denied" }, () => true)).rejects.toThrow(/read-only/);
+  const lead = create("followed-lead", project.id);
+  const child = store.session(followed.sessionId);
+  store.save({ ...child, revision: child.revision + 1, session: { ...child.session, orchestrationLeadId: lead.sessionId } }, {});
+  expect(engine.assistant.canManageSession(project.id, followed.sessionId)).toBe(false);
+});
+
+it("migrates previous assistant creations once and preserves subsequent unfollows across recovery", async () => {
+  const { engine, project } = await setup();
+  const created = await executeAssistantAction(engine.assistant, "legacy-created", "sessions.create", {
+    projectId: project.id, harness: "codex", model: "test",
+  }, () => true) as { sessionId: string };
+  engine.assistant.store.update({ policy: fullAssistantPolicy(), createdSessionWatchesMigrated: undefined });
+  engine.assistant.store.recover();
+  expect(engine.assistant.store.view()!.policy.followedSessions).toEqual([{ projectId: project.id, sessionId: created.sessionId }]);
+  expect(engine.assistant.store.view()).not.toHaveProperty("createdSessionWatchesMigrated");
+  const config = engine.assistant.store.get()!;
+  engine.assistant.store.update(removeWatchedSession(config.policy, config.watches, created.sessionId));
+  engine.assistant.store.recover();
+  expect(engine.assistant.store.get()!.policy.followedSessions).toEqual([]);
+  expect(engine.assistant.canManageSession(project.id, created.sessionId)).toBe(true);
 });

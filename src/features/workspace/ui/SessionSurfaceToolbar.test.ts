@@ -1,3 +1,7 @@
+import { configureSharedHost } from "../../connections/model/remoteProjects";
+import { rememberRemoteSession } from "../../connections/model/connections";
+import { delegateDesktopSession } from "../../assistant/model/delegateDesktopSession";
+vi.mock("../../assistant/model/delegateDesktopSession", () => ({ delegateDesktopSession: vi.fn(async () => {}) }));
 // @vitest-environment happy-dom
 import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -54,6 +58,8 @@ const quota = (usedPercent: number) => ({
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
+  configureSharedHost(undefined, []);
+  vi.mocked(delegateDesktopSession).mockClear();
   setUiLanguage("en");
   clearCachedRateLimits();
   saveProviderAccount({
@@ -445,4 +451,16 @@ it("localizes app-owned menu labels while keeping session and account names", as
   expect(usageRow().querySelector('[aria-label="刷新用量"]')).not.toBeNull();
   expect(menu.textContent).toContain("Left account");
   expect(container.textContent).toContain("left chat");
+});
+
+it("hands over the conversation belonging to the selected header", async () => {
+  configureSharedHost("local-host", [{ id: "left-project", cwd: "/left", name: "Left" }, { id: "right-project", cwd: "/right", name: "Right" }], "local-machine");
+  rememberRemoteSession("right", "host-right", { environmentId: "local-host", projectId: "right-project" });
+  await render();
+  const menu = await open("right");
+  const handoff = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Hand over to assistant"))!;
+  expect(handoff).toBeDefined();
+  await act(async () => handoff.click());
+  expect(delegateDesktopSession).toHaveBeenCalledWith("/right", "host-right");
+  configureSharedHost(undefined, []);
 });

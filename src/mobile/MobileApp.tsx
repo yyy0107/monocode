@@ -9,6 +9,7 @@ import { connectionErrorMessage } from "./connectionError";
 import { MobileAssistant, type MobileAssistantHandle } from "./MobileAssistant";
 import { useMobileAssistantUnread } from "./useMobileAssistantUnread";
 import { resolveAssistantTarget } from "../features/assistant/model/assistantNavigation";
+import { delegateSession } from "../features/assistant/model/delegateSession";
 import { useHostQueue } from "../features/connections/ui/useHostQueue";
 import {
   outgoingPlacement,
@@ -2446,6 +2447,16 @@ export function MobileApp() {
             updateSessionMetadata(patch, sessionActionsTarget ?? sessionId, sessionActionsSummary?.projectId ?? project?.id)
           }
           onDelete={sessionActionsTarget ? undefined : deleteCurrentSession}
+          onDelegate={client.hasCapability("assistant.v1") ? async () => {
+            const targetId = sessionActionsTarget ?? sessionId;
+            const targetProject = sessionActionsSummary?.projectId ?? snapshot?.projectId;
+            if (!client.connection || !targetId || !targetProject) throw new Error(t("Conversation is unavailable"));
+            await delegateSession(assistantRpc, {
+              environmentId: client.connection.environmentId,
+              projectId: targetProject,
+              sessionId: targetId,
+            });
+          } : undefined}
           onMarkUnread={
             sessionActionsSummary
               ? async () => {

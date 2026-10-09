@@ -31,6 +31,12 @@ export type AssistantPermission = (typeof ASSISTANT_PERMISSIONS)[number];
 export type AssistantPolicy = {
   permissions: Record<AssistantPermission, boolean>;
   allowedProjects: "all" | string[];
+  /** Explicitly followed conversations; operations still require configured permissions. */
+  followedSessions?: { projectId: string; sessionId: string }[];
+  /** Ongoing follow rules, including conversations created later. */
+  followedProjects?: "all" | string[];
+  /** Individual removals override ongoing rules. */
+  excludedSessionIds?: string[];
 };
 export const fullAssistantPolicy = (): AssistantPolicy => ({
   permissions: Object.fromEntries(

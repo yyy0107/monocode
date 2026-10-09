@@ -1,3 +1,5 @@
+import { delegateDesktopSession } from "../../features/assistant/model/delegateDesktopSession";
+vi.mock("../../features/assistant/model/delegateDesktopSession", () => ({ delegateDesktopSession: vi.fn(async () => {}) }));
 // @vitest-environment happy-dom
 import { savePinnedProjects } from "../../features/projects/model/recents";
 import { act, createElement, type ComponentProps } from "react";
@@ -3018,4 +3020,15 @@ describe("project tree session preview", () => {
     act(() => render());
     expect(toggle()).toBeNull();
   });
+});
+
+it("hands over the right-clicked conversation in its own project", async () => {
+  configureSharedHost("local-host", [{ id: "alpha", cwd: A, name: "Alpha" }], "local-machine");
+  remoteState.rows.set(A, [{ ...hostRow("a"), projectId: "alpha", cwd: A }]);
+  await act(async () => render());
+  await act(async () => card("a").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })));
+  const handoff = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Hand over to assistant"))!;
+  expect(handoff).toBeDefined();
+  await act(async () => handoff.click());
+  expect(delegateDesktopSession).toHaveBeenCalledWith(A, "a");
 });

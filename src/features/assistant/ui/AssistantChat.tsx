@@ -389,9 +389,9 @@ export function AssistantChat({
               rows.map((row) => ({
                 id: row.id,
                 title: row.title || row.id,
+                harness: row.harness,
                 projectId,
               })),
-            () => [],
           ),
         ),
       );

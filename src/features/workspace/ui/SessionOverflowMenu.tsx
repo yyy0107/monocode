@@ -17,6 +17,9 @@ import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 import { ExplorerMenu } from "../../files/ui/ExplorerMenu";
 import type { Session } from "../../sessions/model/session";
 import { useSessionHeaderActions } from "./SessionHeaderActions";
+import { delegateDesktopSession } from "../../assistant/model/delegateDesktopSession";
+import { remoteProjectFor } from "../../connections/model/remoteProjects";
+import { remoteSessionFor } from "../../connections/model/connections";
 
 /** The chat column's ⋯ menu: session actions plus this session's usage. */
 export function SessionOverflowMenu({
@@ -97,6 +100,12 @@ export function SessionOverflowMenu({
             </div>
           }
           items={[
+            ...(remoteProjectFor(session.cwd) ? [{
+              kind: "item" as const,
+              id: "delegate-assistant",
+              label: t("Hand over to assistant"),
+              description: t("Follow this conversation and allow configured assistant actions"),
+            }] : []),
             {
               kind: "item",
               id: "rename",
@@ -126,7 +135,8 @@ export function SessionOverflowMenu({
               return;
             }
             close();
-            if (id === "split") actions.splitRight(session.id);
+            if (id === "delegate-assistant") void delegateDesktopSession(session.cwd, remoteSessionFor(session.id) ?? session.id);
+            else if (id === "split") actions.splitRight(session.id);
             else if (id === "archive") actions.archive(session.id);
           }}
           onClose={close}

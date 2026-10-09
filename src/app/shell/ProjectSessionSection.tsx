@@ -1,4 +1,5 @@
 import { useSidebarListPreview } from "./useSidebarListPreview";
+import { delegateDesktopSession } from "../../features/assistant/model/delegateDesktopSession";
 import { SidebarEntryReorderContext } from "./SidebarEntryReorder";
 import { AnimatedCollapse } from "../../shared/ui/AnimatedCollapse";
 import { useSurfaceVisibility } from "../../shared/ui/SurfaceVisibility";
@@ -782,6 +783,12 @@ function ProjectSessionSectionComponent({
     menuSessions.length > 0 &&
     menuSessions.every((session) => session.archived);
   const sessionMenuItems: ExplorerMenuItem[] = [
+    ...(!multipleMenuSessions && remoteProjectFor(cwd) ? [{
+      kind: "item" as const,
+      id: "delegate-assistant",
+      label: uiT("Hand over to assistant"),
+      description: uiT("Follow this conversation and allow configured assistant actions"),
+    }] : []),
     ...(onCancelReminders && menuReminderTimes.length > 0
       ? [
           {
@@ -917,6 +924,10 @@ function ProjectSessionSectionComponent({
     const archived = allMenuSessionsArchived;
     const pinned = allMenuSessionsPinned;
     closeSessionMenu();
+    if (id === "delegate-assistant") {
+      void delegateDesktopSession(cwd, sessionId);
+      return;
+    }
     if (id === "reminder:cancel") {
       onCancelReminders?.(sessionIds);
       return;

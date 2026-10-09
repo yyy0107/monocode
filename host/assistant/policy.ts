@@ -27,7 +27,13 @@ export function id(value: unknown, label = "ID", max = 128): string {
 }
 export function validatePolicy(value: unknown): AssistantPolicy {
   const v = object(value);
-  fields(v, ["permissions", "allowedProjects"]);
+  fields(v, [
+    "permissions",
+    "allowedProjects",
+    "followedSessions",
+    "followedProjects",
+    "excludedSessionIds",
+  ]);
   const permissions = object(v.permissions);
   fields(permissions, [...ASSISTANT_PERMISSIONS]);
   for (const setting of Object.values(permissions))
@@ -37,7 +43,55 @@ export function validatePolicy(value: unknown): AssistantPolicy {
     (!Array.isArray(v.allowedProjects) || v.allowedProjects.length > 1000)
   )
     throw new Error("Invalid project scope");
+  const followedSessions = v.followedSessions;
+  if (
+    followedSessions !== undefined &&
+    (!Array.isArray(followedSessions) || followedSessions.length > 10000)
+  )
+    throw new Error("Invalid conversation grants");
+  const followedProjects = v.followedProjects;
+  if (
+    followedProjects !== undefined &&
+    followedProjects !== "all" &&
+    (!Array.isArray(followedProjects) || followedProjects.length > 1000)
+  )
+    throw new Error("Invalid followed projects");
+  const excludedSessionIds = v.excludedSessionIds;
+  if (
+    excludedSessionIds !== undefined &&
+    (!Array.isArray(excludedSessionIds) || excludedSessionIds.length > 10000)
+  )
+    throw new Error("Invalid conversation exclusions");
   return {
+    ...(followedProjects === undefined
+      ? {}
+      : {
+          followedProjects:
+            followedProjects === "all"
+              ? ("all" as const)
+              : (followedProjects as unknown[]).map((value) =>
+                  id(value, "project"),
+                ),
+        }),
+    ...(excludedSessionIds === undefined
+      ? {}
+      : {
+          excludedSessionIds: (excludedSessionIds as unknown[]).map((value) =>
+            id(value, "session"),
+          ),
+        }),
+    ...(followedSessions === undefined
+      ? {}
+      : {
+          followedSessions: (followedSessions as unknown[]).map((value) => {
+            const ref = object(value);
+            fields(ref, ["projectId", "sessionId"]);
+            return {
+              projectId: id(ref.projectId, "project"),
+              sessionId: id(ref.sessionId, "session"),
+            };
+          }),
+        }),
     permissions: Object.fromEntries(
       ASSISTANT_PERMISSIONS.map((key) => [key, permissions[key] === true]),
     ) as AssistantPolicy["permissions"],

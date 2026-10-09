@@ -66,3 +66,28 @@ it("omits Copy branch when the conversation has no branch", () => {
   expect(row("Copy branch")).toBeUndefined();
   expect(row("Session status")).toBeUndefined();
 });
+
+it.each([false, true])("hands over from the conversation and long-press menus, keeping failures retryable (summary=%s)", async (fromList) => {
+  const node = document.createElement("div");
+  document.body.append(node);
+  const anchor = document.createElement("button");
+  node.append(anchor);
+  const value = snapshot();
+  const onClose = vi.fn();
+  const onDelegate = vi.fn().mockRejectedValueOnce(new Error("Host unavailable")).mockResolvedValueOnce(undefined);
+  await act(async () => {
+    root = createRoot(node);
+    root.render(createElement(MobileSessionActions, {
+      ...(fromList ? { summary: { ...value.session, projectId: value.projectId, revision: value.revision,
+        updatedAt: value.updatedAt, status: value.status } } : { snapshot: value }),
+      anchor: { current: anchor }, disabled: false, onUpdate: async () => {}, onClose, onDelegate,
+    }));
+  });
+  const button = () => [...document.querySelectorAll<HTMLButtonElement>(".mobile-sheet-row")].find((row) => row.textContent?.includes("Hand over to assistant"))!;
+  await act(async () => button().click());
+  expect(onClose).not.toHaveBeenCalled();
+  expect(document.body.textContent).toContain("Host unavailable");
+  await act(async () => button().click());
+  expect(onDelegate).toHaveBeenCalledTimes(2);
+  expect(onClose).toHaveBeenCalledTimes(1);
+});

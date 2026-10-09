@@ -16,6 +16,8 @@ import {
   defaultAssistantPersona,
   fullAssistantPolicy,
   type AssistantPatch,
+  type AssistantPolicy,
+  type AssistantWatch,
   type AssistantPersona,
   type AssistantPersonaPreset,
   type AssistantPermission,
@@ -44,7 +46,9 @@ import { isEffortSettingId } from "../../sessions/model/models";
 import { carryModelSettings, findRemoteModel, remoteModelControls } from "../../connections/model/remoteModels";
 import { SearchableSelect } from "../../../shared/ui/SearchableSelect";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
-import { ChevronDown } from "../../../shared/ui/icons";
+import { followSessionProjects, isExplicitlyWatchedSession, isWatchedSession, removeWatchedSession } from "../model/assistantSessions";
+import { sessionDisplayTitle } from "../../sessions/model/session";
+import { ChevronDown, X } from "../../../shared/ui/icons";
 
 const labels: Record<string, string> = {
   "catalog.read": "View agents and models",
@@ -139,6 +143,7 @@ const OVERLAY_POPOVER_LAYER = 101;
 
 export type AssistantSessionOption = {
   id: string;
+  harness?: RemoteProvider;
   title: string;
   projectId: string;
 };
@@ -378,7 +383,7 @@ export function AssistantSettings({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [habitsOpen, setHabitsOpen] = useState(false);
-  // Watches default to every allowed project; the picker opens only on request.
+  // Project filters apply to explicitly followed conversations.
   const [pickingProjects, setPickingProjects] = useState(
     () =>
       new Set(
@@ -603,6 +608,7 @@ export function AssistantSettings({
       open={permissionsOpen}
       onToggle={() => setPermissionsOpen((v) => !v)}
     >
+      <p>{t("Conversation actions apply only to followed conversations and conversations created by the assistant. Other conversations are read-only.")}</p>
       <div className="assistant-settings-group-list">
         {permissionGroups.map((group) => {
           const count = group.keys.filter(
@@ -966,7 +972,7 @@ export function AssistantSettings({
                     ))}
                   </div>
                   <small>
-                    {t("No selection watches all allowed projects")}
+                    {t("Project selection filters explicitly followed conversations")}
                   </small>
                 </AnimatedCollapse>
               </div>
@@ -1017,22 +1023,19 @@ export function AssistantSettings({
                 {fieldError(errors.chainWindow)}
               </label>
             </div>
-            {watches.map((watch, i) => (
-              <WatchSessions
-                key={watch.id}
-                active={advancedOpen}
-                selected={watch.sessionIds}
-                projectIds={
-                  watch.projectIds.length
-                    ? watch.projectIds
-                    : policy.allowedProjects === "all"
-                      ? projects.map((p) => p.id)
-                      : policy.allowedProjects
-                }
-                loadSessions={loadSessions}
-                onChange={(sessionIds) => patchWatch(i, { sessionIds })}
-              />
-            ))}
+            <WatchedSessions
+              active={advancedOpen}
+              policy={policy}
+              watches={watches}
+              projectIds={projects.map((p) => p.id)}
+              projects={projects}
+              loadSessions={loadSessions}
+              onRemove={(sessionId) => patch(removeWatchedSession(policy, watches, sessionId))}
+              onFollowScope={(scope, sessions) => patch({
+                policy: followSessionProjects(policy, scope, sessions),
+                ...(scope === "all" || scope.length ? { triggers: { ...triggers, event: true } } : {}),
+              })}
+            />
           </div>
         </AnimatedCollapse>
       </div>
@@ -1302,73 +1305,172 @@ export function AssistantSettings({
   );
 }
 
-function WatchSessions({
+export function WatchedSessions({
   active,
-  selected,
+  policy,
+  watches,
   projectIds,
+  projects = [],
   loadSessions,
-  onChange,
+  onRemove,
+  onFollowScope,
 }: {
   active: boolean;
-  selected: string[];
+  policy: AssistantPolicy;
+  watches: AssistantWatch[];
   projectIds: string[];
+  projects?: Pick<HostProject, "id" | "name">[];
   loadSessions?: (projectIds: string[]) => Promise<AssistantSessionOption[]>;
-  onChange: (ids: string[]) => void;
+  onRemove: (sessionId: string) => void;
+  onFollowScope?: (
+    scope: "all" | string[],
+    sessions: AssistantSessionOption[],
+  ) => void;
 }) {
   const { t } = useTranslation();
   const [sessions, setSessions] = useState<AssistantSessionOption[]>();
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
   const [query, setQuery] = useState("");
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const projectKey = projectIds.join("\n");
   useEffect(() => {
     if (!active || !loadSessions) return;
     let current = true;
     setSessions(undefined);
+    setFailed(false);
     loadSessions(projectIds).then(
       (rows) => current && setSessions(rows),
-      () => current && setSessions([]),
+      () => current && setFailed(true),
     );
     return () => {
       current = false;
     };
-  }, [active, loadSessions, projectKey]);
-  if (!loadSessions)
-    return (
-      <label>
-        {t("Watch conversation IDs")}
-        <input
-          value={selected.join(", ")}
-          onChange={(e) =>
-            onChange(
-              e.target.value
-                .split(",")
-                .map((id) => id.trim())
-                .filter(Boolean),
-            )
-          }
-        />
-        <small>
-          {t("Leave empty to watch all conversations in these projects")}
-        </small>
-      </label>
-    );
-  const known = new Map((sessions ?? []).map((s) => [s.id, s.title]));
-  // Saved IDs that are no longer listed stay visible so they can be removed.
-  const options = [
-    ...selected.filter((id) => !known.has(id)).map((id) => ({ id, title: id })),
-    ...(sessions ?? []),
-  ];
+  }, [active, loadSessions, projectKey, retry]);
+  const known = new Map((sessions ?? []).map((s) => [s.id, s]));
+  // Retain unavailable explicit references so they can still be removed.
+  for (const ref of policy.followedSessions ?? [])
+    if (!known.has(ref.sessionId))
+      known.set(ref.sessionId, {
+        id: ref.sessionId,
+        title: ref.sessionId,
+        projectId: ref.projectId,
+      });
+  for (const watch of watches)
+    for (const id of watch.sessionIds)
+      if (watch.enabled && !known.has(id))
+        known.set(id, { id, title: id, projectId: watch.projectIds[0] ?? "" });
+  const options = [...known.values()].filter((s) =>
+    isWatchedSession(policy, watches, s.projectId, s.id),
+  );
+  const title = (session: AssistantSessionOption) =>
+    session.harness
+      ? sessionDisplayTitle(session.title, session.harness) ||
+        t("Untitled conversation")
+      : session.title;
   const needle = query.trim().toLocaleLowerCase();
-  const visible = needle
-    ? options.filter(
-        (s) =>
-          selected.includes(s.id) ||
-          s.title.toLocaleLowerCase().includes(needle),
-      )
-    : options;
+  const visible = options.filter(
+    (s) => !needle || title(s).toLocaleLowerCase().includes(needle),
+  );
   return (
     <div className="assistant-field">
-      <span className="assistant-field-label">{t("Watch conversations")}</span>
-      {options.length > 10 && (
+      <span className="assistant-field-label">
+        {t("Watched conversations")}
+      </span>
+      {onFollowScope && (
+        <>
+          <div className="assistant-watch-bulk-actions">
+            <button
+              type="button"
+              onClick={() => onFollowScope("all", sessions ?? [])}
+            >
+              {t("Follow all conversations")}
+            </button>
+            <button
+              type="button"
+              disabled={!projects.length}
+              aria-expanded={projectPickerOpen}
+              onClick={() => {
+                if (!projectPickerOpen)
+                  setSelectedProjects(
+                    policy.followedProjects === "all"
+                      ? projects.map((p) => p.id)
+                      : (policy.followedProjects ?? []),
+                  );
+                setProjectPickerOpen((open) => !open);
+              }}
+            >
+              {t("Follow by project")}
+            </button>
+          </div>
+          <small>
+            {t(
+              "Scope follows include existing and future conversations. Individually removed conversations stay excluded.",
+            )}
+          </small>
+          <AnimatedCollapse expanded={projectPickerOpen}>
+            <div className="assistant-watch-project-picker">
+              <div className="assistant-chips">
+                {projects.map((project) => (
+                  <label key={project.id} className="assistant-chip">
+                    <input
+                      type="checkbox"
+                      checked={selectedProjects.includes(project.id)}
+                      onChange={(event) =>
+                        setSelectedProjects((current) =>
+                          event.target.checked
+                            ? [...current, project.id]
+                            : current.filter((id) => id !== project.id),
+                        )
+                      }
+                    />
+                    <span>{project.name}</span>
+                  </label>
+                ))}
+              </div>
+              <button
+                type="button"
+                disabled={
+                  !selectedProjects.length ||
+                  failed ||
+                  (!!loadSessions && !sessions)
+                }
+                onClick={() => {
+                  onFollowScope(selectedProjects, sessions ?? []);
+                  setProjectPickerOpen(false);
+                }}
+              >
+                {t("Follow selected projects")}
+              </button>
+            </div>
+          </AnimatedCollapse>
+          {(policy.followedProjects === "all" ||
+            !!policy.followedProjects?.length) && (
+            <div className="assistant-watch-scope">
+              <small>
+                {policy.followedProjects === "all"
+                  ? t("Automatically following all conversations")
+                  : t("Automatically following: {projects}", {
+                      projects: policy
+                        .followedProjects!.map(
+                          (id) => projects.find((p) => p.id === id)?.name ?? id,
+                        )
+                        .join(", "),
+                    })}
+              </small>
+              <button
+                type="button"
+                className="assistant-link-button"
+                onClick={() => onFollowScope([], sessions ?? [])}
+              >
+                {t("Remove scope follow")}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {(options.length > 10 || query) && (
         <input
           type="search"
           aria-label={t("Search conversations…")}
@@ -1377,32 +1479,54 @@ function WatchSessions({
           onChange={(e) => setQuery(e.target.value)}
         />
       )}
-      {sessions === undefined ? (
+      {failed ? (
+        <small role="alert">
+          {t("Unable to load conversations.")}{" "}
+          <button
+            type="button"
+            className="assistant-link-button"
+            onClick={() => setRetry((v) => v + 1)}
+          >
+            {t("Retry")}
+          </button>
+        </small>
+      ) : loadSessions && sessions === undefined ? (
         <small>{t("Loading conversations…")}</small>
       ) : !options.length ? (
-        <small>{t("No conversations in these projects yet.")}</small>
-      ) : (
-        <div className="assistant-chips assistant-session-chips">
-          {visible.map((session) => (
-            <label className="assistant-chip" key={session.id}>
-              <input
-                type="checkbox"
-                checked={selected.includes(session.id)}
-                onChange={(e) =>
-                  onChange(
-                    e.target.checked
-                      ? [...selected, session.id]
-                      : selected.filter((id) => id !== session.id),
-                  )
-                }
+        <small>{t("No watched conversations.")}</small>
+      ) : null}
+      <div className="assistant-watched-sessions">
+        {visible.map((session) => (
+          <div className="assistant-watched-session" key={session.id}>
+            {session.harness && (
+              <HarnessIcon
+                harness={session.harness}
+                className="size-4 shrink-0"
               />
-              <span title={session.title}>{session.title}</span>
-            </label>
-          ))}
-        </div>
-      )}
+            )}
+            <span title={title(session)}>{title(session)}</span>
+            {isExplicitlyWatchedSession(
+              policy,
+              session.projectId,
+              session.id,
+            ) && <small>{t("Configured permissions")}</small>}
+            <button
+              type="button"
+              title={t("Remove")}
+              aria-label={t("Remove {title} from watched conversations", {
+                title: title(session),
+              })}
+              onClick={() => onRemove(session.id)}
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+        ))}
+      </div>
       <small>
-        {t("Leave empty to watch all conversations in these projects")}
+        {t(
+          "Other conversations are read-only. Followed conversations use the permissions enabled in assistant settings. Assistant-created conversations are followed by default and remain manageable if removed.",
+        )}
       </small>
     </div>
   );

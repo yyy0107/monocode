@@ -1364,6 +1364,58 @@
   max-height: 160px;
   overflow: auto;
 }
+.assistant-watched-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.assistant-watch-bulk-actions,
+.assistant-watch-scope {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.assistant-watch-bulk-actions > button,
+.assistant-watch-project-picker > button {
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--assistant-fill);
+}
+.assistant-watch-project-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 0;
+}
+.assistant-watched-session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--assistant-fill);
+}
+.assistant-watched-session > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-watched-session > small { flex-shrink: 0; }
+.assistant-watched-session > button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  min-width: 36px;
+  min-height: 36px;
+}
 .assistant-settings-dirty {
   margin-right: auto;
   font-size: var(--text-ui-sm);

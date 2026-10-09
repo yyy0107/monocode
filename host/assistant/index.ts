@@ -14,6 +14,7 @@ import {
 import { importantSources } from "./events";
 import { enqueueSchedules, retryDelay } from "./scheduler";
 import { checkPolicy, fields, id, object, validatePolicy } from "./policy";
+import { followSession, hasAssistantPermission, isExplicitlyWatchedSession, isWatchedSession, watchIncludesSession } from "../../src/features/assistant/model/assistantSessions";
 import { executeAssistantAction, ASSISTANT_ACTIONS } from "./control";
 import { modelsFor } from "../../src/features/sessions/model/models";
 import { RUNTIME_MODES } from "../../src/features/sessions/model/session";
@@ -27,6 +28,7 @@ import {
 import {
   ASSISTANT_PERSONA_PRESETS,
   type AssistantEventKind,
+  type AssistantPermission,
   type AssistantPatch,
   type AssistantMessage,
   type AssistantReceipt,
@@ -134,11 +136,11 @@ export class HostAssistant {
       },
       { namespace: "assistant", actions: ASSISTANT_ACTIONS },
     );
-    engine.authorizeAssistantQueued = (origin, project) => {
+    engine.authorizeAssistantQueued = (origin, project, sessionId) => {
       const current = this.store.get();
       if (!current?.enabled || current.id !== origin.assistantId) return false;
       try {
-        checkPolicy(current.policy, "sessions.send", project);
+        this.checkSessionAccess("sessions.send", project, sessionId);
         return true;
       } catch {
         return false;
@@ -327,6 +329,7 @@ export class HostAssistant {
       });
     }
     if (method === "assistant.control") {
+      if (raw.action === "delegateSession") return this.delegateSession(raw);
       fields(raw, [
         "commandId",
         "action",
@@ -538,6 +541,64 @@ export class HostAssistant {
     }
     throw new Error("Unsupported assistant RPC");
   }
+  /** Human-created conversations are read-only until explicitly followed. */
+  canManageSession(projectId: string, sessionId: string): boolean {
+    const config = this.store.get();
+    if (!config) return false;
+    let session: HostSession;
+    try { session = this.engine.store.session(sessionId); } catch { return false; }
+    if (session.projectId !== projectId || session.session.assistantOwnerId) return false;
+    if (isWatchedSession(config.policy, config.watches, projectId, sessionId) || this.store.createdSession(sessionId)) return true;
+    const leadId = session.session.orchestrationLeadId;
+    return !!leadId && (this.store.createdSession(leadId) ||
+      (!config.policy.excludedSessionIds?.includes(sessionId) && isWatchedSession(config.policy, config.watches, projectId, leadId)));
+  }
+  checkSessionAccess(permission: AssistantPermission, projectId?: string, sessionId?: string): void {
+    checkPolicy(this.store.get()!.policy, permission, projectId);
+    if (projectId && sessionId &&
+        ((permission.startsWith("sessions.") && !["sessions.read", "sessions.create"].includes(permission)) || permission === "orchestration.control") &&
+        !this.canManageSession(projectId, sessionId))
+      throw new Error("Conversation is read-only until the user hands it over to the assistant");
+  }
+  private delegateSession(raw: Record<string, unknown>): unknown {
+    fields(raw, ["action", "commandId", "environmentId", "projectId", "sessionId"]);
+    const commandId = id(raw.commandId);
+    const sig = signature({ method: "delegateSession", raw });
+    const previous = this.store.receipt(commandId, sig);
+    if (previous) return previous;
+    const config = this.store.get();
+    if (!config?.enabled || config.lifecycle === "paused")
+      throw new Error("Enable or resume the assistant before handing over a conversation.");
+    if (raw.environmentId !== this.engine.store.environmentId)
+      throw new Error("Wrong Host environment");
+    const projectId = id(raw.projectId), sessionId = id(raw.sessionId);
+    const session = this.engine.store.session(sessionId);
+    if (session.projectId !== projectId) throw new Error("Session does not belong to this project");
+    if (session.session.assistantOwnerId || this.engine.store.project(projectId).kind)
+      throw new Error("Assistant brain is private");
+    checkPolicy(config.policy, "sessions.read", projectId);
+    const grants = config.policy.followedSessions ?? [];
+    if (grants.length >= 10000 && !isExplicitlyWatchedSession(config.policy, projectId, sessionId))
+      throw new Error("Too many delegated conversations");
+    const result = this.engine.store.transaction(() => {
+      const wakeupId = randomUUID();
+      this.store.update({
+        policy: followSession(config.policy, projectId, sessionId),
+        policyVersion: config.policyVersion + 1,
+        triggers: { ...config.triggers, event: true },
+      }, true);
+      this.store.enqueue({
+        id: wakeupId, kind: "user", source: { kind: "client" },
+        text: `The user handed this conversation to you: projectId=${projectId}, sessionId=${sessionId}. It is now followed and can use the permissions enabled in your settings. Read its complete history (page through sessions.get), inspect current state and continue the user's existing goals. Handle its messages, approvals and questions within your configured permissions. Do not invent a new task if the conversation is already complete.`,
+        rootCauseId: wakeupId, state: "pending", createdAt: Date.now(), attempts: 0, refs: [sessionId],
+      }, `delegate:${commandId}`);
+      const receipt = { commandId, revision: this.store.get()!.revision, wakeupId };
+      this.store.recordReceipt(commandId, sig, receipt);
+      return receipt;
+    });
+    void this.tick().catch((error) => this.fail(error));
+    return result;
+  }
   private async configure(raw: Record<string, unknown>): Promise<unknown> {
     fields(raw, ["commandId", "expectedRevision", "patch"]);
     const commandId = id(raw.commandId),
@@ -624,6 +685,16 @@ export class HostAssistant {
         for (const project of scope)
           if (this.engine.store.project(project).kind)
             throw new Error("Invalid project scope");
+      const followedProjects = (patch.policy as AssistantPatch["policy"])!.followedProjects;
+      if (followedProjects && followedProjects !== "all")
+        for (const project of followedProjects)
+          if (this.engine.store.project(project).kind) throw new Error("Invalid followed projects");
+      for (const ref of (patch.policy as AssistantPatch["policy"])!.followedSessions ?? []) {
+        if (current && isExplicitlyWatchedSession(current.policy, ref.projectId, ref.sessionId)) continue;
+        const target = this.engine.store.session(ref.sessionId);
+        if (target.projectId !== ref.projectId || target.session.assistantOwnerId || this.engine.store.project(ref.projectId).kind)
+          throw new Error("Invalid conversation grant");
+      }
     }
     if (patch.triggers !== undefined) {
       const triggers = object(patch.triggers);
@@ -939,24 +1010,13 @@ export class HostAssistant {
           if (!sources.length) return;
           const groups = new Map<string, typeof sources>();
           for (const source of sources) {
-            const inScope =
-              config!.policy.allowedProjects === "all" ||
-              config!.policy.allowedProjects.includes(source.projectId);
-            const watches = config!.watches.filter(
-              (w) =>
-                w.enabled &&
-                w.eventKinds.includes(source.kind as AssistantEventKind) &&
-                (!w.projectIds.length ||
-                  w.projectIds.includes(source.projectId)) &&
-                (!w.sessionIds.length ||
-                  w.sessionIds.includes(source.sessionId)),
-            );
-            if (
-              !inScope ||
-              !config!.policy.permissions["sessions.read"] ||
-              !watches.length
-            )
-              continue;
+            if (config!.policy.excludedSessionIds?.includes(source.sessionId)) continue;
+            const managed = isWatchedSession(config!.policy, config!.watches, source.projectId, source.sessionId);
+            const watches = config!.watches.filter((w) =>
+              w.eventKinds.includes(source.kind as AssistantEventKind) &&
+              watchIncludesSession(w, source.projectId, source.sessionId, managed));
+            if (!hasAssistantPermission(config!.policy, "sessions.read", source.projectId) ||
+                !watches.length) continue;
             const group = groups.get(source.rootCauseId) ?? [];
             group.push(source);
             groups.set(source.rootCauseId, group);
@@ -971,10 +1031,7 @@ export class HostAssistant {
                     group.some(
                       (s) =>
                         w.eventKinds.includes(s.kind as AssistantEventKind) &&
-                        (!w.projectIds.length ||
-                          w.projectIds.includes(s.projectId)) &&
-                        (!w.sessionIds.length ||
-                          w.sessionIds.includes(s.sessionId)),
+                        watchIncludesSession(w, s.projectId, s.sessionId, isWatchedSession(config!.policy, config!.watches, s.projectId, s.sessionId)),
                     ),
                 )
                 .map((w) => w.prompt),
