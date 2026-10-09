@@ -1154,6 +1154,8 @@
   "No GitLab items match these filters": "没有符合筛选条件的 GitLab 事项",
   "No MCP servers configured for this provider.": "此服务商尚未配置 MCP 服务器。",
   "No MCP servers found": "未找到 MCP 服务器",
+  "This project is not a Git repository": "此项目不是 Git 仓库",
+  "Worktrees require Git. Initialize a repository in this folder or choose another project.": "工作树需要 Git。请在此文件夹中初始化仓库，或选择其他项目。",
   "No additional worktrees": "没有附加工作树",
   "No archived conversations in this project.": "此项目没有已归档对话。",
   "No archived projects.": "没有已归档项目。",

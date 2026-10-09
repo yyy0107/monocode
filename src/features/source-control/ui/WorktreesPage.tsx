@@ -14,12 +14,7 @@ import {
 } from "../../../shared/ui/icons";
 import { revealPath } from "../../../platform/tauri/fs";
 import { useProjectWorktrees } from "../hooks/useProjectWorktrees";
-import {
-  isEqualOrInside,
-  pathKey,
-  prettyCwd,
-  projectName,
-} from "../../../shared/lib/paths";
+import { isEqualOrInside, pathKey, prettyCwd } from "../../../shared/lib/paths";
 import {
   loadArchivedProjects,
   type RecentProject,
@@ -31,6 +26,13 @@ import {
   type RemoveWorktree,
   type Worktree,
 } from "../model/worktrees";
+
+// Git localizes this message, so match both English and Chinese output.
+function isNotGitRepositoryError(error: unknown) {
+  return /not a git repository|不是\s*git\s*仓库|GIT_DISCOVERY_ACROSS_FILESYSTEM/i.test(
+    String(error),
+  );
+}
 
 export function WorktreesPage({
   cwd,
@@ -135,6 +137,18 @@ export function WorktreesPage({
         <p className="text-[12px] text-content/50">
           {uiT("Add a project to manage its worktrees.")}
         </p>
+      ) : !data && loadError && isNotGitRepositoryError(loadError) ? (
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-stroke px-4 py-8 text-center">
+          <FolderTree className="size-5 text-content/35" />
+          <p className="text-[13px] font-medium">
+            {uiT("This project is not a Git repository")}
+          </p>
+          <p className="text-[12px] text-content/50">
+            {uiT(
+              "Worktrees require Git. Initialize a repository in this folder or choose another project.",
+            )}
+          </p>
+        </div>
       ) : !data && loadError ? (
         <p role="alert" className="break-words text-[12px] text-red-400">
           {loadError}
@@ -167,11 +181,14 @@ export function WorktreesPage({
                 : undefined;
             return (
               <div key={tree.path} className="flex items-start gap-3 p-4">
-                <FolderTree className="mt-0.5 size-4 shrink-0 text-content/45" />
+                <GitBranch className="mt-0.5 size-4 shrink-0 text-content/45" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[13px] font-medium">
-                      {projectName(tree.path)}
+                    <span className="min-w-0 break-all text-[13px] font-medium">
+                      {tree.branch ??
+                        uiT("Detached at {value0}", {
+                          value0: String(tree.head.slice(0, 7)),
+                        })}
                     </span>
                     {pathKey(tree.path) === pathKey(project) && (
                       <span className="text-[10px] text-content/40">
@@ -179,20 +196,11 @@ export function WorktreesPage({
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 break-all text-[11px] text-content/40">
+                  <p
+                    title={tree.path}
+                    className="mt-1.5 break-all font-mono text-[12px] text-content/70"
+                  >
                     {prettyCwd(tree.path)}
-                  </p>
-                  <p className="mt-2 flex items-center gap-1.5 text-[11px] text-content/55">
-                    <GitBranch className="size-3 shrink-0" />
-                    <span className="min-w-0 break-all">
-                      {tree.branch
-                        ? uiT("Current branch: {value0}", {
-                            value0: String(tree.branch),
-                          })
-                        : uiT("Detached at {value0}", {
-                            value0: String(tree.head.slice(0, 7)),
-                          })}
-                    </span>
                   </p>
                   <p className="mt-2 flex flex-wrap gap-x-3 text-[11px] text-content/55">
                     <span>
