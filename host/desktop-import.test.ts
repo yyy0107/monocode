@@ -166,7 +166,12 @@ it("imports native history as Host-managed once and never bypasses CLI ownership
       }));
       expect(store.session("legacy").session.queuedMessages?.map((message) => message.text)).toEqual(["Unsafe continuation"]);
       expect(provider.send).not.toHaveBeenCalled();
-    } finally { await engine.close(); }
+    } finally {
+      // Workflow assets initialize independently of engine.ready. Finish their
+      // writes before the outer fixture closes its store and removes the directory.
+      try { await engine.workflows.ready; }
+      finally { await engine.close(); }
+    }
   } finally {
     source.close();
     store.close();

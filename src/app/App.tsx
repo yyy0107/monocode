@@ -1,6 +1,8 @@
+import { loadSharedAgentDefaults } from "../features/settings/model/agentPreferences";
 import { selectComposerConfiguration, sessionComposerConfiguration } from "../features/sessions/model/composerConfiguration";
 import { DesktopAssistantButton } from "../features/assistant/ui/DesktopAssistantButton";
 import { translate } from "../shared/i18n/language";
+import { usePreferenceState } from "../features/settings/model/usePreferenceState";
 import {
   WorkflowAppContext,
   type WorkflowAppActions,
@@ -322,6 +324,7 @@ import {
 import { supportsHarnessLogin } from "../integrations/harness/core/authSupport";
 import {
   appendPreparingHandoff,
+  appendReadyHandoff,
   buildDeterministicHandoff,
   buildHandoffComposerCard,
   chooseHandoffBrief,
@@ -445,9 +448,9 @@ import {
 import { createSessionRemover } from "../features/sessions/model/sessionRemoval";
 import { installNativeSessionSync } from "../features/sessions/data/nativeSessions";
 import {
-  DEFAULT_PROVIDER_ACCOUNT_ID,
   providerAccountExists,
   selectedProviderAccountId,
+  conversationProviderAccountId,
   supportsProviderAccounts,
   type ProviderAccountProvider,
 } from "../features/providers/model/providerAccounts";
@@ -667,6 +670,8 @@ import {
   saveSettingsSection,
   saveAutosave,
   saveMenuBarVisible,
+  subscribeAutosave,
+  subscribeKeybindings,
   subscribeLiveAgentsEnabled,
   subscribeMenuBarVisible,
   subscribeNotesEnabled,
@@ -1049,7 +1054,7 @@ function Workspace({
     (id: string) => tabProjectsRef.current.get(id),
     [],
   );
-  const [sessionSidebarOpen, setSessionSidebarOpen] = useState(
+  const [sessionSidebarOpen, setSessionSidebarOpen] = usePreferenceState(
     loadSessionSidebarOpen,
   );
   const [navigationExpanded, setNavigationExpanded] = useState(false);
@@ -1710,6 +1715,8 @@ function Workspace({
   }, [tabs]);
 
   const sessionDefaults = active ?? sessions[0];
+  const [sharedAgentDefaults] = usePreferenceState(loadSharedAgentDefaults);
+  const newSessionRuntimeMode = sharedAgentDefaults.runtimeMode ?? sessionDefaults?.runtimeMode;
 
   useEffect(() => {
     const openSessionForAddToChat = (event: Event) => {
@@ -1722,7 +1729,7 @@ function Workspace({
         activeTabId: activeTabIdRef.current,
         projectCwd: projectCwdRef.current,
         fallbackCwd: sessionDefaults?.cwd,
-        defaultRuntimeMode: sessionDefaults?.runtimeMode,
+        defaultRuntimeMode: newSessionRuntimeMode,
         text: detail.text,
         mode: detail.mode,
       });
@@ -1740,7 +1747,7 @@ function Workspace({
     window.addEventListener(ADD_TO_CHAT_EVENT, openSessionForAddToChat);
     return () =>
       window.removeEventListener(ADD_TO_CHAT_EVENT, openSessionForAddToChat);
-  }, [sessionDefaults?.cwd, sessionDefaults?.runtimeMode]);
+  }, [sessionDefaults?.cwd, newSessionRuntimeMode]);
 
   const activeSkillContext = active
     ? nativeSkillContextForSession(active)
@@ -2432,8 +2439,14 @@ function Workspace({
     ) => {
       const target = sessionsRef.current.find((item) => item.id === sessionId);
       if (!target || target.harness !== provider) return;
-      const currentId = target.providerAccountId ?? DEFAULT_PROVIDER_ACCOUNT_ID;
-      if (currentId === accountId) return;
+      if (conversationProviderAccountId(target) === accountId) return;
+
+      // The Host moves its conversation to the account in place.
+      if (
+        sessionUsesHost(target) &&
+        remoteSessionActions(sessionId)?.switchAccount(accountId)
+      )
+        return;
 
       if (target.blocks.length === 0 && !target.busy) {
         setSessions((current) =>
@@ -2446,25 +2459,44 @@ function Workspace({
         return;
       }
 
-      // Provider thread ids are account-owned. Keep the current conversation
-      // pinned to its account and open a clean one for the selected profile.
-      const session = {
-        ...newSession(
-          target.harness,
-          target.cwd,
-          target.model,
-          target.runtimeMode,
-          target.modelSettings,
-        ),
-        providerAccountId: accountId,
+      // Provider thread ids are account-owned. Without the Host to move the
+      // native records, the next turn starts a thread on the new account and
+      // continues this conversation from a recap.
+      if (target.busy || target.pendingSwitch || isPreparingHandoff(target))
+        return;
+      const history = {
+        ...target,
+        blocks: target.blocks.filter((block) => !block.draft),
       };
-      const tab = newTab(session.id);
-      setSessions((current) => [...current, session]);
-      appendTab(tab, target.cwd);
-      setActiveTabId(tab.id);
-      setComposerFocused(true);
+      const handedOff = history.blocks.some((block) => block.role === "user")
+        ? appendReadyHandoff(
+            history,
+            target.harness,
+            target.harness,
+            buildDeterministicHandoff(history),
+          )
+        : history;
+      void forgetHarnessSession(target.harness, target.id);
+      setSessions((current) =>
+        current.map((session) =>
+          session.id === target.id
+            ? {
+                ...session,
+                blocks: [
+                  ...handedOff.blocks,
+                  ...session.blocks.filter((block) => block.draft),
+                ],
+                providerAccountId: accountId,
+                providerSessionId: undefined,
+                nativeSession: undefined,
+                usageLimit: undefined,
+                context: undefined,
+              }
+            : session,
+        ),
+      );
     },
-    [appendTab],
+    [],
   );
 
   const onOpenWhatsNew = useCallback((version: string) => {
@@ -2482,7 +2514,7 @@ function Workspace({
   const createWorkspaceTab = useCallback(
     (cwd: string, focus?: WorktreeFocus) => {
       const session = {
-        ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+        ...newDefaultSession(cwd, newSessionRuntimeMode),
         ...(focus && !sameProjectPath(focus.path, cwd)
           ? { worktreeCwd: focus.path, branch: focus.branch ?? undefined }
           : {}),
@@ -2492,7 +2524,7 @@ function Workspace({
       appendTab(tab, cwd);
       return tab.id;
     },
-    [appendTab, sessionDefaults?.runtimeMode],
+    [appendTab, newSessionRuntimeMode],
   );
 
   const onNewInProject = useCallback(
@@ -2527,7 +2559,7 @@ function Workspace({
         }
       }
       const session = {
-        ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+        ...newDefaultSession(cwd, newSessionRuntimeMode),
         ...(desiredWorktree
           ? { worktreeCwd: desiredWorktree, branch: focus?.branch ?? undefined }
           : {}),
@@ -2547,7 +2579,7 @@ function Workspace({
     [
       activateTab,
       appendTab,
-      sessionDefaults?.runtimeMode,
+      newSessionRuntimeMode,
       setSidebarTab,
       workspaceNavigation.cancel,
     ],
@@ -2623,7 +2655,7 @@ function Workspace({
         );
       // Reserve a dedicated tab immediately. An apparently blank remote tab
       // may hold composer text or a create/upload that the host has not accepted.
-      const session = newDefaultSession(project, sessionDefaults?.runtimeMode);
+      const session = newDefaultSession(project, newSessionRuntimeMode);
       const tab = newTab(session.id);
       rememberRemoteSession(session.id, remoteSessionId, remoteProject);
       setSessions((prev) => [...prev, session]);
@@ -2633,7 +2665,7 @@ function Workspace({
     [
       activateTab,
       appendTab,
-      sessionDefaults?.runtimeMode,
+      newSessionRuntimeMode,
       setSidebarTab,
       workspaceNavigation.cancel,
     ],
@@ -2651,7 +2683,7 @@ function Workspace({
             : `#${item.number}`;
         const linkedWorkItem = linkedWorkItemFromInboxItem(item);
         const session = {
-          ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+          ...newDefaultSession(cwd, newSessionRuntimeMode),
           title: `${ref} ${item.title}`,
           inboxCard: inboxComposerCard(item, description),
           ...(linkedWorkItem ? { linkedWorkItem } : {}),
@@ -2669,7 +2701,7 @@ function Workspace({
       active?.cwd,
       appendTab,
       sessionDefaults?.cwd,
-      sessionDefaults?.runtimeMode,
+      newSessionRuntimeMode,
       projectCwd,
     ],
   );
@@ -2687,7 +2719,7 @@ function Workspace({
       setSidebarTab("sessions", cwd);
       const title = card.title.trim();
       const session = {
-        ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+        ...newDefaultSession(cwd, newSessionRuntimeMode),
         ...(title ? { title } : {}),
         noteCard: card,
       };
@@ -2701,7 +2733,7 @@ function Workspace({
       active?.cwd,
       appendTab,
       sessionDefaults?.cwd,
-      sessionDefaults?.runtimeMode,
+      newSessionRuntimeMode,
       projectCwd,
     ],
   );
@@ -2780,7 +2812,7 @@ function Workspace({
       if (!activeTab) return;
       const session = newDefaultSession(
         sessionDefaults?.cwd ?? projectCwd,
-        sessionDefaults?.runtimeMode,
+        newSessionRuntimeMode,
       );
       setSessions((prev) => [...prev, session]);
       setTabs((prev) =>
@@ -2795,7 +2827,7 @@ function Workspace({
       );
       setComposerFocused(true);
     },
-    [activeTab, projectCwd, sessionDefaults?.cwd, sessionDefaults?.runtimeMode],
+    [activeTab, projectCwd, sessionDefaults?.cwd, newSessionRuntimeMode],
   );
 
   const focusProjectTerminal = useCallback(() => {
@@ -4593,7 +4625,7 @@ function Workspace({
         else {
           const created = newDefaultSession(
             hostProject,
-            sessionDefaults?.runtimeMode,
+            newSessionRuntimeMode,
           );
           rememberRemoteSession(
             created.id,
@@ -4652,7 +4684,7 @@ function Workspace({
       setProjectTerminalFocused(false);
       setComposerFocused(true);
     },
-    [ensureOpenSession, sessionDefaults?.runtimeMode, tabCloseScope],
+    [ensureOpenSession, newSessionRuntimeMode, tabCloseScope],
   );
 
   const onRenameHistorySession = useCallback(
@@ -6485,12 +6517,8 @@ function Workspace({
         ? current.harness
         : undefined;
       const providerAccountId = accountProvider
-        ? (current.providerAccountId ??
-          (current.providerSessionId ||
-          current.nativeSession ||
-          current.blocks.some((block) => block.role === "user")
-            ? DEFAULT_PROVIDER_ACCOUNT_ID
-            : selectedProviderAccountId(accountProvider, current.cwd)))
+        ? (conversationProviderAccountId(current) ??
+          selectedProviderAccountId(accountProvider, current.cwd))
         : undefined;
       if (
         accountProvider &&
@@ -8963,12 +8991,8 @@ function Workspace({
             model: current.model,
             modelSettings: current.modelSettings,
             providerAccountId: supportsProviderAccounts(current.harness)
-              ? (current.providerAccountId ??
-                (current.providerSessionId ||
-                current.nativeSession ||
-                current.blocks.some((block) => block.role === "user")
-                  ? DEFAULT_PROVIDER_ACCOUNT_ID
-                  : selectedProviderAccountId(current.harness, current.cwd)))
+              ? (conversationProviderAccountId(current) ??
+                selectedProviderAccountId(current.harness, current.cwd))
               : undefined,
             runtimeMode: current.runtimeMode,
             onEvent: (event) => {
@@ -10321,7 +10345,7 @@ function Workspace({
       }
       if (!session) {
         session = {
-          ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+          ...newDefaultSession(cwd, newSessionRuntimeMode),
           title: `Fix CI #${item.number}: ${item.title}`,
           linkedWorkItem: linkedWorkItemFromInboxItem(item) ?? undefined,
         };
@@ -10345,7 +10369,7 @@ function Workspace({
       ensureOpenSession,
       onSubmit,
       onSelectHistorySession,
-      sessionDefaults?.runtimeMode,
+      newSessionRuntimeMode,
     ],
   );
 
@@ -10658,12 +10682,17 @@ function Workspace({
 
   useEffect(() => {
     if (!IS_MAC) return;
-    void invoke("autosave_set_enabled", { enabled: loadAutosave() }).catch(
-      console.error,
-    );
-    void invoke("keybindings_set_overrides", {
-      overrides: loadKeybindingOverrides(),
-    }).catch(console.error);
+    const applyAutosave = () => {
+      void invoke("autosave_set_enabled", { enabled: loadAutosave() }).catch(console.error);
+    };
+    const applyKeybindings = () => {
+      void invoke("keybindings_set_overrides", { overrides: loadKeybindingOverrides() }).catch(console.error);
+    };
+    applyAutosave();
+    applyKeybindings();
+    const stopAutosave = subscribeAutosave(applyAutosave);
+    const stopKeybindings = subscribeKeybindings(applyKeybindings);
+    return () => { stopAutosave(); stopKeybindings(); };
   }, []);
 
   useEffect(() => {
@@ -10960,7 +10989,7 @@ function Workspace({
       splitRight: (sessionId) => {
         const session = newDefaultSession(
           sessionDefaults?.cwd ?? projectCwd,
-          sessionDefaults?.runtimeMode,
+          newSessionRuntimeMode,
         );
         setSessions((prev) => [...prev, session]);
         setTabs((prev) =>
@@ -11005,7 +11034,7 @@ function Workspace({
       openSettings,
       projectCwd,
       sessionDefaults?.cwd,
-      sessionDefaults?.runtimeMode,
+      newSessionRuntimeMode,
     ],
   );
 

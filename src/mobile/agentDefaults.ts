@@ -14,8 +14,10 @@ import {
   configurationForModel,
   type MobileConfiguration,
 } from "./MobileModelControls";
+import { activePreferenceStore, preferenceStorage } from "../features/settings/model/sharedPreferences";
 
 const KEY = "monocode.mobileAgentDefaults";
+const SHARED_KEY = "monocode.agentDefaults";
 export const ACCOUNT_AGENTS = [
   "codex",
   "claude",
@@ -28,7 +30,7 @@ type AgentDefaults = {
   /** Legacy account IDs had no Host identity; verify before using them. */
   accountNeedsConfirmation?: true;
 };
-/** Defaults for one Host on this phone, independent of desktop preferences. */
+/** New-conversation defaults shared by all clients of the verified Host. */
 export type MobileAgentDefaults = {
   harness?: RemoteProvider;
   runtimeMode?: RuntimeMode;
@@ -113,6 +115,12 @@ function hosts(raw: Record<string, unknown>): StoredDefaults["hosts"] {
 /** Call with a verified Host only. An unscoped legacy record is claimed once. */
 export function loadMobileAgentDefaults(hostId?: string): MobileAgentDefaults {
   if (!hostId) return {};
+  const active = activePreferenceStore();
+  if (active) {
+    if (active.hostId !== hostId) return {};
+    try { return parseDefaults(JSON.parse(preferenceStorage.getItem(SHARED_KEY) ?? "{}")); }
+    catch { return {}; }
+  }
   const raw = read();
   if (raw.version === 2) {
     const saved = hosts(raw);
@@ -148,10 +156,36 @@ export function saveMobileAgentDefaults(
   hostId: string,
   value: MobileAgentDefaults,
 ) {
+  const active = activePreferenceStore();
+  if (active) {
+    if (active.hostId === hostId) preferenceStorage.setItem(SHARED_KEY, JSON.stringify(parseDefaults(value)));
+    return;
+  }
   write({
     version: 2,
     hosts: { ...hosts(read()), [hostId]: parseDefaults(value) },
   });
+}
+
+/** Project-specific desktop choices override global defaults for a new mobile draft. */
+export function loadMobileProjectDefaults(hostId: string | undefined, projectId: string): MobileAgentDefaults {
+  const defaults = loadMobileAgentDefaults(hostId);
+  if (!hostId || activePreferenceStore()?.hostId !== hostId) return defaults;
+  const identity = `@project:${encodeURIComponent(hostId)}:${encodeURIComponent(projectId)}`;
+  try {
+    const project = JSON.parse(preferenceStorage.getItem("monocode.projectProviderSettings.v1") ?? "{}")[identity];
+    const accounts = JSON.parse(preferenceStorage.getItem("monocode.providerAccountSelections.v1") ?? "{}")[identity];
+    const agents = { ...defaults.agents };
+    const harness = REMOTE_PROVIDERS.find(provider => provider === project?.defaultHarness) ?? defaults.harness;
+    for (const provider of REMOTE_PROVIDERS) {
+      const model = provider === project?.defaultHarness && typeof project?.defaultModel === "string"
+        ? project.defaultModel : project?.models?.[provider];
+      const accountId = accounts?.[provider];
+      agents[provider] = { ...agents[provider], ...(typeof model === "string" ? { model } : {}),
+        ...(typeof accountId === "string" ? { accountId } : {}) };
+    }
+    return { ...defaults, harness, agents };
+  } catch { return defaults; }
 }
 
 /** Moves a record saved under an earlier key (the Host identity) to its connection address. */

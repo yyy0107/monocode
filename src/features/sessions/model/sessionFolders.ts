@@ -1,3 +1,4 @@
+import { preferenceStorage } from "../../settings/model/sharedPreferences";
 import { isHexColor } from "../../../shared/lib/colorUtils";
 import { compareSessionSummaries } from "../data/sessionHistory";
 import type { SessionSummary } from "../data/sessionStore";
@@ -456,7 +457,7 @@ export function saveSessionFolders(
     const store = parseStore();
     if (folders.length === 0) delete store[key];
     else store[key] = folders;
-    localStorage.setItem(KEY, JSON.stringify(store));
+    preferenceStorage.setItem(KEY, JSON.stringify(store));
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent(CHANGE_EVENT, { detail: { cwd: key } }),
@@ -477,21 +478,21 @@ export function rebaseSessionFolderSettings(from: string, to: string): void {
     if (oldKey in folders) {
       if (!(newKey in folders)) folders[newKey] = folders[oldKey];
       delete folders[oldKey];
-      localStorage.setItem(KEY, JSON.stringify(folders));
+      preferenceStorage.setItem(KEY, JSON.stringify(folders));
     }
     for (const storeKey of [
       PINNED_COLLAPSED_KEY,
       REMINDERS_COLLAPSED_KEY,
       SIDEBAR_ORDER_KEY,
     ]) {
-      const raw = localStorage.getItem(storeKey);
+      const raw = preferenceStorage.getItem(storeKey);
       const parsed: unknown = raw ? JSON.parse(raw) : {};
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
       const state = { ...(parsed as Record<string, unknown>) };
       if (!(oldKey in state)) continue;
       if (!(newKey in state)) state[newKey] = state[oldKey];
       delete state[oldKey];
-      localStorage.setItem(storeKey, JSON.stringify(state));
+      preferenceStorage.setItem(storeKey, JSON.stringify(state));
     }
   } catch {
     // private mode / quota
@@ -501,7 +502,7 @@ export function rebaseSessionFolderSettings(from: string, to: string): void {
 function parseSidebarOrderStore(): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(
-      localStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}",
+      preferenceStorage.getItem(SIDEBAR_ORDER_KEY) ?? "{}",
     );
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? { ...(parsed as Record<string, unknown>) }
@@ -533,7 +534,7 @@ export function saveSessionSidebarOrder(cwd: string, order: string[]): void {
   try {
     const store = parseSidebarOrderStore();
     store[key] = order;
-    localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(store));
+    preferenceStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(store));
   } catch {
     // The current view can still be sorted when storage is unavailable.
   }
@@ -573,7 +574,7 @@ function loadGroupCollapsed(cwd: string, storeKey: string): boolean {
   const key = storageKey(cwd);
   if (!key) return false;
   try {
-    const raw = localStorage.getItem(storeKey);
+    const raw = preferenceStorage.getItem(storeKey);
     if (!raw) return false;
     const parsed: unknown = JSON.parse(raw);
     return Boolean(
@@ -609,7 +610,7 @@ function saveGroupCollapsed(
   const key = storageKey(cwd);
   if (!key) return;
   try {
-    const raw = localStorage.getItem(storeKey);
+    const raw = preferenceStorage.getItem(storeKey);
     const parsed: unknown = raw ? JSON.parse(raw) : {};
     const store =
       parsed && typeof parsed === "object" && !Array.isArray(parsed)
@@ -617,7 +618,7 @@ function saveGroupCollapsed(
         : {};
     if (collapsed) store[key] = true;
     else delete store[key];
-    localStorage.setItem(storeKey, JSON.stringify(store));
+    preferenceStorage.setItem(storeKey, JSON.stringify(store));
   } catch {
     // private mode / quota
   }
@@ -634,8 +635,15 @@ export function subscribeSessionFolders(
     const changed = (event as CustomEvent<{ cwd?: string }>).detail?.cwd;
     if (changed === key) onChange();
   };
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === null || [KEY, PINNED_COLLAPSED_KEY, REMINDERS_COLLAPSED_KEY].includes(event.key)) onChange();
+  };
   window.addEventListener(CHANGE_EVENT, listener);
-  return () => window.removeEventListener(CHANGE_EVENT, listener);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(CHANGE_EVENT, listener);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 function storageKey(cwd: string): string | null {
@@ -645,7 +653,7 @@ function storageKey(cwd: string): string | null {
 
 function parseStore(): Record<string, SessionFolder[]> {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = preferenceStorage.getItem(KEY);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {

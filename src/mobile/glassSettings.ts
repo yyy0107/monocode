@@ -1,4 +1,5 @@
 import { setLiquidGlassRefraction } from "./liquidGlass";
+import { activePreferenceStore, preferenceStorage } from "../features/settings/model/sharedPreferences";
 
 /** Material for floating controls, sheets, drawers and popovers. */
 export type GlassEffect = "liquid" | "frosted" | "solid";
@@ -17,7 +18,7 @@ export const DEFAULT_GLASS_SETTINGS: GlassSettings = {
   transparency: 78,
 };
 
-export const GLASS_SETTINGS_KEY = "monocode-mobile-glass";
+export const GLASS_SETTINGS_KEY = "monocode.mobileGlass";
 
 const EFFECTS: readonly GlassEffect[] = ["liquid", "frosted", "solid"];
 
@@ -47,7 +48,8 @@ export function normalizeGlassSettings(value: unknown): GlassSettings {
 export function readGlassSettings(): GlassSettings {
   try {
     return normalizeGlassSettings(
-      JSON.parse(localStorage.getItem(GLASS_SETTINGS_KEY) ?? "null"),
+      JSON.parse(preferenceStorage.getItem(GLASS_SETTINGS_KEY)
+        ?? (activePreferenceStore() ? null : localStorage.getItem("monocode-mobile-glass")) ?? "null"),
     );
   } catch {
     return DEFAULT_GLASS_SETTINGS;
@@ -56,7 +58,7 @@ export function readGlassSettings(): GlassSettings {
 
 export function saveGlassSettings(settings: GlassSettings) {
   try {
-    localStorage.setItem(GLASS_SETTINGS_KEY, JSON.stringify(settings));
+    preferenceStorage.setItem(GLASS_SETTINGS_KEY, JSON.stringify(settings));
   } catch {
     // Storage can be unavailable; the material still applies for this run.
   }

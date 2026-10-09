@@ -18,6 +18,12 @@ import { QuickGitPopup } from "./ui/QuickGitPopup";
 import { QuickComposer } from "./ui/QuickComposer";
 import "../../styles/index.css";
 import { initUiLanguage } from "../../shared/i18n/languageSync";
+import { refreshUiLanguage, translate } from "../../shared/i18n/language";
+import { initializeSharedHost } from "../connections/model/sharedHost";
+import { initializeHostPreferences } from "../settings/model/hostPreferences";
+import { subscribeSharedPreferences } from "../settings/model/sharedPreferences";
+import { initProviderAccountPublishing } from "../providers/model/providerAccountCredentials";
+import { initSounds } from "../settings/model/sounds";
 
 /**
  * Only the theme, not the workspace's glass, backgrounds, or scale: the panel
@@ -41,13 +47,38 @@ function applyAppearance() {
 
 initUiLanguage();
 applyAppearance();
+subscribeSharedPreferences(() => {
+  applyAppearance();
+  refreshUiLanguage();
+  initSounds();
+});
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    {new URLSearchParams(window.location.search).get("popup") === "git" ? (
-      <QuickGitPopup onShown={applyAppearance} />
-    ) : (
-      <QuickComposer onShown={applyAppearance} />
-    )}
-  </React.StrictMode>,
-);
+const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
+async function boot() {
+  try {
+    // This is an independent webview: it must bind its own verified settings
+    // service before its controls can read defaults or save a model selection.
+    await initializeSharedHost();
+    await initializeHostPreferences();
+    await initProviderAccountPublishing();
+    applyAppearance();
+    root.render(
+      <React.StrictMode>
+        {new URLSearchParams(window.location.search).get("popup") === "git" ? (
+          <QuickGitPopup onShown={applyAppearance} />
+        ) : (
+          <QuickComposer onShown={applyAppearance} />
+        )}
+      </React.StrictMode>,
+    );
+  } catch (error) {
+    root.render(
+      <div className="flex h-screen flex-col items-center justify-center gap-3 p-6 text-content">
+        <p>{translate("Could not connect to shared conversations.")}</p>
+        <pre className="max-w-full whitespace-pre-wrap text-ui-sm">{String(error)}</pre>
+        <button onClick={() => void boot()}>{translate("Retry")}</button>
+      </div>,
+    );
+  }
+}
+void boot();

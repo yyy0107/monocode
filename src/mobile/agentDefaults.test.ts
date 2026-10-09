@@ -12,11 +12,13 @@ import {
   defaultConfiguration,
   defaultProviderAccount,
   loadMobileAgentDefaults,
+  loadMobileProjectDefaults,
   saveMobileAgentDefaults,
   withDefaultAccount,
   withDefaultConfiguration,
   type MobileAgentDefaults,
 } from "./agentDefaults";
+import { activatePreferenceStore, SharedPreferenceStore } from "../features/settings/model/sharedPreferences";
 
 const catalog: HostModelCatalog = {
   models: {
@@ -43,7 +45,35 @@ const catalog: HostModelCatalog = {
   },
   errors: {},
 };
-afterEach(() => localStorage.clear());
+afterEach(() => { activatePreferenceStore(undefined); localStorage.clear(); });
+
+it("uses verified Host preferences for desktop/mobile defaults and preserves another Host's cache", async () => {
+  const request = async <T,>(): Promise<T> => { throw new Error("offline"); };
+  const store = new SharedPreferenceStore("host-one", localStorage, request);
+  activatePreferenceStore(store);
+  saveMobileAgentDefaults("host-one", { harness: "codex", runtimeMode: "full-access", agents: { codex: { model: "codex:fast", accountId: "work" } } });
+  await store.sync();
+  expect(loadMobileAgentDefaults("host-one")).toMatchObject({ harness: "codex", agents: { codex: { model: "codex:fast", accountId: "work" } } });
+  expect(localStorage.getItem("monocode.mobileAgentDefaults")).toBeNull();
+  expect(loadMobileAgentDefaults("host-two")).toEqual({});
+  const second = new SharedPreferenceStore("host-two", localStorage, request);
+  activatePreferenceStore(second);
+  expect(loadMobileAgentDefaults("host-two")).toEqual({ agents: {} });
+  expect(loadMobileAgentDefaults("host-one")).toEqual({});
+  activatePreferenceStore(new SharedPreferenceStore("host-one", localStorage, request));
+  expect(loadMobileAgentDefaults("host-one").agents?.codex?.accountId).toBe("work");
+});
+
+it("applies Host project model and account overrides only to new draft defaults", async () => {
+  const store = new SharedPreferenceStore("host", localStorage, async () => { throw new Error("offline"); });
+  activatePreferenceStore(store);
+  saveMobileAgentDefaults("host", { harness: "claude", agents: { codex: { model: "codex:old", modelSettings: { reasoningEffort: "low" }, accountId: "personal" } } });
+  store.setItem("monocode.projectProviderSettings.v1", JSON.stringify({ "@project:host:project": { defaultHarness: "codex", defaultModel: "codex:fast" } }));
+  store.setItem("monocode.providerAccountSelections.v1", JSON.stringify({ "@project:host:project": { codex: "work" } }));
+  await store.sync();
+  expect(loadMobileProjectDefaults("host", "project")).toMatchObject({ harness: "codex", agents: { codex: { model: "codex:fast", modelSettings: { reasoningEffort: "low" }, accountId: "work" } } });
+  expect(loadMobileAgentDefaults("host")).toMatchObject({ harness: "claude", agents: { codex: { accountId: "personal" } } });
+});
 describe("mobile defaults scoped to Host and Agent", () => {
   it.each(RUNTIME_MODES)("restores %s permissions for every Agent on the saved Host", (runtimeMode) => {
     const saved: MobileAgentDefaults = {

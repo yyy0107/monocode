@@ -1,3 +1,4 @@
+import { usePreferenceState } from "../../settings/model/usePreferenceState";
 import { translate } from "../../../shared/i18n/language";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
@@ -289,7 +290,7 @@ export function ModelPicker({
   const [submenu, setSubmenu] = useState<Submenu | null>(null);
   const [activeRow, setActiveRow] = useState<HTMLButtonElement | null>(null);
   const [query, setQuery] = useState("");
-  const [favorites, setFavorites] = useState(loadFavoriteModels);
+  const [favorites, setFavorites] = usePreferenceState(loadFavoriteModels);
   const recentMenuId = useId();
   const button = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);

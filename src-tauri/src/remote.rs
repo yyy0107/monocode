@@ -361,6 +361,23 @@ fn supported_remote_method(method: &str) -> bool {
     matches!(
         method,
         "environment.describe"
+            | "preferences.read"
+            | "preferences.patch"
+            | "preferences.assets.upload"
+            | "preferences.assets.read"
+            | "workspaces.read"
+            | "workspaces.save"
+            | "connections.list"
+            | "connections.patch"
+            | "providerAccounts.list"
+            | "providerAccounts.read"
+            | "providerAccounts.usage"
+            | "providerAccounts.save"
+            | "providerAccounts.remove"
+            | "providerAccounts.setDefault"
+            | "providerAccounts.importCodex"
+            | "providerAccounts.loginStart"
+            | "providerAccounts.loginStatus"
             | "projects.list"
             | "projects.browse"
             | "projects.open"
@@ -703,6 +720,23 @@ mod tests {
     #[test]
     fn desktop_forwards_supported_host_operations() {
         for method in [
+            "preferences.read",
+            "preferences.patch",
+            "preferences.assets.upload",
+            "preferences.assets.read",
+            "workspaces.read",
+            "workspaces.save",
+            "connections.list",
+            "connections.patch",
+            "providerAccounts.list",
+            "providerAccounts.read",
+            "providerAccounts.usage",
+            "providerAccounts.save",
+            "providerAccounts.remove",
+            "providerAccounts.setDefault",
+            "providerAccounts.importCodex",
+            "providerAccounts.loginStart",
+            "providerAccounts.loginStatus",
             "git.branches",
             "git.switch",
             "git.createBranch",

@@ -1,3 +1,4 @@
+import { preferenceStorage } from "../../settings/model/sharedPreferences";
 import { pathKey } from "../../../shared/lib/paths";
 import { PROJECT_MASCOTS } from "./projectMascots";
 import { TAB_GROUP_COLORS, tabGroupColor } from "../../workspace/model/tabGroups";
@@ -56,7 +57,7 @@ function normalizeGroup(value: unknown): ProjectGroup | null {
 export function loadProjectGroups(): ProjectGroup[] {
   try {
     const parsed: unknown = JSON.parse(
-      localStorage.getItem(GROUPS_KEY) ?? "[]",
+      preferenceStorage.getItem(GROUPS_KEY) ?? "[]",
     );
     if (!Array.isArray(parsed)) return [];
     const groups: ProjectGroup[] = [];
@@ -79,7 +80,7 @@ export function saveProjectGroups(groups: ProjectGroup[]): boolean {
     return value ? [value] : [];
   });
   try {
-    localStorage.setItem(GROUPS_KEY, JSON.stringify(normalized));
+    preferenceStorage.setItem(GROUPS_KEY, JSON.stringify(normalized));
     notifyProjectPathsChanged();
     return true;
   } catch {
@@ -92,7 +93,7 @@ export function loadProjectGroupAssignments(
 ): Record<string, string> {
   try {
     const parsed: unknown = JSON.parse(
-      localStorage.getItem(ASSIGNMENTS_KEY) ?? "{}",
+      preferenceStorage.getItem(ASSIGNMENTS_KEY) ?? "{}",
     );
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
       return {};
@@ -114,7 +115,7 @@ export function saveProjectGroupAssignments(
   assignments: Record<string, string>,
 ): boolean {
   try {
-    localStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(assignments));
+    preferenceStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(assignments));
     notifyProjectPathsChanged();
     return true;
   } catch {

@@ -1,3 +1,4 @@
+import { preferenceStorage } from "./sharedPreferences";
 const KEY = "monocode.sidebarSectionsCollapsed.v1";
 const CHANGED = "monocode:sidebar-sections-collapsed-changed";
 const SECTIONS = ["pinned", "recent", "workflows", "groups", "projects"] as const;
@@ -11,7 +12,7 @@ function isSection(value: unknown): value is SidebarSectionId {
 /** All sections start expanded; store only explicit folds by stable section id. */
 export function loadSidebarSectionsCollapsed(): ReadonlySet<SidebarSectionId> {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(KEY) ?? "[]");
+    const parsed: unknown = JSON.parse(preferenceStorage.getItem(KEY) ?? "[]");
     return new Set(Array.isArray(parsed) ? parsed.filter(isSection) : []);
   } catch {
     return new Set();
@@ -22,7 +23,7 @@ export function saveSidebarSectionsCollapsed(
   sections: Iterable<SidebarSectionId>,
 ): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify([...new Set(sections)]));
+    preferenceStorage.setItem(KEY, JSON.stringify([...new Set(sections)]));
   } catch {
     // Keep the current view usable when storage is unavailable.
   }

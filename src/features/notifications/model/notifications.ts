@@ -1,3 +1,4 @@
+import { preferenceStorage } from "../../settings/model/sharedPreferences";
 import { invoke } from "@tauri-apps/api/core";
 import { HARNESS_TITLE, sessionDisplayTitle, type Session } from "../../sessions/model/session";
 import { loadSoundsEnabled, playCue } from "../../settings/model/sounds";
@@ -22,7 +23,7 @@ export type NotificationPermission =
 
 export function loadNotificationsEnabled(): boolean {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = preferenceStorage.getItem(KEY);
     if (raw == null) return NOTIFICATIONS_DEFAULT;
     return raw === "1" || raw === "true";
   } catch {
@@ -32,7 +33,7 @@ export function loadNotificationsEnabled(): boolean {
 
 export function saveNotificationsEnabled(value: boolean) {
   try {
-    localStorage.setItem(KEY, value ? "1" : "0");
+    preferenceStorage.setItem(KEY, value ? "1" : "0");
   } catch {
     // private mode / quota
   }

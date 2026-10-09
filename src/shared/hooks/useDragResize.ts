@@ -13,6 +13,8 @@ type Options = {
   max: () => number;
   defaultWidth: number;
   initial: number;
+  /** A preference update; it must not fight an in-progress pointer drag. */
+  value?: number;
   onCommit?: (width: number) => void;
 };
 
@@ -27,6 +29,7 @@ export function useDragResize({
   max,
   defaultWidth,
   initial,
+  value,
   onCommit,
 }: Options) {
   const minRef = useRef(min);
@@ -59,6 +62,15 @@ export function useDragResize({
     paneRef.current = el;
     if (el) el.style.width = `${widthRef.current}px`;
   }, []);
+
+  useEffect(() => {
+    if (value === undefined || stopDrag.current) return;
+    const next = clamp(value);
+    widthRef.current = next;
+    if (paneRef.current) paneRef.current.style.width = `${next}px`;
+    setWidth(next);
+    // Incoming preference changes are applied without producing a new write.
+  }, [value, clamp]);
 
   const commit = (next: number) => {
     const value = clamp(next);

@@ -825,12 +825,19 @@ let workspaceWrite: Promise<unknown> = Promise.resolve();
 export async function saveWorkspaceSnapshot(snapshot: unknown): Promise<void> {
   const run = workspaceWrite
     .catch(() => undefined)
-    .then(() => invoke("workspace_set_snapshot", { snapshot }));
+    .then(async () => {
+      const { saveHostWorkspace } = await import("../../connections/model/hostWorkspace");
+      if (!await saveHostWorkspace(snapshot))
+        await invoke("workspace_set_snapshot", { snapshot });
+    });
   workspaceWrite = run;
   await run;
 }
 
 export async function loadWorkspaceSnapshot(): Promise<unknown | null> {
+  const { loadHostWorkspace } = await import("../../connections/model/hostWorkspace");
+  const shared = await loadHostWorkspace();
+  if (shared !== undefined) return shared;
   const raw = await invoke<unknown | null>("workspace_get_snapshot");
   return raw ?? null;
 }

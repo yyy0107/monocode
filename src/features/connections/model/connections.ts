@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   applySessionSync,
   sessionClockOffset,
@@ -19,6 +19,7 @@ import {
 } from "./remoteAttachmentPreviews";
 import { hostOrchestrationClient } from "../../orchestration/model/orchestrationClient";
 import { isRemoteProjectPath } from "../../projects/model/recents";
+import { useHostConnections } from "./hostConnections";
 import {
   OUTBOX_PREFIX,
   deleteOutboxEntries,
@@ -27,7 +28,8 @@ import {
   putOutboxEntry,
 } from "./remoteOutbox";
 
-const CHANGE = "monocode:remote-machines";
+export const REMOTE_MACHINES_CHANGED = "monocode:remote-machines";
+const CHANGE = REMOTE_MACHINES_CHANGED;
 export const REMOTE_HISTORY_CHANGE = "monocode:remote-history";
 export const REMOTE_HISTORY_UPDATED = "monocode:remote-history-updated";
 export const refreshRemoteProjectSessions = () =>
@@ -406,6 +408,8 @@ export async function connectMachine(
   ];
   machinesLoaded = true;
   window.dispatchEvent(new Event(CHANGE));
+  const { publishHostConnection } = await import("./hostConnections");
+  await publishHostConnection(machine);
   return machine;
 }
 
@@ -423,6 +427,7 @@ export function useRemoteMachines(enabled = true): {
   machines: RemoteMachine[];
   loaded: boolean;
 } {
+  const directory = useHostConnections();
   const [state, setState] = useState<{
     machines: RemoteMachine[];
     loaded: boolean;
@@ -453,7 +458,13 @@ export function useRemoteMachines(enabled = true): {
       window.removeEventListener(CHANGE, refresh);
     };
   }, [enabled]);
-  return state;
+  return useMemo(() => ({
+    ...state,
+    machines: state.machines.map((machine) => {
+      const shared = directory.connections.find((entry) => entry.environmentId === machine.environmentId);
+      return shared && shared.name !== machine.name ? { ...machine, name: shared.name } : machine;
+    }),
+  }), [state, directory.connections]);
 }
 
 const STATUS = "monocode:remote-machine-status";

@@ -1,5 +1,8 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { activePreferenceStore } from "../../settings/model/sharedPreferences";
+import { parsePreferenceAsset, preferenceAssetUrl, uploadPreferenceBackground } from "../../settings/model/preferenceAssets";
+import { remoteProjectFor, parseRemotePath } from "../../connections/model/remoteProjects";
 
 export async function pickAndSaveChatBackground(): Promise<string | null> {
   const sourcePath = await open({
@@ -36,10 +39,12 @@ export async function pickAndSaveProjectChatBackground(
     ],
   });
   if (typeof sourcePath !== "string" || !sourcePath) return null;
-  return invoke<string>("save_project_chat_background", {
+  const saved = await invoke<string>("save_project_chat_background", {
     project,
     sourcePath,
   });
+  return activePreferenceStore() ? uploadPreferenceBackground(saved,
+    remoteProjectFor(project)?.environmentId ?? parseRemotePath(project)?.environmentId ?? activePreferenceStore()!.hostId) : saved;
 }
 
 export function clearProjectChatBackground(project: string): Promise<void> {
@@ -50,5 +55,6 @@ export function projectChatBackgroundSrc(
   path: string,
   revision: number,
 ): string {
+  if (parsePreferenceAsset(path)) return preferenceAssetUrl(path) ?? "";
   return `${convertFileSrc(path)}?v=${revision}`;
 }

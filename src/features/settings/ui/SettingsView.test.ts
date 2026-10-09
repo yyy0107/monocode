@@ -141,6 +141,50 @@ function renderedSettingIds(): string[] {
   );
 }
 
+/** In-memory Host contract; UI tests never publish a browser account catalog. */
+function mockAccountHost(options: {
+  accounts?: Record<string, { id: string; label: string; dataHome?: string }[]>;
+  identity?: (provider: string, accountId: string, home?: string) => Record<string, string> | undefined;
+  offline?: () => boolean;
+  setDefault?: () => void;
+  imported?: () => void;
+} = {}) {
+  configureSharedHost("env", [], "shared-machine");
+  let accounts = options.accounts;
+  let revision = 1;
+  const defaults: Record<string, string> = {};
+  const catalog = () => accounts ??= Object.fromEntries(["claude", "codex"].map(provider => [provider,
+    providerAccounts(provider as "claude" | "codex").map(({ id, label }) => ({ id, label })),
+  ]));
+  const publicAccounts = () => Object.fromEntries(Object.entries(catalog()).map(([provider, entries]) => [provider,
+    entries.map(({ id, label, dataHome }) => ({ id, label, identity: options.identity?.(provider, id, dataHome) })),
+  ]));
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command !== "remote_request") return undefined;
+    const { method, params } = args as { method: string; params: Record<string, string> };
+    if (method === "environment.describe") return { protocolVersion: 1, environmentId: "env", name: "fixture", providers: ["claude", "codex"], capabilities: ["providerAccounts.manage.v1"] };
+    if (method === "providerAccounts.list") {
+      if (options.offline?.()) throw new Error("Host offline");
+      return publicAccounts();
+    }
+    if (method === "providerAccounts.save" || method === "providerAccounts.importCodex") {
+      const entries = catalog()[params.provider] ??= [];
+      const entry = entries.find(entry => entry.id === params.accountId);
+      if (entry) { entry.label = params.label; if (params.dataHome !== undefined) entry.dataHome = params.dataHome; }
+      else entries.push({ id: params.accountId, label: params.label, dataHome: params.dataHome });
+      if (method === "providerAccounts.importCodex") options.imported?.();
+      revision++;
+    } else if (method === "providerAccounts.remove") {
+      catalog()[params.provider] = catalog()[params.provider].filter(entry => entry.id !== params.accountId); revision++;
+    } else if (method === "providerAccounts.setDefault") {
+      options.setDefault?.(); defaults[params.provider] = params.accountId; revision++;
+    }
+    if (method === "providerAccounts.read" || method === "providerAccounts.save" || method === "providerAccounts.remove" || method === "providerAccounts.setDefault" || method === "providerAccounts.importCodex")
+      return { revision, accounts: publicAccounts(), defaults: { ...defaults } };
+    return undefined;
+  });
+}
+
 beforeEach(() => {
   windowMock.nativeDesktop = false;
   windowMock.startDragging.mockClear();
@@ -153,7 +197,8 @@ beforeEach(() => {
   document.body.append(container);
   root = createRoot(container);
   onSelectSection = vi.fn();
-  vi.mocked(invoke).mockReset().mockResolvedValue(undefined);
+  vi.mocked(invoke).mockReset();
+  mockAccountHost();
 });
 
 afterEach(async () => {
@@ -313,13 +358,7 @@ describe("settings pages", () => {
   });
 
   it("blurs account emails by default and hides them when settings reopen", async () => {
-    vi.mocked(invoke).mockImplementation(async (command, args) => {
-      if (command === "provider_account_identity") {
-        const { provider } = args as { provider: string };
-        return { email: `${provider}@example.com`, plan: "Pro" };
-      }
-      return undefined;
-    });
+    mockAccountHost({ identity: provider => ({ email: `${provider}@example.com`, plan: "Pro" }) });
     await render("providers");
 
     const emails = container.querySelectorAll<HTMLButtonElement>(
@@ -350,11 +389,7 @@ describe("settings pages", () => {
 
   it("shows used usage and plain emails until the options are turned on", async () => {
     saveMaskEmails(false);
-    vi.mocked(invoke).mockImplementation(async (command) =>
-      command === "provider_account_identity"
-        ? { email: "user@example.com", plan: "Pro" }
-        : undefined,
-    );
+    mockAccountHost({ identity: () => ({ email: "user@example.com", plan: "Pro" }) });
     setCachedRateLimits("claude", "default", {
       provider: "claude",
       session: {
@@ -402,77 +437,39 @@ describe("settings pages", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("shows each profile's actual local account independently from its label and refreshes identity", async () => {
-    configureSharedHost("env", [], "machine");
-    saveProviderAccount({ id: "work", provider: "codex", label: "Work", dataHome: "/homes/codex-work" });
-    saveProviderAccount({ id: "personal", provider: "codex", label: "Personal", dataHome: "/homes/codex-personal" });
-    saveProviderAccount({ id: "operator", provider: "claude", label: "Claude profile", dataHome: "/homes/claude" });
+  it("shows each profile's Host account independently from its label and refreshes identity", async () => {
     let workEmail = "work@example.com";
     let hostOffline = false;
-    let localUnavailable = false;
-    vi.mocked(invoke).mockImplementation(async (command, args) => {
-      if (command === "provider_account_identity") {
-        const { provider, accountId } = args as { provider: string; accountId: string };
-        if (accountId === "default") return { email: "local-default@example.com", plan: "Pro" };
-        if (provider === "claude") return { name: "Claude operator", plan: "Max" };
-        if (accountId === "personal") return { email: "personal@example.com", plan: "Plus" };
-        if (localUnavailable) throw new Error("Unreadable Home");
-        return { email: workEmail, plan: "Pro" };
-      }
-      if (command === "remote_request") {
-        const { method } = args as { method: string };
-        if (method === "environment.describe") return { protocolVersion: 1, environmentId: "env", name: "fixture", providers: ["codex", "claude"], capabilities: ["providerAccounts.defaults"] };
-        if (method === "providerAccounts.list") {
-          if (hostOffline) throw new Error("Host offline");
-          return { codex: [
-            { id: "default", label: "Default", identity: { email: "host@example.com" } },
-            { id: "work", label: "Work", identity: { email: "wrong@example.com" } },
-          ], claude: [] };
-        }
-      }
-      return undefined;
+    mockAccountHost({
+      accounts: { codex: [{ id: "default", label: "Default" }, { id: "work", label: "Work", dataHome: "/homes/codex-work" }, { id: "personal", label: "Personal" }], claude: [{ id: "operator", label: "Claude profile" }] },
+      identity: (provider, id) => id === "default" ? { email: "host@example.com" }
+        : provider === "claude" ? { name: "Claude operator", plan: "Max" }
+        : { email: id === "personal" ? "personal@example.com" : workEmail },
+      offline: () => hostOffline,
     });
     await render("providers");
     const identity = (provider: string, id: string) => container.querySelector(`[data-provider-account-identity="${provider}:${id}"]`)!;
     expect(identity("codex", "work").textContent).toContain("work@example.com");
     expect(identity("codex", "personal").textContent).toContain("personal@example.com");
     expect(identity("claude", "operator").textContent).toContain("Claude operator");
-    expect(identity("codex", "default").textContent).toContain("local-default@example.com");
-    expect(container.textContent).not.toContain("wrong@example.com");
-    expect(container.textContent).toContain("/homes/codex-work");
-    expect(container.querySelector('[aria-label="Rename Work"]')).not.toBeNull();
+    expect(identity("codex", "default").textContent).toContain("host@example.com");
+    expect(container.textContent).not.toContain("/homes/codex-work");
     const refresh = () => act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Refresh usage limits"]')!.click());
     workEmail = "updated@example.com";
     await refresh();
     expect(identity("codex", "work").textContent).toContain("updated@example.com");
-    expect(identity("codex", "work").textContent).not.toContain("work@example.com");
     hostOffline = true;
     await refresh();
-    expect(identity("codex", "work").textContent).toContain("updated@example.com");
-    expect(identity("codex", "default").textContent).toContain("local-default@example.com");
-    expect(invoke).toHaveBeenCalledWith("provider_account_identity", { provider: "codex", accountId: "default" });
-    localUnavailable = true;
-    await refresh();
-    expect(identity("codex", "work").textContent).toContain("No account identity could be read from this Home. Check the path or sign in.");
-    expect(identity("codex", "work").textContent).not.toContain("updated@example.com");
+    expect(identity("codex", "work").textContent).toContain("No account identity could be read");
+    expect(invoke).not.toHaveBeenCalledWith("provider_account_identity", expect.anything());
   });
 
-  it.each(["codex", "claude"] as const)("edits the built-in %s Home and reads its identity even without a Host", async provider => {
-    let dataHome = "/system/cli-home";
-    vi.mocked(invoke).mockImplementation(async (command, args) => {
-      if (command === "provider_accounts_list") return { [provider]: [{ id: "default", label: "Default account", resolvedDataHome: dataHome, ...(dataHome === "/custom/home" ? { dataHome } : {}) }] };
-      if (command === "provider_accounts_publish") {
-        const { accounts } = args as { accounts: Record<string, { id: string; dataHome?: string }[]> };
-        const builtin = accounts[provider].find(account => account.id === "default")!;
-        dataHome = builtin.dataHome || "/system/cli-home";
-      }
-      if (command === "provider_account_identity") return { email: `${dataHome === "/custom/home" ? "changed" : "initial"}@example.com`, plan: "Pro" };
-      return undefined;
-    });
+  it.each(["codex", "claude"] as const)("edits the built-in %s Home on Host without exposing its private path", async provider => {
+    mockAccountHost({ identity: (_provider, _id, dataHome) => ({ email: `${dataHome === "/custom/home" ? "changed" : "initial"}@example.com`, plan: "Pro" }) });
     await render("providers");
     const identity = () => container.querySelector(`[data-provider-account-identity="${provider}:default"]`)!;
     expect(identity().textContent).toContain("initial@example.com");
-    expect(container.textContent).toContain("/system/cli-home");
+    expect(container.textContent).toContain("Data Home is managed by Host");
     expect(container.textContent).toContain("Built-in CLI profile");
     const row = identity().parentElement!.parentElement!;
     expect(row.querySelector('[title="Edit account and Data Home"]')).not.toBeNull();
@@ -483,7 +480,9 @@ describe("settings pages", () => {
       homeInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => homeInput.closest("form")!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
-    expect(providerAccounts(provider)[0]).toMatchObject({ id: "default", dataHome: "/custom/home", resolvedDataHome: "/custom/home" });
+    expect(providerAccounts(provider)[0]).toMatchObject({ id: "default" });
+    expect(providerAccounts(provider)[0]).not.toHaveProperty("dataHome");
+    expect(invoke).toHaveBeenCalledWith("remote_request", expect.objectContaining({ method: "providerAccounts.save", params: expect.objectContaining({ provider, accountId: "default", dataHome: "/custom/home" }) }));
     expect(providerAccounts(provider)).toHaveLength(1);
     expect(identity().textContent).toContain("changed@example.com");
     await signInTo("Default account", row);
@@ -641,20 +640,16 @@ describe("settings pages", () => {
     const remove = (await accountMenuItem("Work", "Remove account"))!;
     await act(async () => remove.click());
     expect(ask).toHaveBeenCalled();
-    expect(invoke).toHaveBeenCalledWith("provider_account_remove", {
-      provider: "codex",
-      accountId: "account-work",
-    });
+    expect(invoke).toHaveBeenCalledWith("remote_request", expect.objectContaining({ method: "providerAccounts.remove", params: expect.objectContaining({ provider: "codex", accountId: "account-work" }) }));
     expect(providerAccounts("codex")).toHaveLength(1);
   });
 
   it.each(["codex", "claude"] as const)("adds a visible %s profile with an existing Home without signing in", async provider => {
-    vi.mocked(invoke).mockImplementation(async command => command === "provider_accounts_list" ? { codex: [{ id: "disk", label: "Disk account", dataHome: "/data/existing" }] } : undefined);
+    mockAccountHost({ accounts: { codex: [{ id: "default", label: "Default account" }, { id: "disk", label: "Disk account", dataHome: "/data/existing" }], claude: [{ id: "default", label: "Default account" }] } });
     await render("providers");
     expect(container.textContent).toContain("Disk account");
-    expect(container.textContent).toContain("/data/existing");
-    expect(container.textContent).toContain("~/.codex");
-    expect(container.textContent).toContain("~/.claude");
+    expect(container.textContent).not.toContain("/data/existing");
+    expect(container.textContent).toContain("Data Home is managed by Host");
     const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")].filter(button => button.textContent === "Add account");
     await act(async () => buttons[provider === "claude" ? 0 : 1].click());
     const name = container.querySelector<HTMLInputElement>(`[aria-label="New ${HARNESS_TITLE[provider]} account"]`)!;
@@ -666,9 +661,10 @@ describe("settings pages", () => {
     });
     await act(async () => name.closest("form")!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
     const account = providerAccounts(provider).find(account => account.label === "Personal")!;
-    expect(account.dataHome).toBe(`/data/${provider}`);
+    expect(account.dataHome).toBeUndefined();
+    expect(invoke).toHaveBeenCalledWith("remote_request", expect.objectContaining({ method: "providerAccounts.save", params: expect.objectContaining({ provider, dataHome: `/data/${provider}` }) }));
     expect(container.querySelector('[aria-label="Rename Personal"]')).not.toBeNull();
-    expect(container.textContent).toContain(`/data/${provider}`);
+    expect(container.textContent).not.toContain(`/data/${provider}`);
     expect(loginHarness).not.toHaveBeenCalled();
     await signInTo("Personal");
     expect(loginHarness).toHaveBeenCalledWith(provider, account.id);
@@ -676,7 +672,9 @@ describe("settings pages", () => {
 
   it("validates and stores Codex and OpenCode binary overrides", async () => {
     let failAutoCodex = false;
+    const accountHost = vi.mocked(invoke).getMockImplementation()!;
     vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "remote_request") return accountHost(command, args);
       const payload = args as { binaryPath?: string } | undefined;
       if (command === "harness_resolve_configured") {
         return { path: payload?.binaryPath };
@@ -1450,21 +1448,9 @@ describe("providers scope inheritance", () => {
   });
 });
 
-it("saves a shared account only after publication, prevents removing it and supports retry", async () => {
-  configureSharedHost("env", [], "shared-machine");
+it("saves a shared account through Host, prevents removing it and supports retry", async () => {
   let failSave = true;
-  let defaults: Record<string, string> = {};
-  vi.mocked(invoke).mockImplementation(async (command, args) => {
-    if (command === "remote_request") {
-      if ((args as { method: string }).method === "environment.describe") return { protocolVersion: 1, environmentId: "env", name: "fixture", providers: ["codex"], capabilities: ["providerAccounts.defaults"] };
-      return {};
-    }
-    if (command === "provider_account_defaults") return defaults;
-    if (command === "provider_account_set_default") {
-      if (failSave) throw new Error("Unable to save fixture default");
-      defaults = { codex: "work" }; return defaults;
-    }
-  });
+  mockAccountHost({ setDefault: () => { if (failSave) throw new Error("Unable to save fixture default"); } });
   saveProviderAccount({ provider: "codex", id: "work", label: "9300" });
   await render("providers");
   const choose = () => accountMenuItem("9300", "Use as shared default");
@@ -1484,9 +1470,8 @@ it("saves a shared account only after publication, prevents removing it and supp
       item.textContent?.includes("Use as shared default"),
     ),
   ).toBe(false);
-  expect(invoke).toHaveBeenCalledWith("provider_account_set_default", { provider: "codex", accountId: "work" });
-  const calls = vi.mocked(invoke).mock.calls.map(call => call[0]);
-  expect(calls.indexOf("provider_accounts_publish")).toBeLessThan(calls.indexOf("provider_account_set_default"));
+  expect(invoke).toHaveBeenCalledWith("remote_request", expect.objectContaining({ method: "providerAccounts.setDefault", params: expect.objectContaining({ provider: "codex", accountId: "work" }) }));
+  expect(invoke).not.toHaveBeenCalledWith("provider_accounts_publish", expect.anything());
 });
 
 it.each([
@@ -1610,9 +1595,7 @@ it("switches between adding and importing a Codex account without closing the ne
 
 it("imports the current Codex login into a named profile and animates the editor closed", async () => {
   const copied = vi.fn();
-  vi.mocked(invoke).mockImplementation(async command => {
-    if (command === "provider_account_import_codex") copied();
-  });
+  mockAccountHost({ imported: copied });
   await render("providers");
   await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Import current Codex login")!.click());
   const input = container.querySelector<HTMLInputElement>('[aria-label="New Codex account"]')!;
@@ -1623,7 +1606,7 @@ it("imports the current Codex login into a named profile and animates the editor
   await act(async () => container.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
   expect(copied).toHaveBeenCalledOnce();
   expect(providerAccounts("codex").some(account => account.label === "9300")).toBe(true);
-  expect(invoke).not.toHaveBeenCalledWith("provider_account_set_default", expect.anything());
+  expect(invoke).not.toHaveBeenCalledWith("remote_request", expect.objectContaining({ method: "providerAccounts.setDefault" }));
   const closing = container.querySelector('[data-fold-state="closing"]');
   expect(closing?.getAttribute("aria-hidden")).toBe("true");
   expect(closing?.hasAttribute("inert")).toBe(true);

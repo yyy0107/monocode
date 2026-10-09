@@ -1,3 +1,4 @@
+import { usePreferenceState } from "../features/settings/model/usePreferenceState";
 import { MobileNotes, type MobileNotesHandle } from "./MobileNotes";
 import {
   appendNoteReference,
@@ -31,6 +32,8 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
+  type CSSProperties,
   type ReactNode,
   type MouseEvent,
   type RefObject,
@@ -77,7 +80,7 @@ import {
 import {
   defaultConfiguration as firstConfiguration,
   defaultProviderAccount,
-  loadMobileAgentDefaults,
+  loadMobileProjectDefaults,
   type MobileAgentDefaults as AgentDefaults,
 } from "./agentDefaults";
 import { MobileAgentDefaults } from "./MobileAgentDefaults";
@@ -114,6 +117,13 @@ import {
   type MobileSettingsPage,
 } from "./MobileSettings";
 import { readLastLocation, saveLastLocation } from "./lastLocation";
+import { initializeMobileWorkspace, saveMobileWorkspace, flushMobileWorkspace, stopMobileWorkspace, mobileWorkspacePending } from "./hostWorkspace";
+import { initializeHostConnections, stopHostConnections } from "../features/connections/model/hostConnections";
+import type { WorkspaceLocation } from "../features/connections/model/hostWorkspace";
+import { connectHostPreferences } from "../features/settings/model/hostPreferences";
+import { SharedStateStatus } from "../features/settings/ui/SharedStateStatus";
+import { MobileSharedConnections } from "./MobileSharedConnections";
+import { activePreferenceStore, subscribeSharedPreferences } from "../features/settings/model/sharedPreferences";
 import { useMobileActivity } from "./useMobileActivity";
 import { MobileHostStatus } from "./MobileHostStatus";
 import { MobileHostPicker } from "./MobileHostPicker";
@@ -142,6 +152,8 @@ import {
   loadAccentColor,
   loadTranscriptAnchor,
   loadTranscriptLayout,
+  loadChatBackgroundPath,
+  loadNewThreadBackgroundEffect,
   saveAccentColor,
   saveTranscriptAnchor,
   saveTranscriptLayout,
@@ -161,6 +173,7 @@ import {
 } from "./glassSettings";
 import {
   applyThemePreference,
+  loadThemePreference,
   saveThemePreference,
 } from "../features/settings/model/appearance";
 import { useNow } from "../shared/hooks/useNow";
@@ -169,6 +182,9 @@ import { MobileOverlayHostContext } from "./MobileOverlayHost";
 import { MobileSheetPresence } from "./MobileSheetPresence";
 import { migrateConnectionSettings } from "./connectionScope";
 import { SurfaceVisibilityContext } from "../shared/ui/SurfaceVisibility";
+import { GradientBlurBackground } from "../features/settings/ui/GradientBlurBackground";
+import { loadProjectChatBackgroundSettings, projectChatBackgroundRevision, projectChatBackgroundImageRevision, subscribeProjectChatBackground } from "../features/projects/model/projectChatBackground";
+import { useProjectBackgroundEffect } from "../features/projects/ui/useProjectBackgroundEffect";
 import { dismissImageLightbox } from "../shared/ui/ImageLightbox";
 import {
   showStatusToast,
@@ -351,7 +367,7 @@ export function MobileApp() {
   const settingsReturnView = useRef<View>("home");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [hostPickerOpen, setHostPickerOpen] = useState(false);
-  const [homeScope, setHomeScopeState] = useState<MobileHomeScope>(loadHomeScope);
+  const [homeScope, setHomeScopeState] = usePreferenceState<MobileHomeScope>(loadHomeScope);
   const setHomeScope = useCallback((scope: MobileHomeScope) => {
     saveHomeScope(scope);
     setHomeScopeState(scope);
@@ -414,11 +430,11 @@ export function MobileApp() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [readingAttachments, setReadingAttachments] = useState(false);
   const [planMode, setPlanMode] = useState(false);
-  const [followUpBehavior, setFollowUpBehavior] = useState(loadFollowUpBehavior);
-  const [transcriptLayout, setTranscriptLayout] = useState(loadTranscriptLayout);
-  const [transcriptAnchor, setTranscriptAnchor] = useState(loadTranscriptAnchor);
-  const [accentColor, setAccentColor] = useState(loadAccentColor);
-  const [soundsEnabled, setSoundsEnabled] = useState(loadSoundsEnabled);
+  const [followUpBehavior, setFollowUpBehavior] = usePreferenceState(loadFollowUpBehavior);
+  const [transcriptLayout, setTranscriptLayout] = usePreferenceState(loadTranscriptLayout);
+  const [transcriptAnchor, setTranscriptAnchor] = usePreferenceState(loadTranscriptAnchor);
+  const [accentColor, setAccentColor] = usePreferenceState(loadAccentColor);
+  const [soundsEnabled, setSoundsEnabled] = usePreferenceState(loadSoundsEnabled);
   const acceptedQueueAttachments = useRef<Attachment[]>([]);
   const parkedDrafts = useRef<Array<{
     text: string;
@@ -445,10 +461,66 @@ export function MobileApp() {
   const [pairingError, setPairingError] = useState("");
   /** Each Host connection attempt bumps this; superseded attempts drop their results. */
   const hostAttempt = useRef(0);
+  const stopPreferences = useRef<(() => void) | undefined>(undefined);
+  const workspaceHost = useRef<string | undefined>(undefined);
+  const workspaceReady = useRef<string | undefined>(undefined);
+  const preparingSharedState = useRef(0);
+  const sharedStateGeneration = useRef(0);
+  const stopSharedState = () => {
+    sharedStateGeneration.current++;
+    stopPreferences.current?.();
+    stopPreferences.current = undefined;
+    workspaceHost.current = undefined;
+    workspaceReady.current = undefined;
+    stopMobileWorkspace();
+    stopHostConnections();
+  };
+  const prepareSharedState = async (): Promise<WorkspaceLocation | undefined> => {
+    const connection = client.connection;
+    if (!connection) return;
+    setSharedStateError("");
+    preparingSharedState.current++;
+    try {
+      const restoredHost = workspaceHost.current;
+      stopSharedState();
+      // Reinitializing sync on reconnect must not restore over a running window.
+      if (restoredHost === connection.environmentId) workspaceHost.current = restoredHost;
+      const generation = sharedStateGeneration.current;
+      const { environmentId, endpoint } = connection;
+      const status = client.getConnectionStatus();
+      const cachedCapabilities = status.state !== "connected" && status.reason !== "identity" && status.reason !== "authentication"
+        && !!localStorage.getItem(`monocode.hostPreferences.v1:${environmentId}`);
+      const request = <T,>(method: string, params?: Record<string, unknown>): Promise<T> => {
+        if (client.connection?.environmentId !== environmentId || client.connection.endpoint !== endpoint)
+          return Promise.reject(new Error(t("Host connection changed.")));
+        return client.rpc<T>(method, params);
+      };
+      const stop = await connectHostPreferences({ hostId: environmentId, request,
+        capabilities: client.hasCapability("clientState.v1") || cachedCapabilities ? ["clientState.v1"] : [] });
+      if (generation !== sharedStateGeneration.current || client.connection?.environmentId !== environmentId || client.connection.endpoint !== endpoint) { stop(); return; }
+      stopPreferences.current = stop;
+      const [location] = await Promise.all([
+        initializeMobileWorkspace(client).then((location) => {
+          if (generation === sharedStateGeneration.current) workspaceReady.current = environmentId;
+          return location;
+        }).catch((problem) => {
+          // Older or temporarily unavailable persistence APIs do not block opening
+          // a conversation. Keep the upgrade/sync error visible for the user.
+          if (generation === sharedStateGeneration.current) setSharedStateError(message(problem));
+          return undefined;
+        }),
+        initializeHostConnections({ environmentId, request, allowCached: !!cachedCapabilities }).catch((problem) => {
+          if (generation === sharedStateGeneration.current) setSharedStateError(message(problem));
+        }),
+      ]);
+      return generation === sharedStateGeneration.current ? location : undefined;
+    } finally { preparingSharedState.current--; }
+  };
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
   const [hostError, setHostError] = useState("");
+  const [sharedStateError, setSharedStateError] = useState("");
   const [pollError, setPollError] = useState("");
   const [pending, setPending] = useState<PendingCommand>();
   const [foreground, setForeground] = useState(true);
@@ -514,10 +586,20 @@ export function MobileApp() {
     };
   }, [checkNativeAccess, nativeAccessKey]);
   const now = useNow(30_000, foreground && (drawerOpen || view === "home"));
-  const [theme, setTheme] = useState(
-    () => localStorage.getItem("monocode-mobile-theme") || "dark",
-  );
-  const [glass, setGlass] = useState<GlassSettings>(readGlassSettings);
+  const [theme, setTheme] = usePreferenceState(loadThemePreference);
+  const [glass, setGlass] = usePreferenceState<GlassSettings>(readGlassSettings);
+  const [backgroundPath] = usePreferenceState(loadChatBackgroundPath);
+  const [backgroundEffect] = usePreferenceState(loadNewThreadBackgroundEffect);
+  useSyncExternalStore(subscribeProjectChatBackground, projectChatBackgroundRevision, projectChatBackgroundRevision);
+  const projectBackground = project && client.connection
+    ? loadProjectChatBackgroundSettings(`@project:${encodeURIComponent(client.connection.environmentId)}:${encodeURIComponent(project.id)}`) : null;
+  const projectBackgroundUrl = useProjectBackgroundEffect(projectBackground?.path ?? null,
+    projectBackground?.effect ?? "none", projectChatBackgroundImageRevision());
+  const projectBackgroundStyle = projectBackground ? {
+    "--chat-background-image": projectBackgroundUrl ? `url(${JSON.stringify(projectBackgroundUrl)})` : "none",
+    "--chat-background-empty-opacity": String(projectBackground.emptyOpacity),
+    "--chat-background-session-opacity": String(projectBackground.sessionOpacity),
+  } as CSSProperties : undefined;
   const navigation = useRef(0);
   const appRoot = useRef<HTMLDivElement>(null);
   const [overlayHost, setOverlayHost] = useState<HTMLDivElement | null>(null);
@@ -581,6 +663,7 @@ export function MobileApp() {
     setPending(undefined);
     setError("");
     setHostError("");
+    setSharedStateError("");
     setPollError("");
     setHomeProjectId(undefined);
     setAllProjectsPage(false);
@@ -608,9 +691,6 @@ export function MobileApp() {
       theme === "light" ||
       (theme === "system" &&
         window.matchMedia("(prefers-color-scheme: light)").matches);
-    saveThemePreference(
-      theme === "light" || theme === "system" ? theme : "dark",
-    );
     const apply = (isLight: boolean) => {
       applyThemePreference(isLight ? "light" : "dark");
       document
@@ -622,7 +702,6 @@ export function MobileApp() {
         }).catch(() => {});
     };
     apply(light);
-    localStorage.setItem("monocode-mobile-theme", theme);
     const media = window.matchMedia("(prefers-color-scheme: light)");
     const onChange = () => {
       if (theme === "system") apply(media.matches);
@@ -633,7 +712,6 @@ export function MobileApp() {
 
   useEffect(() => {
     applyGlassSettings(glass);
-    saveGlassSettings(glass);
   }, [glass]);
 
   useEffect(() => {
@@ -646,6 +724,8 @@ export function MobileApp() {
         const [restored, pending] = await Promise.all([client.restore(), client.pending()]);
         if (current()) setPending(pending);
         if (restored) {
+          const location = await prepareSharedState();
+          if (!current()) return;
           const items = await client.projects();
           if (current()) {
             setConnected(true);
@@ -653,7 +733,7 @@ export function MobileApp() {
             setProjectListState("ready");
             setProject((current) => current ?? items[0]);
             setUrl((value) => value || client.connection!.endpoint);
-            await restoreLocation(items);
+            await restoreLocation(items, location);
           }
         }
       } catch (problem) {
@@ -661,6 +741,9 @@ export function MobileApp() {
           setHostError(message(problem));
           setUrl((value) => value || (client.connection?.endpoint ?? ""));
           if (client.connection && !client.connection.disabled) {
+            if (!activePreferenceStore() && client.getConnectionStatus().reason !== "identity" && client.getConnectionStatus().reason !== "authentication")
+              await prepareSharedState().catch(() => undefined);
+            if (!current()) return;
             setConnected(true);
             setView("home");
             setProjectListState("failed");
@@ -679,6 +762,7 @@ export function MobileApp() {
       : undefined;
     return () => {
       live = false;
+      stopSharedState();
       document.removeEventListener("visibilitychange", onVisibility);
       void listener?.then((handle) => handle.remove());
     };
@@ -804,13 +888,49 @@ export function MobileApp() {
 
   useEffect(() => {
     const environmentId = client.connection?.environmentId;
-    if (!connected || !environmentId || !project || view !== "chat") return;
-    saveLastLocation({
+    const projectId = view === "home" ? homeProjectId ?? project?.id : project?.id;
+    if (!connected || !environmentId || workspaceHost.current !== environmentId || !projectId || loading || (view !== "chat" && view !== "home")) return;
+    const location = {
       environmentId,
-      projectId: project.id,
-      ...(sessionId ? { sessionId } : {}),
-    });
-  }, [connected, project?.id, sessionId, view]);
+      projectId,
+      ...(view === "chat" && sessionId ? { sessionId } : {}),
+    };
+    saveLastLocation(location);
+    void saveMobileWorkspace(client, location).catch((problem) => setSharedStateError(message(problem)));
+  }, [connected, project?.id, homeProjectId, sessionId, view, loading]);
+
+  useEffect(() => {
+    if (connected && foreground) void flushMobileWorkspace(client).catch(() => undefined);
+  }, [connected, foreground, connectionRevision]);
+
+  useEffect(() => {
+    const environmentId = client.connection?.environmentId;
+    if (!connected || hostStatus.state !== "connected" || loading || busy || preparingSharedState.current
+      || !environmentId || workspaceHost.current === environmentId || !client.hasCapability("workspaces.read")) return;
+    let live = true;
+    const attempt = hostAttempt.current;
+    void (async () => {
+      try {
+        const location = await prepareSharedState();
+        const items = await client.projects();
+        if (!live || attempt !== hostAttempt.current || client.connection?.environmentId !== environmentId) return;
+        setProjects(items);
+        setProjectListState("ready");
+        await restoreLocation(items, location);
+      } catch (problem) {
+        if (live && attempt === hostAttempt.current) setHostError(message(problem));
+      }
+    })();
+    return () => { live = false; };
+  }, [connected, hostStatus.state, connectionKey, loading, busy]);
+
+  useEffect(() => subscribeSharedPreferences(() => {
+    if (!project || sessionId || draftConfigurationChanged.current) return;
+    const defaults = loadMobileProjectDefaults(client.connection?.environmentId, project.id);
+    draftDefaults.current = defaults;
+    const next = catalog && firstConfiguration(catalog, defaults);
+    if (next) setConfiguration(next);
+  }), [project, sessionId, catalog]);
 
   const refreshSavedHosts = useCallback(() => {
     void client.savedConnections().then(setSavedHosts).catch(() => undefined);
@@ -856,9 +976,12 @@ export function MobileApp() {
     setError("");
     setHostError("");
     setPollError("");
+    stopSharedState();
     // Connection progress and failures stay inline; only confirm a completed switch.
     try {
       await open();
+      if (!current()) return;
+      const location = await prepareSharedState();
       if (!current()) return;
       setLoading(false);
       const items = await client.projects();
@@ -886,7 +1009,7 @@ export function MobileApp() {
       const pending = await client.pending();
       if (!current()) return;
       setPending(pending);
-      await restoreLocation(items);
+      await restoreLocation(items, location);
       if (current()) after?.(items);
     } catch (problem) {
       if (current()) {
@@ -906,7 +1029,7 @@ export function MobileApp() {
     const projectTurn = ++projectGeneration.current;
     setProject(item);
     setSessions(client.cachedSessions?.(item.id) ?? []);
-    const defaults = loadMobileAgentDefaults(client.connection?.endpoint);
+    const defaults = loadMobileProjectDefaults(client.connection?.environmentId, item.id);
     draftDefaults.current = defaults;
     draftConfigurationChanged.current = false;
     const cachedCatalog = client.cachedModels(item.id);
@@ -954,9 +1077,10 @@ export function MobileApp() {
       if (projectGeneration.current === projectTurn) setHistoryLoading(false);
     }
   };
-  // Launch opens Home. Remember the last project as the new-chat default.
-  const restoreLocation = async (items: HostProject[]) => {
-    const last = readLastLocation(client.connection?.environmentId);
+  // Only boot and an explicit Host switch restore the shared location.
+  const restoreLocation = async (items: HostProject[], restored?: WorkspaceLocation) => {
+    const environmentId = client.connection?.environmentId;
+    const last = restored ?? readLastLocation(environmentId);
     const target =
       items.find((item) => item.id === last?.projectId) ?? items[0];
     setView("home");
@@ -968,6 +1092,8 @@ export function MobileApp() {
     // Warm the likely next conversation's catalog while Home is already usable.
     // Navigation shares this in-flight request; failures are retried on entry.
     if (target) void client.models(target.id).catch(() => {});
+    if (target && restored?.sessionId && restored.projectId === target.id) await openSession(restored.sessionId, target.id);
+    if (client.connection?.environmentId === environmentId) workspaceHost.current = environmentId;
   };
   const openSession = async (
     id?: string,
@@ -1505,6 +1631,7 @@ export function MobileApp() {
         success: t(remove ? "Connection removed" : "Machine disconnected"),
         error: false,
       });
+      stopSharedState();
       setConnected(false);
       setProjects([]);
       setProject(undefined);
@@ -1515,6 +1642,7 @@ export function MobileApp() {
       setSessionId(undefined);
       setError("");
       setHostError("");
+      setSharedStateError("");
       setPollError("");
       if (remove && endpoint) removeConnectionAppearance(endpoint);
     } catch (problem) {
@@ -1532,9 +1660,13 @@ export function MobileApp() {
     const hostId = client.connection?.endpoint;
     const current = () => hostAttempt.current === attempt && client.connection?.endpoint === hostId;
     setBusy(true);
+    setHostError("");
     try {
       await client.reconnect();
       if (!current()) return;
+      const location = workspaceReady.current === client.connection?.environmentId ? undefined : await prepareSharedState();
+      if (!current()) return;
+      await flushMobileWorkspace(client).catch(() => undefined);
       setConnectionRevision((value) => value + 1);
       setHomeRefreshKey((value) => value + 1);
       setPreferencePanel(null);
@@ -1544,9 +1676,8 @@ export function MobileApp() {
       setProjectListState("ready");
       setConnected(true);
       if (manual) showStatusToast(t("Reconnected"), "success");
-      if (!connected) await restoreLocation(items);
+      if (!connected) await restoreLocation(items, location);
       setError("");
-      setHostError("");
       setPollError("");
     } catch (problem) {
       if (current()) setHostError(message(problem));
@@ -2023,12 +2154,13 @@ export function MobileApp() {
       </header>
 
       <div className="mobile-notices">
-      {(error || hostError || pollError || hostStatus.state === "failed") &&
+      {(error || hostError || sharedStateError || pollError || hostStatus.state === "failed") &&
         !addingConnection && !homeUnavailable && (
           <div className="mobile-error" role="alert">
             <span>
               {error ||
                 hostError ||
+                sharedStateError ||
                 pollError ||
                 hostStatus.detail ||
                 t("Connection failed")}
@@ -2053,6 +2185,8 @@ export function MobileApp() {
         </div>
       )}
       </div>
+
+      <SharedStateStatus pending={mobileWorkspacePending} />
 
       <MobilePageTransition key={`pages:${client.connection?.endpoint}`} route={route}
         animate={navigationReady.current} visible={!pageOverlayOpen}>
@@ -2081,6 +2215,12 @@ export function MobileApp() {
             setAddingConnection(true);
           }}
           connections={pairedConnections}
+          sharedConnections={<MobileSharedConnections client={client} onPair={() => {
+            setUrl("");
+            setToken("");
+            setPairingError("");
+            setAddingConnection(true);
+          }} />}
           onSwitchConnection={switchHost}
           probeConnection={probeSavedHost}
           onDisconnect={() => disconnectConnection(false)}
@@ -2089,9 +2229,13 @@ export function MobileApp() {
           onSaveConnectionAppearance={saveConnectionAppearance}
           onReconnect={() => void reconnect(true)}
           theme={theme}
-          onThemeChange={setTheme}
+          onThemeChange={(value) => {
+            const next = value === "light" || value === "system" ? value : "dark";
+            saveThemePreference(next);
+            setTheme(next);
+          }}
           glass={glass}
-          onGlassChange={setGlass}
+          onGlassChange={(value) => { saveGlassSettings(value); setGlass(value); }}
           language={language}
           onLanguageChange={setUiLanguage}
           followUpBehavior={followUpBehavior}
@@ -2137,7 +2281,7 @@ export function MobileApp() {
             <MobileAgentDefaults
               key={`${client.connection?.endpoint ?? "disconnected"}:${connected}:${connectionRevision}`}
               client={client}
-              hostId={connected ? client.connection?.endpoint : undefined}
+              hostId={connected ? client.connection?.environmentId : undefined}
               disabled={busy || loading || !connected}
               panel={preferencePanel}
               onPanelChange={setPreferencePanel}
@@ -2220,7 +2364,13 @@ export function MobileApp() {
           onRemoteProject={onRemoteProject}
         />
       ) : (
-        <main className="mobile-chat" inert={drawerOpen || pageOverlayOpen || hostPickerOpen}>
+        <main className="mobile-chat chat-pane-background isolate" inert={drawerOpen || pageOverlayOpen || hostPickerOpen}
+          data-project-chat-background={!!projectBackground}
+          data-project-background-effect={projectBackground?.effect}
+          data-project-background-scope={projectBackground?.scope}
+          data-session-empty={!hostView?.session.blocks.length}
+          style={projectBackgroundStyle}>
+          {(projectBackground?.effect === "gradient-blur" || (!projectBackground && backgroundPath && backgroundEffect === "gradient-blur")) && <GradientBlurBackground />}
           {hostView ? (
             <MobileTranscript
               key={transcriptKeys.current.get(hostView.session.id) ?? hostView.session.id}

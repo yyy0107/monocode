@@ -194,6 +194,8 @@ export type HarnessSessionInput = {
   model: string;
   modelSettings?: Record<string, string>;
   providerAccountId?: string;
+  /** Execution Host preference; desktop adapters may omit it and use their settings service. */
+  claudeHooks?: boolean;
   runtimeMode: RuntimeMode;
   intent?: TurnIntent;
   /**

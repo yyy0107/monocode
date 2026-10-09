@@ -1,11 +1,12 @@
 import { mergeOrderedSubset } from "../../shared/lib/reorder";
+import { preferenceStorage } from "../../features/settings/model/sharedPreferences";
 
 const KEY = "monocode.sidebarPinnedOrder.v1";
 const CHANGED = "monocode:sidebar-pinned-order-changed";
 
 export function loadSidebarPinnedOrder(): string[] {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(KEY) ?? "[]");
+    const value: unknown = JSON.parse(preferenceStorage.getItem(KEY) ?? "[]");
     return Array.isArray(value)
       ? [...new Set(value.filter((id): id is string => typeof id === "string"))]
       : [];
@@ -28,7 +29,7 @@ export function reorderSidebarPins(
 
 export function saveSidebarPinnedOrder(order: string[]): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(order));
+    preferenceStorage.setItem(KEY, JSON.stringify(order));
   } catch {
     // The current view still supports sorting when storage is unavailable.
   }

@@ -251,3 +251,41 @@ it("does not claim another Host or project's shell through an identical local wi
   expect(sharedSessionBackend()?.ownsSession("project-alias")).toBe(false);
   expect(sharedSessionBackend()?.ownsSession("local-alias")).toBe(true);
 });
+
+it("reuses verified bootstrap metadata offline without deleting newer session bindings", async () => {
+  await initializeSharedHost();
+  rememberRemoteSession("newer-shell", "newer-session", { environmentId: "local", projectId: "project" });
+  const original = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === "shared_host_prepare") throw new Error("connection refused");
+    return original(command, args);
+  });
+  configureSharedHost(undefined, []);
+  await initializeSharedHost();
+  expect(remoteProjectFor(project.cwd)?.environmentId).toBe("local");
+  expect(remoteSessionFor("newer-shell")).toBe("newer-session");
+  expect(sharedSessionBackend()?.ownsProject(project.cwd)).toBe(true);
+});
+
+it("never falls back to bootstrap cache after authentication rejection or native removal", async () => {
+  await initializeSharedHost();
+  const original = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === "shared_host_prepare") throw new Error("Authentication failed");
+    return original(command, args);
+  });
+  await expect(initializeSharedHost()).rejects.toThrow("Authentication failed");
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === "shared_host_prepare") throw new Error("offline");
+    if (command === "remote_machines") return [];
+    return original(command, args);
+  });
+  await expect(initializeSharedHost()).rejects.toThrow("offline");
+});
+
+it("does not overwrite legacy project preferences during pre-settings bootstrap", async () => {
+  const legacy = JSON.stringify([{ path: "/old-project", openedAt: 1 }]);
+  localStorage.setItem("monocode.recentProjects", legacy);
+  await initializeSharedHost();
+  expect(localStorage.getItem("monocode.recentProjects")).toBe(legacy);
+});

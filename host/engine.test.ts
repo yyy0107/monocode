@@ -7,6 +7,7 @@ import type { SendTurnInput } from "../src/integrations/harness/core/types";
 import type { HostProvider } from "./providers";
 import { HostEngine, parseCommand } from "./engine";
 import { HostStore } from "./store";
+import { HostClientState } from "./client-state";
 import { readAttachmentChunk, writeAttachmentChunk } from "./attachments";
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -69,6 +70,23 @@ function setup(harness: "codex" | "claude" | "pi" | "omp" = "codex") {
 }
 
 describe("headless session ownership", () => {
+  it("reads Claude hooks from the execution Host for each new turn", async () => {
+    const { store, engine, turns, id } = setup("claude");
+    const preferences = new HostClientState(store);
+    preferences.preferencesPatch({ operationId: "disable-hooks", changes: { "monocode.claudeHooks": "0" } });
+    engine.command({ type: "send", commandId: "no-hooks", sessionId: id, text: "First request" });
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0].input.claudeHooks).toBe(false);
+    preferences.preferencesPatch({ operationId: "enable-hooks", changes: { "monocode.claudeHooks": "1" } });
+    expect(turns[0].input.claudeHooks).toBe(false);
+    turns[0].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+    engine.command({ type: "send", commandId: "with-hooks", sessionId: id, text: "Second request" });
+    await vi.waitFor(() => expect(turns).toHaveLength(2));
+    expect(turns[1].input.claudeHooks).toBe(true);
+    turns[1].finish();
+  });
+
   it("preserves activity time when restoring queue capabilities at startup", async () => {
     const { engine, store, provider, directory, id } = setup();
     const current = store.session(id);

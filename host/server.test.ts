@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -8,7 +9,7 @@ import {
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { request } from "node:http";
 import { DatabaseSync } from "node:sqlite";
@@ -124,6 +125,39 @@ async function setup(providers: RemoteProvider[] = ["codex"], discoverProviders?
   };
 }
 
+it("shares Host client state across devices and rejects a revoked client's writes and asset reads", async () => {
+  const s = await setup();
+  expect((await s.call("environment.describe")).value.result.capabilities).toContain("clientState.v1");
+  const patch = { operationId: "preferences-rpc-1", changes: { "monocode.colorScheme": "light" } };
+  const saved = await s.call("preferences.patch", patch);
+  expect(saved.status).toBe(200);
+  expect((await s.call("preferences.read", {}, s.second.token)).value.result).toEqual(saved.value.result);
+  expect((await s.call("preferences.read", { revision: saved.value.result.revision })).value.result).toBeNull();
+  expect((await s.call("preferences.patch", patch)).value.result).toEqual(saved.value.result);
+  expect((await s.call("connections.patch", { operationId: "unsafe-connection", changes: { server: { id: "server", name: "Host", kind: "http", token: "secret" } } })).status).toBe(400);
+  s.store.revokeToken(s.second.token);
+  expect((await s.call("preferences.patch", { operationId: "revoked", changes: {} }, s.second.token)).status).toBe(401);
+  expect((await s.call("workspaces.read", { kind: "desktop" }, s.second.token)).status).toBe(401);
+  expect((await s.call("preferences.assets.read", {}, s.second.token)).status).toBe(401);
+  expect((await s.call("preferences.read", {}, s.first.token, { environmentId: "different-host" })).status).toBe(400);
+});
+
+it("restricts Host account management to admin devices while sharing safe account metadata", async () => {
+  const s = await setup();
+  const request = { operationId: "add-account", provider: "codex", accountId: "work", label: "Work" };
+  for (const method of ["save", "remove", "setDefault", "importCodex", "loginStart", "loginStatus"]) {
+    expect((await s.call(`providerAccounts.${method}`, request, s.second.token)).value.error).toContain("Only this computer's desktop");
+  }
+  s.store.markAdminDevice(s.first.id);
+  const saved = await s.call("providerAccounts.save", request);
+  expect(saved.status).toBe(200);
+  expect(saved.value.result.accounts.codex).toContainEqual(expect.objectContaining({ id: "work", label: "Work" }));
+  expect((await s.call("providerAccounts.read", {}, s.second.token)).value.result).toEqual(saved.value.result);
+  expect(JSON.stringify(saved.value.result)).not.toContain(s.directory);
+  s.store.revokeToken(s.second.token);
+  expect((await s.call("providerAccounts.read", {}, s.second.token)).status).toBe(401);
+});
+
 it("advertises notes RPC and shares CRUD and image access only with authenticated devices", async () => {
   const s = await setup();
   expect((await s.call("environment.describe")).value.result.capabilities).toContain("notes.v1");
@@ -160,6 +194,21 @@ it("configures the title API through authenticated RPC without exposing credenti
 });
 
 describe("remote host API", () => {
+  it("initializes a Host-owned catalog for mobile list readers before any management call", async () => {
+    const s = await setup();
+    vi.stubEnv("CODEX_HOME", s.directory);
+    vi.stubEnv("CLAUDE_CONFIG_DIR", s.directory);
+    const listed = await s.call("providerAccounts.list", {}, s.second.token);
+    expect(listed.status).toBe(200);
+    expect(listed.value.result).toMatchObject({
+      codex: [{ id: "default", label: "Default account" }],
+      claude: [{ id: "default", label: "Default account" }],
+    });
+    const read = await s.call("providerAccounts.read", {}, s.second.token);
+    expect(read.value.result.accounts).toEqual(listed.value.result);
+    expect(read.value.result.revision).toBe(1);
+  });
+
   it("queries account usage through authenticated RPC and rejects unknown accounts", async () => {
     const s = await setup();
     writeFileSync(join(s.directory, "desktop-owner.json"), JSON.stringify({ desktopDirectory: s.directory }));
@@ -196,10 +245,9 @@ describe("remote host API", () => {
     expect((await s.call("im.control", { action: "disable" }, s.second.token)).status).toBe(401);
   });
 
-  it("lists desktop provider accounts, passes a selected account to the turn and rejects removed accounts", async () => {
+  it("imports account metadata when listing, passes the selection to turns and rejects removed Host accounts", async () => {
     const s = await setup();
     await s.engine.ready;
-    expect((await s.call("providerAccounts.list")).value.result).toEqual({});
     writeFileSync(join(s.directory, "desktop-owner.json"), JSON.stringify({ desktopDirectory: s.directory }));
     mkdirSync(join(s.directory, "provider-accounts"));
     vi.stubEnv("CODEX_HOME", s.directory);
@@ -222,9 +270,58 @@ describe("remote host API", () => {
     expect(s.turn()).toMatchObject({ providerAccountId: "work", modelSettings: { reasoningEffort: "high" } });
     s.finish();
     writeFileSync(accountsFile, "{}");
+    expect((await s.call("providerAccounts.list")).value.result.codex.some((account: { id: string }) => account.id === "work")).toBe(true);
+    s.store.markAdminDevice(s.first.id);
+    expect((await s.call("providerAccounts.remove", { operationId: "remove-work", provider: "codex", accountId: "work" })).status).toBe(200);
     const removed = await s.call("commands.dispatch", { ...command, commandId: "removed-account-create" });
     expect(removed.status).toBe(400);
     expect(removed.value.error).toBe("This provider account is no longer available");
+  });
+  it("switches a started conversation's account in place, carrying its native thread", async () => {
+    const s = await setup();
+    await s.engine.ready;
+    writeFileSync(join(s.directory, "desktop-owner.json"), JSON.stringify({ desktopDirectory: s.directory }));
+    mkdirSync(join(s.directory, "provider-accounts"));
+    writeFileSync(join(s.directory, "provider-accounts", "accounts.json"),
+      JSON.stringify({ codex: [{ id: "work", label: "Work account" }] }));
+    const defaultHome = join(s.directory, "default-codex");
+    vi.stubEnv("HOME", s.directory);
+    vi.stubEnv("CODEX_HOME", defaultHome);
+    const threadId = "01a0bc2f-8817-7f30-ad5b-33b949fd0fe9";
+    const rollout = join("sessions", "2026", "10", "09", `rollout-2026-10-09T01-02-03-${threadId}.jsonl`);
+    mkdirSync(dirname(join(defaultHome, rollout)), { recursive: true });
+    writeFileSync(join(defaultHome, rollout),
+      `${JSON.stringify({ type: "session_meta", payload: { id: threadId, cwd: s.directory } })}\n`);
+    const started = (providerSessionId: string, commandId: string) => {
+      const id = s.engine.command({ type: "create", commandId, projectId: s.project.id,
+        harness: "codex", model: "codex:test", runtimeMode: "supervised" }).sessionId;
+      const value = s.store.session(id);
+      s.store.save({ ...value, revision: value.revision + 1, session: { ...value.session, providerSessionId,
+        blocks: [{ id: `${commandId}-user`, role: "user", text: "Fix the build" }] } }, { type: "test" });
+      return id;
+    };
+
+    const id = started(threadId, "account-switch");
+    const switched = await s.call("sessions.switchAccount", { projectId: s.project.id, sessionId: id, providerAccountId: "work" });
+    expect(switched.value.result).toMatchObject({ providerAccountId: "work" });
+    expect(existsSync(join(s.directory, "provider-accounts", "codex", "work", rollout))).toBe(true);
+    expect(s.store.session(id).session).toMatchObject({ providerAccountId: "work", providerSessionId: threadId });
+    await s.call("commands.dispatch", { type: "send", commandId: "account-switch-send", sessionId: id, text: "Continue" });
+    await vi.waitFor(() => expect(s.send).toHaveBeenCalledOnce());
+    expect(s.turn()).toMatchObject({ providerAccountId: "work" });
+    s.finish();
+    await vi.waitFor(() => expect(s.store.session(id).status).not.toBe("running"));
+    const back = await s.call("sessions.switchAccount", { projectId: s.project.id, sessionId: id, providerAccountId: "default" });
+    expect(back.value.result).toMatchObject({ providerAccountId: "default" });
+    expect(s.store.session(id).session.providerAccountId).toBeUndefined();
+
+    // Without native records the next turn starts a new thread from a recap.
+    const missing = started("01a0bc2f-0000-7000-8000-000000000000", "account-recap");
+    await s.call("sessions.switchAccount", { projectId: s.project.id, sessionId: missing, providerAccountId: "work" });
+    const recapped = s.store.session(missing).session;
+    expect(recapped.providerSessionId).toBeUndefined();
+    expect(recapped.providerAccountId).toBe("work");
+    expect(recapped.blocks.at(-1)).toMatchObject({ role: "handoff" });
   });
   it("serves unchanged session polling from the cache without reparsing snapshots or enumerating history", async () => {
     const s = await setup();

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import type {
   HostProviderAccount,
   HostProviderAccounts,
@@ -17,7 +17,14 @@ function record(value: unknown): Record<string, unknown> {
 function read(path: string): Record<string, unknown> {
   return record(JSON.parse(readFileSync(path, "utf8")));
 }
-function desktopDirectory(owner: string): string | undefined {
+/** The Host account document supersedes the legacy desktop publication. */
+export function providerAccountDirectory(owner: string): string | undefined {
+  try {
+    readFileSync(join(dirname(owner), "provider-accounts", "state.json"), "utf8");
+    return dirname(owner);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   try {
     const dir = read(owner).desktopDirectory;
     if (typeof dir !== "string" || !dir.trim()) throw new Error("Invalid desktop account configuration");
@@ -27,18 +34,22 @@ function desktopDirectory(owner: string): string | undefined {
     throw new Error("Invalid desktop account configuration");
   }
 }
+
+function accountDocument(directory: string, legacy: "accounts" | "defaults"): Record<string, unknown> {
+  try { return record(read(join(directory, "provider-accounts", "state.json"))[legacy]); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+      throw new Error("Invalid Host account configuration");
+    return read(join(directory, "provider-accounts", `${legacy}.json`));
+  }
+}
 function preferredAccount(
   directory: string,
   provider: string,
 ): string | undefined {
   let value: unknown;
   try {
-    value = JSON.parse(
-      readFileSync(
-        join(directory, "provider-accounts", "defaults.json"),
-        "utf8",
-      ),
-    );
+    value = accountDocument(directory, "defaults");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw new Error("Invalid shared account defaults");
@@ -64,9 +75,9 @@ function accountsIn(
 ): HostProviderAccount[] {
   let published: Record<string, unknown> = {};
   try {
-    published = read(join(directory, "provider-accounts", "accounts.json"));
-  } catch {
-    /* No labels published yet. */
+    published = accountDocument(directory, "accounts");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   const seen = new Set<string>();
   const accounts: HostProviderAccount[] = [];
@@ -90,7 +101,7 @@ function configuredHome(directory: string, provider: string, id: string): string
   if (!ACCOUNT_PROVIDERS.includes(provider as never) || !ACCOUNT_ID.test(id))
     throw new Error("Invalid provider account");
   let profiles: Record<string, unknown>;
-  try { profiles = read(join(directory, "provider-accounts", "accounts.json")); }
+  try { profiles = accountDocument(directory, "accounts"); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT")
       return undefined;
@@ -116,7 +127,7 @@ export function providerUsageProfile(owner: string, provider: unknown, accountId
   if ((provider !== "claude" && provider !== "codex") ||
       typeof accountId !== "string" || !ACCOUNT_ID.test(accountId))
     throw new Error("Invalid provider account");
-  const directory = desktopDirectory(owner);
+  const directory = providerAccountDirectory(owner);
   if (!directory || !accountsIn(directory, provider).some(account => account.id === accountId))
     throw new Error("This provider account is no longer available");
   const configured = accountId === "default"
@@ -136,6 +147,13 @@ export function providerUsageProfile(owner: string, provider: unknown, accountId
 
 export function namedProviderAccountHome(directory: string, provider: string, id: string): string {
   if (id === "default") throw new Error("Invalid provider account");
+  try {
+    readFileSync(join(directory, "provider-accounts", "state.json"));
+    if (!accountsIn(directory, provider).some(account => account.id === id))
+      throw new Error("This provider account is no longer available");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   return configuredHome(directory, provider, id) ?? join(directory, "provider-accounts", provider, id);
 }
 
@@ -160,7 +178,7 @@ export function resolveDefaultAccount(
 ): string | undefined {
   if (!ACCOUNT_PROVIDERS.includes(provider as never)) return undefined;
   if (requested === "default") return undefined;
-  const directory = desktopDirectory(owner);
+  const directory = providerAccountDirectory(owner);
   const id =
     requested
       ? requested
@@ -245,7 +263,7 @@ function publicIdentity(
 }
 /** Public account metadata only; credentials and profile paths never leave Host. */
 export function desktopProviderAccounts(owner: string): HostProviderAccounts {
-  const directory = desktopDirectory(owner);
+  const directory = providerAccountDirectory(owner);
   if (!directory) return {};
   return Object.fromEntries(
     ACCOUNT_PROVIDERS.map((provider) => {

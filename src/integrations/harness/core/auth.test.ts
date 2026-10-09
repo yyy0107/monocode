@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const hostLogin = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("../../../features/providers/model/providerAccountCredentials", () => ({ loginProviderAccount: hostLogin }));
+
 const child = vi.hoisted(() => ({
   killChild: vi.fn(async () => undefined),
   spawnChild: vi.fn(async () => undefined),
@@ -69,54 +72,30 @@ describe("harness login", () => {
     ).toBe(false);
   });
 
-  it("launches Claude's official login command and waits for success", async () => {
-    const login = loginHarness("claude");
-    await vi.waitFor(() => expect(child.watchChild).toHaveBeenCalledOnce());
-    expect(child.spawnChild).toHaveBeenCalledWith(
-      "monocode-provider-login-test-window-claude",
-      "/bin/claude",
-      ["auth", "login"],
-      "/home/alice",
-      { provider: "claude", id: "default" },
-      "claude",
-    );
-
-    const onExit = child.watchChild.mock.calls[0]?.[2] as
-      ((code: number | null) => void) | undefined;
-    onExit?.(0);
-    await expect(login).resolves.toBeUndefined();
+  it.each(["claude", "codex"] as const)("delegates %s login and account selection to Host", async provider => {
+    await loginHarness(provider, "account-work");
+    expect(hostLogin).toHaveBeenCalledWith(provider, "account-work");
+    expect(child.spawnChild).not.toHaveBeenCalled();
   });
 
-  it("isolates a named Codex account during sign-in", async () => {
-    const login = loginHarness("codex", "account-work");
-    await vi.waitFor(() => expect(child.watchChild).toHaveBeenCalledOnce());
-    expect(child.spawnChild).toHaveBeenCalledWith(
-      "monocode-provider-login-test-window-codex-account-work",
-      "/bin/codex",
-      ["login"],
-      "/home/alice",
-      { provider: "codex", id: "account-work" },
-      "codex",
-    );
-
-    const onExit = child.watchChild.mock.calls[0]?.[2] as
-      | ((code: number | null) => void)
-      | undefined;
-    onExit?.(0);
-    await expect(login).resolves.toBeUndefined();
-  });
-
-  it("deduplicates repeated login clicks", async () => {
+  it("deduplicates repeated Host login clicks", async () => {
+    let complete!: () => void;
+    hostLogin.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
     const first = loginHarness("codex");
     const second = loginHarness("codex");
     expect(second).toBe(first);
-    await vi.waitFor(() => expect(child.watchChild).toHaveBeenCalledOnce());
-
-    const onExit = child.watchChild.mock.calls[0]?.[2] as
-      ((code: number | null) => void) | undefined;
-    onExit?.(0);
+    expect(hostLogin).toHaveBeenCalledOnce();
+    complete();
     await first;
-    expect(child.spawnChild).toHaveBeenCalledOnce();
+  });
+
+  it("keeps provider-owned browser login for harnesses without account profiles", async () => {
+    const login = loginHarness("cursor");
+    await vi.waitFor(() => expect(child.watchChild).toHaveBeenCalledOnce());
+    expect(child.spawnChild).toHaveBeenCalledWith("monocode-provider-login-test-window-cursor", "/bin/agent", ["login"], "/home/alice", undefined, "cursor");
+    const onExit = child.watchChild.mock.calls[0]?.[2] as ((code: number | null) => void) | undefined;
+    onExit?.(0);
+    await expect(login).resolves.toBeUndefined();
   });
 
   it("does not invent one login flow for multi-provider harnesses", async () => {

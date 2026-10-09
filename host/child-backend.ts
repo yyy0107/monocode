@@ -26,7 +26,7 @@ import {
   HOST_DIAGNOSTIC_LIMIT_ERROR,
 } from "../src/integrations/harness/core/childErrors";
 import { readClaudeTitleFile } from "./native-title";
-import { defaultProviderAccountHome, namedProviderAccountHome } from "./provider-accounts";
+import { defaultProviderAccountHome, namedProviderAccountHome, providerAccountDirectory } from "./provider-accounts";
 import type { HostStore } from "./store";
 import { claimCheckoutResource } from "./checkout-guards";
 import {
@@ -371,12 +371,12 @@ export class HostChildBackend implements ChildBackend {
         throw new Error("Invalid provider account");
       let profile: string | undefined;
       if (this.desktopConfigPath) {
-        const config = JSON.parse(await readFile(this.desktopConfigPath, "utf8"));
-        if (typeof config.desktopDirectory !== "string")
-          throw new Error("Invalid desktop account directory");
-        profile = account.id === "default"
-          ? defaultProviderAccountHome(config.desktopDirectory, account.provider!)
-          : namedProviderAccountHome(config.desktopDirectory, account.provider!, account.id);
+        const directory = providerAccountDirectory(this.desktopConfigPath);
+        if (!directory && account.id !== "default")
+          throw new Error("This provider account is no longer available");
+        if (directory) profile = account.id === "default"
+          ? defaultProviderAccountHome(directory, account.provider!)
+          : namedProviderAccountHome(directory, account.provider!, account.id);
       }
       if (profile) {
         if (!(await stat(profile).catch(() => undefined))?.isDirectory())

@@ -11,13 +11,14 @@ let onCommit: ReturnType<typeof vi.fn>;
 let pendingFrame: FrameRequestCallback | undefined;
 let renders: number;
 
-function Probe() {
+function Probe({ value }: { value?: number } = {}) {
   renders += 1;
   resize = useDragResize({
     min: 260,
     max: () => 560,
     defaultWidth: 260,
     initial: 260,
+    value,
     onCommit,
   });
   return createElement(
@@ -84,6 +85,28 @@ afterEach(() => {
 });
 
 describe("pane drag resizing", () => {
+  it("applies incoming shared widths without echoing a preference write", () => {
+    act(() => root.render(createElement(Probe, { value: 430 })));
+    expect(resize.width).toBe(430);
+    expect(pane().style.width).toBe("430px");
+    expect(onCommit).not.toHaveBeenCalled();
+    act(() => root.render(createElement(Probe, { value: 900 })));
+    expect(resize.width).toBe(560);
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("keeps direct dragging in control when a shared width arrives", () => {
+    startDrag();
+    pointer("pointermove", 410);
+    act(() => pendingFrame?.(0));
+    act(() => root.render(createElement(Probe, { value: 300 })));
+    expect(pane().style.width).toBe("410px");
+    expect(onCommit).not.toHaveBeenCalled();
+    pointer("pointerup", 410);
+    expect(resize.width).toBe(410);
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith(410);
+  });
+
   it("coalesces width writes per frame without rendering and commits only on release", () => {
     startDrag();
     const beforeMoves = renders;

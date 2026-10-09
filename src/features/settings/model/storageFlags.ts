@@ -1,6 +1,7 @@
+import { preferenceStorage } from "./sharedPreferences";
 export function readFlag(key: string): boolean | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = preferenceStorage.getItem(key);
     if (raw == null) return null;
     return raw === "1" || raw === "true";
   } catch {
@@ -10,7 +11,7 @@ export function readFlag(key: string): boolean | null {
 
 export function writeFlag(key: string, value: boolean) {
   try {
-    localStorage.setItem(key, value ? "1" : "0");
+    preferenceStorage.setItem(key, value ? "1" : "0");
   } catch {
     // private mode / quota
   }

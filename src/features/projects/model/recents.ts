@@ -1,3 +1,4 @@
+import { preferenceStorage } from "../../settings/model/sharedPreferences";
 import { pathKey, prettyCwd, slash } from "../../../shared/lib/paths";
 import { REMOTE_PATH_PREFIX } from "../../../shared/lib/remotePaths";
 import {
@@ -37,7 +38,7 @@ export function sameProjectPath(a: string, b: string): boolean {
 
 export function loadRecents(): RecentProject[] {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = preferenceStorage.getItem(KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -60,7 +61,7 @@ export function loadRecents(): RecentProject[] {
 
 function save(next: RecentProject[]) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(next));
+    preferenceStorage.setItem(KEY, JSON.stringify(next));
   } catch {
     // private mode / quota
   }
@@ -137,8 +138,16 @@ export function notifyProjectPathsChanged(): void {
 
 export function subscribeProjectPathsChanged(onChange: () => void): () => void {
   if (typeof window === "undefined") return () => {};
+  const keys = new Set([KEY, RAIL_ORDER_KEY, RAIL_PINNED_KEY, ARCHIVED_KEY, "monocode.projectGroups", "monocode.projectGroupAssignments"]);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === null || keys.has(event.key)) onChange();
+  };
   window.addEventListener(PROJECT_PATHS_CHANGED, onChange);
-  return () => window.removeEventListener(PROJECT_PATHS_CHANGED, onChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(PROJECT_PATHS_CHANGED, onChange);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 /** Drops a project from the rail: its recent entry, saved order slot, and pin. */
@@ -180,7 +189,7 @@ export function archiveProject(path: string): RecentProject[] {
 
 export function loadArchivedProjects(): ArchivedProject[] {
   try {
-    const raw = localStorage.getItem(ARCHIVED_KEY);
+    const raw = preferenceStorage.getItem(ARCHIVED_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -208,13 +217,20 @@ export function loadArchivedProjects(): ArchivedProject[] {
 
 export function subscribeArchivedProjects(onChange: () => void): () => void {
   if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === null || event.key === ARCHIVED_KEY) onChange();
+  };
   window.addEventListener(ARCHIVED_CHANGED, onChange);
-  return () => window.removeEventListener(ARCHIVED_CHANGED, onChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(ARCHIVED_CHANGED, onChange);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 function saveArchived(next: ArchivedProject[]) {
   try {
-    localStorage.setItem(ARCHIVED_KEY, JSON.stringify(next));
+    preferenceStorage.setItem(ARCHIVED_KEY, JSON.stringify(next));
   } catch {
     // private mode / quota
   }
@@ -246,7 +262,7 @@ export type ProjectRailSections = {
 
 function readPathList(key: string): string[] {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = preferenceStorage.getItem(key);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -268,7 +284,7 @@ function readPathList(key: string): string[] {
 
 function savePathList(key: string, paths: string[]) {
   try {
-    localStorage.setItem(key, JSON.stringify(paths));
+    preferenceStorage.setItem(key, JSON.stringify(paths));
   } catch {
     // private mode / quota
   }
@@ -277,7 +293,7 @@ function savePathList(key: string, paths: string[]) {
 export function loadProjectRailOrder(): string[] {
   const order = readPathList(RAIL_ORDER_KEY);
   try {
-    if (localStorage.getItem(RAIL_ORDER_VERSION_KEY)) return order;
+    if (preferenceStorage.getItem(RAIL_ORDER_VERSION_KEY)) return order;
 
     // Preserve the order users saw before ordinary projects became sortable.
     const projects = collectRailProjects(loadRecents(), "");
@@ -309,8 +325,8 @@ export function loadProjectRailOrder(): string[] {
 
 export function saveProjectRailOrder(order: string[]) {
   try {
-    localStorage.setItem(RAIL_ORDER_KEY, JSON.stringify(order.map(normalize)));
-    localStorage.setItem(RAIL_ORDER_VERSION_KEY, "1");
+    preferenceStorage.setItem(RAIL_ORDER_KEY, JSON.stringify(order.map(normalize)));
+    preferenceStorage.setItem(RAIL_ORDER_VERSION_KEY, "1");
   } catch {
     // private mode / quota
   }

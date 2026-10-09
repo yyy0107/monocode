@@ -1,3 +1,6 @@
+import { activePreferenceStore } from "../model/sharedPreferences";
+import { uploadPreferenceBackground } from "../model/preferenceAssets";
+import { usePreferenceState } from "../model/usePreferenceState";
 import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
 import { formatBuildVersion } from "../../../shared/lib/buildVersion";
 import { startWindowDrag } from "../../../app/shell/startWindowDrag";
@@ -802,22 +805,22 @@ function GeneralPage({
   onOpenWhatsNew: (version: string) => void;
 }) {
   const { t: uiT } = useTranslation();
-  const [soundsEnabled, setSoundsEnabled] = useState(loadSoundsEnabled);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(
+  const [soundsEnabled, setSoundsEnabled] = usePreferenceState(loadSoundsEnabled);
+  const [notificationsEnabled, setNotificationsEnabled] = usePreferenceState(
     loadNotificationsEnabled,
   );
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermission>(cachedNotificationPermission);
-  const [notesEnabled, setNotesEnabled] = useState(loadNotesEnabled);
-  const [liveAgentsEnabled, setLiveAgentsEnabled] = useState(
+  const [notesEnabled, setNotesEnabled] = usePreferenceState(loadNotesEnabled);
+  const [liveAgentsEnabled, setLiveAgentsEnabled] = usePreferenceState(
     loadLiveAgentsEnabled,
   );
-  const [fileTabMode, setFileTabMode] = useState<FileTabMode>(loadFileTabMode);
-  const [tabAnimationsEnabled, setTabAnimationsEnabled] = useState(
+  const [fileTabMode, setFileTabMode] = usePreferenceState<FileTabMode>(loadFileTabMode);
+  const [tabAnimationsEnabled, setTabAnimationsEnabled] = usePreferenceState(
     loadTabAnimationsEnabled,
   );
-  const [closeToTray, setCloseToTray] = useState(loadCloseToTray);
-  const [quickComposerEnabled, setQuickComposerEnabled] = useState(
+  const [closeToTray, setCloseToTray] = usePreferenceState(loadCloseToTray);
+  const [quickComposerEnabled, setQuickComposerEnabled] = usePreferenceState(
     loadQuickComposerEnabled,
   );
   const [quickComposerError, setQuickComposerError] = useState<string | null>(
@@ -1072,17 +1075,17 @@ function ChatPage() {
   const { t: uiT } = useTranslation();
   const revealed = useContext(RevealedSetting);
   const [transcriptLayout, setTranscriptLayout] =
-    useState<TranscriptLayout>(loadTranscriptLayout);
+    usePreferenceState<TranscriptLayout>(loadTranscriptLayout);
   const [transcriptAnchor, setTranscriptAnchor] =
-    useState(loadTranscriptAnchor);
+    usePreferenceState(loadTranscriptAnchor);
   const [followUpBehavior, setFollowUpBehavior] =
-    useState<FollowUpBehavior>(loadFollowUpBehavior);
+    usePreferenceState<FollowUpBehavior>(loadFollowUpBehavior);
   const [modelControls, setModelControls] =
-    useState<ModelControls>(loadModelControls);
-  const [diffViewer, setDiffViewer] = useState<DiffViewer>(loadDiffViewer);
-  const [formatOnSave, setFormatOnSave] = useState(loadFormatOnSave);
-  const [composerRunner, setComposerRunner] = useState(loadComposerRunner);
-  const [gridArcadeEnabled, setGridArcadeEnabled] = useState(
+    usePreferenceState<ModelControls>(loadModelControls);
+  const [diffViewer, setDiffViewer] = usePreferenceState<DiffViewer>(loadDiffViewer);
+  const [formatOnSave, setFormatOnSave] = usePreferenceState(loadFormatOnSave);
+  const [composerRunner, setComposerRunner] = usePreferenceState(loadComposerRunner);
+  const [gridArcadeEnabled, setGridArcadeEnabled] = usePreferenceState(
     loadGridArcadeEnabled,
   );
 
@@ -1748,7 +1751,7 @@ function LinearSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [teams, setTeams] = useState<LinearTeam[]>([]);
-  const [hiddenTeamIds, setHiddenTeamIds] = useState(loadHiddenLinearTeamIds);
+  const [hiddenTeamIds, setHiddenTeamIds] = usePreferenceState(loadHiddenLinearTeamIds);
 
   const loadTeams = useCallback(async () => {
     try {
@@ -2003,38 +2006,38 @@ type AppearanceSettings = ReturnType<typeof useAppearanceSettings>;
 
 function useAppearanceSettings() {
   const [themePreference, setThemePreference] =
-    useState<ThemePreference>(loadThemePreference);
-  const [accentColor, setAccentColor] = useState(loadAccentColor);
-  const [opacity, setOpacity] = useState(loadSidebarOpacity);
-  const [popoverOpacity, setPopoverOpacity] = useState(loadPopoverOpacity);
-  const [blur, setBlur] = useState(loadSidebarBlur);
-  const [themeHue, setThemeHue] = useState(loadThemeHue);
-  const [themeSaturation, setThemeSaturation] = useState(loadThemeSaturation);
-  const [themeDarkLightness, setThemeDarkLightness] = useState(
+    usePreferenceState<ThemePreference>(loadThemePreference);
+  const [accentColor, setAccentColor] = usePreferenceState(loadAccentColor);
+  const [opacity, setOpacity] = usePreferenceState(loadSidebarOpacity);
+  const [popoverOpacity, setPopoverOpacity] = usePreferenceState(loadPopoverOpacity);
+  const [blur, setBlur] = usePreferenceState(loadSidebarBlur);
+  const [themeHue, setThemeHue] = usePreferenceState(loadThemeHue);
+  const [themeSaturation, setThemeSaturation] = usePreferenceState(loadThemeSaturation);
+  const [themeDarkLightness, setThemeDarkLightness] = usePreferenceState(
     loadThemeDarkLightness,
   );
-  const [bodyGlass, setBodyGlass] = useState(loadBodyGlass);
-  const [showExcludedFiles, setShowExcludedFiles] = useState(
+  const [bodyGlass, setBodyGlass] = usePreferenceState(loadBodyGlass);
+  const [showExcludedFiles, setShowExcludedFiles] = usePreferenceState(
     loadShowExcludedFiles,
   );
-  const [chatBackgroundPath, setChatBackgroundPath] = useState(
+  const [chatBackgroundPath, setChatBackgroundPath] = usePreferenceState(
     loadChatBackgroundPath,
   );
-  const [chatBackgroundEmptyOpacity, setChatBackgroundEmptyOpacity] = useState(
+  const [chatBackgroundEmptyOpacity, setChatBackgroundEmptyOpacity] = usePreferenceState(
     loadChatBackgroundEmptyOpacity,
   );
   const [chatBackgroundSessionOpacity, setChatBackgroundSessionOpacity] =
-    useState(loadChatBackgroundSessionOpacity);
+    usePreferenceState(loadChatBackgroundSessionOpacity);
   const [chatBackgroundScope, setChatBackgroundScope] =
-    useState<ChatBackgroundScope>(loadChatBackgroundScope);
+    usePreferenceState<ChatBackgroundScope>(loadChatBackgroundScope);
   const [newThreadBackgroundEffect, setBackgroundEffect] =
-    useState<NewThreadBackgroundEffect>(loadNewThreadBackgroundEffect);
+    usePreferenceState<NewThreadBackgroundEffect>(loadNewThreadBackgroundEffect);
   const [chatBackgroundBusy, setChatBackgroundBusy] = useState(false);
   const [chatBackgroundError, setChatBackgroundError] = useState<string | null>(
     null,
   );
-  const [uiScale, setUiScale] = useState(loadUiScale);
-  const [fontSizes, setFontSizes] = useState<Record<FontSizeKind, number>>(
+  const [uiScale, setUiScale] = usePreferenceState(loadUiScale);
+  const [fontSizes, setFontSizes] = usePreferenceState<Record<FontSizeKind, number>>(
     () => ({
       ui: loadFontSize("ui"),
       content: loadFontSize("content"),
@@ -2042,13 +2045,13 @@ function useAppearanceSettings() {
     }),
   );
   const [reducedMotion, setReducedMotion] =
-    useState<ReducedMotionPreference>(loadReducedMotion);
-  const [separateSchemes, setSeparateSchemes] = useState(loadSeparateSchemes);
+    usePreferenceState<ReducedMotionPreference>(loadReducedMotion);
+  const [separateSchemes, setSeparateSchemes] = usePreferenceState(loadSeparateSchemes);
   const colorScheme = useColorScheme();
   const [editingScheme, setEditingScheme] = useState<ColorScheme>(activeScheme);
   const profileScope = separateSchemes ? editingScheme : "shared";
-  const [profile, setProfile] = useState<AppearanceProfile>(() =>
-    loadProfile(activeScope()),
+  const [profile, setProfile] = usePreferenceState<AppearanceProfile>(() =>
+    loadProfile(profileScope),
   );
 
   useEffect(() => subscribeUiScale(() => setUiScale(loadUiScale())), []);
@@ -2149,8 +2152,9 @@ function useAppearanceSettings() {
     setChatBackgroundBusy(true);
     setChatBackgroundError(null);
     try {
-      const path = await pickAndSaveChatBackground();
-      if (!path) return;
+      const picked = await pickAndSaveChatBackground();
+      if (!picked) return;
+      const path = activePreferenceStore() ? await uploadPreferenceBackground(picked) : picked;
       saveChatBackgroundPath(path);
       applyChatBackground(path);
       setChatBackgroundPath(path);
@@ -2167,7 +2171,7 @@ function useAppearanceSettings() {
     setChatBackgroundBusy(true);
     setChatBackgroundError(null);
     try {
-      await removeChatBackground();
+      if (!activePreferenceStore()) await removeChatBackground();
       saveChatBackgroundPath(null);
       applyChatBackground(null);
       setChatBackgroundPath(null);
@@ -3214,8 +3218,8 @@ function ShortcutEditor({
 }
 
 function QuickComposerShortcutEditor() {
-  const [shortcut, setShortcut] = useState(loadQuickComposerShortcut);
-  const [enabled, setEnabled] = useState(loadQuickComposerEnabled);
+  const [shortcut, setShortcut] = usePreferenceState(loadQuickComposerShortcut);
+  const [enabled, setEnabled] = usePreferenceState(loadQuickComposerEnabled);
   const apply = async (next: string) => {
     if (!isGlobalShortcut(next))
       throw new Error("Quick Composer needs ⌘ or Ctrl as a global hotkey");
@@ -3287,7 +3291,7 @@ function KeybindingShortcutEditor({
 function KeybindingsPage() {
   const { t: uiT } = useTranslation();
   const [query, setQuery] = useState("");
-  const [overrides, setOverrides] = useState(loadKeybindingOverrides);
+  const [overrides, setOverrides] = usePreferenceState(loadKeybindingOverrides);
   useEffect(
     () => subscribeKeybindings(() => setOverrides(loadKeybindingOverrides())),
     [],
@@ -3750,11 +3754,11 @@ function ProvidersPage({
     projectProvidersRevision,
   );
   void providersRevision;
-  const [choice, setChoice] = useState(loadLastModelChoice);
-  const [defaultModels, setDefaultModels] = useState(loadDefaultModels);
-  const [claudeHooks, setClaudeHooks] = useState(loadClaudeHooks);
+  const [choice, setChoice] = usePreferenceState(loadLastModelChoice);
+  const [defaultModels, setDefaultModels] = usePreferenceState(loadDefaultModels);
+  const [claudeHooks, setClaudeHooks] = usePreferenceState(loadClaudeHooks);
   const [scope, setScope] = useState<string>(GLOBAL_PROVIDER_SCOPE);
-  const [hiddenGlobally, setHiddenGlobally] = useState(
+  const [hiddenGlobally, setHiddenGlobally] = usePreferenceState(
     loadHiddenPickerProviders,
   );
 
@@ -4039,6 +4043,7 @@ function UsageDisplaySettings() {
 }
 
 type AccountEditor = {
+  homeEdited?: boolean;
   importCurrent?: boolean;
   provider: ProviderAccountProvider;
   accountId?: string;
@@ -4265,7 +4270,7 @@ export function ProviderAccountsSettings() {
         if (editor.accountId) {
           await updateProviderAccountProfile({
             id: editor.accountId, provider: editor.provider,
-            label: editor.label, dataHome: editor.dataHome,
+            label: editor.label, ...(editor.homeEdited ? { dataHome: editor.dataHome ?? "" } : {}),
           });
           clearCachedRateLimits(editor.provider, editor.accountId);
           setVersion((value) => value + 1);
@@ -4309,9 +4314,7 @@ export function ProviderAccountsSettings() {
   const removeAccount = async (account: ProviderAccount) => {
     if (account.isDefault || working) return;
     const confirmed = await ask(
-      uiT(account.dataHome
-        ? "Remove “{account}”? Its custom Data Home and credentials will be kept. Existing conversations stay in history, but cannot continue with this account."
-        : "Remove “{account}”? Its stored credentials will be deleted and any running turns for this account will stop. Existing conversations stay in history, but cannot continue until you switch accounts.", { account: account.label }),
+      uiT("Remove “{account}”? Running turns will stop. Host-managed credentials will be deleted; custom Data Homes will be kept.", { account: account.label }),
       {
         title: `Remove ${HARNESS_TITLE[account.provider]} account`,
         kind: "warning",
@@ -4348,9 +4351,7 @@ export function ProviderAccountsSettings() {
   };
 
   const accounts = PROVIDER_ACCOUNT_PROVIDERS.flatMap(providerAccounts);
-  // Every row describes a desktop CLI profile, including the built-in one.
-  // Read its configured Home directly, independently of the Host connection.
-  const identities = useProviderAccountIdentities(accounts, version, "local");
+  const identities = useProviderAccountIdentities(accounts, version, "host");
   const usage = useProviderAccountUsage(version);
 
   return (
@@ -4438,14 +4439,7 @@ export function ProviderAccountsSettings() {
                   identity === null ||
                   (limits?.status === "unavailable" && !limits.error);
                 const windows = meterWindows(limits);
-                const dataHomeLabel = account.resolvedDataHome ?? account.dataHome ?? (
-                  account.isDefault
-                    ? uiT("Default CLI Data Home ({variable} or {path})", {
-                        variable: provider === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR",
-                        path: provider === "codex" ? "~/.codex" : "~/.claude",
-                      })
-                    : uiT("MonoCode isolated Data Home")
-                );
+                const dataHomeLabel = uiT("Data Home is managed by Host");
                 return (
                   <Fragment key={account.id}>
                   <div className="flex items-start gap-3 border-t border-content/5 px-4 py-3">
@@ -4550,7 +4544,7 @@ export function ProviderAccountsSettings() {
                     editor={editorExpanded && editing ? editor : null}
                     working={Boolean(working)}
                     onLabel={label => setEditor(current => current ? { ...current, label } : current)}
-                    onDataHome={dataHome => setEditor(current => current ? { ...current, dataHome } : current)}
+                    onDataHome={dataHome => setEditor(current => current ? { ...current, dataHome, homeEdited: true } : current)}
                     onCancel={() => setEditor(null)}
                     onSubmit={submitEditor}
                   />
@@ -4565,7 +4559,7 @@ export function ProviderAccountsSettings() {
                     current ? { ...current, label } : current,
                   )
                 }
-                onDataHome={dataHome => setEditor(current => current ? { ...current, dataHome } : current)}
+                onDataHome={dataHome => setEditor(current => current ? { ...current, dataHome, homeEdited: true } : current)}
                 onCancel={() => setEditor(null)}
                 onSubmit={submitEditor}
               />
@@ -4696,10 +4690,10 @@ function ProviderAccountEditor({
           className="mt-1 h-8 w-full rounded-md border border-content/10 bg-content/[0.04] px-2.5 font-mono text-[12px] text-content outline-none focus:border-accent/45 disabled:opacity-50"
         />
         <span className="mt-1 block text-[10px] text-content/40">
-          {uiT(editor.accountId === "default"
-            ? "Leave empty to use the CLI default Home (environment override or standard directory)."
+          {uiT(editor.accountId
+            ? "The current Home stays private on Host. Leave this field unchanged to keep it; editing then clearing resets it to the default Home."
             : "Leave empty to use a MonoCode-managed isolated Home.")}
-          {" "}{uiT("Use an absolute path or ~/. After changing Home, restart MonoCode and start a new conversation so a warm CLI cannot keep using the old Home.")}
+          {" "}{uiT("Use an absolute path or ~/ on Host. New conversations use the updated Home.")}
         </span>
       </label>}
     </form>
@@ -4709,9 +4703,9 @@ function ProviderAccountEditor({
 /** The icon the activity bar shows: custom logo, else the project mascot. */
 function ProjectScopeIcon({ path }: { path: string }) {
   const logos = useTabGroupLogos();
-  const [colors] = useState(loadTabGroupColors);
-  const [customColors] = useState(loadTabGroupCustomColors);
-  const [mascots] = useState(loadTabGroupMascots);
+  const [colors] = usePreferenceState(loadTabGroupColors);
+  const [customColors] = usePreferenceState(loadTabGroupCustomColors);
+  const [mascots] = usePreferenceState(loadTabGroupMascots);
   const key = projectKey(path);
   const name = projectName(path);
   const logoPath = resolveTabGroupLogo(key, logos);
@@ -4958,7 +4952,7 @@ function ProviderRow({
 }
 
 function useArchivedProjects(): ArchivedProject[] {
-  const [items, setItems] = useState(loadArchivedProjects);
+  const [items, setItems] = usePreferenceState(loadArchivedProjects);
   useEffect(
     () => subscribeArchivedProjects(() => setItems(loadArchivedProjects())),
     [],
@@ -4992,7 +4986,7 @@ function ArchivePage({
   onDeleteProject?: (path: string) => void;
 }) {
   const { t: uiT } = useTranslation();
-  const [filters, setFilters] = useState(loadSessionSidebarFilters);
+  const [filters, setFilters] = usePreferenceState(loadSessionSidebarFilters);
   const [deleting, setDeleting] = useState<ArchivedProject | null>(null);
   const archivedProjects = useArchivedProjects();
   const archived = useMemo(

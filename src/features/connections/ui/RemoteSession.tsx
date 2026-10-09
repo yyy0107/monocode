@@ -1506,6 +1506,30 @@ function ConnectedRemoteSession({
   };
   const saveDraft = (text: string, attachments: Attachment[]) =>
     submit(text, attachments, undefined, true);
+  const switchAccount = (providerAccountId: string) => {
+    const id = hostSession?.id;
+    if (!id || !online || !descriptor?.capabilities.includes("sessions.switchAccount"))
+      return false;
+    if (busy || pending || changes) {
+      setError(uiT("Wait for the current turn before switching accounts"));
+      return true;
+    }
+    setError("");
+    void remoteRequest(machine.id, "sessions.switchAccount", {
+      projectId: project.projectId,
+      sessionId: id,
+      providerAccountId,
+    }).then(
+      () => {
+        if (alive.current) setRefresh((value) => value + 1);
+      },
+      (reason) => {
+        if (alive.current)
+          setError(uiT(String(reason).replace(/^Error: /, "").replace(/^Host rejected request: /, "")));
+      },
+    );
+    return true;
+  };
 
   const refreshOrchestration = async () => {
     const id = hostSession?.id;
@@ -1596,8 +1620,9 @@ function ConnectedRemoteSession({
         compact,
         approve,
         answer,
+        switchAccount,
       }),
-    [shell.id, buildPlan, saveDraft, stopTurn, compact, approve, answer],
+    [shell.id, buildPlan, saveDraft, stopTurn, compact, approve, answer, switchAccount],
   );
 
   const hostFilePath = (path: string) => {
