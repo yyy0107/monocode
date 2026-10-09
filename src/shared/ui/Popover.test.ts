@@ -73,6 +73,31 @@ describe.each([false, true])(
       );
     }
 
+    it("focuses after opening becomes interactive and does not steal focus when motion completes", () => {
+      // happy-dom permits focus on inert/hidden content; emulate browser focus
+      // rules to catch attempts made before the opening surface is interactive.
+      const focus = HTMLElement.prototype.focus;
+      vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(
+        function (this: HTMLElement, options) {
+          if (
+            this.closest("[inert]") ||
+            this.parentElement?.style.visibility === "hidden"
+          )
+            return;
+          focus.call(this, options);
+        },
+      );
+      render(false);
+      anchor.focus();
+      render(true);
+      expect(document.activeElement).toBe(
+        document.querySelector("[data-test-popover]"),
+      );
+      anchor.focus();
+      act(() => vi.advanceTimersByTime(200));
+      expect(document.activeElement).toBe(anchor);
+    });
+
     it("retains closing content, disables interaction and nested surfaces, then unmounts", () => {
       render(true);
       const surface = document.querySelector<HTMLElement>(

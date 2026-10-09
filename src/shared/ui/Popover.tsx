@@ -210,9 +210,12 @@ function NativePopover({
 }: SurfaceProps & { host: HTMLElement }) {
   const visible = useSurfaceVisibility();
   const surface = useRef<HTMLDivElement | null>(null);
+  const canFocus =
+    visible &&
+    (!motion || motion.foldState === "opening" || motion.foldState === "open");
   useEffect(() => {
-    if (visible && autoFocus) surface.current?.focus({ preventScroll: true });
-  }, [visible, autoFocus]);
+    if (canFocus && autoFocus) surface.current?.focus({ preventScroll: true });
+  }, [canFocus, autoFocus]);
   useEffect(() => {
     if (!visible || !onDismiss) return;
     const key = (event: KeyboardEvent) => {
@@ -348,9 +351,15 @@ function WebPopover({
     };
   }, [visible, place]);
 
+  // A newly opened animated surface starts inert and is initially placed with
+  // visibility:hidden. Browsers ignore focus until both have been cleared.
+  const canFocus =
+    visible &&
+    position !== null &&
+    (!motion || motion.foldState === "opening" || motion.foldState === "open");
   useEffect(() => {
-    if (visible && autoFocus) surface.current?.focus();
-  }, [visible, autoFocus]);
+    if (canFocus && autoFocus) surface.current?.focus({ preventScroll: true });
+  }, [canFocus, autoFocus]);
 
   useEffect(() => {
     if (!visible || !onDismiss) return;
