@@ -11336,13 +11336,6 @@ function Workspace({
                     windowActions={surfaceModeToggle}
                   />
                 ) : null}
-                {appDialog ? (
-                  <div
-                    aria-hidden
-                    data-window-chrome-backdrop
-                    className="modal-backdrop pointer-events-none absolute inset-0 z-40 bg-black/40"
-                  />
-                ) : null}
               </div>
               <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
                 <SidebarRail open={!sessionSidebarOpen}>
