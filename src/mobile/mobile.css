@@ -4726,11 +4726,11 @@ button.mobile-settings-row:active {
 }
 /* The panel is translated below the viewport at half height. Keep its scroll
    area inside the visible portion so even the last list item stays reachable.
-   Inherit the drag's transition: none under the finger, animated on release. */
+   sheetDrag prepares full-height content once on expansion and restores this
+   inset after landing at half. Never animate the margin: that would relayout
+   all sheet content on every frame of the compositor's transform spring. */
 .mobile-sheet[data-detents] > .mobile-sheet-content {
   margin-bottom: var(--mobile-sheet-content-offset);
-  transition: inherit;
-  transition-property: margin-bottom;
 }
 .mobile-sheet-header {
   display: grid;

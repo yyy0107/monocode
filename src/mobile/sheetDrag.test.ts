@@ -234,7 +234,7 @@ describe("MobileSheet drag", () => {
       expect(readHeight).toHaveBeenCalledOnce();
       frame();
       expect(sheet.style.transform).toBe("translateY(375px)");
-      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("300px");
+      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("");
       expect(frames.size).toBe(0);
       pointer("pointermove", 180);
       pointer("pointermove", 190);
@@ -246,15 +246,15 @@ describe("MobileSheet drag", () => {
       expect(frames.size).toBe(1);
       frame();
       expect(readHeight).toHaveBeenCalledTimes(2);
-      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("390px");
+      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("0px");
       pointer("pointermove", 250);
       frame();
-      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("400px");
+      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("0px");
       vi.stubGlobal("innerHeight", 800);
       window.dispatchEvent(new Event("resize"));
       frame();
       expect(readHeight).toHaveBeenCalledTimes(3);
-      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("450px");
+      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("0px");
       window.dispatchEvent(new Event("resize"));
       expect(frames.size).toBe(0);
     });
@@ -272,13 +272,52 @@ describe("MobileSheet drag", () => {
       expect(observers[0].disconnect).toHaveBeenCalledOnce();
       expect(readHeight).toHaveBeenCalledOnce();
       expect(sheet.dataset.detent).toBe("half");
-      // The clipped content follows the final finger position before settling.
+      // Prepare the full viewport once, retaining it until the half stop lands.
       expect(writeOffset.mock.calls.filter(([name]) => name === "--mobile-sheet-content-offset")
-        .map(([, value]) => value)).toEqual(["260px", "300px"]);
-      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("300px");
+        .map(([, value]) => value)).toEqual(["0px"]);
+      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("0px");
       resize(900);
       expect(frames.size).toBe(0);
       expect(onClose).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(500);
+      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("");
+    });
+
+    it("keeps content geometry stable through expansion, reversal and the return spring", () => {
+      const { sheet, pointer, frame } = open();
+      const writeOffset = vi.spyOn(sheet.style, "setProperty");
+      pointer("pointerdown", 600);
+      for (const y of [570, 540, 510, 480, 450, 420, 400]) {
+        vi.advanceTimersByTime(100);
+        pointer("pointermove", y);
+        frame();
+      }
+      pointer("pointerup", 400);
+      expect(sheet.dataset.detent).toBe("full");
+      vi.advanceTimersByTime(500);
+      pointer("pointerdown", 200);
+      for (const y of [240, 280, 320, 360, 400]) {
+        vi.advanceTimersByTime(100);
+        pointer("pointermove", y);
+        frame();
+      }
+      pointer("pointerup", 400);
+      expect(sheet.dataset.detent).toBe("half");
+      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("0px");
+      // Catch the return spring and expand again before its half-size cleanup.
+      sheet.getAnimations = () => [{ transitionProperty: "transform", playState: "running" } as Animation];
+      vi.spyOn(window, "getComputedStyle").mockReturnValue({ transform: "matrix(1, 0, 0, 1, 0, 250)" } as CSSStyleDeclaration);
+      vi.stubGlobal("DOMMatrix", class { m42 = 250; });
+      pointer("pointerdown", 400);
+      vi.advanceTimersByTime(16);
+      pointer("pointermove", 200);
+      frame();
+      pointer("pointerup", 200);
+      vi.advanceTimersByTime(500);
+      expect(sheet.dataset.detent).toBe("full");
+      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("0px");
+      expect(writeOffset.mock.calls.filter(([name]) => name === "--mobile-sheet-content-offset")
+        .map(([, value]) => value)).toEqual(["0px"]);
     });
 
     it("stops watching a non-expandable sheet when an upward swipe becomes native scrolling", () => {
@@ -374,6 +413,18 @@ describe("MobileSheet drag", () => {
       expect(sheet.dataset.detent).toBe("half");
       act(() => sheet.querySelector<HTMLButtonElement>('.mobile-sheet-header [aria-label="Close"]')!.click());
       expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it("restores the half-height scroll viewport immediately with reduced motion", () => {
+      vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
+      const { sheet, pull } = open();
+      pull(600, 400);
+      expect(sheet.dataset.detent).toBe("full");
+      expect(sheet.style.transition).toBe("none");
+      pull(300, 500);
+      act(() => vi.advanceTimersByTime(0));
+      expect(sheet.dataset.detent).toBe("half");
+      expect(sheet.style.getPropertyValue("--mobile-sheet-content-offset")).toBe("");
     });
 
     it.each([80, 500])("settles a full sheet at half after a quick %ipx downward swipe, then dismisses on the next swipe", (distance) => {

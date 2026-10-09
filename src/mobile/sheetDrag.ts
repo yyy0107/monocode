@@ -85,6 +85,7 @@ export function useSheetDrag(
     let tracking = false;
     let dragging = false;
     let dragPlaced = false;
+    let contentExpanded = false;
     let closing = false;
     let closeTimer: number | undefined;
     let moveFrame: number | undefined;
@@ -112,11 +113,13 @@ export function useSheetDrag(
     const place = (top: number) => {
       element.style.transform =
         detents || top > 0 ? `translateY(${top}px)` : "";
-      if (detents)
-        element.style.setProperty(
-          "--mobile-sheet-content-offset",
-          `${Math.max(0, Math.min(top, halfTop))}px`,
-        );
+      // Prepare the larger scroll viewport once before revealing it. Resizing
+      // it under the finger (or on every spring frame) relays out long lists,
+      // diffs and virtual editors. Keep it full-sized until landing at half.
+      if (detents && top < halfTop && !contentExpanded) {
+        contentExpanded = true;
+        element.style.setProperty("--mobile-sheet-content-offset", "0px");
+      }
       // The backdrop only fades once the sheet sinks below its lowest stop.
       const below = top - (detents ? halfTop : 0);
       if (backdrop)
@@ -132,7 +135,7 @@ export function useSheetDrag(
       moveFrame = undefined;
       if (!tracking || !dragging) return;
       // Read once before writing, and only again after the observed geometry
-      // changes. The content margin must still follow the visible half sheet.
+      // changes. Content layout stays fixed while the sheet moves.
       measure();
       if (!dragPlaced) {
         dragPlaced = true;
@@ -298,6 +301,7 @@ export function useSheetDrag(
           closeTimer = window.setTimeout(() => {
             if (detent === settledAt && !dragging) {
               element.style.transform = "";
+              contentExpanded = false;
               element.style.removeProperty("--mobile-sheet-content-offset");
             }
           }, reducedMotion ? 0 : duration);
