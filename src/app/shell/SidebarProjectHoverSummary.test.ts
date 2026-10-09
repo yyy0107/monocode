@@ -39,6 +39,7 @@ vi.mock(
       typeof import("../../features/connections/model/connections")
     >()),
     remoteSessionFor: (id: string) => captured.bindings.get(id),
+    remoteSessionResolver: () => (id: string) => captured.bindings.get(id),
     cachedRemoteSessions: (path: string) =>
       captured.remote.get(path)?.sessions ?? [],
     hasCachedRemoteProjectSessions: (path: string) =>

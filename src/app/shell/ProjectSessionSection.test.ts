@@ -94,6 +94,9 @@ vi.mock(
     remoteSessionFor: (id: string) =>
       remoteState.bindings.get(id) ??
       (id.startsWith("shell:") ? id.slice(6) : undefined),
+    remoteSessionResolver: () => (id: string) =>
+      remoteState.bindings.get(id) ??
+      (id.startsWith("shell:") ? id.slice(6) : undefined),
     hasCachedRemoteProjectSessions: (path: string) =>
       remoteState.rows.has(path),
     cachedRemoteSessions: (path: string) => remoteState.rows.get(path) ?? [],

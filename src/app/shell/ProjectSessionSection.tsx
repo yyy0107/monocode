@@ -121,6 +121,7 @@ import {
   refreshRemoteProjectSessions,
   remoteRequest,
   remoteSessionFor,
+  remoteSessionResolver,
   useRemoteProjectSessions,
 } from "../../features/connections/model/connections";
 import { remoteProjectFor } from "../../features/connections/model/remoteProjects";
@@ -198,6 +199,23 @@ function ProjectSessionSectionComponent({
   const remoteProject = isRemoteProjectPath(cwd) || !!remoteProjectFor(cwd);
   const remote = useRemoteProjectSessions(cwd, remoteProject && pollRemote);
   const hostProject = remoteProject ? remoteProjectFor(cwd) : undefined;
+  // Pinned and recent rows render one section per conversation. Scope each to
+  // its own row up front so hundreds of rows do not each re-filter and re-sort
+  // the whole project on every sidebar render.
+  const remoteRows = useMemo(
+    () =>
+      shortcutId
+        ? remote.sessions.filter((session) => session.id === shortcutId)
+        : remote.sessions,
+    [remote.sessions, shortcutId],
+  );
+  const scopedSessions = useMemo(
+    () =>
+      shortcutId
+        ? sessions.filter((session) => session.id === shortcutId)
+        : sessions,
+    [sessions, shortcutId],
+  );
   const remoteChange = async (
     sessionId: string,
     patch: {
@@ -320,7 +338,7 @@ function ProjectSessionSectionComponent({
     : onSetLocalSessionLinkedWorkItem;
   const activeRemoteId = activeSessionId
     ? (remoteSessionFor(activeSessionId) ??
-      (remote.sessions.some(
+      (remoteRows.some(
         (session) => session.id === activeSessionId && session.nativeSession,
       )
         ? activeSessionId
@@ -331,7 +349,7 @@ function ProjectSessionSectionComponent({
     : activeSessionId;
   const listedBusySessionIds = remoteProject
     ? new Set(
-        remote.sessions
+        remoteRows
           .filter(
             (session) => session.status === "running" && !session.needsInput,
           )
@@ -340,7 +358,7 @@ function ProjectSessionSectionComponent({
     : busySessionIds;
   const listedApprovalSessionIds = remoteProject
     ? new Set(
-        remote.sessions
+        remoteRows
           .filter((session) => session.needsInput)
           .map((session) => session.id),
       )
@@ -349,7 +367,7 @@ function ProjectSessionSectionComponent({
   // mislabeling a question as an approval.
   const listedQuestionSessionIds = remoteProject
     ? new Set(
-        remote.sessions
+        remoteRows
           .filter(
             (session) =>
               session.needsInput &&
@@ -362,7 +380,7 @@ function ProjectSessionSectionComponent({
   const projectSessions: SessionSummary[] = useMemo(
     () =>
       remoteProject
-        ? remote.sessions.map((session) => ({
+        ? remoteRows.map((session) => ({
             id: session.id,
             cwd,
             harness: session.harness,
@@ -382,27 +400,31 @@ function ProjectSessionSectionComponent({
             worktreeCwd: session.worktreeCwd,
             nativeSession: session.nativeSession,
           }))
-        : sessions,
-    [remoteProject, remote.sessions, sessions, cwd],
+        : scopedSessions,
+    [remoteProject, remoteRows, scopedSessions, cwd],
   );
   const now = useNow(30_000, tab === "sessions");
   const sectionRef = useRef<HTMLDivElement>(null);
   const localScrollRef = useRef<HTMLDivElement>(null);
   const sessionsScrollRef = scrollRef ?? localScrollRef;
+  // A single-row shortcut has nothing to order, so it skips the shared store.
   const [savedSessionOrder, setSavedSessionOrder] = useState(() => ({
     cwd,
-    ids: loadSessionSidebarOrder(cwd),
+    ids: shortcutId ? [] : loadSessionSidebarOrder(cwd),
   }));
   const manualSessionOrder =
     savedSessionOrder.cwd === cwd
       ? savedSessionOrder.ids
-      : loadSessionSidebarOrder(cwd);
+      : shortcutId
+        ? []
+        : loadSessionSidebarOrder(cwd);
   useEffect(() => {
+    if (shortcutId) return;
     const load = () =>
       setSavedSessionOrder({ cwd, ids: loadSessionSidebarOrder(cwd) });
     load();
     return subscribeSessionSidebarOrder(cwd, load);
-  }, [cwd]);
+  }, [cwd, shortcutId]);
   const [sessionMenu, setSessionMenu] = useState<{
     x: number;
     y: number;
@@ -457,12 +479,15 @@ function ProjectSessionSectionComponent({
   const projectOpenSessions = openSessions.filter((session) =>
     sameProjectPath(session.cwd, cwd),
   );
-  const listedOpenSessions = remoteProject
-    ? projectOpenSessions.map((session) => {
-        const hostId = remoteSessionFor(session.id);
-        return hostId ? { ...session, id: hostId } : session;
-      })
-    : projectOpenSessions;
+  const hostSessionFor = remoteProject ? remoteSessionResolver() : undefined;
+  const listedOpenSessions = (
+    hostSessionFor
+      ? projectOpenSessions.map((session) => {
+          const hostId = hostSessionFor(session.id);
+          return hostId ? { ...session, id: hostId } : session;
+        })
+      : projectOpenSessions
+  ).filter((session) => !shortcutId || session.id === shortcutId);
   const listedSessions = mergeLiveSessionSummaries(
     projectSessions,
     listedOpenSessions,

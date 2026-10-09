@@ -74,6 +74,7 @@ import {
   REMOTE_HISTORY_UPDATED,
   remotePendingWorktree,
   remoteSessionFor,
+  remoteSessionResolver,
 } from "../../features/connections/model/connections";
 import {
   parseRemotePath,
@@ -415,10 +416,11 @@ function SidebarComponent(props: SidebarProps) {
       ...projectOpenSessions(path),
     ];
     const remote = isRemoteProjectPath(path) || !!remoteProjectFor(path);
+    const hostSessionFor = remote ? remoteSessionResolver() : undefined;
     const scoped = new Set<string>();
     for (const row of localRows) {
       if (flags.has(row.id))
-        scoped.add(remote ? (remoteSessionFor(row.id) ?? row.id) : row.id);
+        scoped.add(hostSessionFor?.(row.id) ?? row.id);
     }
     return scoped;
   };
@@ -506,6 +508,8 @@ function SidebarComponent(props: SidebarProps) {
   }, [remoteRevision]);
   const projectSummaries = useMemo(() => {
     const summaries = new Map<string, ProjectHoverSummary>();
+    // One binding read for every project; each lookup would read storage again.
+    const remoteSessionId = remoteSessionResolver();
     for (const { path } of projects) {
       const key = pathKey(path);
       const remote = isRemoteProjectPath(path) || !!remoteProjectFor(path);
@@ -524,13 +528,13 @@ function SidebarComponent(props: SidebarProps) {
       const summary = projectHoverSummary({
         path,
         history: historyByProject.get(key) ?? [],
-        openSessions: props.openSessions,
+        openSessions: projectOpenSessions(path),
         openSessionIds: props.openSessionIds,
         unseenFinishedIds: projectSessionFlags(props.unseenFinishedIds, path),
         ...(remote
           ? {
               remoteSessions: cachedRemoteSessions(path),
-              remoteSessionId: remoteSessionFor,
+              remoteSessionId,
             }
           : {}),
         loaded,
@@ -941,6 +945,7 @@ function SidebarComponent(props: SidebarProps) {
     );
   };
 
+  const hostSessionFor = remoteSessionResolver();
   const shortcutSessions =
     props.recents === undefined
       ? []
@@ -963,7 +968,7 @@ function SidebarComponent(props: SidebarProps) {
             const liveRows = projectOpenSessions(path)
               .map((row) =>
                 remoteRows
-                  ? { ...row, id: remoteSessionFor(row.id) ?? row.id }
+                  ? { ...row, id: hostSessionFor(row.id) ?? row.id }
                   : row,
               );
             const rows = mergeLiveSessionSummaries(storedRows, liveRows);

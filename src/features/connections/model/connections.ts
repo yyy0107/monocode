@@ -105,6 +105,14 @@ export function remoteSessionFor(shellId: string): string | undefined {
   const value = remoteTabBindings()[shellId];
   return typeof value === "string" ? value : undefined;
 }
+/** Resolves many tabs with one storage read; each `remoteSessionFor` reads it again. */
+export function remoteSessionResolver(): (shellId: string) => string | undefined {
+  const bindings = remoteTabBindings();
+  return (shellId) => {
+    const value = bindings[shellId];
+    return typeof value === "string" ? value : undefined;
+  };
+}
 export function remoteSessionScopeFor(shellId: string): RemoteSessionScope | undefined {
   try {
     const value = remoteTabScopes()[shellId];
