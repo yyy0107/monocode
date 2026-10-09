@@ -1823,3 +1823,19 @@ it("migrates previous assistant creations once and preserves subsequent unfollow
   expect(engine.assistant.store.get()!.policy.followedSessions).toEqual([]);
   expect(engine.assistant.canManageSession(project.id, created.sessionId)).toBe(true);
 });
+it("stops the conversations a stopped task delegated", async () => {
+  const { engine, project, turns, provider } = await setup();
+  const { sessionId } = (await executeAssistantAction(engine.assistant, "delegate", "sessions.create", {
+    projectId: project.id, harness: "codex", model: "test",
+  }, () => true)) as { sessionId: string };
+  for (const requestId of ["delegate-run", "delegate-queued"])
+    await executeAssistantAction(engine.assistant, requestId, "sessions.send", {
+      projectId: project.id, sessionId, text: "Investigate",
+    }, () => true);
+  await vi.waitFor(() => expect(turns.some((t) => t.input.sessionId === sessionId)).toBe(true));
+  expect(engine.store.session(sessionId).session.queuedMessages).toHaveLength(1);
+  await engine.assistant.rpc("assistant.control", { commandId: "stop-task", action: "cancelTurn" });
+  expect(provider.cancel).toHaveBeenCalledWith(sessionId);
+  expect(engine.store.session(sessionId).session.queuedMessages ?? []).toEqual([]);
+  await vi.waitFor(() => expect(engine.store.session(sessionId).status).not.toBe("running"));
+});

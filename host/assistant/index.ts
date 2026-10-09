@@ -17,7 +17,7 @@ import { checkPolicy, fields, id, object, validatePolicy } from "./policy";
 import { followSession, hasAssistantPermission, isExplicitlyWatchedSession, isWatchedSession, watchIncludesSession } from "../../src/features/assistant/model/assistantSessions";
 import { executeAssistantAction, ASSISTANT_ACTIONS } from "./control";
 import { modelsFor } from "../../src/features/sessions/model/models";
-import { RUNTIME_MODES } from "../../src/features/sessions/model/session";
+import { RUNTIME_MODES, type TurnOrigin } from "../../src/features/sessions/model/session";
 import {
   isRemoteProvider,
   type HostModelCatalog,
@@ -1469,6 +1469,7 @@ export class HostAssistant {
   private async cancelTurn(): Promise<void> {
     const stopped = this.active;
     await this.stopBrain();
+    if (stopped) this.stopDelegated(stopped.rootCauseId);
     this.store.host.transaction(() => {
       // The user ended this turn on purpose, so a later resume must not replay it.
       const current = stopped && this.store.wakeup(stopped.id);
@@ -1488,6 +1489,53 @@ export class HostAssistant {
         text: "Stopped",
       });
     });
+  }
+  /**
+   * Stopping a task also stops the conversations it delegated: running turns the
+   * task started are cancelled and its still-queued messages are removed. Turns
+   * started by the user or by other tasks stay untouched.
+   */
+  private stopDelegated(rootCauseId: string): void {
+    const actions = this.store
+      .actions()
+      .filter((a) => a.rootCauseId === rootCauseId && a.targetRef);
+    const actionIds = new Set(actions.map((a) => a.id));
+    const sessionIds = new Set(actions.map((a) => a.targetRef!.sessionId));
+    const ours = (origin?: TurnOrigin) =>
+      origin?.kind === "assistant" && actionIds.has(origin.actionId);
+    for (const sessionId of sessionIds) {
+      let target: HostSession;
+      try {
+        target = this.engine.store.session(sessionId);
+      } catch {
+        continue;
+      }
+      for (const queued of target.session.queuedMessages ?? [])
+        if (ours(queued.origin))
+          try {
+            this.engine.assistantCommand({
+              type: "queue",
+              action: "remove",
+              commandId: `assistant:stop:${queued.id}`,
+              sessionId,
+              messageId: queued.id,
+            });
+          } catch {
+            /* Already dispatched or being edited. */
+          }
+      const turn = target.session.blocks.findLast((b) => b.role === "user");
+      if (target.status === "running" && target.runId && ours(turn?.origin))
+        try {
+          this.engine.assistantCommand({
+            type: "cancel",
+            commandId: `assistant:stop:${target.runId}`,
+            sessionId,
+            runId: target.runId,
+          });
+        } catch {
+          /* The turn finished meanwhile. */
+        }
+    }
   }
   private async stopBrain(): Promise<void> {
     this.epoch++;
