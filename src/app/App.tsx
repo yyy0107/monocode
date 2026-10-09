@@ -11347,6 +11347,7 @@ function Workspace({
                   approvalSessionIds={approvalSessionIds}
                   questionSessionIds={questionSessionIds}
                   activeSessionId={active?.id}
+                  visibleSessionId={activeSessionId ?? null}
                   status={historyFailed ? "error" : "idle"}
                   pending={historyPending}
                   onSelectSession={onSelectHistorySession}

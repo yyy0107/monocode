@@ -69,6 +69,7 @@ import {
   mergeLiveSessionSummaries,
 } from "../../features/sessions/data/sessionHistory";
 import { sessionDisplayTitle } from "../../features/sessions/model/session";
+import { RemoteSessionUnread } from "../../features/sessions/model/remoteSessionUnread";
 import {
   cachedRemoteProjectSessionsState,
   cachedRemoteSessions,
@@ -407,6 +408,30 @@ function SidebarComponent(props: SidebarProps) {
   }, [props.openSessions]);
   const projectOpenSessions = (path: string): readonly SessionSummary[] =>
     openSessionsByProject.get(pathKey(path)) ?? NO_SESSIONS;
+  // Track every cached project here so filtering, folding and recent-row
+  // remounts cannot lose replies received by an unopened Host conversation.
+  const remoteUnreadTrackers = useRef(new Map<string, RemoteSessionUnread>());
+  const remoteUnreadByProject = new Map<string, Set<string>>();
+  for (const { path } of allProjects) {
+    const remote = remoteProjectFor(path);
+    if (!remote || !hasCachedRemoteProjectSessions(path)) continue;
+    const identity = JSON.stringify([remote.environmentId, remote.projectId]);
+    let tracker = remoteUnreadTrackers.current.get(identity);
+    if (!tracker) {
+      tracker = new RemoteSessionUnread();
+      remoteUnreadTrackers.current.set(identity, tracker);
+    }
+    const rows = cachedRemoteSessions(path);
+    const visibleId = props.visibleSessionId === undefined
+      ? props.activeSessionId
+      : props.visibleSessionId;
+    const activeId = sameProjectPath(path, cwd) ? visibleId : undefined;
+    const focusedId = activeId
+      ? remoteSessionFor(activeId) ??
+        (rows.some((row) => row.id === activeId && row.nativeSession) ? activeId : undefined)
+      : undefined;
+    remoteUnreadByProject.set(pathKey(path), tracker.observe(rows, focusedId));
+  }
   const projectSessionFlags = (
     flags: ReadonlySet<string> | undefined,
     path: string,
@@ -912,6 +937,7 @@ function SidebarComponent(props: SidebarProps) {
               )
         }
         unseenFinishedIds={projectSessionFlags(props.unseenFinishedIds, path)}
+        unreadSessionIds={remoteUnreadByProject.get(key)}
         linkedSessionUpdateIds={projectSessionFlags(
           props.linkedSessionUpdateIds,
           path,

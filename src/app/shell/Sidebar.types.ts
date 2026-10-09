@@ -48,6 +48,8 @@ export type SidebarProps = {
   /** Question subset, so waiting for an answer is not labeled as an approval. */
   questionSessionIds?: ReadonlySet<string>;
   activeSessionId?: string;
+  /** Actually visible conversation; null while another app page covers it. */
+  visibleSessionId?: string | null;
   /** Retained live summaries, including blank/background chats; actual tabs
    * are identified separately by openSessionIds. */
   openSessions?: readonly SessionSummary[];

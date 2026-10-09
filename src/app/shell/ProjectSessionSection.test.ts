@@ -33,6 +33,7 @@ import {
   rememberRemoteProject,
 } from "../../features/connections/model/remoteProjects";
 import type { RemoteProjectSessions } from "../../features/connections/model/connections";
+import { REMOTE_HISTORY_UPDATED } from "../../features/connections/model/connections";
 import type { HostSessionSummary } from "../../features/connections/model/protocol";
 import type { SessionSummary } from "../../features/sessions/data/sessionStore";
 import { replaceProjectHistory } from "../../features/sessions/data/sessionHistory";
@@ -530,8 +531,8 @@ describe("named project/session tree", () => {
     act(() => render());
     expect(project(A).querySelector("[data-reminder-sessions]")).not.toBeNull();
     expect(project(B).querySelector("[data-reminder-sessions]")).toBeNull();
-    expect(project(A).querySelector('[aria-label="Done"]')).not.toBeNull();
-    expect(project(B).querySelector('[aria-label="Done"]')).toBeNull();
+    expect(project(A).querySelector('[aria-label="Unread reply"]')).not.toBeNull();
+    expect(project(B).querySelector('[aria-label="Unread reply"]')).toBeNull();
     expect(
       project(A).querySelector('[aria-label="Linked work item updated"]'),
     ).not.toBeNull();
@@ -545,14 +546,58 @@ describe("named project/session tree", () => {
       linkedSessionUpdateIds: new Set(["b-shell"]),
     };
     act(() => render());
-    expect(project(B).querySelector('[aria-label="Done"]')).not.toBeNull();
-    expect(project(A).querySelector('[aria-label="Done"]')).toBeNull();
+    expect(project(B).querySelector('[aria-label="Unread reply"]')).not.toBeNull();
+    expect(project(A).querySelector('[aria-label="Unread reply"]')).toBeNull();
     expect(
       project(B).querySelector('[aria-label="Linked work item updated"]'),
     ).not.toBeNull();
     expect(
       project(A).querySelector('[aria-label="Linked work item updated"]'),
     ).toBeNull();
+  });
+
+  it("marks unopened Host replies beside titles and clears only the focused project's reply", () => {
+    configureSharedHost("machine", [
+      { id: "alpha-host", cwd: A, name: "alpha" },
+      { id: "beta-host", cwd: B, name: "beta" },
+    ]);
+    const initial = { ...hostRow("same"), revision: 4, lastReplyRevision: 3 };
+    remoteState.rows.set(A, [initial]);
+    remoteState.rows.set(B, [{ ...initial, projectId: "beta-host" }]);
+    props.unseenFinishedIds = new Set();
+    saveProjectTreeExpanded([A, B]);
+    act(() => render());
+    const dot = (path: string) => project(path).querySelector('[aria-label="Unread reply"]');
+    expect(dot(A)).toBeNull();
+    expect(dot(B)).toBeNull();
+
+    const reply = { ...initial, revision: 6, lastReplyRevision: 6, status: "running" as const };
+    remoteState.rows.set(B, [{ ...reply, projectId: "beta-host" }]);
+    act(() => window.dispatchEvent(new Event(REMOTE_HISTORY_UPDATED)));
+    expect(dot(A)).toBeNull();
+    expect(dot(B)).not.toBeNull();
+    expect(dot(B)?.parentElement?.textContent).toContain("same");
+    expect(project(B).querySelector('[aria-label="Working..."]')).not.toBeNull();
+
+    // A folded project's replies survive the row disappearing and returning.
+    act(() => project(B).querySelector<HTMLElement>("[data-project-header]")!.click());
+    settleFolds();
+    expand(B);
+    expect(dot(B)).not.toBeNull();
+
+    remoteState.rows.set(A, [reply]);
+    remoteState.bindings.set("b-shell", "same");
+    props = { ...props, cwd: B, activeSessionId: "b-shell", visibleSessionId: null };
+    act(() => render());
+    expect(dot(B)).not.toBeNull();
+    props = { ...props, visibleSessionId: "b-shell" };
+    act(() => render());
+    expect(dot(B)).toBeNull();
+    expect(dot(A)).not.toBeNull();
+    props = { ...props, cwd: A, activeSessionId: "a", visibleSessionId: "a" };
+    act(() => render());
+    expect(dot(B)).toBeNull();
+    expect(dot(A)).not.toBeNull();
   });
 
   it("shows structured metadata with complete values and status on keyboard focus", () => {

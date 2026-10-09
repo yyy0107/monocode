@@ -134,6 +134,7 @@ import { pathKey } from "../../shared/lib/paths";
 import { useNow } from "../../shared/hooks/useNow";
 
 type ProjectSessionSectionProps = SidebarProps & {
+  unreadSessionIds?: ReadonlySet<string>;
   searchQuery: string;
   shortcutId?: string;
   flatPins?: boolean;
@@ -183,6 +184,7 @@ function ProjectSessionSectionComponent({
   tab,
   onOpenInboxItem,
   unseenFinishedIds: unseenFinishedIdsProp,
+  unreadSessionIds,
   linkedSessionUpdateIds = new Set(),
   searchQuery,
   searchActive = false,
@@ -1150,6 +1152,7 @@ function ProjectSessionSectionComponent({
         isSelected={selectedSessionIds.has(session.id)}
         busy={listedBusySessionIds.has(session.id)}
         done={unseenFinishedIds.has(session.id)}
+        unread={!!unreadSessionIds?.has(session.id) || unseenFinishedIds.has(session.id)}
         linkedUpdate={linkedSessionUpdateIds.has(session.id)}
         waitingFor={
           listedApprovalSessionIds.has(session.id)
@@ -1657,6 +1660,7 @@ const SessionCard = memo(function SessionCard({
   isSelected,
   busy,
   done,
+  unread,
   linkedUpdate,
   waitingFor,
   compact = false,
@@ -1678,6 +1682,7 @@ const SessionCard = memo(function SessionCard({
   isSelected: boolean;
   busy: boolean;
   done: boolean;
+  unread: boolean;
   linkedUpdate: boolean;
   waitingFor?: "approval" | "input";
   compact?: boolean;
@@ -1769,10 +1774,7 @@ const SessionCard = memo(function SessionCard({
           <span>{uiT("Failed")}</span>
         </>
       ) : done ? (
-        <>
-          <span className="size-1.5 rounded-full bg-sky-500" />
-          <span>{uiT("Done")}</span>
-        </>
+        <span>{uiT("Done")}</span>
       ) : draft ? (
         <>
           <CircleDashed className="size-3" />
@@ -1809,12 +1811,6 @@ const SessionCard = memo(function SessionCard({
       role="img"
       aria-label={uiT("Failed")}
       className="size-1.5 shrink-0 rounded-full bg-destructive"
-    />
-  ) : done ? (
-    <span
-      role="img"
-      aria-label={uiT("Done")}
-      className="size-1.5 shrink-0 rounded-full bg-sky-500"
     />
   ) : draft ? (
     <CircleDashed
@@ -2199,6 +2195,14 @@ const SessionCard = memo(function SessionCard({
                 />
               </span>
               <SessionWorktreeIcon session={session} />
+              {unread ? (
+                <span
+                  role="img"
+                  aria-label={uiT("Unread reply")}
+                  title={uiT("Unread reply")}
+                  className="size-1.5 shrink-0 rounded-full bg-sky-500"
+                />
+              ) : null}
             </span>
             {dense || (compact && !orchestrationExpanded) ? (
               <span className="flex shrink-0 items-center gap-1.5">
