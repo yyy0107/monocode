@@ -7,16 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Markdown table columns keep a readable minimum width and top-aligned content; narrow panes scroll horizontally instead of squeezing file names into stacked text.
-
 ### Added
 
 - Settings → General → Language switches the interface between English and
   Simplified Chinese immediately, remembers the preference, and synchronizes
   open windows. Settings and keybinding searches match Chinese labels, while
   user content and stable command IDs retain their original values.
+
+## [0.11.0] - 2026-10-09
+
+### Added
+
+- Settings, provider accounts, connections, and workspace state can be shared through the connected Host across desktop and mobile, with local caches for offline use. Sync indicators describe the active Host, and a phone keeps its existing preferences until that Host supplies shared values.
+- Existing Claude and Codex conversations can switch provider accounts in place. Host conversations copy native history into the selected account when available, with a handoff recap as a fallback; conversation headers show the account actually used by that conversation.
+- The repository Git graph opens in a large dialog and loads history in pages of 50 commits. Historical commits use the same file review controls as working-copy changes.
+- New worktrees can derive their branch and directory names from the first task, handle existing names with numbered suffixes, and show creation progress beneath the first message. Creation failures can be retried, and cancelled sends do not create a worktree.
+- Font settings list installed font families, offer the system interface font, and restrict code-font choices to monospace families. Font-size sliders apply changes when released.
+
+### Changed
+
+- Large streamed Markdown code blocks reuse completed lines and incremental syntax-highlighting state, reducing repeated parsing and rendering. The fork retains background highlighting, mobile long-code virtualization, theme switching, copy controls, and user font settings. Adapted from upstream #863.
+- Diff reviews load file content when needed, preserve fold state on refresh, and reuse background workers between reviews to reduce repeated setup and rendering.
+- New conversations show cached model catalogs and agent availability immediately while refreshing them in the background; the model picker indicates when loading is still in progress.
+- Conversation and document prose, including user messages, follow the content font and size independently of code. The default content font weight is medium.
+- Session and assistant composers share the same error, retry, and usage-limit notice styling. Sidebar panels switch immediately while the selection indicator animates; running, unread, and worktree indicators are easier to distinguish.
+- The mobile home menu orders projects by recent conversation activity. Non-Git projects explain why worktree actions are unavailable, and working copies use their branch names as display titles.
+
+### Fixed
+
+- Codex resolves from the login shell before fallback locations, matching the executable used in the user's terminal. From upstream #878.
+- Reorder drags recover when a mouse release happens outside the window and its event is missed. From upstream #879.
+- Markdown table columns keep a readable minimum width and top-aligned content; narrow panes scroll horizontally instead of squeezing file names into stacked text. From upstream #876.
+- Commit messages remain editable when no files are staged, provided a Git operation is not in progress.
+- Revealing a file in the system file manager runs off the main thread so the window remains responsive. From upstream #902.
+- New sessions open in the selected sidebar project and worktree. Switching away from an unsent new-session draft preserves its input. Adapted from upstream #896 and local draft handling.
+- Remote file browsing and Git diffs follow the session's linked worktree, including a checkout selected before the session starts. Native paths remain intact for local shared-Host projects. From upstream #887.
+- Remote session identity, provider-account changes, and shell state stay synchronized. Host usage-limit notices can be dismissed or resumed, and unread Host replies appear beside desktop session titles.
+- Switching shared terminal tabs no longer shifts their text. Popovers receive focus after becoming interactive, and code reviews remain accessible during live agent turns.
+- Git branch badges retain letter descenders, graph styles no longer affect branch icons, resize grips align with their handles, and the title-bar icon remains legible in light mode.
 
 ## [0.7.0] - 2026-10-02
 
