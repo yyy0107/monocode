@@ -16,6 +16,10 @@ import {
   saveProjectRailOrder,
 } from "../../features/projects/model/recents";
 import { setUiLanguage } from "../../shared/i18n/language";
+import {
+  loadUpdatePreferences,
+  saveUpdatePreferences,
+} from "../model/updatePreferences";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => null),
@@ -86,6 +90,13 @@ function action(label: string) {
   return container.querySelector<HTMLButtonElement>(
     `button[aria-label="${label}"]`,
   )!;
+}
+function dialogAction(label: string) {
+  return [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '[aria-modal="true"] button',
+    ),
+  ].find((button) => button.textContent === label)!;
 }
 function projectInput() {
   return document.querySelector<HTMLInputElement>(
@@ -261,15 +272,174 @@ it("probes once and only displays updates when there is an available action", as
   expect(probeForUpdate).toHaveBeenCalledOnce();
 });
 
-it("opens the update install action from the updates icon", async () => {
+it("opens the update confirmation without downloading", async () => {
+  vi.mocked(probeForUpdate).mockResolvedValue({
+    version: "0.7.1",
+    date: "2026-09-30T00:00:00Z",
+  } as Awaited<ReturnType<typeof probeForUpdate>>);
+  await render();
+  expect(action("Updates")).not.toBeNull();
+  expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+  await act(async () => action("Updates").click());
+  expect(document.body.textContent).toContain("New version available  v0.7.1");
+  expect(document.querySelector('[aria-modal="true"] time')?.textContent).toBe(
+    "September 30, 2026",
+  );
+  expect(dialogAction("Skip this version")).toBeDefined();
+  expect(dialogAction("Later")).toBeDefined();
+  expect(dialogAction("Download update")).toBeDefined();
+  expect(
+    document.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked,
+  ).toBe(false);
+  expect(installPendingUpdate).not.toHaveBeenCalled();
+});
+
+it.each(["rail", "sidebar-footer"] as const)(
+  "previews remote release notes on hover in the %s layout and retains pointer transfer",
+  async (layout) => {
+    vi.mocked(probeForUpdate).mockResolvedValue({
+      version: "3.14.5",
+      date: "2026-09-30T00:00:00Z",
+      body: "### 问题修复\n\n- 手动重置后，剩余重置机会的数量会保留显示。",
+    } as Awaited<ReturnType<typeof probeForUpdate>>);
+    await render([layout]);
+    await act(async () => setUiLanguage("zh-CN"));
+    const trigger = action("更新");
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    await act(async () =>
+      trigger.dispatchEvent(new PointerEvent("pointerover", { bubbles: true })),
+    );
+    const panel = document.querySelector<HTMLElement>('[role="tooltip"]')!;
+    expect(panel.textContent).toContain("v3.14.5 更新日志");
+    expect(panel.querySelector("time")?.textContent).toBe("2026年9月30日");
+    expect(panel.querySelector("h3")?.textContent).toBe("问题修复");
+    expect(panel.querySelector("li")?.textContent).toContain("剩余重置机会");
+    expect(trigger.getAttribute("aria-describedby")).toBe(panel.id);
+    expect(trigger.hasAttribute("title")).toBe(false);
+    expect(installPendingUpdate).not.toHaveBeenCalled();
+
+    act(() =>
+      trigger.dispatchEvent(
+        new PointerEvent("pointerout", { bubbles: true, relatedTarget: panel }),
+      ),
+    );
+    expect(panel.getAttribute("aria-hidden")).not.toBe("true");
+    act(() => panel.dispatchEvent(new Event("scroll", { bubbles: true })));
+    expect(panel.getAttribute("aria-hidden")).not.toBe("true");
+    act(() =>
+      panel.dispatchEvent(
+        new PointerEvent("pointerout", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+      ),
+    );
+    expect(panel.getAttribute("aria-hidden")).toBe("true");
+    expect(panel.hasAttribute("inert")).toBe(true);
+  },
+);
+
+it("supports keyboard preview and Escape when release notes are missing", async () => {
+  vi.mocked(probeForUpdate).mockResolvedValue({ version: "9.9.9" } as Awaited<
+    ReturnType<typeof probeForUpdate>
+  >);
+  await render();
+  await act(async () => action("Updates").focus());
+  const panel = document.querySelector<HTMLElement>('[role="tooltip"]')!;
+  expect(panel.textContent).toContain("v9.9.9 Release notes");
+  expect(panel.textContent).toContain(
+    "Release notes for this version are not available",
+  );
+  expect(panel.querySelector("time")).toBeNull();
+  act(() =>
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
+  );
+  expect(panel.getAttribute("aria-hidden")).toBe("true");
+  expect(document.activeElement).toBe(action("Updates"));
+});
+
+it("dismisses the preview for confirmation and Later leaves the update available", async () => {
+  vi.mocked(probeForUpdate).mockResolvedValue({
+    version: "0.7.1",
+    body: "### Fixed\n\n- Release preview regression.",
+  } as Awaited<ReturnType<typeof probeForUpdate>>);
+  await render();
+  await act(async () => action("Updates").focus());
+  await act(async () => action("Updates").click());
+  expect(
+    document.querySelector('[role="tooltip"]:not([aria-hidden="true"])'),
+  ).toBeNull();
+  await act(async () => dialogAction("Later").click());
+  expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+  expect(document.activeElement).toBe(action("Updates"));
+  expect(action("Updates")).not.toBeNull();
+  expect(loadUpdatePreferences().skippedVersion).toBeNull();
+  expect(installPendingUpdate).not.toHaveBeenCalled();
+});
+
+it("remembers skipping the offered version and removes its update action", async () => {
   vi.mocked(probeForUpdate).mockResolvedValue({ version: "0.7.1" } as Awaited<
     ReturnType<typeof probeForUpdate>
   >);
   await render();
-  expect(action("Updates")).not.toBeNull();
-  expect(document.body.textContent).not.toContain("Update to 0.7.1");
   await act(async () => action("Updates").click());
-  expect(document.body.textContent).toContain("Update to 0.7.1");
+  await act(async () => dialogAction("Skip this version").click());
+  expect(document.querySelector('[aria-modal="true"]')).toBeNull();
+  expect(action("Updates")).toBeNull();
+  expect(loadUpdatePreferences().skippedVersion).toBe("0.7.1");
+  expect(installPendingUpdate).not.toHaveBeenCalled();
+});
+
+it("persists the automatic update choice without installing the current version on toggle", async () => {
+  vi.mocked(probeForUpdate).mockResolvedValue({ version: "0.7.1" } as Awaited<
+    ReturnType<typeof probeForUpdate>
+  >);
+  await render();
+  await act(async () => action("Updates").click());
+  const checkbox = () =>
+    document.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  await act(async () => checkbox().click());
+  expect(loadUpdatePreferences().autoInstall).toBe(true);
+  await act(async () => dialogAction("Later").click());
+  await act(async () => action("Updates").click());
+  expect(checkbox().checked).toBe(true);
+  await act(async () => checkbox().click());
+  expect(loadUpdatePreferences().autoInstall).toBe(false);
+  expect(installPendingUpdate).not.toHaveBeenCalled();
+});
+
+it("installs automatically on a future probe only after opt-in", async () => {
+  saveUpdatePreferences({ autoInstall: true });
+  vi.mocked(probeForUpdate).mockResolvedValue({ version: "0.7.1" } as Awaited<
+    ReturnType<typeof probeForUpdate>
+  >);
+  vi.mocked(installPendingUpdate).mockImplementation(async (onProgress) => {
+    const snapshot: UpdaterSnapshot = {
+      phase: "downloading",
+      currentVersion: "0.7.0",
+      availableVersion: "0.7.1",
+      progress: 42,
+    };
+    onProgress?.(snapshot);
+    return snapshot;
+  });
+  await render(["rail", "sidebar-footer"]);
+  expect(installPendingUpdate).toHaveBeenCalledOnce();
+  await act(async () => action("Updates").click());
+  expect(dialogAction("Downloading 42%").disabled).toBe(true);
+});
+
+it("uses the installed version's bundled notes when only an update notice remains", async () => {
+  props.updateNotice = { version: "0.7.0" };
+  props.onOpenWhatsNew = vi.fn();
+  props.onDismissUpdate = vi.fn();
+  await render();
+  await act(async () => action("Updates").focus());
+  const panel = document.querySelector('[role="tooltip"]')!;
+  expect(panel.textContent).toContain("v0.7.0 Release notes");
+  expect(panel.querySelector("time")?.textContent).toBe("October 2, 2026");
+  expect(panel.querySelector("h3")?.textContent).toBe("Added");
+  expect(panel.querySelector("li")).not.toBeNull();
 });
 
 it("shares one update probe and keeps the install lock across activity layouts", async () => {
@@ -290,10 +460,15 @@ it("shares one update probe and keeps the install lock across activity layouts",
   expect(readAppVersion).toHaveBeenCalledOnce();
   await act(async () => action("Updates").click());
   const installButton = () =>
-    document.querySelector<HTMLButtonElement>(
-      '[role="dialog"][aria-label="Updates"] button',
-    )!;
-  act(() => installButton().click());
+    [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        '[aria-modal="true"] button',
+      ),
+    ].find((button) => /^Download/.test(button.textContent ?? ""))!;
+  act(() => {
+    installButton().click();
+    installButton().click();
+  });
   expect(installPendingUpdate).toHaveBeenCalledOnce();
 
   // The install has not even reported downloading yet. Switching layouts
@@ -375,7 +550,6 @@ it("keeps installed update notes accessible from the updates pop-out", async () 
   ).toBeNull();
 });
 
-
 it("keeps all five named destinations and their actions in the title bar", async () => {
   props.layout = "titlebar";
   props.onOpenWorkflows = vi.fn();
@@ -384,13 +558,23 @@ it("keeps all five named destinations and their actions in the title bar", async
   await render();
   const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
   expect(buttons.map((button) => button.textContent)).toEqual([
-    "Search", "Inbox", "Notes", "Automations", "Workflows",
+    "Search",
+    "Inbox",
+    "Notes",
+    "Automations",
+    "Workflows",
   ]);
   expect(buttons.every((button) => button.querySelector("svg"))).toBe(true);
   expect(action("Workflows").getAttribute("aria-pressed")).toBe("true");
   expect(action("Inbox, new items")).not.toBeNull();
   act(() => buttons.forEach((button) => button.click()));
-  for (const handler of [props.onSearch, props.onOpenInbox, props.onOpenNotes, props.onOpenAutomations, props.onOpenWorkflows]) {
+  for (const handler of [
+    props.onSearch,
+    props.onOpenInbox,
+    props.onOpenNotes,
+    props.onOpenAutomations,
+    props.onOpenWorkflows,
+  ]) {
     expect(handler).toHaveBeenCalledOnce();
   }
   props.notesEnabled = false;
@@ -401,14 +585,22 @@ it("keeps all five named destinations and their actions in the title bar", async
 it("dismisses the inbox context menu when its navigation is hidden", async () => {
   props.layout = "titlebar";
   const renderVisible = async (visible: boolean) => {
-    await act(async () => root.render(createElement(
-      SurfaceVisibilityContext.Provider,
-      { value: visible },
-      createElement(ActivityBar, props),
-    )));
+    await act(async () =>
+      root.render(
+        createElement(
+          SurfaceVisibilityContext.Provider,
+          { value: visible },
+          createElement(ActivityBar, props),
+        ),
+      ),
+    );
   };
   await renderVisible(true);
-  act(() => action("Inbox").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })));
+  act(() =>
+    action("Inbox").dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true }),
+    ),
+  );
   expect(document.querySelector('[role="menu"]')).not.toBeNull();
   await renderVisible(false);
   expect(document.querySelector('[role="menu"]')).toBeNull();

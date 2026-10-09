@@ -19,6 +19,7 @@ import {
 } from "../commands/useCommandShortcut";
 import { useSurfaceVisibility } from "../../shared/ui/SurfaceVisibility";
 import { Popover } from "../../shared/ui/Popover";
+import { useHoverSummary } from "../../shared/ui/HoverSummary";
 import {
   collectRailProjects,
   type RecentProject,
@@ -28,8 +29,9 @@ import { LiveAgentsPreview } from "../../features/sessions/ui/LiveAgentsPreview"
 import type { LiveAgent } from "../../features/sessions/model/liveAgents";
 import type { InstalledUpdate } from "../model/updateNotice";
 import { ProjectList } from "./ProjectList";
-import { SidebarUpdate } from "./SidebarUpdate";
+import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
 import { UpdateRailCard } from "./UpdateRailCard";
+import { UpdateNotesPopover } from "./UpdateNotesPopover";
 import type { UpdateStatus } from "./useUpdateStatus";
 
 /**
@@ -136,11 +138,16 @@ export function ActivityBar({
   const inboxTrigger = useRef<HTMLElement | null>(null);
   const projectsAnchor = useRef<HTMLButtonElement>(null);
   const agentsAnchor = useRef<HTMLButtonElement>(null);
-  const updatesAnchor = useRef<HTMLButtonElement>(null);
   const snapshot = updateStatus?.snapshot;
   const actionable = updateStatus?.actionable ?? false;
   const showUpdates =
     actionable || Boolean(updateNotice && onOpenWhatsNew && onDismissUpdate);
+  const updateVersion =
+    (actionable ? snapshot?.availableVersion : undefined) ?? updateNotice?.version;
+  const updatesHover = useHoverSummary<HTMLButtonElement>({
+    enabled: showUpdates && showBottom && popup === null && Boolean(updateVersion),
+  });
+  const updatesAnchor = updatesHover.anchorRef;
   const selectProject = (path: string) => {
     setPopup(null);
     onSelectProject(path);
@@ -267,36 +274,40 @@ export function ActivityBar({
               onClick={() => togglePopup("agents")}
             />
           ) : null}
-          <div
-            className={`flex ${row ? "items-center gap-1" : "flex-col-reverse gap-1.5"}`}
-          >
-            <div className={row ? "min-w-0 flex-1" : undefined}>
-              <ActivityAction
-                row={row}
-                label={settingsLabel}
-                text={t("Settings")}
-                icon={Settings}
-                active={settingsActive}
-                onClick={onOpenSettings}
-              />
-            </div>
+          <div className="relative">
+            <ActivityAction
+              row={row}
+              label={settingsLabel}
+              text={t("Settings")}
+              icon={Settings}
+              active={settingsActive}
+              onClick={onOpenSettings}
+            />
             {showUpdates ? (
-              <div className="shrink-0">
-                <ActivityAction
-                  row={row}
-                  ref={updatesAnchor}
-                  label={t("Updates")}
-                  text={t("Updates")}
-                  icon={snapshot?.phase === "downloading" ? Loader : ArrowDownCircle}
-                  dot
-                  active={popup === "updates"}
-                  expanded={popup === "updates"}
-                  onClick={() => togglePopup("updates")}
-                />
-              </div>
+              <UpdateBadge
+                row={row}
+                ref={updatesAnchor}
+                hover={updatesHover}
+                label={t("Updates")}
+                busy={snapshot?.phase === "downloading"}
+                expanded={popup === "updates"}
+                onClick={() => {
+                  updatesHover.close();
+                  togglePopup("updates");
+                }}
+              />
             ) : null}
           </div>
         </div>
+      ) : null}
+      {updateVersion ? (
+        <UpdateNotesPopover
+          hover={updatesHover}
+          version={updateVersion}
+          releaseNotes={actionable ? snapshot?.releaseNotes : undefined}
+          releaseDate={actionable ? snapshot?.releaseDate : undefined}
+          side={popoverSide}
+        />
       ) : null}
       {popup === "projects" ? (
         <Popover
@@ -358,7 +369,21 @@ export function ActivityBar({
           />
         </Popover>
       ) : null}
-      {popup === "updates" && showUpdates ? (
+      {popup === "updates" && actionable && updateStatus ? (
+        <UpdateAvailableDialog
+          snapshot={updateStatus.snapshot}
+          onInstall={updateStatus.install}
+          onSkip={() => {
+            setPopup(null);
+            updateStatus.skipVersion();
+          }}
+          onClose={() => {
+            setPopup(null);
+            updatesAnchor.current?.focus();
+          }}
+        />
+      ) : null}
+      {popup === "updates" && showUpdates && !actionable ? (
         <Popover
           anchor={updatesAnchor}
           side={popoverSide}
@@ -385,13 +410,6 @@ export function ActivityBar({
               }}
             />
           ) : null}
-          {actionable && updateStatus ? (
-            <SidebarUpdate
-              snapshot={updateStatus.snapshot}
-              onSnapshot={updateStatus.setSnapshot}
-              onInstall={updateStatus.install}
-            />
-          ) : null}
         </Popover>
       ) : null}
       {visible && inboxMenu ? (
@@ -406,6 +424,56 @@ export function ActivityBar({
         />
       ) : null}
     </nav>
+  );
+}
+
+// Updates float over the Settings row instead of claiming their own slot: the
+// control only exists while an update is pending, so it should not shift layout.
+function UpdateBadge({
+  row,
+  label,
+  busy,
+  expanded,
+  onClick,
+  ref,
+  hover,
+}: {
+  row: boolean;
+  label: string;
+  busy: boolean;
+  expanded: boolean;
+  onClick: () => void;
+  ref?: React.Ref<HTMLButtonElement>;
+  hover: ReturnType<typeof useHoverSummary>;
+}) {
+  const Icon = busy ? Loader : ArrowDownCircle;
+  return (
+    <button
+      {...hover.triggerProps}
+      ref={ref}
+      type="button"
+      aria-label={label}
+      aria-describedby={hover.open ? hover.id : undefined}
+      aria-haspopup="dialog"
+      aria-expanded={expanded}
+      onClick={onClick}
+      className={
+        row
+          ? `absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md transition-colors ${expanded ? "bg-selection text-content" : "text-accent hover:bg-surface-hover"}`
+          : `absolute -right-1 -top-1 grid size-4 place-items-center rounded-full bg-surface text-accent shadow-sm ring-1 ring-border transition-colors hover:bg-surface-hover`
+      }
+    >
+      <Icon
+        className={`${row ? "size-4" : "size-3"} ${busy ? "animate-spin" : ""}`}
+        aria-hidden
+      />
+      {row ? (
+        <span
+          aria-hidden
+          className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-sky-500"
+        />
+      ) : null}
+    </button>
   );
 }
 

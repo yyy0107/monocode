@@ -5,6 +5,7 @@ import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updat
 import { announceUpdateAvailable } from "../../features/settings/model/sounds";
 import { rememberInstalledUpdate } from "./updateNotice";
 import { formatBuildVersion } from "../../shared/lib/buildVersion";
+import { loadUpdatePreferences } from "./updatePreferences";
 
 export type UpdaterPhase =
   | "idle"
@@ -18,6 +19,8 @@ export type UpdaterSnapshot = {
   phase: UpdaterPhase;
   currentVersion: string;
   availableVersion?: string;
+  releaseNotes?: string;
+  releaseDate?: string;
   progress?: number;
   error?: string;
 };
@@ -39,6 +42,10 @@ export async function readAppVersion(): Promise<string> {
 
 export async function probeForUpdate(): Promise<Update | null> {
   const update = await check();
+  if (update && loadUpdatePreferences().skippedVersion === update.version) {
+    pendingUpdate = null;
+    return null;
+  }
   pendingUpdate = update;
   if (update) announceUpdateAvailable(update.version);
   return update;
@@ -70,6 +77,8 @@ export async function runUpdateFlow(
       phase: "available",
       currentVersion,
       availableVersion: update.version,
+      releaseNotes: update.body,
+      releaseDate: update.date,
     };
     onProgress?.(available);
 
@@ -128,6 +137,8 @@ export async function installPendingUpdate(
     phase: "downloading",
     currentVersion,
     availableVersion: update.version,
+    releaseNotes: update.body,
+    releaseDate: update.date,
     progress: 0,
   };
   onProgress?.(downloading);
@@ -147,9 +158,7 @@ export async function installPendingUpdate(
           : undefined;
 
       onProgress?.({
-        phase: "downloading",
-        currentVersion,
-        availableVersion: update.version,
+        ...downloading,
         progress,
       });
     });
@@ -164,9 +173,9 @@ export async function installPendingUpdate(
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     const failed: UpdaterSnapshot = {
+      ...downloading,
       phase: "error",
-      currentVersion,
-      availableVersion: update.version,
+      progress: undefined,
       error,
     };
     onProgress?.(failed);

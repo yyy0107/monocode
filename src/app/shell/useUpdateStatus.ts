@@ -5,6 +5,10 @@ import {
   readAppVersion,
   type UpdaterSnapshot,
 } from "../model/updater";
+import {
+  loadUpdatePreferences,
+  saveUpdatePreferences,
+} from "../model/updatePreferences";
 
 export function isUpdateActionable(snapshot: UpdaterSnapshot): boolean {
   return snapshot.phase === "available" || snapshot.phase === "downloading";
@@ -28,6 +32,11 @@ export function useUpdateStatus() {
       installing.current = false;
     }
   }, []);
+  const skipVersion = useCallback(() => {
+    if (snapshot.phase !== "available" || !snapshot.availableVersion) return;
+    saveUpdatePreferences({ skippedVersion: snapshot.availableVersion });
+    setSnapshot({ phase: "idle", currentVersion: snapshot.currentVersion });
+  }, [snapshot.phase, snapshot.availableVersion, snapshot.currentVersion]);
 
   // The automatic probe runs on mount whether or not it ends up rendering
   // anything, so a newly published version still surfaces on its own. The
@@ -48,7 +57,10 @@ export function useUpdateStatus() {
             phase: "available",
             currentVersion,
             availableVersion: update.version,
+            releaseNotes: update.body,
+            releaseDate: update.date,
           });
+          if (loadUpdatePreferences().autoInstall) await install();
           return;
         }
         setSnapshot({ phase: "current", currentVersion });
@@ -61,7 +73,7 @@ export function useUpdateStatus() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [install]);
 
   // Activity bars memoize on this object; a fresh one each render rebuilt the
   // whole sidebar on every workspace update.
@@ -71,8 +83,9 @@ export function useUpdateStatus() {
       setSnapshot,
       actionable: isUpdateActionable(snapshot),
       install,
+      skipVersion,
     }),
-    [snapshot, install],
+    [snapshot, install, skipVersion],
   );
 }
 

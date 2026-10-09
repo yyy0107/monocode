@@ -2793,6 +2793,28 @@ header[data-tauri-drag-region] button {
   margin-top: 0.15rem;
 }
 
+.update-notes-md.agent-markdown {
+  font-size: 14px;
+  line-height: 1.75;
+  letter-spacing: normal;
+}
+
+.update-notes-md.agent-markdown [data-streamdown^="heading-"] {
+  margin-top: 1rem;
+  margin-bottom: 0.75rem;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-content);
+}
+
+.update-notes-md.agent-markdown > :first-child [data-streamdown^="heading-"] {
+  margin-top: 0;
+}
+
+.update-notes-md.agent-markdown li::marker {
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+}
+
 .agent-markdown [data-streamdown="code-block-header"] {
   height: auto;
   min-height: 36px;

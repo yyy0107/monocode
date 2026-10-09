@@ -101,3 +101,24 @@ export function formatReleaseDate(iso: string): string {
   if (!month) return iso;
   return `${Number(match[3])} ${month} ${match[1]}`;
 }
+
+/** Keep the publication's calendar date, without shifting it across time zones. */
+export function formatUpdateReleaseDate(
+  iso: string,
+  language: string,
+): string | null {
+  const day = iso.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const date = new Date(day);
+  if (
+    !Number.isFinite(date.getTime()) ||
+    date.toISOString().slice(0, 10) !== day
+  )
+    return null;
+  return new Intl.DateTimeFormat(language, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}

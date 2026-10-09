@@ -9,6 +9,7 @@ import {
   ArrowUp as ArrowUpIcon,
   BellOff as BellOffIcon,
   Bot as BotIcon,
+  CalendarDays as CalendarDaysIcon,
   CameraOff as CameraOffIcon,
   CaseSensitive as CaseSensitiveIcon,
   ChartNoAxesCombined as ChartNoAxesCombinedIcon,
@@ -199,6 +200,7 @@ export const CircleHelp = wrap(CircleHelpIcon, "CircleHelp");
 export const CircleX = wrap(CircleXIcon, "CircleX");
 export const CloudUpload = wrap(CloudUploadIcon, "CloudUpload");
 export const Clock = wrap(ClockIcon, "Clock");
+export const CalendarDays = wrap(CalendarDaysIcon, "CalendarDays");
 export const Copy = wrap(CopyIcon, "Copy");
 export const Computer = wrap(MonitorIcon, "Computer");
 export const CursorMagicSelection = wrap(

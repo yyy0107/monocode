@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatReleaseDate,
+  formatUpdateReleaseDate,
   presentReleaseNotes,
   releaseNotesForVersion,
   releaseNotesMarkdown,
@@ -119,6 +120,24 @@ describe("formatReleaseDate", () => {
     "leaves invalid date %j alone",
     (value) => {
       expect(formatReleaseDate(value)).toBe(value);
+    },
+  );
+});
+
+describe("formatUpdateReleaseDate", () => {
+  it("localizes publication dates without shifting UTC midnight to the previous day", () => {
+    expect(formatUpdateReleaseDate("2026-09-30T00:00:00Z", "zh-CN")).toBe(
+      "2026年9月30日",
+    );
+    expect(formatUpdateReleaseDate("2026-09-30", "en")).toBe(
+      "September 30, 2026",
+    );
+  });
+
+  it.each(["soon", "2026-13-01", "2026-02-30", "2026-09-1"])(
+    "omits invalid date %j",
+    (date) => {
+      expect(formatUpdateReleaseDate(date, "zh-CN")).toBeNull();
     },
   );
 });
