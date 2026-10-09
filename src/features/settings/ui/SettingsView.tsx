@@ -69,7 +69,6 @@ import { SettingsNav } from "../../../app/shell/SettingsRail";
 import { Switch } from "../../workflows/kit/components/ui/switch";
 import { SettingsSearchInput } from "../../workflows/kit/settings/SettingsSearchInput";
 import {
-  FontSizeInput,
 } from "../../workflows/kit/settings/SettingsPageParts";
 import { Input } from "../../workflows/kit/components/ui/input";
 import {
@@ -2751,11 +2750,11 @@ function TypographyCards({ appearance }: { appearance: AppearanceSettings }) {
             label={row.label}
             description={row.description}
           >
-            <FontSizeInput
+            <FontSizeSlider
+              label={row.label}
               value={appearance.fontSizes[row.kind]}
               min={FONT_SIZE_LIMITS[row.kind].min}
               max={FONT_SIZE_LIMITS[row.kind].max}
-              ariaLabel={row.label}
               onChange={(value) => appearance.onFontSize(row.kind, value)}
             />
           </Row>
@@ -5336,6 +5335,37 @@ function Segmented<T extends string>({
   );
 }
 
+/** Shows the size while dragging; applies it only on release (no re-layout per frame). */
+function FontSizeSlider({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  return (
+    <Slider
+      label={label}
+      value={draft}
+      display={`${draft}px`}
+      min={min}
+      max={max}
+      onChange={setDraft}
+      onCommit={(next) => {
+        if (next !== value) onChange(next);
+      }}
+    />
+  );
+}
+
 function Slider({
   label,
   value,
@@ -5344,6 +5374,7 @@ function Slider({
   max,
   step = 1,
   onChange,
+  onCommit,
   disabled = false,
 }: {
   label: string;
@@ -5353,8 +5384,12 @@ function Slider({
   max: number;
   step?: number;
   onChange: (value: number) => void;
+  /** Fires once a drag or key press ends, for settings costly to apply live. */
+  onCommit?: (value: number) => void;
   disabled?: boolean;
 }) {
+  const commit = (event: { currentTarget: HTMLInputElement }) =>
+    onCommit?.(Number(event.currentTarget.value));
   return (
     <div
       className={`flex w-60 max-w-full items-center gap-4 ${disabled ? "opacity-40" : ""}`}
@@ -5377,6 +5412,9 @@ function Slider({
           } as CSSProperties
         }
         onChange={(event) => onChange(Number(event.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
       />
       <span className="w-10 shrink-0 text-right text-ui-base text-foreground tabular-nums">
         {display}
