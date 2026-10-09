@@ -33,7 +33,7 @@ const snapshot = (branch?: string): HostSession => ({
   },
 });
 
-function render(value: HostSession) {
+function render(value: HostSession, fromList = false) {
   const node = document.createElement("div");
   document.body.append(node);
   const anchor = document.createElement("button");
@@ -41,7 +41,8 @@ function render(value: HostSession) {
   act(() => {
     root = createRoot(node);
     root.render(createElement(MobileSessionActions, {
-      snapshot: value,
+      ...(fromList ? { summary: { ...value.session, projectId: value.projectId, revision: value.revision,
+        updatedAt: value.updatedAt, status: value.status } } : { snapshot: value }),
       anchor: { current: anchor },
       disabled: false,
       onUpdate: async () => {},
@@ -53,16 +54,16 @@ function render(value: HostSession) {
   return { row };
 }
 
-it("copies the conversation's branch from the header menu", async () => {
+it("copies the conversation's branch from the long-press menu", async () => {
   const copy = vi.spyOn(mobileTranscriptPlatform, "copyText").mockResolvedValue();
-  const { row } = render(snapshot("feature/mobile"));
+  const { row } = render(snapshot("feature/mobile"), true);
   expect(row("Copy branch")?.textContent).toBe("Copy branchfeature/mobile");
   await act(async () => row("Copy branch")!.click());
   expect(copy).toHaveBeenCalledWith("feature/mobile");
 });
 
-it("omits Copy branch when the conversation has no branch", () => {
-  const { row } = render(snapshot());
+it.each([undefined, "feature/mobile"])("omits Copy branch from the header menu (branch=%s)", (branch) => {
+  const { row } = render({ ...snapshot(branch), autoWorktreeBranch: "monocode/task" });
   expect(row("Copy branch")).toBeUndefined();
   expect(row("Session status")).toBeUndefined();
 });

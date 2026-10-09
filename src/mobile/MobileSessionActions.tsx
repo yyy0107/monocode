@@ -66,8 +66,7 @@ export function MobileSessionActions({
   const pinned = summary?.pinned ?? snapshot?.pinned;
   const archived = summary?.archived ?? snapshot?.archived;
   const running = (summary?.status ?? snapshot?.status) === "running";
-  const branch =
-    summary?.branch ?? snapshot?.session.branch ?? snapshot?.autoWorktreeBranch;
+  const branch = summary?.branch;
   const run = async (action: () => Promise<void>) => {
     if (disabled || inFlight.current) return;
     inFlight.current = true;
@@ -131,10 +130,7 @@ export function MobileSessionActions({
                 {onDelegate && (
                   <button className="mobile-sheet-row" disabled={blocked} onClick={() => void run(onDelegate)}>
                     <Bot size={20} />
-                    <span className="mobile-sheet-row-text">
-                      <span>{t("Hand over to assistant")}</span>
-                      <small>{t("Follow this conversation and allow configured assistant actions")}</small>
-                    </span>
+                    <span>{t("Hand over to assistant")}</span>
                   </button>
                 )}
                 {branch && (

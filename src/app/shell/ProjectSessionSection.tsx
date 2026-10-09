@@ -816,7 +816,6 @@ function ProjectSessionSectionComponent({
       kind: "item" as const,
       id: "delegate-assistant",
       label: uiT("Hand over to assistant"),
-      description: uiT("Follow this conversation and allow configured assistant actions"),
     }] : []),
     ...(onCancelReminders && menuReminderTimes.length > 0
       ? [
@@ -2169,6 +2168,7 @@ const SessionCard = memo(function SessionCard({
               </span>
               <span className="flex shrink-0 items-center gap-1.5">
                 {linkedUpdateDot}
+                <SessionWorktreeIcon session={session} />
                 {status}
               </span>
             </span>
@@ -2203,11 +2203,11 @@ const SessionCard = memo(function SessionCard({
                   className={`min-w-0 line-clamp-1 text-ui-caption leading-snug text-content ${dense ? "font-normal" : "font-semibold"}`}
                 />
               </span>
-              <SessionWorktreeIcon session={session} />
             </span>
             {dense || (compact && !orchestrationExpanded) ? (
               <span className="flex shrink-0 items-center gap-1.5">
                 {linkedUpdateDot}
+                <SessionWorktreeIcon session={session} />
                 {dense ? denseStatus : status}
               </span>
             ) : null}
