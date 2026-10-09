@@ -49,3 +49,41 @@ it("keeps native Git paths for a shared Host on this machine", () => {
   );
   expect(remoteSessionGitCwd(project, undefined, project.cwd)).toBe(project.cwd);
 });
+
+it("diffs the worktree a remote tab picked before its session starts", () => {
+  // A pending worktree pick is stored as a host path while the git cwd still
+  // sits on the `remote://` project root; the sidebar's Changes panel lists
+  // the pick, so the diff must run in it too.
+  const root = remotePath("env", "/home/dev/repo");
+  expect(
+    remoteSessionGitCwd(
+      gitProject,
+      root,
+      root,
+      "/home/dev/repo/.monocode/worktrees/fix",
+    ),
+  ).toBe(remotePath("env", "/home/dev/repo/.monocode/worktrees/fix"));
+});
+
+it("keeps the tab's session checkout ahead of a stray remote git cwd", () => {
+  expect(
+    remoteSessionGitCwd(
+      gitProject,
+      remotePath("env", "/home/dev/other"),
+      remotePath("env", "/home/dev/repo"),
+      "/home/dev/repo",
+    ),
+  ).toBe(remotePath("env", "/home/dev/repo"));
+});
+
+it("passes an already-remote tab checkout through untouched", () => {
+  const wrapped = remotePath("env", "/home/dev/repo/.monocode/worktrees/fix");
+  expect(
+    remoteSessionGitCwd(
+      gitProject,
+      remotePath("env", "/home/dev/repo"),
+      remotePath("env", "/home/dev/repo"),
+      wrapped,
+    ),
+  ).toBe(wrapped);
+});
