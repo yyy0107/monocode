@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Markdown table columns keep a readable minimum width and top-aligned content; narrow panes scroll horizontally instead of squeezing file names into stacked text.
+
 ### Added
 
 - Settings → General → Language switches the interface between English and
