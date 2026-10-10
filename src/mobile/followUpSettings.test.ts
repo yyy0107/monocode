@@ -109,16 +109,13 @@ async function render() {
   await act(async () => root.render(createElement(MobileApp)));
 }
 async function openSettings() {
+  // Settings lives at the foot of the drawer.
   await act(async () =>
-    node.querySelector<HTMLButtonElement>('[aria-label="Home menu"]')!.click(),
+    node.querySelector<HTMLButtonElement>('[aria-label="Menu"]')!.click(),
   );
-  await act(async () => {
-    node
-      .querySelectorAll<HTMLButtonElement>(
-        '[role="dialog"][aria-label="Home menu"] button',
-      )[1]
-      .click();
-  });
+  await act(async () =>
+    node.querySelector<HTMLButtonElement>(".mobile-drawer-settings")!.click(),
+  );
   await act(async () =>
     node.querySelector<HTMLButtonElement>('[aria-label="Message composer"]')!.click(),
   );

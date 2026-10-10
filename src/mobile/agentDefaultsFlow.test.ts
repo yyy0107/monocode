@@ -212,12 +212,10 @@ async function click(label: string, scope: Element = node) {
   expect(button!.disabled, label).toBe(false);
   await act(async () => button!.click());
 }
-async function settings(fromChat = false) {
-  await click(fromChat ? "Menu" : "Home menu");
-  await click(
-    "Settings",
-    fromChat ? current(".mobile-drawer")! : dialog(),
-  );
+async function settings() {
+  // Settings lives at the foot of the drawer on Home and in chats alike.
+  await click("Menu");
+  await click("Settings", current(".mobile-drawer")!);
   await click("New conversations");
 }
 async function leaveSettings() {
@@ -320,8 +318,8 @@ describe("mobile Agent defaults settings and new conversations", () => {
     act(() => root.unmount());
     root = createRoot(node);
     await render();
-    await click("首页菜单");
-    await click("设置", dialog());
+    await click("菜单");
+    await click("设置", current(".mobile-drawer")!);
     await click("新会话");
     expect(current("#mobile-default-permissions")?.textContent).toContain("完全访问");
     expect(current('[aria-label="新会话"]')?.textContent).toContain(
@@ -336,6 +334,8 @@ describe("mobile Agent defaults settings and new conversations", () => {
       await render();
       if (entry === "project") {
         await click("Menu");
+        // Projects sits in the drawer's More section.
+        await click("More", current(".mobile-drawer")!);
         await click("Projects", current(".mobile-drawer")!);
         await click("Project", current(".mobile-home-projects")!);
       }
@@ -373,7 +373,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
     await dismiss();
     await click("Permissions: Full access");
     await click("Auto", dialog());
-    await settings(true);
+    await settings();
     await defaultsPanel();
     await choose("Agent", HARNESS_TITLE.claude);
     await dismiss();
@@ -420,7 +420,7 @@ describe("mobile Agent defaults settings and new conversations", () => {
         )!
         .click(),
     );
-    await settings(true);
+    await settings();
     await defaultsPanel();
     await choose("Agent", HARNESS_TITLE.claude);
     await dismiss();
@@ -517,15 +517,18 @@ describe("mobile Agent defaults settings and new conversations", () => {
         ],
       }),
     );
+    // A Host switch returns to Home; reopen the new Host's defaults.
+    expect(current(".mobile-app")?.getAttribute("data-view")).toBe("home");
+    await settings();
     await click("Codex account");
     expect(dialog().textContent).not.toContain("Wrong Host");
     expect(dialog().querySelector('[aria-checked="true"]')?.textContent).toBe(
       "Default account",
     );
     expect(loadMobileAgentDefaults("http://second")).toEqual({});
-    expect(
-      loadMobileAgentDefaults(host.connection).agents?.codex?.accountId,
-    ).toBe("work");
+    // The previous Host keeps its own saved account; only the active Host loads.
+    const stored = JSON.parse(localStorage.getItem("monocode.mobileAgentDefaults") ?? "{}");
+    expect(stored.hosts?.[COMPUTER]?.agents?.codex?.accountId).toBe("work");
   });
 
   it("shows a partial catalog's usable fallback without replacing the saved default", async () => {

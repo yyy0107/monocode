@@ -208,7 +208,7 @@ describe("mobile activity sheet", () => {
 });
 
 describe("mobile live turn footer", () => {
-  it("shows the project mascot and the current phase under the live reply", () => {
+  it("shows the project mascot and the running tool verb under the live reply", () => {
     const node = render([
       { id: "user", role: "user", text: "Fix it", startedAt: Date.now() - 65_000 },
       edit("a", "a.ts"),
@@ -216,11 +216,14 @@ describe("mobile live turn footer", () => {
     ], "running");
     const footer = node.querySelector("[data-live-footer]")!;
     expect(footer.querySelector("svg.mascot-active")).not.toBeNull();
-    expect(footer.getAttribute("data-live-clock")).toBe("tool");
-    expect(footer.textContent).toBe("5s · Edited a.ts · Running a command…");
+    // A running tool shows only its verb; clocks are reserved for thinking and replies.
+    expect(footer.getAttribute("data-live-phase")).toBe("tool");
+    expect(footer.hasAttribute("data-live-clock")).toBe(false);
+    const verb = footer.textContent;
+    expect(verb).toMatch(/^\S[^·]*…$/);
     act(() => vi.advanceTimersByTime(1000));
-    expect(footer.textContent).toBe("6s · Edited a.ts · Running a command…");
-    expect(node.textContent?.match(/6s/g)).toHaveLength(1);
+    expect(footer.textContent).toBe(verb);
+    expect(node.textContent).not.toMatch(/\b[56]s\b/);
   });
 
   it("has no footer once the turn settles", () => {

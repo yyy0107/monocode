@@ -166,10 +166,16 @@ async function swipeOpenDrawer() {
   await act(async () => vi.advanceTimersByTimeAsync(400));
 }
 // Start a blank chat from Home before exercising the conversation drawer.
+/** The drawer keeps Projects in its collapsed More section. */
+async function openAllProjects() {
+  const more = node.querySelector<HTMLButtonElement>(".mobile-drawer-more-toggle")!;
+  if (more.getAttribute("aria-expanded") !== "true") await act(async () => more.click());
+  await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
+}
 /** Projects live behind the drawer's Projects page. */
 async function goToProject(cwd: string) {
   await act(async () => node.querySelector<HTMLButtonElement>('header [aria-label="Menu"]')!.click());
-  await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
+  await openAllProjects();
   await act(async () => activePage().querySelector<HTMLButtonElement>(`.mobile-home-project[title="${cwd}"]`)!.click());
 }
 async function clickProject() {
@@ -261,7 +267,8 @@ describe("mobile header search", () => {
     expect(node.querySelector('header button[aria-label="Search conversations"]')).toBeNull();
     expect(node.querySelector("header .mobile-header-title")!.tagName).toBe("DIV");
     expect(node.querySelector(".mobile-project-header-name svg")).toBeNull();
-    expect(node.querySelector("header .mobile-header-host")!.textContent).toContain("Connected");
+    // The header names the Host and reports its state through the status dot.
+    expect(node.querySelector("header .mobile-header-host .mobile-host-status")!.getAttribute("aria-label")).toBe("Connected");
     expect(activePage().querySelector(".mobile-home-host")).toBeNull();
     const projectSearch = searchButton();
     expect(projectSearch.closest(".mobile-home-dock")).not.toBeNull();
@@ -571,7 +578,7 @@ describe("mobile unread indicators and notification navigation", () => {
   });
   it("opens All projects from the drawer and returns there after visiting settings", async () => {
     await clickProject();
-    await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
+    await openAllProjects();
     expect(node.querySelector("header strong")?.textContent).toBe("Projects");
     expect(activePage().querySelectorAll(".mobile-home-project strong")).toHaveLength(2);
     expect(node.querySelector(".mobile-drawer-backdrop")?.getAttribute("data-open")).toBe("false");
@@ -602,7 +609,7 @@ describe("mobile unread indicators and notification navigation", () => {
   });
   it("opens a project page from Projects and starts a conversation there", async () => {
     await clickProject();
-    await act(async () => node.querySelector<HTMLButtonElement>(".mobile-drawer-all-projects")!.click());
+    await openAllProjects();
     await act(async () =>
       activePage().querySelector<HTMLButtonElement>('.mobile-home-project[title="/other"]')!.click(),
     );
