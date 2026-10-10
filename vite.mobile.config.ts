@@ -47,7 +47,10 @@ function hostProxy(): Plugin {
             },
             body: JSON.stringify(input.request),
             redirect: "error",
-            signal: AbortSignal.timeout(20_000),
+            // Slow worktree requests ask for more time, within a fixed cap.
+            signal: AbortSignal.timeout(
+              Math.min(Math.max(Number(input.timeoutMs) || 20_000, 20_000), 150_000),
+            ),
           });
           res.statusCode = response.status;
           res.end(await response.text());

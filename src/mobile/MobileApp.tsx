@@ -142,6 +142,23 @@ import {
   type NativeSessionAccess,
 } from "../integrations/harness/core/nativeSessions";
 import { readMobileAttachments } from "./attachments";
+import {
+  CURRENT_WORKSPACE,
+  type MobileWorkspace,
+} from "./MobileWorkspaceControls";
+import {
+  WORKTREE_CREATION_FOLD_MS,
+  anchorWorktreeCreation,
+  appendWorktreeCreationLog,
+  completeWorktreeCreation,
+  failWorktreeCreation,
+  foldWorktreeCreation,
+  persistWorktreeCreation,
+  startWorktreeCreation,
+  type PersistedWorktreeCreation,
+  type WorktreeCreation,
+} from "../features/source-control/model/worktreeCreation";
+import { WORKTREE_NAME_ERROR } from "../features/source-control/model/worktreeNaming";
 import { takeBackQueuedMessage } from "./queuedDraft";
 import {
   loadFollowUpBehavior,
@@ -430,6 +447,9 @@ export function MobileApp() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [readingAttachments, setReadingAttachments] = useState(false);
   const [planMode, setPlanMode] = useState(false);
+  // A new conversation's working copy, and the worktree its first send creates.
+  const [workspace, setWorkspace] = useState<MobileWorkspace>(CURRENT_WORKSPACE);
+  const [worktreeCreation, setWorktreeCreation] = useState<WorktreeCreation>();
   const [followUpBehavior, setFollowUpBehavior] = usePreferenceState(loadFollowUpBehavior);
   const [transcriptLayout, setTranscriptLayout] = usePreferenceState(loadTranscriptLayout);
   const [transcriptAnchor, setTranscriptAnchor] = usePreferenceState(loadTranscriptAnchor);
@@ -1040,6 +1060,8 @@ export function MobileApp() {
       runtimeMode: defaults.runtimeMode ?? DEFAULT_RUNTIME_MODE,
     });
     setSessionId(undefined);
+    setWorkspace(CURRENT_WORKSPACE);
+    setWorktreeCreation(undefined);
     setChatPageKey(`draft:${item.id}:${turn}`);
     setSnapshot(undefined);
     setSessionConfirmed(false);
@@ -1110,6 +1132,8 @@ export function MobileApp() {
       (known.projectId === restoredProjectId && !known.archived)) ? known : undefined;
     loadTiming.current = id ? { turn, id, start, cached: !!cached } : undefined;
     setSessionId(id);
+    setWorkspace(CURRENT_WORKSPACE);
+    setWorktreeCreation(undefined);
     setChatPageKey((current) => id ?? (current.startsWith("draft:") ? current : `draft:${restoredProjectId ?? project?.id ?? ""}`));
     setSnapshot(cached);
     setSessionConfirmed(false);
@@ -1475,18 +1499,60 @@ export function MobileApp() {
           followUpBehavior,
         });
       } else {
+        let worktreeCwd = workspace.mode === "current" ? workspace.cwd : undefined;
+        let created: PersistedWorktreeCreation | undefined;
+        if (workspace.mode === "worktree") {
+          // Created before the conversation, as on desktop; its log sits under
+          // the first message until the Host's copy of that message keeps it.
+          const base = workspace.base ?? "HEAD";
+          const creationId = crypto.randomUUID();
+          setWorktreeCreation(anchorWorktreeCreation(startWorktreeCreation(base, creationId), creationId, commandId));
+          try {
+            const branch = await client.worktreeName(
+              project.id,
+              project.cwd,
+              configuration.harness,
+              parsed.text || attachments.map((file) => file.name).join(", "),
+            );
+            if (generation !== navigation.current || hostId !== client.connection?.endpoint) return;
+            const tree = await client.worktreeCreate(project.id, project.cwd, branch, base);
+            const finished = completeWorktreeCreation(
+              (tree.log ?? []).reduce(
+                (next, line) => appendWorktreeCreationLog(next, creationId, line),
+                startWorktreeCreation(base, creationId),
+              ),
+              creationId,
+              tree.path,
+            );
+            if (generation !== navigation.current || hostId !== client.connection?.endpoint) return;
+            created = persistWorktreeCreation(finished);
+            worktreeCwd = tree.path;
+            // Retrying a failed start reuses this worktree instead of making another.
+            setWorkspace({ mode: "current", cwd: tree.path });
+            setWorktreeCreation(anchorWorktreeCreation(finished, creationId, commandId));
+            window.setTimeout(() => setWorktreeCreation((current) =>
+              current?.id === creationId ? foldWorktreeCreation(current, creationId) : current,
+            ), WORKTREE_CREATION_FOLD_MS);
+          } catch (problem) {
+            setWorktreeCreation((current) =>
+              current?.id === creationId ? failWorktreeCreation(current, creationId, message(problem)) : current,
+            );
+            throw message(problem) === WORKTREE_NAME_ERROR ? new Error(t(WORKTREE_NAME_ERROR)) : problem;
+          }
+        }
         recorded = !!await dispatch(
           {
             type: "create",
             commandId,
             projectId: project.id,
+            ...(worktreeCwd && worktreeCwd !== project.cwd ? { worktreeCwd } : {}),
             harness: configuration.harness,
             model: configuration.model,
             modelSettings: configuration.modelSettings,
             ...(providerAccountId ? { providerAccountId } : {}),
             runtimeMode: configuration.runtimeMode,
           },
-          prompt,
+          created ? { ...prompt, worktreeCreation: created } : prompt,
         );
       }
     } catch (problem) {
@@ -2388,6 +2454,7 @@ export function MobileApp() {
               questionOpen={questionOpen}
               onQuestionOpenChange={onQuestionOpenChange}
               planDecision={planDecision}
+              worktreeCreation={worktreeCreation}
             />
           ) : loading ? (
             <div className="mobile-loading">
@@ -2522,6 +2589,13 @@ export function MobileApp() {
             }
             planMode={planMode}
             onPlanModeChange={setPlanMode}
+            workspace={client.hasCapability("git.worktreeCreate") ? {
+              value: workspace,
+              onChange: setWorkspace,
+              loadBranches: () => client.branches(project.id),
+              loadWorktrees: () => client.worktrees(project.id),
+              creating: worktreeCreation?.status === "creating",
+            } : undefined}
           />}
         </main>
       )}
