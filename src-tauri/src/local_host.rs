@@ -168,7 +168,10 @@ fn locked_executable(root: &Path) -> Option<PathBuf> {
     std::fs::read_dir(root)
         .ok()?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe")))
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+        })
         .find(|path| {
             // ERROR_SHARING_VIOLATION; other failures are left to the installer.
             std::fs::OpenOptions::new()

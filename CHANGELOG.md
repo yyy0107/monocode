@@ -7,18 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-10-10
+
+<!-- release-notes:en -->
+
 ### Added
 
-- Conversations run by the shared Host show the changed-files card again on
-  desktop, with Review, Keep and Undo. The Host captures each structured edit,
-  so the same changes appear on the phone under Session progress → Session
-  changes, where Undo needs a confirming second tap. Undo is unavailable when a
-  file changed outside the conversation or another conversation is running in
-  the same checkout. Requires an updated Host.
-- Settings → General → Language switches the interface between English and
-  Simplified Chinese immediately, remembers the preference, and synchronizes
-  open windows. Settings and keybinding searches match Chinese labels, while
-  user content and stable command IDs retain their original values.
+- Shared Host conversations show changed files on desktop with Review, Keep and Undo. On mobile, Session progress → Session changes shows the same edits and confirms Undo with a second tap. Undo is disabled if a file changed outside the conversation or another conversation is running in the same checkout. Requires an updated Host.
+- New mobile conversations can use the current checkout, an existing worktree, or a new worktree with a selected base branch. The Host names and creates new worktrees on the first send, and creation progress stays with the first message.
+
+### Changed
+
+- Every mobile bottom sheet can be pulled up to full screen, then returned to its resting height or dismissed.
+- The assistant combines pending followed-conversation events into one turn with current reply, error and pending-question summaries. Handoffs read recent history first, and queued turns start as soon as the preceding turn finishes.
+- Mobile connection rows remove duplicate reconnect and switch actions, and mobile status toasts are removed.
+- Chat background opacity can reach 100%.
+
+### Fixed
+
+- Windows updates stop the shared Host and wait for its executables to be released before installation. Manually found updates open in the app, and periodic checks, window return and retries refresh the update indicator without restarting.
+- Listing Host skills accepts a pending agent switch instead of leaving it waiting.
+- Restored Cursor conversations only show verified subagent runs, avoiding phantom agent rows while preserving nested runs.
+- Changed-file counts and hidden orchestration-task counts translate as complete sentences.
+
+<!-- /release-notes -->
+
+<!-- release-notes:zh-CN -->
+
+### 新增
+
+- 共享 Host 会话在桌面端显示文件改动，支持审查、保留和撤销；手机端在「会话进度 → 会话改动」查看相同内容，撤销需再次点击确认。文件被会话外修改，或同一工作副本中有其他会话运行时，禁用撤销。此功能需要更新 Host。
+- 手机端新会话可选择当前工作副本、已有工作树，或指定基础分支创建新工作树；首次发送时由 Host 命名并创建工作树，创建进度保留在首条消息中。
+
+### 改进
+
+- 所有手机底部面板均可上拉至全屏，再下拉回到初始高度或关闭。
+- 助手将待处理的跟进会话事件合并到同一轮，附上最新回复、错误和待回答问题摘要；交接时优先读取最近记录，上一轮结束后立即启动排队任务。
+- 手机连接列表移除重复的重连和切换操作，并移除手机状态浮动提示。
+- 聊天背景不透明度上限提高至 100%。
+
+### 修复
+
+- Windows 更新在安装前停止共享 Host，并等待相关可执行文件解除占用；手动发现更新后在应用内展示，定期检查、返回窗口和失败重试会刷新更新标记，无需重启应用。
+- 获取 Host 技能列表时正确接收待处理的智能体切换。
+- 恢复 Cursor 会话时仅显示经过验证的子智能体运行记录，避免出现虚假条目，并保留嵌套运行关系。
+- 文件改动数量和编排中隐藏任务数量按完整句子翻译。
+
+<!-- /release-notes -->
 
 ## [0.11.1] - 2026-10-10
 
