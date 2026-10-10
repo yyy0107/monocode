@@ -179,8 +179,9 @@ export function SessionReview({
           </span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[12px] font-medium text-content/80">
-              {uiT("Changed ")}
-              {files.length} {files.length === 1 ? uiT("file") : uiT("files")}
+              {uiT(files.length === 1 ? "Changed {count} file" : "Changed {count} files", {
+                count: String(files.length),
+              })}
             </div>
             <div className="flex items-center gap-1.5 font-sans text-[11px] font-semibold tabular-nums -mt-0.5">
               <span className="text-emerald-400">
@@ -261,9 +262,8 @@ export function SessionReview({
             <span>
               {expanded
                 ? uiT("Show fewer files")
-                : uiT("Show {value0} more {value1}", {
-                    value0: String(hiddenFileCount),
-                    value1: String(hiddenFileCount === 1 ? "file" : "files"),
+                : uiT(hiddenFileCount === 1 ? "Show {count} more file" : "Show {count} more files", {
+                    count: String(hiddenFileCount),
                   })}
             </span>
           </button>
