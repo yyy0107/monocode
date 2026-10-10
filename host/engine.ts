@@ -49,6 +49,8 @@ import {
 } from "../src/features/connections/model/protocol";
 import type { HostProvider } from "./providers";
 import { HostStore } from "./store";
+import { SessionCheckpoints } from "./session-checkpoints";
+import { isEditTool } from "../src/integrations/harness/core/preview";
 import { HostClientState } from "./client-state";
 import { HostSkills } from "./skills";
 import { HostNotes } from "./notes";
@@ -369,6 +371,10 @@ export class HostEngine {
   /** Host owner of native histories: sources, sync, watching and turn settlement. */
   readonly nativeSessions: NativeSessionManager;
   readonly notes: HostNotes;
+  /** Keep/Undo checkpoints for edits made by ordinary Host conversations. */
+  readonly checkpoints: SessionCheckpoints;
+  /** Paths of structured edits that started in each running turn, by tool call. */
+  private checkpointCalls = new Map<string, Map<string, string[]>>();
   private readonly clientState: HostClientState;
   private nativeLeases = new Map<string, NativeLease>();
   private editors = new Map<
@@ -384,6 +390,7 @@ export class HostEngine {
   ) {
     this.clientState = new HostClientState(store);
     this.notes = new HostNotes(dirname(store.attachmentDir), () => this.desktopDirectory());
+    this.checkpoints = new SessionCheckpoints(join(dirname(store.attachmentDir), "checkpoints"));
     this.nativeSessions = new NativeSessionManager({
       store,
       guard: this.native,
@@ -678,6 +685,71 @@ export class HostEngine {
       this.store.db.prepare("DELETE FROM orchestration_runs WHERE lead_id=?").run(id);
       this.store.db.prepare("DELETE FROM orchestration_commands WHERE session_id=?").run(id);
     });
+    await this.checkpoints.forget(id).catch(() => undefined);
+  }
+
+  /** Ordinary conversations own their checkout edits; managed workers, workflow
+   * children and the assistant are reviewed through their own surfaces. */
+  private checkpointed(session: Session): boolean {
+    return !!session.cwd && session.cwd !== "~" && !session.inboxAsk &&
+      !session.orchestrationLeadId && !session.workflowParentId && !session.assistantOwnerId &&
+      !this.orchestration.scheduler.forSession(session.id);
+  }
+
+  private trackCheckpoint(session: Session, event: HarnessEvent): void {
+    if (event.type !== "tool.started" && event.type !== "tool.updated") return;
+    // Completion updates may omit the kind and paths their start reported.
+    const calls = this.checkpointCalls.get(session.id);
+    const known = calls?.get(event.callId);
+    if (!known && !isEditTool(event.kind, event.title, event.preview)) return;
+    if (!this.checkpointed(session)) return;
+    const own = [...new Set([...(event.paths ?? []), ...(event.preview?.path ? [event.preview.path] : [])])];
+    const paths = own.length ? own : known ?? [];
+    if (!paths.length) return;
+    const completed = event.type === "tool.updated" && (event.status === "completed" || event.status === "success");
+    if (completed) {
+      calls?.delete(event.callId);
+      void this.checkpoints.capture(session.id, session.cwd, paths).catch(() => undefined);
+      return;
+    }
+    if (known && paths.every((path) => known.includes(path))) return;
+    if (calls) calls.set(event.callId, [...new Set([...(known ?? []), ...paths])]);
+    else this.checkpointCalls.set(session.id, new Map([[event.callId, paths]]));
+    void this.checkpoints.prepare(session.id, session.cwd, paths).catch(() => undefined);
+  }
+
+  /** Review, keep or undo the edits a conversation made in its checkout. */
+  async sessionCheckpoint(sessionId: string, action: unknown, path: unknown): Promise<unknown> {
+    const value = this.session(sessionId);
+    if (!value) throw new Error("Session not found");
+    const { session } = value;
+    if (path !== undefined && typeof path !== "string") throw new Error("Invalid workspace path");
+    if (!this.checkpointed(session)) {
+      if (action === "status") return { files: [] };
+      throw new Error("Session changes are no longer available");
+    }
+    if (action === "status") {
+      const status = await this.checkpoints.status(sessionId, session.cwd);
+      const checkout = checkoutPath(session.cwd);
+      const locked = status.files.length > 0 && this.currentValues().some((other) =>
+        other.session.id !== sessionId && other.status === "running" &&
+        checkoutPathsOverlap(checkoutPath(other.session.cwd), checkout));
+      return locked ? { ...status, undoLocked: true } : status;
+    }
+    if (action === "diff") {
+      if (typeof path !== "string") throw new Error("Invalid workspace path");
+      return this.checkpoints.fileDiff(sessionId, session.cwd, path);
+    }
+    if (action !== "undo" && action !== "keep") throw new Error("Unsupported checkpoint action");
+    // Keep and Undo wait until the agent has finished writing to the checkout.
+    if (value.status === "running" || this.running.has(sessionId))
+      throw new Error("Keep and undo are unavailable while the session is running");
+    if (action === "keep") return this.checkpoints.keep(sessionId, session.cwd, path);
+    const checkout = checkoutPath(session.cwd);
+    if (this.currentValues().some((other) => other.session.id !== sessionId && other.status === "running" &&
+      checkoutPathsOverlap(checkoutPath(other.session.cwd), checkout)))
+      throw new Error("Undo is unavailable while another session is running in this project");
+    return this.checkpoints.undo(sessionId, session.cwd, path);
   }
 
   /** Native bootstrap only: device RPC never exposes retirement. */
@@ -742,7 +814,10 @@ export class HostEngine {
     const project = this.store.project(text(projectId, "project ID"));
     if (!isRemoteProvider(harness)) throw new Error("Unsupported provider");
     const value = sessionId === undefined ? undefined : this.store.session(text(sessionId, "session ID"));
-    if (value && (value.projectId !== project.id || value.session.harness !== harness))
+    // A pending Agent switch applies on the next send; the composer already
+    // lists the selected Agent's commands, so accept either harness.
+    if (value && (value.projectId !== project.id || (value.session.harness !== harness
+      && value.session.pendingConfiguration?.harness !== harness)))
       throw new Error("The skill catalog belongs to another project or Agent");
     return this.skills.list({ harness, cwd: value?.session.worktreeCwd || value?.session.cwd || project.cwd,
       ...(value ? { sessionId: value.session.id } : {}) }, this.provider(harness), refresh);
@@ -1924,6 +1999,7 @@ export class HostEngine {
             }
             if (prompt === null) await provider.compact!(input);
             else {
+              if (this.checkpointed(session)) await this.checkpoints.ensure(session.id, session.cwd).catch(() => undefined);
               const prepared = await this.skills.prepare(turnPrompt!, { harness: session.harness as RemoteProvider, cwd: session.worktreeCwd || session.cwd, sessionId: session.id }, provider);
               if (!this.closing && !active.cancelled) await provider.send({
                 ...input,
@@ -1993,6 +2069,7 @@ export class HostEngine {
         this.native.forget(session.id);
         this.flush(session.id);
         this.live.delete(session.id);
+        this.checkpointCalls.delete(session.id);
         const latest = this.store.session(session.id);
         if (latest.runId === runId) {
           const message = this.closing
@@ -2117,6 +2194,7 @@ export class HostEngine {
       }
     }
     this.orchestration.observe(id, event);
+    this.trackCheckpoint(live.value.session, event);
     const previousSession = live.value.session;
     const session = applyHarnessEvent(live.value.session, event);
     if (session === live.value.session) return;

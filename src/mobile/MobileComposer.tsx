@@ -8,6 +8,7 @@ import {
   ChevronsUpDown,
   FilePlus,
   Folder,
+  FolderTree,
   ImagePlus,
   LoaderCircle,
   Plus,
@@ -45,6 +46,12 @@ import {
   type MobileConfiguration,
 } from "./MobileModelControls";
 import { MobileSheet, SHEET_WIDTH } from "./MobileSheet";
+import {
+  MobileWorkspaceControls,
+  workspaceLabel,
+  type MobileWorkspace,
+} from "./MobileWorkspaceControls";
+import type { MobileBranches, MobileWorktrees } from "./client";
 import { preserveInputFocus, usePreserveInputFocusOnTouch } from "./inputFocus";
 import { useMobileTextareaAutosize } from "./useMobileTextareaAutosize";
 import { lightImpact } from "./haptics";
@@ -56,6 +63,7 @@ export type MobileComposerPanel =
   | "model"
   | "projects"
   | "plan"
+  | "workspace"
   | null;
 const planStyle = MODE_COMMAND_STYLES[PLAN_COMMAND.name];
 type Props = {
@@ -95,6 +103,15 @@ type Props = {
   compact?: boolean;
   /** The compact line was focused; give the composer back its full height. */
   onExpand?: () => void;
+  /** A new conversation's working copy; omitted when the Host cannot create worktrees. */
+  workspace?: {
+    value: MobileWorkspace;
+    onChange: (workspace: MobileWorkspace) => void;
+    loadBranches: () => Promise<MobileBranches>;
+    loadWorktrees: () => Promise<MobileWorktrees>;
+    /** The first send is creating the worktree. */
+    creating?: boolean;
+  };
 };
 
 /**
@@ -197,6 +214,9 @@ export function MobileComposer(props: Props) {
     props.lockedAgent ? props.configuration.model : undefined,
   );
   const close = useCallback(() => props.onPanelChange(null), [props.onPanelChange]);
+  const workspace = !props.lockedAgent ? props.workspace : undefined;
+  const workspaceText = workspace && workspaceLabel(workspace.value, workspace.creating);
+  const workspaceName = workspaceText && ("key" in workspaceText ? t(workspaceText.key) : workspaceText.text);
   const hasQueue = !!props.queue;
   // The dock floats over the transcript; publish its height so content can
   // scroll past it without hiding the last message.
@@ -458,6 +478,33 @@ export function MobileComposer(props: Props) {
                 <ChevronsUpDown size={16} aria-hidden="true" />
               )}
             </button>
+            {workspace && (
+              <button
+                type="button"
+                className="mobile-composer-workspace"
+                data-worktree={workspace.value.mode === "worktree" || !!workspace.value.cwd || undefined}
+                title={workspace.value.cwd ?? workspaceName}
+                disabled={props.disabled || props.running || workspace.creating}
+                aria-label={t("Workspace: {value0}", { value0: workspaceName ?? "" })}
+                aria-haspopup="dialog"
+                aria-expanded={props.panel === "workspace"}
+                aria-busy={workspace.creating || undefined}
+                onClick={(event) => {
+                  panelAnchor.current = event.currentTarget;
+                  props.onPanelChange("workspace");
+                }}
+              >
+                {workspace.value.mode === "worktree" || workspace.value.cwd
+                  ? <FolderTree size={18} aria-hidden="true" />
+                  : <Folder size={18} aria-hidden="true" />}
+                <span>{workspaceName}</span>
+                {workspace.creating ? (
+                  <LoaderCircle size={16} className="mobile-spin" aria-hidden="true" />
+                ) : (
+                  <ChevronsUpDown size={16} aria-hidden="true" />
+                )}
+              </button>
+            )}
             {props.progressSlot && <div ref={props.progressSlot} className="mobile-composer-progress" />}
           </div>
           <div className="mobile-composer-input">
@@ -626,6 +673,20 @@ export function MobileComposer(props: Props) {
         onChange={props.onConfigurationChange}
         onClose={close}
       />
+      {workspace && props.project && (
+        <MobileWorkspaceControls
+          key={props.project.id}
+          open={props.panel === "workspace"}
+          anchor={panelAnchor}
+          preserveFocus={area}
+          workspace={workspace.value}
+          disabled={props.disabled || props.running || !!workspace.creating}
+          loadBranches={workspace.loadBranches}
+          loadWorktrees={workspace.loadWorktrees}
+          onChange={workspace.onChange}
+          onClose={close}
+        />
+      )}
       <MobileSheet
         open={props.panel === "plan"}
         title="Plan mode"

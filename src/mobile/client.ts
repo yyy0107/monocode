@@ -22,6 +22,7 @@ import {
   type HostProviderUsage,
   type HostProviderUsageRequest,
   type HostSkillCatalog,
+  type HostWorktree,
   type HostCommand,
   type CommandReceipt,
   type SessionSync,
@@ -73,13 +74,28 @@ export type MobileSessionPatch = {
 };
 export type MobileFirstMessage = Pick<
   Extract<HostCommand, { type: "send" }>,
-  "text" | "attachments" | "intent"
+  "text" | "attachments" | "intent" | "worktreeCreation"
 >;
 export type RpcTransport = (
   endpoint: string,
   token: string,
   request: object,
+  options?: { timeoutMs?: number },
 ) => Promise<unknown>;
+export type MobileBranches = {
+  current: string | null;
+  branches: string[];
+  remotes: { remote: string; name: string }[];
+};
+export type MobileWorktrees = {
+  worktrees: HostWorktree[];
+  defaultRoot: string;
+};
+const RPC_TIMEOUT_MS = 20_000;
+// Naming can try the configured title model, then ask the agent itself.
+const WORKTREE_NAME_TIMEOUT_MS = 150_000;
+// Checking out a large working copy can outlast an ordinary request.
+const WORKTREE_CREATE_TIMEOUT_MS = 120_000;
 
 export function normalizeHostUrl(input: string): string {
   const url = new URL(input.trim());
@@ -117,6 +133,7 @@ export const nativeTransport: RpcTransport = async (
   endpoint,
   token,
   request,
+  { timeoutMs = RPC_TIMEOUT_MS } = {},
 ) => {
   let status: number;
   let data: unknown;
@@ -129,7 +146,7 @@ export const nativeTransport: RpcTransport = async (
       },
       data: request,
       connectTimeout: 10_000,
-      readTimeout: 20_000,
+      readTimeout: timeoutMs,
       disableRedirects: true,
       responseType: "json",
     });
@@ -142,8 +159,8 @@ export const nativeTransport: RpcTransport = async (
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ endpoint, request }),
-      signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify({ endpoint, request, timeoutMs }),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     status = response.status;
     data = await response.json();
@@ -517,6 +534,7 @@ export class MobileClient {
     connection: Pick<Connection, "endpoint" | "token"> & Partial<Connection>,
     method: string,
     params: object,
+    options?: { timeoutMs?: number },
   ): Promise<T> {
     try {
       if (method === "environment.describe") {
@@ -532,6 +550,7 @@ export class MobileClient {
           method,
           params,
         },
+        ...(options ? [options] : []),
       );
       if (
         this.connection === connection &&
@@ -553,10 +572,32 @@ export class MobileClient {
       throw error;
     }
   }
-  rpc<T>(method: string, params: object = {}): Promise<T> {
+  rpc<T>(method: string, params: object = {}, options?: { timeoutMs?: number }): Promise<T> {
     if (!this.connection || this.connection.disabled)
       return Promise.reject(new Error("Connect to a Host first."));
-    return this.requestWith<T>(this.connection, method, params);
+    return this.requestWith<T>(this.connection, method, params, options);
+  }
+  branches(projectId: string, cwd?: string) {
+    return this.rpc<MobileBranches>("git.branches", { projectId, ...(cwd ? { cwd } : {}) });
+  }
+  worktrees(projectId: string) {
+    return this.rpc<MobileWorktrees>("git.worktrees", { projectId });
+  }
+  worktreeName(projectId: string, cwd: string, harness: string, message: string) {
+    return this.rpc<string>(
+      "git.worktreeName",
+      { projectId, cwd, harness, message },
+      { timeoutMs: WORKTREE_NAME_TIMEOUT_MS },
+    );
+  }
+  worktreeCreate(projectId: string, cwd: string, branch: string, base: string) {
+    return this.rpc<HostWorktree>("git.worktreeCreate", {
+      projectId,
+      cwd,
+      branch,
+      base,
+      existing: false,
+    }, { timeoutMs: WORKTREE_CREATE_TIMEOUT_MS });
   }
   listNotes() { return this.rpc<Note[]>("notes.list"); }
   getNote(id: string) { return this.rpc<Note | null>("notes.get", { id }); }

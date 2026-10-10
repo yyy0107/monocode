@@ -1897,6 +1897,53 @@ html.theme-light .mobile-composer-card {
   font-size: 10px;
   opacity: 0.5;
 }
+/* A new conversation's working copy, beside the model. The model keeps its
+   share; the workspace label truncates first on narrow screens. */
+.mobile-composer-workspace {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 12px;
+  color: color-mix(in srgb, var(--color-content) 70%, transparent);
+  background: transparent;
+}
+.mobile-composer-workspace[data-worktree] {
+  color: var(--color-content);
+}
+.mobile-composer-workspace > svg {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--color-content) 65%, transparent);
+}
+.mobile-composer-workspace > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mobile-font-md);
+  font-weight: 500;
+}
+.mobile-composer-workspace:disabled {
+  opacity: 0.6;
+}
+.mobile-workspace-branches > input[type="search"] {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.mobile-workspace-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+}
+.mobile-model-options > .mobile-muted {
+  padding: 8px 10px;
+}
 .mobile-composer-input {
   --mobile-glass-surface-fill: var(--mobile-glass-panel-fill);
   position: relative;
@@ -4979,7 +5026,7 @@ button.mobile-settings-row:active {
 
 /* Invisible hit areas preserve compact control sizes. Do not change the
    positioned attachment remove button or the floating header's anchors. */
-:is(.mobile-composer-model, .mobile-composer-project, .mobile-composer-plan,
+:is(.mobile-composer-model, .mobile-composer-workspace, .mobile-composer-project, .mobile-composer-plan,
   .mobile-status-copy, .mobile-detail-copy, .mobile-progress-capsule),
 .mobile-header-actions > .mobile-icon-button,
 .mobile-error .mobile-icon-button,
@@ -4989,7 +5036,7 @@ button.mobile-settings-row:active {
 .mobile-settings-row .mobile-select-trigger {
   position: relative;
 }
-:is(.mobile-composer-model, .mobile-composer-project, .mobile-composer-plan,
+:is(.mobile-composer-model, .mobile-composer-workspace, .mobile-composer-project, .mobile-composer-plan,
   .mobile-status-copy, .mobile-detail-copy, .mobile-progress-capsule)::after,
 .mobile-header-actions > .mobile-icon-button::after,
 .mobile-error .mobile-icon-button::after,
@@ -5010,6 +5057,7 @@ button.mobile-settings-row:active {
 /* The front input card covers the toolbar's lower edge. Extend these compact
    targets upward so the full 44px remains reachable above that card. */
 .mobile-composer-model::after,
+.mobile-composer-workspace::after,
 .mobile-session-progress[data-docked="true"] .mobile-progress-capsule::after {
   top: calc(50% - 4px);
 }

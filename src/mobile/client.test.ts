@@ -805,6 +805,49 @@ describe("mobile command journal", () => {
       text: "First message",
     });
   });
+  it("keeps a created worktree on the journaled first message", async () => {
+    const store = memory();
+    const commands: Record<string, any>[] = [];
+    const client = new MobileClient(
+      store,
+      transport((_method, params) => {
+        commands.push(params);
+        return { ...receipt, commandId: params.commandId };
+      }),
+    );
+    await client.connect(endpoint, token);
+    const worktreeCreation = { base: "main", path: "/project-worktrees/wt-mc-task", log: [] };
+    await client.dispatch(
+      {
+        type: "create",
+        commandId: "create-worktree",
+        projectId: "project",
+        worktreeCwd: worktreeCreation.path,
+        harness: "codex",
+        model: "codex:test",
+        runtimeMode: "supervised",
+      },
+      { text: "First message", worktreeCreation },
+    );
+    expect(commands[0]).toMatchObject({ type: "create", worktreeCwd: worktreeCreation.path });
+    expect(commands[1]).toMatchObject({ type: "send", sessionId: "session", worktreeCreation });
+  });
+  it("gives worktree naming and creation longer than an ordinary request", async () => {
+    const calls: { method: string; timeoutMs?: number }[] = [];
+    const client = new MobileClient(memory(), async (_endpoint, _token, request, options) => {
+      const { method } = request as { method: string };
+      calls.push({ method, timeoutMs: options?.timeoutMs });
+      if (method === "environment.describe") return descriptor;
+      return method === "git.worktreeName" ? "mc/task" : { path: "/tree", branch: "mc/task", head: "abc", isMain: false, missing: false };
+    });
+    await client.connect(endpoint, token);
+    await client.worktreeName("project", "/project", "codex", "Fix it");
+    await client.worktreeCreate("project", "/project", "mc/task", "main");
+    expect(calls.slice(-2)).toEqual([
+      { method: "git.worktreeName", timeoutMs: 150_000 },
+      { method: "git.worktreeCreate", timeoutMs: 120_000 },
+    ]);
+  });
   it("serializes commands and refuses a different Host while a request is uncertain", async () => {
     let resolve!: (value: unknown) => void;
     const client = new MobileClient(

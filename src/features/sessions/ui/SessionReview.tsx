@@ -41,6 +41,7 @@ export function SessionReview({
 }: Props) {
   const { t: uiT } = useTranslation();
   const [files, setFiles] = useState<CheckpointFile[]>([]);
+  const [hostLocked, setHostLocked] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [acting, setActing] = useState<"keep" | "undo" | null>(null);
   const [revision, refresh] = useReducer((value: number) => value + 1, 0);
@@ -66,7 +67,9 @@ export function SessionReview({
       loading = true;
       void sessionCheckpointStatus(sessionId, cwd)
         .then((status) => {
-          if (!stale) setFiles(status.files);
+          if (stale) return;
+          setFiles(status.files);
+          setHostLocked(!!status.undoLocked);
         })
         .catch(() => {
           // A transient read failure must not remove a usable review entry.
@@ -123,7 +126,8 @@ export function SessionReview({
   // Captured diffs are readable during a turn; accepting or undoing them must
   // wait until the agent has finished writing to the checkout.
   const disabled = busy || acting != null;
-  const canUndoAll = !undoLocked && files.every((file) => file.undoable);
+  const locked = undoLocked || hostLocked;
+  const canUndoAll = !locked && files.every((file) => file.undoable);
   const hiddenFileCount = files.length - 3;
   const totals = files.reduce(
     (sum, file) => ({
@@ -144,6 +148,7 @@ export function SessionReview({
     void op
       .then((status) => {
         setFiles(status.files);
+        setHostLocked(!!status.undoLocked);
         notifyGitChanged();
         invalidateWatchedFiles(previous);
         invalidateProjectFiles(cwd);
@@ -174,8 +179,9 @@ export function SessionReview({
           </span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[12px] font-medium text-content/80">
-              {uiT("Changed ")}
-              {files.length} {files.length === 1 ? uiT("file") : uiT("files")}
+              {uiT(files.length === 1 ? "Changed {count} file" : "Changed {count} files", {
+                count: String(files.length),
+              })}
             </div>
             <div className="flex items-center gap-1.5 font-sans text-[11px] font-semibold tabular-nums -mt-0.5">
               <span className="text-emerald-400">
@@ -196,7 +202,7 @@ export function SessionReview({
                     )
                   : canUndoAll
                     ? uiT("Undo all session changes")
-                    : undoLocked
+                    : locked
                       ? uiT(
                           "Undo is unavailable while another session is running in this project",
                         )
@@ -256,9 +262,8 @@ export function SessionReview({
             <span>
               {expanded
                 ? uiT("Show fewer files")
-                : uiT("Show {value0} more {value1}", {
-                    value0: String(hiddenFileCount),
-                    value1: String(hiddenFileCount === 1 ? "file" : "files"),
+                : uiT(hiddenFileCount === 1 ? "Show {count} more file" : "Show {count} more files", {
+                    count: String(hiddenFileCount),
                   })}
             </span>
           </button>

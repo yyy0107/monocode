@@ -230,6 +230,17 @@ describe("Host cross-harness handoff", () => {
     expect(providers.claude!.send).not.toHaveBeenCalled();
   });
 
+  it("lists skills for the pending Agent before the switch applies", async () => {
+    const { engine, store, id, configure, seedHistory } = await setup();
+    seedHistory();
+    configure("claude");
+    const { projectId } = store.session(id);
+    await expect(engine.listSkills(projectId, "claude", id)).resolves.toMatchObject({ native: false });
+    await expect(engine.listSkills(projectId, "codex", id)).resolves.toBeDefined();
+    await expect(engine.listSkills(projectId, "pi", id))
+      .rejects.toThrow("The skill catalog belongs to another project or Agent");
+  });
+
   it("changes an empty session without fabricating a handoff", async () => {
     const { store, turns, id, configure, send } = await setup();
     configure("pi");

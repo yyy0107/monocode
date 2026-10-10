@@ -196,6 +196,17 @@ and plan intent across reconnects; a lost chunk receipt retries the same bytes
 and offset. Enter inserts a newline; Ctrl/Command+Enter sends. Running turns
 show Stop and lock configuration controls.
 
+## Session changes
+
+When the Host advertises `sessions.checkpoint`, **Session progress** lists the
+files the current conversation edited under **Session changes**, separately
+from the working copy's uncommitted changes. Expand a file to read the
+conversation's own before/after diff. **Keep** dismisses the entry; **Undo**
+restores the files after a confirming second tap. Both wait until the turn
+ends, and Undo is unavailable when a file changed outside the conversation or
+another conversation is running in the same checkout. Desktop shows the same
+Host-captured changes in its changed-files card.
+
 ## Build
 
 From the repository root, use Node.js 24 or newer, matching the shared Host toolchain:

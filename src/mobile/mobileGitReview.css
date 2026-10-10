@@ -42,9 +42,48 @@ html.theme-light .mobile-git-counts [data-kind="del"] {
   min-height: 44px;
   font-size: var(--mobile-font-md);
 }
+.mobile-git-toolbar {
+  flex-wrap: wrap;
+}
 .mobile-git-toolbar > :first-child {
   min-width: 0;
   flex: 1;
+}
+.mobile-git-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+.mobile-git-action {
+  min-width: 64px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  color: var(--color-content);
+  font-size: var(--mobile-font-md);
+}
+.mobile-git-action:active {
+  --mobile-press-color: var(--color-selection);
+}
+.mobile-git-action:disabled {
+  opacity: 0.4;
+}
+.mobile-git-action[data-confirming] {
+  border-color: #fb7185;
+  color: #fb7185;
+}
+html.theme-light .mobile-git-action[data-confirming] {
+  border-color: #be123c;
+  color: #be123c;
+}
+.mobile-git-action-error {
+  flex-basis: 100%;
+  margin: 0 0 8px;
+  color: #fb7185;
+  font-size: var(--mobile-font-sm);
+  overflow-wrap: anywhere;
 }
 .mobile-git-file-row:active {
   --mobile-press-color: var(--color-selection);
