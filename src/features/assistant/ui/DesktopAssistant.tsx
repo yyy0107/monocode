@@ -18,6 +18,7 @@ import type { AssistantTarget } from "../model/assistantNavigation";
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { SearchableSelect } from "../../../shared/ui/SearchableSelect";
 import { useDesktopAssistantHosts } from "../model/useDesktopAssistantHosts";
+import { GradientBlurBackground } from "../../settings/ui/GradientBlurBackground";
 export function DesktopAssistant({
   selectedMachineId,
   onSelectMachine,
@@ -95,10 +96,16 @@ export function DesktopAssistant({
       </div>
     ) : undefined;
   return (
+    // Shares the chat pane's background layer: an assistant conversation always
+    // has messages, so it shows at session visibility (none when the
+    // background is limited to empty chats).
     <section
-      className="assistant-workspace bg-background-base text-content"
+      className="assistant-workspace chat-pane-background relative isolate text-content"
+      data-project-chat-background="false"
+      data-session-empty="false"
       aria-label={t("Assistant")}
     >
+      <GradientBlurBackground />
       {machine ? (
         <AssistantChat
           key={machine.environmentId}

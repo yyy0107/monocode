@@ -1779,3 +1779,52 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* Desktop transparency: like a chat pane, the page has no fill of its own —
+   the main pane's glass and the chat background show through — and its
+   floating surfaces follow Panel opacity. */
+.assistant-workspace .assistant-chat {
+  background: transparent;
+}
+.assistant-workspace .assistant-compose {
+  background: color-mix(
+    in srgb,
+    var(--color-card) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
+}
+.assistant-workspace :is(.assistant-file-card, .assistant-settings-page) {
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
+}
+/* The floating header card and avatar: blurred rather than solid, so scrolled
+   messages still never read through them. */
+.assistant-workspace .assistant-identity {
+  background: color-mix(
+    in srgb,
+    var(--color-card) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
+}
+.assistant-workspace .assistant-avatar {
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--color-accent) 14%, var(--color-background-base))
+      calc(var(--panel-opacity) * 100%),
+    transparent
+  );
+}
+html.translucent-panels
+  .assistant-workspace
+  :is(
+    .assistant-compose,
+    .assistant-file-card,
+    .assistant-settings-page,
+    .assistant-identity,
+    .assistant-avatar
+  ) {
+  backdrop-filter: blur(16px);
+}
