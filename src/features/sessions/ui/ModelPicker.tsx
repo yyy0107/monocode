@@ -1664,7 +1664,9 @@ function ModelBrowser({
               ) : null}
               {group.models.map(({ item, index }, position) => {
                 const selected = item.id === currentId;
-                const highlighted = showActive && index === active;
+                // The check mark already marks the current model.
+                const highlighted =
+                  showActive && index === active && !selected;
                 const favorited = favorites.includes(item.id);
                 const disabled = !source.available(item.harness);
                 // Favorites mix harnesses, so every row names its source.
