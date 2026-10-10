@@ -2511,7 +2511,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
               )
             : windowOpaque
               ? uiT(
-                  "On Linux the window stays opaque until Main pane glass is on or Window transparency is above 0%. Popover transparency still applies to menus, pickers, and dialogs.",
+                  "On Linux the window stays opaque until Main pane glass is on or Desktop transparency is above 0%. Popover transparency still applies to menus, pickers, and dialogs.",
                 )
               : uiT(
                 "How much of the desktop shows through MonoCode. Blur costs more to composite the higher it goes.",
@@ -2520,13 +2520,13 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
       >
         <Row
           id="window-opacity"
-          label={uiT("Window transparency")}
+          label={uiT("Desktop transparency")}
           description={uiT(
-            "Fades the title bar, sidebar and main pane together.",
+            "How much of the desktop shows through the whole window. A full-window background keeps its strength.",
           )}
         >
           <TransparencySlider
-            label={uiT("Window transparency")}
+            label={uiT("Desktop transparency")}
             opacity={windowPercent}
             minOpacity={Math.round(WINDOW_OPACITY_MIN * 100)}
             maxOpacity={Math.round(WINDOW_OPACITY_MAX * 100)}
@@ -3174,11 +3174,15 @@ function ChatBackgroundCard({
           </AnimatedCollapse>
           <Row
             label={
-              fullWindow ? uiT("Visibility") : uiT("Empty chat visibility")
+              fullWindow
+                ? uiT("Background image strength")
+                : uiT("Empty chat visibility")
             }
             description={
               fullWindow
-                ? uiT("Background strength across the window.")
+                ? uiT(
+                    "How strongly the image shows through the interface. Desktop transparency does not change it.",
+                  )
                 : uiT("Background strength before a chat has messages.")
             }
           >

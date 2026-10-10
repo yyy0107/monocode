@@ -862,10 +862,16 @@ html.has-chat-background.chat-background-effect-ready.chat-background-gradient-b
 }
 
 /*
- * Full-window background: one layer behind the whole shell replaces the
- * per-pane copies (project backgrounds stay in their panes). Surfaces keep
- * (1 - visibility) of their colour so the artwork reads as strongly as it does
- * in a chat pane; under glass, Window opacity lets the desktop through too.
+ * Full-window background: one backdrop behind the whole shell replaces the
+ * per-pane copies (project backgrounds stay in their panes). Two independent
+ * controls:
+ *   - image strength mixes the artwork over the theme colour inside the
+ *     backdrop (--chat-background-empty-opacity);
+ *   - Desktop transparency fades the backdrop as a whole under glass
+ *     (--window-opacity), keeping that mix intact.
+ * Interface surfaces add no fill of their own on top, apart from the
+ * sidebar's tint, so neither control changes what the other shows.
+ * `:root` outranks the glass rules that tint these surfaces elsewhere.
  */
 .window-chat-background {
   display: none;
@@ -873,18 +879,27 @@ html.has-chat-background.chat-background-effect-ready.chat-background-gradient-b
   inset: 0;
   z-index: -1;
   pointer-events: none;
+  background: var(--color-background-base);
+  opacity: 0;
+  transition: opacity var(--motion-feedback-duration) var(--motion-ease-out);
+}
+
+.window-chat-background::before {
+  content: "";
+  position: absolute;
+  inset: 0;
   background-image: var(--chat-background-image, none);
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
-  opacity: 0;
-  transition: opacity var(--motion-feedback-duration) var(--motion-ease-out);
+  opacity: var(--chat-background-empty-opacity);
 }
 
 .window-chat-background > .gradient-blur-background {
   display: none;
   position: absolute;
   inset: 0;
+  opacity: var(--chat-background-empty-opacity);
 }
 
 html.chat-background-window.has-chat-background .window-chat-background {
@@ -892,7 +907,7 @@ html.chat-background-window.has-chat-background .window-chat-background {
 }
 
 html.chat-background-window.chat-background-gradient-blur
-  .window-chat-background {
+  .window-chat-background::before {
   background-image: none;
 }
 
@@ -920,57 +935,29 @@ html.chat-background-window
   display: none;
 }
 
-/* The main pane already carries the tint; split-view cards and their gutter
-   sit on it, so a fill of their own would stack and hide the artwork. */
-html.chat-background-window.has-chat-background.chat-background-effect-ready
-  :is(.pane-card, .pane-card-gutter) {
+:root.chat-background-window.has-chat-background.chat-background-effect-ready
+  :is(.app-shell-root, .shell-chrome, .body-glass, .pane-card, .pane-card-gutter) {
   background: transparent;
 }
 
-html.chat-background-window.has-chat-background.chat-background-effect-ready
-  :is(.shell-chrome, .body-glass, .sidebar-glass) {
+/* The sidebar keeps a tint of its own over the backdrop to stay distinct;
+   under glass it fades with the rest of the window. */
+:root.chat-background-window.has-chat-background.chat-background-effect-ready
+  .sidebar-glass {
   background: color-mix(
     in srgb,
-    var(--color-window)
-      calc((1 - var(--chat-background-empty-opacity)) * 100%),
+    var(--color-background-base) calc(var(--sidebar-opacity) * 100%),
     transparent
   );
 }
 
-html.has-native-glass:not(.theme-light).chat-background-window.has-chat-background.chat-background-effect-ready
-  :is(.shell-chrome, .body-glass) {
-  background: color-mix(
-    in srgb,
-    var(--color-window)
-      calc(
-        (1 - var(--chat-background-empty-opacity)) * var(--window-opacity) *
-          100%
-      ),
-    transparent
-  );
-}
-
-html.has-native-glass.glass-body:not(.theme-light).chat-background-window.has-chat-background.chat-background-effect-ready
-  .body-glass {
+:root.has-native-glass:not(.theme-light).chat-background-window.has-chat-background.chat-background-effect-ready
+  .sidebar-glass {
   background: color-mix(
     in srgb,
     var(--color-background-base)
-      calc(
-        (1 - var(--chat-background-empty-opacity)) * var(--sidebar-opacity) *
-          var(--window-opacity) * 100%
-      ),
+      calc(var(--sidebar-opacity) * var(--window-opacity) * 100%),
     transparent
-  );
-}
-
-html.has-native-glass:not(.theme-light).chat-background-window.has-chat-background.chat-background-effect-ready
-  .sidebar-glass {
-  background: hsl(
-    var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
-      calc(
-        (1 - var(--chat-background-empty-opacity)) * var(--sidebar-opacity) *
-          var(--window-opacity)
-      )
   );
 }
 

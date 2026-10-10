@@ -371,8 +371,8 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   {
     id: "window-opacity",
     section: "appearance",
-    label: "Window transparency",
-    keywords: "glass translucent opacity whole overall",
+    label: "Desktop transparency",
+    keywords: "glass translucent opacity whole overall window",
   },
   {
     id: "sidebar-opacity",

@@ -11439,7 +11439,7 @@ function Workspace({
         <AppViewRendererContext.Provider value={renderAppView}>
           <SessionHeaderActionsContext.Provider value={sessionHeaderActions}>
             <div
-              className={`relative isolate flex h-full flex-col text-content ${
+              className={`app-shell-root relative isolate flex h-full flex-col text-content ${
                 HAS_NATIVE_GLASS
                   ? "bg-background-base/40"
                   : "bg-background-base"
