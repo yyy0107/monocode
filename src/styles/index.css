@@ -113,16 +113,25 @@
   --color-mention: #38bdf8;
   /* Settings → Appearance → Code font prepends `--user-code-font`. */
   --font-mono:
-    var(--user-code-font,) Consolas, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+    var(--user-code-font,) Consolas, ui-monospace, SFMono-Regular,
+    Menlo, Monaco, "Ubuntu Sans Mono", "DejaVu Sans Mono", "Liberation Mono", "Courier New",
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans Mono CJK SC",
     "Noto Sans CJK SC", monospace;
   /* Settings → Appearance → Interface font prepends `--user-ui-font`. */
   --font-sans: var(--user-ui-font,) var(--font-system-sans);
   --font-system-sans:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
-    Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
-  /* Settings → Appearance → Content font; empty follows the interface. */
-  --font-content: var(--user-content-font,) var(--font-sans);
+    -apple-system, BlinkMacSystemFont, Inter, "Segoe UI Variable Text", "Segoe UI",
+    "Ubuntu Sans", "Noto Sans", Roboto, "Helvetica Neue", "PingFang SC",
+    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC",
+    "HarmonyOS Sans SC", ui-sans-serif, system-ui, sans-serif;
+  /* Content text prefers Chinese faces so mixed Chinese/Latin reads as one. */
+  --font-content-default:
+    "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "HarmonyOS Sans SC", var(--font-system-sans);
+  /* Settings → Appearance → Content font; empty follows the interface font,
+     then the Chinese-first content stack. */
+  --font-content: var(--user-content-font,) var(--user-ui-font,)
+    var(--font-content-default);
 }
 
 /* ZCode component tokens used by the ported dynamic-workflow UI, derived from
@@ -297,7 +306,7 @@ html:not(.is-mac) #root {
 }
 
 body {
-  font-weight: var(--ui-font-weight, 400);
+  font-weight: var(--ui-font-weight, 500);
 }
 
 /* Settings → Appearance: conversation and document text follow the content
@@ -309,7 +318,7 @@ body {
   --font-scale: var(--content-font-scale, 1);
   /* `font-sans` text inside (prose, user messages) uses the content font. */
   --font-sans: var(--user-content-font,) var(--user-ui-font,)
-    var(--font-system-sans);
+    var(--font-content-default);
   font-family: var(--font-content);
   font-weight: var(--content-font-weight, 500);
 }
@@ -320,7 +329,7 @@ body {
 .unified-diff,
 .inbox-pr-diff {
   --font-scale: var(--code-font-scale, 1);
-  font-weight: var(--code-font-weight, 400);
+  font-weight: var(--code-font-weight, 500);
 }
 
 html ::-webkit-scrollbar {

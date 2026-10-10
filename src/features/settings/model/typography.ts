@@ -121,11 +121,11 @@ export const DEFAULT_PROFILE: AppearanceProfile = {
   saturation: THEME_SATURATION_DEFAULT,
   contrast: CONTRAST_DEFAULT,
   uiFont: "",
-  uiWeight: 400,
+  uiWeight: 500,
   contentFont: "",
   contentWeight: 500,
   codeFont: "",
-  codeWeight: 400,
+  codeWeight: 500,
 };
 
 const FONT_SIZE_KEYS: Record<FontSizeKind, string> = {
@@ -229,14 +229,14 @@ export function normalizeProfile(value: unknown): AppearanceProfile {
       CONTRAST_MAX,
     ),
     uiFont: normalizeFontFamily(raw.uiFont),
-    uiWeight: normalizeWeight(raw.uiWeight),
+    uiWeight: normalizeWeight(raw.uiWeight, DEFAULT_PROFILE.uiWeight),
     contentFont: normalizeFontFamily(raw.contentFont),
     contentWeight: normalizeWeight(
       raw.contentWeight,
       DEFAULT_PROFILE.contentWeight,
     ),
     codeFont: normalizeFontFamily(raw.codeFont),
-    codeWeight: normalizeWeight(raw.codeWeight),
+    codeWeight: normalizeWeight(raw.codeWeight, DEFAULT_PROFILE.codeWeight),
   };
 }
 

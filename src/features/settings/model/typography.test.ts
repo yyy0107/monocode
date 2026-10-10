@@ -102,7 +102,7 @@ describe("appearance profiles", () => {
       uiWeight: 450 as never,
     });
     expect(next.codeFont).toBe("Evil  body  color: red");
-    expect(next.uiWeight).toBe(400);
+    expect(next.uiWeight).toBe(500);
   });
 
   it("starts both modes from the shared look and follows the active mode", () => {
