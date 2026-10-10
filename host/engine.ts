@@ -742,7 +742,10 @@ export class HostEngine {
     const project = this.store.project(text(projectId, "project ID"));
     if (!isRemoteProvider(harness)) throw new Error("Unsupported provider");
     const value = sessionId === undefined ? undefined : this.store.session(text(sessionId, "session ID"));
-    if (value && (value.projectId !== project.id || value.session.harness !== harness))
+    // A pending Agent switch applies on the next send; the composer already
+    // lists the selected Agent's commands, so accept either harness.
+    if (value && (value.projectId !== project.id || (value.session.harness !== harness
+      && value.session.pendingConfiguration?.harness !== harness)))
       throw new Error("The skill catalog belongs to another project or Agent");
     return this.skills.list({ harness, cwd: value?.session.worktreeCwd || value?.session.cwd || project.cwd,
       ...(value ? { sessionId: value.session.id } : {}) }, this.provider(harness), refresh);
