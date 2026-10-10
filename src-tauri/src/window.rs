@@ -19,6 +19,9 @@ static WINDOW_COUNTER: AtomicU32 = AtomicU32::new(1);
 pub const QUICK_COMPOSER_LABEL: &str = "quick-composer";
 pub const QUICK_COMPOSER_GIT_LABEL: &str = "quick-composer-git";
 static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
+/// Set by the tray's quit: that one also stops the shared Host. Every other
+/// quit leaves the Host serving paired phones.
+static STOP_HOST_ON_EXIT: AtomicBool = AtomicBool::new(false);
 
 const QUIT_POLL: &str = "quit_poll";
 const QUIT_CONFIRM: &str = "quit_confirm";
@@ -373,6 +376,13 @@ pub fn request_quit(app: &AppHandle) {
     watch_stage(app, id, Stage::Polling, POLL_TIMEOUT);
 }
 
+/// The tray's quit: the same confirm-and-persist run, then the Host stops too.
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+pub fn request_quit_with_host(app: &AppHandle) {
+    STOP_HOST_ON_EXIT.store(true, Ordering::SeqCst);
+    request_quit(app);
+}
+
 /// One window's live turn count, counted before anything is killed.
 #[tauri::command]
 pub fn quit_poll_reply(app: AppHandle, window: WebviewWindow, id: u32, in_flight: u32) {
@@ -580,6 +590,8 @@ fn clear_run(id: u32) {
     let mut guard = QUIT_RUN.lock().unwrap();
     if guard.as_ref().is_some_and(|run| run.id == id) {
         *guard = None;
+        // A cancelled tray quit must not make a later Ctrl+Q stop the Host.
+        STOP_HOST_ON_EXIT.store(false, Ordering::SeqCst);
     }
 }
 
@@ -598,6 +610,9 @@ pub fn confirm_quit(app: AppHandle) {
     }
     if let Some(host) = app.try_state::<crate::pty::PtyHost>() {
         host.kill_all();
+    }
+    if STOP_HOST_ON_EXIT.swap(false, Ordering::SeqCst) {
+        crate::local_host::stop_shared_host(&app);
     }
     app.exit(0);
 }

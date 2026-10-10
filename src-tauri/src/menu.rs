@@ -207,10 +207,10 @@ pub fn dispatch(app: &AppHandle, id: &str) {
     }
 }
 
-/// Emit `id` to the focused window, falling back to a visible one, then any.
-fn emit_to_focused(app: &AppHandle, id: &str) {
+/// The focused workspace window, falling back to a visible one, then any.
+pub(crate) fn focused_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     let windows = crate::window::workspace_windows(app);
-    let target = windows
+    windows
         .iter()
         .find(|window| window.is_focused().unwrap_or(false))
         .or_else(|| {
@@ -218,8 +218,13 @@ fn emit_to_focused(app: &AppHandle, id: &str) {
                 .iter()
                 .find(|window| window.is_visible().unwrap_or(false))
         })
-        .or(windows.first());
-    match target {
+        .or(windows.first())
+        .cloned()
+}
+
+/// Emit `id` to the focused window, falling back to a visible one, then any.
+pub(crate) fn emit_to_focused(app: &AppHandle, id: &str) {
+    match focused_window(app) {
         Some(window) => {
             let _ = app.emit_to(window.label(), id, ());
         }

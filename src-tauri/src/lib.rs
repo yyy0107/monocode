@@ -46,7 +46,7 @@ mod session_store;
 mod skills;
 pub mod ssh_askpass;
 mod ssh_config;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 mod tray;
 mod window;
 mod window_transfer;
@@ -244,7 +244,7 @@ pub fn run() {
             reminders::init(app.handle());
             checkpoint::init(app.handle())?;
             menu::install(app.handle())?;
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             tray::install(app.handle())?;
             #[cfg(target_os = "macos")]
             {
@@ -560,6 +560,8 @@ pub fn run() {
             quick_composer::git_popup::quick_git_complete,
             #[cfg(target_os = "macos")]
             quick_composer::git_popup::quick_composer_dismiss,
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            tray::tray_update,
             window_transfer::stage_window_transfer,
             window_transfer::take_window_transfer,
             chat_background::save_chat_background,
@@ -602,6 +604,8 @@ pub fn run() {
                 .any(|window| window.label() != label);
             control::window_closed(handle, &label);
             fs_watch::window_closed(handle, &label);
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            tray::window_closed(handle, &label);
             if !other_window {
                 reap_harness_children(handle);
             }

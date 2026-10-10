@@ -1,6 +1,7 @@
 import { preferenceStorage } from "./sharedPreferences";
 import {
   ALT,
+  IS_LINUX,
   IS_MAC,
   IS_WIN,
   MOD,
@@ -273,7 +274,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     label: "Tab animations",
     keywords: "motion open close resize transition",
   },
-  ...(IS_WIN
+  ...(IS_WIN || IS_LINUX
     ? [
         {
           id: "close-to-tray",
@@ -917,8 +918,8 @@ const CLOSE_TO_TRAY_KEY = "monocode.closeToTray";
 export const CLOSE_TO_TRAY_DEFAULT = true;
 
 export function loadCloseToTray(): boolean {
-  // Close to tray is Windows-only: nowhere else installs a tray icon.
-  if (!IS_WIN) return false;
+  // macOS keeps the Dock instead; only Windows and Linux install a tray icon.
+  if (!IS_WIN && !IS_LINUX) return false;
   return readFlag(CLOSE_TO_TRAY_KEY) ?? CLOSE_TO_TRAY_DEFAULT;
 }
 

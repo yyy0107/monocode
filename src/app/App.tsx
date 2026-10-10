@@ -180,7 +180,16 @@ import {
   loadProjectSidebarTab,
   saveProjectSidebarTab,
 } from "../features/settings/model/projectSidebarTab";
-import { HAS_NATIVE_GLASS, IS_MAC } from "../platform/tauri/platform";
+import {
+  HAS_NATIVE_GLASS,
+  IS_LINUX,
+  IS_MAC,
+  IS_WIN,
+} from "../platform/tauri/platform";
+import {
+  TRAY_OPEN_SESSION_EVENT,
+  useTraySessions,
+} from "./model/traySessions";
 import {
   applyUiScale,
   loadUiScale,
@@ -1004,7 +1013,7 @@ function Workspace({
   history: bootHistory = [],
   historyCwd: bootHistoryCwd = null,
 }: AppProps) {
-  useTranslation();
+  const { t: translateUi } = useTranslation();
   const [projectCwd, setProjectCwd] = useState(
     () =>
       windowTransfer?.projectCwd ??
@@ -2047,6 +2056,26 @@ function Workspace({
     activeAppView,
     flushForegroundHarnessEvents,
   ]);
+
+  // The tray lists the shared Host's conversations; the one this window
+  // shows counts as read.
+  const trayLabels = useMemo(
+    () => ({
+      open: translateUi("Open MonoCode"),
+      unread: translateUi("Unread"),
+      pinned: translateUi("Pinned"),
+      recent: translateUi("Recent"),
+      more: translateUi("More"),
+      newSession: translateUi("New conversation"),
+      quit: translateUi("Quit MonoCode and Host"),
+    }),
+    [translateUi],
+  );
+  useTraySessions(
+    IS_WIN || IS_LINUX,
+    trayLabels,
+    activeSessionId ? remoteSessionFor(activeSessionId) : undefined,
+  );
 
   useEffect(() => {
     let unlistenClose: (() => void) | undefined;
@@ -10802,11 +10831,13 @@ function Workspace({
     onArchiveFocusedSession,
     openSettings,
     onOpenApprovalSession,
+    onSelectRemoteSession,
   });
   actions.current = {
     onArchiveFocusedSession,
     openSettings,
     onOpenApprovalSession,
+    onSelectRemoteSession,
   };
 
   useEffect(() => {
@@ -10971,6 +11002,18 @@ function Workspace({
       listen("sidebar_opacity", () => {
         actions.current.openSettings("appearance");
       }),
+      // Rust sends this to one window, already shown.
+      listen<{ id: string; project: string }>(
+        TRAY_OPEN_SESSION_EVENT,
+        ({ payload }) => {
+          const win = getCurrentWindow();
+          void win
+            .unminimize()
+            .then(() => win.setFocus())
+            .catch(() => {});
+          actions.current.onSelectRemoteSession(payload.project, payload.id);
+        },
+      ),
       // Every window hears the click; only the one holding the session acts.
       listen<string>(NOTIFICATION_CLICK_EVENT, ({ payload: sessionId }) => {
         if (!sessionsRef.current.some((s) => s.id === sessionId)) return;

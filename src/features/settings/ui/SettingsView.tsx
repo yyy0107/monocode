@@ -1035,7 +1035,7 @@ function GeneralPage({
             onChange={onLiveAgentsEnabled}
           />
         </Row>
-        {IS_WIN && (
+        {(IS_WIN || IS_LINUX) && (
           <Row
             id="close-to-tray"
             label={uiT("Close to tray")}

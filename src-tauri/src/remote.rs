@@ -404,6 +404,7 @@ fn supported_remote_method(method: &str) -> bool {
             | "titleModel.generate"
             | "titleModel.generateBranch"
             | "sessions.list"
+            | "sessions.activity"
             | "sessions.get"
             | "sessions.update"
             | "sessions.switchAccount"

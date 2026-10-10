@@ -3,11 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as settings from "./settings";
 import * as appearance from "./appearance";
 
-const platform = vi.hoisted(() => ({ isWindows: true }));
+const platform = vi.hoisted(() => ({ isWindows: true, isLinux: false }));
 vi.mock("../../../platform/tauri/platform", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../platform/tauri/platform")>()),
   get IS_WIN() {
     return platform.isWindows;
+  },
+  get IS_LINUX() {
+    return platform.isLinux;
   },
 }));
 
@@ -30,6 +33,7 @@ function memoryStorage(): Storage {
 beforeEach(() => {
   vi.stubGlobal("localStorage", memoryStorage());
   platform.isWindows = true;
+  platform.isLinux = false;
 });
 
 afterEach(() => {
@@ -187,7 +191,7 @@ describe.each([
   });
 });
 
-it("disables close-to-tray outside Windows without consulting storage", () => {
+it("disables close-to-tray outside Windows and Linux without consulting storage", () => {
   platform.isWindows = false;
   settings.saveCloseToTray(true);
   const read = vi.spyOn(localStorage, "getItem");

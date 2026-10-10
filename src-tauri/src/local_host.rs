@@ -109,6 +109,29 @@ pub fn shared_host_prepare(
     })
 }
 
+/// Stop the shared Host on the way out. Best effort: a Host that is already
+/// gone, or one that cannot be reached, must not keep the desktop open.
+pub fn stop_shared_host(app: &AppHandle) {
+    let (node, entry) = match runtime(app) {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            eprintln!("monocode: stop shared host: {err}");
+            return;
+        }
+    };
+    let mut command = Command::new(node);
+    command.arg(entry).arg("stop");
+    crate::hide_window_console(&mut command);
+    match command.output() {
+        Ok(output) if !output.status.success() => eprintln!(
+            "monocode: stop shared host: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+        Err(err) => eprintln!("monocode: stop shared host: {err}"),
+        Ok(_) => {}
+    }
+}
+
 fn write_retirement_manifest(desktop: &Path, path: &Path, raw: &[u8]) -> Result<(), String> {
     if std::fs::read(path).is_ok_and(|previous| previous == raw) {
         return Ok(());
