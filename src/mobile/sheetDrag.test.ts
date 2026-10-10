@@ -3,16 +3,7 @@ import { act, createElement, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileSheet } from "./MobileSheet";
-import { settleDetent, shouldDismiss, useSheetDrag } from "./sheetDrag";
-
-describe("shouldDismiss", () => {
-  it("closes on a long pull or a fast fling and springs back otherwise", () => {
-    expect(shouldDismiss(200, 0.1, 500)).toBe(true);
-    expect(shouldDismiss(40, 0.9, 500)).toBe(true);
-    expect(shouldDismiss(80, 0.2, 500)).toBe(false);
-    expect(shouldDismiss(-30, 2, 500)).toBe(false);
-  });
-});
+import { settleDetent, useSheetDrag } from "./sheetDrag";
 
 describe("settleDetent", () => {
   it("steps down once on a downward fling and otherwise settles at the nearest stop", () => {
@@ -320,13 +311,53 @@ describe("MobileSheet drag", () => {
         .map(([, value]) => value)).toEqual(["0px"]);
     });
 
-    it("stops watching a non-expandable sheet when an upward swipe becomes native scrolling", () => {
-      const { pointer, frames, observers } = open(false);
+    it("pulls a content-height sheet up to full screen without moving it at the switch", () => {
+      const { sheet, pointer, frame, readHeight } = open(false);
+      // The full-height layout is 300px taller than the 500px rest height.
+      readHeight.mockImplementation(() => sheet.dataset.expanded ? 800 : 500);
+      pointer("pointerdown", 600);
+      vi.advanceTimersByTime(100);
+      pointer("pointermove", 590);
+      frame();
+      expect(sheet.dataset.expanded).toBe("true");
+      expect(sheet.style.transform).toBe("translateY(290px)");
+      for (const y of [500, 400, 300]) {
+        vi.advanceTimersByTime(100);
+        pointer("pointermove", y);
+        frame();
+      }
+      pointer("pointerup", 300);
+      expect(sheet.style.transform).toBe("translateY(0px)");
+      vi.advanceTimersByTime(500);
+      expect(sheet.dataset.expanded).toBe("true");
+      pointer("pointerdown", 100);
+      for (const y of [150, 250, 350]) {
+        vi.advanceTimersByTime(100);
+        pointer("pointermove", y);
+        frame();
+      }
+      pointer("pointerup", 350);
+      expect(sheet.style.transform).toBe("translateY(300px)");
+      vi.advanceTimersByTime(500);
+      expect(sheet.dataset.expanded).toBeUndefined();
+      expect(sheet.style.transform).toBe("");
+    });
+
+    it("stops watching a full sheet when an upward swipe becomes native scrolling", () => {
+      const { pointer, frame, frames, observers } = open(false);
+      pointer("pointerdown", 600);
+      for (const y of [500, 400]) {
+        vi.advanceTimersByTime(100);
+        pointer("pointermove", y);
+        frame();
+      }
+      pointer("pointerup", 400);
+      vi.advanceTimersByTime(500);
       pointer("pointerdown", 100);
       expect(pointer("pointermove", 75).defaultPrevented).toBe(false);
       expect(pointer("pointermove", 150).defaultPrevented).toBe(false);
       expect(frames.size).toBe(0);
-      expect(observers[0].disconnect).toHaveBeenCalledOnce();
+      expect(observers.at(-1)!.disconnect).toHaveBeenCalledOnce();
     });
 
     it.each(["disable", "unmount"])("cancels pending moves and geometry observers on %s", (action) => {

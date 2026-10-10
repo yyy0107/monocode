@@ -36,20 +36,12 @@ export function settleDetent(
   return top < halfTop / 2 ? "full" : "half";
 }
 
-/** Whether a release at `distance` px moving at `velocity` px/ms should close. */
-export function shouldDismiss(
-  distance: number,
-  velocity: number,
-  height: number,
-): boolean {
-  if (distance <= 0) return false;
-  return distance > height * DISMISS_SHARE || velocity > DISMISS_VELOCITY;
-}
-
 /**
- * Lets a bottom sheet follow the finger downward and either close or spring
- * back. Touch drags start on the grip or header; the content always keeps
- * its native scrolling gesture, including at the half stop and list edges.
+ * Lets a bottom sheet follow the finger, pull up to full screen, step back
+ * down, or close. Two-stop sheets rest at half height; other sheets rest at
+ * their content height and switch to the full-height layout only once pulled
+ * above it. Touch drags start on the grip or header; the content always keeps
+ * its native scrolling gesture, including at the rest stop and list edges.
  */
 export function useSheetDrag(
   sheet: RefObject<HTMLElement | null>,
@@ -71,6 +63,7 @@ export function useSheetDrag(
     element.style.transition = "";
     element.style.animation = "";
     element.style.removeProperty("--mobile-sheet-content-offset");
+    delete element.dataset.expanded;
     if (backdrop) {
       backdrop.style.opacity = "";
       backdrop.style.transition = "";
@@ -87,6 +80,8 @@ export function useSheetDrag(
     let dragPlaced = false;
     let contentExpanded = false;
     let closing = false;
+    /** A content-height sheet laid out at full height while pulled up. */
+    let fitExpanded = false;
     let closeTimer: number | undefined;
     let moveFrame: number | undefined;
     let resizeObserver: ResizeObserver | undefined;
@@ -104,15 +99,41 @@ export function useSheetDrag(
       if (!geometryDirty) return;
       height = element.offsetHeight;
       viewportHeight = window.innerHeight;
-      halfHeight = Math.round(viewportHeight * SHEET_HALF_SHARE);
-      halfTop = Math.max(0, height - halfHeight);
+      if (detents) {
+        halfHeight = Math.round(viewportHeight * SHEET_HALF_SHARE);
+        halfTop = Math.max(0, height - halfHeight);
+      } else if (!fitExpanded) {
+        // The rest stop is the sheet's own content height.
+        halfHeight = height;
+        halfTop = 0;
+      }
       geometryDirty = false;
     };
-    const base = () => (detents && detent === "half" ? halfTop : 0);
+    const base = () => (detent === "half" ? halfTop : 0);
+    // Lay a content-height sheet out at full height once, then offset it by
+    // the growth so it stays where it is drawn; the drag continues from there.
+    const expandFit = () => {
+      if (detents || fitExpanded) return 0;
+      const restHeight = height;
+      fitExpanded = true;
+      element.dataset.expanded = "true";
+      height = element.offsetHeight;
+      halfHeight = restHeight;
+      halfTop = Math.max(0, height - restHeight);
+      element.style.transform = `translateY(${halfTop}px)`;
+      return halfTop;
+    };
+    const collapseFit = () => {
+      if (!fitExpanded) return;
+      fitExpanded = false;
+      delete element.dataset.expanded;
+      halfTop = 0;
+      geometryDirty = true;
+    };
 
     const place = (top: number) => {
       element.style.transform =
-        detents || top > 0 ? `translateY(${top}px)` : "";
+        detents || fitExpanded || top > 0 ? `translateY(${top}px)` : "";
       // Prepare the larger scroll viewport once before revealing it. Resizing
       // it under the finger (or on every spring frame) relays out long lists,
       // diffs and virtual editors. Keep it full-sized until landing at half.
@@ -121,7 +142,7 @@ export function useSheetDrag(
         element.style.setProperty("--mobile-sheet-content-offset", "0px");
       }
       // The backdrop only fades once the sheet sinks below its lowest stop.
-      const below = top - (detents ? halfTop : 0);
+      const below = top - halfTop;
       if (backdrop)
         backdrop.style.opacity = below > 0
           ? String(Math.max(0.35, 1 - below / (height * 1.4)))
@@ -142,7 +163,11 @@ export function useSheetDrag(
         element.style.transition = "none";
         if (backdrop) backdrop.style.transition = "none";
       }
-      const top = origin + lastY - startY;
+      let top = origin + lastY - startY;
+      if (top < 0 && !detents && !fitExpanded && detent === "half") {
+        origin += expandFit();
+        top = origin + lastY - startY;
+      }
       place(top > 0 ? top : top / 6);
     };
     const scheduleMove = () => {
@@ -220,7 +245,7 @@ export function useSheetDrag(
     const move = (y: number, event: Event) => {
       if (!tracking) return;
       const offset = y - startY;
-      const expandable = detents && detent === "half";
+      const expandable = detent === "half";
       if (!dragging) {
         if (offset < -SLOP_PX && !expandable) {
           tracking = false;
@@ -250,18 +275,19 @@ export function useSheetDrag(
       // the spring target. This is one style flush per release, never per move.
       getComputedStyle(element).transform;
       const reducedMotion = reducedMotionQuery().matches;
-      const released = origin + lastY - startY;
-      const settled = detents
-        ? settleDetent(released, velocity, halfTop, halfHeight, detent)
-        : undefined;
-      const dismiss = settled
-        ? settled === "dismiss"
-        : shouldDismiss(released, velocity, height);
+      let released = origin + lastY - startY;
+      const settled = settleDetent(released, velocity, halfTop, halfHeight, detent);
+      // An upward fling from a content-height sheet still below its rest stop.
+      if (settled === "full" && !detents && !fitExpanded) {
+        const shift = expandFit();
+        origin += shift;
+        released += shift;
+        getComputedStyle(element).transform;
+      }
+      const dismiss = settled === "dismiss";
       // Settling continues the finger's speed on the shared spring; a dismiss
       // keeps the short exit that the sheet's close lifetime expects.
-      const target = dismiss
-        ? height + 24
-        : settled === "full" || !detents ? 0 : halfTop;
+      const target = dismiss ? height + 24 : settled === "full" ? 0 : halfTop;
       const settle = dismiss
         ? undefined
         : springTransition(
@@ -291,23 +317,22 @@ export function useSheetDrag(
         if (reducedMotion) close.current();
         else
           closeTimer = window.setTimeout(() => close.current(), SHEET_CLOSE_MS);
-      } else if (settled && settled !== "dismiss") {
+      } else {
         detent = settled;
-        element.dataset.detent = detent;
+        if (detents) element.dataset.detent = detent;
         place(base());
         if (detent === "half") {
           // Hand the rest position back to the stylesheet once it lands.
           const settledAt = detent;
           closeTimer = window.setTimeout(() => {
-            if (detent === settledAt && !dragging) {
+            if (detent === settledAt && !tracking) {
               element.style.transform = "";
               contentExpanded = false;
               element.style.removeProperty("--mobile-sheet-content-offset");
+              collapseFit();
             }
           }, reducedMotion ? 0 : duration);
         }
-      } else {
-        place(0);
       }
     };
 

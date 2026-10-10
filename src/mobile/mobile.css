@@ -4742,6 +4742,12 @@ button.mobile-settings-row:active {
 .mobile-sheet[data-detents][data-detent="full"] {
   --mobile-sheet-content-offset: 0px;
 }
+/* Content-height sheets switch to the full-height layout while pulled above
+   their rest stop; sheetDrag.ts offsets the switch so nothing jumps. */
+.mobile-sheet[data-expanded] {
+  height: calc(100% - var(--mobile-safe-top) - 12px);
+  max-height: none;
+}
 /* The panel is translated below the viewport at half height. Keep its scroll
    area inside the visible portion so even the last list item stays reachable.
    sheetDrag prepares full-height content once on expansion and restores this
