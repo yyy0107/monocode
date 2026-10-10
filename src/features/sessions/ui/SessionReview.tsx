@@ -41,6 +41,7 @@ export function SessionReview({
 }: Props) {
   const { t: uiT } = useTranslation();
   const [files, setFiles] = useState<CheckpointFile[]>([]);
+  const [hostLocked, setHostLocked] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [acting, setActing] = useState<"keep" | "undo" | null>(null);
   const [revision, refresh] = useReducer((value: number) => value + 1, 0);
@@ -66,7 +67,9 @@ export function SessionReview({
       loading = true;
       void sessionCheckpointStatus(sessionId, cwd)
         .then((status) => {
-          if (!stale) setFiles(status.files);
+          if (stale) return;
+          setFiles(status.files);
+          setHostLocked(!!status.undoLocked);
         })
         .catch(() => {
           // A transient read failure must not remove a usable review entry.
@@ -123,7 +126,8 @@ export function SessionReview({
   // Captured diffs are readable during a turn; accepting or undoing them must
   // wait until the agent has finished writing to the checkout.
   const disabled = busy || acting != null;
-  const canUndoAll = !undoLocked && files.every((file) => file.undoable);
+  const locked = undoLocked || hostLocked;
+  const canUndoAll = !locked && files.every((file) => file.undoable);
   const hiddenFileCount = files.length - 3;
   const totals = files.reduce(
     (sum, file) => ({
@@ -144,6 +148,7 @@ export function SessionReview({
     void op
       .then((status) => {
         setFiles(status.files);
+        setHostLocked(!!status.undoLocked);
         notifyGitChanged();
         invalidateWatchedFiles(previous);
         invalidateProjectFiles(cwd);
@@ -196,7 +201,7 @@ export function SessionReview({
                     )
                   : canUndoAll
                     ? uiT("Undo all session changes")
-                    : undoLocked
+                    : locked
                       ? uiT(
                           "Undo is unavailable while another session is running in this project",
                         )

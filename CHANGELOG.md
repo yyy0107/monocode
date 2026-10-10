@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Conversations run by the shared Host show the changed-files card again on
+  desktop, with Review, Keep and Undo. The Host captures each structured edit,
+  so the same changes appear on the phone under Session progress → Session
+  changes, where Undo needs a confirming second tap. Undo is unavailable when a
+  file changed outside the conversation or another conversation is running in
+  the same checkout. Requires an updated Host.
 - Settings → General → Language switches the interface between English and
   Simplified Chinese immediately, remembers the preference, and synchronizes
   open windows. Settings and keybinding searches match Chinese labels, while

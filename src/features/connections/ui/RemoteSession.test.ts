@@ -18,6 +18,7 @@ import { rememberRemoteSession, remoteSessionFor } from "../model/connections";
 import "../model/remoteCommands";
 import { OrchestrationPreview } from "../../orchestration/ui/OrchestrationPreview";
 import { loadRemoteOutbox } from "../model/remoteOutbox";
+import { sessionCheckpointStatus } from "../../sessions/model/checkpoint";
 import type {
   HostCommand,
   HostDescriptor,
@@ -146,6 +147,8 @@ let catalog: HostModelCatalog | Error;
 let providers: HostDescriptor["providers"];
 let orchestrationCapability: boolean;
 let handoffCapability: boolean;
+let checkpointCapability: boolean;
+let checkpointRequests: Record<string, unknown>[];
 let commands: HostCommand[];
 let projectKey: string;
 let syncDelay: Promise<void> | undefined;
@@ -178,6 +181,8 @@ beforeEach(async () => {
   providers = ["codex"];
   orchestrationCapability = false;
   handoffCapability = true;
+  checkpointCapability = false;
+  checkpointRequests = [];
   projectKey = rememberRemoteProject("env", {
     id: "project",
     name: "repo",
@@ -203,7 +208,7 @@ beforeEach(async () => {
         environmentId: "env",
         name: "home",
         providers,
-        capabilities: ["attachments.upload", "sessions.plan", "sessions.draft", ...(orchestrationCapability ? ["sessions.orchestration"] : []), ...(handoffCapability ? ["sessions.handoff"] : [])],
+        capabilities: ["attachments.upload", "sessions.plan", "sessions.draft", ...(orchestrationCapability ? ["sessions.orchestration"] : []), ...(handoffCapability ? ["sessions.handoff"] : []), ...(checkpointCapability ? ["sessions.checkpoint"] : [])],
       };
     if (method === "models.list") {
       if (catalog instanceof Error) throw catalog.message;
@@ -296,6 +301,11 @@ beforeEach(async () => {
     if (method === "commands.dispatch") {
       if (dispatchDelay) await dispatchDelay;
       return dispatch(params);
+    }
+    if (method === "sessions.checkpoint") {
+      checkpointRequests.push(params as unknown as Record<string, unknown>);
+      return { files: [{ path: "/home/me/repo/src/app.ts", relative: "src/app.ts", status: "modified",
+        additions: 1, deletions: 0, exact: true, undoable: true }] };
     }
     if (method === "sessions.delete") {
       deletedSessions.push(params.sessionId!);
@@ -724,6 +734,15 @@ it("opens transcript files and diffs through the shared remote tabs", async () =
   await act(async () => byLabel("Open transcript diff")!.click());
   expect(onOpenFile).toHaveBeenCalledWith("remote://env/home/me/repo/src/app.ts");
   expect(onOpenDiff).toHaveBeenCalledWith("remote://env/home/me/repo/src/app.ts");
+});
+
+it("reviews the tab's changes through the Host that captured its edits", async () => {
+  checkpointCapability = true;
+  await render();
+  await send("Edit files");
+  const status = await sessionCheckpointStatus("shell", projectKey);
+  expect(status.files.map((file) => file.path)).toEqual(["remote://env/home/me/repo/src/app.ts"]);
+  expect(checkpointRequests).toContainEqual({ projectId: "project", sessionId: host!.session.id, action: "status" });
 });
 
 it("opens a host conversation in an already mounted empty tab", async () => {

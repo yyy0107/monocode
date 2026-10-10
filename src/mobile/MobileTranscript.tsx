@@ -30,6 +30,7 @@ import { MobileSheet } from "./MobileSheet";
 import { MobileSessionProgress } from "./MobileSessionProgress";
 import { MobileGitReviewSheet } from "./MobileGitReviewSheet";
 import type { MobileGitSource } from "./mobileGit";
+import type { MobileSessionChangesSource } from "./mobileSessionChanges";
 import { useMobileGitIndex } from "./useMobileGitIndex";
 import { buildSessionStatusPanelModel } from "../features/sessions/model/sessionStatusPanel";
 import { useTranslation } from "../shared/i18n/useTranslation";
@@ -39,7 +40,9 @@ import { useStableCallback } from "./useStableCallback";
 
 type Detail =
   | { kind: "progress" }
-  | { kind: "changes"; path?: string; from?: Extract<Detail, { kind: "tool" }> }
+  | { kind: "changes"; path?: string; from?: Extract<Detail, { kind: "tool" }>;
+      /** The conversation's own edits rather than every uncommitted change. */
+      session?: boolean }
   | { kind: "agent"; blockId: string; fromActivity?: Block[] }
   | { kind: "question"; blockId: string }
   | { kind: "plan"; blockId: string }
@@ -70,6 +73,7 @@ export const MobileTranscript = memo(function MobileTranscript({
   active = true,
   onOverlayChange,
   gitSource,
+  sessionChangesSource,
   gitEnabled = true,
   progressDock,
   questionOpen = true,
@@ -86,6 +90,8 @@ export const MobileTranscript = memo(function MobileTranscript({
   /** Let the native Back button dismiss a transcript sheet before leaving chat. */
   onOverlayChange?: (close?: () => void) => void;
   gitSource?: MobileGitSource;
+  /** Keep/Undo review of this conversation's captured edits, when the Host has it. */
+  sessionChangesSource?: MobileSessionChangesSource;
   gitEnabled?: boolean;
   /** Composer slot that hosts the session progress capsule. */
   progressDock?: HTMLElement | null;
@@ -174,6 +180,12 @@ export const MobileTranscript = memo(function MobileTranscript({
   );
   const { session, runId } = snapshot;
   const git = useMobileGitIndex(gitSource, visible && gitEnabled, snapshot.status === "running");
+  const sessionChanges = useMobileGitIndex(sessionChangesSource, visible && gitEnabled, snapshot.status === "running");
+  const sessionChangeActions = useMemo(() => sessionChangesSource ? {
+    busy: snapshot.status === "running",
+    keep: sessionChangesSource.keep,
+    undo: () => sessionChangesSource.undo().finally(git.refresh),
+  } : undefined, [sessionChangesSource, snapshot.status, git.refresh]);
   const openDiff = useCallback((path: string) => {
     git.refresh();
     setDetail((current) => ({
@@ -292,6 +304,11 @@ export const MobileTranscript = memo(function MobileTranscript({
         onReview={() => {
           git.refresh();
           setDetail((current) => ({ ...current, active: "changes", changes: { kind: "changes" } }));
+        }}
+        sessionReview={sessionChanges.index?.files.length ? sessionChanges : undefined}
+        onSessionReview={() => {
+          sessionChanges.refresh();
+          setDetail((current) => ({ ...current, active: "changes", changes: { kind: "changes", session: true } }));
         }}
         onOpen={() => setDetail((current) => ({ ...current, active: "progress" }))}
         onClose={closeDetail}
@@ -425,7 +442,12 @@ export const MobileTranscript = memo(function MobileTranscript({
       {sheetHost &&
         createPortal(
           <>
-            {detail.changes && gitSource && <MobileGitReviewSheet
+            {detail.changes?.session && sessionChangesSource ? <MobileGitReviewSheet
+              open={visible && detail.active === "changes"} onExited={releaseChanges}
+              source={sessionChangesSource} state={sessionChanges} enabled={gitEnabled}
+              session={sessionChangeActions}
+              onBack={backChanges} onClose={closeDetail} />
+            : detail.changes && gitSource && <MobileGitReviewSheet
               open={visible && detail.active === "changes"} onExited={releaseChanges}
               source={gitSource} state={git} enabled={gitEnabled}
               path={detail.changes.path} cwd={session.cwd}

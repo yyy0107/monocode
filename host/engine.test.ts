@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -1321,4 +1321,30 @@ it.each(["running", "idle"] as const)("submits an expired Codex question as a du
   expect(provider.answer).not.toHaveBeenCalled();
   expect(() => engine.command({ ...command, commandId: "duplicate-late-answer" })).toThrow("already answered");
   turns.at(-1)!.finish();
+});
+
+describe("session checkpoints", () => {
+  it("captures structured edits for review and undoes them once the turn ends", async () => {
+    const { engine, store, turns, id, directory } = setup("claude");
+    const file = join(directory, "notes.txt");
+    writeFileSync(file, "before\n");
+    engine.command({ type: "send", commandId: "edit", sessionId: id, text: "Edit notes" });
+    await vi.waitFor(() => expect(turns).toHaveLength(1));
+    const emit = turns[0].input.onEvent;
+    emit({ type: "tool.started", callId: "write", title: "Edit notes.txt", kind: "edit", paths: [file] });
+    writeFileSync(file, "after\n");
+    // The completion omits the paths its start reported.
+    emit({ type: "tool.updated", callId: "write", status: "completed" });
+    await vi.waitFor(async () =>
+      expect(await engine.sessionCheckpoint(id, "status", undefined)).toMatchObject({
+        files: [{ relative: "notes.txt", additions: 1, deletions: 1, undoable: true }],
+      }));
+    await expect(engine.sessionCheckpoint(id, "undo", undefined)).rejects.toThrow(/while the session is running/);
+    expect(await engine.sessionCheckpoint(id, "diff", "notes.txt")).toMatchObject({ original: "before\n", current: "after\n" });
+
+    turns[0].finish();
+    await vi.waitFor(() => expect(store.session(id).status).toBe("idle"));
+    expect(await engine.sessionCheckpoint(id, "undo", undefined)).toEqual({ files: [] });
+    expect(readFileSync(file, "utf8")).toBe("before\n");
+  });
 });

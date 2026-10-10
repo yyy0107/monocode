@@ -56,6 +56,7 @@ import { notifyGitChanged } from "../../../platform/tauri/fs";
 import type { Worktree } from "../../source-control/model/worktrees";
 import { useProjectBranchesState } from "../../source-control/hooks/useProjectBranches";
 import { registerRemoteSessionActions } from "../model/remoteSessionActions";
+import { notifyReviewChanged, registerHostCheckpointRoute } from "../../sessions/model/checkpoint";
 import {
   clearPendingRemoteCommand,
   loadRemoteSession,
@@ -103,7 +104,7 @@ import {
 export type RemoteSessionOverrides = Partial<SessionPaneProps> & {
   messageQueue?: ReactNode;
   remoteSession: boolean;
-  remoteFeatures: { attachments: boolean; plan: boolean; draft: boolean; orchestration?: boolean };
+  remoteFeatures: { attachments: boolean; plan: boolean; draft: boolean; orchestration?: boolean; checkpoint?: boolean };
   remoteSessionLoading: boolean;
   remoteSessionStarted: boolean;
   allowedModelHarnesses: readonly HarnessId[];
@@ -1703,6 +1704,47 @@ function ConnectedRemoteSession({
     [shell.id, buildPlan, saveDraft, stopTurn, compact, approve, answer, switchAccount],
   );
 
+  // The Host captures this conversation's edits; review, Keep and Undo run there.
+  const checkpointEnabled = !!descriptor?.capabilities.includes("sessions.checkpoint");
+  const hostSessionId = hostSession?.id;
+  // The review card mounts only once its calls reach the Host, never this
+  // computer's store for the same tab id.
+  const [checkpointRoute, setCheckpointRoute] = useState<string>();
+  useEffect(() => {
+    if (!checkpointEnabled || !hostSessionId) return;
+    const toWindow = (path: string) =>
+      project.local ? path : remotePath(machine.environmentId, path);
+    const unregister = registerHostCheckpointRoute(shell.id, async <T,>(
+      action: "status" | "diff" | "undo" | "keep",
+      relative?: string,
+    ) => {
+      const result = await remoteRequest<{ path?: string; files?: { path: string }[] }>(
+        machine.id,
+        "sessions.checkpoint",
+        { projectId: project.projectId, sessionId: hostSessionId, action,
+          ...(relative === undefined ? {} : { path: relative }) },
+      );
+      return (result.files
+        ? { ...result, files: result.files.map((file) => ({ ...file, path: toWindow(file.path) })) }
+        : { ...result, path: toWindow(result.path ?? "") }) as T;
+    });
+    setCheckpointRoute(hostSessionId);
+    return () => {
+      unregister();
+      setCheckpointRoute(undefined);
+    };
+  }, [checkpointEnabled, hostSessionId, shell.id, machine.id, machine.environmentId, project.local, project.projectId]);
+  const completedTools = hostSession?.blocks.reduce(
+    (count, block) =>
+      block.role === "tool" && (block.tool?.status === "completed" || block.tool?.status === "success")
+        ? count + 1
+        : count,
+    0,
+  ) ?? 0;
+  useEffect(() => {
+    if (checkpointEnabled && completedTools) notifyReviewChanged(shell.id);
+  }, [checkpointEnabled, completedTools, shell.id]);
+
   const hostFilePath = (path: string) => {
     const existing = parseRemotePath(path);
     if (existing) return path;
@@ -1727,6 +1769,7 @@ function ConnectedRemoteSession({
       plan: !!descriptor?.capabilities.includes("sessions.plan"),
       draft: !!descriptor?.capabilities.includes("sessions.draft"),
       orchestration: orchestrationEnabled,
+      checkpoint: checkpointEnabled && !!hostSessionId && checkpointRoute === hostSessionId,
     },
     remoteSessionLoading: !!sessionId && !hostSession && !session.blocks.length,
     remoteSessionStarted: !!sessionId,
@@ -1761,7 +1804,10 @@ function ConnectedRemoteSession({
     onRuntimeModeChange: (_, mode) =>
       updateConfiguration((current) => ({ ...current, mode })),
     onOpenFile: (path) => onOpenFile(hostFilePath(path)),
-    onOpenDiff: (path) => onOpenDiff(path ? hostFilePath(path) : undefined),
+    // Session reviews keep their scope so the Host answers with this conversation's edits.
+    onOpenDiff: (path, review) => review
+      ? onOpenDiff(path ? hostFilePath(path) : undefined, review)
+      : onOpenDiff(path ? hostFilePath(path) : undefined),
     // This computer's features do not apply to a host session.
     onCwdChange: noop,
     onBranchChange: () => {
@@ -1815,7 +1861,8 @@ function ConnectedRemoteSession({
     onNewTerminal: noop,
     onArchiveSession: undefined,
     onDeleteSession: undefined,
-    reviewUndoLocked: true,
+    // The Host reports conversations running in the same checkout.
+    reviewUndoLocked: false,
   });
 
   return (

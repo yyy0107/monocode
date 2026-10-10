@@ -3339,6 +3339,7 @@
   "No devices yet. Add one to control this computer from your phone.": "暂无设备。添加设备后即可用手机控制此电脑。",
   "Revoking…": "正在撤销…",
   "Confirm revoke": "确认撤销",
+  "Confirm undo": "确认撤销改动",
   "Revoke access": "撤销访问权限",
   "Add device": "添加设备",
   "Enter this token in the MonoCode mobile app with this computer's Host URL. It is shown only once.": "在 MonoCode 手机应用中填入此电脑的 Host 地址和此令牌。令牌仅显示一次。",

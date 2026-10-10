@@ -12,6 +12,7 @@ import { AnimatedCollapse } from "../shared/ui/AnimatedCollapse";
 import {
   Bot,
   ChevronRight,
+  FileDiff,
   FileScript,
   Gauge,
   GitCompare,
@@ -35,6 +36,8 @@ export function MobileSessionProgress({
   onNavigate,
   review,
   onReview,
+  sessionReview,
+  onSessionReview,
   dock,
 }: {
   model: SessionStatusPanelModel;
@@ -48,11 +51,14 @@ export function MobileSessionProgress({
   onNavigate: (kind: "plan" | "agent", blockId: string) => void;
   review?: MobileGitIndexState;
   onReview?: () => void;
+  /** Edits this conversation made, with Keep and Undo in their review. */
+  sessionReview?: MobileGitIndexState;
+  onSessionReview?: () => void;
 }) {
   const { t } = useTranslation();
   const summaryId = useId();
   const shown =
-    visible && (model.hasContent || !!review?.error || (open && !!review));
+    visible && (model.hasContent || !!review?.error || !!sessionReview || (open && !!review));
   // Keep the last summary readable until its closing animation finishes.
   const retained = useRef(model);
   if (model.hasContent) retained.current = model;
@@ -104,6 +110,8 @@ export function MobileSessionProgress({
                 onNavigate={onNavigate}
                 review={review}
                 onReview={onReview}
+                sessionReview={sessionReview}
+                onSessionReview={onSessionReview}
               />
             </MobileSheet>
           </MobileSheetPresence>,
@@ -191,11 +199,15 @@ function ProgressSections({
   onNavigate,
   review,
   onReview,
+  sessionReview,
+  onSessionReview,
 }: {
   model: SessionStatusPanelModel;
   onNavigate: (kind: "plan" | "agent", blockId: string) => void;
   review?: MobileGitIndexState;
   onReview?: () => void;
+  sessionReview?: MobileGitIndexState;
+  onSessionReview?: () => void;
 }) {
   const { t } = useTranslation();
   const [moreTasks, setMoreTasks] = useState(false);
@@ -204,6 +216,31 @@ function ProgressSections({
   const folded = tasks && span ? tasks.length - (span.end - span.start) : 0;
   return (
     <div className="mobile-progress-sections">
+      {sessionReview?.index && onSessionReview && (
+        <Section
+          icon={<FileDiff size={18} />}
+          title={t("Session changes")}
+          meta={t(sessionReview.index.files.length === 1 ? "{count} file changed" : "{count} files changed", {
+            count: sessionReview.index.files.length,
+          })}
+        >
+          <button
+            type="button"
+            className="mobile-progress-row"
+            onClick={onSessionReview}
+          >
+            <span>
+              <span className="mobile-progress-git-meta">
+                <MobileDiffCounts
+                  additions={sessionReview.index.additions}
+                  deletions={sessionReview.index.deletions}
+                />
+              </span>
+            </span>
+            <ChevronRight size={18} aria-hidden="true" />
+          </button>
+        </Section>
+      )}
       {review && onReview && (
         <Section
           icon={<GitCompare size={18} />}

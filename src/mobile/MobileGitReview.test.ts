@@ -7,6 +7,7 @@ import { newSession, type Block } from "../features/sessions/model/session";
 import type { GitDiffIndex, GitFileDiff } from "../platform/tauri/fs";
 import { setUiLanguage } from "../shared/i18n/language";
 import type { MobileGitSource } from "./mobileGit";
+import { sessionChangesIndex } from "./mobileSessionChanges";
 import { MobileTranscript } from "./MobileTranscript";
 
 let app: HTMLDivElement;
@@ -442,5 +443,53 @@ describe("mobile Git review from the progress capsule", () => {
     expect(fileButton().getAttribute("aria-expanded")).toBe("true");
     expect(fileButton(1).getAttribute("aria-expanded")).toBe("true");
     expect(loadDiff).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("mobile session changes", () => {
+  const sessionSource = (undoable = true) => ({
+    loadIndex: vi.fn(async () => sessionChangesIndex({
+      files: [{ path: "/repo/src/app.ts", relative: "src/app.ts", status: "modified",
+        additions: 2, deletions: 1, exact: true, undoable }],
+    })),
+    loadDiff: vi.fn(async () => diff()),
+    keep: vi.fn(async () => {}),
+    undo: vi.fn(async () => {}),
+  });
+  async function openSessionReview(source: ReturnType<typeof sessionSource>) {
+    const { update } = await render({ loadIndex: vi.fn(async () => index()), loadDiff: vi.fn(async () => diff()) });
+    await update({ sessionChangesSource: source });
+    await settle();
+    await click(app.querySelector<HTMLButtonElement>(".mobile-progress-capsule")!);
+    expect(activeDialog().querySelector(".mobile-progress-section h3")?.textContent).toContain("Session changes");
+    await click(activeDialog().querySelector<HTMLButtonElement>(".mobile-progress-row")!);
+    await settle();
+    expect(activeDialog().getAttribute("aria-label")).toBe("Session changes");
+  }
+  const action = (label: string) =>
+    [...page().querySelectorAll<HTMLButtonElement>(".mobile-git-action")].find((button) => button.textContent === label);
+
+  it("needs a second tap before undoing the conversation's edits", async () => {
+    const source = sessionSource();
+    await openSessionReview(source);
+    await click(fileButton());
+    await settle();
+    expect(source.loadDiff).toHaveBeenCalledWith("src/app.ts");
+
+    await click(action("Undo")!);
+    expect(source.undo).not.toHaveBeenCalled();
+    await click(action("Confirm undo")!);
+    expect(source.undo).toHaveBeenCalledTimes(1);
+
+    await click(action("Keep")!);
+    expect(source.keep).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables undo after a file changed outside the conversation", async () => {
+    const source = sessionSource(false);
+    await openSessionReview(source);
+    expect(action("Undo")!.disabled).toBe(true);
+    expect(action("Undo")!.title).toBe("Undo is unavailable because a file changed outside this session");
+    expect(action("Keep")!.disabled).toBe(false);
   });
 });

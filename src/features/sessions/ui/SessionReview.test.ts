@@ -245,3 +245,13 @@ it.each([true, false])(
     expect(button("Keep")!.disabled).toBe(false);
   },
 );
+
+it("blocks undo while the Host reports another session running in the checkout", async () => {
+  vi.mocked(sessionCheckpointStatus).mockResolvedValue({ files, undoLocked: true });
+  await render();
+  expect(button("Undo")!.disabled).toBe(true);
+  expect(button("Undo")!.title).toBe(
+    "Undo is unavailable while another session is running in this project",
+  );
+  expect(button("Keep")!.disabled).toBe(false);
+});
