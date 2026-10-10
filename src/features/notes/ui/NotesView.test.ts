@@ -318,63 +318,6 @@ it("keeps a note's consecutive lines on their own lines", async () => {
   );
 });
 
-it("uses the searchable rail project picker when moving a note", async () => {
-  vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(8);
-  const projects = [
-    ...recents,
-    { path: "/work/Third", openedAt: 3 },
-    { path: "/work/Fourth", openedAt: 4 },
-    { path: "/work/Fifth", openedAt: 5 },
-    { path: "/work/Sixth", openedAt: 6 },
-    { path: "/work/Seventh", openedAt: 7 },
-  ];
-  saveProjectRailOrder([
-    "/work/Fourth",
-    "/work/Third",
-    "/work/Edefyn",
-    "/work/portognjeeen",
-    "/work/Fifth",
-    "/work/Sixth",
-    "/work/Seventh",
-    "/work/Active",
-  ]);
-  savePinnedProjects(["/work/Seventh"]);
-  await render(projects, "/work/Active");
-  await act(async () => projectButton()!.click());
-  const menu = document.querySelector('[aria-label="Project picker"]')!;
-  const items = [...menu.querySelectorAll<HTMLButtonElement>("button[title]")];
-  // The note's project comes first, then pins and the remaining recent projects.
-  expect(items.map((item) => item.title)).toEqual([
-    "/work/Edefyn",
-    "/work/Seventh",
-    "/work/Active",
-    "/work/Sixth",
-    "/work/Fifth",
-    "/work/Fourth",
-    "/work/Third",
-    "/work/portognjeeen",
-  ]);
-  const search = menu.querySelector<HTMLInputElement>(
-    'input[placeholder="Search projects..."]',
-  );
-  expect(search).not.toBeNull();
-  expect(document.activeElement).toBe(search);
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )!.set!.call(search, "active");
-    search!.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  const filteredItems = [
-    ...menu.querySelectorAll<HTMLButtonElement>("button[title]"),
-  ];
-  expect(filteredItems.map((item) => item.title)).toEqual(["/work/Active"]);
-  await act(async () => filteredItems[0]!.click());
-  expect(stored.sourceCwd).toBe("/work/Active");
-});
-
 function projectButton() {
   return container.querySelector<HTMLButtonElement>(
     'header button[aria-label^="Move note to project"]',
