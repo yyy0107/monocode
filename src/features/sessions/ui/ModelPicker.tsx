@@ -5,6 +5,7 @@ import { useSurfaceVisibility } from "../../../shared/ui/SurfaceVisibility";
 import {
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Gauge,
   Loader,
@@ -55,7 +56,6 @@ import { useModelSource, type ModelSource } from "./modelSource";
 import { modelGroups } from "../model/modelGroups";
 import { HARNESSES, HARNESS_TITLE, type HarnessId } from "../model/session";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
-import { LAYER } from "../../../shared/lib/layers";
 import { HarnessIcon } from "./HarnessIcon";
 import { ComposerPopover } from "./ComposerPopover";
 import type { PopoverAlign } from "../../../shared/lib/popover";
@@ -85,23 +85,18 @@ type Props = {
 
 type MenuEntry = { kind: "setting"; setting: ModelSetting } | { kind: "model" };
 
+/** Sub-views replace the menu content in place; there are no side flyouts. */
 type Submenu = { kind: "setting"; setting: ModelSetting } | { kind: "models" };
+type ViewMotion = "forward" | "back";
 
 type RecentMenu = { models: AgentModel[] };
 
 const MENU_WIDTH = 250;
-const MODEL_MENU_WIDTH = 310;
+const MODEL_MENU_WIDTH = 320;
 const SETTING_MENU_WIDTH = 210;
-const SUBMENU_OVERLAP = -4;
 const SELF = "[data-model-picker]";
 
-const PROVIDER_TAB_SIZE = 32;
-const PROVIDER_TAB_GAP = 4;
-const PROVIDER_RAIL_PADDING = 12;
-const MODEL_MENU_HEIGHT =
-  (HARNESSES.length + 1) * PROVIDER_TAB_SIZE +
-  HARNESSES.length * PROVIDER_TAB_GAP +
-  PROVIDER_RAIL_PADDING;
+const MODEL_MENU_HEIGHT = 380;
 const MODEL_MENU_FRAME_HEIGHT = MODEL_MENU_HEIGHT + 2;
 
 const SETTING_ORDER = [
@@ -295,17 +290,19 @@ export function ModelPicker({
   const [recentMenu, setRecentMenu] = useState<RecentMenu | null>(null);
   const [recentActive, setRecentActive] = useState(0);
   const [submenu, setSubmenu] = useState<Submenu | null>(null);
-  const [activeRow, setActiveRow] = useState<HTMLButtonElement | null>(null);
+  const [viewMotion, setViewMotion] = useState<ViewMotion | null>(null);
   const [query, setQuery] = useState("");
   const [favorites, setFavorites] = usePreferenceState(loadFavoriteModels);
   const recentMenuId = useId();
   const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const onCloseRef = useRef(onClose);
   const openRef = useRef(open);
   const recentOpenRef = useRef(recentMenu != null);
   const currentRef = useRef<AgentModel | null>(null);
   const lastHotkey = useRef(0);
+  const backRef = useRef<() => boolean>(() => false);
   onCloseRef.current = onClose;
   openRef.current = open;
   recentOpenRef.current = recentMenu != null;
@@ -395,10 +392,11 @@ export function ModelPicker({
     );
   }, [source, catalogVersion, favorites, providerKey, query, visibleTab]);
 
+  // The view is left as-is while closing so the retained content and the
+  // surface size do not jump; opening resets it.
   const dismiss = (restore: boolean) => {
     setOpen(false);
     setRecentMenu(null);
-    setSubmenu(null);
     if (restore) onCloseRef.current?.();
   };
 
@@ -406,6 +404,12 @@ export function ModelPicker({
     if (openRef.current) dismiss(true);
     else {
       setRecentMenu(null);
+      // Beside-picker mode leaves only the Model row; open its list directly
+      // instead of making it one more step.
+      setSubmenu(hideSettings ? { kind: "models" } : null);
+      setViewMotion(null);
+      setActive(0);
+      setQuery("");
       setOpen(true);
     }
   };
@@ -416,7 +420,6 @@ export function ModelPicker({
     const models = recentMenuModels(selected, source);
     const selectedIndex = models.findIndex((item) => item.id === selected.id);
     setOpen(false);
-    setSubmenu(null);
     setRecentActive(selectedIndex >= 0 ? selectedIndex : 0);
     setRecentMenu({ models });
   };
@@ -445,11 +448,6 @@ export function ModelPicker({
         pickerHarnesses.includes(id),
       ),
     );
-    setActive(0);
-    // Beside-picker mode leaves only the Model row; open its list directly
-    // instead of making it one more hover step.
-    setSubmenu(hideSettings ? { kind: "models" } : null);
-    setQuery("");
     setFavorites(loadFavoriteModels());
   }, [open, current.harness, hideSettings]);
 
@@ -518,6 +516,8 @@ export function ModelPicker({
       if (!openRef.current || event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
+      // Escape steps back out of a sub-view before it closes the picker.
+      if (backRef.current()) return;
       dismiss(true);
     };
 
@@ -589,25 +589,47 @@ export function ModelPicker({
     setActiveModel(0);
   };
 
+  const enterView = (next: Submenu) => {
+    setViewMotion("forward");
+    setSubmenu(next);
+  };
+
+  const goBack = () => {
+    if (hideSettings || submenu == null) return false;
+    setViewMotion("back");
+    setSubmenu(null);
+    return true;
+  };
+  backRef.current = goBack;
+
+  // Leaving a sub-view unmounts whatever held focus (the search field, an
+  // option row); return it to the menu so arrows and Escape keep working.
+  useEffect(() => {
+    if (!open || hideSettings || submenu != null || viewMotion !== "back") {
+      return;
+    }
+    menu.current?.focus({ preventScroll: true });
+  }, [open, hideSettings, submenu, viewMotion]);
+
   const showEntrySubmenu = (entry: MenuEntry) => {
     if (entry.kind === "model") {
-      setSubmenu({ kind: "models" });
+      enterView({ kind: "models" });
       return;
     }
     if (entry.setting.kind === "select") {
-      setSubmenu({ kind: "setting", setting: entry.setting });
-      return;
+      enterView({ kind: "setting", setting: entry.setting });
     }
-    setSubmenu(null);
   };
 
   const moveEntry = (direction: 1 | -1) => {
-    setSubmenu(null);
     setActive((index) => (index + direction + entries.length) % entries.length);
   };
 
   const onMenuKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.target instanceof HTMLInputElement) return;
+    // The model browser handles its own search field and list keys.
+    if (event.defaultPrevented || event.target instanceof HTMLInputElement) {
+      return;
+    }
     if (event.key === "ArrowDown") {
       event.preventDefault();
       if (submenu?.kind === "models") {
@@ -635,17 +657,27 @@ export function ModelPicker({
       return;
     }
     if (event.key === "ArrowRight") {
+      if (submenu != null) return;
       event.preventDefault();
       const entry = entries[active];
       if (entry) showEntrySubmenu(entry);
       return;
     }
     if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      setSubmenu(null);
+      if (goBack()) event.preventDefault();
       return;
     }
     if (event.key !== "Enter") return;
+    // Back buttons and favorite toggles keep native activation.
+    if (
+      event.target instanceof HTMLButtonElement &&
+      submenu != null &&
+      !["option", "menuitemradio"].includes(
+        event.target.getAttribute("role") ?? "",
+      )
+    ) {
+      return;
+    }
     event.preventDefault();
     if (submenu?.kind === "models") {
       const item = visibleModels[activeModel];
@@ -667,11 +699,12 @@ export function ModelPicker({
     setSetting(entry.setting, value === "true" ? "false" : "true");
   };
 
-  const showSubmenu =
-    open &&
-    submenu != null &&
-    activeRow != null &&
-    activeRow.dataset.modelControlIndex === String(active);
+  const viewKey =
+    submenu == null
+      ? "root"
+      : submenu.kind === "models"
+        ? "models"
+        : `setting:${submenu.setting.id}`;
 
   return (
     <>
@@ -731,7 +764,6 @@ export function ModelPicker({
           open={open}
           appearance={appearance}
           anchor={button}
-          side="top"
           align={align}
           autoFocusSearch
           onDismiss={(reason) => dismiss(reason === "escape")}
@@ -752,151 +784,82 @@ export function ModelPicker({
       ) : null}
 
       {!hideSettings ? (
-        <>
-          <ComposerPopover
-            open={open}
-            enabled={appearance === "composer"}
-            anchor={button}
-            side="top"
-            align={align}
-            width={MENU_WIDTH}
-            autoFocus
-            dismissOnEscape={false}
-            ignore={SELF}
-            onDismiss={() => dismiss(false)}
-            role="menu"
-            aria-label={uiT("Model and settings")}
-            tabIndex={-1}
-            onKeyDown={onMenuKey}
-            data-model-picker
-            className="p-1 font-sans"
-          >
-            {entries.map((entry, index) => {
-              const highlighted = index === active;
-              if (entry.kind === "model") {
-                return (
-                  <button
-                    key="model"
-                    ref={highlighted ? setActiveRow : undefined}
-                    data-model-control-index={index}
-                    type="button"
-                    role="menuitem"
-                    aria-haspopup="menu"
-                    aria-expanded={highlighted && showSubmenu}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onMouseEnter={() => {
-                      setActive(index);
-                      showEntrySubmenu(entry);
-                    }}
-                    onClick={() => showEntrySubmenu(entry)}
-                    className={`flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] ${
-                      highlighted
-                        ? "bg-selection text-content"
-                        : "text-content hover:bg-content/5"
-                    }`}
-                  >
-                    <span className="min-w-0 flex-1">{uiT("Model")}</span>
-                    <span className="flex min-w-0 max-w-36 items-center gap-1 text-content/55">
-                      <HarnessIcon
-                        harness={current.harness}
-                        className="size-3.5 shrink-0"
-                      />
-                      <span className="min-w-0 truncate">{current.name}</span>
-                    </span>
-                    <ChevronRight
-                      className="size-3.5 shrink-0 text-content/45"
-                    />
-                  </button>
-                );
-              }
-
-              const setting = entry.setting;
-              const value = settingValue(setting, values);
-              const isToggle = setting.kind === "toggle";
-              return (
-                <button
-                  key={setting.id}
-                  ref={highlighted ? setActiveRow : undefined}
-                  data-model-control-index={index}
-                  type="button"
-                  role={isToggle ? "menuitemcheckbox" : "menuitem"}
-                  aria-checked={isToggle ? value === "true" : undefined}
-                  aria-haspopup={isToggle ? undefined : "menu"}
-                  aria-expanded={
-                    !isToggle && highlighted ? showSubmenu : undefined
-                  }
-                  title={setting.description}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onMouseEnter={() => {
-                    setActive(index);
-                    showEntrySubmenu(entry);
-                  }}
-                  onClick={() => {
-                    if (isToggle) {
-                      setSetting(setting, value === "true" ? "false" : "true");
-                    } else {
-                      showEntrySubmenu(entry);
-                    }
-                  }}
-                  className={`flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] ${
-                    highlighted
-                      ? "bg-selection text-content"
-                      : "text-content hover:bg-content/5"
-                  }`}
-                >
-                  <span className="min-w-0 flex-1">
-                    {settingLabel(setting)}
-                  </span>
-                  {isToggle ? (
-                    <span
-                      aria-hidden="true"
-                      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                        value === "true" ? "bg-content/35" : "bg-content/15"
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 size-4 rounded-full bg-content shadow-sm transition-transform ${
-                          value === "true"
-                            ? "translate-x-4.5"
-                            : "translate-x-0.5"
-                        }`}
-                      />
-                    </span>
-                  ) : (
-                    <>
-                      <span className="min-w-0 max-w-28 truncate text-content/55">
-                        {settingValueLabel(setting, values)}
-                      </span>
-                      <ChevronRight
-                        className="size-3.5 shrink-0 text-content/45"
-                      />
-                    </>
-                  )}
-                </button>
-              );
-            })}
-          </ComposerPopover>
-
-          <ComposerPopover
-            open={!!(showSubmenu && submenu?.kind === "setting")}
-            enabled={appearance === "composer"}
-            anchor={activeRow}
-            side="right"
-            gap={SUBMENU_OVERLAP}
-            width={SETTING_MENU_WIDTH}
-            layer={LAYER.submenu}
-            role="menu"
-            aria-label={
-              submenu?.kind === "setting"
+        <ComposerPopover
+          ref={menu}
+          open={open}
+          enabled={appearance === "composer"}
+          anchor={button}
+          side="top"
+          align={align}
+          width={submenu?.kind === "models" ? MODEL_MENU_WIDTH : MENU_WIDTH}
+          minHeight={
+            submenu?.kind === "models" ? MODEL_MENU_FRAME_HEIGHT : undefined
+          }
+          maxHeight={
+            submenu?.kind === "models" ? MODEL_MENU_FRAME_HEIGHT : undefined
+          }
+          autoFocus
+          dismissOnEscape={false}
+          ignore={SELF}
+          onDismiss={() => dismiss(false)}
+          role={submenu?.kind === "models" ? "dialog" : "menu"}
+          aria-label={
+            submenu?.kind === "models"
+              ? uiT("Models")
+              : submenu?.kind === "setting"
                 ? settingLabel(submenu.setting)
-                : undefined
-            }
-            onMouseEnter={() => setSubmenu(submenu)}
-            data-model-picker
-            className="p-1 font-sans"
+                : uiT("Model and settings")
+          }
+          tabIndex={-1}
+          onKeyDown={onMenuKey}
+          data-model-picker
+          style={
+            submenu?.kind === "models"
+              ? {
+                  height: MODEL_MENU_HEIGHT,
+                  minHeight: MODEL_MENU_HEIGHT,
+                  maxHeight: MODEL_MENU_HEIGHT,
+                }
+              : undefined
+          }
+          className={`font-sans ${
+            submenu?.kind === "models"
+              ? "flex min-h-0 flex-col overflow-hidden"
+              : "p-1"
+          }`}
+        >
+          <div
+            key={viewKey}
+            className={`model-picker-view${
+              submenu?.kind === "models" ? " flex min-h-0 flex-1 flex-col" : ""
+            }`}
+            data-view-motion={viewMotion ?? undefined}
           >
-            {submenu?.kind === "setting"
-              ? submenu.setting.options.map((option, index) => {
+            {submenu?.kind === "models" ? (
+              <ModelBrowser
+                autoFocusSearch
+                onBack={goBack}
+                harnesses={pickerHarnesses}
+                tab={visibleTab}
+                models={visibleModels}
+                currentId={current.id}
+                active={activeModel}
+                query={query}
+                favorites={favorites}
+                searchRef={search}
+                onQuery={setQuery}
+                onSelectTab={selectTab}
+                onActive={setActiveModel}
+                onPick={pickModel}
+                onToggleFavorite={toggleFavorite}
+              />
+            ) : submenu?.kind === "setting" ? (
+              <>
+                <BackHeader
+                  label={settingLabel(submenu.setting)}
+                  onBack={goBack}
+                />
+                {submenu.setting.options.map((option, index) => {
                   const selected =
                     option.value === settingValue(submenu.setting, values);
                   const highlighted = index === activeSetting;
@@ -933,30 +896,102 @@ export function ModelPicker({
                       ) : null}
                     </button>
                   );
-                })
-              : null}
-          </ComposerPopover>
+                })}
+              </>
+            ) : (
+              entries.map((entry, index) => {
+                const highlighted = index === active;
+                if (entry.kind === "model") {
+                  return (
+                    <button
+                      key="model"
+                      type="button"
+                      role="menuitem"
+                      aria-haspopup="menu"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setActive(index)}
+                      onClick={() => {
+                        setActive(index);
+                        showEntrySubmenu(entry);
+                      }}
+                      className={`flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] ${
+                        highlighted
+                          ? "bg-selection text-content"
+                          : "text-content hover:bg-content/5"
+                      }`}
+                    >
+                      <span className="min-w-0 flex-1">{uiT("Model")}</span>
+                      <span className="flex min-w-0 max-w-36 items-center gap-1 text-content/55">
+                        <HarnessIcon
+                          harness={current.harness}
+                          className="size-3.5 shrink-0"
+                        />
+                        <span className="min-w-0 truncate">{current.name}</span>
+                      </span>
+                      <ChevronRight className="size-3.5 shrink-0 text-content/45" />
+                    </button>
+                  );
+                }
 
-          <ModelFlyout
-            open={!!(showSubmenu && submenu?.kind === "models")}
-            appearance={appearance}
-            anchor={activeRow}
-            autoFocusSearch
-            harnesses={pickerHarnesses}
-            tab={visibleTab}
-            models={visibleModels}
-            currentId={current.id}
-            active={activeModel}
-            query={query}
-            favorites={favorites}
-            searchRef={search}
-            onQuery={setQuery}
-            onSelectTab={selectTab}
-            onActive={setActiveModel}
-            onPick={pickModel}
-            onToggleFavorite={toggleFavorite}
-          />
-        </>
+                const setting = entry.setting;
+                const value = settingValue(setting, values);
+                const isToggle = setting.kind === "toggle";
+                return (
+                  <button
+                    key={setting.id}
+                    type="button"
+                    role={isToggle ? "menuitemcheckbox" : "menuitem"}
+                    aria-checked={isToggle ? value === "true" : undefined}
+                    aria-haspopup={isToggle ? undefined : "menu"}
+                    title={setting.description}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActive(index)}
+                    onClick={() => {
+                      setActive(index);
+                      if (isToggle) {
+                        setSetting(setting, value === "true" ? "false" : "true");
+                      } else {
+                        showEntrySubmenu(entry);
+                      }
+                    }}
+                    className={`flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] ${
+                      highlighted
+                        ? "bg-selection text-content"
+                        : "text-content hover:bg-content/5"
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1">
+                      {settingLabel(setting)}
+                    </span>
+                    {isToggle ? (
+                      <span
+                        aria-hidden="true"
+                        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                          value === "true" ? "bg-content/35" : "bg-content/15"
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 size-4 rounded-full bg-content shadow-sm transition-transform ${
+                            value === "true"
+                              ? "translate-x-4.5"
+                              : "translate-x-0.5"
+                          }`}
+                        />
+                      </span>
+                    ) : (
+                      <>
+                        <span className="min-w-0 max-w-28 truncate text-content/55">
+                          {settingValueLabel(setting, values)}
+                        </span>
+                        <ChevronRight className="size-3.5 shrink-0 text-content/45" />
+                      </>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </ComposerPopover>
       ) : null}
 
       <ComposerPopover
@@ -1315,35 +1350,10 @@ function SelectPill({
   );
 }
 
-function ModelFlyout({
-  open,
-  appearance,
-  anchor,
-  side = "right",
-  align = "start",
-  autoFocusSearch = false,
-  onDismiss,
-  harnesses,
-  tab,
-  models,
-  currentId,
-  active,
-  query,
-  favorites,
-  searchRef,
-  onQuery,
-  onSelectTab,
-  onActive,
-  onPick,
-  onToggleFavorite,
-}: {
-  open: boolean;
-  appearance?: "composer";
-  anchor: HTMLButtonElement | { current: HTMLButtonElement | null } | null;
-  side?: "right" | "top";
-  align?: PopoverAlign;
+type ModelBrowserProps = {
   autoFocusSearch?: boolean;
-  onDismiss?: (reason: "outside" | "escape") => void;
+  /** Shows a back button that returns to the settings menu. */
+  onBack?: () => void;
   harnesses: HarnessId[];
   tab: ModelPickerTab;
   models: AgentModel[];
@@ -1357,30 +1367,125 @@ function ModelFlyout({
   onActive: (index: number) => void;
   onPick: (model: AgentModel) => void;
   onToggleFavorite: (id: string) => void;
+};
+
+/** Model list shown above the beside-picker pills. */
+function ModelFlyout({
+  open,
+  appearance,
+  anchor,
+  align = "start",
+  onDismiss,
+  ...browser
+}: ModelBrowserProps & {
+  open: boolean;
+  appearance?: "composer";
+  anchor: HTMLButtonElement | { current: HTMLButtonElement | null } | null;
+  align?: PopoverAlign;
+  onDismiss?: (reason: "outside" | "escape") => void;
 }) {
+  const { t: uiT } = useTranslation();
+  return (
+    <ComposerPopover
+      open={open}
+      enabled={appearance === "composer"}
+      anchor={anchor}
+      side="top"
+      align={align}
+      width={MODEL_MENU_WIDTH}
+      minHeight={MODEL_MENU_FRAME_HEIGHT}
+      maxHeight={MODEL_MENU_FRAME_HEIGHT}
+      role="dialog"
+      aria-label={uiT("Models")}
+      onDismiss={onDismiss}
+      data-model-picker
+      style={{
+        height: MODEL_MENU_HEIGHT,
+        minHeight: MODEL_MENU_HEIGHT,
+        maxHeight: MODEL_MENU_HEIGHT,
+      }}
+      className="flex min-h-0 flex-col overflow-hidden font-sans"
+    >
+      <ModelBrowser {...browser} />
+    </ComposerPopover>
+  );
+}
+
+function BackHeader({
+  label,
+  onBack,
+}: {
+  label: string;
+  onBack: () => void;
+}) {
+  const { t: uiT } = useTranslation();
+  return (
+    <div className="mb-0.5 flex h-8 items-center gap-1 border-b border-stroke px-0.5 pb-1">
+      <button
+        type="button"
+        title={uiT("Back")}
+        aria-label={uiT("Back")}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onBack}
+        className="grid size-6 shrink-0 place-items-center rounded-md text-content/55 hover:bg-content/5 hover:text-content"
+      >
+        <ChevronLeft className="size-3.5" />
+      </button>
+      <span className="min-w-0 flex-1 truncate text-[12px] text-content/55">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function ModelBrowser({
+  autoFocusSearch = false,
+  onBack,
+  harnesses,
+  tab,
+  models,
+  currentId,
+  active,
+  query,
+  favorites,
+  searchRef,
+  onQuery,
+  onSelectTab,
+  onActive,
+  onPick,
+  onToggleFavorite,
+}: ModelBrowserProps) {
   const { t: uiT } = useTranslation();
   const source = useModelSource();
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLButtonElement>(null);
+  const selectedTabRef = useRef<HTMLButtonElement>(null);
   const groups = modelGroups(models);
   const tabLoading =
     tab !== "favorites" && source.loading?.(tab) === true;
 
   useEffect(() => {
-    if (open) activeRef.current?.scrollIntoView({ block: "nearest" });
-  }, [active, open]);
+    activeRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [active]);
+
+  useEffect(() => {
+    selectedTabRef.current?.scrollIntoView?.({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [tab]);
 
   // The popover frame starts hidden until its layout effect measures the
   // anchor, and browsers silently drop focus() on a hidden element. React's
   // autoFocus fires during that first commit, so defer one frame to focus
-  // once the flyout is on screen.
+  // once the list is on screen.
   useEffect(() => {
-    if (!open || !autoFocusSearch) return;
+    if (!autoFocusSearch) return;
     const frame = requestAnimationFrame(() => {
       searchRef.current?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [open, autoFocusSearch, searchRef]);
+  }, [autoFocusSearch, searchRef]);
 
   const onSearchKey = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
@@ -1408,20 +1513,8 @@ function ModelFlyout({
   };
 
   return (
-    <ComposerPopover
-      open={open}
-      enabled={appearance === "composer"}
-      anchor={anchor}
-      side={side}
-      align={align}
-      gap={side === "right" ? SUBMENU_OVERLAP : undefined}
-      width={MODEL_MENU_WIDTH}
-      minHeight={MODEL_MENU_FRAME_HEIGHT}
-      maxHeight={MODEL_MENU_FRAME_HEIGHT}
-      layer={LAYER.submenu}
-      role="dialog"
-      aria-label={uiT("Models")}
-      onDismiss={onDismiss}
+    <div
+      className="flex min-h-0 flex-1 flex-col"
       onKeyDown={(event) => {
         // Keyboard nav once focus leaves the search field (which stops its
         // own keys). Scoped to the list so provider tabs keep their buttons.
@@ -1452,21 +1545,65 @@ function ModelFlyout({
         const item = models[active];
         if (item) onPick(item);
       }}
-      data-model-picker
-      style={{
-        height: MODEL_MENU_HEIGHT,
-        minHeight: MODEL_MENU_HEIGHT,
-        maxHeight: MODEL_MENU_HEIGHT,
-      }}
-      className="flex min-h-0 overflow-hidden font-sans"
     >
+      <label
+        className={`flex shrink-0 items-center gap-2 border-b border-stroke py-2 pr-3 text-content/50 ${
+          onBack ? "pl-1.5" : "pl-3"
+        }`}
+      >
+        {onBack ? (
+          <button
+            type="button"
+            title={uiT("Back")}
+            aria-label={uiT("Back")}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.preventDefault();
+              onBack();
+            }}
+            className="grid size-6 shrink-0 place-items-center rounded-md text-content/55 hover:bg-content/5 hover:text-content"
+          >
+            <ChevronLeft className="size-3.5" />
+          </button>
+        ) : null}
+        <Search className="size-3.5 shrink-0" />
+        <input
+          ref={searchRef}
+          type="text"
+          value={query}
+          placeholder={uiT("Search models")}
+          aria-label={uiT("Search models")}
+          className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none placeholder:text-content/40"
+          onChange={(event) => onQuery(event.target.value)}
+          onKeyDown={onSearchKey}
+        />
+        {tabLoading ? (
+          <Loader
+            className="size-3.5 shrink-0 motion-safe:animate-spin"
+            aria-label={uiT("Loading models…")}
+          />
+        ) : null}
+      </label>
+
       <nav
         role="tablist"
         aria-label={uiT("Providers")}
-        aria-orientation="vertical"
-        className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-stroke p-1.5"
+        aria-orientation="horizontal"
+        className="model-picker-providers flex shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-stroke px-1.5 py-1"
+        onWheel={(event) => {
+          // Mouse wheels scroll vertically; let them pan the provider strip.
+          const strip = event.currentTarget;
+          if (
+            Math.abs(event.deltaY) <= Math.abs(event.deltaX) ||
+            strip.scrollWidth <= strip.clientWidth
+          ) {
+            return;
+          }
+          strip.scrollLeft += event.deltaY;
+        }}
       >
         <ProviderTabButton
+          ref={tab === "favorites" ? selectedTabRef : undefined}
           title={uiT("Favorites")}
           selected={tab === "favorites"}
           onSelect={() => onSelectTab("favorites")}
@@ -1479,6 +1616,7 @@ function ModelFlyout({
         {harnesses.map((harness) => (
           <ProviderTabButton
             key={harness}
+            ref={tab === harness ? selectedTabRef : undefined}
             title={HARNESS_TITLE[harness]}
             selected={tab === harness}
             onSelect={() => onSelectTab(harness)}
@@ -1488,183 +1626,165 @@ function ModelFlyout({
         ))}
       </nav>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <label className="flex shrink-0 items-center gap-2 border-b border-stroke px-3 py-2.5 text-content/50">
-          <Search className="size-3.5 shrink-0" />
-          <input
-            ref={searchRef}
-            type="text"
-            value={query}
-            placeholder={uiT("Search models")}
-            aria-label={uiT("Search models")}
-            className="min-w-0 flex-1 bg-transparent text-[13px] text-content outline-none placeholder:text-content/40"
-            onChange={(event) => onQuery(event.target.value)}
-            onKeyDown={onSearchKey}
-          />
-          {tabLoading ? (
-            <Loader
-              className="size-3.5 shrink-0 motion-safe:animate-spin"
-              aria-label={uiT("Loading models…")}
-            />
-          ) : null}
-        </label>
-
-        <div
-          ref={lockOverscroll}
-          role="listbox"
-          aria-label={uiT("Models")}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-none p-1"
-        >
-          {models.length === 0 ? (
-            <div className="px-2 py-3 text-[12px] text-content/50">
-              {tab === "favorites" && !query.trim()
-                ? uiT("No favorite models")
-                : tab !== "favorites" && !source.available(tab)
-                  ? harnessUnavailableHint(tab)
-                  : tabLoading && !query.trim()
-                    ? (
-                        <span className="flex items-center gap-2">
-                          <Loader className="size-3.5 shrink-0 motion-safe:animate-spin" />
-                          {uiT("Loading models…")}
-                        </span>
-                      )
-                    : tab === "codex" && !query.trim()
-                    ? uiT("Loading Codex models…")
-                    : uiT("No matching models")}
-            </div>
-          ) : (
-            groups.map((group) => (
-              <div key={group.id} role="group" aria-label={group.name}>
-                {group.showLabel ? (
-                  <div className="model-picker-group-label px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-content/40">
-                    {group.name}
-                  </div>
-                ) : null}
-                {group.models.map(({ item, index }, position) => {
-                  const selected = item.id === currentId;
-                  const highlighted = index === active;
-                  const favorited = favorites.includes(item.id);
-                  const disabled = !source.available(item.harness);
-                  // Favorites mix harnesses, so every row names its source.
-                  // Provider first (OpenCode Go vs OpenCode), else harness.
-                  const provenance =
-                    item.provider?.name ?? HARNESS_TITLE[item.harness];
-                  return (
-                    <div
-                      key={item.id}
-                      className={`group flex h-8 items-center rounded-lg px-1 ${
+      <div
+        ref={lockOverscroll}
+        role="listbox"
+        aria-label={uiT("Models")}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-none p-1"
+      >
+        {models.length === 0 ? (
+          <div className="px-2 py-3 text-[12px] text-content/50">
+            {tab === "favorites" && !query.trim()
+              ? uiT("No favorite models")
+              : tab !== "favorites" && !source.available(tab)
+                ? harnessUnavailableHint(tab)
+                : tabLoading && !query.trim()
+                  ? (
+                      <span className="flex items-center gap-2">
+                        <Loader className="size-3.5 shrink-0 motion-safe:animate-spin" />
+                        {uiT("Loading models…")}
+                      </span>
+                    )
+                  : tab === "codex" && !query.trim()
+                  ? uiT("Loading Codex models…")
+                  : uiT("No matching models")}
+          </div>
+        ) : (
+          groups.map((group) => (
+            <div key={group.id} role="group" aria-label={group.name}>
+              {group.showLabel ? (
+                <div className="model-picker-group-label px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-content/40">
+                  {group.name}
+                </div>
+              ) : null}
+              {group.models.map(({ item, index }, position) => {
+                const selected = item.id === currentId;
+                const highlighted = index === active;
+                const favorited = favorites.includes(item.id);
+                const disabled = !source.available(item.harness);
+                // Favorites mix harnesses, so every row names its source.
+                // Provider first (OpenCode Go vs OpenCode), else harness.
+                const provenance =
+                  item.provider?.name ?? HARNESS_TITLE[item.harness];
+                return (
+                  <div
+                    key={item.id}
+                    className={`group flex h-8 items-center rounded-lg px-1 ${
+                      disabled
+                        ? "text-content/30"
+                        : highlighted
+                          ? "bg-selection text-content"
+                          : "text-content hover:bg-content/5"
+                    }`}
+                    onMouseEnter={() => onActive(index)}
+                  >
+                    <button
+                      ref={highlighted ? activeRef : undefined}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      aria-label={`${item.name}, ${provenance}`}
+                      disabled={disabled}
+                      title={
                         disabled
-                          ? "text-content/30"
-                          : highlighted
-                            ? "bg-selection text-content"
-                            : "text-content hover:bg-content/5"
+                          ? harnessUnavailableHint(item.harness)
+                          : undefined
+                      }
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => onPick(item)}
+                      className={`flex min-w-0 flex-1 items-center gap-2 px-1.5 text-left text-[13px] disabled:cursor-not-allowed ${
+                        // Scrolling a group's first row into view also
+                        // reveals its label instead of clipping it.
+                        group.showLabel && position === 0
+                          ? "scroll-mt-9"
+                          : ""
                       }`}
-                      onMouseEnter={() => onActive(index)}
                     >
-                      <button
-                        ref={highlighted ? activeRef : undefined}
-                        type="button"
-                        role="option"
-                        aria-selected={selected}
-                        aria-label={`${item.name}, ${provenance}`}
-                        disabled={disabled}
-                        title={
-                          disabled
-                            ? harnessUnavailableHint(item.harness)
-                            : undefined
-                        }
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => onPick(item)}
-                        className={`flex min-w-0 flex-1 items-center gap-2 px-1.5 text-left text-[13px] disabled:cursor-not-allowed ${
-                          // Scrolling a group's first row into view also
-                          // reveals its label instead of clipping it.
-                          group.showLabel && position === 0
-                            ? "scroll-mt-9"
-                            : ""
-                        }`}
+                      <span className="min-w-0 flex-1 truncate">
+                        {item.name}
+                      </span>
+                    </button>
+                    {tab === "favorites" ? (
+                      <span className="max-w-24 shrink-0 truncate text-[10px] text-content/40">
+                        {provenance}
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      title={
+                        favorited
+                          ? uiT("Remove from favorites")
+                          : uiT("Add to favorites")
+                      }
+                      aria-label={
+                        favorited
+                          ? uiT("Remove from favorites")
+                          : uiT("Add to favorites")
+                      }
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onToggleFavorite(item.id);
+                      }}
+                      className={`grid size-6 shrink-0 place-items-center rounded-md transition-opacity ${
+                        favorited
+                          ? "text-content/60"
+                          : "text-content/35 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      }`}
+                    >
+                      <Star
+                        className="size-3.5"
+                        fill={favorited ? "currentColor" : "none"}
+                      />
+                    </button>
+                    {selected ? (
+                      <span
+                        aria-hidden="true"
+                        className="grid size-6 shrink-0 place-items-center"
                       >
-                        <span className="min-w-0 flex-1 truncate">
-                          {item.name}
-                        </span>
-                      </button>
-                      {tab === "favorites" ? (
-                        <span className="max-w-24 shrink-0 truncate text-[10px] text-content/40">
-                          {provenance}
-                        </span>
-                      ) : null}
-                      <button
-                        type="button"
-                        title={
-                          favorited
-                            ? uiT("Remove from favorites")
-                            : uiT("Add to favorites")
-                        }
-                        aria-label={
-                          favorited
-                            ? uiT("Remove from favorites")
-                            : uiT("Add to favorites")
-                        }
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onToggleFavorite(item.id);
-                        }}
-                        className={`grid size-6 shrink-0 place-items-center rounded-md transition-opacity ${
-                          favorited
-                            ? "text-content/60"
-                            : "text-content/35 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                        }`}
-                      >
-                        <Star
-                          className="size-3.5"
-                          fill={favorited ? "currentColor" : "none"}
+                        <Check
+                          className="size-3.5 text-content/55"
+                          strokeWidth={2}
                         />
-                      </button>
-                      {selected ? (
-                        <span
-                          aria-hidden="true"
-                          className="grid size-6 shrink-0 place-items-center"
-                        >
-                          <Check
-                            className="size-3.5 text-content/55"
-                            strokeWidth={2}
-                          />
-                        </span>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ))
-          )}
-        </div>
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ))
+        )}
       </div>
-    </ComposerPopover>
+    </div>
   );
 }
 
 function ProviderTabButton({
+  ref,
   title,
   selected,
   onSelect,
   children,
 }: {
+  ref?: React.Ref<HTMLButtonElement>;
   title: string;
   selected: boolean;
   onSelect: () => void;
   children: ReactNode;
 }) {
+  // Tabs switch on click only: the strip sits between the search field and
+  // the list, so hover-switching would fire whenever the pointer crosses it.
   return (
     <button
+      ref={ref}
       type="button"
       role="tab"
       title={title}
       aria-label={title}
       aria-selected={selected}
       onMouseDown={(event) => event.preventDefault()}
-      onMouseEnter={selected ? undefined : onSelect}
       onClick={onSelect}
-      className="surface-tab grid size-8 shrink-0 place-items-center"
+      className="surface-tab grid size-7 shrink-0 place-items-center"
     >
       <span className="shrink-0">{children}</span>
     </button>

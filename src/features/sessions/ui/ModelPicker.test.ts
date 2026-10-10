@@ -130,10 +130,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function hover(element: Element) {
-  act(() => {
-    element.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-  });
+function press(element: HTMLElement) {
+  act(() => element.click());
+}
+
+/** Sub-views replace the picker menu in place; step back to the root rows. */
+function backToMenu() {
+  const back = document.querySelector<HTMLButtonElement>(
+    '[data-model-picker] button[aria-label="Back"]',
+  );
+  if (back) press(back);
 }
 
 function contextMenu(element: Element) {
@@ -202,11 +208,15 @@ describe("model picker", () => {
     const trigger = container.querySelector<HTMLButtonElement>("[data-model-picker-trigger]")!;
     act(() => trigger.click());
     const menu = container.querySelector<HTMLElement>('[role="menu"][aria-label="Model and settings"]')!;
-    const row = (label: string) => [...menu.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.startsWith(label))!;
+    const row = (label: string) => {
+      backToMenu();
+      return [...menu.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent?.startsWith(label))!;
+    };
     const choose = (label: string, option: string) => {
-      hover(row(label));
+      press(row(label));
       const submenu = container.querySelector<HTMLElement>(`[role="menu"][aria-label="${label}"]`)!;
+      expect(submenu).toBe(menu);
       const choices = [...submenu.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
       const selected = choices.find((button) => button.textContent === option)!;
       if (input === "pointer") act(() => selected.click());
@@ -225,7 +235,7 @@ describe("model picker", () => {
     choose("Service Tier", "Fast");
     expect(onSettingsChange).toHaveBeenLastCalledWith({ reasoningEffort: "low", serviceTier: "fast" });
 
-    hover(row("Model"));
+    press(row("Model"));
     const second = [...container.querySelectorAll<HTMLButtonElement>('[role="option"]')]
       .find((button) => button.textContent === "Second")!;
     if (input === "pointer") act(() => second.click());
@@ -238,6 +248,10 @@ describe("model picker", () => {
     expect(second.getAttribute("aria-selected")).toBe("true");
     choose("Reasoning", "High");
     expect(onSettingsChange).toHaveBeenLastCalledWith({ reasoningEffort: "high", serviceTier: "fast" });
+    // Escape first steps back to the root menu, then closes the picker.
+    keyDown(window, "Escape");
+    expect(menu.getAttribute("aria-label")).toBe("Model and settings");
+    expect(onClose).not.toHaveBeenCalled();
     keyDown(window, "Escape");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(container.querySelector("[data-model-picker]")).toBeNull();
@@ -299,7 +313,7 @@ describe("model picker", () => {
     const effort = [
       ...container.querySelectorAll<HTMLButtonElement>("button"),
     ].find((button) => button.textContent?.startsWith("推理强度"))!;
-    hover(effort);
+    press(effort);
     const extraHigh = [
       ...container.querySelectorAll<HTMLButtonElement>("button"),
     ].find((button) => button.textContent === "极高")!;
@@ -344,15 +358,15 @@ describe("model picker", () => {
     expect(modelRow.textContent).toContain("Grok 4.6");
     expect(modelRow.querySelectorAll("svg")).toHaveLength(2);
 
-    hover(modelRow);
+    press(modelRow);
     const modelFlyout = container.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="Models"]',
     )!;
-    expect(modelFlyout.style.height).toBe("404px");
-    expect(modelFlyout.dataset.minHeight).toBe("406");
-    expect(modelFlyout.dataset.maxHeight).toBe("406");
+    expect(modelFlyout.style.height).toBe("380px");
+    expect(modelFlyout.dataset.minHeight).toBe("382");
+    expect(modelFlyout.dataset.maxHeight).toBe("382");
     expect(
-      container.querySelector('[role="tablist"][aria-orientation="vertical"]'),
+      container.querySelector('[role="tablist"][aria-orientation="horizontal"]'),
     ).not.toBeNull();
     expect(
       container.querySelector('[role="tab"][aria-label="Favorites"]'),
@@ -365,7 +379,7 @@ describe("model picker", () => {
     )!;
     expect(grokTab.className).toContain("surface-tab");
     expect(grokTab.className).not.toContain("transition");
-    hover(grokTab);
+    press(grokTab);
     expect(grokTab.getAttribute("aria-selected")).toBe("true");
     expect(
       [...container.querySelectorAll('[role="option"]')].some(
@@ -393,10 +407,11 @@ describe("model picker", () => {
       container.querySelector('input[aria-label="Search models"]'),
     ).not.toBeNull();
 
+    backToMenu();
     const effortRow = [
       ...container.querySelectorAll<HTMLButtonElement>("button"),
     ].find((button) => button.textContent?.startsWith("Effort"))!;
-    hover(effortRow);
+    press(effortRow);
     const extraHigh = [
       ...container.querySelectorAll<HTMLButtonElement>("button"),
     ].find((button) => button.textContent === "Extra High")!;
@@ -454,7 +469,7 @@ describe("model picker", () => {
     const modelRow = [
       ...container.querySelectorAll<HTMLButtonElement>("button"),
     ].find((button) => button.textContent?.startsWith("Model"));
-    if (modelRow) hover(modelRow);
+    if (modelRow) press(modelRow);
     const options = [...container.querySelectorAll('[role="option"]')].map(
       (option) => option.textContent,
     );
@@ -511,7 +526,7 @@ describe("model picker", () => {
     const modelRow = [
       ...container.querySelectorAll<HTMLButtonElement>("button"),
     ].find((button) => button.textContent?.startsWith("Model"))!;
-    hover(modelRow);
+    press(modelRow);
 
     expect(
       [...container.querySelectorAll('[role="group"]')].map((group) =>
@@ -661,7 +676,7 @@ describe("model picker", () => {
     const modelRow = [
       ...container.querySelectorAll<HTMLButtonElement>("button"),
     ].find((button) => button.textContent?.startsWith("Model"))!;
-    hover(modelRow);
+    press(modelRow);
     const favoritesTab = container.querySelector<HTMLButtonElement>(
       '[role="tab"][aria-label="Favorites"]',
     )!;
@@ -824,7 +839,7 @@ describe("model picker", () => {
     const modelRow = [
       ...container.querySelectorAll<HTMLButtonElement>("button"),
     ].find((button) => button.textContent?.startsWith("Model"))!;
-    hover(modelRow);
+    press(modelRow);
 
     // Focus is deferred one frame so the popover is on screen first.
     await act(() => new Promise((resolve) => requestAnimationFrame(resolve)));
@@ -1008,7 +1023,7 @@ describe("model picker", () => {
     const effortRow = [
       ...container.querySelectorAll<HTMLButtonElement>("button"),
     ].find((button) => button.textContent?.startsWith("Reasoning"))!;
-    hover(effortRow);
+    press(effortRow);
 
     expect(container.querySelectorAll('[data-effort-tone="max"]')).toHaveLength(
       1,
@@ -1362,12 +1377,12 @@ describe("model picker", () => {
     let modelRow = [
       ...container.querySelectorAll<HTMLButtonElement>("button"),
     ].find((button) => button.textContent?.startsWith("Model"))!;
-    hover(modelRow);
+    press(modelRow);
 
     const openCodeTab = container.querySelector<HTMLButtonElement>(
       '[role="tab"][aria-label="OpenCode"]',
     )!;
-    hover(openCodeTab);
+    press(openCodeTab);
     expect(openCodeTab.getAttribute("aria-selected")).toBe("true");
 
     act(() => trigger.click());
@@ -1375,7 +1390,7 @@ describe("model picker", () => {
     modelRow = [
       ...container.querySelectorAll<HTMLButtonElement>("button"),
     ].find((button) => button.textContent?.startsWith("Model"))!;
-    hover(modelRow);
+    press(modelRow);
 
     expect(
       container

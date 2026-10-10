@@ -191,3 +191,39 @@
     will-change: auto;
   }
 }
+
+/* Provider tabs scroll sideways without a visible scrollbar. */
+.model-picker-providers {
+  scrollbar-width: none;
+}
+
+.model-picker-providers::-webkit-scrollbar {
+  display: none;
+}
+
+/* Sub-views replace the menu in place; slide in from the side they lead to. */
+.model-picker-view[data-view-motion] {
+  animation: model-picker-view-in 170ms var(--motion-ease-out) both;
+}
+
+.model-picker-view[data-view-motion="back"] {
+  --model-picker-view-from: -12px;
+}
+
+@keyframes model-picker-view-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--model-picker-view-from, 12px));
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-picker-view[data-view-motion] {
+    animation: none;
+  }
+}
