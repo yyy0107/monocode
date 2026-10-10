@@ -31,12 +31,16 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
   type Ref,
 } from "react";
 import { useLockOverscroll } from "../../shared/hooks/useLockOverscroll";
 import { useProjectDiffStats } from "../../features/source-control/hooks/useProjectDiffStats";
-import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
+import {
+  useAnimatedReorder,
+  type ReorderExternalDrop,
+} from "../../shared/hooks/useAnimatedReorder";
 import { orderByIds } from "../../shared/lib/reorder";
 import {
   loadSidebarPinnedOrder,
@@ -932,16 +936,27 @@ function SidebarEntry({
 }) {
   const content =
     typeof entry.content === "function" ? entry.content() : entry.content;
-  if (!sortable) return content;
+  // A fresh value would re-render every memoized card below on each list render.
+  const dragging = !!sortable && sortable.draggingId !== null;
+  const onItemPointerDown = sortable?.onItemPointerDown;
+  const consumeClick = sortable?.consumeClick;
+  const reorder = useMemo(
+    () =>
+      onItemPointerDown && consumeClick
+        ? {
+            dragging,
+            onPointerDown: (
+              event: PointerEvent,
+              externalDrop?: ReorderExternalDrop<string>,
+            ) => onItemPointerDown(id, event, externalDrop),
+            consumeClick,
+          }
+        : null,
+    [dragging, onItemPointerDown, consumeClick, id],
+  );
+  if (!sortable || !reorder) return content;
   return (
-    <SidebarEntryReorderContext.Provider
-      value={{
-        dragging: sortable.draggingId !== null,
-        onPointerDown: (event, externalDrop) =>
-          sortable.onItemPointerDown(id, event, externalDrop),
-        consumeClick: sortable.consumeClick,
-      }}
-    >
+    <SidebarEntryReorderContext.Provider value={reorder}>
       <div
         ref={(node) => sortable.setItemRef(id, node)}
         data-sidebar-pinned-entry={id}

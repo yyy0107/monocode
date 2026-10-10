@@ -6,7 +6,10 @@ import { AnimatedCollapse } from "../../shared/ui/AnimatedCollapse";
 import { useSurfaceVisibility } from "../../shared/ui/SurfaceVisibility";
 import { useListReorderMotion } from "../../shared/hooks/useListReorderMotion";
 import { sessionRecencyAt } from "../../features/sessions/model/sessionActivity";
-import { useAnimatedReorder } from "../../shared/hooks/useAnimatedReorder";
+import {
+  useAnimatedReorder,
+  type ReorderExternalDrop,
+} from "../../shared/hooks/useAnimatedReorder";
 import { mergeOrderedSubset, orderByIds } from "../../shared/lib/reorder";
 import { useTranslation } from "../../shared/i18n/useTranslation";
 import { NO_BRANCH_LABEL } from "../../features/source-control/model/worktrees";
@@ -1567,15 +1570,26 @@ function SessionListItem({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLLIElement>(null);
-  const content = sortable ? (
-    <SidebarEntryReorderContext.Provider
-      value={{
-        dragging: sortable.draggingId !== null,
-        onPointerDown: (event, externalDrop) =>
-          sortable.onItemPointerDown(session.id, event, externalDrop),
-        consumeClick: sortable.consumeClick,
-      }}
-    >
+  // A fresh value would re-render every memoized card on each section render.
+  const dragging = !!sortable && sortable.draggingId !== null;
+  const onItemPointerDown = sortable?.onItemPointerDown;
+  const consumeClick = sortable?.consumeClick;
+  const reorder = useMemo(
+    () =>
+      onItemPointerDown && consumeClick
+        ? {
+            dragging,
+            onPointerDown: (
+              event: ReactPointerEvent,
+              externalDrop?: ReorderExternalDrop<string>,
+            ) => onItemPointerDown(session.id, event, externalDrop),
+            consumeClick,
+          }
+        : null,
+    [dragging, onItemPointerDown, consumeClick, session.id],
+  );
+  const content = reorder ? (
+    <SidebarEntryReorderContext.Provider value={reorder}>
       {children}
     </SidebarEntryReorderContext.Provider>
   ) : (

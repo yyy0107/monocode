@@ -170,6 +170,13 @@ export function summaryFromSession(
   };
 }
 
+// Reuse merged rows while both inputs are unchanged, so memoized list rows
+// do not re-render on every parent render during live activity.
+const mergedLiveSummaries = new WeakMap<
+  SessionSummary,
+  WeakMap<SessionSummary, SessionSummary>
+>();
+
 /** Keep stored metadata while live activity catches up with the history cache. */
 export function mergeLiveSessionSummaries(
   stored: readonly SessionSummary[],
@@ -182,12 +189,23 @@ export function mergeLiveSessionSummaries(
     else {
       const updatedAt = Math.max(previous.updatedAt, row.updatedAt);
       const activityAt = row.activityAt ?? previous.activityAt;
-      if (updatedAt !== previous.updatedAt || activityAt !== previous.activityAt)
-        byId.set(row.id, {
-          ...previous,
-          updatedAt,
-          ...(activityAt != null ? { activityAt } : {}),
-        });
+      if (
+        updatedAt !== previous.updatedAt ||
+        activityAt !== previous.activityAt
+      ) {
+        let byLive = mergedLiveSummaries.get(previous);
+        if (!byLive) mergedLiveSummaries.set(previous, (byLive = new WeakMap()));
+        let merged = byLive.get(row);
+        if (!merged) {
+          merged = {
+            ...previous,
+            updatedAt,
+            ...(activityAt != null ? { activityAt } : {}),
+          };
+          byLive.set(row, merged);
+        }
+        byId.set(row.id, merged);
+      }
     }
   }
   return [...byId.values()];
