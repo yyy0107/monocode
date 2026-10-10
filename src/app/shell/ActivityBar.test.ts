@@ -11,10 +11,6 @@ import {
   readAppVersion,
   type UpdaterSnapshot,
 } from "../model/updater";
-import {
-  savePinnedProjects,
-  saveProjectRailOrder,
-} from "../../features/projects/model/recents";
 import { setUiLanguage } from "../../shared/i18n/language";
 import {
   loadUpdatePreferences,
@@ -50,8 +46,6 @@ beforeEach(() => {
   props = {
     cwd: "/work/alpha",
     recents: [{ path: "/work/beta", openedAt: 1 }],
-    onSelectProject: vi.fn(),
-    onOpenProject: vi.fn(),
     onSearch: vi.fn(),
     onOpenInbox: vi.fn(),
     onOpenNotes: vi.fn(),
@@ -98,20 +92,6 @@ function dialogAction(label: string) {
     ),
   ].find((button) => button.textContent === label)!;
 }
-function projectInput() {
-  return document.querySelector<HTMLInputElement>(
-    'input[aria-label="Search projects"]',
-  )!;
-}
-function typeQuery(value: string) {
-  act(() => {
-    Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )!.set!.call(projectInput(), value);
-    projectInput().dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
 
 it("keeps a 48px bar with title-row fallback and routes destinations to workspace actions", async () => {
   await render();
@@ -127,10 +107,10 @@ it("keeps a 48px bar with title-row fallback and routes destinations to workspac
   const quickOpen = [
     ...container.querySelectorAll<HTMLButtonElement>("button"),
   ].find((button) => button.title.startsWith("Quick Open"))!;
+  expect(action("Notes")).toBeNull();
   act(() => {
     quickOpen.click();
     action("Inbox").click();
-    action("Notes").click();
     action("Automations").click();
     [...container.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.title.startsWith("Settings"))!
@@ -139,11 +119,11 @@ it("keeps a 48px bar with title-row fallback and routes destinations to workspac
   for (const fn of [
     props.onSearch,
     props.onOpenInbox,
-    props.onOpenNotes,
     props.onOpenAutomations,
     props.onOpenSettings,
   ])
     expect(fn).toHaveBeenCalledOnce();
+  expect(props.onOpenNotes).not.toHaveBeenCalled();
   props.inboxActive = true;
   await render();
   expect(action("Inbox").getAttribute("aria-pressed")).toBe("true");
@@ -158,45 +138,12 @@ it("keeps a 48px bar with title-row fallback and routes destinations to workspac
   ).toBe(true);
 });
 
-it("leaves space for the named sidebar and preserves pinned projects in the fallback pop-out", async () => {
-  saveProjectRailOrder(["/work/beta", "/work/alpha"]);
-  savePinnedProjects(["/work/beta"]);
+it("leaves the collapsed rail without a project entry", async () => {
   await render();
   expect(container.querySelector('[data-project-list="avatars"]')).toBeNull();
-  await act(async () => action("All projects").click());
-  const list = document.querySelector('[data-project-list="full"]')!;
-  expect(list.textContent).toContain("Pinnedbeta");
-  act(() =>
-    list
-      .querySelector<HTMLButtonElement>(
-        'button[data-project-select="/work/beta"]',
-      )!
-      .click(),
-  );
-  expect(props.onSelectProject).toHaveBeenCalledExactlyOnceWith("/work/beta");
-  expect(document.querySelector('[data-project-list="full"]')).toBeNull();
-});
-
-it("focuses and filters the fallback project pop-out", async () => {
-  await render();
-  await act(async () => action("All projects").click());
-  expect(document.activeElement).toBe(projectInput());
-  typeQuery("beta");
-  const list = document.querySelector('[data-project-list="full"]')!;
   expect(
-    list.querySelector('button[data-project-select="/work/beta"]'),
-  ).not.toBeNull();
-  expect(
-    list.querySelector('button[data-project-select="/work/alpha"]'),
+    container.querySelector('button[aria-label="All projects"]'),
   ).toBeNull();
-  expect(container.querySelector('[data-project-list="avatars"]')).toBeNull();
-  act(() =>
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-    ),
-  );
-  expect(document.querySelector('[data-project-list="full"]')).toBeNull();
-  expect(document.activeElement).toBe(action("All projects"));
 });
 
 it("opens working agents from the bottom icon and selects sessions across projects", async () => {
@@ -502,21 +449,6 @@ it("localizes shell labels and tooltips while preserving project names", async (
   await render();
   await act(async () => setUiLanguage("zh-CN"));
   expect(container.querySelector('nav[aria-label="活动栏"]')).not.toBeNull();
-  expect(action("所有项目")).not.toBeNull();
-  await act(async () => action("所有项目").click());
-  expect(
-    document.querySelector('button[data-project-select="/work/alpha"]'),
-  ).not.toBeNull();
-});
-
-it("opens the named project sidebar when its shell provides that action", async () => {
-  props.onShowProjects = vi.fn();
-  await render();
-  await act(async () => action("All projects").click());
-  expect(props.onShowProjects).toHaveBeenCalledOnce();
-  expect(
-    document.querySelector('[role="dialog"][aria-label="All projects"]'),
-  ).toBeNull();
 });
 
 it("keeps installed update notes accessible from the updates pop-out", async () => {

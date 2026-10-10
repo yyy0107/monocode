@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowDownCircle,
   Bot,
-  Folder,
   Inbox,
   Loader,
   Search,
@@ -28,7 +27,6 @@ import { InboxNotificationMenu } from "../../features/inbox/ui/InboxNotification
 import { LiveAgentsPreview } from "../../features/sessions/ui/LiveAgentsPreview";
 import type { LiveAgent } from "../../features/sessions/model/liveAgents";
 import type { InstalledUpdate } from "../model/updateNotice";
-import { ProjectList } from "./ProjectList";
 import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
 import { UpdateRailCard } from "./UpdateRailCard";
 import { UpdateNotesPopover } from "./UpdateNotesPopover";
@@ -50,13 +48,8 @@ export type ActivityBarProps = {
   chromeInMenuBar?: boolean;
   cwd: string;
   recents: RecentProject[];
-  busyPaths?: Iterable<string>;
   liveAgents?: LiveAgent[];
   activeSessionId?: string;
-  onSelectProject: (path: string) => void;
-  onOpenProject: () => void;
-  onShowProjects?: () => void;
-  onRemoveProject?: ComponentProps<typeof ProjectList>["onRemoveProject"];
   onSelectAgent?: (sessionId: string) => void;
   onSearch?: () => void;
   onOpenInbox?: () => void;
@@ -85,13 +78,8 @@ export function ActivityBar({
   chromeInMenuBar = false,
   cwd,
   recents,
-  busyPaths,
   liveAgents = [],
   activeSessionId,
-  onSelectProject,
-  onOpenProject,
-  onShowProjects,
-  onRemoveProject,
   onSelectAgent,
   onSearch,
   onOpenInbox,
@@ -123,10 +111,9 @@ export function ActivityBar({
   const quickOpenShortcut = useCommandShortcut("App: Go to File");
   const quickOpenLabel = useShortcutLabel("Quick Open", "App: Go to File");
   const settingsLabel = useShortcutLabel("Settings", "App: Settings");
-  const [popup, setPopup] = useState<"projects" | "agents" | "updates" | null>(
+  const [popup, setPopup] = useState<"agents" | "updates" | null>(
     null,
   );
-  const [projectQuery, setProjectQuery] = useState("");
   const [inboxMenu, setInboxMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -136,7 +123,6 @@ export function ActivityBar({
     setInboxMenu(null);
   }, [visible]);
   const inboxTrigger = useRef<HTMLElement | null>(null);
-  const projectsAnchor = useRef<HTMLButtonElement>(null);
   const agentsAnchor = useRef<HTMLButtonElement>(null);
   const snapshot = updateStatus?.snapshot;
   const actionable = updateStatus?.actionable ?? false;
@@ -148,22 +134,8 @@ export function ActivityBar({
     enabled: showUpdates && showBottom && popup === null && Boolean(updateVersion),
   });
   const updatesAnchor = updatesHover.anchorRef;
-  const selectProject = (path: string) => {
-    setPopup(null);
-    onSelectProject(path);
-  };
-  const listProps = {
-    cwd,
-    recents,
-    busyPaths,
-    onSelectProject: selectProject,
-    onOpenProject,
-    onRemoveProject,
-    onOpenNotificationSettings,
-  };
   const togglePopup = (next: typeof popup) => {
     setInboxMenu(null);
-    if (next === "projects") setProjectQuery("");
     setPopup((value) => (value === next ? null : next));
   };
 
@@ -216,7 +188,7 @@ export function ActivityBar({
               setInboxMenu({ x, y });
             }}
           />
-          {notesEnabled ? (
+          {notesEnabled && row ? (
             <ActivityAction
               row={row}
               horizontal={horizontal}
@@ -251,16 +223,6 @@ export function ActivityBar({
         <div
           className={`flex shrink-0 flex-col ${row ? "gap-1" : "gap-1.5 pt-1.5"}`}
         >
-          {!row ? (
-            <ActivityAction
-              ref={projectsAnchor}
-              label={t("All projects")}
-              icon={Folder}
-              active={popup === "projects"}
-              expanded={onShowProjects ? undefined : popup === "projects"}
-              onClick={onShowProjects ?? (() => togglePopup("projects"))}
-            />
-          ) : null}
           {liveAgents.length > 0 ? (
             <ActivityAction
               row={row}
@@ -308,40 +270,6 @@ export function ActivityBar({
           releaseDate={actionable ? snapshot?.releaseDate : undefined}
           side={popoverSide}
         />
-      ) : null}
-      {popup === "projects" ? (
-        <Popover
-          anchor={projectsAnchor}
-          side={popoverSide}
-          align={row ? "start" : "end"}
-          width={280}
-          maxHeight={600}
-          onDismiss={(reason) => {
-            setPopup(null);
-            if (reason === "escape") projectsAnchor.current?.focus();
-          }}
-          role="dialog"
-          ignore="[data-popover-side]"
-          aria-label={t("All projects")}
-          className="flex flex-col py-2"
-        >
-          <input
-            autoFocus
-            aria-label={t("Search projects")}
-            placeholder={t("Search projects...")}
-            value={projectQuery}
-            onChange={(event) => setProjectQuery(event.target.value)}
-            className="mx-2 mb-2 h-8 shrink-0 rounded-md bg-content/5 px-2 text-sm text-content outline-none focus:ring-1 focus:ring-accent/40"
-          />
-          <ProjectList
-            {...listProps}
-            query={projectQuery}
-            onOpenProject={() => {
-              setPopup(null);
-              onOpenProject();
-            }}
-          />
-        </Popover>
       ) : null}
       {popup === "agents" ? (
         <Popover

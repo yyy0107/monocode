@@ -10316,13 +10316,6 @@ function Workspace({
     });
   }, []);
 
-  const onShowProjects = useCallback(() => {
-    setSessionSidebarOpen(true);
-    saveSessionSidebarOpen(true);
-    setSidebarTab("sessions");
-    setSearchFocusToken((value) => value + 1);
-  }, [setSidebarTab]);
-
   /** Quick Open: files by default, `>` commands, `#` sessions, `@` projects. */
   const openPalette = useCallback((query: string) => {
     setPaletteQuery(query);
@@ -11369,18 +11362,11 @@ function Workspace({
   const updateStatus = useUpdateStatus();
   const activityBarProps = useMemo(() => ({
     updateStatus,
-    onShowProjects,
     cwd: sidebarCwd,
     recents,
-    busyPaths: sessions.flatMap((session) =>
-      session.busy && session.cwd ? [session.cwd] : [],
-    ),
     liveAgents,
     activeSessionId: active?.id,
     onSelectAgent: onSelectLiveAgent,
-    onSelectProject,
-    onOpenProject: pickProject,
-    onRemoveProject,
     onSearch: onGoToFile,
     onOpenInbox,
     onOpenNotes: notesEnabled ? onOpenNotes : undefined,
@@ -11400,8 +11386,8 @@ function Workspace({
     onOpenWhatsNew,
     onDismissUpdate: () => setUpdateNotice(null),
   } satisfies ActivityBarProps), [
-    updateStatus, onShowProjects, sidebarCwd, recents, sessions, liveAgents,
-    active?.id, onSelectLiveAgent, onSelectProject, pickProject, onRemoveProject,
+    updateStatus, sidebarCwd, recents, liveAgents,
+    active?.id, onSelectLiveAgent,
     onGoToFile, onOpenInbox, notesEnabled, onOpenNotes, onOpenSettings,
     onOpenAutomations, onOpenWorkflows, activeAppView, appPage, inboxUnseen,
     onOpenNotificationSettings, updateNotice, onOpenWhatsNew,
