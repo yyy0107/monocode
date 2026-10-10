@@ -630,6 +630,9 @@ export function SettingsView({
             <SkillsPage
               key={cwd}
               cwd={cwd}
+              agentPicker={(props) => (
+                <Select label={uiT("Filter skills by agent")} {...props} />
+              )}
               header={
                 <PageHeader
                   title={settingsSectionLabel(section)}

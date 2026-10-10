@@ -35,6 +35,8 @@ import {
 } from "../../sessions/ui/MarkdownModeToggle";
 import { MarkdownSource } from "../../sessions/ui/AgentMarkdown";
 import { SkillDocumentPreview } from "./SkillDocumentPreview";
+import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
+import { HARNESS_TITLE, type HarnessId } from "../../sessions/model/session";
 import { copyText } from "../../../platform/tauri/clipboard";
 import {
   listSkills,
@@ -49,13 +51,46 @@ import {
   SKILLS_CHANGE_EVENT,
 } from "../model/skills";
 
+type SkillSource = DiscoveredSkill["source"];
+
+export type AgentPickerProps = {
+  value: string;
+  options: { value: string; label: string; icon?: ReactNode }[];
+  onChange: (value: string) => void;
+};
+
+const ALL_AGENTS = "all";
+
+// Listing order for the agent filter; mirrors the scan order in skills.rs.
+const SOURCE_ORDER: SkillSource[] = [
+  "agents",
+  "claude",
+  "cursor",
+  "codex",
+  "opencode",
+  "pi",
+  "omp",
+  "fx",
+  "grok",
+  "hermes",
+  "antigravity",
+  "monocode",
+];
+
+function isHarnessSource(source: SkillSource): source is HarnessId {
+  return source in HARNESS_TITLE;
+}
+
 /** Inspect and manage file skills without modifying provider-owned catalogs. */
 export function SkillsPage({
   cwd,
   header,
+  agentPicker,
 }: {
   cwd: string;
   header?: ReactNode;
+  /** Renders the agent filter with the host's dropdown control. */
+  agentPicker?: (props: AgentPickerProps) => ReactNode;
 }): ReactNode {
   const { t: uiT } = useTranslation();
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
@@ -68,6 +103,7 @@ export function SkillsPage({
   const [skills, setSkills] = useState<DiscoveredSkill[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [agent, setAgent] = useState<string>(ALL_AGENTS);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -179,18 +215,47 @@ export function SkillsPage({
     return () => window.removeEventListener(SKILLS_CHANGE_EVENT, onChange);
   }, []);
 
+  const agentOptions = useMemo(() => {
+    const present = new Set((skills ?? []).map((skill) => skill.source));
+    const options: AgentPickerProps["options"] = [
+      { value: ALL_AGENTS, label: uiT("All agents") },
+    ];
+    for (const source of SOURCE_ORDER) {
+      if (!present.has(source)) continue;
+      options.push(
+        isHarnessSource(source)
+          ? {
+              value: source,
+              label: HARNESS_TITLE[source],
+              icon: <HarnessIcon harness={source} className="size-3.5" />,
+            }
+          : {
+              value: source,
+              label:
+                source === "agents" ? uiT("Shared (.agents)") : "MonoCode",
+            },
+      );
+    }
+    return options;
+  }, [skills, uiT]);
+  // A rescan can drop the selected agent's last skill; fall back to all.
+  const activeAgent = agentOptions.some((option) => option.value === agent)
+    ? agent
+    : ALL_AGENTS;
+
   const needle = query.trim().toLowerCase();
   const filtered = useMemo(
     () =>
       (skills ?? []).filter(
         (skill) =>
-          !needle ||
+          (activeAgent === ALL_AGENTS || skill.source === activeAgent) &&
+          (!needle ||
           skill.name.toLowerCase().includes(needle) ||
           skill.description.toLowerCase().includes(needle) ||
           skill.source.toLowerCase().includes(needle) ||
-          skill.path.toLowerCase().includes(needle),
+          skill.path.toLowerCase().includes(needle)),
       ),
-    [needle, skills],
+    [activeAgent, needle, skills],
   );
 
   const onToggle = (path: string, enabled: boolean): void => {
@@ -268,6 +333,11 @@ export function SkillsPage({
             {header}
             <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
+                {agentPicker?.({
+                  value: activeAgent,
+                  options: agentOptions,
+                  onChange: setAgent,
+                })}
                 <span className="shrink-0 text-[12px] text-content/40 tabular-nums">
                   {skills == null
                     ? "…"
