@@ -449,6 +449,10 @@ fn supported_remote_method(method: &str) -> bool {
             | "assistant.control"
             | "assistant.respond"
             | "assistant.memory"
+            | "assistant.memoryTopic"
+            | "im.get"
+            | "im.configure"
+            | "im.control"
             | "workflows.request"
     )
 }
