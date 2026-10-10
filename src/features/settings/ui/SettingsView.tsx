@@ -2507,11 +2507,11 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         description={
           glassDisabled
             ? uiT(
-                "Light mode keeps the main window opaque, but Popover opacity still applies to menus, pickers, and dialogs.",
+                "Light mode keeps the main window opaque, but Popover transparency still applies to menus, pickers, and dialogs.",
               )
             : windowOpaque
               ? uiT(
-                  "On Linux the window stays opaque until Main pane glass is on or Window opacity is below 100%. Popover opacity still applies to menus, pickers, and dialogs.",
+                  "On Linux the window stays opaque until Main pane glass is on or Window transparency is above 0%. Popover transparency still applies to menus, pickers, and dialogs.",
                 )
               : uiT(
                 "How much of the desktop shows through MonoCode. Blur costs more to composite the higher it goes.",
@@ -2520,17 +2520,16 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
       >
         <Row
           id="window-opacity"
-          label={uiT("Window opacity")}
+          label={uiT("Window transparency")}
           description={uiT(
             "Fades the title bar, sidebar and main pane together.",
           )}
         >
-          <LiveSlider
-            label={uiT("Window opacity")}
-            value={windowPercent}
-            format={(value) => `${value}%`}
-            min={Math.round(WINDOW_OPACITY_MIN * 100)}
-            max={Math.round(WINDOW_OPACITY_MAX * 100)}
+          <TransparencySlider
+            label={uiT("Window transparency")}
+            opacity={windowPercent}
+            minOpacity={Math.round(WINDOW_OPACITY_MIN * 100)}
+            maxOpacity={Math.round(WINDOW_OPACITY_MAX * 100)}
             preview={(value) => applyWindowOpacity(value / 100)}
             onChange={appearance.onWindowOpacity}
             disabled={glassDisabled}
@@ -2538,17 +2537,16 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </Row>
         <Row
           id="sidebar-opacity"
-          label={uiT("Sidebar opacity")}
+          label={uiT("Sidebar transparency")}
           description={uiT(
             "Applies to the activity bar, sidebar and other glass panes.",
           )}
         >
-          <LiveSlider
-            label={uiT("Sidebar opacity")}
-            value={percent}
-            format={(value) => `${value}%`}
-            min={Math.round(SIDEBAR_OPACITY_MIN * 100)}
-            max={Math.round(SIDEBAR_OPACITY_MAX * 100)}
+          <TransparencySlider
+            label={uiT("Sidebar transparency")}
+            opacity={percent}
+            minOpacity={Math.round(SIDEBAR_OPACITY_MIN * 100)}
+            maxOpacity={Math.round(SIDEBAR_OPACITY_MAX * 100)}
             preview={(value) => applySidebarOpacity(value / 100)}
             onChange={appearance.onOpacity}
             disabled={windowOpaque}
@@ -2556,34 +2554,32 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </Row>
         <Row
           id="popover-opacity"
-          label={uiT("Popover opacity")}
+          label={uiT("Popover transparency")}
           description={uiT(
             "How much background shows through menus, pickers, dialogs, and other popovers.",
           )}
         >
-          <LiveSlider
-            label={uiT("Popover opacity")}
-            value={popoverPercent}
-            format={(value) => `${value}%`}
-            min={Math.round(POPOVER_OPACITY_MIN * 100)}
-            max={Math.round(POPOVER_OPACITY_MAX * 100)}
+          <TransparencySlider
+            label={uiT("Popover transparency")}
+            opacity={popoverPercent}
+            minOpacity={Math.round(POPOVER_OPACITY_MIN * 100)}
+            maxOpacity={Math.round(POPOVER_OPACITY_MAX * 100)}
             preview={(value) => applyPopoverOpacity(value / 100)}
             onChange={appearance.onPopoverOpacity}
           />
         </Row>
         <Row
           id="panel-opacity"
-          label={uiT("Panel opacity")}
+          label={uiT("Panel transparency")}
           description={uiT(
-            "Composer, settings, dialogs and menus. Lower values show what is behind them.",
+            "Composer, settings, dialogs and menus. Higher values show more of what is behind them.",
           )}
         >
-          <LiveSlider
-            label={uiT("Panel opacity")}
-            value={panelPercent}
-            format={(value) => `${value}%`}
-            min={Math.round(PANEL_OPACITY_MIN * 100)}
-            max={Math.round(PANEL_OPACITY_MAX * 100)}
+          <TransparencySlider
+            label={uiT("Panel transparency")}
+            opacity={panelPercent}
+            minOpacity={Math.round(PANEL_OPACITY_MIN * 100)}
+            maxOpacity={Math.round(PANEL_OPACITY_MAX * 100)}
             preview={(value) => applyPanelOpacity(value / 100)}
             onChange={appearance.onPanelOpacity}
           />
@@ -5518,10 +5514,15 @@ function FontSizeSlider({
   );
 }
 
+/** A drag held still this long previews its value; release applies it at once. */
+const PREVIEW_IDLE_MS = 1000;
+
 /**
- * Previews at most once per frame while dragging and saves once on release:
- * each save is a shared-preference write that re-applies every appearance
- * setting and syncs to the Host, which is too heavy to run per input event.
+ * Applies after the thumb rests for a second, or on release. Root-level
+ * appearance variables restyle the whole window, so applying while the thumb
+ * moves makes the drag stutter. Release saves once: each save is a
+ * shared-preference write that re-applies every appearance setting and syncs
+ * to the Host.
  */
 function LiveSlider({
   label,
@@ -5548,16 +5549,14 @@ function LiveSlider({
   useEffect(() => setDraft(value), [value]);
   const latest = useRef({ value, draft, preview, onChange });
   latest.current = { value, draft, preview, onChange };
-  const frame = useRef<number | undefined>(undefined);
-  const pending = useRef(value);
+  const timer = useRef<number | undefined>(undefined);
 
-  const cancelFrame = () => {
-    if (frame.current === undefined) return;
-    cancelAnimationFrame(frame.current);
-    frame.current = undefined;
+  const cancelPreview = () => {
+    if (timer.current !== undefined) window.clearTimeout(timer.current);
+    timer.current = undefined;
   };
   const commit = (next: number) => {
-    cancelFrame();
+    cancelPreview();
     if (next !== latest.current.value) latest.current.onChange(next);
     else latest.current.preview(next);
   };
@@ -5565,7 +5564,7 @@ function LiveSlider({
   // Leaving the page mid-drag must not strand a previewed, unsaved value.
   useEffect(
     () => () => {
-      cancelFrame();
+      cancelPreview();
       const { value, draft, onChange } = latest.current;
       if (draft !== value) onChange(draft);
     },
@@ -5582,12 +5581,11 @@ function LiveSlider({
       disabled={disabled}
       onChange={(next) => {
         setDraft(next);
-        pending.current = next;
-        if (frame.current !== undefined) return;
-        frame.current = requestAnimationFrame(() => {
-          frame.current = undefined;
-          latest.current.preview(pending.current);
-        });
+        cancelPreview();
+        timer.current = window.setTimeout(() => {
+          timer.current = undefined;
+          latest.current.preview(next);
+        }, PREVIEW_IDLE_MS);
       }}
       onCommit={commit}
     />
@@ -5648,6 +5646,41 @@ function Slider({
         {display}
       </span>
     </div>
+  );
+}
+
+/**
+ * Presents a stored opacity percentage as transparency (100 - opacity), so
+ * higher values show more of what is behind; callbacks still take opacity.
+ */
+function TransparencySlider({
+  label,
+  opacity,
+  minOpacity,
+  maxOpacity,
+  preview,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  opacity: number;
+  minOpacity: number;
+  maxOpacity: number;
+  preview: (opacity: number) => void;
+  onChange: (opacity: number) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <LiveSlider
+      label={label}
+      value={100 - opacity}
+      format={(value) => `${value}%`}
+      min={100 - maxOpacity}
+      max={100 - minOpacity}
+      preview={(value) => preview(100 - value)}
+      onChange={(value) => onChange(100 - value)}
+      disabled={disabled}
+    />
   );
 }
 

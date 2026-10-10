@@ -105,7 +105,7 @@ describe("interface language", () => {
     });
     expect(searchSettings("language")[0]?.settingId).toBe("ui-language");
     expect(
-      searchSettings("不透明度").some(
+      searchSettings("侧栏透明度").some(
         (row) => row.settingId === "sidebar-opacity",
       ),
     ).toBe(true);

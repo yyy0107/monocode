@@ -370,27 +370,27 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   {
     id: "window-opacity",
     section: "appearance",
-    label: "Window opacity",
-    keywords: "glass translucent transparency whole overall",
+    label: "Window transparency",
+    keywords: "glass translucent opacity whole overall",
   },
   {
     id: "sidebar-opacity",
     section: "appearance",
-    label: "Sidebar opacity",
-    keywords: "glass translucent transparency vibrancy",
+    label: "Sidebar transparency",
+    keywords: "glass translucent opacity vibrancy",
   },
   {
     id: "popover-opacity",
     section: "appearance",
-    label: "Popover opacity",
+    label: "Popover transparency",
     keywords:
-      "dropdown menu picker dialog modal popup glass translucent transparency vibrancy",
+      "dropdown menu picker dialog modal popup glass translucent opacity vibrancy",
   },
   {
     id: "panel-opacity",
     section: "appearance",
-    label: "Panel opacity",
-    keywords: "composer dialog modal menu popup settings card translucent transparency",
+    label: "Panel transparency",
+    keywords: "composer dialog modal menu popup settings card translucent opacity",
   },
   {
     id: "blur",

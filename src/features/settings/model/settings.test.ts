@@ -660,9 +660,9 @@ describe("settings search", () => {
     expect(searchSettings("glass").map((result) => result.label)).toEqual([
       "Main pane glass",
       "Blur radius",
-      "Popover opacity",
-      "Sidebar opacity",
-      "Window opacity",
+      "Popover transparency",
+      "Sidebar transparency",
+      "Window transparency",
       "Appearance",
     ]);
   });
