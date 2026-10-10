@@ -14,6 +14,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   open windows. Settings and keybinding searches match Chinese labels, while
   user content and stable command IDs retain their original values.
 
+## [0.11.1] - 2026-10-10
+
+<!-- release-notes:en -->
+
+### Added
+
+- Settings → MCP can connect to a configured server on demand and list its tools, resources, resource templates, and prompts. Expand entries to inspect descriptions and parameters, and reload cached results when needed.
+- Settings → Skills filters discovered skills by agent alongside text search, with agent icons and a shared-skills option.
+- Linux gains a system tray with unread, pinned, and recent conversations. Left-click reopens the app, while the context menu opens conversations, starts a new session, or quits; long conversation titles are shortened to keep the menu compact.
+- Appearance settings offer separate desktop transparency, panel transparency, background-image strength, and full-window backgrounds. Desktop assistant windows use the desktop transparency preference too.
+- Paired-device settings identify connected desktop clients by hostname.
+
+### Changed
+
+- Model-picker submenus open in place with a back action and consistent popover motion. Rows have clearer spacing, and the current model uses its check mark without an extra active-row highlight.
+- Appearance sliders preview changes while dragging and save on release. Transparency applies across composers, settings, dialogs, menus, and other panels independently of background-image strength.
+- Default font stacks and weights improve readability, and tab animations are enabled by default.
+- The collapsed activity bar removes the project pop-out and keeps Notes in named navigation layouts. Session and project cards avoid unnecessary sidebar re-renders.
+
+### Fixed
+
+- Packaged apps render file diffs correctly, and opening a review no longer flashes its initial state.
+- Sidebar navigation no longer repaints the entire window. Sidebar slide animations defer terminal refits until the motion settles, reducing repeated scrollback wrapping and PTY resizing.
+- Remote Host connections forward Feishu IM and memory-topic requests to the selected Host.
+- Worktree creation updates Git progress in place instead of appending repeated progress lines.
+
+<!-- /release-notes -->
+
+<!-- release-notes:zh-CN -->
+
+### 新增
+
+- 设置 → MCP 可按需连接已配置的服务器，查看工具、资源、资源模板与提示词；展开条目可查看说明和参数，并支持手动重新加载缓存结果。
+- 设置 → 技能支持按智能体筛选，并可与文本搜索组合使用；筛选项显示智能体图标，同时提供共享技能选项。
+- Linux 新增系统托盘，显示未读、置顶和最近会话；左键重新打开应用，右键菜单可打开会话、新建会话或退出。长会话标题会截短，避免菜单过宽。
+- 外观设置分别控制桌面透明度、面板透明度和背景图强度，并支持全窗口背景；桌面助手窗口也使用桌面透明度偏好。
+- 已配对设备列表通过主机名识别连接的桌面客户端。
+
+### 改进
+
+- 模型选择器的子菜单在原位置打开，提供返回操作并统一弹出动画；调整选项间距，当前模型仅显示选中标记，避免重复高亮。
+- 外观滑块拖动时实时预览、松开后保存；透明度覆盖输入框、设置、对话框、菜单及其他面板，并与背景图强度独立控制。
+- 调整默认字体组合和字重，提升可读性；默认启用标签页动画。
+- 收起的活动栏移除项目弹出入口，笔记保留在带名称的导航布局中；会话卡片和项目卡片减少不必要的侧边栏重渲染。
+
+### 修复
+
+- 修复打包应用中的文件 Diff 渲染，以及首次打开审查时的闪烁。
+- 侧边栏导航不再引起整个窗口重绘；侧边栏滑动结束后再调整终端尺寸，减少滚动历史反复换行和 PTY 尺寸更新。
+- 远程 Host 连接将飞书 IM 和记忆主题请求转发到当前选择的 Host。
+- 工作树创建过程原地更新 Git 进度，避免重复追加进度行。
+
+<!-- /release-notes -->
+
 ## [0.11.0] - 2026-10-09
 
 <!-- release-notes:en -->
