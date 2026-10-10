@@ -601,9 +601,9 @@ describe("tab animations setting", () => {
     localStorage.removeItem(TAB_ANIMATIONS_KEY);
   });
 
-  it("defaults to off", () => {
-    expect(TAB_ANIMATIONS_ENABLED_DEFAULT).toBe(false);
-    expect(loadTabAnimationsEnabled()).toBe(false);
+  it("defaults to on", () => {
+    expect(TAB_ANIMATIONS_ENABLED_DEFAULT).toBe(true);
+    expect(loadTabAnimationsEnabled()).toBe(true);
   });
 
   it("persists an off switch", () => {

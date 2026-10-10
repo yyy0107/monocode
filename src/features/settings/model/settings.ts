@@ -752,7 +752,7 @@ export function saveFileTabMode(value: FileTabMode) {
   }
 }
 
-export const TAB_ANIMATIONS_ENABLED_DEFAULT = false;
+export const TAB_ANIMATIONS_ENABLED_DEFAULT = true;
 
 export function loadTabAnimationsEnabled(): boolean {
   return readFlag(TAB_ANIMATIONS_ENABLED_KEY) ?? TAB_ANIMATIONS_ENABLED_DEFAULT;

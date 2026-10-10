@@ -46,7 +46,7 @@ describe.each([
     "monocode.tabAnimationsEnabled",
     settings.loadTabAnimationsEnabled,
     settings.saveTabAnimationsEnabled,
-    false,
+    true,
     undefined,
   ],
   [

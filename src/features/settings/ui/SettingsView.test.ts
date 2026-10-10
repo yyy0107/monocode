@@ -950,16 +950,16 @@ describe("settings pages", () => {
     expect(localStorage.getItem("monocode.fileTabMode")).toBe("workspace");
   });
 
-  it("offers tab animations as an opt-in", async () => {
+  it("turns tab animations on by default and lets them be switched off", async () => {
     await render("general");
     const control = container.querySelector<HTMLButtonElement>(
       '[role="switch"][aria-label="Tab animations"]',
     )!;
 
-    expect(control.getAttribute("aria-checked")).toBe("false");
-    await act(async () => control.click());
     expect(control.getAttribute("aria-checked")).toBe("true");
-    expect(localStorage.getItem("monocode.tabAnimationsEnabled")).toBe("1");
+    await act(async () => control.click());
+    expect(control.getAttribute("aria-checked")).toBe("false");
+    expect(localStorage.getItem("monocode.tabAnimationsEnabled")).toBe("0");
   });
 
   it("owns navigation inside the Settings view and changes pages in place", async () => {
