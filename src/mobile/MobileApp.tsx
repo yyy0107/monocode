@@ -72,6 +72,7 @@ import type {
 } from "../features/connections/model/protocol";
 import { MobileTranscript } from "./MobileTranscript";
 import { createMobileGitSource } from "./mobileGit";
+import { createMobileSessionChangesSource } from "./mobileSessionChanges";
 import { useMobileAppUpdates } from "./MobileAppUpdates";
 import {
   configurationForSession,
@@ -571,6 +572,10 @@ export function MobileApp() {
   const gitSource = useMemo(() => hostScopeReady && snapshot?.session.id === sessionId && snapshot && gitCwd && gitSupported
     ? createMobileGitSource(client, snapshot.projectId, gitCwd) : undefined,
   [client.connection, hostScopeReady, sessionId, snapshot?.session.id, snapshot?.projectId, gitCwd, gitSupported]);
+  const checkpointSupported = client.hasCapability("sessions.checkpoint");
+  const sessionChangesSource = useMemo(() => hostScopeReady && snapshot?.session.id === sessionId && snapshot && checkpointSupported
+    ? createMobileSessionChangesSource(client, snapshot.projectId, snapshot.session.id) : undefined,
+  [client.connection, hostScopeReady, sessionId, snapshot?.session.id, snapshot?.projectId, checkpointSupported]);
   const nativeAccessKey = nativeLink && snapshot.session.id === sessionId
     ? JSON.stringify([client.connection?.environmentId, client.connection?.endpoint,
         sessionId, nativeLink.provider, nativeSourceKey(nativeLink), nativeLink.accountId])
@@ -2444,6 +2449,7 @@ export function MobileApp() {
               active={!drawerOpen && !pageOverlayOpen && !hostPickerOpen}
               onOverlayChange={onTranscriptOverlayChange}
               gitSource={gitSource}
+              sessionChangesSource={sessionChangesSource}
               progressDock={progressDock}
               gitEnabled={foreground && connected && hostStatus.state === "connected" && sessionConfirmed && !loading}
               animateFrom={animateFrom}

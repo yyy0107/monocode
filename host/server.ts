@@ -373,6 +373,7 @@ export function createHostServer(
                 "sessions.nativeAccess",
                 "sessions.refreshNative",
                 "sessions.switchAccount",
+                "sessions.checkpoint",
                 "nativeSources.list",
                 "nativeSources.import",
                 "nativeSources.syncAll",
@@ -555,6 +556,14 @@ export function createHostServer(
               throw new Error("Session does not belong to this project");
             const saved = await engine.switchProviderAccount(sessionId, String(params.providerAccountId ?? ""));
             result = { providerAccountId: saved.session.providerAccountId ?? "default", revision: saved.revision };
+            break;
+          }
+          case "sessions.checkpoint": {
+            const sessionId = String(params.sessionId ?? "");
+            const current = engine.store.session(sessionId);
+            if (current.projectId !== params.projectId)
+              throw new Error("Session does not belong to this project");
+            result = await engine.sessionCheckpoint(sessionId, params.action, params.path ?? undefined);
             break;
           }
           case "sessions.nativeAccess": {

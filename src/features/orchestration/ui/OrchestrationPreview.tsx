@@ -764,9 +764,8 @@ export function OrchestrationPreview({
           )}
           {showAll
             ? uiT("Show fewer tasks")
-            : uiT("Show {value0} more {value1}", {
-                value0: String(proposal.tasks.length - 3),
-                value1: String(proposal.tasks.length === 4 ? "task" : "tasks"),
+            : uiT(proposal.tasks.length === 4 ? "Show {count} more task" : "Show {count} more tasks", {
+                count: String(proposal.tasks.length - 3),
               })}
         </button>
       )}

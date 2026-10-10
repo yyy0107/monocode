@@ -240,7 +240,7 @@ type Props = SessionPaneProps & {
   /** The session runtime is on another machine. */
   messageQueue?: ReactNode;
   remoteSession?: boolean;
-  remoteFeatures?: { attachments: boolean; plan: boolean; draft: boolean; orchestration?: boolean };
+  remoteFeatures?: { attachments: boolean; plan: boolean; draft: boolean; orchestration?: boolean; checkpoint?: boolean };
   /** An opened host conversation whose transcript has not arrived yet. */
   remoteSessionLoading?: boolean;
   remoteSessionStarted?: boolean;
@@ -1010,7 +1010,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
                       : undefined
                   }
                   latestTurnAccessory={
-                    remote ||
+                    (remote && !remoteFeatures?.checkpoint) ||
                     session.inboxAsk ||
                     session.worktreeRemoved ||
                     draftBlock ? undefined : (

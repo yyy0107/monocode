@@ -14,6 +14,8 @@ export type CheckpointFile = {
 
 export type CheckpointStatus = {
   files: CheckpointFile[];
+  /** Host only: another running conversation shares this checkout. */
+  undoLocked?: boolean;
 };
 
 export type CheckpointFileDiff = {
@@ -32,6 +34,29 @@ export type CheckpointApplyResult = {
 };
 
 const REVIEW_CHANGED = "monocode-review-changed";
+
+/** Answers review, Keep and Undo for a conversation the Host runs; paths in its
+ * results are already in this window's form. */
+export type HostCheckpointRoute = <T>(
+  action: "status" | "diff" | "undo" | "keep",
+  relative?: string,
+) => Promise<T>;
+const hostRoutes = new Map<string, HostCheckpointRoute>();
+
+/** Route a Host conversation's checkpoint calls (keyed by its tab session id)
+ * to the Host that captured its edits. */
+export function registerHostCheckpointRoute(
+  sessionId: string,
+  route: HostCheckpointRoute,
+): () => void {
+  hostRoutes.set(sessionId, route);
+  notifyReviewChanged(sessionId);
+  return () => {
+    if (hostRoutes.get(sessionId) !== route) return;
+    hostRoutes.delete(sessionId);
+    notifyReviewChanged(sessionId);
+  };
+}
 const checkpointQueues = new Map<string, Promise<void>>();
 
 function enqueueCheckpoint<T>(
@@ -128,6 +153,8 @@ export function sessionCheckpointStatus(
   sessionId: string,
   cwd: string,
 ): Promise<CheckpointStatus> {
+  const host = hostRoutes.get(sessionId);
+  if (host) return host("status");
   return enqueueCheckpoint(sessionId, () =>
     invoke<CheckpointStatus>("session_checkpoint_status", {
       sessionId,
@@ -173,6 +200,8 @@ export function sessionCheckpointFileDiff(
   cwd: string,
   relative: string,
 ): Promise<CheckpointFileDiff> {
+  const host = hostRoutes.get(sessionId);
+  if (host) return host("diff", relative);
   return enqueueCheckpoint(sessionId, () =>
     invoke<CheckpointFileDiff>("session_checkpoint_file_diff", {
       sessionId,
@@ -187,6 +216,8 @@ export function undoSessionChanges(
   cwd: string,
   relative?: string,
 ): Promise<CheckpointStatus> {
+  const host = hostRoutes.get(sessionId);
+  if (host) return host("undo", relative);
   return enqueueCheckpoint(sessionId, () =>
     invoke<CheckpointStatus>("session_checkpoint_undo", {
       sessionId,
@@ -201,6 +232,8 @@ export function keepSessionChanges(
   cwd: string,
   relative?: string,
 ): Promise<CheckpointStatus> {
+  const host = hostRoutes.get(sessionId);
+  if (host) return host("keep", relative);
   return enqueueCheckpoint(sessionId, () =>
     invoke<CheckpointStatus>("session_checkpoint_keep", {
       sessionId,

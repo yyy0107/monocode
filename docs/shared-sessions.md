@@ -79,7 +79,15 @@ checks conversation references, open editors, terminals and provider processes;
 Git operations run without holding a SQLite write transaction.
 
 The conversation command surface currently covers sends, configuration, drafts,
-plans, attachments, approvals, questions, cancellation and compaction. Desktop
+plans, attachments, approvals, questions, cancellation and compaction.
+Host also keeps per-conversation edit checkpoints (`sessions.checkpoint`): an
+ordinary conversation's structured edits are snapshotted at tool start and
+completion in the Host data directory, so desktop and phone clients review the
+same changed files and can Keep or Undo them after the turn ends. Undo refuses
+files changed outside the conversation's own edits and waits while another
+conversation runs in the same checkout. Orchestration workers, workflow
+children and the assistant are excluded. Editing the last message is not yet
+available for Host conversations. Desktop
 clients can also generate, edit and confirm orchestration assignments, inspect
 workers, cancel a task, stop a run and resume it. Host owns worker processes,
 isolated checkouts, checkpoints and command receipts. Closing desktop leaves
