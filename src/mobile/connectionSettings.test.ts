@@ -230,7 +230,7 @@ describe("mobile connection settings", () => {
   async function openConnectedSettings() {
     host.restore.mockResolvedValue(true);
     await render();
-    await act(async () => active<HTMLButtonElement>('[aria-label="Home menu"]')!.click());
+    await act(async () => button("Menu").click());
     await act(async () => button("Settings").click());
   }
 
@@ -254,65 +254,34 @@ describe("mobile connection settings", () => {
     expect(button("Accounts and usage")).toBeDefined();
   });
 
-  it("keeps Add connection in the device list and disconnects through its switch", async () => {
+  it("lists devices with their status and no per-row switch or refresh button", async () => {
     await openConnections();
     const list = active(".mobile-connection-list")!;
     expect(list.textContent).toContain("My computer");
     expect(list.textContent).toContain("Connected");
     expect(list.querySelector('[aria-label="Add connection"]')).not.toBeNull();
-    const toggle = list.querySelector<HTMLInputElement>('[role="switch"]')!;
-    expect(toggle.checked).toBe(true);
-    await act(async () => toggle.click());
-    expect(host.suspend).toHaveBeenCalledTimes(1);
-    expect(host.disconnect).not.toHaveBeenCalled();
+    expect(list.querySelector('[role="switch"]')).toBeNull();
+    expect(list.querySelector('[aria-label^="Reconnect to"]')).toBeNull();
     expect(host.reconnect).not.toHaveBeenCalled();
   });
 
-  it("keeps a switched-off connection in the list and reconnects using its saved settings", async () => {
+  it("reconnects the current device once when the page opens disconnected", async () => {
     healthyStatus.state = "disconnected";
     host.connection.disabled = true;
     await openConnectedSettings();
+    const before = host.reconnect.mock.calls.length;
     await act(async () => button("Connections").click());
-    const list = active(".mobile-connection-list")!;
-    expect(list.textContent).toContain("Disconnected");
-    const toggle = list.querySelector<HTMLInputElement>('[role="switch"]')!;
-    expect(toggle.checked).toBe(false);
-    const automaticReconnects = host.reconnect.mock.calls.length;
-    await act(async () => toggle.click());
-    expect(host.reconnect).toHaveBeenCalledTimes(automaticReconnects + 1);
+    expect(host.reconnect).toHaveBeenCalledTimes(before + 1);
     expect(host.disconnect).not.toHaveBeenCalled();
-  });
-
-  it("reconnects a saved Host directly, disables repeat clicks, and keeps it after failure", async () => {
-    await openConnections();
-    const reconnectButton = () => active<HTMLButtonElement>('[aria-label="Reconnect to My computer"]')!;
-    const previousReconnects = host.reconnect.mock.calls.length;
-    let reject!: (reason: Error) => void;
-    host.reconnect.mockImplementationOnce(() => new Promise<void>((_resolve, fail) => { reject = fail; }));
-    await act(async () => reconnectButton().click());
-    expect(host.reconnect).toHaveBeenCalledTimes(previousReconnects + 1);
-    expect(reconnectButton().disabled).toBe(true);
-    await act(async () => reconnectButton().click());
-    expect(host.reconnect).toHaveBeenCalledTimes(previousReconnects + 1);
-    await act(async () => reject(new Error("Host unavailable")));
-    expect(active('[role="alert"]')?.textContent).toContain("Host unavailable");
-    expect(active(".mobile-connection-list")!.textContent).toContain("My computer");
-    expect(reconnectButton().disabled).toBe(false);
-    await act(async () => reconnectButton().click());
-    expect(host.reconnect).toHaveBeenCalledTimes(previousReconnects + 2);
-    expect(active('[role="dialog"][aria-label="Add connection"]')).toBeNull();
-    expect(host.connect).not.toHaveBeenCalled();
     expect(host.suspend).not.toHaveBeenCalled();
-    expect(host.disconnect).not.toHaveBeenCalled();
   });
 
-  it("reconnects the selected saved Host rather than the active one", async () => {
+  it("switches to another saved Host from its row", async () => {
     const other = { endpoint: "http://other:3774", token: "saved-token", name: "Other Host", environmentId: "other" };
     host.savedConnections.mockResolvedValue([other] as never);
     await openConnections();
-    await act(async () => button("Reconnect to Other Host").click());
+    await act(async () => button("Switch to Other Host").click());
     expect(host.switchTo).toHaveBeenCalledWith(other.endpoint);
-    expect(host.reconnect).not.toHaveBeenCalled();
     expect(host.connect).not.toHaveBeenCalled();
     expect(host.forget).not.toHaveBeenCalled();
   });

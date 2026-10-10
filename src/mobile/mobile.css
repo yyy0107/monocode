@@ -4274,21 +4274,6 @@ html.theme-light .mobile-settings {
   white-space: nowrap;
 }
 .mobile-connection-address::before { content: "\00a0·\00a0"; }
-.mobile-connection-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  min-width: 52px;
-  min-height: 44px;
-  cursor: pointer;
-}
-.mobile-connection-toggle input.mobile-switch:checked {
-  background: var(--color-content);
-}
-.mobile-connection-toggle input.mobile-switch:checked::after {
-  background: var(--color-background-base);
-}
 /* Inset separators begin at the label, as in iOS lists. */
 .mobile-settings-card > * + *::after {
   content: "";

@@ -184,7 +184,6 @@ export function MobileSettings({
   onAddConnection,
   onSwitchConnection,
   probeConnection,
-  onDisconnect,
   onReconnect,
   onDeleteConnection,
   connectionAppearance,
@@ -229,7 +228,6 @@ export function MobileSettings({
   onAddConnection: () => void;
   onSwitchConnection: (endpoint: string) => void;
   probeConnection: (connection: SettingsConnection) => Promise<HostConnectionStatus>;
-  onDisconnect: () => Promise<void>;
   onReconnect: () => void;
   onDeleteConnection: (endpoint: string) => Promise<void>;
   connectionAppearance: ConnectionAppearance;
@@ -296,7 +294,6 @@ export function MobileSettings({
       probe={probeConnection}
       onSwitch={onSwitchConnection}
       onSave={onSaveConnectionAppearance}
-      onDisconnect={onDisconnect}
       onReconnect={onReconnect}
       onDelete={onDeleteConnection}
       addConnection={addConnectionRow("mobile-settings-row mobile-connection-row mobile-connection-add")}

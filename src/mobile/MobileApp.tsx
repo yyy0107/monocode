@@ -1588,13 +1588,13 @@ export function MobileApp() {
       setBusy(false);
     }
   };
-  const disconnectConnection = async (remove: boolean) => {
+  const removeActiveConnection = async () => {
     navigation.current += 1;
     projectGeneration.current += 1;
     setBusy(true);
     const endpoint = client.connection?.endpoint;
     try {
-      await (remove ? client.disconnect() : client.suspend());
+      await client.disconnect();
       stopSharedState();
       setConnected(false);
       setProjects([]);
@@ -1608,13 +1608,13 @@ export function MobileApp() {
       setHostError("");
       setSharedStateError("");
       setPollError("");
-      if (remove && endpoint) removeConnectionAppearance(endpoint);
+      if (endpoint) removeConnectionAppearance(endpoint);
     } catch (problem) {
       setError(message(problem));
       throw problem;
     } finally { setBusy(false); refreshSavedHosts(); }
     // Deleting the active Host falls back to another paired one.
-    const next = remove ? (await client.savedConnections())[0] : undefined;
+    const next = (await client.savedConnections())[0];
     if (next)
       await activateConnection(() => client.switchTo(next.endpoint), (problem) => setHostError(message(problem)));
   };
@@ -1835,7 +1835,7 @@ export function MobileApp() {
       if (target) openHome(target);
     }));
   const forgetConnection = async (endpoint: string) => {
-    if (endpoint === client.connection?.endpoint) return disconnectConnection(true);
+    if (endpoint === client.connection?.endpoint) return removeActiveConnection();
     try {
       await client.forget(endpoint);
       removeConnectionAppearance(endpoint);
@@ -2181,7 +2181,6 @@ export function MobileApp() {
           }} />}
           onSwitchConnection={switchHost}
           probeConnection={probeSavedHost}
-          onDisconnect={() => disconnectConnection(false)}
           onDeleteConnection={forgetConnection}
           connectionAppearance={connectionAppearance}
           onSaveConnectionAppearance={saveConnectionAppearance}

@@ -41,8 +41,6 @@ function ConnectionRow({
   probe,
   onMenu,
   onSwitch,
-  onReconnect,
-  onDisconnect,
 }: {
   connection: SettingsConnection;
   active: boolean;
@@ -52,8 +50,6 @@ function ConnectionRow({
   probe: (connection: SettingsConnection) => Promise<HostConnectionStatus>;
   onMenu: (element: HTMLButtonElement, position?: MobileSheetPoint) => void;
   onSwitch: () => void;
-  onReconnect: () => void;
-  onDisconnect: () => Promise<void>;
 }) {
   const { t } = useTranslation();
   const appearance = useConnectionAppearance(connection.endpoint);
@@ -169,31 +165,6 @@ function ConnectionRow({
           </small>
         </span>
       </button>
-      <button
-        type="button"
-        className="mobile-icon-button"
-        aria-label={t("Reconnect to {host}", { host: name })}
-        title={t("Reconnect")}
-        disabled={disabled}
-        onClick={active ? onReconnect : onSwitch}
-      >
-        <RefreshCw size={20} />
-      </button>
-      <label className="mobile-connection-toggle">
-        <input
-          type="checkbox"
-          role="switch"
-          className="mobile-switch"
-          aria-label={t("Connection to {host}", { host: name })}
-          checked={active && connection.disabled !== true}
-          disabled={disabled}
-          onChange={(event) => {
-            if (!active) onSwitch();
-            else if (event.currentTarget.checked) onReconnect();
-            else void onDisconnect().catch(() => {});
-          }}
-        />
-      </label>
     </li>
   );
 }
@@ -208,7 +179,6 @@ export function MobileConnections({
   probe,
   onSwitch,
   onSave,
-  onDisconnect,
   onReconnect,
   onDelete,
   addConnection,
@@ -222,7 +192,6 @@ export function MobileConnections({
   probe: (connection: SettingsConnection) => Promise<HostConnectionStatus>;
   onSwitch: (endpoint: string) => void;
   onSave: (endpoint: string, value: ConnectionAppearance) => void;
-  onDisconnect: () => Promise<void>;
   onDelete: (endpoint: string) => Promise<void>;
   onReconnect: () => void;
   addConnection: ReactNode;
@@ -240,6 +209,13 @@ export function MobileConnections({
   const [point, setPoint] = useState<MobileSheetPoint>();
   const [draft, setDraft] = useState<ConnectionAppearance>(appearance);
   const [error, setError] = useState("");
+  // Opening the page refreshes it: other rows probe on mount, and the current
+  // device reconnects once if it is not connected.
+  const entry = useRef({ activeEndpoint, hostStatus, disabled, onReconnect });
+  useEffect(() => {
+    const { activeEndpoint, hostStatus, disabled, onReconnect } = entry.current;
+    if (activeEndpoint && !disabled && hostStatus.state !== "connected") onReconnect();
+  }, []);
   const openMenu = (
     endpoint: string,
     element: HTMLButtonElement,
@@ -293,8 +269,6 @@ export function MobileConnections({
               probe={probe}
               onMenu={(element, position) => openMenu(item.endpoint, element, position)}
               onSwitch={() => onSwitch(item.endpoint)}
-              onReconnect={onReconnect}
-              onDisconnect={onDisconnect}
             />
           ))}
           <li>{addConnection}</li>
