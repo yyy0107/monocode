@@ -59,7 +59,8 @@ raw-window-handle = "0.6"
 tauri-plugin-global-shortcut = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+# Tray as a StatusNotifierItem: left click activates instead of opening the menu.
+ksni = "0.3"
 notify-rust = "4.18"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

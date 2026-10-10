@@ -8,10 +8,16 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
+#[cfg(windows)]
 use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+#[cfg(windows)]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, WebviewWindow, Wry};
+use tauri::WebviewWindow;
+#[cfg(windows)]
+use tauri::Wry;
+use tauri::{AppHandle, Emitter};
 
+#[cfg(windows)]
 const TRAY_ID: &str = "main";
 const OPEN: &str = "tray_open";
 const NEW: &str = "tray_new";
@@ -21,6 +27,9 @@ const SESSION_PREFIX: &str = "tray_session:";
 pub const OPEN_SESSION_EVENT: &str = "monocode:tray-open-session";
 const SECTION_LIMIT: usize = 5;
 const MORE_LIMIT: usize = 10;
+/// Display columns for a conversation row; wide (CJK) characters count twice.
+/// Long titles otherwise stretch the whole menu.
+const TITLE_COLUMNS: usize = 36;
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,32 +85,15 @@ struct TrayState {
 
 static STATE: Mutex<Option<TrayState>> = Mutex::new(None);
 
+#[cfg(windows)]
 pub fn install(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_menu(app, &TrayLabels::default(), &Sections::default())?;
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("MonoCode")
         .menu(&menu)
-        // Left click reopens; the menu stays on the right button. Linux
-        // indicators never report clicks, so there the menu is the only way.
+        // Left click reopens; the menu stays on the right button.
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| {
-            let id = event.id().as_ref();
-            match id {
-                OPEN => {
-                    let _ = crate::window::show_hidden_or_open_new(app);
-                }
-                NEW => {
-                    let _ = crate::window::show_hidden_or_open_new(app);
-                    crate::menu::emit_to_focused(app, "new_tab");
-                }
-                QUIT => crate::window::request_quit_with_host(app),
-                _ => {
-                    if let Some(id) = id.strip_prefix(SESSION_PREFIX) {
-                        open_session(app, id);
-                    }
-                }
-            }
-        })
+        .on_menu_event(|app, event| handle_action(app, event.id().as_ref()))
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
@@ -119,6 +111,33 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
 
     tray.build(app)?;
     Ok(())
+}
+
+/// Linux: a StatusNotifierItem of our own. The appindicator backend behind
+/// Tauri's tray never reports clicks and always opens the menu on the left
+/// button; SNI's Activate lets left click reopen the windows instead.
+#[cfg(target_os = "linux")]
+pub fn install(app: &AppHandle) -> tauri::Result<()> {
+    sni::install(app);
+    Ok(())
+}
+
+fn handle_action(app: &AppHandle, id: &str) {
+    match id {
+        OPEN => {
+            let _ = crate::window::show_hidden_or_open_new(app);
+        }
+        NEW => {
+            let _ = crate::window::show_hidden_or_open_new(app);
+            crate::menu::emit_to_focused(app, "new_tab");
+        }
+        QUIT => crate::window::request_quit_with_host(app),
+        _ => {
+            if let Some(id) = id.strip_prefix(SESSION_PREFIX) {
+                open_session(app, id);
+            }
+        }
+    }
 }
 
 fn open_session(app: &AppHandle, id: &str) {
@@ -203,18 +222,40 @@ fn sections(sessions: Vec<TraySession>) -> Sections {
     out
 }
 
+/// Busy marker plus the title cut to [`TITLE_COLUMNS`].
+fn session_label(session: &TraySession) -> String {
+    let mut text = String::new();
+    let mut columns = 0;
+    let mut chars = session.title.trim().chars();
+    for c in chars.by_ref() {
+        let width = if c >= '\u{2E80}' { 2 } else { 1 };
+        if columns + width > TITLE_COLUMNS {
+            text.push('…');
+            break;
+        }
+        columns += width;
+        text.push(c);
+    }
+    if session.busy {
+        format!("● {text}")
+    } else {
+        text
+    }
+}
+
+#[cfg(windows)]
 fn session_item(
     app: &AppHandle,
     session: &TraySession,
 ) -> tauri::Result<tauri::menu::MenuItem<Wry>> {
-    let text = if session.busy {
-        format!("● {}", session.title)
-    } else {
-        session.title.clone()
-    };
-    MenuItemBuilder::with_id(format!("{SESSION_PREFIX}{}", session.id), text).build(app)
+    MenuItemBuilder::with_id(
+        format!("{SESSION_PREFIX}{}", session.id),
+        session_label(session),
+    )
+    .build(app)
 }
 
+#[cfg(windows)]
 fn build_menu(
     app: &AppHandle,
     labels: &TrayLabels,
@@ -250,17 +291,183 @@ fn build_menu(
         .build()
 }
 
+fn current() -> (TrayLabels, Sections) {
+    let guard = STATE.lock().unwrap();
+    match guard.as_ref() {
+        Some(state) => (state.labels.clone(), sections(merge(&state.sessions))),
+        None => (TrayLabels::default(), Sections::default()),
+    }
+}
+
+#[cfg(windows)]
 fn refresh(app: &AppHandle) {
-    let (labels, sections) = {
-        let guard = STATE.lock().unwrap();
-        let Some(state) = guard.as_ref() else { return };
-        (state.labels.clone(), sections(merge(&state.sessions)))
-    };
+    let (labels, sections) = current();
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
     if let Ok(menu) = build_menu(app, &labels, &sections) {
         let _ = tray.set_menu(Some(menu));
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn refresh(_app: &AppHandle) {
+    sni::refresh();
+}
+
+#[cfg(target_os = "linux")]
+mod sni {
+    use super::*;
+    use ksni::menu::{StandardItem, SubMenu};
+    use ksni::{MenuItem, TrayMethods};
+    use std::sync::OnceLock;
+
+    static HANDLE: OnceLock<ksni::Handle<SniTray>> = OnceLock::new();
+
+    struct SniTray {
+        app: AppHandle,
+        icon: Vec<ksni::Icon>,
+    }
+
+    impl SniTray {
+        /// ksni runs callbacks on its own task; window work belongs on the
+        /// main thread like Tauri's own menu events.
+        fn run(&self, id: String) {
+            let app = self.app.clone();
+            let _ = self
+                .app
+                .run_on_main_thread(move || handle_action(&app, &id));
+        }
+    }
+
+    /// SNI labels treat `_` as a mnemonic marker.
+    fn escape(text: &str) -> String {
+        text.replace('_', "__")
+    }
+
+    fn action(label: &str, id: String) -> MenuItem<SniTray> {
+        StandardItem {
+            label: escape(label),
+            activate: Box::new(move |tray: &mut SniTray| tray.run(id.clone())),
+            ..Default::default()
+        }
+        .into()
+    }
+
+    fn session_row(session: &TraySession) -> MenuItem<SniTray> {
+        action(
+            &session_label(session),
+            format!("{SESSION_PREFIX}{}", session.id),
+        )
+    }
+
+    impl ksni::Tray for SniTray {
+        fn id(&self) -> String {
+            "monocode".into()
+        }
+
+        fn title(&self) -> String {
+            "MonoCode".into()
+        }
+
+        fn icon_pixmap(&self) -> Vec<ksni::Icon> {
+            self.icon.clone()
+        }
+
+        fn tool_tip(&self) -> ksni::ToolTip {
+            ksni::ToolTip {
+                title: "MonoCode".into(),
+                ..Default::default()
+            }
+        }
+
+        fn activate(&mut self, _x: i32, _y: i32) {
+            self.run(OPEN.into());
+        }
+
+        /// Built from the shared state on each show, so updates that arrive
+        /// before the service is up are not lost.
+        fn menu(&self) -> Vec<MenuItem<Self>> {
+            let (labels, sections) = current();
+            let mut menu = Vec::new();
+            for (title, rows, more) in [
+                (&labels.unread, &sections.unread, &[][..]),
+                (&labels.pinned, &sections.pinned, &[][..]),
+                (&labels.recent, &sections.recent, &sections.more[..]),
+            ] {
+                if rows.is_empty() {
+                    continue;
+                }
+                menu.push(
+                    StandardItem {
+                        label: escape(title),
+                        enabled: false,
+                        ..Default::default()
+                    }
+                    .into(),
+                );
+                menu.extend(rows.iter().map(session_row));
+                if !more.is_empty() {
+                    menu.push(
+                        SubMenu {
+                            label: escape(&labels.more),
+                            submenu: more.iter().map(session_row).collect(),
+                            ..Default::default()
+                        }
+                        .into(),
+                    );
+                }
+                menu.push(MenuItem::Separator);
+            }
+            menu.push(action(&labels.new_session, NEW.into()));
+            menu.push(MenuItem::Separator);
+            menu.push(action(&labels.open, OPEN.into()));
+            menu.push(MenuItem::Separator);
+            menu.push(action(&labels.quit, QUIT.into()));
+            menu
+        }
+    }
+
+    /// SNI pixmaps are ARGB32 in network byte order.
+    fn icon(app: &AppHandle) -> Vec<ksni::Icon> {
+        let Some(image) = app.default_window_icon() else {
+            return Vec::new();
+        };
+        let data = image
+            .rgba()
+            .chunks_exact(4)
+            .flat_map(|px| [px[3], px[0], px[1], px[2]])
+            .collect();
+        vec![ksni::Icon {
+            width: image.width() as i32,
+            height: image.height() as i32,
+            data,
+        }]
+    }
+
+    pub fn install(app: &AppHandle) {
+        let tray = SniTray {
+            app: app.clone(),
+            icon: icon(app),
+        };
+        tauri::async_runtime::spawn(async move {
+            match tray.spawn().await {
+                Ok(handle) => {
+                    let _ = HANDLE.set(handle);
+                }
+                Err(err) => eprintln!("tray: {err}"),
+            }
+        });
+    }
+
+    pub fn refresh() {
+        let Some(handle) = HANDLE.get().cloned() else {
+            return;
+        };
+        tauri::async_runtime::spawn(async move {
+            // An empty update still tells the host the menu changed.
+            handle.update(|_| ()).await;
+        });
     }
 }
 
@@ -352,5 +559,18 @@ mod tests {
         assert_eq!(out.recent[0].id, "r0");
         assert_eq!(out.more.len(), MORE_LIMIT);
         assert_eq!(out.more[0].id, "r5");
+    }
+
+    #[test]
+    fn long_titles_are_cut_by_display_width() {
+        let short = session("a", 0.0);
+        assert_eq!(session_label(&short), "a");
+        let wide = TraySession {
+            title: "中".repeat(30),
+            busy: true,
+            ..session("b", 0.0)
+        };
+        let label = session_label(&wide);
+        assert_eq!(label, format!("● {}…", "中".repeat(TITLE_COLUMNS / 2)));
     }
 }
