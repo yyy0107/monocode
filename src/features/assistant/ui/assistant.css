@@ -1285,7 +1285,11 @@
   flex-shrink: 0;
   padding: 12px 16px;
   border-top: 1px solid var(--assistant-line);
-  background: var(--color-background-base);
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
 }
 
 /* Worker details */

@@ -85,7 +85,8 @@ function editorThemeStyles(dark: boolean) {
       outline: "1px solid color-mix(in srgb, #f87171 55%, transparent)",
     },
     ".cm-panels, .cm-tooltip": {
-      backgroundColor: "var(--color-background-base)",
+      backgroundColor:
+        "color-mix(in srgb, var(--color-background-base) calc(var(--panel-opacity) * 100%), transparent)",
       color: "var(--color-content)",
     },
     ".cm-panels": {
@@ -98,7 +99,8 @@ function editorThemeStyles(dark: boolean) {
       overflow: "hidden",
     },
     ".cm-tooltip.cm-tooltip-autocomplete": {
-      backgroundColor: "var(--color-background-base)",
+      backgroundColor:
+        "color-mix(in srgb, var(--color-background-base) calc(var(--panel-opacity) * 100%), transparent)",
     },
     ".cm-tooltip-autocomplete > ul": {
       fontFamily: "var(--font-mono)",

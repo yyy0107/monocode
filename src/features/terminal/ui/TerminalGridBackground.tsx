@@ -600,7 +600,7 @@ export function TerminalGridBackground({
       aria-label={playing ? game.playLabel : undefined}
       className={
         playing
-          ? "absolute inset-0 z-20 overflow-hidden bg-background-base outline-none"
+          ? "content-surface absolute inset-0 z-20 overflow-hidden outline-none"
           : "group pointer-events-auto absolute inset-x-0 top-0 z-0 h-48"
       }
     >

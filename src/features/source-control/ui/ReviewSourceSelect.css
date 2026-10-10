@@ -1,7 +1,11 @@
 /* ZCode's large input trigger and floating source menu. */
 .review-source-select,
 .review-source-menu {
-  background: var(--color-menu);
+  background: color-mix(
+    in srgb,
+    var(--color-menu) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
   border-color: var(--color-stroke);
   font-size: var(--text-ui-base);
 }

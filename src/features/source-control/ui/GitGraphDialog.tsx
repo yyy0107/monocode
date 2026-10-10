@@ -192,7 +192,7 @@ export function GitGraphDialog({
               <col className="w-32" />
               <col className="w-24" />
             </colgroup>
-            <thead className="sticky top-0 z-10 bg-background-base text-content/50">
+            <thead className="content-sticky sticky top-0 z-10 text-content/50">
               <tr>
                 {["Graph", "Description", "Date", "Author", "Commit"].map(
                   (label) => (

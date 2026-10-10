@@ -377,6 +377,13 @@ html.has-native-glass:not(.theme-light) #root {
   z-index: 10;
 }
 
+/* Long sidebar lists promote layers only while a gesture is moving them. */
+.session-reorder-item:not([data-reordering], [data-dragging], [data-settling]),
+.sidebar-pinned-entry:not([data-reordering], [data-dragging], [data-settling]) {
+  transform: none;
+  will-change: auto;
+}
+
 .tab-motion,
 .tab-motion > button,
 .surface-tab {
@@ -2328,7 +2335,11 @@ html.has-user-accent
 .composer-popover {
   border: 1px solid var(--composer-border);
   border-radius: 8px;
-  background: var(--composer-input);
+  background: color-mix(
+    in srgb,
+    var(--composer-input) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
   color: var(--color-content);
   box-shadow:
     0 4px 6px -1px rgb(0 0 0 / 10%),
@@ -2691,7 +2702,19 @@ header[data-tauri-drag-region] button {
   padding: 0;
   border-color: var(--color-stroke);
   border-radius: 12px;
-  background: var(--color-card);
+  background: color-mix(
+    in srgb,
+    var(--color-card) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
+}
+
+.markdown-card {
+  background: color-mix(
+    in srgb,
+    var(--color-card) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
 }
 
 /* ZCode inline code: rounded-md chip at ui-sm. */
@@ -3727,7 +3750,11 @@ html.theme-light .drag-ghost-card {
   margin-block: 4px;
   border: 1px solid var(--color-stroke);
   border-radius: 12px;
-  background: var(--color-panel);
+  background: color-mix(
+    in srgb,
+    var(--color-panel) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
   padding: 12px 16px;
   color: var(--color-foreground-subtle);
   font-family: var(--font-mono);
@@ -4380,6 +4407,88 @@ html.has-native-glass .popover-backdrop {
       calc(var(--popover-opacity) * var(--panel-opacity) * 100%),
     transparent
   );
+}
+
+/* Content inside a pane (changes, terminal, workflows) fills like the
+   split-view card it sits in: solid by default, Window opacity under glass,
+   and no fill of its own over a full-window background. */
+.content-surface {
+  background: var(--color-background-base);
+}
+
+html.has-native-glass:not(.theme-light) .content-surface {
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) calc(var(--window-opacity) * 100%),
+    transparent
+  );
+}
+
+html.chat-background-window.has-chat-background.chat-background-effect-ready
+  .content-surface {
+  background: transparent;
+}
+
+/* Sticky headers over scrolling content are panels: they fade with Panel
+   opacity and blur what scrolls beneath instead of letting it read through. */
+.content-sticky {
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
+}
+
+html.translucent-panels .content-sticky {
+  backdrop-filter: blur(16px);
+}
+
+/* Shared panel fills for cards, menus and floating blocks: Panel opacity
+   fades them; menus also blur what is behind once they are translucent. */
+.panel-card {
+  background: color-mix(
+    in srgb,
+    var(--color-card) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
+}
+
+.panel-fill {
+  background: color-mix(
+    in srgb,
+    var(--color-panel) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
+}
+
+.panel-base {
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
+}
+
+.panel-menu {
+  background: color-mix(
+    in srgb,
+    var(--color-menu) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
+}
+
+/* Gutters stay put over horizontally scrolled code; tooltips, find panels
+   and toasts float over content. */
+html.translucent-panels
+  :is(
+    .panel-menu,
+    .composer-popover,
+    .status-toast,
+    .cm-tooltip,
+    .cm-panels,
+    .readonly-text-view .cm-gutters
+  ) {
+  backdrop-filter: blur(16px);
 }
 
 /* Settings: the page panel and its grouped cards. */

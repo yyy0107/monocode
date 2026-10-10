@@ -4,7 +4,11 @@
   overflow: hidden;
   border: 1px solid var(--color-stroke);
   border-radius: 10px;
-  background: var(--color-background-base);
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
   color: var(--color-content);
   font-size: calc(13px + var(--mobile-popup-font-step, 0px));
   user-select: text;

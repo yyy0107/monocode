@@ -26,7 +26,7 @@ export function WorkflowRunTabView({ file }: { file: FilePaneTab & { workflowRun
   }), [file.cwd, file.id, source.parentSessionId, source.runId, source.toolCallId, source.workflowName]);
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="h-full min-h-0 overflow-y-auto bg-background-base font-sans" data-workflow-run-tab>
+      <div className="content-surface h-full min-h-0 overflow-y-auto font-sans" data-workflow-run-tab>
         <div className="mx-auto w-full max-w-3xl">
           <WorkflowRunSidePane
             tab={tab}

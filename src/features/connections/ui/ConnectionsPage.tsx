@@ -172,7 +172,7 @@ function ControlThisComputer() {
           {t("Add")}
         </button>
       </div>
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="overflow-hidden rounded-xl border border-border panel-card">
         {!machineId ? (
           <p className="px-4 py-4 text-ui-base text-foreground-subtle">
             {t("The conversation service on this computer is not running.")}

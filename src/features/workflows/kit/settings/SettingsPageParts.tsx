@@ -49,7 +49,7 @@ export function SettingsRow({
 
 export function SettingsGroupCard({ children }: { children: ReactNode }) {
   return (
-    <Card className="overflow-hidden rounded-xl border border-border bg-card py-0 shadow-none">
+    <Card className="overflow-hidden rounded-xl border border-border panel-card py-0 shadow-none">
       <CardContent className="space-y-0 px-0">{children}</CardContent>
     </Card>
   );

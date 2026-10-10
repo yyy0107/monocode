@@ -263,7 +263,7 @@ export function GitChangesPanel({
               <div
                 role="menu"
                 aria-label={uiT("Branch actions")}
-                className="absolute top-full right-0 z-30 mt-1 min-w-36 rounded-md border border-content/10 bg-background-base py-1 shadow-lg"
+                className="absolute top-full right-0 z-30 mt-1 min-w-36 rounded-md border border-content/10 panel-menu py-1 shadow-lg"
               >
                 <button
                   type="button"
@@ -841,7 +841,7 @@ function ChangedFiles({
             <div
               role="menu"
               aria-label={uiT("Commit options")}
-              className="absolute top-full right-0 z-30 mt-1 min-w-48 rounded-md border border-content/10 bg-background-base py-1 shadow-lg"
+              className="absolute top-full right-0 z-30 mt-1 min-w-48 rounded-md border border-content/10 panel-menu py-1 shadow-lg"
             >
               <button
                 type="button"

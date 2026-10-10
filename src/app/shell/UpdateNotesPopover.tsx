@@ -64,7 +64,7 @@ export function UpdateNotesPopover({
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
       data-no-drag
-      className="overflow-y-auto overscroll-contain bg-card p-3 text-content select-text"
+      className="overflow-y-auto overscroll-contain panel-card p-3 text-content select-text"
     >
       <header className="mb-3 border-b border-stroke pb-2 text-[14px] leading-6">
         <div>{title}</div>

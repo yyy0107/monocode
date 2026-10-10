@@ -279,7 +279,7 @@ export function GitReviewPane({
   return (
     <ReviewDiffsWorkerPool>
       <section
-        className="git-review-pane flex h-full min-h-0 min-w-0 flex-col bg-background-base"
+        className="git-review-pane content-surface flex h-full min-h-0 min-w-0 flex-col"
         data-git-review-pane
       >
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 p-3">

@@ -69,7 +69,7 @@ export function UpdateAvailableDialog({
       minimalHeader
       fitViewport
       onClose={onClose}
-      className="bg-card"
+      className="panel-card"
     >
       <div className="px-6 pb-6 pt-12 text-content">
         <div className="flex items-center gap-4">

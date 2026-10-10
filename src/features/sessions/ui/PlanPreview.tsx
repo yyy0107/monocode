@@ -128,7 +128,7 @@ export function PlanPreview({
   const showBuild = !!onBuild && !deciding && planBuildable(text, plan, streaming);
 
   return (
-    <div className="plan-card mb-2 overflow-hidden rounded-[16px] border border-content/10 bg-background-base">
+    <div className="plan-card mb-2 overflow-hidden rounded-[16px] border border-content/10 panel-base">
       <div className="flex items-center gap-2 px-4 pt-3 pb-1">
         <ListChecks className="size-4 shrink-0 text-content/50" />
         <span className="font-sans text-[13px] text-content/60">

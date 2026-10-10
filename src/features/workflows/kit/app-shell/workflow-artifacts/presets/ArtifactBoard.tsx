@@ -34,7 +34,7 @@ function BoardCard({ card }: { card: BoardCardModel }) {
     // key 是卡片 id（稳定），所以只有**新卡**播揭示动画；状态变化让卡换列，但不重播。
     <div
       className={cn(
-        "rounded-lg border border-card-border bg-card px-2 py-1.5",
+        "rounded-lg border border-card-border panel-card px-2 py-1.5",
         REVEAL_ANIMATION_CLASS,
       )}
       data-card-id={card.id}

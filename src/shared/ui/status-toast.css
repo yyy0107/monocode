@@ -30,7 +30,11 @@
   padding: 8px 14px;
   border: 1px solid var(--color-stroke);
   border-radius: 12px;
-  background: var(--card-color);
+  background: color-mix(
+    in srgb,
+    var(--card-color) calc(var(--panel-opacity) * 100%),
+    transparent
+  );
   color: var(--color-content);
   box-shadow: 0 6px 24px rgb(0 0 0 / 0.14);
   font-size: 14px;
@@ -46,7 +50,12 @@
 .status-toast[data-tone="success"],
 .status-toast[data-tone="error"] {
   border-color: color-mix(in srgb, var(--status-toast-tint) 30%, var(--card-color));
-  background: color-mix(in srgb, var(--status-toast-tint) 9%, var(--card-color));
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--status-toast-tint) 9%, var(--card-color))
+      calc(var(--panel-opacity) * 100%),
+    transparent
+  );
   color: var(--status-toast-tint);
   padding-right: 8px;
 }

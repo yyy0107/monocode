@@ -23,7 +23,7 @@ export function WorkflowsView({ cwd }: { cwd: string }) {
         </div>
       </div>
       <TooltipProvider delayDuration={300}>
-        <div className="min-h-0 flex-1 overflow-y-auto bg-background-base font-sans">
+        <div className="content-surface min-h-0 flex-1 overflow-y-auto font-sans">
           <div className="mx-auto w-full max-w-3xl px-4 py-4">
             <SavedWorkflowsSection
               workspacePath={cwd}

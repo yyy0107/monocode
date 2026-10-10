@@ -66,7 +66,8 @@ const theme = EditorView.theme({
   ".cm-content": { padding: "8px 0", tabSize: "4" },
   ".cm-line": { padding: "0 12px" },
   ".cm-gutters": {
-    backgroundColor: "var(--color-background-base)",
+    backgroundColor:
+      "color-mix(in srgb, var(--color-background-base) calc(var(--panel-opacity) * 100%), transparent)",
     color: "color-mix(in srgb, currentColor 45%, transparent)",
     borderRight: "1px solid var(--color-stroke)",
   },

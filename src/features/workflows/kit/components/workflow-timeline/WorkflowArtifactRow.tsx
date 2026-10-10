@@ -68,7 +68,7 @@ export function WorkflowArtifactRow({
     >
       <div
         aria-hidden
-        className="wf-tile-frame wf-arrive relative h-[100px] w-[160px] overflow-hidden rounded-lg border border-border bg-panel @max-[380px]/wf-artifacts:h-[85px] @max-[380px]/wf-artifacts:w-[136px]"
+        className="wf-tile-frame wf-arrive relative h-[100px] w-[160px] overflow-hidden rounded-lg border border-border panel-fill @max-[380px]/wf-artifacts:h-[85px] @max-[380px]/wf-artifacts:w-[136px]"
         data-testid="workflow-artifact-row-frame"
         inert
         style={style}

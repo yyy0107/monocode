@@ -604,7 +604,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
   return (
     <div
       ref={outerRef}
-      className="monocode-terminal flex h-full w-full min-h-0 min-w-0 flex-col bg-background-base"
+      className="monocode-terminal content-surface flex h-full w-full min-h-0 min-w-0 flex-col"
       onMouseDown={() => liveRef.current?.term.focus()}
       onKeyDownCapture={(event) => {
         const term = liveRef.current?.term;

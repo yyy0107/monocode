@@ -48,7 +48,7 @@ export interface WorkflowCompletionArtifact extends ArtifactPillData {
 export function ArtifactSheetGlyph({ badge }: { badge?: string }) {
   return (
     <div className="absolute inset-0 grid place-items-center" data-testid="workflow-artifact-sheet">
-      <div className="flex aspect-[3/4] w-[38%] max-w-[72px] flex-col gap-1.5 rounded-[4px] border border-border bg-card p-2.5 shadow-[0_1px_0_var(--color-workflow-rule)]">
+      <div className="flex aspect-[3/4] w-[38%] max-w-[72px] flex-col gap-1.5 rounded-[4px] border border-border panel-card p-2.5 shadow-[0_1px_0_var(--color-workflow-rule)]">
         <i className="block h-[5px] w-[55%] rounded-sm bg-surface-hover" />
         <i className="block h-[3px] rounded-sm bg-surface-hover" />
         <i className="block h-[3px] rounded-sm bg-surface-hover" />
@@ -102,7 +102,7 @@ export function WorkflowArtifactTile({
       {/* 预览框：底部渐隐由预览内容自己决定（文档缩略要「还有」的暗示，看板与图片不要）。 */}
       <div
         aria-hidden
-        className="wf-tile-frame wf-arrive relative aspect-[16/10] w-full overflow-hidden rounded-lg border border-border bg-panel"
+        className="wf-tile-frame wf-arrive relative aspect-[16/10] w-full overflow-hidden rounded-lg border border-border panel-fill"
         data-testid="workflow-artifact-tile-frame"
         inert
         style={style}
