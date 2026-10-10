@@ -3601,5 +3601,17 @@
   "Background image strength": "背景图强度",
   "How strongly the image shows through the interface. Desktop transparency does not change it.": "图片透过界面显示的强度，不受桌面透明度影响。",
   "Panel transparency": "面板透明度",
-  "Composer, settings, dialogs and menus. Higher values show more of what is behind them.": "输入框、设置、对话框和菜单的透明度。数值越高，越能透出后面的内容。"
+  "Composer, settings, dialogs and menus. Higher values show more of what is behind them.": "输入框、设置、对话框和菜单的透明度。数值越高，越能透出后面的内容。",
+  "Connecting to server…": "正在连接服务器…",
+  "Tools": "工具",
+  "Resources": "资源",
+  "This server does not provide tools.": "此服务器不提供工具。",
+  "This server does not provide resources.": "此服务器不提供资源。",
+  "This server does not provide prompts.": "此服务器不提供提示词。",
+  "MCP server capabilities": "MCP 服务器能力",
+  "None listed.": "没有列出任何项。",
+  "No parameters": "无参数",
+  "required": "必填",
+  "Show tools, resources and prompts": "查看工具、资源和提示词",
+  "This server has no local configuration to inspect.": "此服务器没有可检查的本地配置。"
 }

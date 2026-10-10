@@ -25,7 +25,11 @@ import {
   ChevronDown,
   ListFilter,
   Check,
+  ChevronRight,
 } from "../../../shared/ui/icons";
+import { AnimatedCollapse } from "../../../shared/ui/AnimatedCollapse";
+import { mcpServerKey } from "../model/mcpInspect";
+import { McpServerDetails } from "./McpServerDetails";
 import { MCP_PROVIDER_LABELS, type McpConnection } from "../model/mcp";
 import {
   getCachedMcpSettings,
@@ -357,6 +361,7 @@ function McpConnections({
   const [piError, setPiError] = useState(cached?.piError ?? "");
   const [addOpen, setAddOpen] = useState(false);
   const [removeScopes, setRemoveScopes] = useState<Record<string, Scope>>({});
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const refreshGeneration = useRef(0);
 
   const applySnapshot = useCallback((snapshot: McpSettingsSnapshot) => {
@@ -569,106 +574,145 @@ function McpConnections({
         </p>
       ) : (
         <div className="overflow-hidden rounded-xl border border-content/10 bg-content/3">
-          {visible.map((server) => (
-            <div
-              key={`${server.provider}:${server.scope}:${server.configPath}:${server.name}`}
-              className="flex flex-wrap items-center gap-3 border-b border-content/5 px-4 py-3.5 last:border-b-0"
-            >
-              <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-content/[0.05] ring-1 ring-inset ring-content/[0.06]">
-                <ProviderIcon provider={server.provider} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium text-content">
-                  {server.name}
-                </div>
-                <div className="mt-1 text-[12px] leading-relaxed text-content/45">
-                  {MCP_PROVIDER_LABELS[server.provider]} · {server.scope} ·{" "}
-                  {server.transport || "MCP"} ·{" "}
-                  {server.provider === "pi"
-                    ? uiT(server.status)
-                    : server.status}
-                  {server.toolCount != null ? (
-                    <> · {uiT("{count} tools", { count: server.toolCount })}</>
+          {visible.map((server) => {
+            const key = mcpServerKey(server);
+            const open = expanded.has(key);
+            const inspectable = Boolean(server.configPath);
+            return (
+              <div
+                key={key}
+                className="border-b border-content/5 last:border-b-0"
+              >
+                <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
+                  <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-content/[0.05] ring-1 ring-inset ring-content/[0.06]">
+                    <ProviderIcon provider={server.provider} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      disabled={!inspectable}
+                      aria-expanded={inspectable ? open : undefined}
+                      title={
+                        inspectable
+                          ? uiT("Show tools, resources and prompts")
+                          : uiT(
+                              "This server has no local configuration to inspect.",
+                            )
+                      }
+                      onClick={() =>
+                        setExpanded((current) => {
+                          const next = new Set(current);
+                          if (!next.delete(key)) next.add(key);
+                          return next;
+                        })
+                      }
+                      className="-mx-1 flex max-w-full items-center gap-1 rounded px-1 text-left text-[13px] font-medium text-content enabled:hover:bg-content/5 focus-visible:outline-2 focus-visible:outline-accent"
+                    >
+                      <span className="truncate">{server.name}</span>
+                      {inspectable ? (
+                        <ChevronRight
+                          className={`size-3.5 shrink-0 text-content/45 transition-transform ${open ? "rotate-90" : ""}`}
+                        />
+                      ) : null}
+                    </button>
+                    <div className="mt-1 text-[12px] leading-relaxed text-content/45">
+                      {MCP_PROVIDER_LABELS[server.provider]} · {server.scope} ·{" "}
+                      {server.transport || "MCP"} ·{" "}
+                      {server.provider === "pi"
+                        ? uiT(server.status)
+                        : server.status}
+                      {server.toolCount != null ? (
+                        <>
+                          {" "}
+                          · {uiT("{count} tools", { count: server.toolCount })}
+                        </>
+                      ) : null}
+                    </div>
+                    {server.statusDetail ? (
+                      <div className="mt-1 whitespace-pre-wrap text-[11px] text-content/55">
+                        {server.statusDetail}
+                      </div>
+                    ) : null}
+                    {server.configPath ? (
+                      <div
+                        className="truncate text-[11px] text-content/35"
+                        title={server.configPath}
+                      >
+                        {server.configPath}
+                      </div>
+                    ) : null}
+                  </div>
+                  {(
+                    server.provider === "pi"
+                      ? server.nativeState === "needs-auth"
+                      : server.provider !== "claude_desktop" &&
+                        server.transport &&
+                        !["stdio", "local", "ws"].includes(server.transport)
+                  ) ? (
+                    <button
+                      type="button"
+                      disabled={busy !== null}
+                      onClick={() => void login(server)}
+                      className="rounded-md border border-stroke px-2 py-1 text-xs hover:bg-content/5 disabled:opacity-50"
+                    >
+                      {uiT("Sign in")}
+                    </button>
                   ) : null}
+                  {server.provider === "claude" ? (
+                    <>
+                      {!server.configPath ? (
+                        <label className="text-xs text-content/55">
+                          {uiT("Scope")}{" "}
+                          <select
+                            aria-label={uiT("Scope to remove {value0} from", {
+                              value0: String(server.name),
+                            })}
+                            value={removeScopes[server.name] ?? "local"}
+                            onChange={(event) =>
+                              setRemoveScopes((current) => ({
+                                ...current,
+                                [server.name]: event.target.value as Scope,
+                              }))
+                            }
+                            className="rounded border border-stroke bg-background-base px-1 py-1 text-content"
+                          >
+                            <option value="local">{uiT("Local")}</option>
+                            <option value="project">{uiT("Project")}</option>
+                            <option value="user">{uiT("User")}</option>
+                          </select>
+                        </label>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => void remove(server)}
+                        className="rounded-md border border-stroke px-2 py-1 text-xs hover:bg-content/5 disabled:opacity-50"
+                      >
+                        {uiT("Remove")}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void revealPath(server.configPath).catch((cause) =>
+                          setError(String(cause)),
+                        )
+                      }
+                      className="rounded-md border border-stroke px-2 py-1 text-xs hover:bg-content/5"
+                    >
+                      {uiT("Show config")}
+                    </button>
+                  )}
                 </div>
-                {server.statusDetail ? (
-                  <div className="mt-1 whitespace-pre-wrap text-[11px] text-content/55">
-                    {server.statusDetail}
-                  </div>
-                ) : null}
-                {server.configPath ? (
-                  <div
-                    className="truncate text-[11px] text-content/35"
-                    title={server.configPath}
-                  >
-                    {server.configPath}
-                  </div>
+                {inspectable ? (
+                  <AnimatedCollapse expanded={open} motion="height">
+                    {() => <McpServerDetails cwd={cwd} server={server} />}
+                  </AnimatedCollapse>
                 ) : null}
               </div>
-              {(
-                server.provider === "pi"
-                  ? server.nativeState === "needs-auth"
-                  : server.provider !== "claude_desktop" &&
-                    server.transport &&
-                    !["stdio", "local", "ws"].includes(server.transport)
-              ) ? (
-                <button
-                  type="button"
-                  disabled={busy !== null}
-                  onClick={() => void login(server)}
-                  className="rounded-md border border-stroke px-2 py-1 text-xs hover:bg-content/5 disabled:opacity-50"
-                >
-                  {uiT("Sign in")}
-                </button>
-              ) : null}
-              {server.provider === "claude" ? (
-                <>
-                  {!server.configPath ? (
-                    <label className="text-xs text-content/55">
-                      {uiT("Scope")}{" "}
-                      <select
-                        aria-label={uiT("Scope to remove {value0} from", {
-                          value0: String(server.name),
-                        })}
-                        value={removeScopes[server.name] ?? "local"}
-                        onChange={(event) =>
-                          setRemoveScopes((current) => ({
-                            ...current,
-                            [server.name]: event.target.value as Scope,
-                          }))
-                        }
-                        className="rounded border border-stroke bg-background-base px-1 py-1 text-content"
-                      >
-                        <option value="local">{uiT("Local")}</option>
-                        <option value="project">{uiT("Project")}</option>
-                        <option value="user">{uiT("User")}</option>
-                      </select>
-                    </label>
-                  ) : null}
-                  <button
-                    type="button"
-                    disabled={busy !== null}
-                    onClick={() => void remove(server)}
-                    className="rounded-md border border-stroke px-2 py-1 text-xs hover:bg-content/5 disabled:opacity-50"
-                  >
-                    {uiT("Remove")}
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() =>
-                    void revealPath(server.configPath).catch((cause) =>
-                      setError(String(cause)),
-                    )
-                  }
-                  className="rounded-md border border-stroke px-2 py-1 text-xs hover:bg-content/5"
-                >
-                  {uiT("Show config")}
-                </button>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       <p className="text-xs text-content/45">

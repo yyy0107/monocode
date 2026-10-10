@@ -1695,7 +1695,7 @@ fn isolate_child(cmd: &mut Command) {
     }
 }
 
-fn terminate(pid: u32) {
+pub(crate) fn terminate(pid: u32) {
     terminate_after(pid, KILL_ESCALATE);
 }
 
@@ -2739,7 +2739,7 @@ fn is_cursor_agent(path: &Path) -> bool {
 ///
 /// Reads the cached PATH rather than spawning a shell per lookup: six
 /// resolvers each asking `command -v` meant six shell startups per probe.
-fn which_via_login_shell(name: &str) -> Option<PathBuf> {
+pub(crate) fn which_via_login_shell(name: &str) -> Option<PathBuf> {
     which_in_path(&gui_search_path(), name)
 }
 
@@ -2965,7 +2965,7 @@ pub(crate) fn apply_gui_env(cmd: &mut Command) {
     }
 }
 
-fn prepare_child(cmd: &mut Command, command: &str) {
+pub(crate) fn prepare_child(cmd: &mut Command, command: &str) {
     apply_gui_env(cmd);
     if command_basename(command) == "fx" {
         apply_fx_env(cmd);

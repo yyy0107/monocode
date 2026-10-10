@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { McpSettings } from "./McpSettings";
 import { clearMcpSettingsCache } from "../model/mcpSettingsCache";
+import { clearMcpInspections } from "../model/mcpInspect";
 
 const invoke = vi.fn();
 const ask = vi.fn(async () => true);
@@ -19,6 +20,7 @@ let root: Root;
 
 beforeEach(() => {
   clearMcpSettingsCache();
+  clearMcpInspections();
   const storage = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -602,4 +604,53 @@ it("uses the shared project picker and caches each project's list", async () => 
   await act(async () => refresh.click());
   expect(invoke).toHaveBeenCalledTimes(6);
   expect(invoke).toHaveBeenLastCalledWith("claude_mcp_list", { cwd: "/other" });
+});
+
+it("expands a configured server to list its tools", async () => {
+  const inspect = vi.fn(async () => ({
+    serverName: "Docs",
+    serverVersion: "1.0.0",
+    protocolVersion: "2025-06-18",
+    instructions: null,
+    tools: [
+      {
+        name: "search_docs",
+        description: "Search the documentation.",
+        inputSchema: {
+          type: "object",
+          properties: { query: { type: "string", description: "Text" } },
+          required: ["query"],
+        },
+      },
+    ],
+    resources: null,
+    resourceTemplates: null,
+    prompts: [],
+    errors: [],
+  }));
+  const discover = invoke.getMockImplementation()!;
+  invoke.mockImplementation(async (command: string, args: unknown) =>
+    command === "mcp_inspect" ? inspect(args) : discover(command, args),
+  );
+  await act(async () =>
+    root.render(createElement(McpSettings, { cwd: "/project" })),
+  );
+  const toggle = [
+    ...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+  ].find((button) => button.textContent === "docs")!;
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+  await act(async () => toggle.click());
+
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(inspect).toHaveBeenCalledWith({
+    cwd: "/project",
+    provider: "codex",
+    scope: "user",
+    configPath: "/home/.codex/config.toml",
+    name: "docs",
+  });
+  expect(container.textContent).toContain("search_docs");
+  expect(container.textContent).toContain("Search the documentation.");
+  expect(container.textContent).toContain("Docs · 1.0.0 · MCP 2025-06-18");
 });

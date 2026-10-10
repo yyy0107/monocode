@@ -26,6 +26,7 @@ mod macos;
 #[cfg(target_os = "macos")]
 mod macos_background;
 mod mcp;
+mod mcp_inspect;
 mod menu;
 mod notes;
 mod notifications;
@@ -446,6 +447,7 @@ pub fn run() {
             harness::pi_mcp_list,
             mcp::mcp_discover,
             mcp::mcp_add,
+            mcp_inspect::mcp_inspect,
             harness::claude_mcp_add,
             harness::claude_mcp_remove,
             harness::mcp_provider_login,
