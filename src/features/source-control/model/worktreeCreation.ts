@@ -38,17 +38,29 @@ export function startWorktreeCreation(
   };
 }
 
-/** Git reports progress while the working copy is still being created. */
+/** The label of a Git progress line such as `Updating files:  42% (3/7)`. */
+function progressLabel(line: WorktreeLogLine | undefined): string | undefined {
+  if (line?.kind !== "output") return undefined;
+  return /^([^:]+):\s+\d{1,3}%/.exec(line.text)?.[1];
+}
+
+/**
+ * Git reports progress while the working copy is still being created. A
+ * progress update replaces the previous one, as Git redraws it in a terminal.
+ */
 export function appendWorktreeCreationLog(
   creation: WorktreeCreation,
   id: string,
   line: string,
 ): WorktreeCreation {
   if (creation.id !== id) return creation;
-  return {
-    ...creation,
-    log: [...creation.log, { kind: "output", text: line }],
-  };
+  const next: WorktreeLogLine = { kind: "output", text: line };
+  const label = progressLabel(next);
+  const keep =
+    label !== undefined && progressLabel(creation.log.at(-1)) === label
+      ? creation.log.slice(0, -1)
+      : creation.log;
+  return { ...creation, log: [...keep, next] };
 }
 
 export function completeWorktreeCreation(

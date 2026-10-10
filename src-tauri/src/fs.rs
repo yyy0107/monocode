@@ -4578,22 +4578,25 @@ pub(crate) fn git_checked_with_progress(
         .map_err(|e| e.to_string())?;
     let mut lines = Vec::new();
     if let Some(stderr) = child.stderr.take() {
-        let mut reader = BufReader::new(stderr);
+        // Git redraws progress in place with `\r`, so both end a line.
         let mut raw = Vec::new();
-        loop {
-            raw.clear();
-            match reader.read_until(b'\n', &mut raw) {
-                Ok(0) | Err(_) => break,
-                Ok(_) => {}
-            }
-            let text = String::from_utf8_lossy(&raw);
+        let mut emit = |raw: &mut Vec<u8>| {
+            let text = String::from_utf8_lossy(raw);
             let line = text.trim();
-            if line.is_empty() {
-                continue;
+            if !line.is_empty() {
+                on_line(line);
+                lines.push(line.to_owned());
             }
-            on_line(line);
-            lines.push(line.to_owned());
+            raw.clear();
+        };
+        for byte in BufReader::new(stderr).bytes() {
+            match byte {
+                Ok(b'\r' | b'\n') => emit(&mut raw),
+                Ok(byte) => raw.push(byte),
+                Err(_) => break,
+            }
         }
+        emit(&mut raw);
     }
     let status = child.wait().map_err(|e| e.to_string())?;
     if status.success() {

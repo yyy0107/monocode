@@ -33,7 +33,7 @@ export type HostWorktrees = { worktrees: HostWorktree[]; defaultRoot: string };
 
 function gitOutputLines(text: string): string[] {
   return text
-    .split("\n")
+    .split(/[\r\n]/)
     .map((line) => line.trim())
     .filter(Boolean);
 }

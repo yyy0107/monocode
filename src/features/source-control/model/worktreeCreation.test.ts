@@ -28,6 +28,24 @@ describe("worktree creation log", () => {
     ]);
   });
 
+  it("redraws git progress in place instead of appending each update", () => {
+    const creation = [
+      "Preparing worktree (new branch 'mc/x')",
+      "Updating files:  22% (1637/7412)",
+      "Updating files:  97% (7178/7412)",
+      "Updating files: 100% (7412/7412), done.",
+      "HEAD is now at 4e534a7 feat",
+    ].reduce(
+      (next, line) => appendWorktreeCreationLog(next, "run-1", line),
+      startWorktreeCreation("main", "run-1"),
+    );
+    expect(creation.log.slice(2)).toEqual([
+      { kind: "output", text: "Preparing worktree (new branch 'mc/x')" },
+      { kind: "output", text: "Updating files: 100% (7412/7412), done." },
+      { kind: "output", text: "HEAD is now at 4e534a7 feat" },
+    ]);
+  });
+
   it("ignores lines and results that belong to another creation", () => {
     const creation = startWorktreeCreation("main", "run-1");
     expect(appendWorktreeCreationLog(creation, "run-0", "stale")).toBe(
