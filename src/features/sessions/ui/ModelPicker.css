@@ -192,6 +192,15 @@
   }
 }
 
+/* UI fonts sit Latin caps below the line box's centre (about 1px in
+   WebKitGTK), so the label reads lower than the agent icon. Trim the box to
+   cap height so it centres like the icon; padding keeps descenders visible
+   inside the truncating span. */
+.model-picker-trigger-text {
+  padding-block: 0.3em;
+  text-box: trim-both cap alphabetic;
+}
+
 /* Provider tabs scroll sideways without a visible scrollbar. */
 .model-picker-providers {
   scrollbar-width: none;
@@ -201,29 +210,42 @@
   display: none;
 }
 
-/* Sub-views replace the menu in place; slide in from the side they lead to. */
-.model-picker-view[data-view-motion] {
-  animation: model-picker-view-in 170ms var(--motion-ease-out) both;
+/* Sub-views replace the menu in place; the whole surface replays its opening
+   pop from the bottom. Forward and back alternate, so two identical keyframe
+   names restart the animation on every switch. Only the start is filled so
+   the closing transition still owns the transform afterwards. */
+.composer-popover[data-model-picker][data-view-motion="forward"]:not(
+    [data-fold-state="closing"]
+  ) {
+  animation: model-picker-pop-a 170ms var(--motion-ease-out) backwards;
 }
 
-.model-picker-view[data-view-motion="back"] {
-  --model-picker-view-from: -12px;
+.composer-popover[data-model-picker][data-view-motion="back"]:not(
+    [data-fold-state="closing"]
+  ) {
+  animation: model-picker-pop-b 170ms var(--motion-ease-out) backwards;
 }
 
-@keyframes model-picker-view-in {
+.composer-popover[data-model-picker] {
+  transform-origin: 50% 100%;
+}
+
+@keyframes model-picker-pop-a {
   from {
     opacity: 0;
-    transform: translateX(var(--model-picker-view-from, 12px));
+    transform: translateY(4px) scale(0.98);
   }
+}
 
-  to {
-    opacity: 1;
-    transform: none;
+@keyframes model-picker-pop-b {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .model-picker-view[data-view-motion] {
+  .composer-popover[data-model-picker][data-view-motion] {
     animation: none;
   }
 }

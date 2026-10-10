@@ -91,7 +91,8 @@ type ViewMotion = "forward" | "back";
 
 type RecentMenu = { models: AgentModel[] };
 
-const MENU_WIDTH = 250;
+/** Root menu and its in-place sub-views share one width. */
+const MENU_WIDTH = 280;
 const MODEL_MENU_WIDTH = 320;
 const SETTING_MENU_WIDTH = 210;
 const SELF = "[data-model-picker]";
@@ -287,6 +288,9 @@ export function ModelPicker({
   const [active, setActive] = useState(0);
   const [activeModel, setActiveModel] = useState(0);
   const [activeSetting, setActiveSetting] = useState(0);
+  // Sub-view lists start on the selected row for arrow keys, but its check
+  // mark is enough; paint the highlight only after the user navigates.
+  const [listNavigated, setListNavigated] = useState(false);
   const [recentMenu, setRecentMenu] = useState<RecentMenu | null>(null);
   const [recentActive, setRecentActive] = useState(0);
   const [submenu, setSubmenu] = useState<Submenu | null>(null);
@@ -472,6 +476,7 @@ export function ModelPicker({
     if (!open || submenu?.kind !== "models") return;
     const index = visibleModels.findIndex((item) => item.id === current.id);
     setActiveModel(index >= 0 ? index : 0);
+    setListNavigated(false);
   }, [open, submenu?.kind, query, visibleModels, current.id]);
 
   useEffect(() => {
@@ -481,6 +486,7 @@ export function ModelPicker({
       (option) => option.value === value,
     );
     setActiveSetting(index >= 0 ? index : 0);
+    setListNavigated(false);
   }, [submenu, values]);
 
   useEffect(() => {
@@ -589,6 +595,16 @@ export function ModelPicker({
     setActiveModel(0);
   };
 
+  const navigateModel: typeof setActiveModel = (next) => {
+    setListNavigated(true);
+    setActiveModel(next);
+  };
+
+  const navigateSetting: typeof setActiveSetting = (next) => {
+    setListNavigated(true);
+    setActiveSetting(next);
+  };
+
   const enterView = (next: Submenu) => {
     setViewMotion("forward");
     setSubmenu(next);
@@ -633,11 +649,11 @@ export function ModelPicker({
     if (event.key === "ArrowDown") {
       event.preventDefault();
       if (submenu?.kind === "models") {
-        setActiveModel((index) =>
+        navigateModel((index) =>
           Math.min(visibleModels.length - 1, index + 1),
         );
       } else if (submenu?.kind === "setting") {
-        setActiveSetting((index) =>
+        navigateSetting((index) =>
           Math.min(submenu.setting.options.length - 1, index + 1),
         );
       } else {
@@ -648,9 +664,9 @@ export function ModelPicker({
     if (event.key === "ArrowUp") {
       event.preventDefault();
       if (submenu?.kind === "models") {
-        setActiveModel((index) => Math.max(0, index - 1));
+        navigateModel((index) => Math.max(0, index - 1));
       } else if (submenu?.kind === "setting") {
-        setActiveSetting((index) => Math.max(0, index - 1));
+        navigateSetting((index) => Math.max(0, index - 1));
       } else {
         moveEntry(-1);
       }
@@ -739,11 +755,11 @@ export function ModelPicker({
         }`}
       >
         <HarnessIcon harness={current.harness} className="size-4 shrink-0" />
-        <span className="model-picker-name min-w-0 truncate text-[11px]">
+        <span className="model-picker-name model-picker-trigger-text min-w-0 truncate text-[11px]">
           {current.name}
         </span>
         {triggerEffortLabel ? (
-          <span className="shrink-0 text-[11px] text-content/50">
+          <span className="model-picker-trigger-text shrink-0 text-[11px] text-content/50">
             {triggerEffortLabel}
           </span>
         ) : null}
@@ -777,7 +793,8 @@ export function ModelPicker({
           searchRef={search}
           onQuery={setQuery}
           onSelectTab={selectTab}
-          onActive={setActiveModel}
+          showActive={listNavigated}
+          onActive={navigateModel}
           onPick={pickModel}
           onToggleFavorite={toggleFavorite}
         />
@@ -791,7 +808,7 @@ export function ModelPicker({
           anchor={button}
           side="top"
           align={align}
-          width={submenu?.kind === "models" ? MODEL_MENU_WIDTH : MENU_WIDTH}
+          width={MENU_WIDTH}
           minHeight={
             submenu?.kind === "models" ? MODEL_MENU_FRAME_HEIGHT : undefined
           }
@@ -813,6 +830,7 @@ export function ModelPicker({
           tabIndex={-1}
           onKeyDown={onMenuKey}
           data-model-picker
+          data-view-motion={viewMotion ?? undefined}
           style={
             submenu?.kind === "models"
               ? {
@@ -830,10 +848,9 @@ export function ModelPicker({
         >
           <div
             key={viewKey}
-            className={`model-picker-view${
-              submenu?.kind === "models" ? " flex min-h-0 flex-1 flex-col" : ""
-            }`}
-            data-view-motion={viewMotion ?? undefined}
+            className={
+              submenu?.kind === "models" ? "flex min-h-0 flex-1 flex-col" : ""
+            }
           >
             {submenu?.kind === "models" ? (
               <ModelBrowser
@@ -849,7 +866,8 @@ export function ModelPicker({
                 searchRef={search}
                 onQuery={setQuery}
                 onSelectTab={selectTab}
-                onActive={setActiveModel}
+                showActive={listNavigated}
+                onActive={navigateModel}
                 onPick={pickModel}
                 onToggleFavorite={toggleFavorite}
               />
@@ -862,7 +880,8 @@ export function ModelPicker({
                 {submenu.setting.options.map((option, index) => {
                   const selected =
                     option.value === settingValue(submenu.setting, values);
-                  const highlighted = index === activeSetting;
+                  const highlighted =
+                    listNavigated && index === activeSetting;
                   const tileTone = effortTileTone(
                     current.harness,
                     submenu.setting,
@@ -875,7 +894,7 @@ export function ModelPicker({
                       role="menuitemradio"
                       aria-checked={selected}
                       onMouseDown={(event) => event.preventDefault()}
-                      onMouseEnter={() => setActiveSetting(index)}
+                      onMouseEnter={() => navigateSetting(index)}
                       onClick={() => setSetting(submenu.setting, option.value)}
                       className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] ${
                         highlighted
@@ -1359,6 +1378,8 @@ type ModelBrowserProps = {
   models: AgentModel[];
   currentId: string;
   active: number;
+  /** False hides the active-row highlight until the user navigates. */
+  showActive?: boolean;
   query: string;
   favorites: string[];
   searchRef: React.RefObject<HTMLInputElement | null>;
@@ -1419,22 +1440,19 @@ function BackHeader({
   onBack: () => void;
 }) {
   const { t: uiT } = useTranslation();
+  // The whole row is the back target, not just the chevron.
   return (
-    <div className="mb-0.5 flex h-8 items-center gap-1 border-b border-stroke px-0.5 pb-1">
-      <button
-        type="button"
-        title={uiT("Back")}
-        aria-label={uiT("Back")}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={onBack}
-        className="grid size-6 shrink-0 place-items-center rounded-md text-content/55 hover:bg-content/5 hover:text-content"
-      >
-        <ChevronLeft className="size-3.5" />
-      </button>
-      <span className="min-w-0 flex-1 truncate text-[12px] text-content/55">
-        {label}
-      </span>
-    </div>
+    <button
+      type="button"
+      title={uiT("Back")}
+      aria-label={uiT("Back")}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onBack}
+      className="mb-1 flex h-8 w-full shrink-0 items-center gap-1.5 rounded-lg px-2 text-left text-[12px] text-content/55 hover:bg-content/5 hover:text-content"
+    >
+      <ChevronLeft className="size-3.5 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </button>
   );
 }
 
@@ -1446,6 +1464,7 @@ function ModelBrowser({
   models,
   currentId,
   active,
+  showActive = true,
   query,
   favorites,
   searchRef,
@@ -1546,26 +1565,12 @@ function ModelBrowser({
         if (item) onPick(item);
       }}
     >
-      <label
-        className={`flex shrink-0 items-center gap-2 border-b border-stroke py-2 pr-3 text-content/50 ${
-          onBack ? "pl-1.5" : "pl-3"
-        }`}
-      >
-        {onBack ? (
-          <button
-            type="button"
-            title={uiT("Back")}
-            aria-label={uiT("Back")}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={(event) => {
-              event.preventDefault();
-              onBack();
-            }}
-            className="grid size-6 shrink-0 place-items-center rounded-md text-content/55 hover:bg-content/5 hover:text-content"
-          >
-            <ChevronLeft className="size-3.5" />
-          </button>
-        ) : null}
+      {onBack ? (
+        <div className="shrink-0 p-1 pb-0">
+          <BackHeader label={uiT("Model")} onBack={onBack} />
+        </div>
+      ) : null}
+      <label className="flex shrink-0 items-center gap-2 border-b border-stroke px-3 py-2 text-content/50">
         <Search className="size-3.5 shrink-0" />
         <input
           ref={searchRef}
@@ -1659,7 +1664,7 @@ function ModelBrowser({
               ) : null}
               {group.models.map(({ item, index }, position) => {
                 const selected = item.id === currentId;
-                const highlighted = index === active;
+                const highlighted = showActive && index === active;
                 const favorited = favorites.includes(item.id);
                 const disabled = !source.available(item.harness);
                 // Favorites mix harnesses, so every row names its source.
@@ -1679,7 +1684,7 @@ function ModelBrowser({
                     onMouseEnter={() => onActive(index)}
                   >
                     <button
-                      ref={highlighted ? activeRef : undefined}
+                      ref={index === active ? activeRef : undefined}
                       type="button"
                       role="option"
                       aria-selected={selected}
