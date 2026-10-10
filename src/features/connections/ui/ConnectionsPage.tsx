@@ -1,7 +1,8 @@
 import { useTranslation } from "../../../shared/i18n/useTranslation";
 import { withStatusToast } from "../../../shared/ui/StatusToast";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, Loader, RefreshCw, Smartphone } from "../../../shared/ui/icons";
+import { Check, Computer, Copy, Loader, RefreshCw, Smartphone } from "../../../shared/ui/icons";
+import type { HostDeviceInfo } from "../model/protocol";
 import { Modal } from "../../../shared/ui/Modal";
 import { remoteRequest } from "../model/connections";
 import { pairingLink } from "../model/pairingLink";
@@ -13,9 +14,7 @@ import { ConnectionStatusIcon, type ConnectionState } from "./ConnectionStatusDo
 
 type ConnectionsTab = "control" | "ssh";
 
-export type HostDevice = {
-  model?: string;
-  manufacturer?: string;
+export type HostDevice = HostDeviceInfo & {
   id: string;
   name: string;
   admin: boolean;
@@ -194,6 +193,8 @@ function ControlThisComputer() {
         ) : (
           devices.map((device) => {
             const state: ConnectionState = error ? "error" : device.online ? "online" : "offline";
+            const desktop = device.deviceType === "desktop";
+            const hardware = desktop ? device.hostname : device.model ? [device.manufacturer, device.model].filter(Boolean).join(" ") : undefined;
             return (
             <div
               key={device.id}
@@ -203,14 +204,14 @@ function ControlThisComputer() {
                 state={state}
                 label={state === "error" ? t("Connection error") : state === "online" ? t("Online") : t("Offline")}
               >
-                <Smartphone className="size-5" />
+                {desktop ? <Computer className="size-5" /> : <Smartphone className="size-5" />}
               </ConnectionStatusIcon>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-ui-base font-medium text-foreground">
                   {device.name}
                 </div>
                 <div className="mt-0.5 truncate text-ui-caption text-foreground-subtle">
-                  {device.model ? `${[device.manufacturer, device.model].filter(Boolean).join(" ")} · ` : ""}
+                  {hardware ? `${hardware} · ` : ""}
                   {device.online && !error ? t("Online") : formatLastSeen(t, device.lastSeen)}
                 </div>
               </div>

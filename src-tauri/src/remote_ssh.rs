@@ -663,8 +663,8 @@ impl Tunnels {
     }
 }
 
-/// How this desktop appears in the host's device list.
-pub fn device_name() -> String {
+/// Local computer name reported to paired hosts.
+pub fn device_hostname() -> String {
     #[cfg(not(windows))]
     let run = |program: &str, args: &[&str]| {
         Command::new(program)
@@ -684,13 +684,17 @@ pub fn device_name() -> String {
     let name = std::fs::read_to_string("/etc/hostname")
         .ok()
         .or_else(|| run("hostname", &[]));
-    let name: String = name
-        .unwrap_or_default()
+    name.unwrap_or_default()
         .trim()
         .chars()
         .filter(|c| !c.is_control())
         .take(80)
-        .collect();
+        .collect()
+}
+
+/// How this desktop appears in the host's device list.
+pub fn device_name() -> String {
+    let name = device_hostname();
     if name.is_empty() {
         "MonoCode desktop".into()
     } else {

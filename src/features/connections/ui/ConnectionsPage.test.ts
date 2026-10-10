@@ -105,6 +105,22 @@ it("stops loading after a failed list and lets refresh retry the request", async
   expect(refreshButton().disabled).toBe(false);
 });
 
+it("shows a desktop hostname in the hardware subtitle and keeps its credential name", async () => {
+  vi.mocked(invoke).mockResolvedValueOnce({ devices: [
+    { id: "laptop", name: "Work computer", admin: false, deviceType: "desktop", hostname: "wy-ubuntu", online: true },
+    phone,
+  ] });
+  await render();
+  const desktopRow = [...container.querySelectorAll("div")].find(
+    (node) => node.textContent === "Work computer",
+  )!.parentElement!.parentElement!;
+  expect(desktopRow.textContent).toContain("wy-ubuntu · Online");
+  expect(desktopRow.querySelector(".lucide-monitor")).not.toBeNull();
+  expect(desktopRow.querySelector(".lucide-smartphone")).toBeNull();
+  expect(container.textContent).toContain("Samsung SM-S9280 · Never connected");
+  expect(container.querySelector(".lucide-smartphone")).not.toBeNull();
+});
+
 it("shows the unavailable service state without requesting devices", async () => {
   configureSharedHost(undefined, []);
   await render(true);

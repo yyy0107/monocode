@@ -1300,3 +1300,22 @@ it("records phone hardware only for the authenticated device and retains it on l
     reopened.close();
   }
 });
+
+it("records desktop hostnames for the authenticated device and persists them across reconnects", async () => {
+  const s = await setup();
+  s.store.markAdminDevice(s.first.id);
+  const info = { deviceType: "desktop", hostname: "  wy-ubuntu\u0000\n " };
+  expect((await s.call("environment.describe", { deviceId: s.first.id, deviceInfo: info }, s.second.token)).status).toBe(200);
+  await s.call("environment.describe", {}, s.second.token);
+  const devices = (await s.call("devices.list")).value.result.devices;
+  expect(devices.find((device: { id: string }) => device.id === s.second.id)).toMatchObject({
+    name: "Other computer", deviceType: "desktop", hostname: "wy-ubuntu",
+  });
+  expect(devices.find((device: { id: string }) => device.id === s.first.id).hostname).toBeUndefined();
+  const reopened = new HostStore(join(s.directory, "host.db"));
+  try {
+    expect(reopened.devices().find(device => device.id === s.second.id)).toMatchObject({ deviceType: "desktop", hostname: "wy-ubuntu" });
+  } finally {
+    reopened.close();
+  }
+});

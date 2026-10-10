@@ -136,8 +136,17 @@ fn rpc(
     token: &str,
     environment_id: Option<&str>,
     method: &str,
-    params: Value,
+    mut params: Value,
 ) -> Result<Value, String> {
+    if method == "environment.describe" {
+        if !params.is_object() {
+            params = json!({});
+        }
+        params["deviceInfo"] = json!({
+            "deviceType": "desktop",
+            "hostname": remote_ssh::device_hostname(),
+        });
+    }
     let agent = ureq::AgentBuilder::new()
         .redirects(0)
         .timeout_connect(std::time::Duration::from_secs(5))

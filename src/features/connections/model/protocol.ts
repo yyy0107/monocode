@@ -69,9 +69,11 @@ export const REMOTE_PROVIDERS = [
   "antigravity",
 ] as const;
 export type RemoteProvider = (typeof REMOTE_PROVIDERS)[number];
-/** Optional hardware metadata reported by a paired mobile client. */
+/** Optional hardware metadata reported by a paired client. */
 export type HostDeviceInfo = {
-  model: string;
+  deviceType?: "desktop" | "mobile";
+  hostname?: string;
+  model?: string;
   manufacturer?: string;
 };
 

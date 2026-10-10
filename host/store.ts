@@ -4,6 +4,7 @@ import { randomUUID, createHash, randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import type {
   CommandReceipt,
+  HostDeviceInfo,
   HostProject,
   HostSession,
   HostSessionSummary,
@@ -21,9 +22,7 @@ import { sessionNeedsInput } from "../src/features/sessions/model/session";
 
 const CACHED_SESSIONS = 32;
 
-export type HostDevice = {
-  model?: string;
-  manufacturer?: string;
+export type HostDevice = HostDeviceInfo & {
   id: string;
   name: string;
   admin: boolean;
@@ -82,6 +81,8 @@ export class HostStore {
     if (!deviceColumns.some(column => column.name === "last_seen")) this.db.exec("ALTER TABLE devices ADD COLUMN last_seen INTEGER");
     if (!deviceColumns.some(column => column.name === "model")) this.db.exec("ALTER TABLE devices ADD COLUMN model TEXT");
     if (!deviceColumns.some(column => column.name === "manufacturer")) this.db.exec("ALTER TABLE devices ADD COLUMN manufacturer TEXT");
+    if (!deviceColumns.some(column => column.name === "device_type")) this.db.exec("ALTER TABLE devices ADD COLUMN device_type TEXT");
+    if (!deviceColumns.some(column => column.name === "hostname")) this.db.exec("ALTER TABLE devices ADD COLUMN hostname TEXT");
     const columns = this.db.prepare("PRAGMA table_info(sessions)").all();
     if (!this.db.prepare("PRAGMA table_info(projects)").all().some(column => column.name === "kind")) this.db.exec("ALTER TABLE projects ADD COLUMN kind TEXT");
     if (!columns.some((column) => column.name === "summary"))
@@ -454,7 +455,7 @@ export class HostStore {
 
   devices(now = Date.now()): HostDevice[] {
     return this.db
-      .prepare("SELECT id, name, admin, created_at, last_seen, hash, model, manufacturer FROM devices ORDER BY created_at, name")
+      .prepare("SELECT id, name, admin, created_at, last_seen, hash, model, manufacturer, device_type, hostname FROM devices ORDER BY created_at, name")
       .all()
       .map((row) => ({
         id: String(row.id),
@@ -462,6 +463,8 @@ export class HostStore {
         admin: Number(row.admin) === 1,
         ...(row.model ? { model: String(row.model) } : {}),
         ...(row.manufacturer ? { manufacturer: String(row.manufacturer) } : {}),
+        ...(row.device_type === "desktop" || row.device_type === "mobile" ? { deviceType: row.device_type } : {}),
+        ...(row.hostname ? { hostname: String(row.hostname) } : {}),
         createdAt: row.created_at == null ? undefined : Number(row.created_at),
         lastSeen: row.last_seen == null ? undefined : Number(row.last_seen),
         online: now - (this.activeAt.get(String(row.hash)) ?? 0) < DEVICE_ONLINE_MS,
@@ -475,10 +478,14 @@ export class HostStore {
     const field = (value: unknown) => typeof value === "string"
       ? value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 120) : "";
     const model = field(info.model);
-    if (!model) return;
+    const deviceType = info.deviceType === "desktop" ? "desktop" : model ? "mobile" : undefined;
+    if (!deviceType) return;
+    const hostname = deviceType === "desktop" ? field(info.hostname) || null : null;
     const manufacturer = field(info.manufacturer) || null;
-    this.db.prepare("UPDATE devices SET model=?, manufacturer=? WHERE hash=? AND (model IS NOT ? OR manufacturer IS NOT ?)")
-      .run(model, manufacturer, this.hash(token), model, manufacturer);
+    const hardwareModel = deviceType === "mobile" ? model : null;
+    const hardwareManufacturer = deviceType === "mobile" ? manufacturer : null;
+    this.db.prepare("UPDATE devices SET model=?, manufacturer=?, device_type=?, hostname=? WHERE hash=? AND (model IS NOT ? OR manufacturer IS NOT ? OR device_type IS NOT ? OR hostname IS NOT ?)")
+      .run(hardwareModel, hardwareManufacturer, deviceType, hostname, this.hash(token), hardwareModel, hardwareManufacturer, deviceType, hostname);
   }
 
   private seenAt = new Map<string, number>();
