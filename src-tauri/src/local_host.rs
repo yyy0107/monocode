@@ -132,6 +132,52 @@ pub fn stop_shared_host(app: &AppHandle) {
     }
 }
 
+/// The Windows updater runs NSIS and then `std::process::exit`, skipping the
+/// quit path. The detached shared Host keeps executing `node.exe` and
+/// `monocode-supervisor.exe` from the install directory, so the installer
+/// cannot overwrite them. Stop it and wait until those images are released.
+#[tauri::command(async)]
+pub fn prepare_update_install(app: AppHandle) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        stop_shared_host(&app);
+        let root = app
+            .path()
+            .resource_dir()
+            .map_err(|e| e.to_string())?
+            .join("desktop-host");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while let Some(locked) = locked_executable(&root) {
+            if std::time::Instant::now() >= deadline {
+                return Err(format!(
+                    "{} is still in use. Close MonoCode Host and try again.",
+                    locked.display()
+                ));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = app;
+    Ok(())
+}
+
+/// A running image cannot be opened for writing on Windows.
+#[cfg(windows)]
+fn locked_executable(root: &Path) -> Option<PathBuf> {
+    std::fs::read_dir(root)
+        .ok()?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe")))
+        .find(|path| {
+            // ERROR_SHARING_VIOLATION; other failures are left to the installer.
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(path)
+                .is_err_and(|err| err.raw_os_error() == Some(32))
+        })
+}
+
 fn write_retirement_manifest(desktop: &Path, path: &Path, raw: &[u8]) -> Result<(), String> {
     if std::fs::read(path).is_ok_and(|previous| previous == raw) {
         return Ok(());

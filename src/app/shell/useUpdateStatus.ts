@@ -10,6 +10,10 @@ import {
   saveUpdatePreferences,
 } from "../model/updatePreferences";
 
+const RECHECK_MS = 30 * 60_000;
+const RETRY_MS = 60_000;
+const RETURN_MIN_MS = 5 * 60_000;
+
 export function isUpdateActionable(snapshot: UpdaterSnapshot): boolean {
   return snapshot.phase === "available" || snapshot.phase === "downloading";
 }
@@ -40,18 +44,30 @@ export function useUpdateStatus() {
 
   // The automatic probe runs on mount whether or not it ends up rendering
   // anything, so a newly published version still surfaces on its own. The
-  // snapshot lives here so update state survives opening and closing its pop-out.
+  // window usually lives on in the tray, so it probes again periodically and
+  // when brought back, and retries sooner after a failed (e.g. offline) check.
+  // The snapshot lives here so update state survives opening and closing its pop-out.
+  const phase = useRef(snapshot.phase);
+  phase.current = snapshot.phase;
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let running = false;
+    let lastProbe = 0;
+    let first = true;
 
-    (async () => {
-      const currentVersion = await readAppVersion();
-      if (cancelled) return;
-      setSnapshot({ phase: "checking", currentVersion });
-
+    const probe = async () => {
+      if (running || installing.current || phase.current === "downloading") return;
+      running = true;
+      lastProbe = Date.now();
+      clearTimeout(timer);
+      let delay = RECHECK_MS;
       try {
-        const update = await probeForUpdate();
+        const currentVersion = await readAppVersion();
         if (cancelled) return;
+        if (first) setSnapshot({ phase: "checking", currentVersion });
+        const update = await probeForUpdate();
+        if (cancelled || installing.current) return;
         if (update) {
           setSnapshot({
             phase: "available",
@@ -60,18 +76,34 @@ export function useUpdateStatus() {
             releaseNotes: update.body,
             releaseDate: update.date,
           });
-          if (loadUpdatePreferences().autoInstall) await install();
+          // Installing exits the app on Windows; only do it unattended at launch.
+          if (first && loadUpdatePreferences().autoInstall) await install();
           return;
         }
         setSnapshot({ phase: "current", currentVersion });
       } catch {
         if (cancelled) return;
-        setSnapshot({ phase: "idle", currentVersion });
+        delay = RETRY_MS;
+        if (first) setSnapshot((current) => ({ ...current, phase: "idle" }));
+      } finally {
+        running = false;
+        first = false;
+        if (!cancelled) timer = setTimeout(() => void probe(), delay);
       }
-    })();
+    };
+    const onReturn = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastProbe > RETURN_MIN_MS)
+        void probe();
+    };
 
+    void probe();
+    window.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
+      window.removeEventListener("focus", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
     };
   }, [install]);
 

@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => ({
   announce: vi.fn(),
   ask: vi.fn(),
   check: vi.fn(),
-  downloadAndInstall: vi.fn(),
+  download: vi.fn(),
+  install: vi.fn(),
+  invoke: vi.fn(),
   getVersion: vi.fn(),
   message: vi.fn(),
   relaunch: vi.fn(),
@@ -14,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: mocks.getVersion }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: mocks.ask,
   message: mocks.message,
@@ -32,6 +35,8 @@ beforeEach(() => {
   mocks.getVersion.mockResolvedValue("0.1.22");
   mocks.relaunch.mockResolvedValue(undefined);
   mocks.message.mockResolvedValue(undefined);
+  mocks.invoke.mockResolvedValue(undefined);
+  mocks.install.mockResolvedValue(undefined);
 });
 
 async function updaterWithPendingUpdate() {
@@ -39,7 +44,8 @@ async function updaterWithPendingUpdate() {
     version: "0.1.23",
     body: "### Fixed\n\n- Update preview.",
     date: "2026-09-30T12:00:00Z",
-    downloadAndInstall: mocks.downloadAndInstall,
+    download: mocks.download,
+    install: mocks.install,
   };
   mocks.check.mockResolvedValue(update);
   const updater = await import("./updater");
@@ -49,7 +55,7 @@ async function updaterWithPendingUpdate() {
 
 describe("installPendingUpdate", () => {
   it("keeps release notes and date through download progress", async () => {
-    mocks.downloadAndInstall.mockImplementation(async (onProgress) => {
+    mocks.download.mockImplementation(async (onProgress) => {
       onProgress({ event: "Started", data: { contentLength: 100 } });
       onProgress({ event: "Progress", data: { chunkLength: 42 } });
     });
@@ -69,20 +75,25 @@ describe("installPendingUpdate", () => {
   });
 
   it("records a successful installation before relaunching", async () => {
-    mocks.downloadAndInstall.mockResolvedValue(undefined);
+    mocks.download.mockResolvedValue(undefined);
     const updater = await updaterWithPendingUpdate();
 
     await updater.installPendingUpdate();
 
     expect(mocks.remember).toHaveBeenCalledWith("0.1.23");
     expect(mocks.relaunch).toHaveBeenCalledOnce();
+    // The shared Host must release its executables before the installer runs.
+    expect(mocks.invoke).toHaveBeenCalledWith("prepare_update_install");
+    expect(mocks.invoke.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.install.mock.invocationCallOrder[0]!,
+    );
     expect(mocks.remember.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.relaunch.mock.invocationCallOrder[0]!,
     );
   });
 
   it("does not record or relaunch after installation fails", async () => {
-    mocks.downloadAndInstall.mockRejectedValue(new Error("install failed"));
+    mocks.download.mockRejectedValue(new Error("install failed"));
     const updater = await updaterWithPendingUpdate();
 
     const result = await updater.installPendingUpdate();
@@ -147,4 +158,16 @@ it("keeps skipped releases available to a manual update check", async () => {
     phase: "available",
     availableVersion: "0.1.23",
   });
+});
+
+it("shows a manually found update in the workspace dialog instead of a native prompt", async () => {
+  const updater = await updaterWithPendingUpdate();
+  const present = vi.fn();
+  const stop = updater.presentManualUpdatesWith(present);
+  const snapshot = await updater.runUpdateFlow(true);
+  stop();
+  expect(present).toHaveBeenCalledWith(snapshot);
+  expect(snapshot.phase).toBe("available");
+  expect(mocks.ask).not.toHaveBeenCalled();
+  expect(mocks.download).not.toHaveBeenCalled();
 });

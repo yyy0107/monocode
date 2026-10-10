@@ -1,4 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import {
@@ -26,6 +27,18 @@ export type UpdaterSnapshot = {
 };
 
 let pendingUpdate: Update | null = null;
+
+type ManualUpdatePresenter = (snapshot: UpdaterSnapshot) => void;
+let manualUpdatePresenter: ManualUpdatePresenter | null = null;
+
+/** The workspace shows a manually found update in its own dialog instead of
+ * a native prompt, which cannot render release-note Markdown. */
+export function presentManualUpdatesWith(presenter: ManualUpdatePresenter) {
+  manualUpdatePresenter = presenter;
+  return () => {
+    if (manualUpdatePresenter === presenter) manualUpdatePresenter = null;
+  };
+}
 
 function isUpdaterNotConfiguredError(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error);
@@ -83,6 +96,10 @@ export async function runUpdateFlow(
     onProgress?.(available);
 
     if (!manual) return available;
+    if (manualUpdatePresenter) {
+      manualUpdatePresenter(available);
+      return available;
+    }
 
     const notes = update.body?.trim()
       ? localizedReleaseNotes(update.body.trim())
@@ -146,7 +163,7 @@ export async function installPendingUpdate(
   onProgress?.(downloading);
 
   try {
-    await update.downloadAndInstall((event: DownloadEvent) => {
+    await update.download((event: DownloadEvent) => {
       if (event.event === "Started") {
         contentLength = event.data.contentLength ?? 0;
         downloaded = 0;
@@ -164,6 +181,9 @@ export async function installPendingUpdate(
         progress,
       });
     });
+    // Windows cannot replace the shared Host's executables while it runs.
+    await invoke("prepare_update_install");
+    await update.install();
 
     rememberInstalledUpdate(update.version);
     pendingUpdate = null;

@@ -269,6 +269,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             local_host::shared_host_prepare,
+            local_host::prepare_update_install,
             local_host::shared_host_resource_claim,
             local_host::shared_host_resource_release,
             fonts::list_system_fonts,

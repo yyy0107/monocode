@@ -219,6 +219,26 @@ it("probes once and only displays updates when there is an available action", as
   expect(probeForUpdate).toHaveBeenCalledOnce();
 });
 
+it("retries a failed launch check and shows the update without reopening the app", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.mocked(probeForUpdate)
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue({ version: "0.7.1" } as Awaited<
+        ReturnType<typeof probeForUpdate>
+      >);
+    await render();
+    expect(action("Updates")).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(probeForUpdate).toHaveBeenCalledTimes(2);
+    expect(action("Updates")).not.toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("opens the update confirmation without downloading", async () => {
   vi.mocked(probeForUpdate).mockResolvedValue({
     version: "0.7.1",

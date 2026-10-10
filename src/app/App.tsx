@@ -200,7 +200,12 @@ import {
 } from "../features/settings/model/uiScale";
 import { resolveZoomKeybinding } from "../features/settings/model/zoomKeybinding";
 import { resolveAppShortcut } from "../features/settings/model/appShortcuts";
-import { readAppVersion, runUpdateFlow } from "./model/updater";
+import {
+  presentManualUpdatesWith,
+  readAppVersion,
+  runUpdateFlow,
+} from "./model/updater";
+import { UpdateAvailableDialog } from "./shell/UpdateAvailableDialog";
 import {
   displayAttachments,
   prepareAttachments,
@@ -11360,6 +11365,16 @@ function Workspace({
   );
 
   const updateStatus = useUpdateStatus();
+  const [manualUpdateOpen, setManualUpdateOpen] = useState(false);
+  const setUpdateSnapshot = updateStatus.setSnapshot;
+  useEffect(
+    () =>
+      presentManualUpdatesWith((snapshot) => {
+        setUpdateSnapshot(snapshot);
+        setManualUpdateOpen(true);
+      }),
+    [setUpdateSnapshot],
+  );
   const activityBarProps = useMemo(() => ({
     updateStatus,
     cwd: sidebarCwd,
@@ -11874,6 +11889,17 @@ function Workspace({
                 onOpenSettings={() => openSettings("general", "notifications")}
                 onHeightChange={setReminderNoticesHeight}
               />
+              {manualUpdateOpen && updateStatus.actionable ? (
+                <UpdateAvailableDialog
+                  snapshot={updateStatus.snapshot}
+                  onInstall={updateStatus.install}
+                  onSkip={() => {
+                    setManualUpdateOpen(false);
+                    updateStatus.skipVersion();
+                  }}
+                  onClose={() => setManualUpdateOpen(false)}
+                />
+              ) : null}
               {whatsNewVersion ? (
                 <WhatsNewDialog
                   version={whatsNewVersion}
