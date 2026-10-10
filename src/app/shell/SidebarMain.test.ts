@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SidebarMain } from "./SidebarMain";
+import { isPaneResizing } from "../../shared/lib/paneResize";
 
 let root: Root;
 let container: HTMLDivElement;
@@ -114,6 +115,20 @@ it("slides and resizes together so content never jumps at an endpoint", () => {
   ]);
   motions[1].onfinish?.();
   expect(surface.style.flex).toBe("");
+});
+
+it("defers terminal refits until the slide settles", () => {
+  render(true);
+  render(false);
+  expect(isPaneResizing()).toBe(true);
+  // Reversing hands the pending refit to the new slide.
+  container.querySelector<HTMLElement>("[data-sidebar-main]")!.style.transform =
+    "matrix(1, 0, 0, 1, 0, 0)";
+  render(true);
+  expect(animate).toHaveBeenCalledTimes(2);
+  expect(isPaneResizing()).toBe(true);
+  motions[1].onfinish?.();
+  expect(isPaneResizing()).toBe(false);
 });
 
 it("reverses from the current visual geometry without a jump", () => {

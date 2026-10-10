@@ -4,6 +4,7 @@ import {
   SIDEBAR_TRANSITION_MS,
 } from "./SidebarTransition";
 import { reducedMotionQuery } from "../../shared/lib/reducedMotion";
+import { beginPaneResize } from "../../shared/lib/paneResize";
 
 /**
  * Follow the sidebar's edge while resizing continuously. The left edge slides
@@ -25,6 +26,15 @@ export function SidebarMain({
     parentWidth: number;
   }>(undefined);
   const animation = useRef<Animation | undefined>(undefined);
+  const endPaneResize = useRef<(() => void) | undefined>(undefined);
+  // Terminals refit once the slide settles instead of re-wrapping their
+  // scrollback and resizing PTYs on every frame of the width interpolation.
+  const stopAnimation = () => {
+    animation.current?.cancel();
+    animation.current = undefined;
+    endPaneResize.current?.();
+    endPaneResize.current = undefined;
+  };
 
   useLayoutEffect(() => {
     const el = ref.current!;
@@ -40,8 +50,7 @@ export function SidebarMain({
       fromWidth = el.offsetWidth;
     }
     if (changing) {
-      animation.current?.cancel();
-      animation.current = undefined;
+      stopAnimation();
       el.style.removeProperty("flex");
     }
     const next = {
@@ -90,11 +99,11 @@ export function SidebarMain({
       },
     );
     animation.current = motion;
+    endPaneResize.current = beginPaneResize();
     void motion.finished.catch(() => undefined);
     motion.onfinish = () => {
       if (animation.current !== motion) return;
-      animation.current = undefined;
-      motion.cancel();
+      stopAnimation();
       el.style.removeProperty("flex");
       layout.current = { ...next, left: el.offsetLeft, width: el.offsetWidth };
     };
@@ -123,8 +132,7 @@ export function SidebarMain({
         previous.parentWidth === parentWidth
       )
         return;
-      animation.current?.cancel();
-      animation.current = undefined;
+      stopAnimation();
       el.style.removeProperty("flex");
       layout.current = {
         ...previous,
@@ -150,8 +158,7 @@ export function SidebarMain({
     const media = reducedMotionQuery();
     const onMotionPreference = () => {
       if (!media?.matches) return;
-      animation.current?.cancel();
-      animation.current = undefined;
+      stopAnimation();
       el.style.removeProperty("flex");
       if (layout.current)
         layout.current = {
@@ -164,7 +171,7 @@ export function SidebarMain({
     return () => {
       observer?.disconnect();
       media?.removeEventListener?.("change", onMotionPreference);
-      animation.current?.cancel();
+      stopAnimation();
       el.style.removeProperty("flex");
     };
   }, []);
