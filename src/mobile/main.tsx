@@ -5,6 +5,7 @@ import { installLiquidGlass } from "./liquidGlass";
 import { installKeyboardMotion } from "./keyboardMotion";
 import { applyGlassSettings, readGlassSettings } from "./glassSettings";
 import { refreshUiLanguage } from "../shared/i18n/language";
+import { disableStatusToasts } from "../shared/ui/StatusToast";
 import {
   applyAccentColor,
   loadAccentColor,
@@ -33,6 +34,7 @@ import "./mobile.css";
 import "./motion.css";
 
 refreshUiLanguage();
+disableStatusToasts();
 installKeyboardMotion();
 applyGlassSettings(readGlassSettings());
 applyAccentColor(loadAccentColor());

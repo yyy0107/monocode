@@ -186,10 +186,6 @@ import { GradientBlurBackground } from "../features/settings/ui/GradientBlurBack
 import { loadProjectChatBackgroundSettings, projectChatBackgroundRevision, projectChatBackgroundImageRevision, subscribeProjectChatBackground } from "../features/projects/model/projectChatBackground";
 import { useProjectBackgroundEffect } from "../features/projects/ui/useProjectBackgroundEffect";
 import { dismissImageLightbox } from "../shared/ui/ImageLightbox";
-import {
-  showStatusToast,
-  withStatusToast,
-} from "../shared/ui/StatusToast";
 
 const client = new MobileClient(mobileStorage);
 
@@ -228,16 +224,6 @@ function nativeAccessNotice(access: NativeSessionAccess | undefined): string {
   if (access.reason === "unsupportedPlatform")
     return translate("Native session ownership cannot be verified on this platform. Imported history is read-only.");
   return translate("Native session access could not be confirmed. Saved history keeps syncing; check other clients before continuing here.");
-}
-/** Confirms metadata changes that move or rename a conversation; pins show in place. */
-function sessionPatchNotice(patch: MobileSessionPatch) {
-  if (patch.archived === true)
-    return { loading: "Archiving conversation…", success: "Conversation archived" };
-  if (patch.archived === false)
-    return { loading: "Restoring conversation…", success: "Conversation restored" };
-  if (patch.title !== undefined)
-    return { loading: "Renaming conversation…", success: "Conversation renamed" };
-  return undefined;
 }
 const readHostImage = (path: string) => client.readBinaryFile(path);
 const browseHostDirectories = (path?: string) => client.browseDirectories(path);
@@ -944,7 +930,6 @@ export function MobileApp() {
       await activateConnection(
         () => client.connect(credentials.url, normalizePairingCode(credentials.token)),
         (problem) => setPairingError(connectionErrorMessage(problem, credentials.url)),
-        (host) => t("Connected to {service}", { service: host }),
       );
     } finally {
       setPairing(false);
@@ -959,14 +944,12 @@ export function MobileApp() {
     void activateConnection(
       () => client.switchTo(endpoint),
       (problem) => setHostError(message(problem)),
-      (host) => t("Switched to {host}", { host }),
       after,
     );
   };
   const activateConnection = async (
     open: () => Promise<void>,
     fail: (problem: unknown) => void,
-    successNotice?: (host: string) => string,
     /** Continues navigation once the new Host's Home is ready. */
     after?: (projects: HostProject[]) => void,
   ) => {
@@ -1005,7 +988,6 @@ export function MobileApp() {
       setConnected(true);
       setConnectionRevision((value) => value + 1);
       setAddingConnection(false);
-      if (successNotice) showStatusToast(successNotice(client.connection?.name ?? ""), "success");
       const pending = await client.pending();
       if (!current()) return;
       setPending(pending);
@@ -1522,11 +1504,8 @@ export function MobileApp() {
     setBusy(true);
     setError("");
     try {
-      const added = await withStatusToast(async () => {
-        const added = await client.openProject(path);
-        setProjects(await client.projects());
-        return added;
-      }, { loading: t("Adding project…"), success: t("Project added"), error: false });
+      const added = await client.openProject(path);
+      setProjects(await client.projects());
       setAddingProject(false);
       setDrawerOpen(false);
       openHome(added);
@@ -1571,14 +1550,7 @@ export function MobileApp() {
     const turn = navigation.current;
     setBusy(true);
     try {
-      const notice = sessionPatchNotice(patch);
-      const summary = notice
-        ? await withStatusToast(() => client.updateSession(ownerId, id, patch), {
-            loading: t(notice.loading),
-            success: t(notice.success),
-            error: false,
-          })
-        : await client.updateSession(ownerId, id, patch);
+      const summary = await client.updateSession(ownerId, id, patch);
       const result = view === "chat" && id === sessionId ? await client.session(id, summary.revision) : undefined;
       if (navigation.current === turn) {
         setHomeRefreshKey((value) => value + 1);
@@ -1602,11 +1574,7 @@ export function MobileApp() {
     const id = sessionId;
     setBusy(true);
     try {
-      await withStatusToast(() => client.deleteSession(project.id, id), {
-        loading: t("Deleting conversation…"),
-        success: t("Conversation deleted"),
-        error: false,
-      });
+      await client.deleteSession(project.id, id);
       if (navigation.current === turn) {
         navigate("chat");
         setSessions((items) => items.filter((item) => item.id !== id));
@@ -1626,11 +1594,7 @@ export function MobileApp() {
     setBusy(true);
     const endpoint = client.connection?.endpoint;
     try {
-      await withStatusToast(() => (remove ? client.disconnect() : client.suspend()), {
-        loading: t(remove ? "Removing connection…" : "Disconnecting…"),
-        success: t(remove ? "Connection removed" : "Machine disconnected"),
-        error: false,
-      });
+      await (remove ? client.disconnect() : client.suspend());
       stopSharedState();
       setConnected(false);
       setProjects([]);
@@ -1654,8 +1618,7 @@ export function MobileApp() {
     if (next)
       await activateConnection(() => client.switchTo(next.endpoint), (problem) => setHostError(message(problem)));
   };
-  /** `manual` confirms a tapped reconnect; automatic recovery stays silent. */
-  const reconnect = async (manual = false) => {
+  const reconnect = async () => {
     const attempt = ++hostAttempt.current;
     const hostId = client.connection?.endpoint;
     const current = () => hostAttempt.current === attempt && client.connection?.endpoint === hostId;
@@ -1675,7 +1638,6 @@ export function MobileApp() {
       setProjects(items);
       setProjectListState("ready");
       setConnected(true);
-      if (manual) showStatusToast(t("Reconnected"), "success");
       if (!connected) await restoreLocation(items, location);
       setError("");
       setPollError("");
@@ -1875,11 +1837,7 @@ export function MobileApp() {
   const forgetConnection = async (endpoint: string) => {
     if (endpoint === client.connection?.endpoint) return disconnectConnection(true);
     try {
-      await withStatusToast(() => client.forget(endpoint), {
-        loading: t("Removing connection…"),
-        success: t("Connection removed"),
-        error: false,
-      });
+      await client.forget(endpoint);
       removeConnectionAppearance(endpoint);
     } finally {
       refreshSavedHosts();
@@ -2169,7 +2127,7 @@ export function MobileApp() {
               <IconButton
                 label="Reconnect"
                 disabled={busy || hostStatus.state === "reconnecting"}
-                onClick={() => void reconnect(true)}
+                onClick={() => void reconnect()}
               >
                 <RefreshCw size={16} />
               </IconButton>
@@ -2227,7 +2185,7 @@ export function MobileApp() {
           onDeleteConnection={forgetConnection}
           connectionAppearance={connectionAppearance}
           onSaveConnectionAppearance={saveConnectionAppearance}
-          onReconnect={() => void reconnect(true)}
+          onReconnect={() => void reconnect()}
           theme={theme}
           onThemeChange={(value) => {
             const next = value === "light" || value === "system" ? value : "dark";
@@ -2356,7 +2314,7 @@ export function MobileApp() {
               retrying={busy || hostStatus.state === "reconnecting"}
               lastOnline={loadLastOnline(connectionKey)}
               now={now}
-              onRetry={() => void reconnect(true)}
+              onRetry={() => void reconnect()}
             />
           ) : undefined}
           remote={remoteHosts}
@@ -2568,7 +2526,7 @@ export function MobileApp() {
         <MobileHostPicker anchor={hostPickerTrigger}
           connections={pairedConnections}
           activeId={connectionKey} status={hostStatus} switching={pairing}
-          probe={probeHost} onSwitch={switchHost} onReconnect={() => { setHostPickerOpen(false); void reconnect(true); }}
+          probe={probeHost} onSwitch={switchHost} onReconnect={() => { setHostPickerOpen(false); void reconnect(); }}
           onAdd={() => {
             connectionTrigger.current = hostPickerTrigger.current;
             setHostPickerOpen(false);

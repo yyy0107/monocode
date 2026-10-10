@@ -17,7 +17,6 @@ import {
 } from "../shared/ui/icons";
 import { translate } from "../shared/i18n/language";
 import { useTranslation } from "../shared/i18n/useTranslation";
-import { withStatusToast } from "../shared/ui/StatusToast";
 import { useSurfaceVisibility } from "../shared/ui/SurfaceVisibility";
 import { AgentMarkdown } from "../features/sessions/ui/AgentMarkdown";
 import { AssistantTopicNote } from "../features/assistant/ui/AssistantTopicNote";
@@ -384,11 +383,7 @@ function MobileNoteViewer({
     setWorking(true);
     setActionError("");
     try {
-      await withStatusToast(() => onAddToChat(note), {
-        loading: t("Adding to chat…"),
-        success: t("Added to chat"),
-        error: false,
-      });
+      await onAddToChat(note);
     } catch (problem) {
       if (mounted.current) setActionError(errorMessage(problem));
     } finally {

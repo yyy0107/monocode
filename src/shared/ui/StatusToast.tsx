@@ -32,6 +32,12 @@ let nextId = 0;
 const listeners = new Set<() => void>();
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
 let mounted = false;
+let disabled = false;
+
+/** Mobile shows no status toasts; shared actions still run and report inline. */
+export function disableStatusToasts() {
+  disabled = true;
+}
 
 function emit(next: Item[]) {
   items = next;
@@ -55,8 +61,9 @@ function ensureHost() {
 }
 
 export function showStatusToast(message: string, tone: StatusToastTone = "success"): number {
-  ensureHost();
   const id = ++nextId;
+  if (disabled) return id;
+  ensureHost();
   const live = items.filter((item) => !item.leaving);
   // Older finished notices make room; a long-running action keeps its toast.
   const overflow = live.length - LIMIT + 1;
