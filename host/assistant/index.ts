@@ -5,13 +5,15 @@ import type { HostEngine } from "../engine";
 import { HostControl } from "../control";
 import {
   AssistantStore,
+  EVENT_FOOTER,
   receiveSignature,
   signature,
   wakeupSource,
+  type AssistantRecord,
   type Wakeup,
   type WakeupSource,
 } from "./store";
-import { importantSources } from "./events";
+import { eventBriefs, importantSources } from "./events";
 import { enqueueSchedules, retryDelay } from "./scheduler";
 import { checkPolicy, fields, id, object, validatePolicy } from "./policy";
 import { followSession, hasAssistantPermission, isExplicitlyWatchedSession, isWatchedSession, watchIncludesSession } from "../../src/features/assistant/model/assistantSessions";
@@ -67,6 +69,10 @@ import {
 /** A fresh brief quotes the last two exchanges word for word. */
 const RECALL_VERBATIM = 4;
 const RECALL_LIMIT = 3;
+/** Bounds one merged event turn; matches the per-tick source batch. */
+const MAX_JOINED_EVENTS = 20;
+const MAX_EVENT_REFS = 50;
+const MAX_EVENT_BRIEFS = 12;
 const STOP_COMMANDS = new Set(["停止", "停", "stop", "/stop"]);
 /** A message that is only a stop word ends the turn instead of starting one. */
 export function isStopCommand(text: string): boolean {
@@ -1051,7 +1057,7 @@ export class HostAssistant {
               {
                 id: wakeupId,
                 kind: "event",
-                text: `${[...prompts].join("\n")}\n${group.map((s) => `${s.kind}: projectId=${s.projectId}, sessionId=${s.sessionId}`).join("\n")}\nRe-read current state before acting.`,
+                text: `${[...prompts].join("\n")}\n${group.map((s) => `${s.kind}: projectId=${s.projectId}, sessionId=${s.sessionId}`).join("\n")}\n${EVENT_FOOTER}`,
                 rootCauseId: root,
                 state: "pending",
                 createdAt: group[0].createdAt,
@@ -1066,12 +1072,7 @@ export class HostAssistant {
       const wakeup = this.store.pending().find((w) => !this.steering.has(w.id));
       if (!wakeup) return;
       this.tickingWakeupId = wakeup.id;
-      let chain = this.store.chain(wakeup.rootCauseId);
-      if (
-        !chain.paused &&
-        Date.now() - chain.startedAt >= config.chainWindowMinutes * 60000
-      )
-        chain = { count: 0, paused: false, startedAt: Date.now() };
+      const chain = this.liveChain(wakeup.rootCauseId, config);
       if (
         wakeup.kind !== "user" &&
         (chain.paused || chain.count >= config.maxAutoTurns)
@@ -1116,11 +1117,25 @@ export class HostAssistant {
         )
       )
         return;
-      this.active = this.store.claim(wakeup.id, this.steering);
+      const joining = wakeup.kind === "event" ? this.joiningEvents(wakeup, config) : new Map();
+      this.active = this.store.claim(wakeup.id, this.steering, new Set(joining.keys()));
       this.store.writeChain(wakeup.rootCauseId, {
         ...chain,
         count: chain.count + (wakeup.kind === "user" ? 0 : 1),
       });
+      // A merged event still counts as an automatic turn for its own task.
+      const counted = new Set([wakeup.rootCauseId]);
+      for (const [joinedId, joined] of joining)
+        if (
+          this.store.wakeup(joinedId)?.mergedInto === this.active.id &&
+          !counted.has(joined.rootCauseId)
+        ) {
+          counted.add(joined.rootCauseId);
+          this.store.writeChain(joined.rootCauseId, {
+            ...joined.chain,
+            count: joined.chain.count + 1,
+          });
+        }
       this.control.enable(brainId);
       const launcher = this.entry
         ? await this.control.launcher(
@@ -1172,7 +1187,7 @@ export class HostAssistant {
         launcher,
         actions: ASSISTANT_ACTIONS,
         // The claimed wakeup also carries queued messages merged into it.
-        wakeup: this.active,
+        wakeup: this.active.kind === "event" ? this.withEventBriefs(this.active, config) : this.active,
         messages,
         ledger,
         now: Date.now(),
@@ -1238,6 +1253,64 @@ export class HostAssistant {
     } catch {
       return [];
     }
+  }
+  private liveChain(
+    root: string,
+    config: AssistantRecord,
+  ): ReturnType<AssistantStore["chain"]> {
+    const chain = this.store.chain(root);
+    return !chain.paused &&
+      Date.now() - chain.startedAt >= config.chainWindowMinutes * 60000
+      ? { count: 0, paused: false, startedAt: Date.now() }
+      : chain;
+  }
+  /** Other pending events that may share this turn without exceeding their own task limits. */
+  private joiningEvents(
+    wakeup: Wakeup,
+    config: AssistantRecord,
+  ): Map<string, { rootCauseId: string; chain: ReturnType<AssistantStore["chain"]> }> {
+    const joining = new Map<string, { rootCauseId: string; chain: ReturnType<AssistantStore["chain"]> }>();
+    const chains = new Map<string, ReturnType<AssistantStore["chain"]>>();
+    let refs = wakeup.refs?.length ?? 0;
+    for (const other of this.store.pending()) {
+      if (joining.size >= MAX_JOINED_EVENTS) break;
+      if (
+        other.id === wakeup.id ||
+        other.kind !== "event" ||
+        other.state !== "pending" ||
+        this.steering.has(other.id) ||
+        refs + (other.refs?.length ?? 0) > MAX_EVENT_REFS
+      )
+        continue;
+      if (!chains.has(other.rootCauseId))
+        chains.set(other.rootCauseId, this.liveChain(other.rootCauseId, config));
+      const chain = chains.get(other.rootCauseId)!;
+      if (other.rootCauseId !== wakeup.rootCauseId &&
+          (chain.paused || chain.count >= config.maxAutoTurns))
+        continue;
+      refs += other.refs?.length ?? 0;
+      joining.set(other.id, { rootCauseId: other.rootCauseId, chain });
+    }
+    return joining;
+  }
+  /** Adds the followed conversations' current outcome; not persisted, so retries read fresh state. */
+  private withEventBriefs(wakeup: Wakeup, config: AssistantRecord): Wakeup {
+    const sessions: HostSession[] = [];
+    for (const sessionId of (wakeup.refs ?? []).slice(0, MAX_EVENT_BRIEFS)) {
+      try {
+        const target = this.engine.store.session(sessionId);
+        if (
+          !target.session.assistantOwnerId &&
+          !config.policy.excludedSessionIds?.includes(sessionId) &&
+          hasAssistantPermission(config.policy, "sessions.read", target.projectId)
+        )
+          sessions.push(target);
+      } catch {
+        /* Deleted target. */
+      }
+    }
+    const briefs = eventBriefs(sessions);
+    return briefs ? { ...wakeup, text: `${wakeup.text}\n${briefs}` } : wakeup;
   }
   private observe(
     previous: HostSession | undefined,

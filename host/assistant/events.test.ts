@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { importantSources } from "./events";
+import { eventBriefs, importantSources } from "./events";
 import type { HostSession } from "../../src/features/connections/model/protocol";
 const value = (): HostSession => ({
   projectId: "p",
@@ -103,4 +103,38 @@ it("recognizes a failed turn even when a provider status follows its error", () 
   expect(importantSources(previous, next)[0]?.kind).toBe("failed");
   next.session.blocks.splice(1, 1);
   expect(importantSources(previous, next)[0]?.kind).toBe("completed");
+});
+it("briefs the latest turn's reply, error and pending inputs of followed conversations", () => {
+  const session = value();
+  const brief = eventBriefs([
+    {
+      ...session,
+      status: "idle",
+      session: {
+        ...session.session,
+        pendingQuestion: {
+          requestId: 1,
+          title: "Choose",
+          questions: [
+            { id: "q", prompt: "Which branch?", multiSelect: false, allowCustom: true, options: [] },
+          ],
+        },
+        blocks: [
+          { id: "u1", role: "user", text: "Old task" },
+          { id: "a1", role: "assistant", text: "Old answer" },
+          { id: "u2", role: "user", text: "New task" },
+          { id: "a2", role: "assistant", text: `${"x".repeat(2000)}Done` },
+          { id: "e", role: "system", notice: "error", text: "Tests failed" },
+          { id: "p", role: "tool", text: "rm -rf build", approval: { requestId: 2, decided: false } },
+        ],
+      },
+    } as HostSession,
+  ]);
+  expect(brief).toContain("sessionId=s (projectId=p): idle");
+  expect(brief).toMatch(/Latest reply: …x+Done/);
+  expect(brief).not.toContain("Old answer");
+  expect(brief).toContain("Error: Tests failed");
+  expect(brief).toContain("Waiting for an answer: Choose / Which branch?");
+  expect(brief).toContain("Waiting for approval: rm -rf build");
+  expect(eventBriefs([])).toBe("");
 });

@@ -56,11 +56,19 @@ export type Wakeup = {
   attachments?: RemoteAttachment[];
   /** The habit this run belongs to, for recording its outcome. */
   habitId?: string;
-  /** A user input delivered into this running wakeup by steering. */
+  /** The running wakeup that took over this input (steering or a merged turn). */
   mergedInto?: string;
   /** Trusted input origin; preserved when an interrupted wakeup is resumed. */
   source?: WakeupSource;
 };
+export const EVENT_FOOTER = "Re-read current state before acting.";
+/** Watch prompts and the footer repeat across event wakeups; keep each once. */
+function mergeEventText(texts: string[]): string {
+  const lines = new Set(
+    texts.flatMap((text) => text.split("\n")).filter((l) => l.trim() && l !== EVENT_FOOTER),
+  );
+  return [...lines, EVENT_FOOTER].join("\n");
+}
 export type WakeupSource =
   | { kind: "client" }
   | { kind: "im"; bindingId: string }
@@ -525,27 +533,36 @@ export class AssistantStore {
       this.markRead(queued.map((w) => w.id));
     });
   }
-  claim(id: string, skip: ReadonlySet<string> = new Set()): Wakeup {
-    return this.host.transaction(() => this.claimPending(id, skip));
+  /** `events` names other pending event wakeups the caller allows to join this turn. */
+  claim(
+    id: string,
+    skip: ReadonlySet<string> = new Set(),
+    events: ReadonlySet<string> = new Set(),
+  ): Wakeup {
+    return this.host.transaction(() => this.claimPending(id, skip, events));
   }
-  private claimPending(id: string, skip: ReadonlySet<string>): Wakeup {
+  private claimPending(
+    id: string,
+    skip: ReadonlySet<string>,
+    events: ReadonlySet<string>,
+  ): Wakeup {
     const pending = this.pending();
     const wakeup = pending.find((w) => w.id === id);
     if (!wakeup) throw new Error("Wakeup is not pending");
-    // Queued messages from the same sender are answered together in one turn.
-    const merged =
-      wakeup.kind === "user"
-        ? pending
-            .filter(
-              (w) =>
-                w.id !== id &&
-                w.kind === "user" &&
-                w.state === "pending" &&
-                !skip.has(w.id) &&
-                signature(wakeupSource(w)) === signature(wakeupSource(wakeup)),
-            )
-            .sort((a, b) => a.createdAt - b.createdAt)
-        : [];
+    // Queued messages from the same sender are answered together in one turn,
+    // and so are followed events that arrived while the brain was busy.
+    const merged = pending
+      .filter(
+        (w) =>
+          w.id !== id &&
+          w.kind === wakeup.kind &&
+          w.state === "pending" &&
+          !skip.has(w.id) &&
+          (wakeup.kind === "user"
+            ? signature(wakeupSource(w)) === signature(wakeupSource(wakeup))
+            : wakeup.kind === "event" && events.has(w.id)),
+      )
+      .sort((a, b) => a.createdAt - b.createdAt);
     const ordered = [wakeup, ...merged].sort((a, b) => a.createdAt - b.createdAt);
     const next: Wakeup = {
       ...wakeup,
@@ -553,8 +570,12 @@ export class AssistantStore {
       attempts: wakeup.attempts + 1,
       ...(merged.length
         ? {
-            text: ordered.map((w) => w.text).filter(Boolean).join("\n"),
+            text:
+              wakeup.kind === "event"
+                ? mergeEventText(ordered.map((w) => w.text))
+                : ordered.map((w) => w.text).filter(Boolean).join("\n"),
             attachments: ordered.flatMap((w) => w.attachments ?? []),
+            refs: [...new Set(ordered.flatMap((w) => w.refs ?? []))],
           }
         : {}),
     };

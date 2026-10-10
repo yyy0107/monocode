@@ -851,6 +851,67 @@ it("applies automatic chain limits and lets a deliberate user message resume the
   await vi.waitFor(() => expect(turns).toHaveLength(2));
   expect(journal.chain("root").paused).toBe(false);
 });
+it("answers pending events from different tasks in one turn with their current outcome", async () => {
+  const { engine, project, store, turns } = await setup();
+  turns[0].finish();
+  const journal = engine.assistant.store;
+  await vi.waitFor(() =>
+    expect(store.session(journal.get()!.brainSessionId!).status).toBe("idle"),
+  );
+  await engine.assistant.tick();
+  const target = engine.command({
+    type: "create",
+    commandId: "brief-target",
+    projectId: project.id,
+    harness: "codex",
+    model: "test",
+    runtimeMode: "supervised",
+  });
+  engine.command({
+    type: "send",
+    commandId: "brief-work",
+    sessionId: target.sessionId,
+    text: "Fix the build",
+  });
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  turns[1].input.onEvent({ type: "message.delta", text: "Build fixed in main.ts" });
+  turns[1].input.onEvent({ type: "message.completed" });
+  turns[1].finish();
+  await vi.waitFor(() => expect(store.session(target.sessionId).status).toBe("idle"));
+  const event = (id: string, root: string, sessionId: string) =>
+    journal.enqueue(
+      {
+        id,
+        kind: "event",
+        text: `Report results.\ncompleted: projectId=${project.id}, sessionId=${sessionId}\nRe-read current state before acting.`,
+        rootCauseId: root,
+        state: "pending",
+        createdAt: Date.now(),
+        attempts: 0,
+        refs: [sessionId],
+      },
+      id,
+    );
+  journal.writeChain("looping", { count: 8, paused: false, startedAt: Date.now() });
+  event("first", "task-a", target.sessionId);
+  event("second", "task-b", "other-session");
+  event("limited", "looping", "looping-session");
+  await engine.assistant.tick();
+  await vi.waitFor(() => expect(turns).toHaveLength(3));
+  const text = turns[2].input.text;
+  expect(text).toContain(`sessionId=${target.sessionId}\n`);
+  expect(text).toContain("sessionId=other-session");
+  expect(text).not.toContain("looping-session");
+  expect(text.match(/Report results\./g)).toHaveLength(1);
+  expect(text.match(/Re-read current state before acting\./g)).toHaveLength(1);
+  expect(text).toContain("Latest reply: Build fixed in main.ts");
+  expect(journal.wakeup("second")).toMatchObject({ state: "completed", mergedInto: "first" });
+  expect(journal.wakeup("limited")?.state).toBe("pending");
+  expect(journal.wakeup("first")?.text).not.toContain("Latest reply");
+  expect(journal.chain("task-a").count).toBe(1);
+  expect(journal.chain("task-b").count).toBe(1);
+  expect(journal.chain("looping").count).toBe(8);
+});
 it("uses backoff only when a usage rejection had no partial execution", async () => {
   const { engine, turns } = await setup();
   turns[0].input.onEvent({ type: "usage.limited" });
