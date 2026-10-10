@@ -885,11 +885,19 @@ export async function executeAssistantAction(
         "revision",
         "offset",
         "limit",
+        "latest",
       ]);
       if (!session) throw new Error("Choose a session");
-      const offset = input.offset === undefined ? 0 : Number(input.offset),
-        limit = input.limit === undefined ? 50 : Number(input.limit);
+      const limit = input.limit === undefined ? 50 : Number(input.limit),
+        total = session.session.blocks.length;
+      if (input.latest !== undefined && typeof input.latest !== "boolean")
+        throw new Error("Invalid transcript page");
+      // The latest page lets long conversations be read from the end backwards.
+      const offset = input.latest
+        ? Math.max(0, total - (Number.isSafeInteger(limit) ? limit : 0))
+        : input.offset === undefined ? 0 : Number(input.offset);
       if (
+        (input.latest && input.offset !== undefined) ||
         !Number.isSafeInteger(offset) ||
         offset < 0 ||
         !Number.isSafeInteger(limit) ||
@@ -909,7 +917,9 @@ export async function executeAssistantAction(
             : {
                 ...summary(session),
                 blocks: session.session.blocks.slice(offset, offset + limit),
-                hasMore: session.session.blocks.length > offset + limit,
+                hasMore: total > offset + limit,
+                offset,
+                total,
                 pendingQuestion: session.session.pendingQuestion,
               };
     } else if (action === "sessions.create") {

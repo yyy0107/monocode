@@ -80,13 +80,7 @@ it("keeps queued user messages unread until the assistant starts their turn", as
       .find((m) => m.id === receipt.messageId);
   expect(get()).toMatchObject({ readAt: null });
   turns[0].finish();
-  await vi.waitFor(() =>
-    expect(
-      engine.store.session(engine.assistant.store.get()!.brainSessionId!)
-        .status,
-    ).toBe("idle"),
-  );
-  await engine.assistant.tick();
+  // Queued work starts as soon as the brain turn ends, without waiting for a poll.
   await vi.waitFor(() => expect(turns).toHaveLength(2));
   expect(get()).toMatchObject({ readAt: expect.any(Number) });
 });
@@ -791,20 +785,20 @@ it("recovers more than 100 sources durably with bounded, coalesced summaries", a
       createdAt: Date.now() - 3000,
     });
   expect(engine.assistant.store.view()?.backlog).toBe(true);
+  await engine.assistant.tick();
   for (let batch = 0; batch < 3; batch++) {
-    await engine.assistant.tick();
     await vi.waitFor(() => expect(turns).toHaveLength(batch + 2));
     expect(
       turns.at(-1)!.input.text.match(/sessionId=target-/g)?.length,
     ).toBeLessThanOrEqual(50);
     turns.at(-1)!.finish();
-    await vi.waitFor(() =>
-      expect(
-        engine.store.session(engine.assistant.store.get()!.brainSessionId!)
-          .status,
-      ).toBe("idle"),
-    );
   }
+  await vi.waitFor(() =>
+    expect(
+      engine.store.session(engine.assistant.store.get()!.brainSessionId!)
+        .status,
+    ).toBe("idle"),
+  );
   await engine.assistant.tick();
   expect(engine.assistant.store.get()!.sourceCursor).toBe(125);
   expect(
@@ -1160,8 +1154,6 @@ it("keeps IM and client turns separate while merging only follow-ups from the sa
   expect(engine.assistant.store.wakeup(first.wakeupId!)?.state).toBe("pending");
   await expect(engine.assistant.rpc("assistant.send", { commandId: "spoof", text: "Spoof", source: { kind: "im", bindingId: "owner-one" } })).rejects.toThrow(/Unknown input field/);
   turns[0].finish();
-  await idleBrain(engine);
-  await engine.assistant.tick();
   await vi.waitFor(() => expect(turns).toHaveLength(2));
   const followup = await engine.assistant.receiveImMessage({ ...input, commandId: "im-followup", text: "Also check this" });
   expect(provider.steer).toHaveBeenCalledOnce();
@@ -1469,8 +1461,6 @@ it("answers queued messages from the same sender in one turn", async () => {
   const first = (await engine.assistant.rpc("assistant.send", { commandId: "queued-one", text: "Hello" })) as { wakeupId: string };
   const second = (await engine.assistant.rpc("assistant.send", { commandId: "queued-two", text: "Read both files" })) as { wakeupId: string };
   turns[0].finish();
-  await idleBrain(engine);
-  await engine.assistant.tick();
   await vi.waitFor(() => expect(turns).toHaveLength(2));
   expect(turns[1].input.text).toMatch(/Hello\nRead both files$/);
   expect(engine.assistant.store.wakeup(second.wakeupId)).toMatchObject({ state: "completed", mergedInto: first.wakeupId });
@@ -1707,6 +1697,29 @@ function follow(engine: HostEngine, projectId: string, sessionId: string) {
   } });
 }
 
+it("pages a transcript from its latest blocks backwards", async () => {
+  const { engine, project, store, turns } = await setup();
+  const target = engine.command({ type: "create", commandId: "paged-target", projectId: project.id,
+    harness: "codex", model: "test", runtimeMode: "supervised" });
+  engine.command({ type: "send", commandId: "paged-work", sessionId: target.sessionId, text: "Work" });
+  await vi.waitFor(() => expect(turns).toHaveLength(2));
+  turns[1].input.onEvent({ type: "message.delta", text: "Newest reply" });
+  turns[1].input.onEvent({ type: "message.completed" });
+  turns[1].finish();
+  await vi.waitFor(() => expect(store.session(target.sessionId).status).toBe("idle"));
+  const total = store.session(target.sessionId).session.blocks.length;
+  const input = { projectId: project.id, sessionId: target.sessionId };
+  const latest = await executeAssistantAction(engine.assistant, "page-latest", "sessions.get",
+    { ...input, latest: true, limit: 1 }, () => true) as { blocks: { text: string }[]; offset: number; total: number; hasMore: boolean };
+  expect(latest).toMatchObject({ offset: total - 1, total, hasMore: false });
+  expect(latest.blocks.map((b) => b.text)).toEqual(["Newest reply"]);
+  const earlier = await executeAssistantAction(engine.assistant, "page-earlier", "sessions.get",
+    { ...input, offset: 0, limit: total - 1 }, () => true) as { blocks: { text: string }[]; hasMore: boolean };
+  expect(earlier.blocks[0].text).toBe("Work");
+  expect(earlier.hasMore).toBe(true);
+  await expect(executeAssistantAction(engine.assistant, "page-both", "sessions.get",
+    { ...input, latest: true, offset: 0 }, () => true)).rejects.toThrow(/Invalid transcript page/);
+});
 it("keeps ordinary conversations read-only even with every permission enabled", async () => {
   const { engine, project, store } = await setup();
   const target = engine.command({ type: "create", commandId: "human-read-only", projectId: project.id,

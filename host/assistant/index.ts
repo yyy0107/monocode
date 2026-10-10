@@ -606,7 +606,7 @@ export class HostAssistant {
       }, true);
       this.store.enqueue({
         id: wakeupId, kind: "user", source: { kind: "client" },
-        text: `The user handed this conversation to you: projectId=${projectId}, sessionId=${sessionId}. It is now followed and can use the permissions enabled in your settings. Read its complete history (page through sessions.get), inspect current state and continue the user's existing goals. Handle its messages, approvals and questions within your configured permissions. Do not invent a new task if the conversation is already complete.`,
+        text: `The user handed this conversation to you: projectId=${projectId}, sessionId=${sessionId}. It is now followed and can use the permissions enabled in your settings. Start from its latest page (sessions.get with latest:true) and page back through earlier blocks (smaller offsets) only until the user's goals and the current state are clear, then continue those goals. Handle its messages, approvals and questions within your configured permissions. Do not invent a new task if the conversation is already complete.`,
         rootCauseId: wakeupId, state: "pending", createdAt: Date.now(), attempts: 0, refs: [sessionId],
       }, `delegate:${commandId}`);
       const receipt = { commandId, revision: this.store.get()!.revision, wakeupId };
@@ -1323,6 +1323,10 @@ export class HostAssistant {
       next.session.assistantOwnerId === config.id &&
       next.session.id === config.brainSessionId
     ) {
+      // Finish the turn and start queued work now instead of on the next poll;
+      // deferred so it runs after the save that reported the stop.
+      if (previous?.status === "running" && next.status !== "running" && this.timer)
+        setImmediate(() => void this.tick().catch((error) => this.fail(error)));
       const before = new Map(previous?.session.blocks.map((b) => [b.id, b]));
       for (const block of next.session.blocks) {
         const old = before.get(block.id);
