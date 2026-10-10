@@ -985,6 +985,7 @@
   "Light": "浅色",
   "Light mode always uses an opaque window, so these are off. Your dark-mode values are preserved.": "浅色模式始终使用不透明窗口，因此这些选项不可用。你的深色模式设置会保留。",
   "Light mode keeps the main window opaque, but Popover opacity still applies to menus, pickers, and dialogs.": "浅色模式下主窗口保持不透明，但弹出菜单不透明度仍会应用于菜单、选择器和对话框。",
+  "On Linux the window stays opaque until Main pane glass is on. Popover opacity still applies to menus, pickers, and dialogs.": "在 Linux 上，开启主面板玻璃效果前窗口保持不透明。弹出菜单不透明度仍会应用于菜单、选择器和对话框。",
   "Limit has reset": "额度已重置",
   "Linear API key": "Linear API 密钥",
   "Link": "关联",

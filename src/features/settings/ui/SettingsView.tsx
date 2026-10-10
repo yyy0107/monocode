@@ -2085,6 +2085,23 @@ function useAppearanceSettings() {
     [profileScope],
   );
 
+  /** Shows an unsaved edit while a slider is dragged; `updateProfile` saves it. */
+  const previewProfile = useCallback(
+    (patch: Partial<AppearanceProfile>) => {
+      if (profileScope === activeScope())
+        applyProfile({ ...profileRef.current, ...patch });
+    },
+    [profileScope],
+  );
+
+  const previewTint = useCallback(
+    (hue: number, saturation: number) => {
+      if (loadSeparateSchemes()) previewProfile({ hue, saturation });
+      else applyThemeTint(hue, saturation);
+    },
+    [previewProfile],
+  );
+
   const onThemePreference = useCallback((next: ThemePreference) => {
     applyThemePreference(next);
     saveThemePreference(next);
@@ -2316,6 +2333,8 @@ function useAppearanceSettings() {
     onSeparateSchemes,
     onEditingScheme: setEditingScheme,
     updateProfile,
+    previewProfile,
+    previewTint,
     themeDarkLightness,
     bodyGlass,
     showExcludedFiles,
@@ -2352,6 +2371,8 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
   const percent = Math.round(appearance.opacity * 100);
   const popoverPercent = Math.round(appearance.popoverOpacity * 100);
   const glassDisabled = useColorScheme() === "light";
+  // Linux keeps the window opaque until Main pane glass opts into transparency.
+  const windowOpaque = glassDisabled || (IS_LINUX && !appearance.bodyGlass);
 
   return (
     <>
@@ -2412,12 +2433,13 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
                 )
           }
         >
-          <Slider
+          <LiveSlider
             label={uiT("Dark-mode lightness")}
             value={appearance.themeDarkLightness}
-            display={`${appearance.themeDarkLightness}%`}
+            format={(value) => `${value}%`}
             min={THEME_DARK_LIGHTNESS_MIN}
             max={THEME_DARK_LIGHTNESS_MAX}
+            preview={applyThemeDarkLightness}
             onChange={appearance.onDarkLightness}
             disabled={glassDisabled}
           />
@@ -2431,7 +2453,11 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             ? uiT(
                 "Light mode keeps the main window opaque, but Popover opacity still applies to menus, pickers, and dialogs.",
               )
-            : uiT(
+            : windowOpaque
+              ? uiT(
+                  "On Linux the window stays opaque until Main pane glass is on. Popover opacity still applies to menus, pickers, and dialogs.",
+                )
+              : uiT(
                 "How much of the desktop shows through MonoCode. Blur costs more to composite the higher it goes.",
               )
         }
@@ -2443,14 +2469,15 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             "Applies to the activity bar, sidebar and other glass panes.",
           )}
         >
-          <Slider
+          <LiveSlider
             label={uiT("Sidebar opacity")}
             value={percent}
-            display={`${percent}%`}
+            format={(value) => `${value}%`}
             min={Math.round(SIDEBAR_OPACITY_MIN * 100)}
             max={Math.round(SIDEBAR_OPACITY_MAX * 100)}
+            preview={(value) => applySidebarOpacity(value / 100)}
             onChange={appearance.onOpacity}
-            disabled={glassDisabled}
+            disabled={windowOpaque}
           />
         </Row>
         <Row
@@ -2460,12 +2487,13 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             "How much background shows through menus, pickers, dialogs, and other popovers.",
           )}
         >
-          <Slider
+          <LiveSlider
             label={uiT("Popover opacity")}
             value={popoverPercent}
-            display={`${popoverPercent}%`}
+            format={(value) => `${value}%`}
             min={Math.round(POPOVER_OPACITY_MIN * 100)}
             max={Math.round(POPOVER_OPACITY_MAX * 100)}
+            preview={(value) => applyPopoverOpacity(value / 100)}
             onChange={appearance.onPopoverOpacity}
           />
         </Row>
@@ -2474,14 +2502,15 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
           label={uiT("Blur radius")}
           description={uiT("Background blur behind the window.")}
         >
-          <Slider
+          <LiveSlider
             label={uiT("Blur radius")}
             value={appearance.blur}
-            display={String(appearance.blur)}
+            format={String}
             min={SIDEBAR_BLUR_MIN}
             max={SIDEBAR_BLUR_MAX}
+            preview={applySidebarBlur}
             onChange={appearance.onBlur}
-            disabled={glassDisabled}
+            disabled={windowOpaque}
           />
         </Row>
         <Row
@@ -2566,12 +2595,15 @@ function TintRows({ appearance }: { appearance: AppearanceSettings }) {
         label={uiT("Hue")}
         description={uiT("Base hue for accents and tinted surfaces.")}
       >
-        <Slider
+        <LiveSlider
           label={uiT("Hue")}
           value={appearance.themeHue}
-          display={`${appearance.themeHue}°`}
+          format={(value) => `${value}°`}
           min={THEME_HUE_MIN}
           max={THEME_HUE_MAX}
+          preview={(value) =>
+            appearance.previewTint(value, appearance.themeSaturation)
+          }
           onChange={(value) =>
             appearance.onTint(value, appearance.themeSaturation)
           }
@@ -2584,12 +2616,13 @@ function TintRows({ appearance }: { appearance: AppearanceSettings }) {
           "How strongly the hue tints the interface. Zero keeps it neutral.",
         )}
       >
-        <Slider
+        <LiveSlider
           label={uiT("Saturation")}
           value={appearance.themeSaturation}
-          display={`${appearance.themeSaturation}%`}
+          format={(value) => `${value}%`}
           min={THEME_SATURATION_MIN}
           max={THEME_SATURATION_MAX}
+          preview={(value) => appearance.previewTint(appearance.themeHue, value)}
           onChange={(value) => appearance.onTint(appearance.themeHue, value)}
         />
       </Row>
@@ -2866,12 +2899,13 @@ function TypographyCards({ appearance }: { appearance: AppearanceSettings }) {
           />
         </Row>
         <Row id="contrast" label={uiT("Contrast")}>
-          <Slider
+          <LiveSlider
             label={uiT("Contrast")}
             value={profile.contrast}
-            display={String(profile.contrast)}
+            format={String}
             min={CONTRAST_MIN}
             max={CONTRAST_MAX}
+            preview={(contrast) => appearance.previewProfile({ contrast })}
             onChange={(contrast) => updateProfile({ contrast })}
           />
         </Row>
@@ -3034,12 +3068,13 @@ function ChatBackgroundCard({
             label={uiT("Empty chat visibility")}
             description={uiT("Background strength before a chat has messages.")}
           >
-            <Slider
+            <LiveSlider
               label={uiT("Empty chat background visibility")}
               value={emptyVisibility}
-              display={`${emptyVisibility}%`}
+              format={(value) => `${value}%`}
               min={Math.round(CHAT_BACKGROUND_OPACITY_MIN * 100)}
               max={Math.round(CHAT_BACKGROUND_OPACITY_MAX * 100)}
+              preview={(value) => applyChatBackgroundEmptyOpacity(value / 100)}
               onChange={appearance.onChatBackgroundEmptyOpacity}
             />
           </Row>
@@ -3049,12 +3084,13 @@ function ChatBackgroundCard({
               "Background strength once the conversation has messages.",
             )}
           >
-            <Slider
+            <LiveSlider
               label={uiT("Session background visibility")}
               value={sessionVisibility}
-              display={`${sessionVisibility}%`}
+              format={(value) => `${value}%`}
               min={Math.round(CHAT_BACKGROUND_OPACITY_MIN * 100)}
               max={Math.round(CHAT_BACKGROUND_OPACITY_MAX * 100)}
+              preview={(value) => applyChatBackgroundSessionOpacity(value / 100)}
               onChange={appearance.onChatBackgroundSessionOpacity}
             />
           </Row>
@@ -5356,6 +5392,82 @@ function FontSizeSlider({
       onCommit={(next) => {
         if (next !== value) onChange(next);
       }}
+    />
+  );
+}
+
+/**
+ * Previews at most once per frame while dragging and saves once on release:
+ * each save is a shared-preference write that re-applies every appearance
+ * setting and syncs to the Host, which is too heavy to run per input event.
+ */
+function LiveSlider({
+  label,
+  value,
+  format,
+  min,
+  max,
+  preview,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: number;
+  format: (value: number) => string;
+  min: number;
+  max: number;
+  /** Applies a draft without saving it. */
+  preview: (value: number) => void;
+  /** Applies and saves the released value. */
+  onChange: (value: number) => void;
+  disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const latest = useRef({ value, draft, preview, onChange });
+  latest.current = { value, draft, preview, onChange };
+  const frame = useRef<number | undefined>(undefined);
+  const pending = useRef(value);
+
+  const cancelFrame = () => {
+    if (frame.current === undefined) return;
+    cancelAnimationFrame(frame.current);
+    frame.current = undefined;
+  };
+  const commit = (next: number) => {
+    cancelFrame();
+    if (next !== latest.current.value) latest.current.onChange(next);
+    else latest.current.preview(next);
+  };
+
+  // Leaving the page mid-drag must not strand a previewed, unsaved value.
+  useEffect(
+    () => () => {
+      cancelFrame();
+      const { value, draft, onChange } = latest.current;
+      if (draft !== value) onChange(draft);
+    },
+    [],
+  );
+
+  return (
+    <Slider
+      label={label}
+      value={draft}
+      display={format(draft)}
+      min={min}
+      max={max}
+      disabled={disabled}
+      onChange={(next) => {
+        setDraft(next);
+        pending.current = next;
+        if (frame.current !== undefined) return;
+        frame.current = requestAnimationFrame(() => {
+          frame.current = undefined;
+          latest.current.preview(pending.current);
+        });
+      }}
+      onCommit={commit}
     />
   );
 }
