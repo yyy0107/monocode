@@ -180,4 +180,14 @@ describe("native glass", () => {
     syncNativeGlass("dark");
     await vi.waitFor(() => expect(hasGlass()).toBe(true));
   });
+
+  it("leaves a settled window alone when appearance is replayed", async () => {
+    syncNativeGlass("dark");
+    await vi.waitFor(() => expect(hasGlass()).toBe(true));
+    invoke.mockClear();
+    syncNativeGlass("dark");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(invoke).not.toHaveBeenCalled();
+    expect(hasGlass()).toBe(true);
+  });
 });

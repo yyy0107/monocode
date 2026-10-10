@@ -39,6 +39,9 @@ let chatBackgroundRevision = Date.now();
 let nativeGlassReady = false;
 let glassFadeTimer: number | undefined;
 let glassSyncGeneration = 0;
+/** The native window state last requested; replays of it must not repaint. */
+let appliedGlassRequest: string | undefined;
+let appliedSidebarBlur: number | undefined;
 
 export const CHAT_BACKGROUND_PATH_CHANGE_EVENT =
   "monocode:chat-background-path-change";
@@ -429,13 +432,21 @@ function glassFadeMs(): number {
  */
 export function syncNativeGlass(scheme: ColorScheme) {
   const enabled = scheme === "dark" && (!IS_LINUX || loadBodyGlass());
+  const background = opaqueWindowBackground();
+  const request = JSON.stringify([enabled, background]);
+  // Unrelated preference saves replay appearance; resetting the native window
+  // background repaints the whole window even when nothing changed.
   const root = document.documentElement;
+  if (
+    request === appliedGlassRequest &&
+    glassFadeTimer === undefined &&
+    root.classList.contains("has-native-glass") === enabled
+  )
+    return;
+  appliedGlassRequest = request;
   const generation = ++glassSyncGeneration;
   const setWindow = () =>
-    invoke("set_window_glass_enabled", {
-      enabled,
-      background: opaqueWindowBackground(),
-    }).catch(() => {});
+    invoke("set_window_glass_enabled", { enabled, background }).catch(() => {});
 
   if (glassFadeTimer !== undefined) {
     window.clearTimeout(glassFadeTimer);
@@ -541,6 +552,8 @@ export function saveSidebarBlur(value: number) {
 
 export function applySidebarBlur(value: number) {
   const next = Math.round(clamp(value, SIDEBAR_BLUR_MIN, SIDEBAR_BLUR_MAX));
+  if (next === appliedSidebarBlur) return next;
+  appliedSidebarBlur = next;
   void invoke("set_window_background_blur", { radius: next });
   return next;
 }

@@ -4,10 +4,47 @@ import { initSounds, loadSoundsEnabled, SOUNDS_CHANGE_EVENT } from "./sounds";
 import { refreshUiLanguage } from "../../../shared/i18n/language";
 import * as settings from "./settings";
 import { SHARED_PREFERENCES_CHANGED } from "./sharedPreferences";
+import { PROJECT_LIST_PREFERENCES, preferenceField } from "./sharedPreferenceSchema";
+
+/**
+ * Sidebar layout and session bookkeeping, saved by ordinary navigation
+ * (expanding a project, starting or archiving a session). None of them feeds
+ * the presentation replayed below, and replaying it repaints the window.
+ */
+const NON_PRESENTATION_PREFERENCES = new Set([
+  ...PROJECT_LIST_PREFERENCES,
+  "monocode.sidebarSectionsCollapsed.v1",
+  "monocode.sidebarTabOrder",
+  "monocode.projectSidebarTabs.v1",
+  "monocode.projectGroups",
+  "monocode.projectGroupAssignments",
+  "monocode.sessionFolders",
+  "monocode.sessionSidebarOrder.v1",
+  "monocode.sessionSidebarFilters",
+  "monocode.pinnedSessionsCollapsed",
+  "monocode.reminderSessionsCollapsed",
+  "monocode.lastModel",
+  "monocode.lastModelSettings",
+  "monocode.recentModels",
+]);
+
+function onlyNonPresentation(event: Event) {
+  const keys = (event as CustomEvent<unknown>).detail;
+  return (
+    Array.isArray(keys) &&
+    keys.length > 0 &&
+    keys.every(
+      (key) =>
+        typeof key === "string" &&
+        NON_PRESENTATION_PREFERENCES.has(preferenceField(key)?.base ?? key),
+    )
+  );
+}
 
 /** Replays presentation side effects only: receiving a value must never save it again. */
 export function installSharedPreferenceEffects() {
-  const apply = () => {
+  const apply = (event: Event) => {
+    if (onlyNonPresentation(event)) return;
     initAppearance();
     initTypography();
     initSounds();
