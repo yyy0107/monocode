@@ -377,7 +377,7 @@ describe("mobile connection settings", () => {
     expect(host.forget).not.toHaveBeenCalled();
   });
 
-  it("opens the plain Home title dropdown and reuses the connection dialog anchored to that title", async () => {
+  it("opens the plain Home title as a project menu anchored to that title", async () => {
     host.restore.mockResolvedValue(true);
     await render();
     const title = active<HTMLButtonElement>('.mobile-header-title[data-capsule="false"]')!;
@@ -385,38 +385,31 @@ describe("mobile connection settings", () => {
     expect(title.matches(LIQUID_GLASS_SELECTOR)).toBe(false);
     expect(title.getAttribute("aria-expanded")).toBe("false");
     await act(async () => { title.focus(); title.click(); });
-    const menu = active<HTMLElement>('[role="dialog"][aria-label="Home menu"]')!;
+    expect(title.getAttribute("aria-expanded")).toBe("true");
+    const menu = active<HTMLElement>('[role="dialog"][aria-label="Projects"]')!;
     expect(menu.closest(".mobile-sheet-backdrop")?.getAttribute("data-placement")).toBe("anchor");
-    expect([...menu.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Add connection", "Settings"]);
-    await act(async () => menu.querySelector<HTMLButtonElement>("button")!.click());
-    const form = active<HTMLElement>('[role="dialog"][aria-label="Add connection"]')!;
-    expect(form).not.toBeNull();
-    expect(form.classList.contains("mobile-sheet")).toBe(true);
-    chooseMethod("Pairing code");
-    input('input[type="url"]', "http://next-computer:3774");
-    input('input.mobile-pairing-code', "new-device-token");
-    act(() => form.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(active('[role="dialog"][aria-label="Add connection"]')).toBeNull();
-    finishClosingSheet(form);
+    expect([...menu.querySelectorAll("button")].map((button) => button.textContent))
+      .toEqual(["Connections/projects/Connections"]);
+    act(() => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(active('[role="dialog"][aria-label="Projects"]')).toBeNull();
+    finishClosingSheet(menu);
     expect(document.activeElement).toBe(title);
-    expect(host.connect).not.toHaveBeenCalled();
+    expect(title.getAttribute("aria-expanded")).toBe("false");
     expect(active(".mobile-app")?.getAttribute("data-view")).toBe("home");
   });
 
-  it("opens Settings from the Home dropdown and returns to Home with translated menu labels", async () => {
+  it("opens Settings from the drawer and returns to Home with translated labels", async () => {
     host.restore.mockResolvedValue(true);
     await render();
-    const title = () => active<HTMLButtonElement>('[aria-label="Home menu"]')!;
-    await act(async () => title().click());
     await act(async () => setUiLanguage("zh-CN"));
-    const menu = active<HTMLElement>('[role="dialog"][aria-label="首页菜单"]')!;
-    expect([...menu.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["添加连接", "设置"]);
-    await act(async () => menu.querySelectorAll<HTMLButtonElement>("button")[1].click());
+    await act(async () => button("菜单").click());
+    await act(async () => button("设置").click());
     expect(active(".mobile-app")?.getAttribute("data-view")).toBe("settings");
     expect(active("header strong")?.textContent).toBe("MonoCode");
     await act(async () => active<HTMLButtonElement>('[aria-label="返回"]')!.click());
     expect(active(".mobile-app")?.getAttribute("data-view")).toBe("home");
     expect(active('.mobile-header-title')?.getAttribute("aria-expanded")).toBe("false");
+    expect(active('.mobile-header-title')?.getAttribute("aria-label")).toBe("项目");
   });
 
   it("renders the connection screen when LAN HTTP has no native randomUUID", async () => {
