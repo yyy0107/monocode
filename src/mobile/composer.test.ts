@@ -637,6 +637,40 @@ describe("mobile composer card", () => {
     expect(area.value).toBe("Keep this draft");
   });
 
+  it("chooses a new conversation's workspace and hides it once the conversation exists", async () => {
+    const onChange = vi.fn();
+    const workspace = {
+      value: { mode: "current" },
+      onChange,
+      loadBranches: vi.fn(async () => ({ current: "main", branches: ["main", "feature"], remotes: [] })),
+      loadWorktrees: vi.fn(async () => ({
+        defaultRoot: "/projects/monocode-worktrees",
+        worktrees: [
+          { path: "/projects/monocode", branch: "main", head: "a", isMain: true, missing: false },
+          { path: "/projects/monocode-worktrees/wt-fix", branch: "fix", head: "b", isMain: false, missing: false },
+        ],
+      })),
+    };
+    const { node, button, rerender } = render({ workspace });
+    const area = node.querySelector("textarea")!;
+    act(() => area.focus());
+    const rows = () => [...node.querySelectorAll<HTMLButtonElement>('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="radio"]')];
+    tapKeepingFocus(button("Workspace: Current checkout"));
+    await act(async () => {});
+    tapKeepingFocus(rows().find(row => row.textContent?.includes("New worktree"))!);
+    expect(onChange).toHaveBeenLastCalledWith({ mode: "worktree", base: "main" });
+    tapKeepingFocus(rows().find(row => row.textContent?.includes("Existing worktree"))!);
+    await act(async () => {});
+    expect(rows().map(row => row.textContent)).toEqual([expect.stringContaining("wt-fix")]);
+    tapKeepingFocus(rows()[0]!);
+    expect(onChange).toHaveBeenLastCalledWith({ mode: "current", cwd: "/projects/monocode-worktrees/wt-fix" });
+    expect(document.activeElement).toBe(area);
+    rerender({ workspace: { ...workspace, value: { mode: "current", cwd: "/projects/monocode-worktrees/wt-fix" } } });
+    expect(button("Workspace: wt-fix")).not.toBeNull();
+    rerender({ lockedAgent: true });
+    expect(node.querySelector(".mobile-composer-workspace")).toBeNull();
+  });
+
   it("keeps a locked project sheet closed even if requested externally", () => {
     const { node } = render({ lockedAgent: true, panel: "projects" });
     expect(node.querySelector('.mobile-sheet-backdrop:not([aria-hidden="true"]) [role="dialog"]')).toBeNull();

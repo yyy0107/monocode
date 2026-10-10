@@ -11,6 +11,7 @@ import { TranscriptPlatformContext } from "../features/sessions/ui/TranscriptPla
 import { ArrowDownCircle } from "../shared/ui/icons";
 import { useCollapseMotion } from "../shared/ui/AnimatedCollapse";
 import type { Block } from "../features/sessions/model/session";
+import type { WorktreeCreation } from "../features/source-control/model/worktreeCreation";
 import { isSubagentBlock, isToolBlock, toolCallState } from "../features/sessions/model/transcriptActivity";
 import type { QuestionAnswer } from "../features/sessions/model/userQuestion";
 import type { ApprovalDecision } from "../integrations/harness";
@@ -75,6 +76,7 @@ export const MobileTranscript = memo(function MobileTranscript({
   questionOpen = true,
   onQuestionOpenChange,
   planDecision,
+  worktreeCreation,
 }: {
   snapshot: HostSession;
   disabled: boolean;
@@ -101,6 +103,8 @@ export const MobileTranscript = memo(function MobileTranscript({
     onRevise: (feedback: string) => boolean | void;
     onSkip: () => void;
   };
+  /** The worktree a new conversation's first send is creating. */
+  worktreeCreation?: WorktreeCreation;
 }) {
   const { t } = useTranslation();
   const parentVisible = useSurfaceVisibility();
@@ -333,6 +337,7 @@ export const MobileTranscript = memo(function MobileTranscript({
           onJumpToBottomReady={onJumpReady}
           onApproval={onApproval}
           decidingPlanId={planDecision?.blockId}
+          worktreeCreation={worktreeCreation}
         />
         {showJump && (
           <button
