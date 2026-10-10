@@ -662,6 +662,7 @@ describe("settings search", () => {
       "Blur radius",
       "Popover opacity",
       "Sidebar opacity",
+      "Window opacity",
       "Appearance",
     ]);
   });

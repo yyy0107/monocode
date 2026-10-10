@@ -985,7 +985,7 @@
   "Light": "浅色",
   "Light mode always uses an opaque window, so these are off. Your dark-mode values are preserved.": "浅色模式始终使用不透明窗口，因此这些选项不可用。你的深色模式设置会保留。",
   "Light mode keeps the main window opaque, but Popover opacity still applies to menus, pickers, and dialogs.": "浅色模式下主窗口保持不透明，但弹出菜单不透明度仍会应用于菜单、选择器和对话框。",
-  "On Linux the window stays opaque until Main pane glass is on. Popover opacity still applies to menus, pickers, and dialogs.": "在 Linux 上，开启主面板玻璃效果前窗口保持不透明。弹出菜单不透明度仍会应用于菜单、选择器和对话框。",
+  "On Linux the window stays opaque until Main pane glass is on or Window opacity is below 100%. Popover opacity still applies to menus, pickers, and dialogs.": "在 Linux 上，开启主面板玻璃效果或将整体不透明度调到 100% 以下前，窗口保持不透明。弹出菜单不透明度仍会应用于菜单、选择器和对话框。",
   "Limit has reset": "额度已重置",
   "Linear API key": "Linear API 密钥",
   "Link": "关联",
@@ -3586,5 +3586,15 @@
   "Could not load worktrees": "无法加载工作树",
   "Showing the latest {count} commits": "显示最近 {count} 条提交",
   "Load more commits": "加载更多提交",
-  "Worktree: {path}": "工作树：{path}"
+  "Worktree: {path}": "工作树：{path}",
+  "Window opacity": "整体不透明度",
+  "Fades the title bar, sidebar and main pane together.": "同时调整标题栏、侧栏和主面板的透明程度。",
+  "Background area": "背景范围",
+  "Behind chat panes only, or across the whole window.": "仅显示在对话区，或铺满整个窗口。",
+  "Chat area": "对话区",
+  "Full window": "全屏",
+  "Visibility": "可见度",
+  "Background strength across the window.": "整个窗口的背景强度。",
+  "Panel opacity": "面板不透明度",
+  "Composer, settings, dialogs and menus. Lower values show what is behind them.": "输入框、设置、对话框和菜单的不透明度。数值越低，越能透出后面的内容。"
 }

@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { syncNativeGlass } from "./appearance";
+import {
+  activateWindowAppearance,
+  applyWindowOpacity,
+  syncNativeGlass,
+} from "./appearance";
 
 const platform = vi.hoisted(() => ({ isLinux: false }));
 vi.mock("../../../platform/tauri/platform", async (importOriginal) => ({
@@ -92,6 +96,29 @@ describe("native glass", () => {
     expect(invoke).toHaveBeenCalledWith(
       "set_window_glass_enabled",
       expect.objectContaining({ enabled: true }),
+    );
+  });
+
+  it("opens the Linux window while Window opacity is lowered", async () => {
+    platform.isLinux = true;
+    localStorage.setItem(BODY_GLASS_KEY, "0");
+    activateWindowAppearance();
+    expect(hasGlass()).toBe(false);
+
+    applyWindowOpacity(0.5);
+    await vi.waitFor(() => expect(hasGlass()).toBe(true));
+
+    invoke.mockClear();
+    applyWindowOpacity(0.4);
+    expect(invoke).not.toHaveBeenCalled();
+
+    applyWindowOpacity(1);
+    expect(hasGlass()).toBe(false);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "set_window_glass_enabled",
+        expect.objectContaining({ enabled: false }),
+      ),
     );
   });
 

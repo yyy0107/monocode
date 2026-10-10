@@ -110,7 +110,11 @@ export async function prepareNewThreadBackgroundEffect(
   return prepared;
 }
 
+/** The request on screen (or in flight), so a replay of it changes nothing. */
+let appliedRequest: string | null = null;
+
 export function clearPreparedNewThreadBackground() {
+  appliedRequest = null;
   appliedRevision += 1;
   if (activeObjectUrl) URL.revokeObjectURL(activeObjectUrl);
   activeObjectUrl = null;
@@ -125,6 +129,9 @@ export async function applyPreparedNewThreadBackground(
   effect: NewThreadBackgroundEffect,
   light: boolean,
 ) {
+  const request = JSON.stringify([sourceKey, src, effect, light]);
+  if (request === appliedRequest) return;
+  appliedRequest = request;
   const revision = ++appliedRevision;
   const root = document.documentElement;
   root.classList.remove("chat-background-effect-ready");

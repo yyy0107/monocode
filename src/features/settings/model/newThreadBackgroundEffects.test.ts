@@ -87,6 +87,28 @@ describe("new-thread background effects", () => {
     );
   });
 
+  it("leaves an unchanged background on screen when it is applied again", async () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    const apply = () =>
+      applyPreparedNewThreadBackground(
+        "/background.png?v=103",
+        "asset://localhost/background.png?v=103",
+        "none",
+        false,
+      );
+    await apply();
+
+    const classes = document.documentElement.classList;
+    const remove = vi.spyOn(classes, "remove");
+    await apply();
+
+    expect(remove).not.toHaveBeenCalled();
+    expect(classes).toContain("chat-background-effect-ready");
+  });
+
   it("drops rejected source promises so transient failures can retry", async () => {
     const fetch = vi.fn().mockRejectedValue(new Error("temporary failure"));
     vi.stubGlobal("fetch", fetch);

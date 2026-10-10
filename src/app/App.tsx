@@ -116,6 +116,7 @@ import {
 import { Sidebar } from "./shell/Sidebar";
 import { SidebarRail } from "./shell/SidebarTransition";
 import { SidebarMain } from "./shell/SidebarMain";
+import { GradientBlurBackground } from "../features/settings/ui/GradientBlurBackground";
 import { ApprovalToasts } from "../features/sessions/ui/ApprovalToasts";
 import { HarnessUpdateNotice } from "../features/providers/ui/HarnessUpdateNotice";
 import { WhatsNewDialog } from "./shell/WhatsNewDialog";
@@ -11395,7 +11396,7 @@ function Workspace({
         <AppViewRendererContext.Provider value={renderAppView}>
           <SessionHeaderActionsContext.Provider value={sessionHeaderActions}>
             <div
-              className={`relative flex h-full flex-col text-content ${
+              className={`relative isolate flex h-full flex-col text-content ${
                 HAS_NATIVE_GLASS
                   ? "bg-background-base/40"
                   : "bg-background-base"
@@ -11408,6 +11409,9 @@ function Workspace({
                 } as CSSProperties
               }
             >
+              <div aria-hidden className="window-chat-background">
+                <GradientBlurBackground />
+              </div>
               <div
                 data-window-chrome
                 className="relative shrink-0"

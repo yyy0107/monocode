@@ -17,6 +17,8 @@ const THEME_SATURATION_KEY = "monocode.themeSaturation";
 const THEME_DARK_LIGHTNESS_KEY = "monocode.themeDarkLightness";
 const OPACITY_KEY = "monocode.sidebarOpacity";
 const POPOVER_OPACITY_KEY = "monocode.popoverOpacity";
+const WINDOW_OPACITY_KEY = "monocode.windowOpacity";
+const PANEL_OPACITY_KEY = "monocode.panelOpacity";
 const BLUR_KEY = "monocode.sidebarBlur";
 const PROJECT_RAIL_OPEN_KEY = "monocode.projectRailOpen";
 const SESSION_SIDEBAR_OPEN_KEY = "monocode.sessionSidebarOpen";
@@ -32,6 +34,7 @@ const CHAT_BACKGROUND_EMPTY_OPACITY_KEY = "monocode.chatBackgroundEmptyOpacity";
 const CHAT_BACKGROUND_SESSION_OPACITY_KEY =
   "monocode.chatBackgroundSessionOpacity";
 const CHAT_BACKGROUND_SCOPE_KEY = "monocode.chatBackgroundScope";
+const CHAT_BACKGROUND_AREA_KEY = "monocode.chatBackgroundArea";
 const NEW_THREAD_BACKGROUND_EFFECT_KEY = "monocode.newThreadBackgroundEffect";
 const CHANGES_VIEW_KEY = "monocode.changesView";
 const SHOW_EXCLUDED_FILES_KEY = "monocode.showExcludedFiles";
@@ -42,6 +45,7 @@ let glassSyncGeneration = 0;
 /** The native window state last requested; replays of it must not repaint. */
 let appliedGlassRequest: string | undefined;
 let appliedSidebarBlur: number | undefined;
+let appliedWindowOpacity = 1;
 
 export const CHAT_BACKGROUND_PATH_CHANGE_EVENT =
   "monocode:chat-background-path-change";
@@ -50,6 +54,8 @@ export type ColorScheme = "dark" | "light";
 export type ThemePreference = ColorScheme | "system";
 export type TranscriptLayout = "full" | "chat";
 export type ChatBackgroundScope = "empty" | "all";
+/** Where the global background is painted: each chat pane, or the whole window. */
+export type ChatBackgroundArea = "chat" | "window";
 export type NewThreadBackgroundEffect =
   "none" | "dither" | "ascii" | "halftone" | "scanlines" | "gradient-blur";
 export type ChangesView = "list" | "tree";
@@ -156,6 +162,16 @@ export const POPOVER_OPACITY_MIN = 0;
 export const POPOVER_OPACITY_MAX = 1;
 export const POPOVER_OPACITY_DEFAULT = 0.02;
 
+/** Scales every window surface (chrome, sidebar, main pane) at once. */
+export const WINDOW_OPACITY_MIN = 0.15;
+export const WINDOW_OPACITY_MAX = 1;
+export const WINDOW_OPACITY_DEFAULT = 1;
+
+/** Fill of floating panels: composer, settings cards, dialogs, menus. */
+export const PANEL_OPACITY_MIN = 0.1;
+export const PANEL_OPACITY_MAX = 1;
+export const PANEL_OPACITY_DEFAULT = 1;
+
 export const SIDEBAR_BLUR_MIN = 1;
 export const SIDEBAR_BLUR_MAX = 64;
 export const SIDEBAR_BLUR_DEFAULT = 24;
@@ -174,6 +190,7 @@ export const CHAT_BACKGROUND_EMPTY_OPACITY_DEFAULT =
 export const CHAT_BACKGROUND_SESSION_OPACITY_DEFAULT =
   CHAT_BACKGROUND_OPACITY_DEFAULT;
 export const CHAT_BACKGROUND_SCOPE_DEFAULT: ChatBackgroundScope = "all";
+export const CHAT_BACKGROUND_AREA_DEFAULT: ChatBackgroundArea = "chat";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -336,12 +353,15 @@ export function initAppearance() {
   watchSystemColorScheme();
   applySidebarOpacity(loadSidebarOpacity());
   applyPopoverOpacity(loadPopoverOpacity());
+  applyWindowOpacity(loadWindowOpacity());
+  applyPanelOpacity(loadPanelOpacity());
   applySidebarBlur(loadSidebarBlur());
   applyBodyGlass(loadBodyGlass());
   applyChatBackground(loadChatBackgroundPath());
   applyChatBackgroundEmptyOpacity(loadChatBackgroundEmptyOpacity());
   applyChatBackgroundSessionOpacity(loadChatBackgroundSessionOpacity());
   applyChatBackgroundScope(loadChatBackgroundScope());
+  applyChatBackgroundArea(loadChatBackgroundArea());
   void applyUiScale(loadUiScale());
 }
 
@@ -430,8 +450,16 @@ function glassFadeMs(): number {
  * first, and leaving it fades the page first. A call that a newer one has
  * overtaken is dropped rather than left to settle last.
  */
+/** Linux opts into a transparent window via Main pane glass or Window opacity. */
+function nativeGlassEnabled(scheme: ColorScheme) {
+  return (
+    scheme === "dark" &&
+    (!IS_LINUX || loadBodyGlass() || appliedWindowOpacity < WINDOW_OPACITY_MAX)
+  );
+}
+
 export function syncNativeGlass(scheme: ColorScheme) {
-  const enabled = scheme === "dark" && (!IS_LINUX || loadBodyGlass());
+  const enabled = nativeGlassEnabled(scheme);
   const background = opaqueWindowBackground();
   const request = JSON.stringify([enabled, background]);
   // Unrelated preference saves replay appearance; resetting the native window
@@ -533,6 +561,64 @@ export function applyPopoverOpacity(value: number) {
   return next;
 }
 
+export function loadWindowOpacity(): number {
+  return clamp(
+    readNumber(WINDOW_OPACITY_KEY) ?? WINDOW_OPACITY_DEFAULT,
+    WINDOW_OPACITY_MIN,
+    WINDOW_OPACITY_MAX,
+  );
+}
+
+export function saveWindowOpacity(value: number) {
+  writeNumber(
+    WINDOW_OPACITY_KEY,
+    clamp(value, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX),
+  );
+}
+
+/**
+ * The Linux glass decision follows the applied value, so a slider preview can
+ * open the window before it is saved; the window is only touched when it flips.
+ */
+export function applyWindowOpacity(value: number) {
+  const next = clamp(value, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX);
+  const wasTranslucent = appliedWindowOpacity < WINDOW_OPACITY_MAX;
+  appliedWindowOpacity = next;
+  document.documentElement.style.setProperty("--window-opacity", String(next));
+  if (
+    IS_LINUX &&
+    nativeGlassReady &&
+    wasTranslucent !== next < WINDOW_OPACITY_MAX
+  ) {
+    syncNativeGlass(isLightScheme() ? "light" : "dark");
+  }
+  return next;
+}
+
+export function loadPanelOpacity(): number {
+  return clamp(
+    readNumber(PANEL_OPACITY_KEY) ?? PANEL_OPACITY_DEFAULT,
+    PANEL_OPACITY_MIN,
+    PANEL_OPACITY_MAX,
+  );
+}
+
+export function savePanelOpacity(value: number) {
+  writeNumber(
+    PANEL_OPACITY_KEY,
+    clamp(value, PANEL_OPACITY_MIN, PANEL_OPACITY_MAX),
+  );
+}
+
+/** Translucent panels also blur what is behind them so their text stays legible. */
+export function applyPanelOpacity(value: number) {
+  const next = clamp(value, PANEL_OPACITY_MIN, PANEL_OPACITY_MAX);
+  const root = document.documentElement;
+  root.style.setProperty("--panel-opacity", String(next));
+  root.classList.toggle("translucent-panels", next < PANEL_OPACITY_MAX);
+  return next;
+}
+
 export function loadSidebarBlur(): number {
   return Math.round(
     clamp(
@@ -607,16 +693,25 @@ export function subscribeChatBackgroundPath(onStoreChange: () => void) {
 }
 
 let appliedBackgroundPath: string | null = null;
-export function applyChatBackground(path: string | null) {
+/**
+ * Every shared-preference change replays this, so an unchanged path keeps its
+ * revision and rendered image; only a new path or `reload` (the same file
+ * replaced) fetches and re-renders it, which would otherwise flash the image.
+ */
+export function applyChatBackground(
+  path: string | null,
+  { reload = false }: { reload?: boolean } = {},
+) {
   const root = document.documentElement;
   root.classList.toggle("has-chat-background", !!path);
-  if (path !== appliedBackgroundPath) clearPreparedNewThreadBackground();
+  const changed = path !== appliedBackgroundPath;
+  if (changed) clearPreparedNewThreadBackground();
   appliedBackgroundPath = path;
   if (!path) {
     clearPreparedNewThreadBackground();
     return null;
   }
-  chatBackgroundRevision += 1;
+  if (changed || reload) chatBackgroundRevision += 1;
   renderChatBackground(path);
   return path;
 }
@@ -790,6 +885,35 @@ export function applyChatBackgroundScope(value: ChatBackgroundScope) {
   document.documentElement.classList.toggle(
     "chat-background-empty-only",
     value === "empty",
+  );
+  return value;
+}
+
+function isChatBackgroundArea(value: unknown): value is ChatBackgroundArea {
+  return value === "chat" || value === "window";
+}
+
+export function loadChatBackgroundArea(): ChatBackgroundArea {
+  try {
+    const raw = preferenceStorage.getItem(CHAT_BACKGROUND_AREA_KEY);
+    return isChatBackgroundArea(raw) ? raw : CHAT_BACKGROUND_AREA_DEFAULT;
+  } catch {
+    return CHAT_BACKGROUND_AREA_DEFAULT;
+  }
+}
+
+export function saveChatBackgroundArea(value: ChatBackgroundArea) {
+  try {
+    preferenceStorage.setItem(CHAT_BACKGROUND_AREA_KEY, value);
+  } catch {
+    // private mode / quota
+  }
+}
+
+export function applyChatBackgroundArea(value: ChatBackgroundArea) {
+  document.documentElement.classList.toggle(
+    "chat-background-window",
+    value === "window",
   );
   return value;
 }

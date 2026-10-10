@@ -368,6 +368,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     keywords: "black brightness contrast background",
   },
   {
+    id: "window-opacity",
+    section: "appearance",
+    label: "Window opacity",
+    keywords: "glass translucent transparency whole overall",
+  },
+  {
     id: "sidebar-opacity",
     section: "appearance",
     label: "Sidebar opacity",
@@ -379,6 +385,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     label: "Popover opacity",
     keywords:
       "dropdown menu picker dialog modal popup glass translucent transparency vibrancy",
+  },
+  {
+    id: "panel-opacity",
+    section: "appearance",
+    label: "Panel opacity",
+    keywords: "composer dialog modal menu popup settings card translucent transparency",
   },
   {
     id: "blur",

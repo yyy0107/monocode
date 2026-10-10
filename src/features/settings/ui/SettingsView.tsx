@@ -113,6 +113,9 @@ import {
   applyChatBackgroundEmptyOpacity,
   applyChatBackgroundSessionOpacity,
   applyChatBackgroundScope,
+  applyChatBackgroundArea,
+  applyWindowOpacity,
+  applyPanelOpacity,
   applyAccentColor,
   applyBodyGlass,
   applyPopoverOpacity,
@@ -130,15 +133,19 @@ import {
   CHAT_BACKGROUND_OPACITY_MIN,
   CHAT_BACKGROUND_SESSION_OPACITY_DEFAULT,
   CHAT_BACKGROUND_SCOPE_DEFAULT,
+  CHAT_BACKGROUND_AREA_DEFAULT,
   THEME_PREFERENCE_DEFAULT,
   chatBackgroundSrc,
   loadBodyGlass,
   loadPopoverOpacity,
+  loadWindowOpacity,
+  loadPanelOpacity,
   loadAccentColor,
   loadChatBackgroundEmptyOpacity,
   loadChatBackgroundPath,
   loadChatBackgroundSessionOpacity,
   loadChatBackgroundScope,
+  loadChatBackgroundArea,
   loadNewThreadBackgroundEffect,
   loadThemeDarkLightness,
   loadThemePreference,
@@ -150,11 +157,14 @@ import {
   loadTranscriptAnchor,
   saveBodyGlass,
   savePopoverOpacity,
+  saveWindowOpacity,
+  savePanelOpacity,
   saveAccentColor,
   saveChatBackgroundEmptyOpacity,
   saveChatBackgroundPath,
   saveChatBackgroundSessionOpacity,
   saveChatBackgroundScope,
+  saveChatBackgroundArea,
   setNewThreadBackgroundEffect,
   saveThemeDarkLightness,
   saveThemePreference,
@@ -177,6 +187,12 @@ import {
   SIDEBAR_OPACITY_MAX,
   SIDEBAR_OPACITY_MIN,
   POPOVER_OPACITY_DEFAULT,
+  WINDOW_OPACITY_DEFAULT,
+  PANEL_OPACITY_DEFAULT,
+  PANEL_OPACITY_MAX,
+  PANEL_OPACITY_MIN,
+  WINDOW_OPACITY_MAX,
+  WINDOW_OPACITY_MIN,
   POPOVER_OPACITY_MAX,
   POPOVER_OPACITY_MIN,
   THEME_DARK_LIGHTNESS_DEFAULT,
@@ -190,6 +206,7 @@ import {
   THEME_SATURATION_MIN,
   type ThemePreference,
   type ChatBackgroundScope,
+  type ChatBackgroundArea,
   NEW_THREAD_BACKGROUND_EFFECTS,
   NEW_THREAD_BACKGROUND_EFFECT_LABELS,
   NEW_THREAD_BACKGROUND_EFFECT_DESCRIPTIONS,
@@ -608,7 +625,7 @@ export function SettingsView({
 
       <div className="flex min-h-0 min-w-0 flex-1">
         <SettingsNav section={section} onSelect={selectSection} />
-        <div className="m-3 ml-1 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-stroke bg-background-base">
+        <div className="settings-panel m-3 ml-1 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-stroke">
           {section === "skills" ? (
             <SkillsPage
               key={cwd}
@@ -2011,6 +2028,8 @@ function useAppearanceSettings() {
   const [accentColor, setAccentColor] = usePreferenceState(loadAccentColor);
   const [opacity, setOpacity] = usePreferenceState(loadSidebarOpacity);
   const [popoverOpacity, setPopoverOpacity] = usePreferenceState(loadPopoverOpacity);
+  const [windowOpacity, setWindowOpacity] = usePreferenceState(loadWindowOpacity);
+  const [panelOpacity, setPanelOpacity] = usePreferenceState(loadPanelOpacity);
   const [blur, setBlur] = usePreferenceState(loadSidebarBlur);
   const [themeHue, setThemeHue] = usePreferenceState(loadThemeHue);
   const [themeSaturation, setThemeSaturation] = usePreferenceState(loadThemeSaturation);
@@ -2031,6 +2050,8 @@ function useAppearanceSettings() {
     usePreferenceState(loadChatBackgroundSessionOpacity);
   const [chatBackgroundScope, setChatBackgroundScope] =
     usePreferenceState<ChatBackgroundScope>(loadChatBackgroundScope);
+  const [chatBackgroundArea, setChatBackgroundArea] =
+    usePreferenceState<ChatBackgroundArea>(loadChatBackgroundArea);
   const [newThreadBackgroundEffect, setBackgroundEffect] =
     usePreferenceState<NewThreadBackgroundEffect>(loadNewThreadBackgroundEffect);
   const [chatBackgroundBusy, setChatBackgroundBusy] = useState(false);
@@ -2130,6 +2151,18 @@ function useAppearanceSettings() {
     setPopoverOpacity(next);
   }, []);
 
+  const onWindowOpacity = useCallback((percent: number) => {
+    const next = applyWindowOpacity(percent / 100);
+    saveWindowOpacity(next);
+    setWindowOpacity(next);
+  }, []);
+
+  const onPanelOpacity = useCallback((percent: number) => {
+    const next = applyPanelOpacity(percent / 100);
+    savePanelOpacity(next);
+    setPanelOpacity(next);
+  }, []);
+
   const onBlur = useCallback((radius: number) => {
     const next = applySidebarBlur(radius);
     saveSidebarBlur(next);
@@ -2174,7 +2207,7 @@ function useAppearanceSettings() {
       if (!picked) return;
       const path = activePreferenceStore() ? await uploadPreferenceBackground(picked) : picked;
       saveChatBackgroundPath(path);
-      applyChatBackground(path);
+      applyChatBackground(path, { reload: true });
       setChatBackgroundPath(path);
     } catch (error) {
       setChatBackgroundError(
@@ -2218,6 +2251,12 @@ function useAppearanceSettings() {
     applyChatBackgroundScope(next);
     saveChatBackgroundScope(next);
     setChatBackgroundScope(next);
+  }, []);
+
+  const onChatBackgroundArea = useCallback((next: ChatBackgroundArea) => {
+    applyChatBackgroundArea(next);
+    saveChatBackgroundArea(next);
+    setChatBackgroundArea(next);
   }, []);
 
   const onNewThreadBackgroundEffect = useCallback(
@@ -2278,6 +2317,8 @@ function useAppearanceSettings() {
     onAccentColor(ACCENT_COLOR_DEFAULT);
     onOpacity(Math.round(SIDEBAR_OPACITY_DEFAULT * 100));
     onPopoverOpacity(Math.round(POPOVER_OPACITY_DEFAULT * 100));
+    onWindowOpacity(Math.round(WINDOW_OPACITY_DEFAULT * 100));
+    onPanelOpacity(Math.round(PANEL_OPACITY_DEFAULT * 100));
     onBlur(SIDEBAR_BLUR_DEFAULT);
     onTint(THEME_HUE_DEFAULT, THEME_SATURATION_DEFAULT);
     onDarkLightness(THEME_DARK_LIGHTNESS_DEFAULT);
@@ -2290,6 +2331,7 @@ function useAppearanceSettings() {
       Math.round(CHAT_BACKGROUND_SESSION_OPACITY_DEFAULT * 100),
     );
     onChatBackgroundScope(CHAT_BACKGROUND_SCOPE_DEFAULT);
+    onChatBackgroundArea(CHAT_BACKGROUND_AREA_DEFAULT);
     onNewThreadBackgroundEffect(NEW_THREAD_BACKGROUND_EFFECT_DEFAULT);
     if (chatBackgroundPath) void onClearChatBackground();
     onUiScale(Math.round(UI_SCALE_DEFAULT * 100));
@@ -2303,6 +2345,7 @@ function useAppearanceSettings() {
     onChatBackgroundEmptyOpacity,
     onChatBackgroundSessionOpacity,
     onChatBackgroundScope,
+    onChatBackgroundArea,
     onNewThreadBackgroundEffect,
     onClearChatBackground,
     onAccentColor,
@@ -2310,6 +2353,8 @@ function useAppearanceSettings() {
     onThemePreference,
     onOpacity,
     onPopoverOpacity,
+    onWindowOpacity,
+    onPanelOpacity,
     onTint,
     onDarkLightness,
     onUiScale,
@@ -2320,6 +2365,8 @@ function useAppearanceSettings() {
     accentColor: separateSchemes ? profile.accentColor : accentColor,
     opacity,
     popoverOpacity,
+    windowOpacity,
+    panelOpacity,
     blur,
     themeHue: separateSchemes ? profile.hue : themeHue,
     themeSaturation: separateSchemes ? profile.saturation : themeSaturation,
@@ -2342,6 +2389,7 @@ function useAppearanceSettings() {
     chatBackgroundEmptyOpacity,
     chatBackgroundSessionOpacity,
     chatBackgroundScope,
+    chatBackgroundArea,
     newThreadBackgroundEffect,
     chatBackgroundBusy,
     chatBackgroundError,
@@ -2350,6 +2398,8 @@ function useAppearanceSettings() {
     onAccentColor,
     onOpacity,
     onPopoverOpacity,
+    onWindowOpacity,
+    onPanelOpacity,
     onBlur,
     onTint,
     onDarkLightness,
@@ -2360,6 +2410,7 @@ function useAppearanceSettings() {
     onChatBackgroundEmptyOpacity,
     onChatBackgroundSessionOpacity,
     onChatBackgroundScope,
+    onChatBackgroundArea,
     onNewThreadBackgroundEffect,
     onUiScale,
     restoreDefaults,
@@ -2370,9 +2421,14 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
   const { t: uiT } = useTranslation();
   const percent = Math.round(appearance.opacity * 100);
   const popoverPercent = Math.round(appearance.popoverOpacity * 100);
+  const windowPercent = Math.round(appearance.windowOpacity * 100);
+  const panelPercent = Math.round(appearance.panelOpacity * 100);
   const glassDisabled = useColorScheme() === "light";
-  // Linux keeps the window opaque until Main pane glass opts into transparency.
-  const windowOpaque = glassDisabled || (IS_LINUX && !appearance.bodyGlass);
+  // Linux keeps the window opaque until Main pane glass or a lowered Window
+  // opacity opts into transparency.
+  const windowOpaque =
+    glassDisabled ||
+    (IS_LINUX && !appearance.bodyGlass && windowPercent >= 100);
 
   return (
     <>
@@ -2455,13 +2511,31 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
               )
             : windowOpaque
               ? uiT(
-                  "On Linux the window stays opaque until Main pane glass is on. Popover opacity still applies to menus, pickers, and dialogs.",
+                  "On Linux the window stays opaque until Main pane glass is on or Window opacity is below 100%. Popover opacity still applies to menus, pickers, and dialogs.",
                 )
               : uiT(
                 "How much of the desktop shows through MonoCode. Blur costs more to composite the higher it goes.",
               )
         }
       >
+        <Row
+          id="window-opacity"
+          label={uiT("Window opacity")}
+          description={uiT(
+            "Fades the title bar, sidebar and main pane together.",
+          )}
+        >
+          <LiveSlider
+            label={uiT("Window opacity")}
+            value={windowPercent}
+            format={(value) => `${value}%`}
+            min={Math.round(WINDOW_OPACITY_MIN * 100)}
+            max={Math.round(WINDOW_OPACITY_MAX * 100)}
+            preview={(value) => applyWindowOpacity(value / 100)}
+            onChange={appearance.onWindowOpacity}
+            disabled={glassDisabled}
+          />
+        </Row>
         <Row
           id="sidebar-opacity"
           label={uiT("Sidebar opacity")}
@@ -2495,6 +2569,23 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
             max={Math.round(POPOVER_OPACITY_MAX * 100)}
             preview={(value) => applyPopoverOpacity(value / 100)}
             onChange={appearance.onPopoverOpacity}
+          />
+        </Row>
+        <Row
+          id="panel-opacity"
+          label={uiT("Panel opacity")}
+          description={uiT(
+            "Composer, settings, dialogs and menus. Lower values show what is behind them.",
+          )}
+        >
+          <LiveSlider
+            label={uiT("Panel opacity")}
+            value={panelPercent}
+            format={(value) => `${value}%`}
+            min={Math.round(PANEL_OPACITY_MIN * 100)}
+            max={Math.round(PANEL_OPACITY_MAX * 100)}
+            preview={(value) => applyPanelOpacity(value / 100)}
+            onChange={appearance.onPanelOpacity}
           />
         </Row>
         <Row
@@ -2952,6 +3043,7 @@ function ChatBackgroundCard({
     appearance.chatBackgroundSessionOpacity * 100,
   );
   const busy = appearance.chatBackgroundBusy;
+  const fullWindow = appearance.chatBackgroundArea === "window";
 
   return (
     <Group
@@ -3051,22 +3143,48 @@ function ChatBackgroundCard({
             />
           </Row>
           <Row
-            label={uiT("Show on")}
-            description={uiT("Empty sessions only, or every conversation.")}
+            label={uiT("Background area")}
+            description={uiT(
+              "Behind chat panes only, or across the whole window.",
+            )}
           >
             <Segmented
-              label={uiT("Show background on")}
-              value={appearance.chatBackgroundScope}
+              label={uiT("Background area")}
+              value={appearance.chatBackgroundArea}
               options={[
-                { value: "empty", label: uiT("Empty only") },
-                { value: "all", label: uiT("All sessions") },
+                { value: "chat", label: uiT("Chat area") },
+                { value: "window", label: uiT("Full window") },
               ]}
-              onChange={appearance.onChatBackgroundScope}
+              onChange={appearance.onChatBackgroundArea}
             />
           </Row>
+          <AnimatedCollapse expanded={!fullWindow}>
+            <div className="border-t border-border">
+              <Row
+                label={uiT("Show on")}
+                description={uiT("Empty sessions only, or every conversation.")}
+              >
+                <Segmented
+                  label={uiT("Show background on")}
+                  value={appearance.chatBackgroundScope}
+                  options={[
+                    { value: "empty", label: uiT("Empty only") },
+                    { value: "all", label: uiT("All sessions") },
+                  ]}
+                  onChange={appearance.onChatBackgroundScope}
+                />
+              </Row>
+            </div>
+          </AnimatedCollapse>
           <Row
-            label={uiT("Empty chat visibility")}
-            description={uiT("Background strength before a chat has messages.")}
+            label={
+              fullWindow ? uiT("Visibility") : uiT("Empty chat visibility")
+            }
+            description={
+              fullWindow
+                ? uiT("Background strength across the window.")
+                : uiT("Background strength before a chat has messages.")
+            }
           >
             <LiveSlider
               label={uiT("Empty chat background visibility")}
@@ -3078,22 +3196,26 @@ function ChatBackgroundCard({
               onChange={appearance.onChatBackgroundEmptyOpacity}
             />
           </Row>
-          <Row
-            label={uiT("Session visibility")}
-            description={uiT(
-              "Background strength once the conversation has messages.",
-            )}
-          >
-            <LiveSlider
-              label={uiT("Session background visibility")}
-              value={sessionVisibility}
-              format={(value) => `${value}%`}
-              min={Math.round(CHAT_BACKGROUND_OPACITY_MIN * 100)}
-              max={Math.round(CHAT_BACKGROUND_OPACITY_MAX * 100)}
-              preview={(value) => applyChatBackgroundSessionOpacity(value / 100)}
-              onChange={appearance.onChatBackgroundSessionOpacity}
-            />
-          </Row>
+          <AnimatedCollapse expanded={!fullWindow}>
+            <div className="border-t border-border">
+              <Row
+                label={uiT("Session visibility")}
+                description={uiT(
+                  "Background strength once the conversation has messages.",
+                )}
+              >
+                <LiveSlider
+                  label={uiT("Session background visibility")}
+                  value={sessionVisibility}
+                  format={(value) => `${value}%`}
+                  min={Math.round(CHAT_BACKGROUND_OPACITY_MIN * 100)}
+                  max={Math.round(CHAT_BACKGROUND_OPACITY_MAX * 100)}
+                  preview={(value) => applyChatBackgroundSessionOpacity(value / 100)}
+                  onChange={appearance.onChatBackgroundSessionOpacity}
+                />
+              </Row>
+            </div>
+          </AnimatedCollapse>
         </>
       ) : null}
     </Group>
@@ -5270,7 +5392,7 @@ function Group({
         </div>
       ) : null}
       <div
-        className={`overflow-hidden rounded-xl border bg-card transition-colors ${
+        className={`settings-card overflow-hidden rounded-xl border transition-colors ${
           flash ? "border-accent/60" : "border-border"
         }`}
       >
