@@ -93,13 +93,19 @@ export function GitReviewPane({
   const bulkExpandUntil = useRef(0);
   const bulkAnchor = useRef<number | undefined>(undefined);
   const expandedCommits = useRef(new Set<string>());
+  // Rows opened by a click are mounted and measured as they grow. A collapsed
+  // row matches its estimate, so TanStack has no cached size for it; switching
+  // to the expanded estimate would open a blank gap that the first measurement
+  // snaps shut, then grow again.
+  const measuredOpen = useRef(new Set<string>());
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: rows.length,
     getItemKey: (index: number) => `${scopeKey}:${rows[index].relative}`,
     getScrollElement: () => scrollerRef.current,
     estimateSize: (index: number) => {
       const file = rows[index];
-      return expanded.has(`${scopeKey}:${file.relative}`)
+      const id = `${scopeKey}:${file.relative}`;
+      return expanded.has(id) && !measuredOpen.current.has(id)
         ? COLLAPSED_ROW_HEIGHT +
             estimateReviewBodyHeight(file, getDiff(file.relative))
         : COLLAPSED_ROW_HEIGHT;
@@ -141,6 +147,7 @@ export function GitReviewPane({
       return;
     expandedCommits.current.add(scopeKey);
     bulkExpandUntil.current = performance.now() + BULK_EXPAND_MS;
+    measuredOpen.current.clear();
     virtualizer.measure();
     setExpanded((current) =>
       new Set([...current, ...files.map((file) => `${scopeKey}:${file.relative}`)]),
@@ -202,8 +209,15 @@ export function GitReviewPane({
     }
   };
   // Cards are memoized; route their callbacks through the latest render state.
-  const latest = useRef({ cwd, source, scopeKey, getDiff, runAction });
-  latest.current = { cwd, source, scopeKey, getDiff, runAction };
+  const latest = useRef({
+    cwd,
+    source,
+    scopeKey,
+    expanded,
+    getDiff,
+    runAction,
+  });
+  latest.current = { cwd, source, scopeKey, expanded, getDiff, runAction };
   const toggleFile = useCallback((file: ReviewFile) => {
     const id = `${latest.current.scopeKey}:${file.relative}`;
     setExpanded((current) => {
@@ -212,6 +226,8 @@ export function GitReviewPane({
       else next.add(id);
       return next;
     });
+    if (latest.current.expanded.has(id)) measuredOpen.current.delete(id);
+    else measuredOpen.current.add(id);
   }, []);
   const performFileAction = useCallback(
     (file: ReviewFile, action: "stage" | "unstage" | "discard") => {
@@ -327,6 +343,7 @@ export function GitReviewPane({
                   .getVirtualItems()
                   .find((row) => row.end > offset)?.index;
                 bulkExpandUntil.current = performance.now() + BULK_EXPAND_MS;
+                measuredOpen.current.clear();
                 // One cache reset re-estimates every row as expanded, so only the
                 // cards that fit the viewport mount, load and render.
                 virtualizer.measure();
