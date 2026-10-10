@@ -186,8 +186,8 @@ describe("chat background setting", () => {
 
   it("defaults and clamps background visibility", () => {
     expect(loadChatBackgroundOpacity()).toBe(CHAT_BACKGROUND_OPACITY_DEFAULT);
-    saveChatBackgroundOpacity(1);
-    expect(loadChatBackgroundOpacity()).toBe(0.65);
+    saveChatBackgroundOpacity(1.5);
+    expect(loadChatBackgroundOpacity()).toBe(1);
     saveChatBackgroundOpacity(0);
     expect(loadChatBackgroundOpacity()).toBe(0.05);
   });
