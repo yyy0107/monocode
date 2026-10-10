@@ -111,6 +111,28 @@ describe("Cursor stored subagents", () => {
     });
   });
 
+  it("applies a nested run under its verified parent", async () => {
+    const parent: StoredCursorSubagentRun = {
+      ...run,
+      steps: [...run.steps, {
+        id: "child:tool:task", kind: "tool", text: "", toolName: "Task",
+        toolCallId: "nested-spawn", args: {}, status: "completed",
+      }],
+    };
+    const nested: StoredCursorSubagentRun = {
+      ...run, agentId: "grandchild", toolCallId: "nested-spawn", steps: [],
+    };
+    read.mockResolvedValue([parent, nested, { ...nested, toolCallId: "stray" }]);
+    const session = savedSession();
+    const recovered = await recoverCursorSubagents(session);
+    const callIds = recovered.blocks.map((block) => block.tool?.callId);
+    expect(callIds).not.toContain("stray");
+    // Without the nested run the parent alone is applied.
+    read.mockResolvedValue([parent]);
+    const parentOnly = await recoverCursorSubagents(session);
+    expect(recovered).not.toEqual(parentOnly);
+  });
+
   it("ignores unrelated calls and tolerates an unavailable store", async () => {
     const session = savedSession();
     read.mockResolvedValue([{ ...run, toolCallId: "unrelated" }]);

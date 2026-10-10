@@ -120,8 +120,14 @@ export async function recoverCursorSubagents(
   const titles = new Map(
     rows.map((row) => [row.tool!.callId, row.tool!.title ?? row.text]),
   );
+  // Nested runs are returned only after their verified parent, so a run is
+  // applied only for a saved row or a child call of a run already applied.
+  const known = new Set(titles.keys());
   for (const run of runs) {
-    // Nested runs are returned only after their verified parent.
+    if (!known.has(run.toolCallId)) continue;
+    for (const step of run.steps)
+      if (step.toolCallId && kindFromCursorToolName(step.toolName) === "agent")
+        known.add(step.toolCallId);
     for (const event of cursorSubagentEvents(run, titles.get(run.toolCallId)))
       session = applyHarnessEvent(session, event);
   }
